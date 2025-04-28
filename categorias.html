@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Categorías de Productos - Zono Construcción y Hogar</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <style>
+        /* Estilo para usar la fuente Inter */
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Estilo para las imágenes de categoría */
+        .category-image {
+            aspect-ratio: 16 / 9; /* Proporción panorámica para categorías */
+            object-fit: cover;
+            background-color: #e9ecef;
+            border-bottom: 1px solid #ddd;
+        }
+        /* Estilo para botón flotante de WhatsApp */
+        .whatsapp-float {
+            position: fixed;
+            width: 60px;
+            height: 60px;
+            bottom: 40px;
+            right: 40px;
+            background-color: #25d366;
+            color: #FFF;
+            border-radius: 50px;
+            text-align: center;
+            font-size: 30px;
+            box-shadow: 2px 2px 3px #999;
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background-color 0.3s ease;
+        }
+        .whatsapp-float:hover {
+            background-color: #128C7E;
+        }
+        /* Estilo para el enlace activo o actual en la navegación */
+        .nav-link-active {
+            font-weight: 600; /* Semibold */
+            color: #2563eb; /* Azul de Tailwind (blue-600) */
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <header class="bg-white shadow-md sticky top-0 z-50">
+        <nav class="container mx-auto px-6 py-4 flex justify-between items-center">
+            <a href="index.html#inicio" class="text-xl md:text-2xl font-bold text-blue-700">Zono Construcción y Hogar</a>
+            <div class="hidden md:flex space-x-6 items-center">
+                <a href="index.html#inicio" class="text-gray-600 hover:text-blue-600 transition duration-300">Inicio</a>
+                <a href="catalogo.html" class="text-gray-600 hover:text-blue-600 transition duration-300">Catálogo</a>
+                <a href="categorias.html" class="nav-link-active hover:text-blue-600 transition duration-300">Categorías</a>
+                <a href="index.html#destacados" class="text-gray-600 hover:text-blue-600 transition duration-300">Destacados</a>
+                <a href="index.html#nosotros" class="text-gray-600 hover:text-blue-600 transition duration-300">Nosotros</a>
+                <a href="index.html#contacto" class="text-gray-600 hover:text-blue-600 transition duration-300">Contacto</a>
+                <a href="https://wa.me/5491140473690?text=Hola!%20Te%20contacto%20desde%20la%20página%20web%20de%20Zono%20Construcción%20y%20Hogar.%20Quisiera%20hacer%20una%20consulta." target="_blank" class="bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded-full text-sm font-medium flex items-center space-x-1 transition duration-300">
+                    <i class="fab fa-whatsapp"></i>
+                    <span>WhatsApp</span>
+                </a>
+            </div>
+            <button class="md:hidden flex items-center px-3 py-2 border rounded text-gray-500 border-gray-600 hover:text-blue-600 hover:border-blue-600">
+                <svg class="fill-current h-3 w-3" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><title>Menu</title><path d="M0 3h20v2H0V3zm0 6h20v2H0V9zm0 6h20v2H0v15z"/></svg>
+            </button>
+        </nav>
+    </header>
+
+    <main class="py-12 md:py-16">
+        <div class="container mx-auto px-6">
+            <h1 class="text-3xl md:text-4xl font-bold text-center mb-10 md:mb-12 text-gray-800">Explora Nuestras Categorías</h1>
+
+            <div id="category-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+
+                <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
+                    <img src="https://placehold.co/600x338/77aabb/ffffff?text=Tanques+de+Agua"
+                         onerror="this.onerror=null; this.src='https://placehold.co/600x338/eeeeee/aaaaaa?text=Imagen+no+disponible';"
+                         alt="Categoría Tanques de Agua"
+                         class="w-full category-image"> <div class="p-5 flex flex-col flex-grow">
+                        <h3 class="text-xl font-semibold mb-2 text-blue-700">Tanques de Agua</h3>
+                        <p class="text-gray-600 mb-4 flex-grow">
+                            Soluciones de almacenamiento para cada necesidad. Fabricación propia (Aquafort) y las mejores marcas.
+                        </p>
+                        <a href="catalogo.html?categoria=tanques-de-agua" class="mt-auto inline-block bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-5 rounded-lg shadow transition duration-300 text-center">
+                            Ver Productos &rarr;
+                        </a>
+                    </div>
+                </div>
+                <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
+                    <img src="https://placehold.co/600x338/aabb77/ffffff?text=Impermeabilizantes"
+                         onerror="this.onerror=null; this.src='https://placehold.co/600x338/eeeeee/aaaaaa?text=Imagen+no+disponible';"
+                         alt="Categoría Impermeabilizantes"
+                         class="w-full category-image">
+                    <div class="p-5 flex flex-col flex-grow">
+                        <h3 class="text-xl font-semibold mb-2 text-blue-700">Impermeabilizantes</h3>
+                        <p class="text-gray-600 mb-4 flex-grow">
+                            Protege tus estructuras con membranas (líquidas, en pasta) y selladores de alta performance.
+                        </p>
+                        <a href="catalogo.html?categoria=impermeabilizantes"
+                           class="mt-auto inline-block bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-5 rounded-lg shadow transition duration-300 text-center">
+                            Ver Productos &rarr;
+                        </a>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
+                    <img src="https://placehold.co/600x338/bb77aa/ffffff?text=Pinturas"
+                         onerror="this.onerror=null; this.src='https://placehold.co/600x338/eeeeee/aaaaaa?text=Imagen+no+disponible';"
+                         alt="Categoría Pinturas y Revestimientos"
+                         class="w-full category-image">
+                    <div class="p-5 flex flex-col flex-grow">
+                        <h3 class="text-xl font-semibold mb-2 text-blue-700">Pinturas y Revestimientos</h3>
+                        <p class="text-gray-600 mb-4 flex-grow">
+                            Amplia gama de látex, esmaltes, impermeabilizantes y combos para renovar tus espacios.
+                        </p>
+                        <a href="catalogo.html?categoria=pinturas"
+                           class="mt-auto inline-block bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-5 rounded-lg shadow transition duration-300 text-center">
+                            Ver Productos &rarr;
+                        </a>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
+                    <img src="https://placehold.co/600x338/aa77bb/ffffff?text=Ferretería"
+                         onerror="this.onerror=null; this.src='https://placehold.co/600x338/eeeeee/aaaaaa?text=Imagen+no+disponible';"
+                         alt="Categoría Ferretería y Herramientas"
+                         class="w-full category-image">
+                    <div class="p-5 flex flex-col flex-grow">
+                        <h3 class="text-xl font-semibold mb-2 text-blue-700">Ferretería y Herramientas</h3>
+                        <p class="text-gray-600 mb-4 flex-grow">
+                            Todo lo necesario para tus proyectos: herramientas manuales, eléctricas, escaleras, y más.
+                        </p>
+                        <a href="catalogo.html?categoria=ferreteria"
+                           class="mt-auto inline-block bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-5 rounded-lg shadow transition duration-300 text-center">
+                            Ver Productos &rarr;
+                        </a>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
+                    <img src="https://placehold.co/600x338/77aa77/ffffff?text=Hogar"
+                         onerror="this.onerror=null; this.src='https://placehold.co/600x338/eeeeee/aaaaaa?text=Imagen+no+disponible';"
+                         alt="Categoría Hogar y Climatización"
+                         class="w-full category-image">
+                    <div class="p-5 flex flex-col flex-grow">
+                        <h3 class="text-xl font-semibold mb-2 text-blue-700">Hogar y Climatización</h3>
+                        <p class="text-gray-600 mb-4 flex-grow">
+                            Confort para tu hogar: termotanques, bombas, biodigestores, cámaras sépticas y más.
+                        </p>
+                        <a href="catalogo.html?categoria=hogar"
+                           class="mt-auto inline-block bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-5 rounded-lg shadow transition duration-300 text-center">
+                            Ver Productos &rarr;
+                        </a>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
+                    <img src="https://placehold.co/600x338/aaaa77/ffffff?text=Construcción"
+                         onerror="this.onerror=null; this.src='https://placehold.co/600x338/eeeeee/aaaaaa?text=Imagen+no+disponible';"
+                         alt="Categoría Materiales de Construcción"
+                         class="w-full category-image">
+                    <div class="p-5 flex flex-col flex-grow">
+                        <h3 class="text-xl font-semibold mb-2 text-blue-700">Materiales de Construcción</h3>
+                        <p class="text-gray-600 mb-4 flex-grow">
+                            Materiales básicos para obra, adhesivos, selladores y complementos.
+                        </p>
+                        <a href="catalogo.html?categoria=construccion"
+                           class="mt-auto inline-block bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-5 rounded-lg shadow transition duration-300 text-center">
+                            Ver Productos &rarr;
+                        </a>
+                    </div>
+                </div>
+
+                </div> </div> </main>
+
+    <a href="https://wa.me/5491140473690?text=Hola!%20Estoy%20viendo%20las%20categorías%20en%20la%20página%20web%20de%20Zono.%20Necesito%20ayuda."
+       class="whatsapp-float"
+       target="_blank"
+       aria-label="Contactar por WhatsApp">
+        <i class="fab fa-whatsapp"></i>
+    </a>
+
+    <footer class="bg-gray-800 text-gray-300 py-8">
+        <div class="container mx-auto px-6 text-center">
+            <p>&copy; <span id="year"></span> Zono Construcción y Hogar. Todos los derechos reservados.</p>
+            <p class="text-sm mt-2">Remedios de Escalada 4747, Villa Luzuriaga</p>
+            <div class="mt-4 text-sm">
+                <a href="index.html#inicio" class="hover:text-white transition duration-300 px-2">Inicio</a>|
+                <a href="catalogo.html" class="hover:text-white transition duration-300 px-2">Catálogo</a>|
+                <a href="categorias.html" class="hover:text-white transition duration-300 px-2">Categorías</a>|
+                <a href="index.html#contacto" class="hover:text-white transition duration-300 px-2">Contacto</a>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // Script simple para actualizar el año en el footer
+        document.getElementById('year').textContent = new Date().getFullYear();
+
+        // --- INICIO: Lógica Futura para cargar Categorías ---
+        // Ejemplo conceptual (similar a la carga de productos)
+        /*
+        async function loadCategories() {
+            const categoryGrid = document.getElementById('category-grid');
+            categoryGrid.innerHTML = '<p class="text-center text-gray-500 col-span-full">Cargando categorías...</p>';
+            try {
+                // Asume que tienes una colección "categorias" en Firestore
+                const categoriesRef = collection(db, "categorias");
+                const q = query(categoriesRef, orderBy("nombre")); // Ordenar por nombre, por ejemplo
+                const querySnapshot = await getDocs(q);
+
+                categoryGrid.innerHTML = ''; // Limpiar
+
+                if (querySnapshot.empty) {
+                    categoryGrid.innerHTML = '<p class="text-center text-gray-500 col-span-full">No hay categorías para mostrar.</p>';
+                    return;
+                }
+
+                querySnapshot.forEach((doc) => {
+                    const category = doc.data();
+                    const categoryId = doc.id; // Usar para el enlace si es necesario
+                    const categoryCard = `
+                        <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
+                            <img src="${category.imageUrl || 'https://placehold.co/600x338/eeeeee/aaaaaa?text=Imagen+no+disponible'}"
+                                 onerror="this.onerror=null; this.src='https://placehold.co/600x338/eeeeee/aaaaaa?text=Error+al+cargar';"
+                                 alt="Categoría ${category.nombre || ''}"
+                                 class="w-full category-image">
+                            <div class="p-5 flex flex-col flex-grow">
+                                <h3 class="text-xl font-semibold mb-2 text-blue-700">${category.nombre || 'Sin nombre'}</h3>
+                                <p class="text-gray-600 mb-4 flex-grow">
+                                    ${category.descripcion || 'Explora los productos de esta categoría.'}
+                                </p>
+                                <a href="catalogo.html?categoria=${encodeURIComponent(categoryId)}" class="mt-auto inline-block bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-5 rounded-lg shadow transition duration-300 text-center">
+                                    Ver Productos &rarr;
+                                </a>
+                            </div>
+                        </div>
+                    `;
+                    categoryGrid.innerHTML += categoryCard;
+                });
+
+            } catch (error) {
+                console.error("Error cargando categorías: ", error);
+                categoryGrid.innerHTML = '<p class="text-center text-red-500 col-span-full">Error al cargar categorías.</p>';
+            }
+        }
+
+        // Necesitarías inicializar Firebase como en catalogo.html
+        // y luego llamar a loadCategories() cuando la página cargue.
+        // window.onload = loadCategories;
+
+        */
+        // --- FIN: Lógica Futura ---
+
+        // Script para menú móvil (requiere más lógica JS para funcionar completamente)
+        // ...
+
+    </script>
+
+</body>
+</html>

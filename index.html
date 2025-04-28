@@ -29,7 +29,14 @@
             position: relative;
             z-index: 2; /* Asegura que el contenido esté sobre la superposición */
         }
-        /* Placeholder image styling */
+        /* Estilo para las imágenes de categoría (Adaptado de categorias.html) */
+        .category-image-index { /* Nombre diferente para evitar conflictos si hay estilos globales */
+            aspect-ratio: 16 / 9;
+            object-fit: cover;
+            background-color: #e9ecef;
+            border-bottom: 1px solid #ddd;
+        }
+         /* Placeholder image styling (Para sección destacados) */
         .placeholder-img {
             background-color: #e9ecef; /* Color de fondo gris más suave */
             display: flex;
@@ -41,8 +48,20 @@
             border-radius: 0.375rem; /* Bordes redondeados */
             min-height: 200px; /* Altura mínima para visibilidad */
             border: 1px dashed #ced4da; /* Borde discontinuo */
+            width: 100%; /* Asegurar que ocupe el contenedor */
+            height: 100%; /* Asegurar que ocupe el contenedor */
         }
-        /* Estilo para botón flotante de WhatsApp (opcional) */
+        .placeholder-img-container { /* Contenedor para placeholder en destacados */
+             width: 100%;
+             height: 14rem; /* h-56 */
+             overflow: hidden;
+             display: flex; /* Para centrar el span */
+             align-items: center;
+             justify-content: center;
+             background-color: #e9ecef;
+             border-bottom: 1px solid #ddd;
+        }
+        /* Estilo para botón flotante de WhatsApp */
         .whatsapp-float {
             position: fixed;
             width: 60px;
@@ -59,9 +78,15 @@
             display: flex;
             align-items: center;
             justify-content: center;
+            transition: background-color 0.3s ease;
         }
         .whatsapp-float:hover {
             background-color: #128C7E;
+        }
+         /* Estilo para el enlace activo o actual en la navegación (opcional) */
+        .nav-link-active {
+            font-weight: 600; /* Semibold */
+            color: #2563eb; /* Azul de Tailwind (blue-600) */
         }
 
     </style>
@@ -72,8 +97,9 @@
         <nav class="container mx-auto px-6 py-4 flex justify-between items-center">
             <a href="#inicio" class="text-xl md:text-2xl font-bold text-blue-700">Zono Construcción y Hogar</a>
             <div class="hidden md:flex space-x-6 items-center">
-                <a href="#inicio" class="text-gray-600 hover:text-blue-600 transition duration-300">Inicio</a>
-                <a href="#categorias" class="text-gray-600 hover:text-blue-600 transition duration-300">Categorías</a>
+                <a href="#inicio" class="nav-link-active hover:text-blue-600 transition duration-300">Inicio</a>
+                <a href="catalogo.html" class="text-gray-600 hover:text-blue-600 transition duration-300">Catálogo</a>
+                <a href="categorias.html" class="text-gray-600 hover:text-blue-600 transition duration-300">Categorías</a>
                 <a href="#destacados" class="text-gray-600 hover:text-blue-600 transition duration-300">Destacados</a>
                 <a href="#nosotros" class="text-gray-600 hover:text-blue-600 transition duration-300">Nosotros</a>
                 <a href="#contacto" class="text-gray-600 hover:text-blue-600 transition duration-300">Contacto</a>
@@ -91,67 +117,114 @@
     <main>
         <section id="inicio" class="relative bg-cover bg-center text-white hero-overlay" style="background-image: url('https://placehold.co/1920x800/555555/eeeeee?text=Productos+para+Construcción+y+Hogar'); min-height: 65vh;">
              <div class="container mx-auto px-6 py-24 flex flex-col items-center justify-center text-center hero-content" style="min-height: 65vh;">
-                <h1 class="text-4xl md:text-5xl lg:text-6xl font-bold mb-4 leading-tight drop-shadow-md">Tu Solución Integral en Construcción y Hogar</h1>
-                <p class="text-lg md:text-xl mb-8 max-w-3xl drop-shadow-sm">Encuentra todo lo que necesitas en nuestra tienda online: tanques de agua, impermeabilizantes, pinturas, herramientas ¡y mucho más! Calidad y variedad al mejor precio.</p>
-                <div class="flex flex-col sm:flex-row gap-4">
-                    <a href="#categorias" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-8 rounded-lg shadow-lg transition duration-300 text-lg">Ver Categorías</a>
-                    <a href="https://wa.me/5491140473690?text=Hola!%20Te%20contacto%20desde%20la%20página%20web%20de%20Zono.%20Quisiera%20consultar%20sobre%20sus%20productos." target="_blank" class="bg-green-500 hover:bg-green-600 text-white font-semibold py-3 px-8 rounded-lg shadow-lg transition duration-300 text-lg flex items-center justify-center space-x-2">
-                        <i class="fab fa-whatsapp"></i>
-                        <span>Consultar por WhatsApp</span>
-                    </a>
+                 <h1 class="text-4xl md:text-5xl lg:text-6xl font-bold mb-4 leading-tight drop-shadow-md">Tu Solución Integral en Construcción y Hogar</h1>
+                 <p class="text-lg md:text-xl mb-8 max-w-3xl drop-shadow-sm">Encuentra todo lo que necesitas en nuestra tienda online: tanques de agua, impermeabilizantes, pinturas, herramientas ¡y mucho más! Calidad y variedad al mejor precio.</p>
+                 <div class="flex flex-col sm:flex-row gap-4">
+                     <a href="categorias.html" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-8 rounded-lg shadow-lg transition duration-300 text-lg">Ver Categorías</a>
+                     <a href="https://wa.me/5491140473690?text=Hola!%20Te%20contacto%20desde%20la%20página%20web%20de%20Zono.%20Quisiera%20consultar%20sobre%20sus%20productos." target="_blank" class="bg-green-500 hover:bg-green-600 text-white font-semibold py-3 px-8 rounded-lg shadow-lg transition duration-300 text-lg flex items-center justify-center space-x-2">
+                         <i class="fab fa-whatsapp"></i>
+                         <span>Consultar por WhatsApp</span>
+                     </a>
                  </div>
-            </div>
+             </div>
         </section>
 
         <section id="categorias" class="py-16 bg-white">
             <div class="container mx-auto px-6">
                 <h2 class="text-3xl font-bold text-center mb-12 text-gray-800">Nuestras Líneas de Productos</h2>
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                    <div class="bg-gray-50 p-6 rounded-lg shadow-md hover:shadow-xl transition duration-300 flex flex-col">
-                        <div class="w-full h-48 mb-4 placeholder-img">
-                            <span>[Imagen de Tanques de Agua]</span>
-                            </div>
-                        <h3 class="text-xl font-semibold mb-2 text-blue-700">Tanques de Agua</h3>
-                        <p class="text-gray-600 flex-grow">Soluciones de almacenamiento para cada necesidad. Fabricación propia (Aquafort) y las mejores marcas.</p>
-                        <a href="#contacto" class="mt-4 text-blue-600 hover:text-blue-800 font-medium self-start">Ver más &rarr;</a>
+
+                    <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
+                        <img src="https://placehold.co/600x338/77aabb/ffffff?text=Tanques+de+Agua"
+                             onerror="this.onerror=null; this.src='https://placehold.co/600x338/eeeeee/aaaaaa?text=Imagen+no+disponible';"
+                             alt="Categoría Tanques de Agua"
+                             class="w-full category-image-index">
+                        <div class="p-5 flex flex-col flex-grow">
+                            <h3 class="text-xl font-semibold mb-2 text-blue-700">Tanques de Agua</h3>
+                            <p class="text-gray-600 mb-4 flex-grow">
+                                Soluciones de almacenamiento para cada necesidad. Fabricación propia (Aquafort) y las mejores marcas.
+                            </p>
+                            <a href="catalogo.html?categoria=tanques-de-agua"
+                               class="mt-auto inline-block bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-5 rounded-lg shadow transition duration-300 text-center">
+                                Ver Productos &rarr;
+                            </a>
+                        </div>
                     </div>
-                    <div class="bg-gray-50 p-6 rounded-lg shadow-md hover:shadow-xl transition duration-300 flex flex-col">
-                        <div class="w-full h-48 mb-4 placeholder-img">
-                           <span>[Imagen de Impermeabilizantes]</span>
-                           </div>
-                        <h3 class="text-xl font-semibold mb-2 text-blue-700">Impermeabilizantes</h3>
-                        <p class="text-gray-600 flex-grow">Protege tus estructuras con membranas (líquidas, en pasta como MEP) y selladores de alta performance.</p>
-                         <a href="#contacto" class="mt-4 text-blue-600 hover:text-blue-800 font-medium self-start">Ver más &rarr;</a>
+
+                    <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
+                        <img src="https://placehold.co/600x338/aabb77/ffffff?text=Impermeabilizantes"
+                             onerror="this.onerror=null; this.src='https://placehold.co/600x338/eeeeee/aaaaaa?text=Imagen+no+disponible';"
+                             alt="Categoría Impermeabilizantes"
+                             class="w-full category-image-index">
+                        <div class="p-5 flex flex-col flex-grow">
+                            <h3 class="text-xl font-semibold mb-2 text-blue-700">Impermeabilizantes</h3>
+                            <p class="text-gray-600 mb-4 flex-grow">
+                                Protege tus estructuras con membranas (líquidas, en pasta) y selladores de alta performance.
+                            </p>
+                            <a href="catalogo.html?categoria=impermeabilizantes"
+                               class="mt-auto inline-block bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-5 rounded-lg shadow transition duration-300 text-center">
+                                Ver Productos &rarr;
+                            </a>
+                        </div>
                     </div>
-                    <div class="bg-gray-50 p-6 rounded-lg shadow-md hover:shadow-xl transition duration-300 flex flex-col">
-                        <div class="w-full h-48 mb-4 placeholder-img">
-                           <span>[Imagen de Pinturas]</span>
-                           </div>
-                        <h3 class="text-xl font-semibold mb-2 text-blue-700">Pinturas y Revestimientos</h3>
-                        <p class="text-gray-600 flex-grow">Amplia gama de látex, esmaltes, impermeabilizantes y combos para renovar tus espacios.</p>
-                         <a href="#contacto" class="mt-4 text-blue-600 hover:text-blue-800 font-medium self-start">Ver más &rarr;</a>
+
+                    <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
+                        <img src="https://placehold.co/600x338/bb77aa/ffffff?text=Pinturas"
+                             onerror="this.onerror=null; this.src='https://placehold.co/600x338/eeeeee/aaaaaa?text=Imagen+no+disponible';"
+                             alt="Categoría Pinturas y Revestimientos"
+                             class="w-full category-image-index">
+                        <div class="p-5 flex flex-col flex-grow">
+                            <h3 class="text-xl font-semibold mb-2 text-blue-700">Pinturas y Revestimientos</h3>
+                            <p class="text-gray-600 mb-4 flex-grow">
+                                Amplia gama de látex, esmaltes, impermeabilizantes y combos para renovar tus espacios.
+                            </p>
+                            <a href="catalogo.html?categoria=pinturas"
+                               class="mt-auto inline-block bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-5 rounded-lg shadow transition duration-300 text-center">
+                                Ver Productos &rarr;
+                            </a>
+                        </div>
                     </div>
-                    <div class="bg-gray-50 p-6 rounded-lg shadow-md hover:shadow-xl transition duration-300 flex flex-col">
-                         <div class="w-full h-48 mb-4 placeholder-img">
-                           <span>[Imagen de Herramientas]</span>
-                           </div>
-                        <h3 class="text-xl font-semibold mb-2 text-blue-700">Ferretería y Herramientas</h3>
-                        <p class="text-gray-600 flex-grow">Todo lo necesario para tus proyectos: herramientas manuales, eléctricas, escaleras, y más.</p>
-                         <a href="#contacto" class="mt-4 text-blue-600 hover:text-blue-800 font-medium self-start">Ver más &rarr;</a>
+
+                    <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
+                        <img src="https://placehold.co/600x338/aa77bb/ffffff?text=Ferretería"
+                             onerror="this.onerror=null; this.src='https://placehold.co/600x338/eeeeee/aaaaaa?text=Imagen+no+disponible';"
+                             alt="Categoría Ferretería y Herramientas"
+                             class="w-full category-image-index">
+                        <div class="p-5 flex flex-col flex-grow">
+                            <h3 class="text-xl font-semibold mb-2 text-blue-700">Ferretería y Herramientas</h3>
+                            <p class="text-gray-600 mb-4 flex-grow">
+                                Todo lo necesario para tus proyectos: herramientas manuales, eléctricas, escaleras, y más.
+                            </p>
+                            <a href="catalogo.html?categoria=ferreteria"
+                               class="mt-auto inline-block bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-5 rounded-lg shadow transition duration-300 text-center">
+                                Ver Productos &rarr;
+                            </a>
+                        </div>
                     </div>
-                    <div class="bg-gray-50 p-6 rounded-lg shadow-md hover:shadow-xl transition duration-300 flex flex-col">
-                         <div class="w-full h-48 mb-4 placeholder-img">
-                           <span>[Imagen de Productos Hogar]</span>
-                           </div>
-                        <h3 class="text-xl font-semibold mb-2 text-blue-700">Hogar y Climatización</h3>
-                        <p class="text-gray-600 flex-grow">Confort para tu hogar: termotanques, bombas de agua, sistemas de tratamiento de efluentes (biodigestores, cámaras).</p>
-                         <a href="#contacto" class="mt-4 text-blue-600 hover:text-blue-800 font-medium self-start">Ver más &rarr;</a>
+
+                    <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
+                        <img src="https://placehold.co/600x338/77aa77/ffffff?text=Hogar"
+                             onerror="this.onerror=null; this.src='https://placehold.co/600x338/eeeeee/aaaaaa?text=Imagen+no+disponible';"
+                             alt="Categoría Hogar y Climatización"
+                             class="w-full category-image-index">
+                        <div class="p-5 flex flex-col flex-grow">
+                            <h3 class="text-xl font-semibold mb-2 text-blue-700">Hogar y Climatización</h3>
+                            <p class="text-gray-600 mb-4 flex-grow">
+                                Confort para tu hogar: termotanques, bombas, biodigestores, cámaras sépticas y más.
+                            </p>
+                            <a href="catalogo.html?categoria=hogar"
+                               class="mt-auto inline-block bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-5 rounded-lg shadow transition duration-300 text-center">
+                                Ver Productos &rarr;
+                            </a>
+                        </div>
                     </div>
-                     <div class="bg-blue-100 p-6 rounded-lg shadow-md hover:shadow-xl transition duration-300 flex flex-col items-center justify-center text-center">
-                        <h3 class="text-xl font-semibold mb-2 text-blue-800">¡Y mucho más!</h3>
-                        <p class="text-gray-700 mb-4">Explora nuestro catálogo completo o consúltanos por ese producto que estás buscando.</p>
-                         <a href="#contacto" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-5 rounded-lg shadow transition duration-300">Contactar</a>
+
+                    <div class="bg-blue-100 p-6 rounded-lg shadow-md hover:shadow-xl transition duration-300 flex flex-col items-center justify-center text-center">
+                         <h3 class="text-xl font-semibold mb-2 text-blue-800">¡Y mucho más!</h3>
+                         <p class="text-gray-700 mb-4">Explora todas nuestras categorías de productos.</p>
+                         <a href="categorias.html" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-5 rounded-lg shadow transition duration-300">Ver Todas las Categorías</a>
                     </div>
+
                 </div>
             </div>
         </section>
@@ -161,61 +234,60 @@
                 <h2 class="text-3xl font-bold text-center mb-10 text-gray-800">Productos Destacados</h2>
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                     <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition duration-300 group">
-                        <div class="w-full h-56 placeholder-img overflow-hidden">
-                             <span>[Imagen Producto 1]</span>
-                            </div>
+                        <div class="placeholder-img-container"> <span class="text-gray-500">[Imagen Producto 1]</span>
+                        </div>
                         <div class="p-4">
                             <h4 class="text-lg font-semibold mb-1 text-blue-700 truncate" title="Nombre Producto 1 Muy Largo">Nombre Producto 1</h4>
                             <p class="text-sm text-gray-600 mb-3">Descripción breve o característica principal.</p>
                              <a href="https://wa.me/5491140473690?text=Hola!%20Te%20contacto%20desde%20la%20página%20web.%20Me%20interesa%20el%20producto:%20Nombre%20Producto%201" target="_blank" class="text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded-full font-medium flex items-center justify-center space-x-1 transition duration-300 w-full">
-                                <i class="fab fa-whatsapp"></i>
-                                <span>Consultar Precio</span>
-                            </a>
+                                 <i class="fab fa-whatsapp"></i>
+                                 <span>Consultar Precio</span>
+                             </a>
                         </div>
                     </div>
                     <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition duration-300 group">
-                        <div class="w-full h-56 placeholder-img overflow-hidden">
-                            <span>[Imagen Producto 2]</span>
-                             </div>
+                        <div class="placeholder-img-container">
+                            <span class="text-gray-500">[Imagen Producto 2]</span>
+                        </div>
                         <div class="p-4">
                             <h4 class="text-lg font-semibold mb-1 text-blue-700 truncate" title="Nombre Producto 2">Nombre Producto 2</h4>
                             <p class="text-sm text-gray-600 mb-3">Ej: Membrana en Pasta MEP 20kg.</p>
-                             <a href="https://wa.me/5491140473690?text=Hola!%20Te%20contacto%20desde%20la%20página%20web.%20Me%20interesa%20el%20producto:%20Nombre%20Producto%202" target="_blank" class="text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded-full font-medium flex items-center justify-center space-x-1 transition duration-300 w-full">
+                            <a href="https://wa.me/5491140473690?text=Hola!%20Te%20contacto%20desde%20la%20página%20web.%20Me%20interesa%20el%20producto:%20Nombre%20Producto%202" target="_blank" class="text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded-full font-medium flex items-center justify-center space-x-1 transition duration-300 w-full">
                                 <i class="fab fa-whatsapp"></i>
                                 <span>Consultar Precio</span>
                             </a>
                         </div>
                     </div>
                     <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition duration-300 group">
-                         <div class="w-full h-56 placeholder-img overflow-hidden">
-                            <span>[Imagen Producto 3]</span>
-                            </div>
+                         <div class="placeholder-img-container">
+                             <span class="text-gray-500">[Imagen Producto 3]</span>
+                         </div>
                         <div class="p-4">
                             <h4 class="text-lg font-semibold mb-1 text-blue-700 truncate" title="Nombre Producto 3">Nombre Producto 3</h4>
                             <p class="text-sm text-gray-600 mb-3">Ej: Combo Pintura Látex Interior 20L.</p>
                              <a href="https://wa.me/5491140473690?text=Hola!%20Te%20contacto%20desde%20la%20página%20web.%20Me%20interesa%20el%20producto:%20Nombre%20Producto%203" target="_blank" class="text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded-full font-medium flex items-center justify-center space-x-1 transition duration-300 w-full">
-                                <i class="fab fa-whatsapp"></i>
-                                <span>Consultar Precio</span>
-                            </a>
+                                 <i class="fab fa-whatsapp"></i>
+                                 <span>Consultar Precio</span>
+                             </a>
                         </div>
                     </div>
                     <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition duration-300 group">
-                        <div class="w-full h-56 placeholder-img overflow-hidden">
-                           <span>[Imagen Producto 4]</span>
-                           </div>
+                        <div class="placeholder-img-container">
+                           <span class="text-gray-500">[Imagen Producto 4]</span>
+                        </div>
                         <div class="p-4">
                             <h4 class="text-lg font-semibold mb-1 text-blue-700 truncate" title="Nombre Producto 4">Nombre Producto 4</h4>
                             <p class="text-sm text-gray-600 mb-3">Ej: Tanque Aquafort Tricapa 1100L.</p>
-                             <a href="https://wa.me/5491140473690?text=Hola!%20Te%20contacto%20desde%20la%20página%20web.%20Me%20interesa%20el%20producto:%20Nombre%20Producto%204" target="_blank" class="text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded-full font-medium flex items-center justify-center space-x-1 transition duration-300 w-full">
+                            <a href="https://wa.me/5491140473690?text=Hola!%20Te%20contacto%20desde%20la%20página%20web.%20Me%20interesa%20el%20producto:%20Nombre%20Producto%204" target="_blank" class="text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded-full font-medium flex items-center justify-center space-x-1 transition duration-300 w-full">
                                 <i class="fab fa-whatsapp"></i>
                                 <span>Consultar Precio</span>
                             </a>
                         </div>
                     </div>
-                    </div>
-                 <div class="text-center mt-12">
-                     <a href="#contacto" class="bg-white hover:bg-gray-50 text-blue-700 border border-blue-600 font-semibold py-3 px-8 rounded-lg shadow-md transition duration-300">Ver Catálogo Completo (o Consultar)</a>
                  </div>
+                <div class="text-center mt-12">
+                    <a href="catalogo.html" class="bg-white hover:bg-gray-50 text-blue-700 border border-blue-600 font-semibold py-3 px-8 rounded-lg shadow-md transition duration-300">Ver Catálogo Completo</a>
+                </div>
             </div>
         </section>
 
@@ -227,16 +299,15 @@
                         Tu tienda online de confianza para todo lo relacionado con la construcción, ferretería y el hogar. Nacimos con la visión de ofrecerte una **solución integral**, acercándote una amplia variedad de productos de calidad, desde opciones económicas hasta las marcas líderes del mercado.
                     </p>
                      <p class="text-gray-600 mb-4 leading-relaxed">
-                        Nos especializamos en la **venta online**, facilitando tu compra a través de nuestros canales digitales y brindando atención personalizada vía **WhatsApp**. Contamos con **fabricación propia de tanques de agua** (Aquafort), asegurando calidad y precio directo de fábrica.
-                    </p>
+                         Nos especializamos en la **venta online**, facilitando tu compra a través de nuestros canales digitales y brindando atención personalizada vía **WhatsApp**. Contamos con **fabricación propia de tanques de agua** (Aquafort), asegurando calidad y precio directo de fábrica.
+                     </p>
                     <p class="text-gray-600 leading-relaxed">
                         Nuestro compromiso es simplificar tus proyectos, ofreciéndote todo lo que necesitas en un solo lugar, con la comodidad de comprar desde donde estés y recibirlo en tu domicilio o retirarlo por nuestro punto de entrega.
                     </p>
                 </div>
                 <div class="md:w-1/2">
-                     <div class="w-full h-80 placeholder-img">
-                        <span>[Imagen de Depósito/Productos Zono]</span>
-                        </div>
+                     <div class="w-full h-80 placeholder-img flex items-center justify-center"> <span>[Imagen de Depósito/Productos Zono]</span>
+                     </div>
                 </div>
             </div>
         </section>
@@ -247,7 +318,8 @@
                 <div class="max-w-4xl mx-auto flex flex-col md:flex-row gap-10">
                     <div class="md:w-1/2 bg-white p-8 rounded-lg shadow-md">
                         <h3 class="text-xl font-semibold mb-6 text-blue-700">Envíanos tu Consulta</h3>
-                        <form action="#" method="POST"> <div class="mb-4">
+                        <form action="#" method="POST">
+                            <div class="mb-4">
                                 <label for="name" class="block text-gray-700 text-sm font-medium mb-2">Nombre</label>
                                 <input type="text" id="name" name="name" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Tu nombre completo">
                             </div>
@@ -272,38 +344,38 @@
                     <div class="md:w-1/2 mt-8 md:mt-0">
                          <h3 class="text-xl font-semibold mb-6 text-blue-700">Nuestros Canales</h3>
                          <div class="space-y-5 text-gray-700">
-                            <div class="flex items-start gap-3">
-                                <i class="fab fa-whatsapp text-green-500 text-2xl mt-1"></i>
-                                <div>
-                                    <strong class="block">WhatsApp (¡Recomendado!)</strong>
-                                    <a href="https://wa.me/5491140473690?text=Hola!%20Te%20contacto%20desde%20la%20página%20web%20de%20Zono%20Construcción%20y%20Hogar.%20Quisiera%20hacer%20una%20consulta." target="_blank" class="text-blue-600 hover:underline text-lg">+54 9 11 4047-3690</a>
-                                    <p class="text-sm text-gray-500">Atención rápida para consultas y pedidos.</p>
-                                </div>
-                            </div>
                              <div class="flex items-start gap-3">
-                                 <i class="fas fa-envelope text-blue-500 text-xl mt-1"></i>
+                                 <i class="fab fa-whatsapp text-green-500 text-2xl mt-1"></i>
                                  <div>
-                                     <strong class="block">Email</strong>
-                                     <a href="mailto:ventas@zonoconstruccionyhogar.com" class="text-blue-600 hover:underline">[Tu Email de Ventas]</a>
-                                      <p class="text-sm text-gray-500">Para consultas detalladas o presupuestos.</p>
-                                      </div>
-                             </div>
-                             <div class="flex items-start gap-3">
-                                 <i class="fas fa-map-marker-alt text-red-500 text-xl mt-1"></i>
-                                 <div>
-                                     <strong class="block">Punto de Retiro / Showroom</strong>
-                                     <span class="text-gray-600">Remedios de Escalada 4747, Villa Luzuriaga</span>
-                                     <p class="text-sm text-gray-500">Coordina tu visita o retiro previamente.</p>
+                                     <strong class="block">WhatsApp (¡Recomendado!)</strong>
+                                     <a href="https://wa.me/5491140473690?text=Hola!%20Te%20contacto%20desde%20la%20página%20web%20de%20Zono%20Construcción%20y%20Hogar.%20Quisiera%20hacer%20una%20consulta." target="_blank" class="text-blue-600 hover:underline text-lg">+54 9 11 4047-3690</a>
+                                     <p class="text-sm text-gray-500">Atención rápida para consultas y pedidos.</p>
                                  </div>
                              </div>
-                             <div class="flex items-start gap-3">
-                                <i class="fas fa-clock text-gray-500 text-xl mt-1"></i>
-                                 <div>
-                                    <strong class="block">Horario de Atención Online</strong>
-                                    <span class="text-gray-600">Lunes a Viernes: 9:00 - 18:00 hs</span>
-                                    <span class="text-gray-600 block">Sábados: 9:00 - 13:00 hs</span>
-                                 </div>
-                             </div>
+                              <div class="flex items-start gap-3">
+                                  <i class="fas fa-envelope text-blue-500 text-xl mt-1"></i>
+                                   <div>
+                                       <strong class="block">Email</strong>
+                                       <a href="mailto:ventas@ejemplo-zono.com" class="text-blue-600 hover:underline">ventas@ejemplo-zono.com</a>
+                                       <p class="text-sm text-gray-500">Para consultas detalladas o presupuestos.</p>
+                                   </div>
+                               </div>
+                              <div class="flex items-start gap-3">
+                                  <i class="fas fa-map-marker-alt text-red-500 text-xl mt-1"></i>
+                                  <div>
+                                      <strong class="block">Punto de Retiro / Showroom</strong>
+                                      <span class="text-gray-600">Remedios de Escalada 4747, Villa Luzuriaga</span>
+                                      <p class="text-sm text-gray-500">Coordina tu visita o retiro previamente.</p>
+                                  </div>
+                              </div>
+                              <div class="flex items-start gap-3">
+                                  <i class="fas fa-clock text-gray-500 text-xl mt-1"></i>
+                                   <div>
+                                       <strong class="block">Horario de Atención Online</strong>
+                                       <span class="text-gray-600">Lunes a Viernes: 9:00 - 18:00 hs</span>
+                                       <span class="text-gray-600 block">Sábados: 9:00 - 13:00 hs</span>
+                                   </div>
+                               </div>
                          </div>
                          <div class="mt-8">
                               <h4 class="text-lg font-semibold mb-3 text-blue-700">Síguenos</h4>
@@ -332,7 +404,14 @@
     <footer class="bg-gray-800 text-gray-300 py-8">
         <div class="container mx-auto px-6 text-center">
             <p>&copy; <span id="year"></span> Zono Construcción y Hogar. Todos los derechos reservados.</p>
-            <p class="text-sm mt-2">Remedios de Escalada 4747, Villa Luzuriaga</p> </div>
+            <p class="text-sm mt-2">Remedios de Escalada 4747, Villa Luzuriaga</p>
+            <div class="mt-4 text-sm">
+                <a href="#inicio" class="hover:text-white transition duration-300 px-2">Inicio</a>|
+                <a href="catalogo.html" class="hover:text-white transition duration-300 px-2">Catálogo</a>|
+                <a href="categorias.html" class="hover:text-white transition duration-300 px-2">Categorías</a>|
+                <a href="#contacto" class="hover:text-white transition duration-300 px-2">Contacto</a>
+            </div>
+        </div>
     </footer>
 
     <script>
@@ -340,16 +419,21 @@
         document.getElementById('year').textContent = new Date().getFullYear();
 
         // Script para menú móvil (requiere más lógica JS para funcionar completamente)
-        // const mobileMenuButton = document.querySelector('header button.md\\:hidden');
-        // const mobileMenu = document.querySelector('header div.hidden.md\\:flex'); // Ajustar si la estructura cambia
-        // if (mobileMenuButton && mobileMenu) {
-        //     mobileMenuButton.addEventListener('click', () => {
-        //         // Lógica para mostrar/ocultar menú en móviles
-        //         // Ejemplo simple: mobileMenu.classList.toggle('hidden');
-        //         // Necesitarás ajustar clases para layout y posicionamiento (flex, absolute, etc.)
-        //         console.log("Botón menú móvil clickeado - Implementar lógica completa");
-        //     });
-        // }
+        const mobileMenuButton = document.querySelector('header button.md\\:hidden');
+        const mobileMenu = document.querySelector('header div.hidden.md\\:flex'); // Selector del menú
+        // Asegúrate de que el menú tenga una ID o una clase única si es necesario para evitar conflictos
+        // Por ejemplo, añade id="main-nav-links" al div del menú
+
+        if (mobileMenuButton && mobileMenu) {
+           mobileMenuButton.addEventListener('click', () => {
+               // Alternar clases para mostrar/ocultar y estilo
+               mobileMenu.classList.toggle('hidden'); // Tailwind para ocultar/mostrar
+               // Podrías necesitar añadir/quitar clases para posicionarlo correctamente en móvil,
+               // por ejemplo: 'absolute', 'top-16', 'left-0', 'right-0', 'bg-white', 'shadow-lg', 'flex-col', 'space-y-4', 'p-6'
+               // Asegúrate de que estas clases no interfieran con la vista de escritorio.
+               console.log("Botón menú móvil clickeado - Implementar lógica completa de clases si es necesario.");
+           });
+        }
 
         // Placeholder para funcionalidad futura (ej. galerías, etc.)
     </script>
