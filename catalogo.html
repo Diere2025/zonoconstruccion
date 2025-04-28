@@ -3,15 +3,31 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Catálogo de Productos - Zono Construcción y Hogar</title>
+    <title>Catálogo de Productos por Categoría - Zono Construcción y Hogar</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <link rel="stylesheet" href="styles.css">
+    <style>
+        /* Asegurar que el scroll-margin-top funcione con el header sticky */
+        html {
+            scroll-padding-top: 6rem; /* Ajusta este valor según la altura real de tu header sticky */
+        }
+        /* Estilo para el enlace activo en la sidebar (opcional, requiere JS) */
+        .sidebar-link-active {
+            color: #2563eb; /* Mismo color que nav-link-active */
+            font-weight: 600;
+            border-left: 3px solid #2563eb;
+            padding-left: 0.5rem; /* Ajustar padding para el borde */
+            margin-left: -0.75rem; /* Compensar padding para alinear texto */
+        }
+    </style>
 </head>
-<body class="bg-gray-100 text-gray-800"> <header class="bg-white shadow-md sticky top-0 z-50">
+<body class="bg-gray-100 text-gray-800">
+
+    <header class="bg-white shadow-md sticky top-0 z-50">
         <nav class="container mx-auto px-6 py-4 flex justify-between items-center">
             <a href="index.html#inicio" class="flex items-center">
                 <img src="images/logo-zono.png" alt="Logo Zono Construcción y Hogar" class="h-12 md:h-16 mr-2">
@@ -34,191 +50,228 @@
         </nav>
     </header>
 
-    <main class="py-12 md:py-16">
-        <div class="container mx-auto px-6">
-            <h1 class="text-3xl md:text-4xl font-bold text-center mb-10 md:mb-12 text-blue-700">Nuestro Catálogo Completo</h1>
+    <div class="container mx-auto px-6 flex flex-col md:flex-row gap-8 py-12 md:py-16">
 
-            <div class="mb-8 p-4 bg-white rounded-lg shadow-sm md:flex md:justify-between md:items-center">
-                <div class="flex flex-wrap gap-2 mb-4 md:mb-0">
-                    <span class="text-gray-700 font-medium mr-2">Filtrar por:</span>
-                    <button class="px-3 py-1 text-sm bg-gray-200 hover:bg-gray-300 rounded-full transition duration-200">Tanques</button>
-                    <button class="px-3 py-1 text-sm bg-gray-200 hover:bg-gray-300 rounded-full transition duration-200">Escaleras</button>
-                    <button class="px-3 py-1 text-sm bg-gray-200 hover:bg-gray-300 rounded-full transition duration-200">Pinturas</button>
+        <aside class="w-full md:w-1/4 lg:w-1/5 md:sticky md:top-24 md:self-start bg-white p-4 rounded-lg shadow-md mb-8 md:mb-0 hidden md:block" style="max-height: calc(100vh - 7rem);"> <h3 class="text-lg font-semibold mb-4 text-blue-700 border-b pb-2">Categorías</h3>
+            <nav>
+                <ul class="space-y-2">
+                    <li><a href="#cat-tanques" class="block py-1 px-2 text-gray-700 hover:text-blue-600 hover:bg-blue-50 rounded transition duration-200 sidebar-link">Tanques de Agua</a></li>
+                    <li><a href="#cat-hogar" class="block py-1 px-2 text-gray-700 hover:text-blue-600 hover:bg-blue-50 rounded transition duration-200 sidebar-link">Hogar y Climatización</a></li>
+                    <li><a href="#cat-ferreteria" class="block py-1 px-2 text-gray-700 hover:text-blue-600 hover:bg-blue-50 rounded transition duration-200 sidebar-link">Ferretería y Herramientas</a></li>
+                    <li><a href="#cat-pinturas" class="block py-1 px-2 text-gray-700 hover:text-blue-600 hover:bg-blue-50 rounded transition duration-200 sidebar-link">Pinturas y Revestimientos</a></li>
+                    <li><a href="#cat-impermeabilizantes" class="block py-1 px-2 text-gray-700 hover:text-blue-600 hover:bg-blue-50 rounded transition duration-200 sidebar-link">Impermeabilizantes</a></li>
+                    </ul>
+            </nav>
+        </aside>
+
+        <main class="w-full md:w-3/4 lg:w-4/5">
+            <h1 class="text-3xl md:text-4xl font-bold text-center mb-10 md:mb-12 text-blue-700">Catálogo de Productos</h1>
+
+            <section id="cat-tanques" class="mb-16 scroll-mt-24">
+                <h2 class="text-2xl font-semibold border-b-2 border-blue-300 pb-2 mb-8 text-blue-700">Tanques de Agua</h2>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
+                        <div class="product-image-container">
+                            <img src="images/Tanque Aquafort 470 Lts Beige.jpg" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Tanque Aquafort 470 Lts Beige" class="product-image">
+                        </div>
+                        <div class="p-4 flex flex-col flex-grow">
+                            <h4 class="text-lg font-semibold mb-1 text-blue-700 truncate" title="Tanque Aquafort 470 Lts Beige">Tanque Aquafort 470 Lts Beige</h4>
+                            <p class="text-sm text-gray-600 mb-3 flex-grow">Tanque de agua tricapa con garantía de fábrica. Color beige.</p>
+                            <a href="https://wa.me/5491140473690?text=Hola!%20Me%20interesa%20el%20producto:%20Tanque%20Aquafort%20470%20Lts%20Beige" target="_blank" class="mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
+                        </div>
+                    </div>
+                     <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
+                        <div class="product-image-container">
+                            <img src="images/Tanque Aquafort 470 Lts Negro.jpg" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Tanque Aquafort 470 Lts Negro" class="product-image">
+                        </div>
+                        <div class="p-4 flex flex-col flex-grow">
+                            <h4 class="text-lg font-semibold mb-1 text-blue-700 truncate" title="Tanque Aquafort 470 Lts Negro">Tanque Aquafort 470 Lts Negro</h4>
+                            <p class="text-sm text-gray-600 mb-3 flex-grow">Tanque de agua bicapa con garantía de fábrica. Color negro.</p>
+                            <a href="https://wa.me/5491140473690?text=Hola!%20Me%20interesa%20el%20producto:%20Tanque%20Aquafort%20470%20Lts%20Negro" target="_blank" class="mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
+                        </div>
+                    </div>
+                    <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
+                        <div class="product-image-container">
+                             <img src="https://placehold.co/600x600/77aabb/ffffff?text=Tanque+1100L" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Tanque Ejemplo 1100L" class="product-image">
+                        </div>
+                        <div class="p-4 flex flex-col flex-grow">
+                             <h4 class="text-lg font-semibold mb-1 text-blue-700 truncate" title="Tanque Aquafort 1100L Tricapa">Tanque Aquafort 1100L Tricapa</h4>
+                            <p class="text-sm text-gray-600 mb-3 flex-grow">Mayor capacidad, ideal para familias. Protección UV y antibacteriana.</p>
+                            <a href="https://wa.me/5491140473690?text=Hola!%20Me%20interesa%20el%20producto:%20Tanque%20Aquafort%201100L" target="_blank" class="mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
+                        </div>
+                    </div>
                 </div>
-                <div>
-                    <label for="sort" class="sr-only">Ordenar por</label>
-                    <select id="sort" name="sort" class="text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 py-1 px-2">
-                        <option>Ordenar por defecto</option>
-                        <option>Precio: Menor a Mayor</option>
-                        <option>Precio: Mayor a Menor</option>
-                        <option>Nombre: A-Z</option>
-                        <option>Nombre: Z-A</option>
-                    </select>
+            </section>
+
+            <section id="cat-hogar" class="mb-16 scroll-mt-24">
+                <h2 class="text-2xl font-semibold border-b-2 border-blue-300 pb-2 mb-8 text-blue-700">Hogar y Climatización</h2>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
+                        <div class="product-image-container">
+                             <img src="images/TermotanqueSirena.webp" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Termotanque Sirena 40 Litros" class="product-image">
+                        </div>
+                        <div class="p-4 flex flex-col flex-grow">
+                             <h4 class="text-lg font-semibold mb-1 text-blue-700 truncate" title="Termotanque Sirena 40 Litros">Termotanque Sirena 40 Litros</h4>
+                            <p class="text-sm text-gray-600 mb-3 flex-grow">Termotanque eléctrico de colgar. Capacidad 40 litros. Marca Sirena.</p>
+                            <a href="https://wa.me/5491140473690?text=Hola!%20Me%20interesa%20el%20producto:%20Termotanque%20Sirena%2040L" target="_blank" class="mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
+                        </div>
+                    </div>
+                     <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
+                        <div class="product-image-container">
+                             <img src="images/TermotanqueSirena.webp" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Termotanque Sirena 60 Litros" class="product-image">
+                        </div>
+                        <div class="p-4 flex flex-col flex-grow">
+                             <h4 class="text-lg font-semibold mb-1 text-blue-700 truncate" title="Termotanque Sirena 60 Litros">Termotanque Sirena 60 Litros</h4>
+                            <p class="text-sm text-gray-600 mb-3 flex-grow">Termotanque eléctrico de colgar. Capacidad 60 litros. Marca Sirena.</p>
+                            <a href="https://wa.me/5491140473690?text=Hola!%20Me%20interesa%20el%20producto:%20Termotanque%20Sirena%2060L" target="_blank" class="mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
+                        </div>
+                    </div>
+                     <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
+                        <div class="product-image-container">
+                             <img src="images/TermotanqueSirena.webp" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Termotanque Sirena 90 Litros" class="product-image">
+                        </div>
+                        <div class="p-4 flex flex-col flex-grow">
+                             <h4 class="text-lg font-semibold mb-1 text-blue-700 truncate" title="Termotanque Sirena 90 Litros">Termotanque Sirena 90 Litros</h4>
+                            <p class="text-sm text-gray-600 mb-3 flex-grow">Termotanque eléctrico de colgar. Capacidad 90 litros. Marca Sirena.</p>
+                            <a href="https://wa.me/5491140473690?text=Hola!%20Me%20interesa%20el%20producto:%20Termotanque%20Sirena%2090L" target="_blank" class="mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
+                        </div>
+                    </div>
+                    </div>
+            </section>
+
+             <section id="cat-ferreteria" class="mb-16 scroll-mt-24">
+                <h2 class="text-2xl font-semibold border-b-2 border-blue-300 pb-2 mb-8 text-blue-700">Ferretería y Herramientas</h2>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
+                        <div class="product-image-container">
+                            <img src="images/escalera-articulada-gardenlife-4x4.webp" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Escalera Articulada Garden Life 4x4" class="product-image">
+                        </div>
+                        <div class="p-4 flex flex-col flex-grow">
+                            <h4 class="text-lg font-semibold mb-1 text-blue-700 truncate" title="Escalera Articulada Garden Life 4x4">Escalera Articulada Garden Life 4x4</h4>
+                             <p class="text-sm text-gray-600 mb-3 flex-grow">Versátil y segura. Múltiples posiciones. Ideal para hogar y trabajo.</p>
+                            <a href="https://wa.me/5491140473690?text=Hola!%20Me%20interesa%20el%20producto:%20Escalera%20Articulada%20Garden%20Life%204x4" target="_blank" class="mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
+                        </div>
+                    </div>
+                    <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
+                        <div class="product-image-container">
+                             <img src="https://placehold.co/600x600/aa77bb/ffffff?text=Herramienta+Ej" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Herramienta Ejemplo" class="product-image">
+                        </div>
+                        <div class="p-4 flex flex-col flex-grow">
+                             <h4 class="text-lg font-semibold mb-1 text-blue-700 truncate" title="Kit Herramientas Manuales">Kit Herramientas Manuales</h4>
+                            <p class="text-sm text-gray-600 mb-3 flex-grow">Juego básico de pinzas, destornilladores y llave ajustable.</p>
+                            <a href="https://wa.me/5491140473690?text=Hola!%20Me%20interesa%20el%20producto:%20Kit%20Herramientas" target="_blank" class="mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
+                        </div>
+                    </div>
                 </div>
+            </section>
+
+            <section id="cat-pinturas" class="mb-16 scroll-mt-24">
+                 <h2 class="text-2xl font-semibold border-b-2 border-blue-300 pb-2 mb-8 text-blue-700">Pinturas y Revestimientos</h2>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
+                        <div class="product-image-container">
+                             <img src="https://placehold.co/800x600/aaaaaa/555555?text=Producto+4" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Combo Pintura Látex Interior 20L + Rodillo" class="product-image">
+                        </div>
+                        <div class="p-4 flex flex-col flex-grow">
+                             <h4 class="text-lg font-semibold mb-1 text-blue-700 truncate" title="Combo Pintura Látex Interior 20L + Rodillo">Combo Pintura Látex Interior 20L + Rodillo</h4>
+                            <p class="text-sm text-gray-600 mb-3 flex-grow">Excelente poder cubritivo. Acabado mate lavable. Incluye rodillo de regalo.</p>
+                            <a href="https://wa.me/5491140473690?text=Hola!%20Me%20interesa%20el%20producto:%20Combo%20Pintura%20Látex%20Interior%2020L" target="_blank" class="mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
+                        </div>
+                    </div>
+                    </div>
+            </section>
+
+            <section id="cat-impermeabilizantes" class="mb-16 scroll-mt-24">
+                 <h2 class="text-2xl font-semibold border-b-2 border-blue-300 pb-2 mb-8 text-blue-700">Impermeabilizantes</h2>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                     <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
+                        <div class="product-image-container">
+                             <img src="https://placehold.co/600x600/aabb77/ffffff?text=Membrana" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Membrana en Pasta Ejemplo" class="product-image">
+                        </div>
+                        <div class="p-4 flex flex-col flex-grow">
+                             <h4 class="text-lg font-semibold mb-1 text-blue-700 truncate" title="Membrana en Pasta MEP 20kg">Membrana en Pasta MEP 20kg</h4>
+                            <p class="text-sm text-gray-600 mb-3 flex-grow">Ideal para techos y terrazas. Alto rendimiento y durabilidad. Color blanco.</p>
+                            <a href="https://wa.me/5491140473690?text=Hola!%20Me%20interesa%20el%20producto:%20Membrana%20en%20Pasta%20MEP%2020kg" target="_blank" class="mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
+                        </div>
+                    </div>
+                    </div>
+            </section>
+
+        </main> </div> <a href="https://wa.me/5491140473690?text=Hola!%20Estoy%20viendo%20el%20catálogo%20en%20la%20página%20web%20de%20Zono.%20Necesito%20ayuda."
+       class="whatsapp-float"
+       target="_blank"
+       aria-label="Contactar por WhatsApp">
+        <i class="fab fa-whatsapp"></i>
+    </a>
+
+    <footer class="bg-gray-800 text-gray-300 py-8">
+        <div class="container mx-auto px-6 text-center">
+            <p>© <span id="year"></span> Zono Construcción y Hogar. Todos los derechos reservados.</p>
+            <p class="text-sm mt-2">Remedios de Escalada 4747, Villa Luzuriaga</p>
+            <div class="mt-4 text-sm">
+                <a href="index.html#inicio" class="hover:text-blue-400 transition duration-300 px-2">Inicio</a>|
+                <a href="catalogo.html" class="hover:text-blue-400 transition duration-300 px-2">Catálogo</a>|
+                <a href="categorias.html" class="hover:text-blue-400 transition duration-300 px-2">Categorías</a>|
+                <a href="index.html#contacto" class="hover:text-blue-400 transition duration-300 px-2">Contacto</a>
             </div>
-
-            <div id="product-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-
-                <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
-                    <div class="product-image-container">
-                        <img src="images/Tanque Aquafort 470 Lts Beige.jpg"
-                             onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';"
-                             alt="Tanque Aquafort 470 Lts Beige"
-                             class="product-image">
-                    </div>
-                    <div class="p-4 flex flex-col flex-grow">
-                        <h4 class="text-lg font-semibold mb-1 text-blue-700 truncate" title="Tanque Aquafort 470 Lts Beige">
-                            Tanque Aquafort 470 Lts Beige
-                        </h4>
-                        <p class="text-sm text-gray-600 mb-3 flex-grow">
-                            Tanque de agua **tricapa** con garantía de fábrica. Color beige.
-                        </p>
-                        <a href="https://wa.me/5491140473690?text=Hola!%20Me%20interesa%20el%20producto:%20Tanque%20Aquafort%20470%20Lts%20Beige"
-                           target="_blank"
-                           class="mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full">
-                            <i class="fab fa-whatsapp"></i>
-                            <span>Consultar Precio</span>
-                        </a>
-                    </div>
-                </div>
-                <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
-                    <div class="product-image-container">
-                        <img src="images/Tanque Aquafort 470 Lts Negro.jpg"
-                             onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';"
-                             alt="Tanque Aquafort 470 Lts Negro"
-                             class="product-image">
-                    </div>
-                    <div class="p-4 flex flex-col flex-grow">
-                        <h4 class="text-lg font-semibold mb-1 text-blue-700 truncate" title="Tanque Aquafort 470 Lts Negro">
-                            Tanque Aquafort 470 Lts Negro
-                        </h4>
-                         <p class="text-sm text-gray-600 mb-3 flex-grow">
-                            Tanque de agua **bicapa** con garantía de fábrica. Color negro.
-                        </p>
-                        <a href="https://wa.me/5491140473690?text=Hola!%20Me%20interesa%20el%20producto:%20Tanque%20Aquafort%20470%20Lts%20Negro"
-                           target="_blank"
-                           class="mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full">
-                            <i class="fab fa-whatsapp"></i>
-                            <span>Consultar Precio</span>
-                        </a>
-                    </div>
-                </div>
-                <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
-                    <div class="product-image-container">
-                        <img src="images/escalera-articulada-gardenlife-4x4.webp"
-                             onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';"
-                             alt="Escalera Articulada Garden Life 4x4"
-                             class="product-image">
-                    </div>
-                    <div class="p-4 flex flex-col flex-grow">
-                        <h4 class="text-lg font-semibold mb-1 text-blue-700 truncate" title="Escalera Articulada Garden Life 4x4">
-                            Escalera Articulada Garden Life 4x4
-                        </h4>
-                         <p class="text-sm text-gray-600 mb-3 flex-grow">
-                            Versátil y segura. Múltiples posiciones. Ideal para hogar y trabajo.
-                        </p>
-                        <a href="https://wa.me/5491140473690?text=Hola!%20Me%20interesa%20el%20producto:%20Escalera%20Articulada%20Garden%20Life%204x4"
-                           target="_blank"
-                           class="mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full">
-                            <i class="fab fa-whatsapp"></i>
-                            <span>Consultar Precio</span>
-                        </a>
-                    </div>
-                </div>
-                <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
-                    <div class="product-image-container">
-                         <img src="https://placehold.co/800x600/aaaaaa/555555?text=Producto+4"
-                              onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';"
-                              alt="Combo Pintura Látex Interior 20L + Rodillo"
-                              class="product-image">
-                    </div>
-                    <div class="p-4 flex flex-col flex-grow">
-                         <h4 class="text-lg font-semibold mb-1 text-blue-700 truncate" title="Combo Pintura Látex Interior 20L + Rodillo">
-                            Combo Pintura Látex Interior 20L + Rodillo
-                        </h4>
-                        <p class="text-sm text-gray-600 mb-3 flex-grow">
-                            Excelente poder cubritivo. Acabado mate lavable. Incluye rodillo de regalo.
-                        </p>
-                        <a href="https://wa.me/5491140473690?text=Hola!%20Me%20interesa%20el%20producto:%20Combo%20Pintura%20Látex%20Interior%2020L"
-                           target="_blank"
-                           class="mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full">
-                            <i class="fab fa-whatsapp"></i>
-                            <span>Consultar Precio</span>
-                        </a>
-                    </div>
-                </div>
-                </div> <div class="mt-12 flex justify-center">
-                    <nav aria-label="Paginación">
-                        <ul class="inline-flex items-center -space-x-px">
-                            <li>
-                                <a href="#" class="py-2 px-3 ml-0 leading-tight text-gray-500 bg-white rounded-l-lg border border-gray-300 hover:bg-gray-100 hover:text-gray-700">Anterior</a>
-                            </li>
-                            <li>
-                                <a href="#" aria-current="page" class="py-2 px-3 leading-tight text-blue-600 bg-blue-50 border border-blue-300 hover:bg-blue-100 hover:text-blue-700">1</a>
-                            </li>
-                            <li>
-                                <a href="#" class="py-2 px-3 leading-tight text-gray-500 bg-white border border-gray-300 hover:bg-gray-100 hover:text-gray-700">2</a>
-                            </li>
-                            <li>
-                                <a href="#" class="py-2 px-3 leading-tight text-gray-500 bg-white border border-gray-300 hover:bg-gray-100 hover:text-gray-700">3</a>
-                            </li>
-                            <li>
-                                <a href="#" class="py-2 px-3 leading-tight text-gray-500 bg-white rounded-r-lg border border-gray-300 hover:bg-gray-100 hover:text-gray-700">Siguiente</a>
-                            </li>
-                        </ul>
-                    </nav>
-                </div>
-
-            </div> </main>
-
-        <a href="https://wa.me/5491140473690?text=Hola!%20Estoy%20viendo%20el%20catálogo%20en%20la%20página%20web%20de%20Zono.%20Necesito%20ayuda."
-           class="whatsapp-float"
-           target="_blank"
-           aria-label="Contactar por WhatsApp">
-            <i class="fab fa-whatsapp"></i>
-        </a>
-
-        <footer class="bg-gray-800 text-gray-300 py-8">
-            <div class="container mx-auto px-6 text-center">
-                <p>© <span id="year"></span> Zono Construcción y Hogar. Todos los derechos reservados.</p>
-                <p class="text-sm mt-2">Remedios de Escalada 4747, Villa Luzuriaga</p>
-                <div class="mt-4 text-sm">
-                    <a href="index.html#inicio" class="hover:text-blue-400 transition duration-300 px-2">Inicio</a>|
-                    <a href="catalogo.html" class="hover:text-blue-400 transition duration-300 px-2">Catálogo</a>|
-                    <a href="categorias.html" class="hover:text-blue-400 transition duration-300 px-2">Categorías</a>|
-                    <a href="index.html#contacto" class="hover:text-blue-400 transition duration-300 px-2">Contacto</a>
-                </div>
-                <div class="mt-4">
-                     <a href="mailto:comercial@zono.com.ar" class="text-sm text-blue-400 hover:text-blue-300 transition duration-300 mx-2">
-                         <i class="fas fa-envelope mr-1"></i> comercial@zono.com.ar
-                     </a>
-                </div>
-                <div class="mt-3 flex justify-center space-x-4">
-                     <a href="https://facebook.com/zonoconstruccion" target="_blank" class="text-gray-400 hover:text-blue-400 transition duration-300" title="Facebook">
-                         <i class="fab fa-facebook-f text-xl"></i>
-                     </a>
-                     <a href="https://www.instagram.com/zonoconstruccion" target="_blank" class="text-gray-400 hover:text-pink-400 transition duration-300" title="Instagram">
-                         <i class="fab fa-instagram text-xl"></i>
-                     </a>
-                </div>
+            <div class="mt-4">
+                 <a href="mailto:comercial@zono.com.ar" class="text-sm text-blue-400 hover:text-blue-300 transition duration-300 mx-2">
+                     <i class="fas fa-envelope mr-1"></i> comercial@zono.com.ar
+                 </a>
             </div>
-        </footer>
+            <div class="mt-3 flex justify-center space-x-4">
+                 <a href="https://facebook.com/zonoconstruccion" target="_blank" class="text-gray-400 hover:text-blue-400 transition duration-300" title="Facebook">
+                     <i class="fab fa-facebook-f text-xl"></i>
+                 </a>
+                 <a href="https://www.instagram.com/zonoconstruccion" target="_blank" class="text-gray-400 hover:text-pink-400 transition duration-300" title="Instagram">
+                     <i class="fab fa-instagram text-xl"></i>
+                 </a>
+            </div>
+        </div>
+    </footer>
 
-        <script>
-            document.getElementById('year').textContent = new Date().getFullYear();
+    <script>
+        document.getElementById('year').textContent = new Date().getFullYear();
 
-            /* --- Lógica Futura para Firebase --- */
-            /* ... */
-            /* --- Fin Lógica Futura --- */
+        /* --- Lógica Futura para Firebase (Cargar productos por categoría) --- */
+        /* ... */
+        /* --- Fin Lógica Futura --- */
 
-            const mobileMenuButton = document.querySelector('header button.md\\:hidden');
-            const mobileMenu = document.querySelector('header div.hidden.md\\:flex');
-            if (mobileMenuButton && mobileMenu) {
-               mobileMenuButton.addEventListener('click', () => {
-                   mobileMenu.classList.toggle('hidden');
-               });
-            }
-        </script>
+        const mobileMenuButton = document.querySelector('header button.md\\:hidden');
+        const mobileMenu = document.querySelector('header div.hidden.md\\:flex');
+        if (mobileMenuButton && mobileMenu) {
+           mobileMenuButton.addEventListener('click', () => {
+               mobileMenu.classList.toggle('hidden');
+           });
+        }
 
-    </body>
-    </html>
+        // Opcional: Script para resaltar enlace activo en sidebar al hacer scroll
+        // (Requiere más lógica para detectar qué sección está visible)
+        /*
+        const sections = document.querySelectorAll('main section[id^="cat-"]');
+        const sidebarLinks = document.querySelectorAll('.sidebar-link');
+
+        window.addEventListener('scroll', () => {
+            let current = '';
+            sections.forEach( section => {
+                const sectionTop = section.offsetTop;
+                const sectionHeight = section.clientHeight;
+                // Ajustar el offset según la altura del header
+                if (pageYOffset >= (sectionTop - sectionHeight / 3 - 100)) { // 100px ~ 6rem
+                    current = section.getAttribute('id');
+                }
+            })
+
+            sidebarLinks.forEach( link => {
+                link.classList.remove('sidebar-link-active');
+                if(link.getAttribute('href') === '#' + current){
+                    link.classList.add('sidebar-link-active');
+                }
+            });
+        });
+        */
+
+    </script>
+
+</body>
+</html>

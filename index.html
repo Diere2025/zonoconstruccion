@@ -10,6 +10,49 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <link rel="stylesheet" href="styles.css">
+    <style>
+        /* Estilos adicionales para el slider si son necesarios */
+        /* Ocultar barra de scroll si aparece en el contenedor */
+        .slider-container::-webkit-scrollbar {
+            display: none; /* Chrome, Safari, Opera */
+        }
+        .slider-container {
+            -ms-overflow-style: none;  /* IE and Edge */
+            scrollbar-width: none;  /* Firefox */
+        }
+        /* Estilos para botones del slider (pueden ir en styles.css también) */
+        .slider-button {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            background-color: rgba(0, 0, 0, 0.5);
+            color: white;
+            border: none;
+            padding: 0.5rem 0.75rem; /* Ajustado para ser un poco más grande */
+            border-radius: 50%;
+            cursor: pointer;
+            z-index: 10;
+            transition: background-color 0.3s ease;
+            display: flex; /* Para centrar icono */
+            align-items: center;
+            justify-content: center;
+            width: 40px; /* Ancho fijo */
+            height: 40px; /* Alto fijo */
+        }
+        .slider-button:hover {
+            background-color: rgba(0, 0, 0, 0.8);
+        }
+        .slider-button.prev {
+            left: 0.5rem; /* Ajustar posición */
+        }
+        .slider-button.next {
+            right: 0.5rem; /* Ajustar posición */
+        }
+         .slider-button:disabled {
+            background-color: rgba(0, 0, 0, 0.2);
+            cursor: not-allowed;
+        }
+    </style>
 </head>
 <body class="bg-gray-100 text-gray-800">
 
@@ -104,103 +147,168 @@
         </section>
 
         <section id="destacados" class="py-16 bg-gray-200">
-            <div class="container mx-auto px-6">
-                <h2 class="text-3xl font-bold text-center mb-10 text-blue-700">Productos Destacados</h2>
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div class="container mx-auto px-6 relative"> <h2 class="text-3xl font-bold text-center mb-10 text-blue-700">Productos Destacados</h2>
 
-                    <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
-                        <div class="product-image-container">
-                            <img src="images/Tanque Aquafort 470 Lts Beige.jpg"
-                                 onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';"
-                                 alt="Tanque Aquafort 470 Lts Beige"
-                                 class="product-image">
+                <div id="slider-container" class="slider-container overflow-hidden relative">
+                    <div id="slider-track" class="flex transition-transform duration-500 ease-in-out">
+                        <div class="slider-item flex-shrink-0 w-full sm:w-1/2 lg:w-1/4 px-3"> <div class="bg-white rounded-lg shadow-md overflow-hidden group flex flex-col h-full">
+                                <div class="product-image-container">
+                                    <img src="images/Tanque Aquafort 470 Lts Beige.jpg"
+                                         onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';"
+                                         alt="Tanque Aquafort 470 Lts Beige"
+                                         class="product-image">
+                                </div>
+                                <div class="p-4 flex flex-col flex-grow">
+                                    <h4 class="text-lg font-semibold mb-1 text-blue-700 truncate" title="Tanque Aquafort 470 Lts Beige">
+                                        Tanque Aquafort 470 Lts Beige
+                                    </h4>
+                                    <p class="text-sm text-gray-600 mb-3 flex-grow">
+                                        Tanque de agua tricapa con garantía de fábrica. Color beige.
+                                    </p>
+                                    <a href="https://wa.me/5491140473690?text=Hola!%20Me%20interesa%20el%20producto:%20Tanque%20Aquafort%20470%20Lts%20Beige"
+                                       target="_blank"
+                                       class="mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full">
+                                        <i class="fab fa-whatsapp"></i>
+                                        <span>Consultar Precio</span>
+                                    </a>
+                                </div>
+                            </div>
                         </div>
-                        <div class="p-4 flex flex-col flex-grow">
-                            <h4 class="text-lg font-semibold mb-1 text-blue-700 truncate" title="Tanque Aquafort 470 Lts Beige">
-                                Tanque Aquafort 470 Lts Beige
-                            </h4>
-                            <p class="text-sm text-gray-600 mb-3 flex-grow">
-                                Tanque de agua tricapa con garantía de fábrica. Color beige.
-                            </p>
-                            <a href="https://wa.me/5491140473690?text=Hola!%20Me%20interesa%20el%20producto:%20Tanque%20Aquafort%20470%20Lts%20Beige"
-                               target="_blank"
-                               class="mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full">
-                                <i class="fab fa-whatsapp"></i>
-                                <span>Consultar Precio</span>
-                            </a>
-                        </div>
-                    </div>
 
-                    <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
-                        <div class="product-image-container">
-                            <img src="images/Tanque Aquafort 470 Lts Negro.jpg"
-                                 onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';"
-                                 alt="Tanque Aquafort 470 Lts Negro"
-                                 class="product-image">
+                        <div class="slider-item flex-shrink-0 w-full sm:w-1/2 lg:w-1/4 px-3">
+                            <div class="bg-white rounded-lg shadow-md overflow-hidden group flex flex-col h-full">
+                                <div class="product-image-container">
+                                    <img src="images/Tanque Aquafort 470 Lts Negro.jpg"
+                                         onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';"
+                                         alt="Tanque Aquafort 470 Lts Negro"
+                                         class="product-image">
+                                </div>
+                                <div class="p-4 flex flex-col flex-grow">
+                                    <h4 class="text-lg font-semibold mb-1 text-blue-700 truncate" title="Tanque Aquafort 470 Lts Negro">
+                                        Tanque Aquafort 470 Lts Negro
+                                    </h4>
+                                    <p class="text-sm text-gray-600 mb-3 flex-grow">
+                                        Tanque de agua bicapa con garantía de fábrica. Color negro.
+                                    </p>
+                                    <a href="https://wa.me/5491140473690?text=Hola!%20Me%20interesa%20el%20producto:%20Tanque%20Aquafort%20470%20Lts%20Negro"
+                                       target="_blank"
+                                       class="mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full">
+                                        <i class="fab fa-whatsapp"></i>
+                                        <span>Consultar Precio</span>
+                                    </a>
+                                </div>
+                            </div>
                         </div>
-                        <div class="p-4 flex flex-col flex-grow">
-                            <h4 class="text-lg font-semibold mb-1 text-blue-700 truncate" title="Tanque Aquafort 470 Lts Negro">
-                                Tanque Aquafort 470 Lts Negro
-                            </h4>
-                            <p class="text-sm text-gray-600 mb-3 flex-grow">
-                                Tanque de agua bicapa con garantía de fábrica. Color negro.
-                            </p>
-                            <a href="https://wa.me/5491140473690?text=Hola!%20Me%20interesa%20el%20producto:%20Tanque%20Aquafort%20470%20Lts%20Negro"
-                               target="_blank"
-                               class="mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full">
-                                <i class="fab fa-whatsapp"></i>
-                                <span>Consultar Precio</span>
-                            </a>
-                        </div>
-                    </div>
 
-                    <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
-                        <div class="product-image-container">
-                            <img src="images/escalera-articulada-gardenlife-4x4.webp"
-                                 onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';"
-                                 alt="Escalera Articulada Garden Life 4x4"
-                                 class="product-image">
+                        <div class="slider-item flex-shrink-0 w-full sm:w-1/2 lg:w-1/4 px-3">
+                            <div class="bg-white rounded-lg shadow-md overflow-hidden group flex flex-col h-full">
+                                <div class="product-image-container">
+                                    <img src="images/escalera-articulada-gardenlife-4x4.webp"
+                                         onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';"
+                                         alt="Escalera Articulada Garden Life 4x4"
+                                         class="product-image">
+                                </div>
+                                <div class="p-4 flex flex-col flex-grow">
+                                    <h4 class="text-lg font-semibold mb-1 text-blue-700 truncate" title="Escalera Articulada Garden Life 4x4">
+                                        Escalera Articulada Garden Life 4x4
+                                    </h4>
+                                    <p class="text-sm text-gray-600 mb-3 flex-grow">
+                                        Versátil y segura. Múltiples posiciones. Ideal para hogar y trabajo.
+                                    </p>
+                                    <a href="https://wa.me/5491140473690?text=Hola!%20Me%20interesa%20el%20producto:%20Escalera%20Articulada%20Garden%20Life%204x4"
+                                       target="_blank"
+                                       class="mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full">
+                                        <i class="fab fa-whatsapp"></i>
+                                        <span>Consultar Precio</span>
+                                    </a>
+                                </div>
+                            </div>
                         </div>
-                        <div class="p-4 flex flex-col flex-grow">
-                            <h4 class="text-lg font-semibold mb-1 text-blue-700 truncate" title="Escalera Articulada Garden Life 4x4">
-                                Escalera Articulada Garden Life 4x4
-                            </h4>
-                            <p class="text-sm text-gray-600 mb-3 flex-grow">
-                                Versátil y segura. Múltiples posiciones. Ideal para hogar y trabajo.
-                            </p>
-                            <a href="https://wa.me/5491140473690?text=Hola!%20Me%20interesa%20el%20producto:%20Escalera%20Articulada%20Garden%20Life%204x4"
-                               target="_blank"
-                               class="mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full">
-                                <i class="fab fa-whatsapp"></i>
-                                <span>Consultar Precio</span>
-                            </a>
-                        </div>
-                    </div>
 
-                    <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
-                        <div class="product-image-container">
-                             <img src="images/Tanque Aquafort 470 Lts Beige.jpg"
-                                  onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';"
-                                  alt="Combo Pintura Látex Interior 20L + Rodillo"
-                                  class="product-image">
+                        <div class="slider-item flex-shrink-0 w-full sm:w-1/2 lg:w-1/4 px-3">
+                            <div class="bg-white rounded-lg shadow-md overflow-hidden group flex flex-col h-full">
+                                <div class="product-image-container">
+                                     <img src="images/TermotanqueSirena.webp"
+                                          onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';"
+                                          alt="Termotanque Sirena 40 Litros"
+                                          class="product-image">
+                                </div>
+                                <div class="p-4 flex flex-col flex-grow">
+                                     <h4 class="text-lg font-semibold mb-1 text-blue-700 truncate" title="Termotanque Sirena 40 Litros">
+                                        Termotanque Sirena 40 Litros
+                                    </h4>
+                                    <p class="text-sm text-gray-600 mb-3 flex-grow">
+                                        Termotanque eléctrico de colgar. Capacidad 40 litros. Marca Sirena.
+                                    </p>
+                                    <a href="https://wa.me/5491140473690?text=Hola!%20Me%20interesa%20el%20producto:%20Termotanque%20Sirena%2040L"
+                                       target="_blank"
+                                       class="mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full">
+                                        <i class="fab fa-whatsapp"></i>
+                                        <span>Consultar Precio</span>
+                                    </a>
+                                </div>
+                            </div>
                         </div>
-                        <div class="p-4 flex flex-col flex-grow">
-                             <h4 class="text-lg font-semibold mb-1 text-blue-700 truncate" title="Combo Pintura Látex Interior 20L + Rodillo">
-                                Combo Pintura Látex Interior 20L + Rodillo
-                            </h4>
-                            <p class="text-sm text-gray-600 mb-3 flex-grow">
-                                Excelente poder cubritivo. Acabado mate lavable. Incluye rodillo de regalo.
-                            </p>
-                            <a href="https://wa.me/5491140473690?text=Hola!%20Me%20interesa%20el%20producto:%20Combo%20Pintura%20Látex%20Interior%2020L"
-                               target="_blank"
-                               class="mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full">
-                                <i class="fab fa-whatsapp"></i>
-                                <span>Consultar Precio</span>
-                            </a>
-                        </div>
-                    </div>
 
-                 </div>
+                        <div class="slider-item flex-shrink-0 w-full sm:w-1/2 lg:w-1/4 px-3">
+                             <div class="bg-white rounded-lg shadow-md overflow-hidden group flex flex-col h-full">
+                                <div class="product-image-container">
+                                     <img src="images/TermotanqueSirena.webp"
+                                          onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';"
+                                          alt="Termotanque Sirena 60 Litros"
+                                          class="product-image">
+                                </div>
+                                <div class="p-4 flex flex-col flex-grow">
+                                     <h4 class="text-lg font-semibold mb-1 text-blue-700 truncate" title="Termotanque Sirena 60 Litros">
+                                        Termotanque Sirena 60 Litros
+                                    </h4>
+                                    <p class="text-sm text-gray-600 mb-3 flex-grow">
+                                        Termotanque eléctrico de colgar. Capacidad 60 litros. Marca Sirena.
+                                    </p>
+                                    <a href="https://wa.me/5491140473690?text=Hola!%20Me%20interesa%20el%20producto:%20Termotanque%20Sirena%2060L"
+                                       target="_blank"
+                                       class="mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full">
+                                        <i class="fab fa-whatsapp"></i>
+                                        <span>Consultar Precio</span>
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="slider-item flex-shrink-0 w-full sm:w-1/2 lg:w-1/4 px-3">
+                            <div class="bg-white rounded-lg shadow-md overflow-hidden group flex flex-col h-full">
+                                <div class="product-image-container">
+                                     <img src="images/TermotanqueSirena.webp"
+                                          onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';"
+                                          alt="Termotanque Sirena 90 Litros"
+                                          class="product-image">
+                                </div>
+                                <div class="p-4 flex flex-col flex-grow">
+                                     <h4 class="text-lg font-semibold mb-1 text-blue-700 truncate" title="Termotanque Sirena 90 Litros">
+                                        Termotanque Sirena 90 Litros
+                                    </h4>
+                                    <p class="text-sm text-gray-600 mb-3 flex-grow">
+                                        Termotanque eléctrico de colgar. Capacidad 90 litros. Marca Sirena.
+                                    </p>
+                                    <a href="https://wa.me/5491140473690?text=Hola!%20Me%20interesa%20el%20producto:%20Termotanque%20Sirena%2090L"
+                                       target="_blank"
+                                       class="mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full">
+                                        <i class="fab fa-whatsapp"></i>
+                                        <span>Consultar Precio</span>
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                        </div>
+                </div>
+
+                <button id="prev-slide" class="slider-button prev" aria-label="Anterior">
+                    <i class="fas fa-chevron-left"></i>
+                </button>
+                <button id="next-slide" class="slider-button next" aria-label="Siguiente">
+                    <i class="fas fa-chevron-right"></i>
+                </button>
+
                 <div class="text-center mt-12">
                     <a href="catalogo.html" class="bg-white hover:bg-gray-50 text-blue-500 border border-blue-500 font-semibold py-3 px-8 rounded-lg shadow-md transition duration-300">Ver Catálogo Completo</a>
                 </div>
@@ -314,13 +422,66 @@
     </footer>
 
     <script>
+        // --- Inicio Script Slider ---
+        const sliderContainer = document.getElementById('slider-container');
+        const sliderTrack = document.getElementById('slider-track');
+        const sliderItems = document.querySelectorAll('.slider-item');
+        const prevButton = document.getElementById('prev-slide');
+        const nextButton = document.getElementById('next-slide');
+
+        let currentIndex = 0;
+        const itemsPerPage = 4; // Número de items visibles a la vez en LG
+        const totalItems = sliderItems.length;
+        const maxIndex = Math.ceil(totalItems / itemsPerPage) - 1; // Índice máximo de "páginas"
+
+        function updateSliderPosition() {
+            const itemWidth = sliderItems[0].offsetWidth; // Ancho de un item (incluyendo padding/margin si aplica)
+            // Ajustamos el cálculo para mover por página de itemsPerPage
+            const moveAmount = currentIndex * itemsPerPage * itemWidth;
+            sliderTrack.style.transform = `translateX(-${moveAmount}px)`;
+            // Habilitar/deshabilitar botones
+            prevButton.disabled = currentIndex === 0;
+            nextButton.disabled = currentIndex >= maxIndex;
+        }
+
+        prevButton.addEventListener('click', () => {
+            if (currentIndex > 0) {
+                currentIndex--;
+                updateSliderPosition();
+            }
+        });
+
+        nextButton.addEventListener('click', () => {
+             // Solo avanza si el índice actual es menor que el índice máximo
+            if (currentIndex < maxIndex) {
+                currentIndex++;
+                updateSliderPosition();
+            }
+        });
+
+        // Inicializar posición y estado de botones
+        updateSliderPosition();
+
+        // Opcional: recalcular en resize por si cambia el número de items visibles
+        window.addEventListener('resize', () => {
+            // Podrías ajustar itemsPerPage aquí basado en window.innerWidth si quieres
+            // y luego llamar a updateSliderPosition()
+            // Por simplicidad, lo dejamos fijo en 4 para LG y mayores
+            updateSliderPosition();
+        });
+        // --- Fin Script Slider ---
+
+
+        // Script para año en footer
         document.getElementById('year').textContent = new Date().getFullYear();
 
+        // Script para menú móvil
         const mobileMenuButton = document.querySelector('header button.md\\:hidden');
         const mobileMenu = document.querySelector('header div.hidden.md\\:flex');
         if (mobileMenuButton && mobileMenu) {
            mobileMenuButton.addEventListener('click', () => {
                mobileMenu.classList.toggle('hidden');
+               // Añadir/quitar clases para posicionamiento y estilo del menú móvil si es necesario
            });
         }
     </script>

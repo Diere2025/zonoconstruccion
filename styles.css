@@ -40,7 +40,7 @@ body {
     width: 100%;
     padding-top: 100%; /* Clave para 1:1 Aspect Ratio */
     overflow: hidden;
-    /* Cambiado a blanco */
+    /* Fondo blanco para espacios vacíos */
     background-color: #ffffff;
 }
 
@@ -51,7 +51,7 @@ body {
     left: 0;
     width: 100%;
     height: 100%;
-    /* Mantenido en contain para que la imagen completa quepa */
+    /* Cambiado a contain para que la imagen completa quepa, puede dejar espacios */
     object-fit: contain;
 }
 /* --- Fin Estilos Imágenes de Producto --- */
