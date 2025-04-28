@@ -22,15 +22,15 @@
             left: 0;
             right: 0;
             bottom: 0;
-            background-color: rgba(0, 0, 0, 0.6); /* Superposición un poco más oscura */
+            background-color: rgba(0, 0, 0, 0.6);
             z-index: 1;
         }
         .hero-content {
             position: relative;
-            z-index: 2; /* Asegura que el contenido esté sobre la superposición */
+            z-index: 2;
         }
-        /* Placeholder image styling (Mantenido por si se usa en algún lado) */
-        .placeholder-img-div { /* Renombrado para evitar conflicto con img tag si se usan ambos */
+        /* Placeholder image styling */
+        .placeholder-img-div {
             background-color: #e9ecef;
             display: flex;
             align-items: center;
@@ -38,16 +38,16 @@
             color: #6c757d;
             font-size: 0.9rem;
             text-align: center;
-            border-radius: 0.375rem; /* Bordes redondeados */
-            min-height: 200px; /* Altura mínima para visibilidad */
-            border: 1px dashed #ced4da; /* Borde discontinuo */
+            border-radius: 0.375rem;
+            min-height: 200px;
+            border: 1px dashed #ced4da;
         }
          /* Estilo para las imágenes de producto en el catálogo */
         .product-image {
-            aspect-ratio: 4 / 3; /* Proporción común para imágenes de producto */
-            object-fit: cover; /* Asegura que la imagen cubra el área sin distorsionarse */
-            background-color: #e9ecef; /* Color de fondo suave por si la imagen tarda en cargar */
-            border-bottom: 1px solid #ddd; /* Línea sutil separadora */
+            aspect-ratio: 4 / 3;
+            object-fit: cover;
+            background-color: #e9ecef;
+            border-bottom: 1px solid #ddd;
         }
         /* Estilo para botón flotante de WhatsApp */
         .whatsapp-float {
@@ -66,12 +66,12 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            transition: background-color 0.3s ease; /* Transición suave */
+            transition: background-color 0.3s ease;
         }
         .whatsapp-float:hover {
             background-color: #128C7E;
         }
-        /* Estilo para el enlace activo o actual en la navegación (opcional) */
+        /* Estilo para el enlace activo o actual en la navegación */
         .nav-link-active {
             font-weight: 600; /* Semibold */
             color: #2563eb; /* Azul de Tailwind (blue-600) */
@@ -87,7 +87,7 @@
             <div class="hidden md:flex space-x-6 items-center">
                 <a href="index.html#inicio" class="text-gray-600 hover:text-blue-600 transition duration-300">Inicio</a>
                 <a href="catalogo.html" class="nav-link-active hover:text-blue-600 transition duration-300">Catálogo</a>
-                <a href="index.html#categorias" class="text-gray-600 hover:text-blue-600 transition duration-300">Categorías</a>
+                <a href="categorias.html" class="text-gray-600 hover:text-blue-600 transition duration-300">Categorías</a>
                 <a href="index.html#destacados" class="text-gray-600 hover:text-blue-600 transition duration-300">Destacados</a>
                 <a href="index.html#nosotros" class="text-gray-600 hover:text-blue-600 transition duration-300">Nosotros</a>
                 <a href="index.html#contacto" class="text-gray-600 hover:text-blue-600 transition duration-300">Contacto</a>
@@ -112,7 +112,7 @@
                     <button class="px-3 py-1 text-sm bg-gray-200 hover:bg-gray-300 rounded-full transition duration-200">Categoría 1</button>
                     <button class="px-3 py-1 text-sm bg-gray-200 hover:bg-gray-300 rounded-full transition duration-200">Categoría 2</button>
                     <button class="px-3 py-1 text-sm bg-gray-200 hover:bg-gray-300 rounded-full transition duration-200">Marca X</button>
-                    </div>
+                </div>
                 <div>
                     <label for="sort" class="sr-only">Ordenar por</label>
                     <select id="sort" name="sort" class="text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 py-1 px-2">
@@ -131,7 +131,8 @@
                     <img src="https://placehold.co/600x450/cccccc/777777?text=Producto+1"
                          onerror="this.onerror=null; this.src='https://placehold.co/600x450/eeeeee/aaaaaa?text=Imagen+no+disponible';"
                          alt="Nombre del Producto 1"
-                         class="w-full product-image"> <div class="p-4 flex flex-col flex-grow">
+                         class="w-full product-image">
+                    <div class="p-4 flex flex-col flex-grow">
                         <h4 class="text-lg font-semibold mb-1 text-blue-700 truncate" title="Nombre del Producto 1 (Puede ser largo)">
                             Nombre del Producto 1
                         </h4>
@@ -247,7 +248,21 @@
             <div class="mt-4 text-sm">
                 <a href="index.html#inicio" class="hover:text-white transition duration-300 px-2">Inicio</a>|
                 <a href="catalogo.html" class="hover:text-white transition duration-300 px-2">Catálogo</a>|
+                <a href="categorias.html" class="hover:text-white transition duration-300 px-2">Categorías</a>|
                 <a href="index.html#contacto" class="hover:text-white transition duration-300 px-2">Contacto</a>
+            </div>
+            <div class="mt-4">
+                 <a href="mailto:comercial@zono.com.ar" class="text-sm text-blue-400 hover:text-blue-300 transition duration-300 mx-2">
+                     <i class="fas fa-envelope mr-1"></i> comercial@zono.com.ar
+                 </a>
+            </div>
+            <div class="mt-3 flex justify-center space-x-4">
+                 <a href="https://facebook.com/zonoconstruccion" target="_blank" class="text-gray-400 hover:text-white transition duration-300" title="Facebook">
+                     <i class="fab fa-facebook-f text-xl"></i>
+                 </a>
+                 <a href="https://www.instagram.com/zonoconstruccion" target="_blank" class="text-gray-400 hover:text-white transition duration-300" title="Instagram">
+                     <i class="fab fa-instagram text-xl"></i>
+                 </a>
             </div>
         </div>
     </footer>
@@ -256,120 +271,26 @@
         // Script simple para actualizar el año en el footer
         document.getElementById('year').textContent = new Date().getFullYear();
 
-        // --- INICIO: Lógica Futura para Firebase ---
-        // Ejemplo conceptual (Necesitarás incluir SDK de Firebase y tu configuración)
+        // --- Lógica Futura para Firebase ---
         /*
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/9.X.X/firebase-app.js";
-        import { getFirestore, collection, getDocs, query, orderBy, limit, startAfter, endBefore, limitToLast } from "https://www.gstatic.com/firebasejs/9.X.X/firebase-firestore.js";
-
-        // Tu configuración de Firebase (reemplazar con tus credenciales)
-        const firebaseConfig = {
-          apiKey: "TU_API_KEY",
-          authDomain: "TU_AUTH_DOMAIN",
-          projectId: "TU_PROJECT_ID",
-          storageBucket: "TU_STORAGE_BUCKET",
-          messagingSenderId: "TU_MESSAGING_SENDER_ID",
-          appId: "TU_APP_ID"
-        };
-
-        // Inicializar Firebase
-        const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
-
-        const productGrid = document.getElementById('product-grid');
-        const productsPerPage = 12; // Cuántos productos mostrar por página
-        let lastVisible = null; // Para paginación: último documento visible
-        let firstVisible = null; // Para paginación: primer documento visible
-
-        async function loadProducts(nextPage = true) {
-            productGrid.innerHTML = '<p class="text-center text-gray-500 col-span-full">Cargando productos...</p>'; // Indicador de carga
-            try {
-                let q;
-                const productsRef = collection(db, "productos"); // Asume una colección llamada "productos"
-
-                if (nextPage) {
-                    // Cargar página siguiente
-                    q = query(productsRef, orderBy("nombre"), startAfter(lastVisible || 0), limit(productsPerPage));
-                } else {
-                    // Cargar página anterior (más complejo, requiere guardar firstVisible)
-                    q = query(productsRef, orderBy("nombre"), endBefore(firstVisible || 0), limitToLast(productsPerPage));
-                    // Nota: Firestore no es ideal para paginación hacia atrás eficiente sin trucos adicionales.
-                    // Considera cargar IDs o usar un enfoque diferente si la paginación hacia atrás es crucial.
-                    // Por simplicidad, este ejemplo se centra en "siguiente página".
-                }
-
-
-                const querySnapshot = await getDocs(q);
-
-                productGrid.innerHTML = ''; // Limpiar grid antes de añadir nuevos productos
-
-                if (querySnapshot.empty && lastVisible === null) {
-                     productGrid.innerHTML = '<p class="text-center text-gray-500 col-span-full">No hay productos para mostrar.</p>';
-                     // Ocultar/deshabilitar botones de paginación si es necesario
-                     return;
-                } else if (querySnapshot.empty) {
-                    productGrid.innerHTML = '<p class="text-center text-gray-500 col-span-full">No hay más productos.</p>';
-                    // Deshabilitar botón "siguiente"
-                    return;
-                }
-
-
-                // Guardar referencias para paginación
-                lastVisible = querySnapshot.docs[querySnapshot.docs.length - 1];
-                firstVisible = querySnapshot.docs[0];
-
-
-                querySnapshot.forEach((doc) => {
-                    const product = doc.data();
-                    const productId = doc.id; // ID del documento
-                    const productCard = `
-                        <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
-                            <img src="${product.imageUrl || 'https://placehold.co/600x450/eeeeee/aaaaaa?text=Imagen+no+disponible'}"
-                                 onerror="this.onerror=null; this.src='https://placehold.co/600x450/eeeeee/aaaaaa?text=Error+al+cargar';"
-                                 alt="${product.nombre || 'Producto sin nombre'}"
-                                 class="w-full product-image">
-                            <div class="p-4 flex flex-col flex-grow">
-                                <h4 class="text-lg font-semibold mb-1 text-blue-700 truncate" title="${product.nombre || ''}">
-                                    ${product.nombre || 'Producto sin nombre'}
-                                </h4>
-                                <p class="text-sm text-gray-600 mb-3 flex-grow">
-                                    ${product.descripcion || 'Sin descripción.'}
-                                </p>
-                                ${product.precio ? `<p class="text-lg font-bold text-gray-800 mb-3">$${product.precio.toFixed(2)}</p>` : ''}
-                                <a href="https://wa.me/5491140473690?text=Hola!%20Me%20interesa%20el%20producto:%20${encodeURIComponent(product.nombre || productId)}"
-                                   target="_blank"
-                                   class="mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full">
-                                    <i class="fab fa-whatsapp"></i>
-                                    <span>${product.precio ? 'Comprar / Consultar' : 'Consultar Precio'}</span>
-                                </a>
-                            </div>
-                        </div>
-                    `;
-                    productGrid.innerHTML += productCard;
-                });
-
-                // Actualizar estado de botones de paginación (habilitar/deshabilitar)
-                // updatePaginationButtons(); // Necesitarías implementar esta función
-
-            } catch (error) {
-                console.error("Error cargando productos: ", error);
-                productGrid.innerHTML = '<p class="text-center text-red-500 col-span-full">Error al cargar productos. Intenta de nuevo más tarde.</p>';
-            }
-        }
-
-        // Cargar productos iniciales al cargar la página
+        // ... (Código de ejemplo para cargar productos desde Firebase) ...
+        // Asegúrate de incluir la inicialización de Firebase aquí también si es necesario.
+        // async function loadProducts() { ... }
         // window.onload = () => loadProducts();
-
-        // Añadir event listeners a botones de paginación para llamar a loadProducts(true) o loadProducts(false)
-        // document.getElementById('next-page-button').addEventListener('click', () => loadProducts(true));
-        // document.getElementById('prev-page-button').addEventListener('click', () => loadProducts(false)); // Si implementas paginación hacia atrás
-
         */
-        // --- FIN: Lógica Futura para Firebase ---
+        // --- Fin Lógica Futura ---
 
 
         // Script para menú móvil (requiere más lógica JS para funcionar completamente)
-        // ... (mismo código comentado que en index.html si es necesario) ...
+        const mobileMenuButton = document.querySelector('header button.md\\:hidden');
+        const mobileMenu = document.querySelector('header div.hidden.md\\:flex');
+
+        if (mobileMenuButton && mobileMenu) {
+           mobileMenuButton.addEventListener('click', () => {
+               mobileMenu.classList.toggle('hidden');
+               console.log("Botón menú móvil clickeado - Implementar lógica completa de clases si es necesario.");
+           });
+        }
 
     </script>
 

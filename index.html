@@ -356,7 +356,7 @@
                                   <i class="fas fa-envelope text-blue-500 text-xl mt-1"></i>
                                    <div>
                                        <strong class="block">Email</strong>
-                                       <a href="mailto:ventas@ejemplo-zono.com" class="text-blue-600 hover:underline">ventas@ejemplo-zono.com</a>
+                                       <a href="mailto:comercial@zono.com.ar" class="text-blue-600 hover:underline">comercial@zono.com.ar</a>
                                        <p class="text-sm text-gray-500">Para consultas detalladas o presupuestos.</p>
                                    </div>
                                </div>
@@ -380,13 +380,13 @@
                          <div class="mt-8">
                               <h4 class="text-lg font-semibold mb-3 text-blue-700">Síguenos</h4>
                                <div class="flex space-x-4">
-                                   <a href="#" target="_blank" class="text-gray-500 hover:text-blue-700 transition duration-300" title="Facebook">
+                                   <a href="https://facebook.com/zonoconstruccion" target="_blank" class="text-gray-500 hover:text-blue-700 transition duration-300" title="Facebook">
                                        <i class="fab fa-facebook-f text-2xl"></i>
                                    </a>
-                                   <a href="#" target="_blank" class="text-gray-500 hover:text-pink-600 transition duration-300" title="Instagram">
+                                   <a href="https://www.instagram.com/zonoconstruccion" target="_blank" class="text-gray-500 hover:text-pink-600 transition duration-300" title="Instagram">
                                        <i class="fab fa-instagram text-2xl"></i>
                                    </a>
-                                   </div>
+                               </div>
                          </div>
                     </div>
                 </div>
@@ -421,21 +421,14 @@
         // Script para menú móvil (requiere más lógica JS para funcionar completamente)
         const mobileMenuButton = document.querySelector('header button.md\\:hidden');
         const mobileMenu = document.querySelector('header div.hidden.md\\:flex'); // Selector del menú
-        // Asegúrate de que el menú tenga una ID o una clase única si es necesario para evitar conflictos
-        // Por ejemplo, añade id="main-nav-links" al div del menú
 
         if (mobileMenuButton && mobileMenu) {
            mobileMenuButton.addEventListener('click', () => {
-               // Alternar clases para mostrar/ocultar y estilo
-               mobileMenu.classList.toggle('hidden'); // Tailwind para ocultar/mostrar
-               // Podrías necesitar añadir/quitar clases para posicionarlo correctamente en móvil,
-               // por ejemplo: 'absolute', 'top-16', 'left-0', 'right-0', 'bg-white', 'shadow-lg', 'flex-col', 'space-y-4', 'p-6'
-               // Asegúrate de que estas clases no interfieran con la vista de escritorio.
+               mobileMenu.classList.toggle('hidden');
                console.log("Botón menú móvil clickeado - Implementar lógica completa de clases si es necesario.");
            });
         }
 
-        // Placeholder para funcionalidad futura (ej. galerías, etc.)
     </script>
 
 </body>
