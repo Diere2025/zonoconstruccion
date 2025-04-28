@@ -9,65 +9,26 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
-    <style>
-        /* Estilo para usar la fuente Inter */
-        body {
-            font-family: 'Inter', sans-serif;
-        }
-        /* Estilo para las imágenes de categoría */
-        .category-image {
-            aspect-ratio: 16 / 9;
-            object-fit: cover;
-            background-color: #e9ecef;
-            border-bottom: 1px solid #ddd;
-        }
-        /* Estilo para botón flotante de WhatsApp */
-        .whatsapp-float {
-            position: fixed;
-            width: 60px;
-            height: 60px;
-            bottom: 40px;
-            right: 40px;
-            background-color: #25d366;
-            color: #FFF;
-            border-radius: 50px;
-            text-align: center;
-            font-size: 30px;
-            box-shadow: 2px 2px 3px #999;
-            z-index: 100;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: background-color 0.3s ease;
-        }
-        .whatsapp-float:hover {
-            background-color: #128C7E;
-        }
-        /* Estilo para el enlace activo o actual en la navegación */
-        .nav-link-active {
-            font-weight: 600; /* Semibold */
-            color: #2563eb; /* Azul de Tailwind (blue-600) */
-        }
-    </style>
-</head>
-<body class="bg-gray-100 text-gray-800">
-
-    <header class="bg-white shadow-md sticky top-0 z-50">
+    <link rel="stylesheet" href="styles.css">
+    </head>
+<body class="bg-gray-100 text-gray-800"> <header class="bg-white shadow-md sticky top-0 z-50">
         <nav class="container mx-auto px-6 py-4 flex justify-between items-center">
-            <a href="index.html#inicio" class="text-xl md:text-2xl font-bold text-blue-700">Zono Construcción y Hogar</a>
+            <a href="index.html#inicio" class="flex items-center">
+                <img src="images/logo-zono.png" alt="Logo Zono Construcción y Hogar" class="h-12 md:h-16 mr-2">
+            </a>
             <div class="hidden md:flex space-x-6 items-center">
-                <a href="index.html#inicio" class="text-gray-600 hover:text-blue-600 transition duration-300">Inicio</a>
-                <a href="catalogo.html" class="text-gray-600 hover:text-blue-600 transition duration-300">Catálogo</a>
-                <a href="categorias.html" class="nav-link-active hover:text-blue-600 transition duration-300">Categorías</a>
-                <a href="index.html#destacados" class="text-gray-600 hover:text-blue-600 transition duration-300">Destacados</a>
-                <a href="index.html#nosotros" class="text-gray-600 hover:text-blue-600 transition duration-300">Nosotros</a>
-                <a href="index.html#contacto" class="text-gray-600 hover:text-blue-600 transition duration-300">Contacto</a>
+                <a href="index.html#inicio" class="text-gray-600 hover:text-blue-500 transition duration-300">Inicio</a>
+                <a href="catalogo.html" class="text-gray-600 hover:text-blue-500 transition duration-300">Catálogo</a>
+                <a href="categorias.html" class="nav-link-active hover:text-blue-500 transition duration-300">Categorías</a>
+                <a href="index.html#destacados" class="text-gray-600 hover:text-blue-500 transition duration-300">Destacados</a>
+                <a href="index.html#nosotros" class="text-gray-600 hover:text-blue-500 transition duration-300">Nosotros</a>
+                <a href="index.html#contacto" class="text-gray-600 hover:text-blue-500 transition duration-300">Contacto</a>
                 <a href="https://wa.me/5491140473690?text=Hola!%20Te%20contacto%20desde%20la%20página%20web%20de%20Zono%20Construcción%20y%20Hogar.%20Quisiera%20hacer%20una%20consulta." target="_blank" class="bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded-full text-sm font-medium flex items-center space-x-1 transition duration-300">
                     <i class="fab fa-whatsapp"></i>
                     <span>WhatsApp</span>
                 </a>
             </div>
-            <button class="md:hidden flex items-center px-3 py-2 border rounded text-gray-500 border-gray-600 hover:text-blue-600 hover:border-blue-600">
+             <button class="md:hidden flex items-center px-3 py-2 border rounded text-gray-500 border-gray-600 hover:text-blue-500 hover:border-blue-500">
                 <svg class="fill-current h-3 w-3" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><title>Menu</title><path d="M0 3h20v2H0V3zm0 6h20v2H0V9zm0 6h20v2H0v15z"/></svg>
             </button>
         </nav>
@@ -75,7 +36,7 @@
 
     <main class="py-12 md:py-16">
         <div class="container mx-auto px-6">
-            <h1 class="text-3xl md:text-4xl font-bold text-center mb-10 md:mb-12 text-gray-800">Explora Nuestras Categorías</h1>
+            <h1 class="text-3xl md:text-4xl font-bold text-center mb-10 md:mb-12 text-blue-700">Explora Nuestras Categorías</h1>
 
             <div id="category-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
 
@@ -90,7 +51,7 @@
                             Soluciones de almacenamiento para cada necesidad. Fabricación propia (Aquafort) y las mejores marcas.
                         </p>
                         <a href="catalogo.html?categoria=tanques-de-agua"
-                           class="mt-auto inline-block bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-5 rounded-lg shadow transition duration-300 text-center">
+                           class="mt-auto inline-block bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-5 rounded-lg shadow transition duration-300 text-center">
                             Ver Productos &rarr;
                         </a>
                     </div>
@@ -107,7 +68,7 @@
                             Protege tus estructuras con membranas (líquidas, en pasta) y selladores de alta performance.
                         </p>
                         <a href="catalogo.html?categoria=impermeabilizantes"
-                           class="mt-auto inline-block bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-5 rounded-lg shadow transition duration-300 text-center">
+                           class="mt-auto inline-block bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-5 rounded-lg shadow transition duration-300 text-center">
                             Ver Productos &rarr;
                         </a>
                     </div>
@@ -124,7 +85,7 @@
                             Amplia gama de látex, esmaltes, impermeabilizantes y combos para renovar tus espacios.
                         </p>
                         <a href="catalogo.html?categoria=pinturas"
-                           class="mt-auto inline-block bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-5 rounded-lg shadow transition duration-300 text-center">
+                           class="mt-auto inline-block bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-5 rounded-lg shadow transition duration-300 text-center">
                             Ver Productos &rarr;
                         </a>
                     </div>
@@ -141,7 +102,7 @@
                             Todo lo necesario para tus proyectos: herramientas manuales, eléctricas, escaleras, y más.
                         </p>
                         <a href="catalogo.html?categoria=ferreteria"
-                           class="mt-auto inline-block bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-5 rounded-lg shadow transition duration-300 text-center">
+                           class="mt-auto inline-block bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-5 rounded-lg shadow transition duration-300 text-center">
                             Ver Productos &rarr;
                         </a>
                     </div>
@@ -158,7 +119,7 @@
                             Confort para tu hogar: termotanques, bombas, biodigestores, cámaras sépticas y más.
                         </p>
                         <a href="catalogo.html?categoria=hogar"
-                           class="mt-auto inline-block bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-5 rounded-lg shadow transition duration-300 text-center">
+                           class="mt-auto inline-block bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-5 rounded-lg shadow transition duration-300 text-center">
                             Ver Productos &rarr;
                         </a>
                     </div>
@@ -175,7 +136,7 @@
                             Materiales básicos para obra, adhesivos, selladores y complementos.
                         </p>
                         <a href="catalogo.html?categoria=construccion"
-                           class="mt-auto inline-block bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-5 rounded-lg shadow transition duration-300 text-center">
+                           class="mt-auto inline-block bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-5 rounded-lg shadow transition duration-300 text-center">
                             Ver Productos &rarr;
                         </a>
                     </div>
@@ -192,13 +153,13 @@
 
     <footer class="bg-gray-800 text-gray-300 py-8">
         <div class="container mx-auto px-6 text-center">
-            <p>&copy; <span id="year"></span> Zono Construcción y Hogar. Todos los derechos reservados.</p>
+            <p>© <span id="year"></span> Zono Construcción y Hogar. Todos los derechos reservados.</p>
             <p class="text-sm mt-2">Remedios de Escalada 4747, Villa Luzuriaga</p>
             <div class="mt-4 text-sm">
-                <a href="index.html#inicio" class="hover:text-white transition duration-300 px-2">Inicio</a>|
-                <a href="catalogo.html" class="hover:text-white transition duration-300 px-2">Catálogo</a>|
-                <a href="categorias.html" class="hover:text-white transition duration-300 px-2">Categorías</a>|
-                <a href="index.html#contacto" class="hover:text-white transition duration-300 px-2">Contacto</a>
+                <a href="index.html#inicio" class="hover:text-blue-400 transition duration-300 px-2">Inicio</a>|
+                <a href="catalogo.html" class="hover:text-blue-400 transition duration-300 px-2">Catálogo</a>|
+                <a href="categorias.html" class="hover:text-blue-400 transition duration-300 px-2">Categorías</a>|
+                <a href="index.html#contacto" class="hover:text-blue-400 transition duration-300 px-2">Contacto</a>
             </div>
             <div class="mt-4">
                  <a href="mailto:comercial@zono.com.ar" class="text-sm text-blue-400 hover:text-blue-300 transition duration-300 mx-2">
@@ -206,10 +167,10 @@
                  </a>
             </div>
             <div class="mt-3 flex justify-center space-x-4">
-                 <a href="https://facebook.com/zonoconstruccion" target="_blank" class="text-gray-400 hover:text-white transition duration-300" title="Facebook">
+                 <a href="https://facebook.com/zonoconstruccion" target="_blank" class="text-gray-400 hover:text-blue-400 transition duration-300" title="Facebook">
                      <i class="fab fa-facebook-f text-xl"></i>
                  </a>
-                 <a href="https://www.instagram.com/zonoconstruccion" target="_blank" class="text-gray-400 hover:text-white transition duration-300" title="Instagram">
+                 <a href="https://www.instagram.com/zonoconstruccion" target="_blank" class="text-gray-400 hover:text-pink-400 transition duration-300" title="Instagram">
                      <i class="fab fa-instagram text-xl"></i>
                  </a>
             </div>
@@ -229,14 +190,14 @@
         // --- Fin Lógica Futura ---
 
 
-        // Script para menú móvil (requiere más lógica JS para funcionar completamente)
+        // Script para menú móvil
         const mobileMenuButton = document.querySelector('header button.md\\:hidden');
         const mobileMenu = document.querySelector('header div.hidden.md\\:flex');
 
         if (mobileMenuButton && mobileMenu) {
            mobileMenuButton.addEventListener('click', () => {
                mobileMenu.classList.toggle('hidden');
-               console.log("Botón menú móvil clickeado - Implementar lógica completa de clases si es necesario.");
+               // Añadir/quitar clases para posicionamiento y estilo del menú móvil si es necesario
            });
         }
 
