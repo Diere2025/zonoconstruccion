@@ -36,22 +36,22 @@ body {
 /* --- Estilos para Imágenes de Producto (Catálogo) 1:1 --- */
 /* Contenedor que fuerza la relación de aspecto cuadrada */
 .product-image-container {
-    position: relative; /* Necesario para posicionar la imagen absolutamente dentro */
+    position: relative;
     width: 100%;
-    padding-top: 100%; /* 1:1 Aspect Ratio (altura = anchura) */
-    overflow: hidden; /* Oculta partes de la imagen que se salgan */
-    background-color: #e9ecef; /* Color de fondo mientras carga */
+    padding-top: 100%; /* Clave para 1:1 Aspect Ratio */
+    overflow: hidden;
+    background-color: #e9ecef; /* Fondo suave mientras carga */
 }
 
 /* Estilo para la imagen dentro del contenedor */
 .product-image {
-    position: absolute; /* Posiciona la imagen dentro del contenedor */
+    position: absolute;
     top: 0;
     left: 0;
     width: 100%;
     height: 100%;
-    object-fit: cover; /* Escala la imagen para cubrir el contenedor, puede recortar */
-    /* Alternativa: object-fit: contain; -> Muestra toda la imagen, puede dejar espacios */
+    /* Cambiado a contain para que la imagen completa quepa, puede dejar espacios */
+    object-fit: contain;
 }
 /* --- Fin Estilos Imágenes de Producto --- */
 
