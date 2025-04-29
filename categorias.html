@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="es" class="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -10,27 +10,64 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <link rel="stylesheet" href="styles.css">
-    </head>
-<body class="bg-gray-100 text-gray-800">
+    <style>
+        /* Estilos específicos mínimos */
+        html { scroll-padding-top: 6rem; }
+        /* Estilos del Toggle Switch */
+        .theme-switch-wrapper { display: flex; align-items: center; gap: 0.5rem; }
+        .theme-switch { display: inline-block; height: 24px; position: relative; width: 44px; }
+        .theme-switch input { display:none; }
+        .slider { background-color: #ccc; bottom: 0; cursor: pointer; left: 0; position: absolute; right: 0; top: 0; transition: .4s; border-radius: 34px; }
+        .slider:before { background-color: #fff; bottom: 4px; content: ""; height: 16px; left: 4px; position: absolute; transition: .4s; width: 16px; border-radius: 50%; }
+        input:checked + .slider { background-color: #3b82f6; } /* Azul */
+        input:checked + .slider:before { transform: translateX(20px); }
+        .theme-switch-wrapper .fa-sun, .theme-switch-wrapper .fa-moon { color: #6b7280; /* gray-500 */ }
+        html.dark .theme-switch-wrapper .fa-sun { color: #d1d5db; /* gray-300 */ }
+        html.dark .theme-switch-wrapper .fa-moon { color: #facc15; /* yellow-400 */ }
+        html.dark input:checked + .slider { background-color: #93c5fd; } /* Azul claro */
+    </style>
+     <script>
+        // Script para aplicar tema guardado ANTES de que se renderice el contenido
+        (function() {
+            const currentTheme = localStorage.getItem('theme');
+            if (currentTheme === 'dark') {
+                document.documentElement.classList.add('dark');
+                document.documentElement.classList.remove('light');
+            } else {
+                document.documentElement.classList.add('light');
+                document.documentElement.classList.remove('dark');
+            }
+        })();
+    </script>
+</head>
+<body class="bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200 transition-colors duration-300">
 
-    <header class="bg-white shadow-md sticky top-0 z-50">
+    <header class="bg-white dark:bg-gray-800 shadow-md sticky top-0 z-50 transition-colors duration-300">
         <nav class="container mx-auto px-6 py-4 flex justify-between items-center">
             <a href="index.html#inicio" class="flex items-center">
                 <img src="images/logo-zono.png" alt="Logo Zono Construcción y Hogar" class="h-12 md:h-16 mr-2">
             </a>
             <div class="hidden md:flex space-x-6 items-center">
-                <a href="index.html#inicio" class="text-gray-600 hover:text-blue-500 transition duration-300">Inicio</a>
-                <a href="catalogo.html" class="text-gray-600 hover:text-blue-500 transition duration-300">Catálogo</a>
-                <a href="categorias.html" class="nav-link-active hover:text-blue-500 transition duration-300">Categorías</a>
-                <a href="index.html#destacados" class="text-gray-600 hover:text-blue-500 transition duration-300">Destacados</a>
-                <a href="index.html#nosotros" class="text-gray-600 hover:text-blue-500 transition duration-300">Nosotros</a>
-                <a href="index.html#contacto" class="text-gray-600 hover:text-blue-500 transition duration-300">Contacto</a>
+                <a href="index.html#inicio" class="text-gray-600 dark:text-gray-300 hover:text-blue-500 dark:hover:text-blue-400 transition duration-300">Inicio</a>
+                <a href="catalogo.html" class="text-gray-600 dark:text-gray-300 hover:text-blue-500 dark:hover:text-blue-400 transition duration-300">Catálogo</a>
+                <a href="categorias.html" class="nav-link-active hover:text-blue-500 dark:hover:text-blue-400 transition duration-300">Categorías</a>
+                <a href="index.html#destacados" class="text-gray-600 dark:text-gray-300 hover:text-blue-500 dark:hover:text-blue-400 transition duration-300">Destacados</a>
+                <a href="index.html#nosotros" class="text-gray-600 dark:text-gray-300 hover:text-blue-500 dark:hover:text-blue-400 transition duration-300">Nosotros</a>
+                <a href="index.html#contacto" class="text-gray-600 dark:text-gray-300 hover:text-blue-500 dark:hover:text-blue-400 transition duration-300">Contacto</a>
                 <a id="header-whatsapp-link" href="#" target="_blank" class="bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded-full text-sm font-medium flex items-center space-x-1 transition duration-300">
                     <i class="fab fa-whatsapp"></i>
                     <span>WhatsApp</span>
                 </a>
+                 <div class="theme-switch-wrapper ml-4">
+                     <i class="fas fa-sun"></i>
+                    <label class="theme-switch" for="theme-checkbox">
+                        <input type="checkbox" id="theme-checkbox" />
+                        <div class="slider"></div>
+                    </label>
+                     <i class="fas fa-moon"></i>
+                </div>
             </div>
-            <button class="md:hidden flex items-center px-3 py-2 border rounded text-gray-500 border-gray-600 hover:text-blue-500 hover:border-blue-500">
+             <button class="md:hidden flex items-center px-3 py-2 border rounded text-gray-500 dark:text-gray-400 border-gray-600 dark:border-gray-500 hover:text-blue-500 dark:hover:text-blue-400 hover:border-blue-500 dark:hover:border-blue-400">
                 <svg class="fill-current h-3 w-3" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><title>Menu</title><path d="M0 3h20v2H0V3zm0 6h20v2H0V9zm0 6h20v2H0v15z"/></svg>
             </button>
         </nav>
@@ -38,33 +75,34 @@
 
     <main class="py-12 md:py-16">
         <div class="container mx-auto px-6">
-            <h1 class="text-3xl md:text-4xl font-bold text-center mb-10 md:mb-12 text-blue-700">Explora Nuestras Categorías</h1>
+            <h1 class="text-3xl md:text-4xl font-bold text-center mb-10 md:mb-12 text-blue-700 dark:text-blue-400">Explora Nuestras Categorías</h1>
 
             <div id="category-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
 
-                <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
+                <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
                     <img src="https://placehold.co/600x338/77aabb/ffffff?text=Tanques+de+Agua"
                          onerror="this.onerror=null; this.src='https://placehold.co/600x338/eeeeee/aaaaaa?text=Imagen+no+disponible';"
                          alt="Categoría Tanques de Agua"
                          class="w-full category-image"> <div class="p-5 flex flex-col flex-grow">
-                        <h3 class="text-xl font-semibold mb-2 text-blue-700">Tanques de Agua</h3>
-                        <p class="text-gray-600 mb-4 flex-grow">
+                        <h3 class="text-xl font-semibold mb-2 text-blue-700 dark:text-blue-400">Tanques de Agua</h3>
+                        <p class="text-gray-600 dark:text-gray-300 mb-4 flex-grow">
                             Soluciones de almacenamiento para cada necesidad. Fabricación propia (Aquafort) y las mejores marcas.
                         </p>
-                        <a href="catalogo.html#cat-tanques" class="mt-auto inline-block bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-5 rounded-lg shadow transition duration-300 text-center">
+                        <a href="catalogo.html#cat-tanques"
+                           class="mt-auto inline-block bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-5 rounded-lg shadow transition duration-300 text-center">
                             Ver Productos &rarr;
                         </a>
                     </div>
                 </div>
 
-                <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
+                <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
                     <img src="https://placehold.co/600x338/aabb77/ffffff?text=Impermeabilizantes"
                          onerror="this.onerror=null; this.src='https://placehold.co/600x338/eeeeee/aaaaaa?text=Imagen+no+disponible';"
                          alt="Categoría Impermeabilizantes"
                          class="w-full category-image">
                     <div class="p-5 flex flex-col flex-grow">
-                        <h3 class="text-xl font-semibold mb-2 text-blue-700">Impermeabilizantes</h3>
-                        <p class="text-gray-600 mb-4 flex-grow">
+                        <h3 class="text-xl font-semibold mb-2 text-blue-700 dark:text-blue-400">Impermeabilizantes</h3>
+                        <p class="text-gray-600 dark:text-gray-300 mb-4 flex-grow">
                             Protege tus estructuras con membranas (líquidas, en pasta) y selladores de alta performance.
                         </p>
                         <a href="catalogo.html#cat-impermeabilizantes"
@@ -74,14 +112,14 @@
                     </div>
                 </div>
 
-                <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
+                <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
                     <img src="https://placehold.co/600x338/bb77aa/ffffff?text=Pinturas"
                          onerror="this.onerror=null; this.src='https://placehold.co/600x338/eeeeee/aaaaaa?text=Imagen+no+disponible';"
                          alt="Categoría Pinturas y Revestimientos"
                          class="w-full category-image">
                     <div class="p-5 flex flex-col flex-grow">
-                        <h3 class="text-xl font-semibold mb-2 text-blue-700">Pinturas y Revestimientos</h3>
-                        <p class="text-gray-600 mb-4 flex-grow">
+                        <h3 class="text-xl font-semibold mb-2 text-blue-700 dark:text-blue-400">Pinturas y Revestimientos</h3>
+                        <p class="text-gray-600 dark:text-gray-300 mb-4 flex-grow">
                             Amplia gama de látex, esmaltes, impermeabilizantes y combos para renovar tus espacios.
                         </p>
                         <a href="catalogo.html#cat-pinturas"
@@ -91,14 +129,14 @@
                     </div>
                 </div>
 
-                <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
+                <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
                     <img src="https://placehold.co/600x338/aa77bb/ffffff?text=Ferretería"
                          onerror="this.onerror=null; this.src='https://placehold.co/600x338/eeeeee/aaaaaa?text=Imagen+no+disponible';"
                          alt="Categoría Ferretería y Herramientas"
                          class="w-full category-image">
                     <div class="p-5 flex flex-col flex-grow">
-                        <h3 class="text-xl font-semibold mb-2 text-blue-700">Ferretería y Herramientas</h3>
-                        <p class="text-gray-600 mb-4 flex-grow">
+                        <h3 class="text-xl font-semibold mb-2 text-blue-700 dark:text-blue-400">Ferretería y Herramientas</h3>
+                        <p class="text-gray-600 dark:text-gray-300 mb-4 flex-grow">
                             Todo lo necesario para tus proyectos: herramientas manuales, eléctricas, escaleras, y más.
                         </p>
                         <a href="catalogo.html#cat-ferreteria"
@@ -108,14 +146,14 @@
                     </div>
                 </div>
 
-                <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
+                <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
                     <img src="https://placehold.co/600x338/77aa77/ffffff?text=Hogar"
                          onerror="this.onerror=null; this.src='https://placehold.co/600x338/eeeeee/aaaaaa?text=Imagen+no+disponible';"
                          alt="Categoría Hogar y Climatización"
                          class="w-full category-image">
                     <div class="p-5 flex flex-col flex-grow">
-                        <h3 class="text-xl font-semibold mb-2 text-blue-700">Hogar y Climatización</h3>
-                        <p class="text-gray-600 mb-4 flex-grow">
+                        <h3 class="text-xl font-semibold mb-2 text-blue-700 dark:text-blue-400">Hogar y Climatización</h3>
+                        <p class="text-gray-600 dark:text-gray-300 mb-4 flex-grow">
                             Confort para tu hogar: termotanques, bombas, biodigestores, cámaras sépticas y más.
                         </p>
                         <a href="catalogo.html#cat-hogar"
@@ -125,14 +163,14 @@
                     </div>
                 </div>
 
-                <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
+                 <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
                     <img src="https://placehold.co/600x338/aaaa77/ffffff?text=Construcción"
                          onerror="this.onerror=null; this.src='https://placehold.co/600x338/eeeeee/aaaaaa?text=Imagen+no+disponible';"
                          alt="Categoría Materiales de Construcción"
                          class="w-full category-image">
                     <div class="p-5 flex flex-col flex-grow">
-                        <h3 class="text-xl font-semibold mb-2 text-blue-700">Materiales de Construcción</h3>
-                        <p class="text-gray-600 mb-4 flex-grow">
+                        <h3 class="text-xl font-semibold mb-2 text-blue-700 dark:text-blue-400">Materiales de Construcción</h3>
+                        <p class="text-gray-600 dark:text-gray-300 mb-4 flex-grow">
                             Materiales básicos para obra, adhesivos, selladores y complementos.
                         </p>
                         <a href="catalogo.html#cat-construccion"
@@ -144,14 +182,9 @@
 
             </div> </div> </main>
 
-    <a id="whatsapp-float-button" href="#"
-       class="whatsapp-float"
-       target="_blank"
-       aria-label="Contactar por WhatsApp">
-        <i class="fab fa-whatsapp"></i>
-    </a>
+    <a id="whatsapp-float-button" href="#" class="whatsapp-float" target="_blank" aria-label="Contactar por WhatsApp"><i class="fab fa-whatsapp"></i></a>
 
-    <footer class="bg-gray-800 text-gray-300 py-8">
+    <footer class="bg-gray-800 dark:bg-black text-gray-300 dark:text-gray-400 py-8 transition-colors duration-300">
         <div class="container mx-auto px-6 text-center">
             <p>© <span id="year"></span> Zono Construcción y Hogar. Todos los derechos reservados.</p>
             <p class="text-sm mt-2">Remedios de Escalada 4747, Villa Luzuriaga</p>
@@ -162,70 +195,40 @@
                 <a href="index.html#contacto" class="hover:text-blue-400 transition duration-300 px-2">Contacto</a>
             </div>
             <div class="mt-4">
-                 <a id="footer-email-link" href="#" class="text-sm text-blue-400 hover:text-blue-300 transition duration-300 mx-2">
-                     <i class="fas fa-envelope mr-1"></i> <span id="footer-email-address"></span>
-                 </a>
+                 <a id="footer-email-link" href="#" class="text-sm text-blue-400 hover:text-blue-300 transition duration-300 mx-2"><i class="fas fa-envelope mr-1"></i> <span id="footer-email-address"></span></a>
             </div>
             <div class="mt-3 flex justify-center space-x-4">
-                 <a id="footer-facebook-link" href="#" target="_blank" class="text-gray-400 hover:text-blue-400 transition duration-300" title="Facebook">
-                     <i class="fab fa-facebook-f text-xl"></i>
-                 </a>
-                 <a id="footer-instagram-link" href="#" target="_blank" class="text-gray-400 hover:text-pink-400 transition duration-300" title="Instagram">
-                     <i class="fab fa-instagram text-xl"></i>
-                 </a>
+                 <a id="footer-facebook-link" href="#" target="_blank" class="text-gray-400 hover:text-blue-400 transition duration-300" title="Facebook"><i class="fab fa-facebook-f text-xl"></i></a>
+                 <a id="footer-instagram-link" href="#" target="_blank" class="text-gray-400 hover:text-pink-400 transition duration-300" title="Instagram"><i class="fab fa-instagram text-xl"></i></a>
             </div>
         </div>
     </footer>
 
     <script src="config.js"></script>
     <script>
-        // Espera a que el DOM esté completamente cargado
         document.addEventListener('DOMContentLoaded', () => {
-            // Verifica si zonoConfig está definido
+            // --- Theme Switcher Logic ---
+            const themeToggle = document.getElementById('theme-checkbox');
+            const htmlElement = document.documentElement;
+            const applyTheme = (theme) => { if (theme === 'dark') { htmlElement.classList.remove('light'); htmlElement.classList.add('dark'); if(themeToggle) themeToggle.checked = true; } else { htmlElement.classList.remove('dark'); htmlElement.classList.add('light'); if(themeToggle) themeToggle.checked = false; } };
+            if (themeToggle) { themeToggle.addEventListener('change', () => { if (themeToggle.checked) { applyTheme('dark'); localStorage.setItem('theme', 'dark'); } else { applyTheme('light'); localStorage.setItem('theme', 'light'); } }); applyTheme(localStorage.getItem('theme') || 'light'); }
+            // --- End Theme Switcher Logic ---
+
+            // --- Config Data Logic ---
             if (typeof window.zonoConfig !== 'undefined') {
-                const config = window.zonoConfig; // Accede a la configuración
+                const config = window.zonoConfig;
+                const headerWhatsappLink = document.getElementById('header-whatsapp-link'); if (headerWhatsappLink) headerWhatsappLink.href = config.getWhatsAppUrl(config.whatsappGeneralQueryText);
+                const whatsappFloatButton = document.getElementById('whatsapp-float-button'); if (whatsappFloatButton) whatsappFloatButton.href = config.getWhatsAppUrl(config.whatsappCategoriesHelpText || config.whatsappHelpText);
+                const footerEmailLink = document.getElementById('footer-email-link'); const footerEmailAddressSpan = document.getElementById('footer-email-address'); if (footerEmailLink && footerEmailAddressSpan) { footerEmailLink.href = `mailto:${config.email}`; footerEmailAddressSpan.textContent = config.email; }
+                const footerFacebookLink = document.getElementById('footer-facebook-link'); if (footerFacebookLink) footerFacebookLink.href = config.facebookUrl;
+                const footerInstagramLink = document.getElementById('footer-instagram-link'); if (footerInstagramLink) footerInstagramLink.href = config.instagramUrl;
+            } else { console.error("Error: config.js no se cargó correctamente o window.zonoConfig no está definido."); }
+            // --- End Config Data Logic ---
 
-                // --- Actualizar Enlaces de WhatsApp ---
-                const headerWhatsappLink = document.getElementById('header-whatsapp-link');
-                if (headerWhatsappLink) headerWhatsappLink.href = config.getWhatsAppUrl(config.whatsappGeneralQueryText);
-
-                const whatsappFloatButton = document.getElementById('whatsapp-float-button');
-                 // Usar texto específico para categorías si existe, sino el de ayuda general
-                if (whatsappFloatButton) whatsappFloatButton.href = config.getWhatsAppUrl(config.whatsappCategoriesHelpText || config.whatsappHelpText);
-
-                // --- Actualizar Enlaces de Email ---
-                const footerEmailLink = document.getElementById('footer-email-link');
-                const footerEmailAddressSpan = document.getElementById('footer-email-address');
-                if (footerEmailLink && footerEmailAddressSpan) {
-                    footerEmailLink.href = `mailto:${config.email}`;
-                    footerEmailAddressSpan.textContent = config.email;
-                }
-
-                // --- Actualizar Enlaces de Redes Sociales ---
-                const footerFacebookLink = document.getElementById('footer-facebook-link');
-                 if (footerFacebookLink) footerFacebookLink.href = config.facebookUrl;
-                const footerInstagramLink = document.getElementById('footer-instagram-link');
-                if (footerInstagramLink) footerInstagramLink.href = config.instagramUrl;
-
-            } else {
-                console.error("Error: config.js no se cargó correctamente o window.zonoConfig no está definido.");
-            }
-
-            // Script para año en footer
             document.getElementById('year').textContent = new Date().getFullYear();
-
-            // Script para menú móvil
-            const mobileMenuButton = document.querySelector('header button.md\\:hidden');
-            const mobileMenu = document.querySelector('header div.hidden.md\\:flex');
-            if (mobileMenuButton && mobileMenu) {
-               mobileMenuButton.addEventListener('click', () => {
-                   mobileMenu.classList.toggle('hidden');
-               });
-            }
-
-        }); // Fin DOMContentLoaded
+            const mobileMenuButton = document.querySelector('header button.md\\:hidden'); const mobileMenu = document.querySelector('header div.hidden.md\\:flex'); if (mobileMenuButton && mobileMenu) { mobileMenuButton.addEventListener('click', () => { mobileMenu.classList.toggle('hidden'); }); }
+        });
     </script>
 
 </body>
 </html>
-	

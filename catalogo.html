@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="es" class="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -13,29 +13,61 @@
     <style>
         /* Estilos específicos para esta página si son necesarios */
         html { scroll-padding-top: 6rem; /* Ajustar según altura del header sticky */ }
-        .sidebar-link-active { color: #2563eb; font-weight: 600; border-left: 3px solid #2563eb; padding-left: 0.5rem; margin-left: -0.75rem; }
+        /* Estilos del Toggle Switch (Duplicados aquí por si acaso, idealmente solo en styles.css) */
+        .theme-switch-wrapper { display: flex; align-items: center; gap: 0.5rem; }
+        .theme-switch { display: inline-block; height: 24px; position: relative; width: 44px; }
+        .theme-switch input { display:none; }
+        .slider { background-color: #ccc; bottom: 0; cursor: pointer; left: 0; position: absolute; right: 0; top: 0; transition: .4s; border-radius: 34px; }
+        .slider:before { background-color: #fff; bottom: 4px; content: ""; height: 16px; left: 4px; position: absolute; transition: .4s; width: 16px; border-radius: 50%; }
+        input:checked + .slider { background-color: #3b82f6; } /* Azul */
+        input:checked + .slider:before { transform: translateX(20px); }
+        .theme-switch-wrapper .fa-sun, .theme-switch-wrapper .fa-moon { color: #6b7280; }
+        html.dark .theme-switch-wrapper .fa-sun { color: #d1d5db; }
+        html.dark .theme-switch-wrapper .fa-moon { color: #facc15; }
+        html.dark input:checked + .slider { background-color: #93c5fd; }
     </style>
+     <script>
+        // Script para aplicar tema guardado ANTES de que se renderice el contenido
+        (function() {
+            const currentTheme = localStorage.getItem('theme');
+            if (currentTheme === 'dark') {
+                document.documentElement.classList.remove('light');
+                document.documentElement.classList.add('dark');
+            } else {
+                document.documentElement.classList.remove('dark');
+                document.documentElement.classList.add('light');
+            }
+        })();
+    </script>
 </head>
-<body class="bg-gray-100 text-gray-800">
+<body class="bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200 transition-colors duration-300">
 
-    <header class="bg-white shadow-md sticky top-0 z-50">
+    <header class="bg-white dark:bg-gray-800 shadow-md sticky top-0 z-50 transition-colors duration-300">
         <nav class="container mx-auto px-6 py-4 flex justify-between items-center">
             <a href="index.html#inicio" class="flex items-center">
                 <img src="images/logo-zono.png" alt="Logo Zono Construcción y Hogar" class="h-12 md:h-16 mr-2">
             </a>
             <div class="hidden md:flex space-x-6 items-center">
-                <a href="index.html#inicio" class="text-gray-600 hover:text-blue-500 transition duration-300">Inicio</a>
-                <a href="catalogo.html" class="nav-link-active hover:text-blue-500 transition duration-300">Catálogo</a>
-                <a href="categorias.html" class="text-gray-600 hover:text-blue-500 transition duration-300">Categorías</a>
-                <a href="index.html#destacados" class="text-gray-600 hover:text-blue-500 transition duration-300">Destacados</a>
-                <a href="index.html#nosotros" class="text-gray-600 hover:text-blue-500 transition duration-300">Nosotros</a>
-                <a href="index.html#contacto" class="text-gray-600 hover:text-blue-500 transition duration-300">Contacto</a>
+                <a href="index.html#inicio" class="text-gray-600 dark:text-gray-300 hover:text-blue-500 dark:hover:text-blue-400 transition duration-300">Inicio</a>
+                <a href="catalogo.html" class="nav-link-active hover:text-blue-500 dark:hover:text-blue-400 transition duration-300">Catálogo</a>
+                <a href="categorias.html" class="text-gray-600 dark:text-gray-300 hover:text-blue-500 dark:hover:text-blue-400 transition duration-300">Categorías</a>
+                <a href="index.html#destacados" class="text-gray-600 dark:text-gray-300 hover:text-blue-500 dark:hover:text-blue-400 transition duration-300">Destacados</a>
+                <a href="index.html#nosotros" class="text-gray-600 dark:text-gray-300 hover:text-blue-500 dark:hover:text-blue-400 transition duration-300">Nosotros</a>
+                <a href="index.html#contacto" class="text-gray-600 dark:text-gray-300 hover:text-blue-500 dark:hover:text-blue-400 transition duration-300">Contacto</a>
                 <a id="header-whatsapp-link" href="#" target="_blank" class="bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded-full text-sm font-medium flex items-center space-x-1 transition duration-300">
                     <i class="fab fa-whatsapp"></i>
                     <span>WhatsApp</span>
                 </a>
+                 <div class="theme-switch-wrapper ml-4">
+                     <i class="fas fa-sun"></i>
+                    <label class="theme-switch" for="theme-checkbox">
+                        <input type="checkbox" id="theme-checkbox" />
+                        <div class="slider"></div>
+                    </label>
+                     <i class="fas fa-moon"></i>
+                </div>
             </div>
-            <button class="md:hidden flex items-center px-3 py-2 border rounded text-gray-500 border-gray-600 hover:text-blue-500 hover:border-blue-500">
+            <button class="md:hidden flex items-center px-3 py-2 border rounded text-gray-500 dark:text-gray-400 border-gray-600 dark:border-gray-500 hover:text-blue-500 dark:hover:text-blue-400 hover:border-blue-500 dark:hover:border-blue-400">
                 <svg class="fill-current h-3 w-3" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><title>Menu</title><path d="M0 3h20v2H0V3zm0 6h20v2H0V9zm0 6h20v2H0v15z"/></svg>
             </button>
         </nav>
@@ -43,160 +75,155 @@
 
     <div class="container mx-auto px-6 flex flex-col md:flex-row gap-8 py-12 md:py-16">
 
-        <aside class="w-full md:w-1/4 lg:w-1/5 md:sticky md:top-24 md:self-start bg-white p-4 rounded-lg shadow-md mb-8 md:mb-0 hidden md:block" style="max-height: calc(100vh - 7rem);">
-            <h3 class="text-lg font-semibold mb-4 text-blue-700 border-b pb-2">Categorías</h3>
+        <aside class="w-full md:w-1/4 lg:w-1/5 md:sticky md:top-24 md:self-start bg-white dark:bg-gray-800 p-4 rounded-lg shadow-md mb-8 md:mb-0 hidden md:block transition-colors duration-300" style="max-height: calc(100vh - 7rem);">
+            <h3 class="text-lg font-semibold mb-4 text-blue-700 dark:text-blue-400 border-b border-gray-300 dark:border-gray-600 pb-2">Categorías</h3>
             <nav>
                 <ul class="space-y-2">
-                    <li><a href="#cat-tanques" class="block py-1 px-2 text-gray-700 hover:text-blue-600 hover:bg-blue-50 rounded transition duration-200 sidebar-link">Tanques de Agua</a></li>
-                    <li><a href="#cat-hogar" class="block py-1 px-2 text-gray-700 hover:text-blue-600 hover:bg-blue-50 rounded transition duration-200 sidebar-link">Hogar y Climatización</a></li>
-                    <li><a href="#cat-ferreteria" class="block py-1 px-2 text-gray-700 hover:text-blue-600 hover:bg-blue-50 rounded transition duration-200 sidebar-link">Ferretería y Herramientas</a></li>
-                    <li><a href="#cat-pinturas" class="block py-1 px-2 text-gray-700 hover:text-blue-600 hover:bg-blue-50 rounded transition duration-200 sidebar-link">Pinturas y Revestimientos</a></li>
-                    <li><a href="#cat-impermeabilizantes" class="block py-1 px-2 text-gray-700 hover:text-blue-600 hover:bg-blue-50 rounded transition duration-200 sidebar-link">Impermeabilizantes</a></li>
+                    <li><a href="#cat-tanques" class="block py-1 px-2 text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-gray-700 rounded transition duration-200 sidebar-link">Tanques de Agua</a></li>
+                    <li><a href="#cat-hogar" class="block py-1 px-2 text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-gray-700 rounded transition duration-200 sidebar-link">Hogar y Climatización</a></li>
+                    <li><a href="#cat-ferreteria" class="block py-1 px-2 text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-gray-700 rounded transition duration-200 sidebar-link">Ferretería y Herramientas</a></li>
+                    <li><a href="#cat-pinturas" class="block py-1 px-2 text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-gray-700 rounded transition duration-200 sidebar-link">Pinturas y Revestimientos</a></li>
+                    <li><a href="#cat-impermeabilizantes" class="block py-1 px-2 text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-gray-700 rounded transition duration-200 sidebar-link">Impermeabilizantes</a></li>
                     </ul>
             </nav>
         </aside>
 
         <main class="w-full md:w-3/4 lg:w-4/5">
-            <h1 class="text-3xl md:text-4xl font-bold text-center mb-10 md:mb-12 text-blue-700">Catálogo de Productos</h1>
+            <h1 class="text-3xl md:text-4xl font-bold text-center mb-10 md:mb-12 text-blue-700 dark:text-blue-400">Catálogo de Productos</h1>
 
             <section id="cat-tanques" class="mb-16 scroll-mt-24">
-                <h2 class="text-2xl font-semibold border-b-2 border-blue-300 pb-2 mb-8 text-blue-700">Tanques de Agua</h2>
+                <h2 class="text-2xl font-semibold border-b-2 border-blue-300 dark:border-blue-600 pb-2 mb-8 text-blue-700 dark:text-blue-400">Tanques de Agua</h2>
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                    <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
+                    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
                         <div class="product-image-container">
                             <img src="images/Tanque Aquafort 470 Lts Beige.jpg" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Tanque Aquafort 470 Lts Beige" class="product-image">
                         </div>
                         <div class="p-4 flex flex-col flex-grow">
-                            <h4 class="text-lg font-semibold mb-1 text-blue-700 truncate" title="Tanque Aquafort 470 Lts Beige">Tanque Aquafort 470 Lts Beige</h4>
-                            <p class="text-sm text-gray-600 mb-3 flex-grow">Tanque de agua tricapa con garantía de fábrica. Color beige.</p>
+                            <h4 class="text-lg font-semibold mb-1 text-blue-700 dark:text-blue-400 truncate" title="Tanque Aquafort 470 Lts Beige">Tanque Aquafort 470 Lts Beige</h4>
+                            <p class="text-sm text-gray-600 dark:text-gray-300 mb-3 flex-grow">Tanque de agua tricapa con garantía de fábrica. Color beige.</p>
                             <a href="#" data-producto="Tanque Aquafort 470 Lts Beige" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
                         </div>
                     </div>
-                     <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
+                     <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
                         <div class="product-image-container">
                             <img src="images/Tanque Aquafort 470 Lts Negro.jpg" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Tanque Aquafort 470 Lts Negro" class="product-image">
                         </div>
                         <div class="p-4 flex flex-col flex-grow">
-                            <h4 class="text-lg font-semibold mb-1 text-blue-700 truncate" title="Tanque Aquafort 470 Lts Negro">Tanque Aquafort 470 Lts Negro</h4>
-                            <p class="text-sm text-gray-600 mb-3 flex-grow">Tanque de agua bicapa con garantía de fábrica. Color negro.</p>
-                             <a href="#" data-producto="Tanque Aquafort 470 Lts Negro" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
+                            <h4 class="text-lg font-semibold mb-1 text-blue-700 dark:text-blue-400 truncate" title="Tanque Aquafort 470 Lts Negro">Tanque Aquafort 470 Lts Negro</h4>
+                            <p class="text-sm text-gray-600 dark:text-gray-300 mb-3 flex-grow">Tanque de agua bicapa con garantía de fábrica. Color negro.</p>
+                            <a href="#" data-producto="Tanque Aquafort 470 Lts Negro" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
                         </div>
                     </div>
-                    <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
+                    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
                         <div class="product-image-container">
                              <img src="https://placehold.co/600x600/77aabb/ffffff?text=Tanque+1100L" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Tanque Aquafort 1100L Tricapa" class="product-image">
                         </div>
                         <div class="p-4 flex flex-col flex-grow">
-                             <h4 class="text-lg font-semibold mb-1 text-blue-700 truncate" title="Tanque Aquafort 1100L Tricapa">Tanque Aquafort 1100L Tricapa</h4>
-                            <p class="text-sm text-gray-600 mb-3 flex-grow">Mayor capacidad, ideal para familias. Protección UV y antibacteriana.</p>
-                             <a href="#" data-producto="Tanque Aquafort 1100L Tricapa" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
+                             <h4 class="text-lg font-semibold mb-1 text-blue-700 dark:text-blue-400 truncate" title="Tanque Aquafort 1100L Tricapa">Tanque Aquafort 1100L Tricapa</h4>
+                            <p class="text-sm text-gray-600 dark:text-gray-300 mb-3 flex-grow">Mayor capacidad, ideal para familias. Protección UV y antibacteriana.</p>
+                            <a href="#" data-producto="Tanque Aquafort 1100L Tricapa" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
                         </div>
                     </div>
                 </div>
             </section>
 
             <section id="cat-hogar" class="mb-16 scroll-mt-24">
-                <h2 class="text-2xl font-semibold border-b-2 border-blue-300 pb-2 mb-8 text-blue-700">Hogar y Climatización</h2>
+                <h2 class="text-2xl font-semibold border-b-2 border-blue-300 dark:border-blue-600 pb-2 mb-8 text-blue-700 dark:text-blue-400">Hogar y Climatización</h2>
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                    <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
+                    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
                         <div class="product-image-container">
                              <img src="images/TermotanqueSirena.webp" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Termotanque Sirena 40 Litros" class="product-image">
                         </div>
                         <div class="p-4 flex flex-col flex-grow">
-                             <h4 class="text-lg font-semibold mb-1 text-blue-700 truncate" title="Termotanque Sirena 40 Litros">Termotanque Sirena 40 Litros</h4>
-                            <p class="text-sm text-gray-600 mb-3 flex-grow">Termotanque eléctrico de colgar. Capacidad 40 litros. Marca Sirena.</p>
-                             <a href="#" data-producto="Termotanque Sirena 40L" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
+                             <h4 class="text-lg font-semibold mb-1 text-blue-700 dark:text-blue-400 truncate" title="Termotanque Sirena 40 Litros">Termotanque Sirena 40 Litros</h4>
+                            <p class="text-sm text-gray-600 dark:text-gray-300 mb-3 flex-grow">Termotanque eléctrico de colgar. Capacidad 40 litros. Marca Sirena.</p>
+                            <a href="#" data-producto="Termotanque Sirena 40L" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
                         </div>
                     </div>
-                     <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
+                     <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
                         <div class="product-image-container">
                              <img src="images/TermotanqueSirena.webp" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Termotanque Sirena 60 Litros" class="product-image">
                         </div>
                         <div class="p-4 flex flex-col flex-grow">
-                             <h4 class="text-lg font-semibold mb-1 text-blue-700 truncate" title="Termotanque Sirena 60 Litros">Termotanque Sirena 60 Litros</h4>
-                            <p class="text-sm text-gray-600 mb-3 flex-grow">Termotanque eléctrico de colgar. Capacidad 60 litros. Marca Sirena.</p>
-                             <a href="#" data-producto="Termotanque Sirena 60L" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
+                             <h4 class="text-lg font-semibold mb-1 text-blue-700 dark:text-blue-400 truncate" title="Termotanque Sirena 60 Litros">Termotanque Sirena 60 Litros</h4>
+                            <p class="text-sm text-gray-600 dark:text-gray-300 mb-3 flex-grow">Termotanque eléctrico de colgar. Capacidad 60 litros. Marca Sirena.</p>
+                            <a href="#" data-producto="Termotanque Sirena 60L" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
                         </div>
                     </div>
-                     <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
+                     <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
                         <div class="product-image-container">
                              <img src="images/TermotanqueSirena.webp" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Termotanque Sirena 90 Litros" class="product-image">
                         </div>
                         <div class="p-4 flex flex-col flex-grow">
-                             <h4 class="text-lg font-semibold mb-1 text-blue-700 truncate" title="Termotanque Sirena 90 Litros">Termotanque Sirena 90 Litros</h4>
-                            <p class="text-sm text-gray-600 mb-3 flex-grow">Termotanque eléctrico de colgar. Capacidad 90 litros. Marca Sirena.</p>
-                             <a href="#" data-producto="Termotanque Sirena 90L" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
+                             <h4 class="text-lg font-semibold mb-1 text-blue-700 dark:text-blue-400 truncate" title="Termotanque Sirena 90 Litros">Termotanque Sirena 90 Litros</h4>
+                            <p class="text-sm text-gray-600 dark:text-gray-300 mb-3 flex-grow">Termotanque eléctrico de colgar. Capacidad 90 litros. Marca Sirena.</p>
+                            <a href="#" data-producto="Termotanque Sirena 90L" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
                         </div>
                     </div>
                     </div>
             </section>
 
              <section id="cat-ferreteria" class="mb-16 scroll-mt-24">
-                <h2 class="text-2xl font-semibold border-b-2 border-blue-300 pb-2 mb-8 text-blue-700">Ferretería y Herramientas</h2>
+                <h2 class="text-2xl font-semibold border-b-2 border-blue-300 dark:border-blue-600 pb-2 mb-8 text-blue-700 dark:text-blue-400">Ferretería y Herramientas</h2>
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                    <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
+                    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
                         <div class="product-image-container">
                             <img src="images/escalera-articulada-gardenlife-4x4.webp" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Escalera Articulada Garden Life 4x4" class="product-image">
                         </div>
                         <div class="p-4 flex flex-col flex-grow">
-                            <h4 class="text-lg font-semibold mb-1 text-blue-700 truncate" title="Escalera Articulada Garden Life 4x4">Escalera Articulada Garden Life 4x4</h4>
-                             <p class="text-sm text-gray-600 mb-3 flex-grow">Versátil y segura. Múltiples posiciones. Ideal para hogar y trabajo.</p>
-                             <a href="#" data-producto="Escalera Articulada Garden Life 4x4" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
+                            <h4 class="text-lg font-semibold mb-1 text-blue-700 dark:text-blue-400 truncate" title="Escalera Articulada Garden Life 4x4">Escalera Articulada Garden Life 4x4</h4>
+                             <p class="text-sm text-gray-600 dark:text-gray-300 mb-3 flex-grow">Versátil y segura. Múltiples posiciones. Ideal para hogar y trabajo.</p>
+                            <a href="#" data-producto="Escalera Articulada Garden Life 4x4" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
                         </div>
                     </div>
-                    <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
+                    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
                         <div class="product-image-container">
                              <img src="https://placehold.co/600x600/aa77bb/ffffff?text=Herramienta+Ej" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Kit Herramientas Manuales" class="product-image">
                         </div>
                         <div class="p-4 flex flex-col flex-grow">
-                             <h4 class="text-lg font-semibold mb-1 text-blue-700 truncate" title="Kit Herramientas Manuales">Kit Herramientas Manuales</h4>
-                            <p class="text-sm text-gray-600 mb-3 flex-grow">Juego básico de pinzas, destornilladores y llave ajustable.</p>
-                             <a href="#" data-producto="Kit Herramientas Manuales" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
+                             <h4 class="text-lg font-semibold mb-1 text-blue-700 dark:text-blue-400 truncate" title="Kit Herramientas Manuales">Kit Herramientas Manuales</h4>
+                            <p class="text-sm text-gray-600 dark:text-gray-300 mb-3 flex-grow">Juego básico de pinzas, destornilladores y llave ajustable.</p>
+                            <a href="#" data-producto="Kit Herramientas Manuales" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
                         </div>
                     </div>
                 </div>
             </section>
 
             <section id="cat-pinturas" class="mb-16 scroll-mt-24">
-                 <h2 class="text-2xl font-semibold border-b-2 border-blue-300 pb-2 mb-8 text-blue-700">Pinturas y Revestimientos</h2>
+                 <h2 class="text-2xl font-semibold border-b-2 border-blue-300 dark:border-blue-600 pb-2 mb-8 text-blue-700 dark:text-blue-400">Pinturas y Revestimientos</h2>
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                    <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
+                    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
                         <div class="product-image-container">
                              <img src="https://placehold.co/800x600/aaaaaa/555555?text=Producto+4" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Combo Pintura Látex Interior 20L + Rodillo" class="product-image">
                         </div>
                         <div class="p-4 flex flex-col flex-grow">
-                             <h4 class="text-lg font-semibold mb-1 text-blue-700 truncate" title="Combo Pintura Látex Interior 20L + Rodillo">Combo Pintura Látex Interior 20L + Rodillo</h4>
-                            <p class="text-sm text-gray-600 mb-3 flex-grow">Excelente poder cubritivo. Acabado mate lavable. Incluye rodillo de regalo.</p>
-                             <a href="#" data-producto="Combo Pintura Látex Interior 20L" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
+                             <h4 class="text-lg font-semibold mb-1 text-blue-700 dark:text-blue-400 truncate" title="Combo Pintura Látex Interior 20L + Rodillo">Combo Pintura Látex Interior 20L + Rodillo</h4>
+                            <p class="text-sm text-gray-600 dark:text-gray-300 mb-3 flex-grow">Excelente poder cubritivo. Acabado mate lavable. Incluye rodillo de regalo.</p>
+                            <a href="#" data-producto="Combo Pintura Látex Interior 20L" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
                         </div>
                     </div>
                     </div>
             </section>
 
             <section id="cat-impermeabilizantes" class="mb-16 scroll-mt-24">
-                 <h2 class="text-2xl font-semibold border-b-2 border-blue-300 pb-2 mb-8 text-blue-700">Impermeabilizantes</h2>
+                 <h2 class="text-2xl font-semibold border-b-2 border-blue-300 dark:border-blue-600 pb-2 mb-8 text-blue-700 dark:text-blue-400">Impermeabilizantes</h2>
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                     <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
+                     <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
                         <div class="product-image-container">
                              <img src="https://placehold.co/600x600/aabb77/ffffff?text=Membrana" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Membrana en Pasta MEP 20kg" class="product-image">
                         </div>
                         <div class="p-4 flex flex-col flex-grow">
-                             <h4 class="text-lg font-semibold mb-1 text-blue-700 truncate" title="Membrana en Pasta MEP 20kg">Membrana en Pasta MEP 20kg</h4>
-                            <p class="text-sm text-gray-600 mb-3 flex-grow">Ideal para techos y terrazas. Alto rendimiento y durabilidad. Color blanco.</p>
-                             <a href="#" data-producto="Membrana en Pasta MEP 20kg" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
+                             <h4 class="text-lg font-semibold mb-1 text-blue-700 dark:text-blue-400 truncate" title="Membrana en Pasta MEP 20kg">Membrana en Pasta MEP 20kg</h4>
+                            <p class="text-sm text-gray-600 dark:text-gray-300 mb-3 flex-grow">Ideal para techos y terrazas. Alto rendimiento y durabilidad. Color blanco.</p>
+                            <a href="#" data-producto="Membrana en Pasta MEP 20kg" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
                         </div>
                     </div>
                     </div>
             </section>
 
-        </main> </div> <a id="whatsapp-float-button" href="#"
-       class="whatsapp-float"
-       target="_blank"
-       aria-label="Contactar por WhatsApp">
-        <i class="fab fa-whatsapp"></i>
-    </a>
+        </main> </div> <a id="whatsapp-float-button" href="#" class="whatsapp-float" target="_blank" aria-label="Contactar por WhatsApp"><i class="fab fa-whatsapp"></i></a>
 
-    <footer class="bg-gray-800 text-gray-300 py-8">
+    <footer class="bg-gray-800 dark:bg-black text-gray-300 dark:text-gray-400 py-8 transition-colors duration-300">
         <div class="container mx-auto px-6 text-center">
             <p>© <span id="year"></span> Zono Construcción y Hogar. Todos los derechos reservados.</p>
             <p class="text-sm mt-2">Remedios de Escalada 4747, Villa Luzuriaga</p>
@@ -207,104 +234,73 @@
                 <a href="index.html#contacto" class="hover:text-blue-400 transition duration-300 px-2">Contacto</a>
             </div>
             <div class="mt-4">
-                 <a id="footer-email-link" href="#" class="text-sm text-blue-400 hover:text-blue-300 transition duration-300 mx-2">
-                     <i class="fas fa-envelope mr-1"></i> <span id="footer-email-address"></span>
-                 </a>
+                 <a id="footer-email-link" href="#" class="text-sm text-blue-400 hover:text-blue-300 transition duration-300 mx-2"><i class="fas fa-envelope mr-1"></i> <span id="footer-email-address"></span></a>
             </div>
             <div class="mt-3 flex justify-center space-x-4">
-                 <a id="footer-facebook-link" href="#" target="_blank" class="text-gray-400 hover:text-blue-400 transition duration-300" title="Facebook">
-                     <i class="fab fa-facebook-f text-xl"></i>
-                 </a>
-                 <a id="footer-instagram-link" href="#" target="_blank" class="text-gray-400 hover:text-pink-400 transition duration-300" title="Instagram">
-                     <i class="fab fa-instagram text-xl"></i>
-                 </a>
+                 <a id="footer-facebook-link" href="#" target="_blank" class="text-gray-400 hover:text-blue-400 transition duration-300" title="Facebook"><i class="fab fa-facebook-f text-xl"></i></a>
+                 <a id="footer-instagram-link" href="#" target="_blank" class="text-gray-400 hover:text-pink-400 transition duration-300" title="Instagram"><i class="fab fa-instagram text-xl"></i></a>
             </div>
         </div>
     </footer>
 
     <script src="config.js"></script>
     <script>
-        // Espera a que el DOM esté completamente cargado
         document.addEventListener('DOMContentLoaded', () => {
-            // Verifica si zonoConfig está definido
-            if (typeof window.zonoConfig !== 'undefined') {
-                const config = window.zonoConfig; // Accede a la configuración
+            // --- Theme Switcher Logic ---
+            const themeToggle = document.getElementById('theme-checkbox');
+            const htmlElement = document.documentElement;
+            const applyTheme = (theme) => {
+                if (theme === 'dark') { htmlElement.classList.remove('light'); htmlElement.classList.add('dark'); if(themeToggle) themeToggle.checked = true; }
+                else { htmlElement.classList.remove('dark'); htmlElement.classList.add('light'); if(themeToggle) themeToggle.checked = false; }
+            };
+            if (themeToggle) {
+                themeToggle.addEventListener('change', () => { if (themeToggle.checked) { applyTheme('dark'); localStorage.setItem('theme', 'dark'); } else { applyTheme('light'); localStorage.setItem('theme', 'light'); } });
+                applyTheme(localStorage.getItem('theme') || 'light');
+            }
+            // --- End Theme Switcher Logic ---
 
-                // --- Actualizar Enlaces de WhatsApp ---
+            // --- Config Data Logic ---
+            if (typeof window.zonoConfig !== 'undefined') {
+                const config = window.zonoConfig;
                 const headerWhatsappLink = document.getElementById('header-whatsapp-link');
                 if (headerWhatsappLink) headerWhatsappLink.href = config.getWhatsAppUrl(config.whatsappGeneralQueryText);
-
                 const whatsappFloatButton = document.getElementById('whatsapp-float-button');
-                 // Usar texto específico para catálogo si existe, sino el de ayuda general
                 if (whatsappFloatButton) whatsappFloatButton.href = config.getWhatsAppUrl(config.whatsappCatalogHelpText || config.whatsappHelpText);
-
                 const productWhatsappLinks = document.querySelectorAll('.whatsapp-product-link');
-                productWhatsappLinks.forEach(link => {
-                    const productName = link.getAttribute('data-producto');
-                    link.href = config.getWhatsAppUrl(productName ? config.whatsappProductQueryBaseText + productName : config.whatsappGeneralQueryText);
-                });
-
-                // --- Actualizar Enlaces de Email ---
+                productWhatsappLinks.forEach(link => { const productName = link.getAttribute('data-producto'); link.href = config.getWhatsAppUrl(productName ? config.whatsappProductQueryBaseText + productName : config.whatsappGeneralQueryText); });
                 const footerEmailLink = document.getElementById('footer-email-link');
                 const footerEmailAddressSpan = document.getElementById('footer-email-address');
-                if (footerEmailLink && footerEmailAddressSpan) {
-                    footerEmailLink.href = `mailto:${config.email}`;
-                    footerEmailAddressSpan.textContent = config.email;
-                }
-
-                // --- Actualizar Enlaces de Redes Sociales ---
+                if (footerEmailLink && footerEmailAddressSpan) { footerEmailLink.href = `mailto:${config.email}`; footerEmailAddressSpan.textContent = config.email; }
                 const footerFacebookLink = document.getElementById('footer-facebook-link');
                  if (footerFacebookLink) footerFacebookLink.href = config.facebookUrl;
                 const footerInstagramLink = document.getElementById('footer-instagram-link');
                 if (footerInstagramLink) footerInstagramLink.href = config.instagramUrl;
+            } else { console.error("Error: config.js no se cargó correctamente o window.zonoConfig no está definido."); }
+            // --- End Config Data Logic ---
 
-            } else {
-                console.error("Error: config.js no se cargó correctamente o window.zonoConfig no está definido.");
-            }
-
-            // Script para año en footer
             document.getElementById('year').textContent = new Date().getFullYear();
-
-            // Script para menú móvil
             const mobileMenuButton = document.querySelector('header button.md\\:hidden');
             const mobileMenu = document.querySelector('header div.hidden.md\\:flex');
-            if (mobileMenuButton && mobileMenu) {
-               mobileMenuButton.addEventListener('click', () => {
-                   mobileMenu.classList.toggle('hidden');
-               });
-            }
+            if (mobileMenuButton && mobileMenu) { mobileMenuButton.addEventListener('click', () => { mobileMenu.classList.toggle('hidden'); }); }
 
-             // Script para resaltar enlace activo en sidebar al hacer scroll
+            // Script para resaltar enlace activo en sidebar al hacer scroll
             const sections = document.querySelectorAll('main section[id^="cat-"]');
             const sidebarLinks = document.querySelectorAll('.sidebar-link');
-
             if (sections.length > 0 && sidebarLinks.length > 0) {
-                const observerOptions = {
-                    root: null,
-                    rootMargin: '-20% 0px -70% 0px',
-                    threshold: 0
-                };
-
+                const observerOptions = { root: null, rootMargin: '-20% 0px -70% 0px', threshold: 0 };
                 const observer = new IntersectionObserver(entries => {
                     entries.forEach(entry => {
                         const id = entry.target.getAttribute('id');
                         const correspondingLink = document.querySelector(`.sidebar-link[href="#${id}"]`);
-
                         if (entry.isIntersecting) {
                             sidebarLinks.forEach(link => link.classList.remove('sidebar-link-active'));
-                            if (correspondingLink) {
-                                correspondingLink.classList.add('sidebar-link-active');
-                            }
+                            if (correspondingLink) { correspondingLink.classList.add('sidebar-link-active'); }
                         }
                     });
                 }, observerOptions);
-
-                sections.forEach(section => {
-                    observer.observe(section);
-                });
+                sections.forEach(section => { observer.observe(section); });
             }
-
-        }); // Fin DOMContentLoaded
+        });
     </script>
 
 </body>

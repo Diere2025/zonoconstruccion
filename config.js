@@ -29,3 +29,4 @@ const config = {
 // Hacemos que 'config' esté disponible globalmente (forma simple para este caso)
 window.zonoConfig = config;
 
+	

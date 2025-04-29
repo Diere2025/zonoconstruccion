@@ -28,7 +28,14 @@ body {
     bottom: 0;
     background-color: rgba(0, 0, 0, 0.3); /* Superposición sobre color */
     z-index: 1;
+    transition: background-color 0.3s ease; /* Transición suave */
 }
+/* Opcional: Ajustar overlay en dark mode si el fondo del hero cambia */
+/*
+html.dark .hero-overlay::before {
+    background-color: rgba(0, 0, 0, 0.5);
+}
+*/
 
 .hero-content {
     position: relative;
@@ -42,6 +49,12 @@ body {
     background-color: #e9ecef; /* Fondo suave mientras carga */
     border-bottom: 1px solid #ddd; /* Línea separadora sutil */
 }
+/* Fondo de imagen en dark mode */
+html.dark .category-image-index {
+    background-color: #4b5563; /* gray-600 */
+    border-bottom-color: #374151; /* gray-700 */
+}
+
 
 /* --- Estilos para Imágenes de Producto (Catálogo) 1:1 --- */
 /* Contenedor que fuerza la relación de aspecto cuadrada */
@@ -50,7 +63,12 @@ body {
     width: 100%;
     padding-top: 100%; /* 1:1 Aspect Ratio (altura = anchura) */
     overflow: hidden; /* Oculta partes de la imagen que se salgan */
-    background-color: #ffffff; /* Fondo blanco para espacios vacíos */
+    background-color: #ffffff; /* Fondo blanco por defecto */
+    transition: background-color 0.3s ease;
+}
+/* Fondo del contenedor en dark mode */
+html.dark .product-image-container {
+    background-color: #374151; /* gray-700, un gris oscuro */
 }
 
 /* Estilo para la imagen dentro del contenedor */
@@ -81,19 +99,12 @@ body {
     width: 100%;
     height: 100%;
 }
+html.dark .placeholder-img {
+    background-color: #4b5563; /* gray-600 */
+    color: #d1d5db; /* gray-300 */
+    border-color: #6b7280; /* gray-500 */
+}
 
-/* Contenedor para placeholder en destacados (si es diferente) */
-/* Nota: Este contenedor se usaba antes del slider, puede que ya no sea necesario */
-/* .placeholder-img-container {
-     width: 100%;
-     height: 14rem; /* h-56 */
-     /* overflow: hidden;
-     display: flex;
-     align-items: center;
-     justify-content: center;
-     background-color: #e9ecef;
-     border-bottom: 1px solid #ddd;
-} */
 
 /* Estilo para botón flotante de WhatsApp */
 .whatsapp-float {
@@ -114,15 +125,23 @@ body {
     justify-content: center;
     transition: background-color 0.3s ease; /* Transición suave */
 }
-
 .whatsapp-float:hover {
     background-color: #128C7E; /* Verde más oscuro al pasar el mouse */
 }
+/* Sombra en dark mode */
+html.dark .whatsapp-float {
+     box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.5);
+}
+
 
  /* Estilo para el enlace activo o actual en la navegación */
 .nav-link-active {
     font-weight: 600; /* semibold */
     color: #3b82f6; /* Tailwind blue-500 */
+}
+/* Enlace activo en dark mode */
+html.dark .nav-link-active {
+    color: #60a5fa; /* Tailwind blue-400 */
 }
 
 /* Estilo para el contenedor del mapa */
@@ -134,6 +153,10 @@ body {
     border-radius: 0.5rem; /* rounded-lg */
     box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1); /* shadow-md */
 }
+/* Sombra del mapa en dark mode */
+html.dark .map-container {
+    box-shadow: 0 4px 6px -1px rgb(255 255 255 / 0.1), 0 2px 4px -2px rgb(255 255 255 / 0.05);
+}
 
 .map-container iframe {
     position: absolute;
@@ -143,6 +166,12 @@ body {
     height: 100%;
     border: 0; /* Quita el borde por defecto del iframe */
 }
+/* Filtro para invertir colores del mapa en dark mode (opcional, puede no verse perfecto) */
+/*
+html.dark .map-container iframe {
+    filter: invert(100%) hue-rotate(180deg);
+}
+*/
 
 /* Estilos para la sidebar del catálogo */
 /* Asegurar que el scroll-margin-top funcione con el header sticky */
@@ -157,6 +186,12 @@ html {
     padding-left: 0.5rem; /* Ajustar padding para el borde */
     margin-left: -0.75rem; /* Compensar padding para alinear texto */
     background-color: #eff6ff; /* Tailwind blue-50 */
+}
+/* Sidebar activa en dark mode */
+html.dark .sidebar-link-active {
+    color: #60a5fa; /* blue-400 */
+    border-left-color: #60a5fa;
+    background-color: #1f2937; /* gray-800 */
 }
 
 /* Estilos para el slider de productos destacados */
@@ -200,6 +235,15 @@ html {
     background-color: rgba(0, 0, 0, 0.2);
     cursor: not-allowed;
 }
-
-/* Otros estilos personalizados que necesites pueden ir aquí */
+/* Botones slider en dark mode */
+html.dark .slider-button {
+    background-color: rgba(255, 255, 255, 0.3);
+    color: #1f2937; /* gray-800 */
+}
+html.dark .slider-button:hover {
+    background-color: rgba(255, 255, 255, 0.5);
+}
+html.dark .slider-button:disabled {
+    background-color: rgba(255, 255, 255, 0.1);
+}
 
