@@ -11,31 +11,31 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <link rel="stylesheet" href="styles.css">
     <style>
-        /* Estilos específicos para esta página si son necesarios */
+        /* Estilos específicos mínimos */
         html { scroll-padding-top: 6rem; /* Ajustar según altura del header sticky */ }
-        /* Estilos del Toggle Switch (Duplicados aquí por si acaso, idealmente solo en styles.css) */
-        .theme-switch-wrapper { display: flex; align-items: center; gap: 0.5rem; }
-        .theme-switch { display: inline-block; height: 24px; position: relative; width: 44px; }
-        .theme-switch input { display:none; }
-        .slider { background-color: #ccc; bottom: 0; cursor: pointer; left: 0; position: absolute; right: 0; top: 0; transition: .4s; border-radius: 34px; }
-        .slider:before { background-color: #fff; bottom: 4px; content: ""; height: 16px; left: 4px; position: absolute; transition: .4s; width: 16px; border-radius: 50%; }
-        input:checked + .slider { background-color: #3b82f6; } /* Azul */
-        input:checked + .slider:before { transform: translateX(20px); }
-        .theme-switch-wrapper .fa-sun, .theme-switch-wrapper .fa-moon { color: #6b7280; }
-        html.dark .theme-switch-wrapper .fa-sun { color: #d1d5db; }
-        html.dark .theme-switch-wrapper .fa-moon { color: #facc15; }
-        html.dark input:checked + .slider { background-color: #93c5fd; }
+        /* Estilos del sidebar activo (ya están en styles.css, pero por si acaso) */
+        .sidebar-link-active { color: #2563eb; font-weight: 600; border-left: 3px solid #2563eb; padding-left: 0.5rem; margin-left: -0.75rem; background-color: #eff6ff; }
+        html.dark .sidebar-link-active { color: #60a5fa; border-left-color: #60a5fa; background-color: #1f2937; }
     </style>
      <script>
-        // Script para aplicar tema guardado ANTES de que se renderice el contenido
+        // Script para aplicar tema guardado (o preferencia de sistema si no hay nada guardado)
+        // Se ejecuta ANTES de que se renderice el contenido para evitar FOUC
         (function() {
-            const currentTheme = localStorage.getItem('theme');
-            if (currentTheme === 'dark') {
-                document.documentElement.classList.remove('light');
-                document.documentElement.classList.add('dark');
-            } else {
-                document.documentElement.classList.remove('dark');
-                document.documentElement.classList.add('light');
+            try {
+                const currentTheme = localStorage.getItem('theme');
+                const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                if (currentTheme === 'dark' || (!currentTheme && prefersDark)) {
+                    document.documentElement.classList.add('dark');
+                    document.documentElement.classList.remove('light');
+                } else {
+                    document.documentElement.classList.add('light');
+                    document.documentElement.classList.remove('dark');
+                }
+            } catch (e) {
+                console.error("Error applying initial theme:", e);
+                // Fallback a claro si hay error
+                 document.documentElement.classList.add('light');
+                 document.documentElement.classList.remove('dark');
             }
         })();
     </script>
@@ -58,15 +58,7 @@
                     <i class="fab fa-whatsapp"></i>
                     <span>WhatsApp</span>
                 </a>
-                 <div class="theme-switch-wrapper ml-4">
-                     <i class="fas fa-sun"></i>
-                    <label class="theme-switch" for="theme-checkbox">
-                        <input type="checkbox" id="theme-checkbox" />
-                        <div class="slider"></div>
-                    </label>
-                     <i class="fas fa-moon"></i>
                 </div>
-            </div>
             <button class="md:hidden flex items-center px-3 py-2 border rounded text-gray-500 dark:text-gray-400 border-gray-600 dark:border-gray-500 hover:text-blue-500 dark:hover:text-blue-400 hover:border-blue-500 dark:hover:border-blue-400">
                 <svg class="fill-current h-3 w-3" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><title>Menu</title><path d="M0 3h20v2H0V3zm0 6h20v2H0V9zm0 6h20v2H0v15z"/></svg>
             </button>
@@ -246,42 +238,29 @@
     <script src="config.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
-            // --- Theme Switcher Logic ---
-            const themeToggle = document.getElementById('theme-checkbox');
+            // --- Theme Initializer (No toggle interaction needed) ---
             const htmlElement = document.documentElement;
             const applyTheme = (theme) => {
-                if (theme === 'dark') { htmlElement.classList.remove('light'); htmlElement.classList.add('dark'); if(themeToggle) themeToggle.checked = true; }
-                else { htmlElement.classList.remove('dark'); htmlElement.classList.add('light'); if(themeToggle) themeToggle.checked = false; }
+                if (theme === 'dark') { htmlElement.classList.remove('light'); htmlElement.classList.add('dark'); }
+                else { htmlElement.classList.remove('dark'); htmlElement.classList.add('light'); }
             };
-            if (themeToggle) {
-                themeToggle.addEventListener('change', () => { if (themeToggle.checked) { applyTheme('dark'); localStorage.setItem('theme', 'dark'); } else { applyTheme('light'); localStorage.setItem('theme', 'light'); } });
-                applyTheme(localStorage.getItem('theme') || 'light');
-            }
-            // --- End Theme Switcher Logic ---
+            applyTheme(localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+            // --- End Theme Initializer ---
 
             // --- Config Data Logic ---
             if (typeof window.zonoConfig !== 'undefined') {
                 const config = window.zonoConfig;
-                const headerWhatsappLink = document.getElementById('header-whatsapp-link');
-                if (headerWhatsappLink) headerWhatsappLink.href = config.getWhatsAppUrl(config.whatsappGeneralQueryText);
-                const whatsappFloatButton = document.getElementById('whatsapp-float-button');
-                if (whatsappFloatButton) whatsappFloatButton.href = config.getWhatsAppUrl(config.whatsappCatalogHelpText || config.whatsappHelpText);
-                const productWhatsappLinks = document.querySelectorAll('.whatsapp-product-link');
-                productWhatsappLinks.forEach(link => { const productName = link.getAttribute('data-producto'); link.href = config.getWhatsAppUrl(productName ? config.whatsappProductQueryBaseText + productName : config.whatsappGeneralQueryText); });
-                const footerEmailLink = document.getElementById('footer-email-link');
-                const footerEmailAddressSpan = document.getElementById('footer-email-address');
-                if (footerEmailLink && footerEmailAddressSpan) { footerEmailLink.href = `mailto:${config.email}`; footerEmailAddressSpan.textContent = config.email; }
-                const footerFacebookLink = document.getElementById('footer-facebook-link');
-                 if (footerFacebookLink) footerFacebookLink.href = config.facebookUrl;
-                const footerInstagramLink = document.getElementById('footer-instagram-link');
-                if (footerInstagramLink) footerInstagramLink.href = config.instagramUrl;
+                const headerWhatsappLink = document.getElementById('header-whatsapp-link'); if (headerWhatsappLink) headerWhatsappLink.href = config.getWhatsAppUrl(config.whatsappGeneralQueryText);
+                const whatsappFloatButton = document.getElementById('whatsapp-float-button'); if (whatsappFloatButton) whatsappFloatButton.href = config.getWhatsAppUrl(config.whatsappCatalogHelpText || config.whatsappHelpText);
+                const productWhatsappLinks = document.querySelectorAll('.whatsapp-product-link'); productWhatsappLinks.forEach(link => { const productName = link.getAttribute('data-producto'); link.href = config.getWhatsAppUrl(productName ? config.whatsappProductQueryBaseText + productName : config.whatsappGeneralQueryText); });
+                const footerEmailLink = document.getElementById('footer-email-link'); const footerEmailAddressSpan = document.getElementById('footer-email-address'); if (footerEmailLink && footerEmailAddressSpan) { footerEmailLink.href = `mailto:${config.email}`; footerEmailAddressSpan.textContent = config.email; }
+                const footerFacebookLink = document.getElementById('footer-facebook-link'); if (footerFacebookLink) footerFacebookLink.href = config.facebookUrl;
+                const footerInstagramLink = document.getElementById('footer-instagram-link'); if (footerInstagramLink) footerInstagramLink.href = config.instagramUrl;
             } else { console.error("Error: config.js no se cargó correctamente o window.zonoConfig no está definido."); }
             // --- End Config Data Logic ---
 
             document.getElementById('year').textContent = new Date().getFullYear();
-            const mobileMenuButton = document.querySelector('header button.md\\:hidden');
-            const mobileMenu = document.querySelector('header div.hidden.md\\:flex');
-            if (mobileMenuButton && mobileMenu) { mobileMenuButton.addEventListener('click', () => { mobileMenu.classList.toggle('hidden'); }); }
+            const mobileMenuButton = document.querySelector('header button.md\\:hidden'); const mobileMenu = document.querySelector('header div.hidden.md\\:flex'); if (mobileMenuButton && mobileMenu) { mobileMenuButton.addEventListener('click', () => { mobileMenu.classList.toggle('hidden'); }); }
 
             // Script para resaltar enlace activo en sidebar al hacer scroll
             const sections = document.querySelectorAll('main section[id^="cat-"]');

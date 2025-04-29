@@ -11,31 +11,33 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <link rel="stylesheet" href="styles.css">
     <style>
-        /* Estilos específicos mínimos */
+        /* Estilos mínimos necesarios aquí */
         html { scroll-padding-top: 6rem; }
-        /* Estilos del Toggle Switch */
-        .theme-switch-wrapper { display: flex; align-items: center; gap: 0.5rem; }
-        .theme-switch { display: inline-block; height: 24px; position: relative; width: 44px; }
-        .theme-switch input { display:none; }
-        .slider { background-color: #ccc; bottom: 0; cursor: pointer; left: 0; position: absolute; right: 0; top: 0; transition: .4s; border-radius: 34px; }
-        .slider:before { background-color: #fff; bottom: 4px; content: ""; height: 16px; left: 4px; position: absolute; transition: .4s; width: 16px; border-radius: 50%; }
-        input:checked + .slider { background-color: #3b82f6; } /* Azul */
-        input:checked + .slider:before { transform: translateX(20px); }
-        .theme-switch-wrapper .fa-sun, .theme-switch-wrapper .fa-moon { color: #6b7280; /* gray-500 */ }
-        html.dark .theme-switch-wrapper .fa-sun { color: #d1d5db; /* gray-300 */ }
-        html.dark .theme-switch-wrapper .fa-moon { color: #facc15; /* yellow-400 */ }
-        html.dark input:checked + .slider { background-color: #93c5fd; } /* Azul claro */
+        /* Estilos del sidebar activo */
+        .sidebar-link-active { color: #2563eb; font-weight: 600; border-left: 3px solid #2563eb; padding-left: 0.5rem; margin-left: -0.75rem; background-color: #eff6ff; }
+        html.dark .sidebar-link-active { color: #60a5fa; border-left-color: #60a5fa; background-color: #1f2937; }
     </style>
      <script>
-        // Script para aplicar tema guardado ANTES de que se renderice el contenido
+        // Script para aplicar tema guardado (o preferencia de sistema si no hay nada guardado)
+        // Se ejecuta ANTES de que se renderice el contenido para evitar FOUC
         (function() {
-            const currentTheme = localStorage.getItem('theme');
-            if (currentTheme === 'dark') {
-                document.documentElement.classList.add('dark');
-                document.documentElement.classList.remove('light');
-            } else {
-                document.documentElement.classList.add('light');
-                document.documentElement.classList.remove('dark');
+            try {
+                const currentTheme = localStorage.getItem('theme');
+                // Verifica si hay tema guardado Y si el sistema prefiere oscuro
+                const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+                if (currentTheme === 'dark' || (!currentTheme && prefersDark)) {
+                    document.documentElement.classList.add('dark');
+                    document.documentElement.classList.remove('light');
+                } else {
+                    document.documentElement.classList.add('light');
+                    document.documentElement.classList.remove('dark');
+                }
+            } catch (e) {
+                console.error("Error applying initial theme:", e);
+                // Fallback a claro si hay error
+                 document.documentElement.classList.add('light');
+                 document.documentElement.classList.remove('dark');
             }
         })();
     </script>
@@ -58,16 +60,8 @@
                     <i class="fab fa-whatsapp"></i>
                     <span>WhatsApp</span>
                 </a>
-                 <div class="theme-switch-wrapper ml-4">
-                     <i class="fas fa-sun"></i>
-                    <label class="theme-switch" for="theme-checkbox">
-                        <input type="checkbox" id="theme-checkbox" />
-                        <div class="slider"></div>
-                    </label>
-                     <i class="fas fa-moon"></i>
                 </div>
-            </div>
-             <button class="md:hidden flex items-center px-3 py-2 border rounded text-gray-500 dark:text-gray-400 border-gray-600 dark:border-gray-500 hover:text-blue-500 dark:hover:text-blue-400 hover:border-blue-500 dark:hover:border-blue-400">
+            <button class="md:hidden flex items-center px-3 py-2 border rounded text-gray-500 dark:text-gray-400 border-gray-600 dark:border-gray-500 hover:text-blue-500 dark:hover:text-blue-400 hover:border-blue-500 dark:hover:border-blue-400">
                 <svg class="fill-current h-3 w-3" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><title>Menu</title><path d="M0 3h20v2H0V3zm0 6h20v2H0V9zm0 6h20v2H0v15z"/></svg>
             </button>
         </nav>
@@ -80,103 +74,56 @@
             <div id="category-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
 
                 <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
-                    <img src="https://placehold.co/600x338/77aabb/ffffff?text=Tanques+de+Agua"
-                         onerror="this.onerror=null; this.src='https://placehold.co/600x338/eeeeee/aaaaaa?text=Imagen+no+disponible';"
-                         alt="Categoría Tanques de Agua"
-                         class="w-full category-image"> <div class="p-5 flex flex-col flex-grow">
+                    <img src="https://placehold.co/600x338/77aabb/ffffff?text=Tanques+de+Agua" onerror="this.onerror=null; this.src='https://placehold.co/600x338/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Categoría Tanques de Agua" class="w-full category-image">
+                    <div class="p-5 flex flex-col flex-grow">
                         <h3 class="text-xl font-semibold mb-2 text-blue-700 dark:text-blue-400">Tanques de Agua</h3>
-                        <p class="text-gray-600 dark:text-gray-300 mb-4 flex-grow">
-                            Soluciones de almacenamiento para cada necesidad. Fabricación propia (Aquafort) y las mejores marcas.
-                        </p>
-                        <a href="catalogo.html#cat-tanques"
-                           class="mt-auto inline-block bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-5 rounded-lg shadow transition duration-300 text-center">
-                            Ver Productos &rarr;
-                        </a>
+                        <p class="text-gray-600 dark:text-gray-300 mb-4 flex-grow">Soluciones de almacenamiento para cada necesidad. Fabricación propia (Aquafort) y las mejores marcas.</p>
+                        <a href="catalogo.html#cat-tanques" class="mt-auto inline-block bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-5 rounded-lg shadow transition duration-300 text-center">Ver Productos &rarr;</a>
                     </div>
                 </div>
 
                 <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
-                    <img src="https://placehold.co/600x338/aabb77/ffffff?text=Impermeabilizantes"
-                         onerror="this.onerror=null; this.src='https://placehold.co/600x338/eeeeee/aaaaaa?text=Imagen+no+disponible';"
-                         alt="Categoría Impermeabilizantes"
-                         class="w-full category-image">
+                    <img src="https://placehold.co/600x338/aabb77/ffffff?text=Impermeabilizantes" onerror="this.onerror=null; this.src='https://placehold.co/600x338/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Categoría Impermeabilizantes" class="w-full category-image">
                     <div class="p-5 flex flex-col flex-grow">
                         <h3 class="text-xl font-semibold mb-2 text-blue-700 dark:text-blue-400">Impermeabilizantes</h3>
-                        <p class="text-gray-600 dark:text-gray-300 mb-4 flex-grow">
-                            Protege tus estructuras con membranas (líquidas, en pasta) y selladores de alta performance.
-                        </p>
-                        <a href="catalogo.html#cat-impermeabilizantes"
-                           class="mt-auto inline-block bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-5 rounded-lg shadow transition duration-300 text-center">
-                            Ver Productos &rarr;
-                        </a>
+                        <p class="text-gray-600 dark:text-gray-300 mb-4 flex-grow">Protege tus estructuras con membranas (líquidas, en pasta) y selladores de alta performance.</p>
+                        <a href="catalogo.html#cat-impermeabilizantes" class="mt-auto inline-block bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-5 rounded-lg shadow transition duration-300 text-center">Ver Productos &rarr;</a>
                     </div>
                 </div>
 
                 <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
-                    <img src="https://placehold.co/600x338/bb77aa/ffffff?text=Pinturas"
-                         onerror="this.onerror=null; this.src='https://placehold.co/600x338/eeeeee/aaaaaa?text=Imagen+no+disponible';"
-                         alt="Categoría Pinturas y Revestimientos"
-                         class="w-full category-image">
+                    <img src="https://placehold.co/600x338/bb77aa/ffffff?text=Pinturas" onerror="this.onerror=null; this.src='https://placehold.co/600x338/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Categoría Pinturas y Revestimientos" class="w-full category-image">
                     <div class="p-5 flex flex-col flex-grow">
                         <h3 class="text-xl font-semibold mb-2 text-blue-700 dark:text-blue-400">Pinturas y Revestimientos</h3>
-                        <p class="text-gray-600 dark:text-gray-300 mb-4 flex-grow">
-                            Amplia gama de látex, esmaltes, impermeabilizantes y combos para renovar tus espacios.
-                        </p>
-                        <a href="catalogo.html#cat-pinturas"
-                           class="mt-auto inline-block bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-5 rounded-lg shadow transition duration-300 text-center">
-                            Ver Productos &rarr;
-                        </a>
+                        <p class="text-gray-600 dark:text-gray-300 mb-4 flex-grow">Amplia gama de látex, esmaltes, impermeabilizantes y combos para renovar tus espacios.</p>
+                        <a href="catalogo.html#cat-pinturas" class="mt-auto inline-block bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-5 rounded-lg shadow transition duration-300 text-center">Ver Productos &rarr;</a>
                     </div>
                 </div>
 
                 <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
-                    <img src="https://placehold.co/600x338/aa77bb/ffffff?text=Ferretería"
-                         onerror="this.onerror=null; this.src='https://placehold.co/600x338/eeeeee/aaaaaa?text=Imagen+no+disponible';"
-                         alt="Categoría Ferretería y Herramientas"
-                         class="w-full category-image">
+                    <img src="https://placehold.co/600x338/aa77bb/ffffff?text=Ferretería" onerror="this.onerror=null; this.src='https://placehold.co/600x338/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Categoría Ferretería y Herramientas" class="w-full category-image">
                     <div class="p-5 flex flex-col flex-grow">
                         <h3 class="text-xl font-semibold mb-2 text-blue-700 dark:text-blue-400">Ferretería y Herramientas</h3>
-                        <p class="text-gray-600 dark:text-gray-300 mb-4 flex-grow">
-                            Todo lo necesario para tus proyectos: herramientas manuales, eléctricas, escaleras, y más.
-                        </p>
-                        <a href="catalogo.html#cat-ferreteria"
-                           class="mt-auto inline-block bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-5 rounded-lg shadow transition duration-300 text-center">
-                            Ver Productos &rarr;
-                        </a>
+                        <p class="text-gray-600 dark:text-gray-300 mb-4 flex-grow">Todo lo necesario para tus proyectos: herramientas manuales, eléctricas, escaleras, y más.</p>
+                        <a href="catalogo.html#cat-ferreteria" class="mt-auto inline-block bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-5 rounded-lg shadow transition duration-300 text-center">Ver Productos &rarr;</a>
                     </div>
                 </div>
 
                 <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
-                    <img src="https://placehold.co/600x338/77aa77/ffffff?text=Hogar"
-                         onerror="this.onerror=null; this.src='https://placehold.co/600x338/eeeeee/aaaaaa?text=Imagen+no+disponible';"
-                         alt="Categoría Hogar y Climatización"
-                         class="w-full category-image">
+                    <img src="https://placehold.co/600x338/77aa77/ffffff?text=Hogar" onerror="this.onerror=null; this.src='https://placehold.co/600x338/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Categoría Hogar y Climatización" class="w-full category-image">
                     <div class="p-5 flex flex-col flex-grow">
                         <h3 class="text-xl font-semibold mb-2 text-blue-700 dark:text-blue-400">Hogar y Climatización</h3>
-                        <p class="text-gray-600 dark:text-gray-300 mb-4 flex-grow">
-                            Confort para tu hogar: termotanques, bombas, biodigestores, cámaras sépticas y más.
-                        </p>
-                        <a href="catalogo.html#cat-hogar"
-                           class="mt-auto inline-block bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-5 rounded-lg shadow transition duration-300 text-center">
-                            Ver Productos &rarr;
-                        </a>
+                        <p class="text-gray-600 dark:text-gray-300 mb-4 flex-grow">Confort para tu hogar: termotanques, bombas, biodigestores, cámaras sépticas y más.</p>
+                        <a href="catalogo.html#cat-hogar" class="mt-auto inline-block bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-5 rounded-lg shadow transition duration-300 text-center">Ver Productos &rarr;</a>
                     </div>
                 </div>
 
                  <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
-                    <img src="https://placehold.co/600x338/aaaa77/ffffff?text=Construcción"
-                         onerror="this.onerror=null; this.src='https://placehold.co/600x338/eeeeee/aaaaaa?text=Imagen+no+disponible';"
-                         alt="Categoría Materiales de Construcción"
-                         class="w-full category-image">
+                    <img src="https://placehold.co/600x338/aaaa77/ffffff?text=Construcción" onerror="this.onerror=null; this.src='https://placehold.co/600x338/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Categoría Materiales de Construcción" class="w-full category-image">
                     <div class="p-5 flex flex-col flex-grow">
                         <h3 class="text-xl font-semibold mb-2 text-blue-700 dark:text-blue-400">Materiales de Construcción</h3>
-                        <p class="text-gray-600 dark:text-gray-300 mb-4 flex-grow">
-                            Materiales básicos para obra, adhesivos, selladores y complementos.
-                        </p>
-                        <a href="catalogo.html#cat-construccion"
-                           class="mt-auto inline-block bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-5 rounded-lg shadow transition duration-300 text-center">
-                            Ver Productos &rarr;
-                        </a>
+                        <p class="text-gray-600 dark:text-gray-300 mb-4 flex-grow">Materiales básicos para obra, adhesivos, selladores y complementos.</p>
+                        <a href="catalogo.html#cat-construccion" class="mt-auto inline-block bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-5 rounded-lg shadow transition duration-300 text-center">Ver Productos &rarr;</a>
                     </div>
                 </div>
 
@@ -207,12 +154,25 @@
     <script src="config.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
-            // --- Theme Switcher Logic ---
+            // --- Theme Switcher Logic (Eliminada la interacción, solo queda la inicialización en <head>) ---
             const themeToggle = document.getElementById('theme-checkbox');
             const htmlElement = document.documentElement;
-            const applyTheme = (theme) => { if (theme === 'dark') { htmlElement.classList.remove('light'); htmlElement.classList.add('dark'); if(themeToggle) themeToggle.checked = true; } else { htmlElement.classList.remove('dark'); htmlElement.classList.add('light'); if(themeToggle) themeToggle.checked = false; } };
-            if (themeToggle) { themeToggle.addEventListener('change', () => { if (themeToggle.checked) { applyTheme('dark'); localStorage.setItem('theme', 'dark'); } else { applyTheme('light'); localStorage.setItem('theme', 'light'); } }); applyTheme(localStorage.getItem('theme') || 'light'); }
-            // --- End Theme Switcher Logic ---
+            // Función para aplicar tema (puede ser útil si se reutiliza)
+            const applyTheme = (theme) => {
+                 if (theme === 'dark') {
+                    htmlElement.classList.remove('light');
+                    htmlElement.classList.add('dark');
+                    if(themeToggle) themeToggle.checked = true;
+                 } else {
+                    htmlElement.classList.remove('dark');
+                    htmlElement.classList.add('light');
+                     if(themeToggle) themeToggle.checked = false;
+                 }
+             };
+             // Aplicar tema inicial basado en preferencia del sistema o localStorage
+             applyTheme(localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+             // --- Fin Theme Switcher Logic ---
+
 
             // --- Config Data Logic ---
             if (typeof window.zonoConfig !== 'undefined') {

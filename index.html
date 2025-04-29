@@ -11,21 +11,9 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <link rel="stylesheet" href="styles.css">
     <style>
-        /* Estilos que dependen de JS o son muy específicos de esta página */
+        /* Estilos mínimos necesarios aquí */
         html { scroll-padding-top: 6rem; }
-        /* Estilos del Toggle Switch */
-        .theme-switch-wrapper { display: flex; align-items: center; gap: 0.5rem; }
-        .theme-switch { display: inline-block; height: 24px; position: relative; width: 44px; }
-        .theme-switch input { display:none; }
-        .slider { background-color: #ccc; bottom: 0; cursor: pointer; left: 0; position: absolute; right: 0; top: 0; transition: .4s; border-radius: 34px; }
-        .slider:before { background-color: #fff; bottom: 4px; content: ""; height: 16px; left: 4px; position: absolute; transition: .4s; width: 16px; border-radius: 50%; }
-        input:checked + .slider { background-color: #3b82f6; } /* Azul */
-        input:checked + .slider:before { transform: translateX(20px); }
-        .theme-switch-wrapper .fa-sun, .theme-switch-wrapper .fa-moon { color: #6b7280; /* gray-500 */ }
-        html.dark .theme-switch-wrapper .fa-sun { color: #d1d5db; /* gray-300 */ }
-        html.dark .theme-switch-wrapper .fa-moon { color: #facc15; /* yellow-400 */ }
-        html.dark input:checked + .slider { background-color: #93c5fd; } /* Azul claro */
-        /* Estilos Slider */
+        /* Estilos Slider (ya están en styles.css, pero por si acaso) */
         .slider-container::-webkit-scrollbar { display: none; }
         .slider-container { -ms-overflow-style: none; scrollbar-width: none; }
         .slider-button { position: absolute; top: 50%; transform: translateY(-50%); background-color: rgba(0, 0, 0, 0.5); color: white; border: none; padding: 0.5rem 0.75rem; border-radius: 50%; cursor: pointer; z-index: 10; transition: background-color 0.3s ease; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; }
@@ -34,16 +22,24 @@
         .slider-button.next { right: 0.5rem; }
         .slider-button:disabled { background-color: rgba(0, 0, 0, 0.2); cursor: not-allowed; }
     </style>
-    <script>
-        // Script para aplicar tema guardado ANTES de que se renderice el contenido
+     <script>
+        // Script para aplicar tema guardado (o preferencia de sistema si no hay nada guardado)
+        // Se ejecuta ANTES de que se renderice el contenido para evitar FOUC
         (function() {
-            const currentTheme = localStorage.getItem('theme');
-            if (currentTheme === 'dark') {
-                document.documentElement.classList.remove('light');
-                document.documentElement.classList.add('dark');
-            } else {
-                document.documentElement.classList.remove('dark');
+            try {
+                const currentTheme = localStorage.getItem('theme');
+                const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                if (currentTheme === 'dark' || (!currentTheme && prefersDark)) {
+                    document.documentElement.classList.add('dark');
+                    document.documentElement.classList.remove('light');
+                } else {
+                    document.documentElement.classList.add('light');
+                    document.documentElement.classList.remove('dark');
+                }
+            } catch (e) {
+                console.error("Error applying initial theme:", e);
                 document.documentElement.classList.add('light');
+                document.documentElement.classList.remove('dark');
             }
         })();
     </script>
@@ -66,15 +62,7 @@
                     <i class="fab fa-whatsapp"></i>
                     <span>WhatsApp</span>
                 </a>
-                <div class="theme-switch-wrapper ml-4">
-                     <i class="fas fa-sun"></i>
-                    <label class="theme-switch" for="theme-checkbox">
-                        <input type="checkbox" id="theme-checkbox" />
-                        <div class="slider"></div>
-                    </label>
-                     <i class="fas fa-moon"></i>
                 </div>
-            </div>
             <button class="md:hidden flex items-center px-3 py-2 border rounded text-gray-500 dark:text-gray-400 border-gray-600 dark:border-gray-500 hover:text-blue-500 dark:hover:text-blue-400 hover:border-blue-500 dark:hover:border-blue-400">
                 <svg class="fill-current h-3 w-3" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><title>Menu</title><path d="M0 3h20v2H0V3zm0 6h20v2H0V9zm0 6h20v2H0v15z"/></svg>
             </button>
@@ -201,7 +189,7 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="slider-item flex-shrink-0 w-full sm:w-1/2 lg:w-1/4 px-3">
+                         <div class="slider-item flex-shrink-0 w-full sm:w-1/2 lg:w-1/4 px-3">
                              <div class="bg-white dark:bg-gray-700 rounded-lg shadow-md overflow-hidden group flex flex-col h-full">
                                 <div class="product-image-container">
                                      <img src="images/TermotanqueSirena.webp" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Termotanque Sirena 60 Litros" class="product-image">
@@ -326,12 +314,14 @@
     <script src="config.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
-            // --- Theme Switcher Logic ---
-            const themeToggle = document.getElementById('theme-checkbox');
+            // --- Theme Initializer (No toggle interaction needed) ---
             const htmlElement = document.documentElement;
-            const applyTheme = (theme) => { if (theme === 'dark') { htmlElement.classList.remove('light'); htmlElement.classList.add('dark'); if(themeToggle) themeToggle.checked = true; } else { htmlElement.classList.remove('dark'); htmlElement.classList.add('light'); if(themeToggle) themeToggle.checked = false; } };
-            if (themeToggle) { themeToggle.addEventListener('change', () => { if (themeToggle.checked) { applyTheme('dark'); localStorage.setItem('theme', 'dark'); } else { applyTheme('light'); localStorage.setItem('theme', 'light'); } }); applyTheme(localStorage.getItem('theme') || 'light'); }
-            // --- End Theme Switcher Logic ---
+            const applyTheme = (theme) => {
+                if (theme === 'dark') { htmlElement.classList.remove('light'); htmlElement.classList.add('dark'); }
+                else { htmlElement.classList.remove('dark'); htmlElement.classList.add('light'); }
+            };
+            applyTheme(localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+            // --- End Theme Initializer ---
 
             // --- Config Data Logic ---
             if (typeof window.zonoConfig !== 'undefined') {
