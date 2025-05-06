@@ -44,10 +44,15 @@
             <div class="hidden md:flex space-x-6 items-center">
                 <a href="index.html#inicio" class="text-gray-600 dark:text-gray-300 hover:text-blue-500 dark:hover:text-blue-400 transition duration-300">Inicio</a>
                 <a href="categorias.html" class="text-gray-600 dark:text-gray-300 hover:text-blue-500 dark:hover:text-blue-400 transition duration-300">Categorías</a>
-                <a href="catalogo.html" class="nav-link-active hover:text-blue-500 dark:hover:text-blue-400 transition duration-300">Catálogo</a>
+                <a href="catalogo.html" class="text-gray-600 dark:text-gray-300 hover:text-blue-500 dark:hover:text-blue-400 transition duration-300">Catálogo</a>
                 <a href="index.html#destacados" class="text-gray-600 dark:text-gray-300 hover:text-blue-500 dark:hover:text-blue-400 transition duration-300">Destacados</a>
                 <a href="index.html#nosotros" class="text-gray-600 dark:text-gray-300 hover:text-blue-500 dark:hover:text-blue-400 transition duration-300">Nosotros</a>
                 <a href="index.html#contacto" class="text-gray-600 dark:text-gray-300 hover:text-blue-500 dark:hover:text-blue-400 transition duration-300">Contacto</a>
+                <a href="carrito.html" class="text-gray-600 dark:text-gray-300 hover:text-blue-500 dark:hover:text-blue-400 transition duration-300 flex items-center space-x-1">
+                    <i class="fas fa-shopping-cart"></i>
+                    <span>Carrito</span>
+                    <span id="cart-count" class="bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">0</span>
+                </a>
                 <a href="https://maps.app.goo.gl/CCiguNx6czWvPfmU7" target="_blank" rel="noopener noreferrer" class="text-gray-600 dark:text-gray-300 hover:text-blue-500 dark:hover:text-blue-400 transition duration-300 flex items-center space-x-1">
                     <i class="fas fa-map-marker-alt"></i>
                     <span>Cómo llegar</span>
@@ -56,11 +61,32 @@
                     <i class="fab fa-whatsapp"></i>
                     <span>WhatsApp</span>
                 </a>
-                </div>
+            </div>
             <button class="md:hidden flex items-center px-3 py-2 border rounded text-gray-500 dark:text-gray-400 border-gray-600 dark:border-gray-500 hover:text-blue-500 dark:hover:text-blue-400 hover:border-blue-500 dark:hover:border-blue-400">
                 <svg class="fill-current h-3 w-3" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><title>Menu</title><path d="M0 3h20v2H0V3zm0 6h20v2H0V9zm0 6h20v2H0v15z"/></svg>
             </button>
         </nav>
+        <div class="md:hidden flex flex-col space-y-2 mt-4">
+            <a href="index.html#inicio" class="text-gray-600 dark:text-gray-300 hover:text-blue-500 dark:hover:text-blue-400 transition duration-300">Inicio</a>
+            <a href="categorias.html" class="text-gray-600 dark:text-gray-300 hover:text-blue-500 dark:hover:text-blue-400 transition duration-300">Categorías</a>
+            <a href="catalogo.html" class="text-gray-600 dark:text-gray-300 hover:text-blue-500 dark:hover:text-blue-400 transition duration-300">Catálogo</a>
+            <a href="index.html#destacados" class="text-gray-600 dark:text-gray-300 hover:text-blue-500 dark:hover:text-blue-400 transition duration-300">Destacados</a>
+            <a href="index.html#nosotros" class="text-gray-600 dark:text-gray-300 hover:text-blue-500 dark:hover:text-blue-400 transition duration-300">Nosotros</a>
+            <a href="index.html#contacto" class="text-gray-600 dark:text-gray-300 hover:text-blue-500 dark:hover:text-blue-400 transition duration-300">Contacto</a>
+            <a href="carrito.html" class="flex items-center space-x-1 text-gray-600 dark:text-gray-300 hover:text-blue-500 dark:hover:text-blue-400 transition duration-300">
+                <i class="fas fa-shopping-cart"></i>
+                <span>Carrito</span>
+                <span id="cart-count-mobile" class="bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">0</span>
+            </a>
+            <a href="https://maps.app.goo.gl/CCiguNx6czWvPfmU7" target="_blank" rel="noopener noreferrer" class="text-gray-600 dark:text-gray-300 hover:text-blue-500 dark:hover:text-blue-400 transition duration-300 flex items-center space-x-1">
+                <i class="fas fa-map-marker-alt"></i>
+                <span>Cómo llegar</span>
+            </a>
+            <a id="header-whatsapp-link" href="#" target="_blank" class="bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded-full text-sm font-medium flex items-center space-x-1 transition duration-300">
+                <i class="fab fa-whatsapp"></i>
+                <span>WhatsApp</span>
+            </a>
+        </div>
     </header>
 
     <div class="container mx-auto px-6 flex flex-col md:flex-row gap-8 py-12 md:py-16">
@@ -85,49 +111,88 @@
 
             <section id="cat-tanques" class="category-section mb-16 scroll-mt-24">
                 <h2 class="text-2xl font-semibold border-b-2 border-blue-300 dark:border-blue-600 pb-2 mb-8 text-blue-700 dark:text-blue-400">Tanques de Agua</h2>
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 product-grid-container">
-                    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
-                        <div class="product-image-container">
-                            <img src="images/Tanque Aquafort 470 Lts Beige.jpg" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Tanque Aquafort Tricapa 470 Lts Beige" class="product-image">
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                    <!-- Tanque Aquafort Tricapa 470 Lts Beige -->
+                    <div class="product-card bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden transition-transform duration-300 hover:shadow-xl hover:-translate-y-1">
+                        <div class="w-full aspect-square bg-gray-100 flex items-center justify-center">
+                            <img src="images/Tanque Aquafort 470 Lts Beige.jpg" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Tanque Aquafort Tricapa 470 Lts Beige" class="max-w-full max-h-full object-contain" />
                         </div>
-                        <div class="p-4 flex flex-col flex-grow">
-                            <h4 class="text-lg font-semibold mb-1 text-blue-700 dark:text-blue-400 truncate" title="Tanque Aquafort Tricapa 470 Lts Beige">Tanque Aquafort Tricapa 470 Lts Beige</h4>
-                            <p class="text-sm text-gray-600 dark:text-gray-300 mb-2 flex-grow">Solicitá tu tanque Aquafort Tricapa 470 Lts Beige</p>
+                        <div class="p-6">
+                            <h3 class="text-xl font-semibold mb-2">Tanque Aquafort Tricapa 470 Lts Beige</h3>
+                            <p class="text-gray-600 dark:text-gray-400 mb-4">Tanque de agua de alta calidad con triple capa y protección UV.</p>
                             <p class="text-lg font-bold text-red-600 dark:text-red-400 mb-3">$89.500,00</p>
-                            <a href="#" data-producto="Tanque Aquafort Tricapa 470 Lts Beige - $89.500,00" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Hablar con un Asesor</span></a>
+                            <div class="flex space-x-3 items-center">
+                                <input type="number" min="1" max="100" value="1" class="cantidad-producto w-16 text-center border border-gray-300 dark:border-gray-600 rounded mr-2" />
+                                <a href="#" class="add-to-cart flex-1 bg-blue-600 hover:bg-blue-700 text-white text-center py-2 px-4 rounded-lg transition duration-300">
+                                    <i class="fas fa-shopping-cart mr-2"></i>Agregar al Carrito
+                                </a>
+                                <a href="#" class="whatsapp-button flex-1 bg-green-500 hover:bg-green-600 text-white text-center py-2 px-4 rounded-lg transition duration-300" data-producto="Tanque Aquafort Tricapa 470 Lts Beige - $89.500,00">
+                                    <i class="fab fa-whatsapp mr-2"></i>Hablar con un Asesor
+                                </a>
+                            </div>
                         </div>
                     </div>
-                     <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
-                        <div class="product-image-container">
-                            <img src="images/Tanque Aquafort 470 Lts Negro.jpg" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Tanque Aquafort Bicapa 470 Lts Negro" class="product-image">
+
+                    <!-- Tanque Aquafort Bicapa 470 Lts Negro -->
+                    <div class="product-card bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden transition-transform duration-300 hover:shadow-xl hover:-translate-y-1">
+                        <div class="w-full aspect-square bg-gray-100 flex items-center justify-center">
+                            <img src="images/Tanque Aquafort 470 Lts Negro.jpg" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Tanque Aquafort Bicapa 470 Lts Negro" class="max-w-full max-h-full object-contain" />
                         </div>
-                        <div class="p-4 flex flex-col flex-grow">
-                            <h4 class="text-lg font-semibold mb-1 text-blue-700 dark:text-blue-400 truncate" title="Tanque Aquafort Bicapa 470 Lts Negro">Tanque Aquafort Bicapa 470 Lts Negro</h4>
-                            <p class="text-sm text-gray-600 dark:text-gray-300 mb-2 flex-grow">Solicitá tu tanque Aquafort Bicapa 470 Lts Negro</p>
+                        <div class="p-6">
+                            <h3 class="text-xl font-semibold mb-2">Tanque Aquafort Bicapa 470 Lts Negro</h3>
+                            <p class="text-gray-600 dark:text-gray-400 mb-4">Tanque de agua de doble capa con protección UV.</p>
                             <p class="text-lg font-bold text-red-600 dark:text-red-400 mb-3">$82.500,00</p>
-                            <a href="#" data-producto="Tanque Aquafort Bicapa 470 Lts Negro - $82.500,00" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Hablar con un Asesor</span></a>
+                            <div class="flex space-x-3 items-center">
+                                <input type="number" min="1" max="100" value="1" class="cantidad-producto w-16 text-center border border-gray-300 dark:border-gray-600 rounded mr-2" />
+                                <a href="#" class="add-to-cart flex-1 bg-blue-600 hover:bg-blue-700 text-white text-center py-2 px-4 rounded-lg transition duration-300">
+                                    <i class="fas fa-shopping-cart mr-2"></i>Agregar al Carrito
+                                </a>
+                                <a href="#" class="whatsapp-button flex-1 bg-green-500 hover:bg-green-600 text-white text-center py-2 px-4 rounded-lg transition duration-300" data-producto="Tanque Aquafort Bicapa 470 Lts Negro - $82.500,00">
+                                    <i class="fab fa-whatsapp mr-2"></i>Hablar con un Asesor
+                                </a>
+                            </div>
                         </div>
                     </div>
-                    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
-                        <div class="product-image-container">
-                             <img src="images/Tanque 280 Lts Negro - Aquafort.jpg" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Tanque Aquafort Bicapa 280 Lts Negro" class="product-image">
+
+                    <!-- Tanque Aquafort Bicapa 280 Lts Negro -->
+                    <div class="product-card bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden transition-transform duration-300 hover:shadow-xl hover:-translate-y-1">
+                        <div class="w-full aspect-square bg-gray-100 flex items-center justify-center">
+                            <img src="images/Tanque 280 Lts Negro - Aquafort.jpg" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Tanque Aquafort Bicapa 280 Lts Negro" class="max-w-full max-h-full object-contain" />
                         </div>
-                        <div class="p-4 flex flex-col flex-grow">
-                             <h4 class="text-lg font-semibold mb-1 text-blue-700 dark:text-blue-400 truncate" title="Tanque Aquafort Bicapa 280 Lts Negro">Tanque Aquafort Bicapa 280 Lts Negro</h4>
-                            <p class="text-sm text-gray-600 dark:text-gray-300 mb-2 flex-grow">Solicitá tu tanque Aquafort Bicapa 280 Lts Negro</p>
+                        <div class="p-6">
+                            <h3 class="text-xl font-semibold mb-2">Tanque Aquafort Bicapa 280 Lts Negro</h3>
+                            <p class="text-gray-600 dark:text-gray-400 mb-4">Tanque de agua compacto ideal para espacios reducidos.</p>
                             <p class="text-lg font-bold text-red-600 dark:text-red-400 mb-3">$63.800,00</p>
-                            <a href="#" data-producto="Tanque Aquafort Bicapa 280 Lts Negro - $63.800,00" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Hablar con un Asesor</span></a>
+                            <div class="flex space-x-3 items-center">
+                                <input type="number" min="1" max="100" value="1" class="cantidad-producto w-16 text-center border border-gray-300 dark:border-gray-600 rounded mr-2" />
+                                <a href="#" class="add-to-cart flex-1 bg-blue-600 hover:bg-blue-700 text-white text-center py-2 px-4 rounded-lg transition duration-300">
+                                    <i class="fas fa-shopping-cart mr-2"></i>Agregar al Carrito
+                                </a>
+                                <a href="#" class="whatsapp-button flex-1 bg-green-500 hover:bg-green-600 text-white text-center py-2 px-4 rounded-lg transition duration-300" data-producto="Tanque Aquafort Bicapa 280 Lts Negro - $63.800,00">
+                                    <i class="fab fa-whatsapp mr-2"></i>Hablar con un Asesor
+                                </a>
+                            </div>
                         </div>
                     </div>
-                     <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
-                        <div class="product-image-container">
-                             <img src="images/Tanque 280 Lts Beige - Aquafort.jpg" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Tanque Aquafort Tricapa 280 Lts Beige" class="product-image">
+
+                    <!-- Tanque Aquafort Tricapa 280 Lts Beige -->
+                    <div class="product-card bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden transition-transform duration-300 hover:shadow-xl hover:-translate-y-1">
+                        <div class="w-full aspect-square bg-gray-100 flex items-center justify-center">
+                            <img src="images/Tanque 280 Lts Beige - Aquafort.jpg" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Tanque Aquafort Tricapa 280 Lts Beige" class="max-w-full max-h-full object-contain" />
                         </div>
-                        <div class="p-4 flex flex-col flex-grow">
-                             <h4 class="text-lg font-semibold mb-1 text-blue-700 dark:text-blue-400 truncate" title="Tanque Aquafort Tricapa 280 Lts Beige">Tanque Aquafort Tricapa 280 Lts Beige</h4>
-                            <p class="text-sm text-gray-600 dark:text-gray-300 mb-2 flex-grow">Solicitá tu tanque Aquafort Tricapa 280 Lts Beige</p>
+                        <div class="p-6">
+                            <h3 class="text-xl font-semibold mb-2">Tanque Aquafort Tricapa 280 Lts Beige</h3>
+                            <p class="text-gray-600 dark:text-gray-400 mb-4">Tanque de agua compacto con triple capa y protección UV.</p>
                             <p class="text-lg font-bold text-red-600 dark:text-red-400 mb-3">$70.000,00</p>
-                             <a href="#" data-producto="Tanque Aquafort Tricapa 280 Lts Beige - $70.000,00" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Hablar con un Asesor</span></a>
+                            <div class="flex space-x-3 items-center">
+                                <input type="number" min="1" max="100" value="1" class="cantidad-producto w-16 text-center border border-gray-300 dark:border-gray-600 rounded mr-2" />
+                                <a href="#" class="add-to-cart flex-1 bg-blue-600 hover:bg-blue-700 text-white text-center py-2 px-4 rounded-lg transition duration-300">
+                                    <i class="fas fa-shopping-cart mr-2"></i>Agregar al Carrito
+                                </a>
+                                <a href="#" class="whatsapp-button flex-1 bg-green-500 hover:bg-green-600 text-white text-center py-2 px-4 rounded-lg transition duration-300" data-producto="Tanque Aquafort Tricapa 280 Lts Beige - $70.000,00">
+                                    <i class="fab fa-whatsapp mr-2"></i>Hablar con un Asesor
+                                </a>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -136,37 +201,66 @@
             <section id="cat-hogar" class="category-section mb-16 scroll-mt-24">
                 <h2 class="text-2xl font-semibold border-b-2 border-blue-300 dark:border-blue-600 pb-2 mb-8 text-blue-700 dark:text-blue-400">Hogar y Climatización</h2>
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 product-grid-container">
-                    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
-                        <div class="product-image-container">
-                             <img src="images/TermotanqueSirena.webp" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Termotanque Sirena 40 Litros" class="product-image">
+                    <!-- Termotanque Sirena 40L -->
+                    <div class="product-card bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden transition-transform duration-300 hover:shadow-xl hover:-translate-y-1">
+                        <div class="w-full aspect-square bg-gray-100 flex items-center justify-center">
+                            <img src="images/TermotanqueSirena.webp" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Termotanque Sirena 40 Litros" class="max-w-full max-h-full object-contain" />
                         </div>
-                        <div class="p-4 flex flex-col flex-grow">
-                             <h4 class="text-lg font-semibold mb-1 text-blue-700 dark:text-blue-400 truncate" title="Termotanque Sirena 40 Litros">Termotanque Sirena 40 Litros</h4>
-                            <p class="text-sm text-gray-600 dark:text-gray-300 mb-2 flex-grow">Termotanque eléctrico de colgar. Capacidad 40 litros. Marca Sirena.</p>
+                        <div class="p-6">
+                            <h3 class="text-xl font-semibold mb-2">Termotanque Sirena 40 Litros</h3>
+                            <p class="text-gray-600 dark:text-gray-400 mb-4">Termotanque eléctrico de colgar. Capacidad 40 litros. Marca Sirena.</p>
                             <p class="text-lg font-bold text-red-600 dark:text-red-400 mb-3">$184.500,00</p>
-                            <a href="#" data-producto="Termotanque Sirena 40L - $184.500,00" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Hablar con un Asesor</span></a>
+                            <div class="flex space-x-3 items-center">
+                                <input type="number" min="1" max="100" value="1" class="cantidad-producto w-16 text-center border border-gray-300 dark:border-gray-600 rounded mr-2" />
+                                <a href="#" class="add-to-cart flex-1 bg-blue-600 hover:bg-blue-700 text-white text-center py-2 px-4 rounded-lg transition duration-300">
+                                    <i class="fas fa-shopping-cart mr-2"></i>Agregar al Carrito
+                                </a>
+                                <a href="#" class="whatsapp-button flex-1 bg-green-500 hover:bg-green-600 text-white text-center py-2 px-4 rounded-lg transition duration-300" data-producto="Termotanque Sirena 40L - $184.500,00">
+                                    <i class="fab fa-whatsapp mr-2"></i>Hablar con un Asesor
+                                </a>
+                            </div>
                         </div>
                     </div>
-                     <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
-                        <div class="product-image-container">
-                             <img src="images/TermotanqueSirena.webp" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Termotanque Sirena 60 Litros" class="product-image">
+
+                    <!-- Termotanque Sirena 60L -->
+                    <div class="product-card bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden transition-transform duration-300 hover:shadow-xl hover:-translate-y-1">
+                        <div class="w-full aspect-square bg-gray-100 flex items-center justify-center">
+                            <img src="images/TermotanqueSirena.webp" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Termotanque Sirena 60 Litros" class="max-w-full max-h-full object-contain" />
                         </div>
-                        <div class="p-4 flex flex-col flex-grow">
-                             <h4 class="text-lg font-semibold mb-1 text-blue-700 dark:text-blue-400 truncate" title="Termotanque Sirena 60 Litros">Termotanque Sirena 60 Litros</h4>
-                            <p class="text-sm text-gray-600 dark:text-gray-300 mb-2 flex-grow">Termotanque eléctrico de colgar. Capacidad 60 litros. Marca Sirena.</p>
+                        <div class="p-6">
+                            <h3 class="text-xl font-semibold mb-2">Termotanque Sirena 60 Litros</h3>
+                            <p class="text-gray-600 dark:text-gray-400 mb-4">Termotanque eléctrico de colgar. Capacidad 60 litros. Marca Sirena.</p>
                             <p class="text-lg font-bold text-red-600 dark:text-red-400 mb-3">$199.300,00</p>
-                            <a href="#" data-producto="Termotanque Sirena 60L - $199.300,00" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Hablar con un Asesor</span></a>
+                            <div class="flex space-x-3 items-center">
+                                <input type="number" min="1" max="100" value="1" class="cantidad-producto w-16 text-center border border-gray-300 dark:border-gray-600 rounded mr-2" />
+                                <a href="#" class="add-to-cart flex-1 bg-blue-600 hover:bg-blue-700 text-white text-center py-2 px-4 rounded-lg transition duration-300">
+                                    <i class="fas fa-shopping-cart mr-2"></i>Agregar al Carrito
+                                </a>
+                                <a href="#" class="whatsapp-button flex-1 bg-green-500 hover:bg-green-600 text-white text-center py-2 px-4 rounded-lg transition duration-300" data-producto="Termotanque Sirena 60L - $199.300,00">
+                                    <i class="fab fa-whatsapp mr-2"></i>Hablar con un Asesor
+                                </a>
+                            </div>
                         </div>
                     </div>
-                     <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
-                        <div class="product-image-container">
-                             <img src="images/TermotanqueSirena.webp" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Termotanque Sirena 90 Litros" class="product-image">
+
+                    <!-- Termotanque Sirena 90L -->
+                    <div class="product-card bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden transition-transform duration-300 hover:shadow-xl hover:-translate-y-1">
+                        <div class="w-full aspect-square bg-gray-100 flex items-center justify-center">
+                            <img src="images/TermotanqueSirena.webp" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Termotanque Sirena 90 Litros" class="max-w-full max-h-full object-contain" />
                         </div>
-                        <div class="p-4 flex flex-col flex-grow">
-                             <h4 class="text-lg font-semibold mb-1 text-blue-700 dark:text-blue-400 truncate" title="Termotanque Sirena 90 Litros">Termotanque Sirena 90 Litros</h4>
-                            <p class="text-sm text-gray-600 dark:text-gray-300 mb-2 flex-grow">Termotanque eléctrico de colgar. Capacidad 90 litros. Marca Sirena.</p>
+                        <div class="p-6">
+                            <h3 class="text-xl font-semibold mb-2">Termotanque Sirena 90 Litros</h3>
+                            <p class="text-gray-600 dark:text-gray-400 mb-4">Termotanque eléctrico de colgar. Capacidad 90 litros. Marca Sirena.</p>
                             <p class="text-lg font-bold text-red-600 dark:text-red-400 mb-3">$222.000,00</p>
-                             <a href="#" data-producto="Termotanque Sirena 90L - $222.000,00" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Hablar con un Asesor</span></a>
+                            <div class="flex space-x-3 items-center">
+                                <input type="number" min="1" max="100" value="1" class="cantidad-producto w-16 text-center border border-gray-300 dark:border-gray-600 rounded mr-2" />
+                                <a href="#" class="add-to-cart flex-1 bg-blue-600 hover:bg-blue-700 text-white text-center py-2 px-4 rounded-lg transition duration-300">
+                                    <i class="fas fa-shopping-cart mr-2"></i>Agregar al Carrito
+                                </a>
+                                <a href="#" class="whatsapp-button flex-1 bg-green-500 hover:bg-green-600 text-white text-center py-2 px-4 rounded-lg transition duration-300" data-producto="Termotanque Sirena 90L - $222.000,00">
+                                    <i class="fab fa-whatsapp mr-2"></i>Hablar con un Asesor
+                                </a>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -175,18 +269,27 @@
              <section id="cat-ferreteria" class="category-section mb-16 scroll-mt-24">
                 <h2 class="text-2xl font-semibold border-b-2 border-blue-300 dark:border-blue-600 pb-2 mb-8 text-blue-700 dark:text-blue-400">Ferretería y Herramientas</h2>
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 product-grid-container">
-                    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
-                        <div class="product-image-container">
-                            <img src="images/escalera-articulada-gardenlife-4x4.webp" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Escalera Articulada Garden Life 4x4" class="product-image">
+                    <!-- Escalera Articulada Garden Life 4x4 -->
+                    <div class="product-card bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden transition-transform duration-300 hover:shadow-xl hover:-translate-y-1">
+                        <div class="w-full aspect-square bg-gray-100 flex items-center justify-center">
+                            <img src="images/escalera-articulada-gardenlife-4x4.webp" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Escalera Articulada Garden Life 4x4" class="max-w-full max-h-full object-contain" />
                         </div>
-                        <div class="p-4 flex flex-col flex-grow">
-                            <h4 class="text-lg font-semibold mb-1 text-blue-700 dark:text-blue-400 truncate" title="Escalera Articulada Garden Life 4x4">Escalera Articulada Garden Life 4x4</h4>
-                             <p class="text-sm text-gray-600 dark:text-gray-300 mb-2 flex-grow">Versátil y segura. Múltiples posiciones. Ideal para hogar y trabajo.</p>
+                        <div class="p-6">
+                            <h3 class="text-xl font-semibold mb-2">Escalera Articulada Garden Life 4x4</h3>
+                            <p class="text-gray-600 dark:text-gray-400 mb-4">Versátil y segura. Múltiples posiciones. Ideal para hogar y trabajo.</p>
                             <p class="text-lg font-bold text-red-600 dark:text-red-400 mb-3">$98.500,00</p>
-                             <a href="#" data-producto="Escalera Articulada Garden Life 4x4 - $98.500,00" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Hablar con un Asesor</span></a>
+                            <div class="flex space-x-3 items-center">
+                                <input type="number" min="1" max="100" value="1" class="cantidad-producto w-16 text-center border border-gray-300 dark:border-gray-600 rounded mr-2" />
+                                <a href="#" class="add-to-cart flex-1 bg-blue-600 hover:bg-blue-700 text-white text-center py-2 px-4 rounded-lg transition duration-300">
+                                    <i class="fas fa-shopping-cart mr-2"></i>Agregar al Carrito
+                                </a>
+                                <a href="#" class="whatsapp-button flex-1 bg-green-500 hover:bg-green-600 text-white text-center py-2 px-4 rounded-lg transition duration-300" data-producto="Escalera Articulada Garden Life 4x4 - $98.500,00">
+                                    <i class="fab fa-whatsapp mr-2"></i>Hablar con un Asesor
+                                </a>
+                            </div>
                         </div>
                     </div>
-                    </div>
+                </div>
             </section>
 
             <section id="cat-pinturas" class="category-section mb-16 scroll-mt-24">
@@ -245,7 +348,7 @@
             if (typeof window.zonoConfig !== 'undefined') {
                 const config = window.zonoConfig;
                 const headerWhatsappLink = document.getElementById('header-whatsapp-link'); if (headerWhatsappLink) headerWhatsappLink.href = config.getWhatsAppUrl(config.whatsappGeneralQueryText);
-                const whatsappFloatButton = document.getElementById('whatsapp-float-button'); if (whatsappFloatButton) whatsappFloatButton.href = config.getWhatsAppUrl(config.whatsappCatalogHelpText || config.whatsappHelpText);
+                const whatsappFloatButton = document.getElementById('whatsapp-float-button'); if (whatsappFloatButton) whatsappFloatButton.href = config.getWhatsAppUrl(config.whatsappHelpText);
                 const footerEmailLink = document.getElementById('footer-email-link'); const footerEmailAddressSpan = document.getElementById('footer-email-address'); if (footerEmailLink && footerEmailAddressSpan) { footerEmailLink.href = `mailto:${config.email}`; footerEmailAddressSpan.textContent = config.email; }
                 const footerFacebookLink = document.getElementById('footer-facebook-link'); if (footerFacebookLink) footerFacebookLink.href = config.facebookUrl;
                 const footerInstagramLink = document.getElementById('footer-instagram-link'); if (footerInstagramLink) footerInstagramLink.href = config.instagramUrl;
@@ -259,6 +362,57 @@
 
             } else { console.error("Error: config.js no se cargó correctamente o window.zonoConfig no está definido."); }
             // --- End Config Data Logic ---
+
+            // --- Cart Logic ---
+            const cartCount = document.getElementById('cart-count');
+            const cartCountMobile = document.getElementById('cart-count-mobile');
+            const updateCartCount = () => {
+                const cart = JSON.parse(localStorage.getItem('cart')) || [];
+                if(cartCount) cartCount.textContent = cart.length;
+                if(cartCountMobile) cartCountMobile.textContent = cart.length;
+            };
+            updateCartCount();
+
+            const addToCartButtons = document.querySelectorAll('.add-to-cart');
+            addToCartButtons.forEach(button => {
+                button.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const productCard = button.closest('.product-card');
+                    const cantidadInput = productCard.querySelector('.cantidad-producto');
+                    let cantidad = parseInt(cantidadInput.value) || 1;
+                    cantidad = Math.max(1, Math.min(100, cantidad));
+                    const product = {
+                        name: productCard.querySelector('h3').textContent,
+                        price: productCard.querySelector('.text-red-600').textContent,
+                        image: productCard.querySelector('img').src
+                    };
+                    let cart = JSON.parse(localStorage.getItem('cart')) || [];
+                    const existing = cart.find(item => item.name === product.name && item.price === product.price);
+                    if (existing) {
+                        existing.quantity = Math.min(100, (existing.quantity || 1) + cantidad);
+                    } else {
+                        product.quantity = cantidad;
+                        cart.push(product);
+                    }
+                    localStorage.setItem('cart', JSON.stringify(cart));
+                    updateCartCount();
+                    // Mostrar notificación
+                    const notification = document.createElement('div');
+                    notification.className = 'fixed bottom-4 right-4 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg z-50 transform transition-transform duration-300 translate-y-0';
+                    notification.innerHTML = `
+                        <div class="flex items-center">
+                            <i class="fas fa-check-circle mr-2"></i>
+                            <span>Producto agregado al carrito</span>
+                        </div>
+                    `;
+                    document.body.appendChild(notification);
+                    setTimeout(() => {
+                        notification.style.transform = 'translateY(100%)';
+                        setTimeout(() => notification.remove(), 300);
+                    }, 2000);
+                });
+            });
+            // --- End Cart Logic ---
 
             document.getElementById('year').textContent = new Date().getFullYear();
             const mobileMenuButton = document.querySelector('header button.md\\:hidden'); const mobileMenu = document.querySelector('header div.hidden.md\\:flex'); if (mobileMenuButton && mobileMenu) { mobileMenuButton.addEventListener('click', () => { mobileMenu.classList.toggle('hidden'); }); }
