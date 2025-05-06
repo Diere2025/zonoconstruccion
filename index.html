@@ -11,9 +11,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <link rel="stylesheet" href="styles.css">
     <style>
-        /* Estilos mínimos necesarios aquí */
         html { scroll-padding-top: 6rem; }
-        /* Estilos Slider (ya están en styles.css, pero por si acaso) */
         .slider-container::-webkit-scrollbar { display: none; }
         .slider-container { -ms-overflow-style: none; scrollbar-width: none; }
         .slider-button { position: absolute; top: 50%; transform: translateY(-50%); background-color: rgba(0, 0, 0, 0.5); color: white; border: none; padding: 0.5rem 0.75rem; border-radius: 50%; cursor: pointer; z-index: 10; transition: background-color 0.3s ease; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; }
@@ -23,8 +21,6 @@
         .slider-button:disabled { background-color: rgba(0, 0, 0, 0.2); cursor: not-allowed; }
     </style>
      <script>
-        // Script para aplicar tema guardado (o preferencia de sistema si no hay nada guardado)
-        // Se ejecuta ANTES de que se renderice el contenido para evitar FOUC
         (function() {
             try {
                 const currentTheme = localStorage.getItem('theme');
@@ -36,11 +32,7 @@
                     document.documentElement.classList.add('light');
                     document.documentElement.classList.remove('dark');
                 }
-            } catch (e) {
-                console.error("Error applying initial theme:", e);
-                document.documentElement.classList.add('light');
-                document.documentElement.classList.remove('dark');
-            }
+            } catch (e) { console.error("Error applying initial theme:", e); document.documentElement.classList.add('light'); document.documentElement.classList.remove('dark'); }
         })();
     </script>
 </head>
@@ -96,6 +88,7 @@
                             <a href="catalogo.html#cat-tanques" class="mt-auto inline-block bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-5 rounded-lg shadow transition duration-300 text-center">Ver Productos →</a>
                         </div>
                     </div>
+                    {/* ... resto de tarjetas de categoría ... */}
                     <div class="bg-white dark:bg-gray-700 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
                         <img src="https://placehold.co/600x338/aabb77/ffffff?text=Impermeabilizantes" onerror="this.onerror=null; this.src='https://placehold.co/600x338/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Categoría Impermeabilizantes" class="w-full category-image-index">
                         <div class="p-5 flex flex-col flex-grow">
@@ -141,78 +134,13 @@
                 <h2 class="text-3xl font-bold text-center mb-10 text-blue-700 dark:text-blue-400">Productos Destacados</h2>
                 <div id="slider-container" class="slider-container overflow-hidden relative">
                     <div id="slider-track" class="flex transition-transform duration-500 ease-in-out">
-                        <div class="slider-item flex-shrink-0 w-full sm:w-1/2 lg:w-1/4 px-3">
-                            <div class="bg-white dark:bg-gray-700 rounded-lg shadow-md overflow-hidden group flex flex-col h-full">
-                                <div class="product-image-container">
-                                    <img src="images/Tanque Aquafort 470 Lts Beige.jpg" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Tanque Aquafort 470 Lts Beige" class="product-image">
-                                </div>
-                                <div class="p-4 flex flex-col flex-grow">
-                                    <h4 class="text-lg font-semibold mb-1 text-blue-700 dark:text-blue-400 truncate" title="Tanque Aquafort 470 Lts Beige">Tanque Aquafort 470 Lts Beige</h4>
-                                    <p class="text-sm text-gray-600 dark:text-gray-300 mb-3 flex-grow">Tanque de agua tricapa con garantía de fábrica. Color beige.</p>
-                                    <a href="#" data-producto="Tanque Aquafort 470 Lts Beige" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="slider-item flex-shrink-0 w-full sm:w-1/2 lg:w-1/4 px-3">
-                            <div class="bg-white dark:bg-gray-700 rounded-lg shadow-md overflow-hidden group flex flex-col h-full">
-                                <div class="product-image-container">
-                                    <img src="images/Tanque Aquafort 470 Lts Negro.jpg" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Tanque Aquafort 470 Lts Negro" class="product-image">
-                                </div>
-                                <div class="p-4 flex flex-col flex-grow">
-                                    <h4 class="text-lg font-semibold mb-1 text-blue-700 dark:text-blue-400 truncate" title="Tanque Aquafort 470 Lts Negro">Tanque Aquafort 470 Lts Negro</h4>
-                                    <p class="text-sm text-gray-600 dark:text-gray-300 mb-3 flex-grow">Tanque de agua bicapa con garantía de fábrica. Color negro.</p>
-                                    <a href="#" data-producto="Tanque Aquafort 470 Lts Negro" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="slider-item flex-shrink-0 w-full sm:w-1/2 lg:w-1/4 px-3">
-                            <div class="bg-white dark:bg-gray-700 rounded-lg shadow-md overflow-hidden group flex flex-col h-full">
-                                <div class="product-image-container">
-                                    <img src="images/escalera-articulada-gardenlife-4x4.webp" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Escalera Articulada Garden Life 4x4" class="product-image">
-                                </div>
-                                <div class="p-4 flex flex-col flex-grow">
-                                    <h4 class="text-lg font-semibold mb-1 text-blue-700 dark:text-blue-400 truncate" title="Escalera Articulada Garden Life 4x4">Escalera Articulada Garden Life 4x4</h4>
-                                    <p class="text-sm text-gray-600 dark:text-gray-300 mb-3 flex-grow">Versátil y segura. Múltiples posiciones. Ideal para hogar y trabajo.</p>
-                                    <a href="#" data-producto="Escalera Articulada Garden Life 4x4" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="slider-item flex-shrink-0 w-full sm:w-1/2 lg:w-1/4 px-3">
-                            <div class="bg-white dark:bg-gray-700 rounded-lg shadow-md overflow-hidden group flex flex-col h-full">
-                                <div class="product-image-container">
-                                     <img src="images/TermotanqueSirena.webp" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Termotanque Sirena 40 Litros" class="product-image">
-                                </div>
-                                <div class="p-4 flex flex-col flex-grow">
-                                     <h4 class="text-lg font-semibold mb-1 text-blue-700 dark:text-blue-400 truncate" title="Termotanque Sirena 40 Litros">Termotanque Sirena 40 Litros</h4>
-                                    <p class="text-sm text-gray-600 dark:text-gray-300 mb-3 flex-grow">Termotanque eléctrico de colgar. Capacidad 40 litros. Marca Sirena.</p>
-                                    <a href="#" data-producto="Termotanque Sirena 40L" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
-                                </div>
-                            </div>
-                        </div>
-                         <div class="slider-item flex-shrink-0 w-full sm:w-1/2 lg:w-1/4 px-3">
-                             <div class="bg-white dark:bg-gray-700 rounded-lg shadow-md overflow-hidden group flex flex-col h-full">
-                                <div class="product-image-container">
-                                     <img src="images/TermotanqueSirena.webp" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Termotanque Sirena 60 Litros" class="product-image">
-                                </div>
-                                <div class="p-4 flex flex-col flex-grow">
-                                     <h4 class="text-lg font-semibold mb-1 text-blue-700 dark:text-blue-400 truncate" title="Termotanque Sirena 60 Litros">Termotanque Sirena 60 Litros</h4>
-                                    <p class="text-sm text-gray-600 dark:text-gray-300 mb-3 flex-grow">Termotanque eléctrico de colgar. Capacidad 60 litros. Marca Sirena.</p>
-                                    <a href="#" data-producto="Termotanque Sirena 60L" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="slider-item flex-shrink-0 w-full sm:w-1/2 lg:w-1/4 px-3">
-                            <div class="bg-white dark:bg-gray-700 rounded-lg shadow-md overflow-hidden group flex flex-col h-full">
-                                <div class="product-image-container">
-                                     <img src="images/TermotanqueSirena.webp" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Termotanque Sirena 90 Litros" class="product-image">
-                                </div>
-                                <div class="p-4 flex flex-col flex-grow">
-                                     <h4 class="text-lg font-semibold mb-1 text-blue-700 dark:text-blue-400 truncate" title="Termotanque Sirena 90 Litros">Termotanque Sirena 90 Litros</h4>
-                                    <p class="text-sm text-gray-600 dark:text-gray-300 mb-3 flex-grow">Termotanque eléctrico de colgar. Capacidad 90 litros. Marca Sirena.</p>
-                                    <a href="#" data-producto="Termotanque Sirena 90L" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
-                                </div>
-                            </div>
-                        </div>
+                        {/* ... Productos del slider ... */}
+                        <div class="slider-item flex-shrink-0 w-full sm:w-1/2 lg:w-1/4 px-3"> <div class="bg-white dark:bg-gray-700 rounded-lg shadow-md overflow-hidden group flex flex-col h-full"> <div class="product-image-container"> <img src="images/Tanque Aquafort 470 Lts Beige.jpg" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Tanque Aquafort 470 Lts Beige" class="product-image"> </div> <div class="p-4 flex flex-col flex-grow"> <h4 class="text-lg font-semibold mb-1 text-blue-700 dark:text-blue-400 truncate" title="Tanque Aquafort 470 Lts Beige">Tanque Aquafort 470 Lts Beige</h4> <p class="text-sm text-gray-600 dark:text-gray-300 mb-3 flex-grow">Tanque de agua tricapa con garantía de fábrica. Color beige.</p> <a href="#" data-producto="Tanque Aquafort 470 Lts Beige" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a> </div> </div> </div>
+                        <div class="slider-item flex-shrink-0 w-full sm:w-1/2 lg:w-1/4 px-3"> <div class="bg-white dark:bg-gray-700 rounded-lg shadow-md overflow-hidden group flex flex-col h-full"> <div class="product-image-container"> <img src="images/Tanque Aquafort 470 Lts Negro.jpg" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Tanque Aquafort 470 Lts Negro" class="product-image"> </div> <div class="p-4 flex flex-col flex-grow"> <h4 class="text-lg font-semibold mb-1 text-blue-700 dark:text-blue-400 truncate" title="Tanque Aquafort 470 Lts Negro">Tanque Aquafort 470 Lts Negro</h4> <p class="text-sm text-gray-600 dark:text-gray-300 mb-3 flex-grow">Tanque de agua bicapa con garantía de fábrica. Color negro.</p> <a href="#" data-producto="Tanque Aquafort 470 Lts Negro" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a> </div> </div> </div>
+                        <div class="slider-item flex-shrink-0 w-full sm:w-1/2 lg:w-1/4 px-3"> <div class="bg-white dark:bg-gray-700 rounded-lg shadow-md overflow-hidden group flex flex-col h-full"> <div class="product-image-container"> <img src="images/escalera-articulada-gardenlife-4x4.webp" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Escalera Articulada Garden Life 4x4" class="product-image"> </div> <div class="p-4 flex flex-col flex-grow"> <h4 class="text-lg font-semibold mb-1 text-blue-700 dark:text-blue-400 truncate" title="Escalera Articulada Garden Life 4x4">Escalera Articulada Garden Life 4x4</h4> <p class="text-sm text-gray-600 dark:text-gray-300 mb-3 flex-grow">Versátil y segura. Múltiples posiciones. Ideal para hogar y trabajo.</p> <a href="#" data-producto="Escalera Articulada Garden Life 4x4" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a> </div> </div> </div>
+                        <div class="slider-item flex-shrink-0 w-full sm:w-1/2 lg:w-1/4 px-3"> <div class="bg-white dark:bg-gray-700 rounded-lg shadow-md overflow-hidden group flex flex-col h-full"> <div class="product-image-container"> <img src="images/TermotanqueSirena.webp" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Termotanque Sirena 40 Litros" class="product-image"> </div> <div class="p-4 flex flex-col flex-grow"> <h4 class="text-lg font-semibold mb-1 text-blue-700 dark:text-blue-400 truncate" title="Termotanque Sirena 40 Litros">Termotanque Sirena 40 Litros</h4> <p class="text-sm text-gray-600 dark:text-gray-300 mb-3 flex-grow">Termotanque eléctrico de colgar. Capacidad 40 litros. Marca Sirena.</p> <a href="#" data-producto="Termotanque Sirena 40L" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a> </div> </div> </div>
+                        <div class="slider-item flex-shrink-0 w-full sm:w-1/2 lg:w-1/4 px-3"> <div class="bg-white dark:bg-gray-700 rounded-lg shadow-md overflow-hidden group flex flex-col h-full"> <div class="product-image-container"> <img src="images/TermotanqueSirena.webp" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Termotanque Sirena 60 Litros" class="product-image"> </div> <div class="p-4 flex flex-col flex-grow"> <h4 class="text-lg font-semibold mb-1 text-blue-700 dark:text-blue-400 truncate" title="Termotanque Sirena 60 Litros">Termotanque Sirena 60 Litros</h4> <p class="text-sm text-gray-600 dark:text-gray-300 mb-3 flex-grow">Termotanque eléctrico de colgar. Capacidad 60 litros. Marca Sirena.</p> <a href="#" data-producto="Termotanque Sirena 60L" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a> </div> </div> </div>
+                        <div class="slider-item flex-shrink-0 w-full sm:w-1/2 lg:w-1/4 px-3"> <div class="bg-white dark:bg-gray-700 rounded-lg shadow-md overflow-hidden group flex flex-col h-full"> <div class="product-image-container"> <img src="images/TermotanqueSirena.webp" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Termotanque Sirena 90 Litros" class="product-image"> </div> <div class="p-4 flex flex-col flex-grow"> <h4 class="text-lg font-semibold mb-1 text-blue-700 dark:text-blue-400 truncate" title="Termotanque Sirena 90 Litros">Termotanque Sirena 90 Litros</h4> <p class="text-sm text-gray-600 dark:text-gray-300 mb-3 flex-grow">Termotanque eléctrico de colgar. Capacidad 90 litros. Marca Sirena.</p> <a href="#" data-producto="Termotanque Sirena 90L" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a> </div> </div> </div>
                         </div>
                 </div>
                 <button id="prev-slide" class="slider-button prev" aria-label="Anterior"><i class="fas fa-chevron-left"></i></button>
@@ -243,14 +171,27 @@
                 <div class="max-w-4xl mx-auto flex flex-col md:flex-row gap-10">
                     <div class="md:w-1/2 bg-white dark:bg-gray-800 p-8 rounded-lg shadow-md">
                         <h3 class="text-xl font-semibold mb-6 text-blue-700 dark:text-blue-400">Envíanos tu Consulta</h3>
-                        <form action="#" method="POST">
-                            <div class="mb-4"><label for="name" class="block text-gray-700 dark:text-gray-300 text-sm font-medium mb-2">Nombre</label><input type="text" id="name" name="name" required class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400" placeholder="Tu nombre completo"></div>
-                            <div class="mb-4"><label for="email" class="block text-gray-700 dark:text-gray-300 text-sm font-medium mb-2">Correo Electrónico</label><input type="email" id="email" name="email" required class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400" placeholder="tuemail@ejemplo.com"></div>
-                             <div class="mb-4"><label for="phone" class="block text-gray-700 dark:text-gray-300 text-sm font-medium mb-2">Teléfono (Opcional)</label><input type="tel" id="phone" name="phone" class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400" placeholder="Tu número de teléfono"></div>
-                            <div class="mb-6"><label for="message" class="block text-gray-700 dark:text-gray-300 text-sm font-medium mb-2">Consulta sobre Productos</label><textarea id="message" name="message" rows="5" required class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400" placeholder="Escribe aquí tu consulta..."></textarea></div>
+                        <form id="contact-form" action="https://formspree.io/f/mkgrryje" method="POST">
+                            <div class="mb-4">
+                                <label for="name" class="block text-gray-700 dark:text-gray-300 text-sm font-medium mb-2">Nombre</label>
+                                <input type="text" id="name" name="name" required class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400" placeholder="Tu nombre completo">
+                            </div>
+                            <div class="mb-4">
+                                <label for="email" class="block text-gray-700 dark:text-gray-300 text-sm font-medium mb-2">Correo Electrónico</label>
+                                <input type="email" id="email" name="email" required class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400" placeholder="tuemail@ejemplo.com">
+                            </div>
+                             <div class="mb-4">
+                                <label for="phone" class="block text-gray-700 dark:text-gray-300 text-sm font-medium mb-2">Teléfono (Opcional)</label>
+                                <input type="tel" id="phone" name="phone" class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400" placeholder="Tu número de teléfono">
+                            </div>
+                            <div class="mb-6">
+                                <label for="message" class="block text-gray-700 dark:text-gray-300 text-sm font-medium mb-2">Consulta sobre Productos</label>
+                                <textarea id="message" name="message" rows="5" required class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400" placeholder="Escribe aquí tu consulta..."></textarea>
+                            </div>
                             <div>
                                 <button type="submit" class="w-full bg-red-600 hover:bg-red-700 text-white font-semibold py-3 px-6 rounded-lg shadow-md transition duration-300">Enviar Consulta</button>
                             </div>
+                            <p id="form-status" class="mt-4 text-sm text-center"></p>
                         </form>
                          <p class="text-xs text-gray-500 dark:text-gray-400 mt-4">Este formulario es para consultas generales. Para compras o respuestas rápidas, contáctanos por WhatsApp.</p>
                     </div>
@@ -314,12 +255,9 @@
     <script src="config.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
-            // --- Theme Initializer (No toggle interaction needed) ---
+            // --- Theme Initializer ---
             const htmlElement = document.documentElement;
-            const applyTheme = (theme) => {
-                if (theme === 'dark') { htmlElement.classList.remove('light'); htmlElement.classList.add('dark'); }
-                else { htmlElement.classList.remove('dark'); htmlElement.classList.add('light'); }
-            };
+            const applyTheme = (theme) => { if (theme === 'dark') { htmlElement.classList.remove('light'); htmlElement.classList.add('dark'); } else { htmlElement.classList.remove('dark'); htmlElement.classList.add('light'); } };
             applyTheme(localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
             // --- End Theme Initializer ---
 
@@ -348,6 +286,48 @@
 
             document.getElementById('year').textContent = new Date().getFullYear();
             const mobileMenuButton = document.querySelector('header button.md\\:hidden'); const mobileMenu = document.querySelector('header div.hidden.md\\:flex'); if (mobileMenuButton && mobileMenu) { mobileMenuButton.addEventListener('click', () => { mobileMenu.classList.toggle('hidden'); }); }
+
+            // --- Formspree AJAX Submission (Opcional, para mejor UX) ---
+            const form = document.getElementById('contact-form');
+            const formStatus = document.getElementById('form-status');
+
+            async function handleSubmit(event) {
+                event.preventDefault(); // Evita el envío normal del formulario
+                const data = new FormData(event.target);
+                try {
+                    const response = await fetch(event.target.action, {
+                        method: form.method,
+                        body: data,
+                        headers: {
+                            'Accept': 'application/json' // Para que Formspree devuelva JSON
+                        }
+                    });
+                    if (response.ok) {
+                        formStatus.textContent = "¡Gracias por tu consulta! Te responderemos pronto.";
+                        formStatus.className = 'mt-4 text-sm text-center text-green-600 dark:text-green-400';
+                        form.reset(); // Limpia el formulario
+                    } else {
+                        // Intenta obtener el mensaje de error de Formspree si lo hay
+                        response.json().then(data => {
+                            if (Object.hasOwn(data, 'errors')) {
+                                formStatus.textContent = data["errors"].map(error => error["message"]).join(", ");
+                            } else {
+                                formStatus.textContent = "Hubo un error al enviar el formulario.";
+                            }
+                            formStatus.className = 'mt-4 text-sm text-center text-red-600 dark:text-red-400';
+                        })
+                    }
+                } catch (error) {
+                    console.error("Error al enviar formulario:", error);
+                    formStatus.textContent = "Hubo un error al enviar el formulario.";
+                    formStatus.className = 'mt-4 text-sm text-center text-red-600 dark:text-red-400';
+                }
+            }
+            if (form) {
+                form.addEventListener("submit", handleSubmit)
+            }
+            // --- Fin Formspree AJAX ---
+
         });
     </script>
 
