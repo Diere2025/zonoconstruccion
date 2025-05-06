@@ -11,15 +11,13 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <link rel="stylesheet" href="styles.css">
     <style>
-        /* Estilos específicos mínimos */
-        html { scroll-padding-top: 6rem; /* Ajustar según altura del header sticky */ }
-        /* Estilos del sidebar activo (ya están en styles.css, pero por si acaso) */
+        html { scroll-padding-top: 6rem; }
         .sidebar-link-active { color: #2563eb; font-weight: 600; border-left: 3px solid #2563eb; padding-left: 0.5rem; margin-left: -0.75rem; background-color: #eff6ff; }
         html.dark .sidebar-link-active { color: #60a5fa; border-left-color: #60a5fa; background-color: #1f2937; }
+        .loading-message { text-align: center; padding: 2rem; color: #6b7280; }
+        html.dark .loading-message { color: #9ca3af; }
     </style>
      <script>
-        // Script para aplicar tema guardado (o preferencia de sistema si no hay nada guardado)
-        // Se ejecuta ANTES de que se renderice el contenido para evitar FOUC
         (function() {
             try {
                 const currentTheme = localStorage.getItem('theme');
@@ -31,12 +29,7 @@
                     document.documentElement.classList.add('light');
                     document.documentElement.classList.remove('dark');
                 }
-            } catch (e) {
-                console.error("Error applying initial theme:", e);
-                // Fallback a claro si hay error
-                 document.documentElement.classList.add('light');
-                 document.documentElement.classList.remove('dark');
-            }
+            } catch (e) { console.error("Error applying initial theme:", e); document.documentElement.classList.add('light'); document.documentElement.classList.remove('dark'); }
         })();
     </script>
 </head>
@@ -76,141 +69,53 @@
                     <li><a href="#cat-ferreteria" class="block py-1 px-2 text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-gray-700 rounded transition duration-200 sidebar-link">Ferretería y Herramientas</a></li>
                     <li><a href="#cat-pinturas" class="block py-1 px-2 text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-gray-700 rounded transition duration-200 sidebar-link">Pinturas y Revestimientos</a></li>
                     <li><a href="#cat-impermeabilizantes" class="block py-1 px-2 text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-gray-700 rounded transition duration-200 sidebar-link">Impermeabilizantes</a></li>
-                    </ul>
+                    <li><a href="#cat-construccion" class="block py-1 px-2 text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-gray-700 rounded transition duration-200 sidebar-link">Materiales de Construcción</a></li>
+                </ul>
             </nav>
         </aside>
 
         <main class="w-full md:w-3/4 lg:w-4/5">
             <h1 class="text-3xl md:text-4xl font-bold text-center mb-10 md:mb-12 text-blue-700 dark:text-blue-400">Catálogo de Productos</h1>
 
-            <section id="cat-tanques" class="mb-16 scroll-mt-24">
+            <section id="cat-tanques" class="category-section mb-16 scroll-mt-24">
                 <h2 class="text-2xl font-semibold border-b-2 border-blue-300 dark:border-blue-600 pb-2 mb-8 text-blue-700 dark:text-blue-400">Tanques de Agua</h2>
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
-                        <div class="product-image-container">
-                            <img src="images/Tanque Aquafort 470 Lts Beige.jpg" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Tanque Aquafort 470 Lts Beige" class="product-image">
-                        </div>
-                        <div class="p-4 flex flex-col flex-grow">
-                            <h4 class="text-lg font-semibold mb-1 text-blue-700 dark:text-blue-400 truncate" title="Tanque Aquafort 470 Lts Beige">Tanque Aquafort 470 Lts Beige</h4>
-                            <p class="text-sm text-gray-600 dark:text-gray-300 mb-3 flex-grow">Tanque de agua tricapa con garantía de fábrica. Color beige.</p>
-                            <a href="#" data-producto="Tanque Aquafort 470 Lts Beige" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
-                        </div>
-                    </div>
-                     <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
-                        <div class="product-image-container">
-                            <img src="images/Tanque Aquafort 470 Lts Negro.jpg" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Tanque Aquafort 470 Lts Negro" class="product-image">
-                        </div>
-                        <div class="p-4 flex flex-col flex-grow">
-                            <h4 class="text-lg font-semibold mb-1 text-blue-700 dark:text-blue-400 truncate" title="Tanque Aquafort 470 Lts Negro">Tanque Aquafort 470 Lts Negro</h4>
-                            <p class="text-sm text-gray-600 dark:text-gray-300 mb-3 flex-grow">Tanque de agua bicapa con garantía de fábrica. Color negro.</p>
-                            <a href="#" data-producto="Tanque Aquafort 470 Lts Negro" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
-                        </div>
-                    </div>
-                    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
-                        <div class="product-image-container">
-                             <img src="https://placehold.co/600x600/77aabb/ffffff?text=Tanque+1100L" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Tanque Aquafort 1100L Tricapa" class="product-image">
-                        </div>
-                        <div class="p-4 flex flex-col flex-grow">
-                             <h4 class="text-lg font-semibold mb-1 text-blue-700 dark:text-blue-400 truncate" title="Tanque Aquafort 1100L Tricapa">Tanque Aquafort 1100L Tricapa</h4>
-                            <p class="text-sm text-gray-600 dark:text-gray-300 mb-3 flex-grow">Mayor capacidad, ideal para familias. Protección UV y antibacteriana.</p>
-                            <a href="#" data-producto="Tanque Aquafort 1100L Tricapa" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
-                        </div>
-                    </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 product-grid-container">
+                    <p class="loading-message col-span-full">Cargando productos...</p>
                 </div>
             </section>
 
-            <section id="cat-hogar" class="mb-16 scroll-mt-24">
+            <section id="cat-hogar" class="category-section mb-16 scroll-mt-24">
                 <h2 class="text-2xl font-semibold border-b-2 border-blue-300 dark:border-blue-600 pb-2 mb-8 text-blue-700 dark:text-blue-400">Hogar y Climatización</h2>
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
-                        <div class="product-image-container">
-                             <img src="images/TermotanqueSirena.webp" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Termotanque Sirena 40 Litros" class="product-image">
-                        </div>
-                        <div class="p-4 flex flex-col flex-grow">
-                             <h4 class="text-lg font-semibold mb-1 text-blue-700 dark:text-blue-400 truncate" title="Termotanque Sirena 40 Litros">Termotanque Sirena 40 Litros</h4>
-                            <p class="text-sm text-gray-600 dark:text-gray-300 mb-3 flex-grow">Termotanque eléctrico de colgar. Capacidad 40 litros. Marca Sirena.</p>
-                            <a href="#" data-producto="Termotanque Sirena 40L" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
-                        </div>
-                    </div>
-                     <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
-                        <div class="product-image-container">
-                             <img src="images/TermotanqueSirena.webp" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Termotanque Sirena 60 Litros" class="product-image">
-                        </div>
-                        <div class="p-4 flex flex-col flex-grow">
-                             <h4 class="text-lg font-semibold mb-1 text-blue-700 dark:text-blue-400 truncate" title="Termotanque Sirena 60 Litros">Termotanque Sirena 60 Litros</h4>
-                            <p class="text-sm text-gray-600 dark:text-gray-300 mb-3 flex-grow">Termotanque eléctrico de colgar. Capacidad 60 litros. Marca Sirena.</p>
-                            <a href="#" data-producto="Termotanque Sirena 60L" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
-                        </div>
-                    </div>
-                     <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
-                        <div class="product-image-container">
-                             <img src="images/TermotanqueSirena.webp" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Termotanque Sirena 90 Litros" class="product-image">
-                        </div>
-                        <div class="p-4 flex flex-col flex-grow">
-                             <h4 class="text-lg font-semibold mb-1 text-blue-700 dark:text-blue-400 truncate" title="Termotanque Sirena 90 Litros">Termotanque Sirena 90 Litros</h4>
-                            <p class="text-sm text-gray-600 dark:text-gray-300 mb-3 flex-grow">Termotanque eléctrico de colgar. Capacidad 90 litros. Marca Sirena.</p>
-                            <a href="#" data-producto="Termotanque Sirena 90L" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
-                        </div>
-                    </div>
-                    </div>
-            </section>
-
-             <section id="cat-ferreteria" class="mb-16 scroll-mt-24">
-                <h2 class="text-2xl font-semibold border-b-2 border-blue-300 dark:border-blue-600 pb-2 mb-8 text-blue-700 dark:text-blue-400">Ferretería y Herramientas</h2>
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
-                        <div class="product-image-container">
-                            <img src="images/escalera-articulada-gardenlife-4x4.webp" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Escalera Articulada Garden Life 4x4" class="product-image">
-                        </div>
-                        <div class="p-4 flex flex-col flex-grow">
-                            <h4 class="text-lg font-semibold mb-1 text-blue-700 dark:text-blue-400 truncate" title="Escalera Articulada Garden Life 4x4">Escalera Articulada Garden Life 4x4</h4>
-                             <p class="text-sm text-gray-600 dark:text-gray-300 mb-3 flex-grow">Versátil y segura. Múltiples posiciones. Ideal para hogar y trabajo.</p>
-                            <a href="#" data-producto="Escalera Articulada Garden Life 4x4" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
-                        </div>
-                    </div>
-                    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
-                        <div class="product-image-container">
-                             <img src="https://placehold.co/600x600/aa77bb/ffffff?text=Herramienta+Ej" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Kit Herramientas Manuales" class="product-image">
-                        </div>
-                        <div class="p-4 flex flex-col flex-grow">
-                             <h4 class="text-lg font-semibold mb-1 text-blue-700 dark:text-blue-400 truncate" title="Kit Herramientas Manuales">Kit Herramientas Manuales</h4>
-                            <p class="text-sm text-gray-600 dark:text-gray-300 mb-3 flex-grow">Juego básico de pinzas, destornilladores y llave ajustable.</p>
-                            <a href="#" data-producto="Kit Herramientas Manuales" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
-                        </div>
-                    </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 product-grid-container">
+                    <p class="loading-message col-span-full">Cargando productos...</p>
                 </div>
             </section>
 
-            <section id="cat-pinturas" class="mb-16 scroll-mt-24">
-                 <h2 class="text-2xl font-semibold border-b-2 border-blue-300 dark:border-blue-600 pb-2 mb-8 text-blue-700 dark:text-blue-400">Pinturas y Revestimientos</h2>
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
-                        <div class="product-image-container">
-                             <img src="https://placehold.co/800x600/aaaaaa/555555?text=Producto+4" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Combo Pintura Látex Interior 20L + Rodillo" class="product-image">
-                        </div>
-                        <div class="p-4 flex flex-col flex-grow">
-                             <h4 class="text-lg font-semibold mb-1 text-blue-700 dark:text-blue-400 truncate" title="Combo Pintura Látex Interior 20L + Rodillo">Combo Pintura Látex Interior 20L + Rodillo</h4>
-                            <p class="text-sm text-gray-600 dark:text-gray-300 mb-3 flex-grow">Excelente poder cubritivo. Acabado mate lavable. Incluye rodillo de regalo.</p>
-                            <a href="#" data-producto="Combo Pintura Látex Interior 20L" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
-                        </div>
-                    </div>
-                    </div>
+            <section id="cat-ferreteria" class="category-section mb-16 scroll-mt-24">
+                <h2 class="text-2xl font-semibold border-b-2 border-blue-300 dark:border-blue-600 pb-2 mb-8 text-blue-700 dark:text-blue-400">Ferretería y Herramientas</h2>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 product-grid-container">
+                    <p class="loading-message col-span-full">Cargando productos...</p>
+                </div>
             </section>
 
-            <section id="cat-impermeabilizantes" class="mb-16 scroll-mt-24">
+            <section id="cat-pinturas" class="category-section mb-16 scroll-mt-24">
+                 <h2 class="text-2xl font-semibold border-b-2 border-blue-300 dark:border-blue-600 pb-2 mb-8 text-blue-700 dark:text-blue-400">Pinturas y Revestimientos</h2>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 product-grid-container">
+                    <p class="loading-message col-span-full">Cargando productos...</p>
+                </div>
+            </section>
+
+            <section id="cat-impermeabilizantes" class="category-section mb-16 scroll-mt-24">
                  <h2 class="text-2xl font-semibold border-b-2 border-blue-300 dark:border-blue-600 pb-2 mb-8 text-blue-700 dark:text-blue-400">Impermeabilizantes</h2>
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                     <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col">
-                        <div class="product-image-container">
-                             <img src="https://placehold.co/600x600/aabb77/ffffff?text=Membrana" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="Membrana en Pasta MEP 20kg" class="product-image">
-                        </div>
-                        <div class="p-4 flex flex-col flex-grow">
-                             <h4 class="text-lg font-semibold mb-1 text-blue-700 dark:text-blue-400 truncate" title="Membrana en Pasta MEP 20kg">Membrana en Pasta MEP 20kg</h4>
-                            <p class="text-sm text-gray-600 dark:text-gray-300 mb-3 flex-grow">Ideal para techos y terrazas. Alto rendimiento y durabilidad. Color blanco.</p>
-                            <a href="#" data-producto="Membrana en Pasta MEP 20kg" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full"><i class="fab fa-whatsapp"></i><span>Consultar Precio</span></a>
-                        </div>
-                    </div>
-                    </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 product-grid-container">
+                     <p class="loading-message col-span-full">Cargando productos...</p>
+                </div>
+            </section>
+            <section id="cat-construccion" class="category-section mb-16 scroll-mt-24">
+                 <h2 class="text-2xl font-semibold border-b-2 border-blue-300 dark:border-blue-600 pb-2 mb-8 text-blue-700 dark:text-blue-400">Materiales de Construcción</h2>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 product-grid-container">
+                     <p class="loading-message col-span-full">Cargando productos...</p>
+                </div>
             </section>
 
         </main> </div> <a id="whatsapp-float-button" href="#" class="whatsapp-float" target="_blank" aria-label="Contactar por WhatsApp"><i class="fab fa-whatsapp"></i></a>
@@ -238,24 +143,160 @@
     <script src="config.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
-            // --- Theme Initializer (No toggle interaction needed) ---
+            // --- Theme Initializer ---
             const htmlElement = document.documentElement;
-            const applyTheme = (theme) => {
-                if (theme === 'dark') { htmlElement.classList.remove('light'); htmlElement.classList.add('dark'); }
-                else { htmlElement.classList.remove('dark'); htmlElement.classList.add('light'); }
-            };
+            const applyTheme = (theme) => { if (theme === 'dark') { htmlElement.classList.remove('light'); htmlElement.classList.add('dark'); } else { htmlElement.classList.remove('dark'); htmlElement.classList.add('light'); } };
             applyTheme(localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
             // --- End Theme Initializer ---
 
             // --- Config Data Logic ---
             if (typeof window.zonoConfig !== 'undefined') {
                 const config = window.zonoConfig;
-                const headerWhatsappLink = document.getElementById('header-whatsapp-link'); if (headerWhatsappLink) headerWhatsappLink.href = config.getWhatsAppUrl(config.whatsappGeneralQueryText);
-                const whatsappFloatButton = document.getElementById('whatsapp-float-button'); if (whatsappFloatButton) whatsappFloatButton.href = config.getWhatsAppUrl(config.whatsappCatalogHelpText || config.whatsappHelpText);
-                const productWhatsappLinks = document.querySelectorAll('.whatsapp-product-link'); productWhatsappLinks.forEach(link => { const productName = link.getAttribute('data-producto'); link.href = config.getWhatsAppUrl(productName ? config.whatsappProductQueryBaseText + productName : config.whatsappGeneralQueryText); });
-                const footerEmailLink = document.getElementById('footer-email-link'); const footerEmailAddressSpan = document.getElementById('footer-email-address'); if (footerEmailLink && footerEmailAddressSpan) { footerEmailLink.href = `mailto:${config.email}`; footerEmailAddressSpan.textContent = config.email; }
-                const footerFacebookLink = document.getElementById('footer-facebook-link'); if (footerFacebookLink) footerFacebookLink.href = config.facebookUrl;
-                const footerInstagramLink = document.getElementById('footer-instagram-link'); if (footerInstagramLink) footerInstagramLink.href = config.instagramUrl;
+                console.log("Configuración cargada:", config); // Log para ver si config se carga
+
+                const headerWhatsappLink = document.getElementById('header-whatsapp-link');
+                if (headerWhatsappLink) headerWhatsappLink.href = config.getWhatsAppUrl(config.whatsappGeneralQueryText);
+
+                const whatsappFloatButton = document.getElementById('whatsapp-float-button');
+                if (whatsappFloatButton) whatsappFloatButton.href = config.getWhatsAppUrl(config.whatsappCatalogHelpText || config.whatsappHelpText);
+
+                const footerEmailLink = document.getElementById('footer-email-link');
+                const footerEmailAddressSpan = document.getElementById('footer-email-address');
+                if (footerEmailLink && footerEmailAddressSpan) { footerEmailLink.href = `mailto:${config.email}`; footerEmailAddressSpan.textContent = config.email; }
+
+                const footerFacebookLink = document.getElementById('footer-facebook-link');
+                if (footerFacebookLink) footerFacebookLink.href = config.facebookUrl;
+
+                const footerInstagramLink = document.getElementById('footer-instagram-link');
+                if (footerInstagramLink) footerInstagramLink.href = config.instagramUrl;
+
+                // --- Cargar Productos desde Google Sheet ---
+                const sheetUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSvvFPA-f9xiHY0ktx6vvIz9b_wcnCiVWugW1Pv92i7HHUJQSD40vhS_0zhdFI7AhgJTqZ-8G1BdY2q/pub?gid=0&single=true&output=csv"; // Reemplaza con tu URL real
+                console.log("Intentando cargar desde:", sheetUrl);
+
+                const productContainers = document.querySelectorAll('.product-grid-container');
+
+                if (sheetUrl === "TU_URL_CSV_PUBLICADA_AQUI") { // Mantenemos la verificación por si acaso
+                     console.warn("URL de Google Sheet no configurada.");
+                     productContainers.forEach(container => { container.innerHTML = '<p class="loading-message col-span-full text-red-500">Error: URL de Google Sheet no configurada.</p>'; });
+                } else {
+                    fetch(sheetUrl)
+                        .then(response => {
+                            console.log("Respuesta Fetch:", response.status, response.statusText); // Log del estado de la respuesta
+                            if (!response.ok) {
+                                throw new Error(`Error HTTP ${response.status}: ${response.statusText}`);
+                            }
+                            return response.text();
+                        })
+                        .then(csvText => {
+                            console.log("CSV recibido (primeros 500 chars):", csvText.substring(0, 500)); // Log para ver el CSV
+                            productContainers.forEach(container => container.innerHTML = ''); // Limpiar
+
+                            const rows = csvText.trim().split('\n');
+                            if (rows.length < 2) {
+                                console.warn("CSV vacío o solo con encabezados.");
+                                productContainers.forEach(container => { container.innerHTML = '<p class="loading-message col-span-full">No hay productos para mostrar (CSV vacío).</p>'; });
+                                return;
+                            }
+
+                            const headers = rows[0].split(',').map(h => h.trim());
+                            console.log("Encabezados encontrados:", headers); // Log de encabezados
+
+                            const idxImagen = headers.indexOf("Nombre Imagen");
+                            const idxNombre = headers.indexOf("Nombre Producto");
+                            const idxDesc = headers.indexOf("Descripción");
+                            const idxCategoria = headers.indexOf("CategoriaID");
+
+                            if (idxImagen === -1 || idxNombre === -1 || idxDesc === -1 || idxCategoria === -1) {
+                                console.error("Error: Faltan columnas requeridas. Se encontraron:", headers);
+                                productContainers.forEach(container => { container.innerHTML = '<p class="loading-message col-span-full text-red-500">Error: Faltan columnas en Google Sheet.</p>'; });
+                                return;
+                            }
+                            console.log("Índices columnas:", { idxImagen, idxNombre, idxDesc, idxCategoria }); // Log de índices
+
+                            let productsLoaded = false; // Flag para saber si se cargó al menos un producto
+                            for (let i = 1; i < rows.length; i++) {
+                                // Split más robusto considerando posibles comas dentro de campos entre comillas
+                                const values = rows[i].match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g)?.map(v => v.replace(/^"|"$/g, '').trim()) || [];
+
+                                if (values.length < headers.length) {
+                                    console.warn(`Fila ${i+1} ignorada: número incorrecto de columnas (${values.length} vs ${headers.length}). Contenido: ${rows[i]}`);
+                                    continue; // Saltar fila si no tiene suficientes columnas
+                                }
+
+                                const nombreImagen = values[idxImagen];
+                                const nombreProducto = values[idxNombre];
+                                const descripcion = values[idxDesc];
+                                const categoriaId = values[idxCategoria];
+
+                                console.log(`Procesando fila ${i+1}: CatID=${categoriaId}, Nombre=${nombreProducto}`); // Log por cada fila
+
+                                if (!categoriaId || !nombreProducto || !nombreImagen) {
+                                     console.warn(`Fila ${i+1} ignorada: Faltan datos esenciales (Categoría, Nombre o Imagen).`);
+                                     continue;
+                                }
+
+                                const targetContainer = document.querySelector(`#${categoriaId} .product-grid-container`);
+
+                                if (targetContainer) {
+                                    productsLoaded = true; // Marcamos que al menos un producto se intentó cargar
+                                    const productCard = document.createElement('div');
+                                    productCard.className = 'bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col';
+                                    const whatsappUrl = config.getWhatsAppUrl(config.whatsappProductQueryBaseText + nombreProducto);
+
+                                    productCard.innerHTML = `
+                                        <div class="product-image-container">
+                                            <img src="images/${nombreImagen}"
+                                                 onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen%20(${nombreImagen})%20no%20encontrada';"
+                                                 alt="${nombreProducto}"
+                                                 class="product-image">
+                                        </div>
+                                        <div class="p-4 flex flex-col flex-grow">
+                                            <h4 class="text-lg font-semibold mb-1 text-blue-700 dark:text-blue-400 truncate" title="${nombreProducto}">
+                                                ${nombreProducto}
+                                            </h4>
+                                            <p class="text-sm text-gray-600 dark:text-gray-300 mb-3 flex-grow">
+                                                ${descripcion || 'Descripción no disponible.'}
+                                            </p>
+                                            <a href="${whatsappUrl}" target="_blank" class="whatsapp-product-link mt-auto text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-md font-medium flex items-center justify-center space-x-1 transition duration-300 w-full" data-producto="${nombreProducto}">
+                                                <i class="fab fa-whatsapp"></i>
+                                                <span>Consultar Precio</span>
+                                            </a>
+                                        </div>
+                                    `;
+                                    const loadingMsg = targetContainer.querySelector('.loading-message');
+                                    if (loadingMsg) loadingMsg.remove();
+                                    targetContainer.appendChild(productCard);
+                                } else {
+                                    console.warn(`Contenedor no encontrado para categoría ID: ${categoriaId}`);
+                                }
+                            }
+                            // Mensaje final si no se cargó NADA
+                            if (!productsLoaded) {
+                                 console.warn("No se cargó ningún producto válido.");
+                                 productContainers.forEach(container => {
+                                     if (container.children.length === 0) { // Solo si está realmente vacío
+                                        container.innerHTML = '<p class="loading-message col-span-full">No se encontraron productos válidos para cargar.</p>';
+                                     }
+                                 });
+                            }
+                             // Mensaje si alguna categoría específica quedó vacía
+                             productContainers.forEach(container => {
+                                if (container.children.length === 0) {
+                                    container.innerHTML = '<p class="loading-message col-span-full">No hay productos en esta categoría.</p>';
+                                }
+                            });
+
+                        })
+                        .catch(error => {
+                            console.error('Error en Fetch o procesamiento CSV:', error);
+                             productContainers.forEach(container => {
+                                container.innerHTML = `<p class="loading-message col-span-full text-red-500">Error al cargar productos: ${error.message}</p>`;
+                            });
+                        });
+                }
+
+
             } else { console.error("Error: config.js no se cargó correctamente o window.zonoConfig no está definido."); }
             // --- End Config Data Logic ---
 
