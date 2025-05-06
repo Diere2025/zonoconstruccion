@@ -118,7 +118,9 @@
                 </div>
             </section>
 
-        </main> </div> <a id="whatsapp-float-button" href="#" class="whatsapp-float" target="_blank" aria-label="Contactar por WhatsApp"><i class="fab fa-whatsapp"></i></a>
+        </main>
+    </div>
+    <a id="whatsapp-float-button" href="#" class="whatsapp-float" target="_blank" aria-label="Contactar por WhatsApp"><i class="fab fa-whatsapp"></i></a>
 
     <footer class="bg-gray-800 dark:bg-black text-gray-300 dark:text-gray-400 py-8 transition-colors duration-300">
         <div class="container mx-auto px-6 text-center">
@@ -152,7 +154,7 @@
             // --- Config Data Logic ---
             if (typeof window.zonoConfig !== 'undefined') {
                 const config = window.zonoConfig;
-                console.log("Configuración cargada:", config); // Log para ver si config se carga
+                console.log("[DEBUG] Configuración cargada:", config);
 
                 const headerWhatsappLink = document.getElementById('header-whatsapp-link');
                 if (headerWhatsappLink) headerWhatsappLink.href = config.getWhatsAppUrl(config.whatsappGeneralQueryText);
@@ -171,75 +173,72 @@
                 if (footerInstagramLink) footerInstagramLink.href = config.instagramUrl;
 
                 // --- Cargar Productos desde Google Sheet ---
-                const sheetUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSvvFPA-f9xiHY0ktx6vvIz9b_wcnCiVWugW1Pv92i7HHUJQSD40vhS_0zhdFI7AhgJTqZ-8G1BdY2q/pub?gid=0&single=true&output=csv"; // Reemplaza con tu URL real
-                console.log("Intentando cargar desde:", sheetUrl);
+                const sheetUrlPublished = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSvvFPA-f9xiHY0ktx6vvIz9b_wcnCiVWugW1Pv92i7HHUJQSD40vhS_0zhdFI7AhgJTqZ-8G1BdY2q/pub?gid=0&single=true&output=csv"; // Reemplaza con tu URL real
+                const proxyUrl = "https://cors-anywhere.herokuapp.com/";
+                const finalSheetUrl = proxyUrl + sheetUrlPublished;
+
+                console.log("[DEBUG] Intentando cargar desde (vía proxy):", finalSheetUrl);
 
                 const productContainers = document.querySelectorAll('.product-grid-container');
 
-                if (sheetUrl === "TU_URL_CSV_PUBLICADA_AQUI") { // Mantenemos la verificación por si acaso
-                     console.warn("URL de Google Sheet no configurada.");
+                if (sheetUrlPublished === "TU_URL_CSV_PUBLICADA_AQUI") {
+                     console.warn("[DEBUG] URL de Google Sheet no configurada.");
                      productContainers.forEach(container => { container.innerHTML = '<p class="loading-message col-span-full text-red-500">Error: URL de Google Sheet no configurada.</p>'; });
                 } else {
-                    fetch(sheetUrl)
+                    fetch(finalSheetUrl)
                         .then(response => {
-                            console.log("Respuesta Fetch:", response.status, response.statusText); // Log del estado de la respuesta
-                            if (!response.ok) {
-                                throw new Error(`Error HTTP ${response.status}: ${response.statusText}`);
-                            }
+                            console.log("[DEBUG] Respuesta Fetch:", response.status, response.statusText);
+                            if (!response.ok) { throw new Error(`Error HTTP ${response.status}`); }
                             return response.text();
                         })
                         .then(csvText => {
-                            console.log("CSV recibido (primeros 500 chars):", csvText.substring(0, 500)); // Log para ver el CSV
-                            productContainers.forEach(container => container.innerHTML = ''); // Limpiar
+                            console.log("[DEBUG] CSV recibido (primeros 500 chars):", csvText.substring(0, 500));
+                            productContainers.forEach(container => container.innerHTML = ''); // Limpiar mensajes "Cargando..."
 
                             const rows = csvText.trim().split('\n');
-                            if (rows.length < 2) {
-                                console.warn("CSV vacío o solo con encabezados.");
-                                productContainers.forEach(container => { container.innerHTML = '<p class="loading-message col-span-full">No hay productos para mostrar (CSV vacío).</p>'; });
-                                return;
-                            }
+                            if (rows.length < 2) { console.warn("[DEBUG] CSV vacío o solo con encabezados."); /* ... mensaje ... */ return; }
 
                             const headers = rows[0].split(',').map(h => h.trim());
-                            console.log("Encabezados encontrados:", headers); // Log de encabezados
+                            console.log("[DEBUG] Encabezados encontrados:", headers);
 
-                            const idxImagen = headers.indexOf("Nombre Imagen");
-                            const idxNombre = headers.indexOf("Nombre Producto");
-                            const idxDesc = headers.indexOf("Descripción");
-                            const idxCategoria = headers.indexOf("CategoriaID");
+                            // Crear un mapa de encabezados a índices para flexibilidad
+                            const headerMap = {};
+                            headers.forEach((header, index) => {
+                                headerMap[header] = index;
+                            });
 
-                            if (idxImagen === -1 || idxNombre === -1 || idxDesc === -1 || idxCategoria === -1) {
-                                console.error("Error: Faltan columnas requeridas. Se encontraron:", headers);
+                            // Verificar si existen las columnas necesarias
+                            const requiredHeaders = ["Nombre Imagen", "Nombre Producto", "Descripción", "CategoriaID"];
+                            const missingHeaders = requiredHeaders.filter(h => !(h in headerMap));
+
+                            if (missingHeaders.length > 0) {
+                                console.error("[DEBUG] Error: Faltan columnas requeridas:", missingHeaders.join(', '));
                                 productContainers.forEach(container => { container.innerHTML = '<p class="loading-message col-span-full text-red-500">Error: Faltan columnas en Google Sheet.</p>'; });
                                 return;
                             }
-                            console.log("Índices columnas:", { idxImagen, idxNombre, idxDesc, idxCategoria }); // Log de índices
+                            console.log("[DEBUG] Mapa de encabezados:", headerMap);
 
-                            let productsLoaded = false; // Flag para saber si se cargó al menos un producto
+                            let productsLoaded = false;
                             for (let i = 1; i < rows.length; i++) {
-                                // Split más robusto considerando posibles comas dentro de campos entre comillas
-                                const values = rows[i].match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g)?.map(v => v.replace(/^"|"$/g, '').trim()) || [];
+                                // Usar split simple, asumiendo que no hay comas dentro de los campos
+                                const values = rows[i].split(',').map(v => v.trim().replace(/^"|"$/g, '')); // Limpiar comillas por si acaso
 
-                                if (values.length < headers.length) {
-                                    console.warn(`Fila ${i+1} ignorada: número incorrecto de columnas (${values.length} vs ${headers.length}). Contenido: ${rows[i]}`);
-                                    continue; // Saltar fila si no tiene suficientes columnas
-                                }
+                                if (values.length < headers.length) { console.warn(`[DEBUG] Fila ${i+1} ignorada: número incorrecto de columnas. Contenido: ${rows[i]}`); continue; }
 
-                                const nombreImagen = values[idxImagen];
-                                const nombreProducto = values[idxNombre];
-                                const descripcion = values[idxDesc];
-                                const categoriaId = values[idxCategoria];
+                                // Obtener valores usando el mapa de encabezados
+                                const nombreImagen = values[headerMap["Nombre Imagen"]];
+                                const nombreProducto = values[headerMap["Nombre Producto"]];
+                                const descripcion = values[headerMap["Descripción"]];
+                                const categoriaId = values[headerMap["CategoriaID"]];
 
-                                console.log(`Procesando fila ${i+1}: CatID=${categoriaId}, Nombre=${nombreProducto}`); // Log por cada fila
+                                console.log(`[DEBUG] Procesando fila ${i+1}: CatID=${categoriaId}, Nombre=${nombreProducto}, Imagen=${nombreImagen}, Desc=${descripcion}`);
 
-                                if (!categoriaId || !nombreProducto || !nombreImagen) {
-                                     console.warn(`Fila ${i+1} ignorada: Faltan datos esenciales (Categoría, Nombre o Imagen).`);
-                                     continue;
-                                }
+                                if (!categoriaId || !nombreProducto || !nombreImagen) { console.warn(`[DEBUG] Fila ${i+1} ignorada: Faltan datos esenciales.`); continue; }
 
                                 const targetContainer = document.querySelector(`#${categoriaId} .product-grid-container`);
 
                                 if (targetContainer) {
-                                    productsLoaded = true; // Marcamos que al menos un producto se intentó cargar
+                                    productsLoaded = true;
                                     const productCard = document.createElement('div');
                                     productCard.className = 'bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-300 group flex flex-col';
                                     const whatsappUrl = config.getWhatsAppUrl(config.whatsappProductQueryBaseText + nombreProducto);
@@ -253,7 +252,7 @@
                                         </div>
                                         <div class="p-4 flex flex-col flex-grow">
                                             <h4 class="text-lg font-semibold mb-1 text-blue-700 dark:text-blue-400 truncate" title="${nombreProducto}">
-                                                ${nombreProducto}
+                                                ${nombreProducto || 'Nombre no disponible'}
                                             </h4>
                                             <p class="text-sm text-gray-600 dark:text-gray-300 mb-3 flex-grow">
                                                 ${descripcion || 'Descripción no disponible.'}
@@ -268,36 +267,22 @@
                                     if (loadingMsg) loadingMsg.remove();
                                     targetContainer.appendChild(productCard);
                                 } else {
-                                    console.warn(`Contenedor no encontrado para categoría ID: ${categoriaId}`);
+                                    console.warn(`[DEBUG] Contenedor no encontrado para categoría ID: ${categoriaId}`);
                                 }
                             }
-                            // Mensaje final si no se cargó NADA
                             if (!productsLoaded) {
-                                 console.warn("No se cargó ningún producto válido.");
-                                 productContainers.forEach(container => {
-                                     if (container.children.length === 0) { // Solo si está realmente vacío
-                                        container.innerHTML = '<p class="loading-message col-span-full">No se encontraron productos válidos para cargar.</p>';
-                                     }
-                                 });
+                                 console.warn("[DEBUG] No se cargó ningún producto válido.");
+                                 productContainers.forEach(container => { if (container.children.length === 0) { container.innerHTML = '<p class="loading-message col-span-full">No se encontraron productos válidos para cargar.</p>'; } });
                             }
-                             // Mensaje si alguna categoría específica quedó vacía
-                             productContainers.forEach(container => {
-                                if (container.children.length === 0) {
-                                    container.innerHTML = '<p class="loading-message col-span-full">No hay productos en esta categoría.</p>';
-                                }
-                            });
-
+                             productContainers.forEach(container => { if (container.children.length === 0) { container.innerHTML = '<p class="loading-message col-span-full">No hay productos en esta categoría.</p>'; } });
                         })
                         .catch(error => {
-                            console.error('Error en Fetch o procesamiento CSV:', error);
-                             productContainers.forEach(container => {
-                                container.innerHTML = `<p class="loading-message col-span-full text-red-500">Error al cargar productos: ${error.message}</p>`;
-                            });
+                            console.error('[DEBUG] Error en Fetch o procesamiento CSV:', error);
+                             productContainers.forEach(container => { container.innerHTML = `<p class="loading-message col-span-full text-red-500">Error al cargar productos: ${error.message}</p>`; });
                         });
                 }
 
-
-            } else { console.error("Error: config.js no se cargó correctamente o window.zonoConfig no está definido."); }
+            } else { console.error("[DEBUG] Error: config.js no se cargó correctamente o window.zonoConfig no está definido."); }
             // --- End Config Data Logic ---
 
             document.getElementById('year').textContent = new Date().getFullYear();
