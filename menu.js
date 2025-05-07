@@ -36,20 +36,31 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Actualizar el enlace de WhatsApp con el número correcto
     const mobileWhatsappLink = document.getElementById('mobile-whatsapp-link');
-    if (mobileWhatsappLink) {
-        const whatsappNumber = '+5491112345678'; // Reemplazar con el número real
-        const whatsappMessage = 'Hola! Quisiera hacer una consulta sobre sus productos.';
-        mobileWhatsappLink.href = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(whatsappMessage)}`;
+    if (mobileWhatsappLink && typeof window.zonoConfig !== 'undefined') {
+        mobileWhatsappLink.href = window.zonoConfig.getWhatsAppUrl(window.zonoConfig.whatsappGeneralQueryText);
     }
 
     // Marcar el enlace activo en el menú móvil
     function setActiveMenuItem() {
-        const currentHash = window.location.hash || '#inicio';
+        const currentPath = window.location.pathname;
+        const currentHash = window.location.hash;
+        
         menuLinks.forEach(link => {
-            if (link.getAttribute('href') === currentHash) {
-                link.classList.add('active');
+            const linkPath = link.getAttribute('href');
+            if (currentPath === '/' || currentPath.endsWith('index.html')) {
+                // En la página de inicio
+                if (linkPath === 'index.html#inicio' || linkPath === '#inicio') {
+                    link.classList.add('active');
+                } else {
+                    link.classList.remove('active');
+                }
             } else {
-                link.classList.remove('active');
+                // En otras páginas
+                if (linkPath === currentPath) {
+                    link.classList.add('active');
+                } else {
+                    link.classList.remove('active');
+                }
             }
         });
     }

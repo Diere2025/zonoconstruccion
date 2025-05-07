@@ -73,6 +73,12 @@
     <!-- Menú móvil -->
     <div id="mobile-menu" class="mobile-menu md:hidden">
         <div class="mobile-menu-content">
+            <div class="mobile-menu-header">
+                <img src="images/logo-zono.png" alt="Logo Zono Construcción y Hogar" class="h-10">
+                <button id="mobile-menu-close" class="mobile-menu-close">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
             <div class="mobile-menu-items">
                 <a href="index.html#inicio" class="mobile-menu-item">
                     <i class="fas fa-home"></i>
@@ -341,7 +347,6 @@
             // --- Fin Slider Logic ---
 
             document.getElementById('year').textContent = new Date().getFullYear();
-            const mobileMenuButton = document.querySelector('header button.md\\:hidden'); const mobileMenu = document.querySelector('header div.hidden.md\\:flex'); if (mobileMenuButton && mobileMenu) { mobileMenuButton.addEventListener('click', () => { mobileMenu.classList.toggle('hidden'); }); }
 
             // --- Formspree AJAX Submission (Opcional, para mejor UX) ---
             const form = document.getElementById('contact-form');
