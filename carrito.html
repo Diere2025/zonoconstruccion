@@ -12,6 +12,24 @@
     <link rel="stylesheet" href="styles.css">
     <style>
         html { scroll-padding-top: 6rem; }
+        /* Estilos para los botones de cantidad */
+        .quantity-btn {
+            @apply bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 
+                   text-gray-700 dark:text-gray-300 font-bold py-1 px-3 rounded;
+            transition: all 0.2s;
+        }
+        .quantity-input {
+            @apply border border-gray-300 dark:border-gray-600 rounded py-1 px-2 
+                   text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800;
+        }
+        .quantity-input::-webkit-inner-spin-button,
+        .quantity-input::-webkit-outer-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+        .quantity-input[type=number] {
+            -moz-appearance: textfield;
+        }
     </style>
     <script>
         (function() {
@@ -183,5 +201,6 @@
 
     <script src="config.js"></script>
     <script src="menu.js"></script>
+    <script src="cart.js"></script>
 </body>
 </html> 
