@@ -37,12 +37,18 @@ class ShoppingCart {
 
     addItem(product) {
         console.log('ShoppingCart - Agregando producto:', product);
-        const existingItem = this.items.find(item => item.id === product.id);
+        // Asegurarnos de que el precio sea un número entero
+        const productToAdd = {
+            ...product,
+            price: parseInt(product.price)
+        };
+        
+        const existingItem = this.items.find(item => item.id === productToAdd.id);
         if (existingItem) {
-            existingItem.quantity += product.quantity;
+            existingItem.quantity += productToAdd.quantity;
             console.log('ShoppingCart - Actualizada cantidad de producto existente');
         } else {
-            this.items.push(product);
+            this.items.push(productToAdd);
             console.log('ShoppingCart - Agregado nuevo producto');
         }
         this.saveCart();
@@ -70,29 +76,43 @@ class ShoppingCart {
     }
 
     calculateShipping() {
-        // Lógica simple de envío - puede ser modificada según necesidades
-        return this.items.length > 0 ? 2500 : 0;
+        return "A convenir";
     }
 
     calculateTotal() {
-        return this.calculateSubtotal() + this.calculateShipping();
+        return this.calculateSubtotal();
     }
 
     formatPrice(price) {
-        return new Intl.NumberFormat('es-AR', {
+        // Formatear el precio como número entero con separador de miles
+        const formattedPrice = new Intl.NumberFormat('es-AR', {
             style: 'currency',
-            currency: 'ARS'
+            currency: 'ARS',
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 0
         }).format(price);
+
+        // Asegurarnos de que el símbolo $ tenga un espacio
+        return formattedPrice.replace('$', '$ ');
     }
 
     updateDisplay() {
         console.log('ShoppingCart - Actualizando display...');
+        
+        // Actualizar el contador del carrito en todas las páginas
+        this.updateCartCount();
+
+        // El resto de la actualización solo si estamos en la página del carrito
         const emptyCartMessage = document.getElementById('empty-cart-message');
         const cartItems = document.getElementById('cart-items');
         const cartSummary = document.getElementById('cart-summary');
+        const cartSubtotal = document.getElementById('cart-subtotal');
+        const cartShipping = document.getElementById('cart-shipping');
+        const cartTotal = document.getElementById('cart-total');
 
-        if (!cartItems) {
-            console.log('ShoppingCart - No se encontró el contenedor del carrito, probablemente estamos en otra página');
+        // Si no encontramos los elementos, estamos en otra página
+        if (!cartItems || !emptyCartMessage || !cartSummary) {
+            console.log('ShoppingCart - No se encontraron elementos del carrito, probablemente estamos en otra página');
             return;
         }
 
@@ -132,53 +152,69 @@ class ShoppingCart {
         `).join('');
 
         // Actualizar resumen
-        document.getElementById('cart-subtotal').textContent = this.formatPrice(this.calculateSubtotal());
-        document.getElementById('cart-shipping').textContent = this.formatPrice(this.calculateShipping());
-        document.getElementById('cart-total').textContent = this.formatPrice(this.calculateTotal());
+        if (cartSubtotal) cartSubtotal.textContent = this.formatPrice(this.calculateSubtotal());
+        if (cartShipping) cartShipping.textContent = this.calculateShipping();
+        if (cartTotal) cartTotal.textContent = this.formatPrice(this.calculateSubtotal());
     }
 
     setupEventListeners() {
-        document.getElementById('cart-items').addEventListener('click', (e) => {
-            const target = e.target;
-            const productId = target.dataset.id;
+        console.log('ShoppingCart - Configurando event listeners...');
+        
+        // Solo configurar los listeners si estamos en la página del carrito
+        const cartItemsContainer = document.getElementById('cart-items');
+        const checkoutButton = document.getElementById('checkout-button');
 
-            if (target.classList.contains('remove-item') || target.closest('.remove-item')) {
-                const itemId = target.dataset.id || target.closest('.remove-item').dataset.id;
-                this.removeItem(itemId);
-            } else if (target.classList.contains('quantity-btn')) {
-                const input = target.parentElement.querySelector('.quantity-input');
-                const currentValue = parseInt(input.value);
-                if (target.classList.contains('plus')) {
-                    input.value = currentValue + 1;
-                } else if (target.classList.contains('minus') && currentValue > 1) {
-                    input.value = currentValue - 1;
-                }
-                this.updateQuantity(productId, parseInt(input.value));
-            }
-        });
-
-        document.getElementById('cart-items').addEventListener('change', (e) => {
-            if (e.target.classList.contains('quantity-input')) {
-                const productId = e.target.dataset.id;
-                const quantity = parseInt(e.target.value);
-                if (quantity > 0) {
-                    this.updateQuantity(productId, quantity);
-                } else {
-                    e.target.value = 1;
-                    this.updateQuantity(productId, 1);
-                }
-            }
-        });
-
-        document.getElementById('checkout-button').addEventListener('click', () => {
-            const items = this.items.map(item => `${item.quantity}x ${item.name}`).join('\n');
-            const total = this.formatPrice(this.calculateTotal());
-            const message = `Hola! Me gustaría realizar el siguiente pedido:\n\n${items}\n\nTotal: ${total}`;
+        if (cartItemsContainer) {
+            console.log('ShoppingCart - Configurando listeners para items del carrito');
             
-            if (typeof window.zonoConfig !== 'undefined') {
-                window.location.href = window.zonoConfig.getWhatsAppUrl(message);
-            }
-        });
+            cartItemsContainer.addEventListener('click', (e) => {
+                const target = e.target;
+                const productId = target.dataset.id;
+
+                if (target.classList.contains('remove-item') || target.closest('.remove-item')) {
+                    const itemId = target.dataset.id || target.closest('.remove-item').dataset.id;
+                    this.removeItem(itemId);
+                } else if (target.classList.contains('quantity-btn')) {
+                    const input = target.parentElement.querySelector('.quantity-input');
+                    const currentValue = parseInt(input.value);
+                    if (target.classList.contains('plus')) {
+                        input.value = currentValue + 1;
+                    } else if (target.classList.contains('minus') && currentValue > 1) {
+                        input.value = currentValue - 1;
+                    }
+                    this.updateQuantity(productId, parseInt(input.value));
+                }
+            });
+
+            cartItemsContainer.addEventListener('change', (e) => {
+                if (e.target.classList.contains('quantity-input')) {
+                    const productId = e.target.dataset.id;
+                    const quantity = parseInt(e.target.value);
+                    if (quantity > 0) {
+                        this.updateQuantity(productId, quantity);
+                    } else {
+                        e.target.value = 1;
+                        this.updateQuantity(productId, 1);
+                    }
+                }
+            });
+        }
+
+        if (checkoutButton) {
+            console.log('ShoppingCart - Configurando listener para botón de checkout');
+            
+            checkoutButton.addEventListener('click', () => {
+                const items = this.items.map(item => `${item.quantity}x ${item.name}`).join('\n');
+                const total = this.formatPrice(this.calculateTotal());
+                const message = `Hola! Me gustaría realizar el siguiente pedido:\n\n${items}\n\nTotal: ${total}`;
+                
+                if (typeof window.zonoConfig !== 'undefined') {
+                    window.location.href = window.zonoConfig.getWhatsAppUrl(message);
+                }
+            });
+        }
+
+        console.log('ShoppingCart - Event listeners configurados');
     }
 }
 

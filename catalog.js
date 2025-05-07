@@ -29,18 +29,27 @@ document.addEventListener('DOMContentLoaded', () => {
                 const quantity = parseInt(quantityInput?.value) || 1;
                 console.log('Catalog.js - Cantidad seleccionada:', quantity);
                 
-                // Obtener el precio (corregido el selector)
+                // Obtener el precio (simplificado)
                 const priceElement = productCard.querySelector('.text-red-600');
                 if (!priceElement) {
                     console.error('Catalog.js - No se encontró el elemento del precio');
                     return;
                 }
                 const priceText = priceElement.textContent;
-                const price = parseFloat(priceText.replace(/[^0-9.-]+/g, ''));
+                // Eliminar el símbolo de moneda y obtener solo los números
+                const price = parseInt(priceText.replace(/[$.,]/g, ''));
                 console.log('Catalog.js - Precio extraído:', price);
                 
+                // Obtener o generar un id único y consistente
+                let id = productCard.dataset.productId;
+                if (!id) {
+                    // Generar un id a partir del nombre y precio (único por producto)
+                    const name = productCard.querySelector('h3').textContent.trim();
+                    id = (name + '-' + price).toLowerCase().replace(/[^a-z0-9]+/g, '-');
+                }
+                
                 const product = {
-                    id: productCard.dataset.productId || Math.random().toString(36).substr(2, 9),
+                    id: id,
                     name: productCard.querySelector('h3').textContent,
                     price: price,
                     image: productCard.querySelector('img').src,
