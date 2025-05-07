@@ -70,7 +70,26 @@
         </nav>
     </header>
 
-    <main>
+<!-- Menú móvil -->
+<div id="mobile-menu" class="mobile-menu md:hidden">
+    <div class="mobile-menu-content">
+        <div class="mobile-menu-header">
+            <img src="images/logo-zono.png" alt="Logo Zono Construcción y Hogar" class="h-10">
+            <button id="mobile-menu-close" class="mobile-menu-close">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="mobile-menu-items">
+            <a href="#inicio" class="mobile-menu-item active">
+                <i class="fas fa-home"></i>
+                Inicio
+            </a>
+            <!-- ... resto de los elementos del menú ... -->
+        </div>
+    </div>
+</div>
+
+<main>
         <section id="inicio" class="relative bg-blue-500 text-white hero-overlay" style="min-height: 65vh;">
              <div class="container mx-auto px-6 py-24 flex flex-col items-center justify-center text-center hero-content" style="min-height: 65vh;">
                  <h1 class="text-4xl md:text-5xl lg:text-6xl font-bold mb-4 leading-tight drop-shadow-md">Tu Solución Integral en Construcción y Hogar</h1>
