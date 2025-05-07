@@ -69,12 +69,63 @@
                     <i class="fab fa-whatsapp"></i>
                     <span>WhatsApp</span>
                 </a>
-                </div>
-            <button class="md:hidden flex items-center px-3 py-2 border rounded text-gray-500 dark:text-gray-400 border-gray-600 dark:border-gray-500 hover:text-blue-500 dark:hover:text-blue-400 hover:border-blue-500 dark:hover:border-blue-400">
+            </div>
+            <button id="mobile-menu-button" class="md:hidden flex items-center px-3 py-2 border rounded text-gray-500 dark:text-gray-400 border-gray-600 dark:border-gray-500 hover:text-blue-500 dark:hover:text-blue-400 hover:border-blue-500 dark:hover:border-blue-400">
                 <svg class="fill-current h-3 w-3" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><title>Menu</title><path d="M0 3h20v2H0V3zm0 6h20v2H0V9zm0 6h20v2H0v15z"/></svg>
             </button>
         </nav>
     </header>
+
+    <!-- Menú móvil -->
+    <div id="mobile-menu" class="mobile-menu md:hidden">
+        <div class="mobile-menu-content">
+            <div class="mobile-menu-header">
+                <img src="images/logo-zono.png" alt="Logo Zono Construcción y Hogar" class="h-10">
+                <button id="mobile-menu-close" class="mobile-menu-close">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="mobile-menu-items">
+                <a href="index.html#inicio" class="mobile-menu-item">
+                    <i class="fas fa-home"></i>
+                    Inicio
+                </a>
+                <a href="categorias.html" class="mobile-menu-item active">
+                    <i class="fas fa-th-large"></i>
+                    Categorías
+                </a>
+                <a href="catalogo.html" class="mobile-menu-item">
+                    <i class="fas fa-book"></i>
+                    Catálogo
+                </a>
+                <a href="index.html#destacados" class="mobile-menu-item">
+                    <i class="fas fa-star"></i>
+                    Destacados
+                </a>
+                <a href="index.html#nosotros" class="mobile-menu-item">
+                    <i class="fas fa-users"></i>
+                    Nosotros
+                </a>
+                <a href="index.html#contacto" class="mobile-menu-item">
+                    <i class="fas fa-envelope"></i>
+                    Contacto
+                </a>
+                <a href="carrito.html" class="mobile-menu-item">
+                    <i class="fas fa-shopping-cart"></i>
+                    Carrito
+                    <span class="mobile-cart-count">2</span>
+                </a>
+                <a href="https://maps.app.goo.gl/CCiguNx6czWvPfmU7" target="_blank" class="mobile-menu-item">
+                    <i class="fas fa-map-marker-alt"></i>
+                    Cómo llegar
+                </a>
+                <a id="mobile-whatsapp-link" href="#" target="_blank" class="mobile-whatsapp-button">
+                    <i class="fab fa-whatsapp"></i>
+                    WhatsApp
+                </a>
+            </div>
+        </div>
+    </div>
 
     <main class="py-12 md:py-16">
         <div class="container mx-auto px-6">
@@ -161,43 +212,6 @@
     </footer>
 
     <script src="config.js"></script>
-    <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            // --- Theme Switcher Logic (Eliminada la interacción, solo queda la inicialización en <head>) ---
-            const themeToggle = document.getElementById('theme-checkbox');
-            const htmlElement = document.documentElement;
-            // Función para aplicar tema (puede ser útil si se reutiliza)
-            const applyTheme = (theme) => {
-                 if (theme === 'dark') {
-                    htmlElement.classList.remove('light');
-                    htmlElement.classList.add('dark');
-                    if(themeToggle) themeToggle.checked = true;
-                 } else {
-                    htmlElement.classList.remove('dark');
-                    htmlElement.classList.add('light');
-                     if(themeToggle) themeToggle.checked = false;
-                 }
-             };
-             // Aplicar tema inicial basado en preferencia del sistema o localStorage
-             applyTheme(localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
-             // --- Fin Theme Switcher Logic ---
-
-
-            // --- Config Data Logic ---
-            if (typeof window.zonoConfig !== 'undefined') {
-                const config = window.zonoConfig;
-                const headerWhatsappLink = document.getElementById('header-whatsapp-link'); if (headerWhatsappLink) headerWhatsappLink.href = config.getWhatsAppUrl(config.whatsappGeneralQueryText);
-                const whatsappFloatButton = document.getElementById('whatsapp-float-button'); if (whatsappFloatButton) whatsappFloatButton.href = config.getWhatsAppUrl(config.whatsappCategoriesHelpText || config.whatsappHelpText);
-                const footerEmailLink = document.getElementById('footer-email-link'); const footerEmailAddressSpan = document.getElementById('footer-email-address'); if (footerEmailLink && footerEmailAddressSpan) { footerEmailLink.href = `mailto:${config.email}`; footerEmailAddressSpan.textContent = config.email; }
-                const footerFacebookLink = document.getElementById('footer-facebook-link'); if (footerFacebookLink) footerFacebookLink.href = config.facebookUrl;
-                const footerInstagramLink = document.getElementById('footer-instagram-link'); if (footerInstagramLink) footerInstagramLink.href = config.instagramUrl;
-            } else { console.error("Error: config.js no se cargó correctamente o window.zonoConfig no está definido."); }
-            // --- End Config Data Logic ---
-
-            document.getElementById('year').textContent = new Date().getFullYear();
-            const mobileMenuButton = document.querySelector('header button.md\\:hidden'); const mobileMenu = document.querySelector('header div.hidden.md\\:flex'); if (mobileMenuButton && mobileMenu) { mobileMenuButton.addEventListener('click', () => { mobileMenu.classList.toggle('hidden'); }); }
-        });
-    </script>
-
+    <script src="menu.js"></script>
 </body>
 </html>

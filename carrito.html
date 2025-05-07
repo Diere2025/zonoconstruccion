@@ -52,11 +52,62 @@
                     <span>WhatsApp</span>
                 </a>
             </div>
-            <button class="md:hidden flex items-center px-3 py-2 border rounded text-gray-500 dark:text-gray-400 border-gray-600 dark:border-gray-500 hover:text-blue-500 dark:hover:text-blue-400 hover:border-blue-500 dark:hover:border-blue-400">
+            <button id="mobile-menu-button" class="md:hidden flex items-center px-3 py-2 border rounded text-gray-500 dark:text-gray-400 border-gray-600 dark:border-gray-500 hover:text-blue-500 dark:hover:text-blue-400 hover:border-blue-500 dark:hover:border-blue-400">
                 <svg class="fill-current h-3 w-3" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><title>Menu</title><path d="M0 3h20v2H0V3zm0 6h20v2H0V9zm0 6h20v2H0v15z"/></svg>
             </button>
         </nav>
     </header>
+
+    <!-- Menú móvil -->
+    <div id="mobile-menu" class="mobile-menu md:hidden">
+        <div class="mobile-menu-content">
+            <div class="mobile-menu-header">
+                <img src="images/logo-zono.png" alt="Logo Zono Construcción y Hogar" class="h-10">
+                <button id="mobile-menu-close" class="mobile-menu-close">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="mobile-menu-items">
+                <a href="index.html#inicio" class="mobile-menu-item">
+                    <i class="fas fa-home"></i>
+                    Inicio
+                </a>
+                <a href="categorias.html" class="mobile-menu-item">
+                    <i class="fas fa-th-large"></i>
+                    Categorías
+                </a>
+                <a href="catalogo.html" class="mobile-menu-item">
+                    <i class="fas fa-book"></i>
+                    Catálogo
+                </a>
+                <a href="index.html#destacados" class="mobile-menu-item">
+                    <i class="fas fa-star"></i>
+                    Destacados
+                </a>
+                <a href="index.html#nosotros" class="mobile-menu-item">
+                    <i class="fas fa-users"></i>
+                    Nosotros
+                </a>
+                <a href="index.html#contacto" class="mobile-menu-item">
+                    <i class="fas fa-envelope"></i>
+                    Contacto
+                </a>
+                <a href="carrito.html" class="mobile-menu-item active">
+                    <i class="fas fa-shopping-cart"></i>
+                    Carrito
+                    <span class="mobile-cart-count">2</span>
+                </a>
+                <a href="https://maps.app.goo.gl/CCiguNx6czWvPfmU7" target="_blank" class="mobile-menu-item">
+                    <i class="fas fa-map-marker-alt"></i>
+                    Cómo llegar
+                </a>
+                <a id="mobile-whatsapp-link" href="#" target="_blank" class="mobile-whatsapp-button">
+                    <i class="fab fa-whatsapp"></i>
+                    WhatsApp
+                </a>
+            </div>
+        </div>
+    </div>
 
     <main class="py-12 md:py-16">
         <div class="container mx-auto px-6">
@@ -126,117 +177,6 @@
     </footer>
 
     <script src="config.js"></script>
-    <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            // --- Theme Initializer ---
-            const htmlElement = document.documentElement;
-            const applyTheme = (theme) => { if (theme === 'dark') { htmlElement.classList.remove('light'); htmlElement.classList.add('dark'); } else { htmlElement.classList.remove('dark'); htmlElement.classList.add('light'); } };
-            applyTheme(localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
-            // --- End Theme Initializer ---
-
-            // --- Config Data Logic ---
-            if (typeof window.zonoConfig !== 'undefined') {
-                const config = window.zonoConfig;
-                const headerWhatsappLink = document.getElementById('header-whatsapp-link'); if (headerWhatsappLink) headerWhatsappLink.href = config.getWhatsAppUrl(config.whatsappGeneralQueryText);
-                const whatsappFloatButton = document.getElementById('whatsapp-float-button'); if (whatsappFloatButton) whatsappFloatButton.href = config.getWhatsAppUrl(config.whatsappCartHelpText || config.whatsappHelpText);
-                const footerEmailLink = document.getElementById('footer-email-link'); const footerEmailAddressSpan = document.getElementById('footer-email-address'); if (footerEmailLink && footerEmailAddressSpan) { footerEmailLink.href = `mailto:${config.email}`; footerEmailAddressSpan.textContent = config.email; }
-                const footerFacebookLink = document.getElementById('footer-facebook-link'); if (footerFacebookLink) footerFacebookLink.href = config.facebookUrl;
-                const footerInstagramLink = document.getElementById('footer-instagram-link'); if (footerInstagramLink) footerInstagramLink.href = config.instagramUrl;
-            } else { console.error("Error: config.js no se cargó correctamente o window.zonoConfig no está definido."); }
-            // --- End Config Data Logic ---
-
-            // --- Cart Logic ---
-            const cart = JSON.parse(localStorage.getItem('cart')) || [];
-            const cartItems = document.getElementById('cart-items');
-            const emptyCartMessage = document.getElementById('empty-cart-message');
-            const cartSummary = document.getElementById('cart-summary');
-            const cartSubtotal = document.getElementById('cart-subtotal');
-            const cartShipping = document.getElementById('cart-shipping');
-            const cartTotal = document.getElementById('cart-total');
-            const checkoutButton = document.getElementById('checkout-button');
-
-            function parsePrecio(precioStr) {
-                // Elimina el símbolo $, los puntos de miles y reemplaza la coma por punto decimal
-                return parseFloat(precioStr.replace(/\$/g, '').replace(/\./g, '').replace(/,/g, '.'));
-            }
-
-            function updateCart() {
-                if (cart.length === 0) {
-                    cartItems.innerHTML = '';
-                    emptyCartMessage.classList.remove('hidden');
-                    cartSummary.classList.add('hidden');
-                } else {
-                    emptyCartMessage.classList.add('hidden');
-                    cartSummary.classList.remove('hidden');
-                    cartItems.innerHTML = cart.map((item, index) => `
-                        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md p-4 flex items-center">
-                            <img src="${item.image}" alt="${item.name}" class="w-20 h-20 object-cover rounded-lg">
-                            <div class="ml-4 flex-grow">
-                                <h3 class="font-semibold text-lg">${item.name}</h3>
-                                <p class="text-gray-600 dark:text-gray-400">${item.price}</p>
-                                <div class='flex items-center mt-2'>
-                                    <button onclick="changeQuantity(${index}, -1)" class="px-2 py-1 bg-gray-200 dark:bg-gray-700 rounded-l hover:bg-gray-300 dark:hover:bg-gray-600">-</button>
-                                    <input type="number" min="1" max="100" value="${item.quantity || 1}" onchange="setQuantity(${index}, this.value)" class="w-12 text-center border border-gray-300 dark:border-gray-600 mx-1 rounded" />
-                                    <button onclick="changeQuantity(${index}, 1)" class="px-2 py-1 bg-gray-200 dark:bg-gray-700 rounded-r hover:bg-gray-300 dark:hover:bg-gray-600">+</button>
-                                </div>
-                            </div>
-                            <button onclick="removeFromCart(${index})" class="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 ml-4">
-                                <i class="fas fa-trash"></i>
-                            </button>
-                        </div>
-                    `).join('');
-
-                    const subtotal = cart.reduce((total, item) => total + parsePrecio(item.price) * (item.quantity || 1), 0);
-                    const total = subtotal;
-
-                    cartSubtotal.textContent = `$${subtotal.toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
-                    cartShipping.textContent = 'A convenir con el asesor';
-                    cartTotal.textContent = `$${total.toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
-                }
-            }
-
-            window.removeFromCart = function(index) {
-                cart.splice(index, 1);
-                localStorage.setItem('cart', JSON.stringify(cart));
-                updateCart();
-            };
-
-            window.changeQuantity = function(index, delta) {
-                let qty = cart[index].quantity || 1;
-                qty = Math.max(1, Math.min(100, qty + delta));
-                cart[index].quantity = qty;
-                localStorage.setItem('cart', JSON.stringify(cart));
-                updateCart();
-            };
-
-            window.setQuantity = function(index, value) {
-                let qty = parseInt(value) || 1;
-                qty = Math.max(1, Math.min(100, qty));
-                cart[index].quantity = qty;
-                localStorage.setItem('cart', JSON.stringify(cart));
-                updateCart();
-            };
-
-            checkoutButton.addEventListener('click', () => {
-                if (cart.length > 0) {
-                    const config = window.zonoConfig;
-                    const message = `Hola, me gustaría realizar la siguiente compra:\n\n${cart.map(item => `- ${item.name} x${item.quantity || 1}: ${item.price}`).join('\n')}\n\nTotal: ${cartTotal.textContent}`;
-                    window.open(config.getWhatsAppUrl(message), '_blank');
-                }
-            });
-
-            updateCart();
-            // --- End Cart Logic ---
-
-            document.getElementById('year').textContent = new Date().getFullYear();
-            const mobileMenuButton = document.querySelector('header button.md\\:hidden');
-            const mobileMenu = document.querySelector('header div.hidden.md\\:flex');
-            if (mobileMenuButton && mobileMenu) {
-                mobileMenuButton.addEventListener('click', () => {
-                    mobileMenu.classList.toggle('hidden');
-                });
-            }
-        });
-    </script>
+    <script src="menu.js"></script>
 </body>
 </html> 
