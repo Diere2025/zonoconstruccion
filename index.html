@@ -183,8 +183,8 @@
                 const whatsappLink = `https://wa.me/5491157694181?text=Hola!%20Me%20interesa%20el%20producto:%20${encodeURIComponent(product.name)}`;
                 const card = `
                     <div class="product-card bg-white rounded-lg shadow-md overflow-hidden flex flex-col">
-                        <div class="w-full h-56 bg-gray-200 flex items-center justify-center">
-                            <img src="${product.image}" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="${product.name}" class="w-full h-full object-cover">
+                        <div class="w-full h-56 bg-gray-200 flex items-center justify-center p-2">
+                            <img src="${product.image}" onerror="this.onerror=null; this.src='https://placehold.co/600x600/eeeeee/aaaaaa?text=Imagen+no+disponible';" alt="${product.name}" class="w-full h-full object-contain">
                         </div>
                         <div class="p-5 flex flex-col flex-grow">
                             <h3 class="text-lg font-bold text-gray-900">${product.name}</h3>
