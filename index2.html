@@ -332,23 +332,31 @@
                 menu.classList.toggle('hidden');
             });
 
-            // Datos de Productos (Tanque 280L corregido a 300L)
+            // Formateador de Moneda (ARS)
+            const formatter = new Intl.NumberFormat('es-AR', {
+                style: 'currency',
+                currency: 'ARS',
+                minimumFractionDigits: 0,
+                maximumFractionDigits: 0
+            });
+
+            // Datos de Productos (Precios Actualizados desde PDF)
             const products = [
-                { category: 'Hogar y Climatización', name: 'Termotanque Sirena 40L', description: 'Eléctrico de colgar. Alta recuperación.', image: 'images/catalogo/TermotanqueSirena.webp' },
-                { category: 'Hogar y Climatización', name: 'Termotanque Sirena 60L', description: 'Eléctrico de colgar. Ideal 2 personas.', image: 'images/catalogo/TermotanqueSirena.webp' },
-                { category: 'Hogar y Climatización', name: 'Termotanque Sirena 90L', description: 'Eléctrico de colgar. Ideal familia.', image: 'images/catalogo/TermotanqueSirena.webp' },
+                { category: 'Hogar y Climatización', name: 'Termotanque Sirena 40L', description: 'Eléctrico de colgar. Alta recuperación.', image: 'images/catalogo/TermotanqueSirena.webp', price: 194500 },
+                { category: 'Hogar y Climatización', name: 'Termotanque Sirena 60L', description: 'Eléctrico de colgar. Ideal 2 personas.', image: 'images/catalogo/TermotanqueSirena.webp', price: 214300 },
+                { category: 'Hogar y Climatización', name: 'Termotanque Sirena 90L', description: 'Eléctrico de colgar. Ideal familia.', image: 'images/catalogo/TermotanqueSirena.webp', price: 255200 },
                 
-                // Tanque Corregido
-                { category: 'Tanques de Agua', name: 'Tanque 300L Bicapa Negro', description: 'Aquafort. Resistente UV.', image: 'images/catalogo/Tanque 300 Lts Negro - Aquafort.webp' },
+                // Tanque Corregido 300L
+                { category: 'Tanques de Agua', name: 'Tanque 300L Bicapa Negro', description: 'Aquafort. Resistente UV.', image: 'images/catalogo/Tanque 300 Lts Negro - Aquafort.webp', price: 70100 },
                 
-                { category: 'Tanques de Agua', name: 'Tanque 500L Bicapa Negro', description: 'Aquafort. Estándar domiciliario.', image: 'images/catalogo/Tanque 500 Lts Negro Aquafort.webp' },
-                { category: 'Tanques de Agua', name: 'Tanque 750L Bicapa Negro', description: 'Aquafort. Gran capacidad.', image: 'images/catalogo/Tanque Aquafort 750 Negro.webp' },
-                { category: 'Tanques de Agua', name: 'Tanque 1000L Bicapa Negro', description: 'Aquafort. Máxima reserva.', image: 'images/catalogo/Tanque Aquafort 1000 Negro.webp' },
-                { category: 'Tanques de Agua', name: 'Tanque 500L Tricapa Beige', description: 'Aquafort. Antibacteriano.', image: 'images/catalogo/Tanque 500 Lts Beige - Aquafort.webp' },
-                { category: 'Tratamiento de Aguas', name: 'Biodigestor 600L Biofort', description: 'Tratamiento ecológico de efluentes.', image: 'images/catalogo/Biodigestor 600L Biofort.webp' },
-                { category: 'Tratamiento de Aguas', name: 'Biodigestor 700L Autolimpiante', description: 'Biofort. Mantenimiento simple.', image: 'images/catalogo/Biodigestor 700 Autolimpiante Biofort.webp' },
-                { category: 'Ferretería', name: 'Escalera Articulada 3x4', description: '12 escalones. Multiposición.', image: 'images/catalogo/escalera-articulada-gardenlife-4x4.webp' },
-                { category: 'Ferretería', name: 'Escalera Articulada 4x4', description: '16 escalones. Profesional.', image: 'images/catalogo/escalera-articulada-gardenlife-4x4.webp' },
+                { category: 'Tanques de Agua', name: 'Tanque 500L Bicapa Negro', description: 'Aquafort. Estándar domiciliario.', image: 'images/catalogo/Tanque 500 Lts Negro Aquafort.webp', price: 87100 },
+                { category: 'Tanques de Agua', name: 'Tanque 750L Bicapa Negro', description: 'Aquafort. Gran capacidad.', image: 'images/catalogo/Tanque Aquafort 750 Negro.webp', price: 104000 },
+                { category: 'Tanques de Agua', name: 'Tanque 1000L Bicapa Negro', description: 'Aquafort. Máxima reserva.', image: 'images/catalogo/Tanque Aquafort 1000 Negro.webp', price: 136500 },
+                { category: 'Tanques de Agua', name: 'Tanque 500L Tricapa Beige', description: 'Aquafort. Antibacteriano.', image: 'images/catalogo/Tanque 500 Lts Beige - Aquafort.webp', price: 94500 },
+                { category: 'Tratamiento de Aguas', name: 'Biodigestor 600L Biofort', description: 'Tratamiento ecológico de efluentes.', image: 'images/catalogo/Biodigestor 600L Biofort.webp', price: 251700 },
+                { category: 'Tratamiento de Aguas', name: 'Biodigestor 700L Autolimpiante', description: 'Biofort. Mantenimiento simple.', image: 'images/catalogo/Biodigestor 700 Autolimpiante Biofort.webp', price: 448400 },
+                { category: 'Ferretería', name: 'Escalera Articulada 3x4', description: '12 escalones. Multiposición.', image: 'images/catalogo/escalera-articulada-gardenlife-4x4.webp', price: 120000 },
+                { category: 'Ferretería', name: 'Escalera Articulada 4x4', description: '16 escalones. Profesional.', image: 'images/catalogo/escalera-articulada-gardenlife-4x4.webp', price: 142000 },
             ];
 
             const productGrid = document.getElementById('product-grid');
@@ -376,6 +384,11 @@
                 filteredProducts.forEach((product, index) => {
                     const whatsappLink = `https://wa.me/5491157694181?text=Hola!%20Me%20interesa%20el%20producto:%20${encodeURIComponent(product.name)}`;
                     
+                    // Renderizar precio o texto "Consultar"
+                    const priceDisplay = product.price 
+                        ? `<div class="text-2xl font-bold text-gray-900 mb-2">${formatter.format(product.price)}</div>` 
+                        : `<div class="text-xl font-semibold text-gray-500 mb-2">Consultar Precio</div>`;
+
                     // Delay escalonado
                     const delay = (index % 4) * 100; 
 
@@ -390,10 +403,13 @@
                             <div class="p-6 flex flex-col flex-grow relative bg-white">
                                 <h3 class="text-lg font-bold text-gray-900 group-hover:text-brand-600 transition-colors leading-tight mb-2">${product.name}</h3>
                                 <p class="text-sm text-gray-500 mb-4 flex-grow line-clamp-2">${product.description}</p>
-                                <div class="pt-2 mt-auto">
+                                
+                                <!-- Sección de Precio -->
+                                <div class="mt-auto pt-2">
+                                    ${priceDisplay}
                                     <a href="${whatsappLink}" target="_blank" class="w-full bg-white border-2 border-green-500 text-green-600 hover:bg-green-500 hover:text-white font-bold py-2.5 px-4 rounded-xl flex items-center justify-center space-x-2 transition-all duration-300 group-hover:shadow-lg">
                                         <i class="fab fa-whatsapp text-lg"></i>
-                                        <span>Consultar Precio</span>
+                                        <span>Comprar</span>
                                     </a>
                                 </div>
                             </div>
