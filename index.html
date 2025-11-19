@@ -44,7 +44,7 @@
     <style>
         body { font-family: 'Inter', sans-serif; }
         
-        /* Efecto Glassmorphism */
+        /* Efecto Glassmorphism para el Header */
         .glass {
             background: rgba(255, 255, 255, 0.95);
             backdrop-filter: blur(10px);
@@ -59,14 +59,6 @@
 
         /* Estilos de Tarjeta de Producto */
         .product-card:hover .product-img { transform: scale(1.05); }
-        .product-card:hover .action-btn { transform: translateY(0); opacity: 1; }
-        
-        /* Botón de filtro activo */
-        .filter-btn.active {
-            background-color: #1d4ed8;
-            color: white;
-            box-shadow: 0 4px 6px -1px rgba(29, 78, 216, 0.3);
-        }
     </style>
 </head>
 <body class="bg-gray-50 text-gray-800 antialiased overflow-x-hidden">
@@ -148,12 +140,12 @@
         <!-- Curva decorativa inferior -->
         <div class="absolute bottom-0 left-0 w-full overflow-hidden leading-[0]">
             <svg class="relative block w-[calc(100%+1.3px)] h-[60px]" data-name="Layer 1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 120" preserveAspectRatio="none">
-                <path d="M321.39,56.44c58-10.79,114.16-30.13,172-41.86,82.39-16.72,168.19-17.73,250.45-.39C823.78,31,906.67,72,985.66,92.83c70.05,18.48,146.53,26.09,214.34,3V0H0V27.35A600.21,600.21,0,0,0,321.39,56.44Z" class="fill-gray-50"></path>
+                <path d="M321.39,56.44c58-10.79,114.16-30.13,172-41.86,82.39-16.72,168.19-17.73,250.45-.39C823.78,31,906.67,72,985.66,92.83c70.05,18.48,146.53,26.09,214.34,3V0H0V27.35A600.21,600.21,0,0,0,321.39,56.44Z" class="fill-slate-100"></path>
             </svg>
         </div>
     </section>
 
-    <!-- Categorías / Features -->
+    <!-- Features sobre el fondo gris -->
     <section class="py-10 -mt-12 relative z-20">
         <div class="container mx-auto px-6">
             <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -189,7 +181,8 @@
     </section>
 
     <!-- Productos Section -->
-    <section id="productos" class="py-20 bg-gray-50">
+    <!-- FONDO GRIS PASTEL para separar visualmente las tarjetas -->
+    <section id="productos" class="py-20 bg-slate-100">
         <div class="container mx-auto px-6">
             <div class="text-center mb-12" data-aos="fade-up">
                 <h2 class="text-sm font-bold tracking-wide text-brand-600 uppercase mb-2">Nuestra Selección</h2>
@@ -199,7 +192,7 @@
             
             <!-- Filtros Modernos -->
             <div id="filters" class="flex flex-wrap justify-center gap-3 mb-12" data-aos="fade-up" data-aos-delay="100">
-                <button class="filter-btn active bg-white border border-gray-200 text-gray-600 font-medium py-2.5 px-6 rounded-full transition-all hover:bg-gray-100 hover:shadow-md" data-filter="all">Todos</button>
+                <button class="filter-btn active bg-brand-600 text-white font-medium py-2.5 px-6 rounded-full shadow-md transition-all hover:bg-brand-700 border border-transparent" data-filter="all">Todos</button>
                 <!-- JS generará el resto -->
             </div>
 
@@ -212,9 +205,16 @@
 
     <!-- Nosotros Section con diseño asimétrico -->
     <section id="nosotros" class="py-20 bg-white relative overflow-hidden">
+        <!-- Curva invertida superior para conectar con el fondo gris de productos -->
+        <div class="absolute top-0 left-0 w-full overflow-hidden leading-[0] rotate-180">
+            <svg class="relative block w-[calc(100%+1.3px)] h-[40px]" data-name="Layer 1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 120" preserveAspectRatio="none">
+                <path d="M321.39,56.44c58-10.79,114.16-30.13,172-41.86,82.39-16.72,168.19-17.73,250.45-.39C823.78,31,906.67,72,985.66,92.83c70.05,18.48,146.53,26.09,214.34,3V0H0V27.35A600.21,600.21,0,0,0,321.39,56.44Z" class="fill-slate-100"></path>
+            </svg>
+        </div>
+
         <div class="absolute top-0 right-0 w-1/3 h-full bg-brand-50 skew-x-12 translate-x-20 z-0"></div>
         
-        <div class="container mx-auto px-6 relative z-10">
+        <div class="container mx-auto px-6 relative z-10 mt-10">
             <div class="flex flex-col lg:flex-row items-center gap-16">
                 <div class="lg:w-1/2 relative" data-aos="fade-right">
                     <div class="absolute -top-4 -left-4 w-24 h-24 bg-dots-pattern opacity-20"></div> <!-- Pattern decorativo -->
@@ -332,12 +332,15 @@
                 menu.classList.toggle('hidden');
             });
 
-            // Datos de Productos
+            // Datos de Productos (Tanque 280L corregido a 300L)
             const products = [
                 { category: 'Hogar y Climatización', name: 'Termotanque Sirena 40L', description: 'Eléctrico de colgar. Alta recuperación.', image: 'images/catalogo/TermotanqueSirena.webp' },
                 { category: 'Hogar y Climatización', name: 'Termotanque Sirena 60L', description: 'Eléctrico de colgar. Ideal 2 personas.', image: 'images/catalogo/TermotanqueSirena.webp' },
                 { category: 'Hogar y Climatización', name: 'Termotanque Sirena 90L', description: 'Eléctrico de colgar. Ideal familia.', image: 'images/catalogo/TermotanqueSirena.webp' },
-                { category: 'Tanques de Agua', name: 'Tanque 280L Bicapa Negro', description: 'Aquafort. Resistente UV.', image: 'images/catalogo/Tanque 280 Lts Negro - Aquafort.webp' },
+                
+                // Tanque Corregido
+                { category: 'Tanques de Agua', name: 'Tanque 300L Bicapa Negro', description: 'Aquafort. Resistente UV.', image: 'images/catalogo/Tanque 300 Lts Negro - Aquafort.webp' },
+                
                 { category: 'Tanques de Agua', name: 'Tanque 500L Bicapa Negro', description: 'Aquafort. Estándar domiciliario.', image: 'images/catalogo/Tanque 500 Lts Negro Aquafort.webp' },
                 { category: 'Tanques de Agua', name: 'Tanque 750L Bicapa Negro', description: 'Aquafort. Gran capacidad.', image: 'images/catalogo/Tanque Aquafort 750 Negro.webp' },
                 { category: 'Tanques de Agua', name: 'Tanque 1000L Bicapa Negro', description: 'Aquafort. Máxima reserva.', image: 'images/catalogo/Tanque Aquafort 1000 Negro.webp' },
@@ -354,10 +357,10 @@
             // Categorías únicas
             const categories = ['all', ...new Set(products.map(p => p.category))];
 
-            // Generar botones
+            // Generar botones con estilo para fondo gris
             categories.slice(1).forEach(category => {
                 const button = document.createElement('button');
-                button.className = 'filter-btn bg-white border border-gray-200 text-gray-600 font-medium py-2.5 px-6 rounded-full transition-all hover:bg-gray-100 hover:shadow-md';
+                button.className = 'filter-btn bg-white text-gray-600 font-medium py-2.5 px-6 rounded-full border border-gray-200 transition-all hover:bg-white hover:text-brand-600 hover:shadow-md hover:border-brand-300';
                 button.dataset.filter = category;
                 button.textContent = category;
                 filtersContainer.appendChild(button);
@@ -373,23 +376,22 @@
                 filteredProducts.forEach((product, index) => {
                     const whatsappLink = `https://wa.me/5491157694181?text=Hola!%20Me%20interesa%20el%20producto:%20${encodeURIComponent(product.name)}`;
                     
-                    // Añadimos un delay escalonado para la animación
+                    // Delay escalonado
                     const delay = (index % 4) * 100; 
 
+                    // TARJETA ACTUALIZADA PARA FONDO GRIS
                     const card = `
-                        <div class="product-card group bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden flex flex-col transition-all duration-300 hover:shadow-2xl hover:-translate-y-2" data-aos="fade-up" data-aos-delay="${delay}">
-                            <div class="relative w-full h-64 bg-gray-100 flex items-center justify-center p-6 overflow-hidden">
-                                <span class="absolute top-4 left-4 bg-white/90 backdrop-blur text-xs font-bold px-3 py-1 rounded-full shadow-sm z-10 text-gray-600 border border-gray-200">${product.category}</span>
+                        <div class="product-card group bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden flex flex-col transition-all duration-300 hover:-translate-y-2 hover:shadow-2xl" data-aos="fade-up" data-aos-delay="${delay}">
+                            <!-- Contenedor de imagen en BLANCO para blending con JPGs -->
+                            <div class="relative w-full h-64 bg-white border-b border-gray-100 flex items-center justify-center p-6 overflow-hidden">
+                                <span class="absolute top-4 left-4 bg-slate-100 text-slate-600 text-xs font-bold px-3 py-1 rounded-full border border-slate-200 z-10">${product.category}</span>
                                 <img src="${product.image}" onerror="this.onerror=null; this.src='https://placehold.co/400x400/f1f5f9/94a3b8?text=${encodeURIComponent(product.name)}';" alt="${product.name}" class="product-img w-full h-full object-contain transition-transform duration-500 ease-in-out">
-                                
-                                <!-- Overlay con botón rápido (opcional) -->
-                                <div class="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
                             </div>
                             <div class="p-6 flex flex-col flex-grow relative bg-white">
                                 <h3 class="text-lg font-bold text-gray-900 group-hover:text-brand-600 transition-colors leading-tight mb-2">${product.name}</h3>
                                 <p class="text-sm text-gray-500 mb-4 flex-grow line-clamp-2">${product.description}</p>
-                                <div class="pt-4 border-t border-gray-100">
-                                    <a href="${whatsappLink}" target="_blank" class="w-full bg-white border-2 border-green-500 hover:bg-green-500 hover:text-white text-green-600 font-bold py-2.5 px-4 rounded-xl flex items-center justify-center space-x-2 transition-all duration-300 group-hover:shadow-lg">
+                                <div class="pt-2 mt-auto">
+                                    <a href="${whatsappLink}" target="_blank" class="w-full bg-white border-2 border-green-500 text-green-600 hover:bg-green-500 hover:text-white font-bold py-2.5 px-4 rounded-xl flex items-center justify-center space-x-2 transition-all duration-300 group-hover:shadow-lg">
                                         <i class="fab fa-whatsapp text-lg"></i>
                                         <span>Consultar Precio</span>
                                     </a>
@@ -405,11 +407,12 @@
             filtersContainer.addEventListener('click', (e) => {
                 if (e.target.classList.contains('filter-btn')) {
                     document.querySelectorAll('.filter-btn').forEach(btn => {
-                        btn.classList.remove('active', 'bg-brand-600', 'text-white', 'border-transparent', 'shadow-lg');
-                        btn.classList.add('bg-white', 'text-gray-600', 'border-gray-200');
+                        // Estilo Inactivo
+                        btn.className = 'filter-btn bg-white text-gray-600 font-medium py-2.5 px-6 rounded-full border border-gray-200 transition-all hover:bg-white hover:text-brand-600 hover:shadow-md hover:border-brand-300';
                     });
-                    e.target.classList.remove('bg-white', 'text-gray-600', 'border-gray-200');
-                    e.target.classList.add('active'); // CSS handles the rest
+                    // Estilo Activo
+                    e.target.className = 'filter-btn active bg-brand-600 text-white font-medium py-2.5 px-6 rounded-full shadow-md transition-all hover:bg-brand-700 border border-transparent';
+                    
                     displayProducts(e.target.dataset.filter);
                 }
             });
