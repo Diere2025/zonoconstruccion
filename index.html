@@ -1,425 +1,49 @@
 <!DOCTYPE html>
 <html lang="es" class="scroll-smooth">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Zono Construcción y Hogar | Catálogo Premium</title>
-    
-    <!-- Tailwind CSS & Config -->
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Zono Construcción y Hogar</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        brand: {
-                            50: '#eff6ff',
-                            100: '#dbeafe',
-                            500: '#3b82f6',
-                            600: '#2563eb',
-                            700: '#1d4ed8',
-                            900: '#1e3a8a',
-                        },
-                        accent: {
-                            500: '#f59e0b', // Ambar para detalles
-                        }
-                    },
-                    fontFamily: {
-                        sans: ['Inter', 'sans-serif'],
-                    }
-                }
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              brand: {
+                50: '#eff6ff',
+                100: '#dbeafe',
+                500: '#3b82f6',
+                600: '#2563eb',
+                700: '#1d4ed8',
+                900: '#1e3a8a',
+              },
+              accent: {
+                500: '#f59e0b',
+              }
+            },
+            fontFamily: {
+              sans: ['Inter', 'sans-serif'],
             }
+          }
         }
+      }
     </script>
-
-    <!-- Fuentes e Iconos -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
-    
-    <!-- Animaciones AOS -->
-    <link href="https://unpkg.com/aos@2.3.1/dist/aos.css" rel="stylesheet">
-
-    <style>
-        body { font-family: 'Inter', sans-serif; }
-        
-        /* Efecto Glassmorphism para el Header */
-        .glass {
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(10px);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.3);
-        }
-
-        /* Mejoras en Scrollbar */
-        ::-webkit-scrollbar { width: 8px; }
-        ::-webkit-scrollbar-track { background: #f1f1f1; }
-        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
-        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-
-        /* Estilos de Tarjeta de Producto */
-        .product-card:hover .product-img { transform: scale(1.05); }
-    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.554.0"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
 </head>
-<body class="bg-gray-50 text-gray-800 antialiased overflow-x-hidden">
-
-    <!-- Header con Glassmorphism -->
-    <header class="fixed w-full top-0 z-50 glass transition-all duration-300 shadow-sm" id="navbar">
-        <div class="container mx-auto px-6 py-3 flex justify-between items-center">
-            <!-- Logo -->
-            <a href="#" class="flex items-center gap-2 group">
-                <div class="relative overflow-hidden rounded-lg">
-                    <img src="images/logo-zono.png" onerror="this.onerror=null; this.src='https://placehold.co/160x60/1e3a8a/ffffff?text=ZONO+HOME';" alt="Logo Zono" class="h-10 md:h-12 object-contain transition-transform group-hover:scale-105">
-                </div>
-            </a>
-
-            <!-- Desktop Nav -->
-            <nav class="hidden md:flex items-center space-x-8 font-medium">
-                <a href="#productos" class="text-gray-600 hover:text-brand-700 transition-colors relative after:content-[''] after:absolute after:-bottom-1 after:left-0 after:w-0 after:h-0.5 after:bg-brand-600 after:transition-all hover:after:w-full">Productos</a>
-                <a href="#nosotros" class="text-gray-600 hover:text-brand-700 transition-colors relative after:content-[''] after:absolute after:-bottom-1 after:left-0 after:w-0 after:h-0.5 after:bg-brand-600 after:transition-all hover:after:w-full">Nosotros</a>
-                <a href="#contacto" class="text-gray-600 hover:text-brand-700 transition-colors relative after:content-[''] after:absolute after:-bottom-1 after:left-0 after:w-0 after:h-0.5 after:bg-brand-600 after:transition-all hover:after:w-full">Contacto</a>
-            </nav>
-
-            <!-- CTA & Mobile Toggle -->
-            <div class="flex items-center gap-4">
-                <a href="https://wa.me/5491157694181" target="_blank" class="hidden md:flex bg-green-500 hover:bg-green-600 text-white font-semibold py-2.5 px-6 rounded-full items-center gap-2 transition-all hover:shadow-lg hover:-translate-y-0.5 transform">
-                    <i class="fab fa-whatsapp text-lg"></i>
-                    <span>Contactar</span>
-                </a>
-                
-                <!-- Mobile Menu Button -->
-                <button id="mobile-menu-btn" class="md:hidden text-gray-700 hover:text-brand-700 focus:outline-none text-2xl">
-                    <i class="fas fa-bars"></i>
-                </button>
-            </div>
-        </div>
-
-        <!-- Mobile Menu (Hidden by default) -->
-        <div id="mobile-menu" class="hidden md:hidden bg-white border-t border-gray-100 absolute w-full shadow-lg">
-            <div class="flex flex-col px-6 py-4 space-y-4">
-                <a href="#productos" class="text-gray-700 hover:text-brand-600 font-medium">Productos</a>
-                <a href="#nosotros" class="text-gray-700 hover:text-brand-600 font-medium">Nosotros</a>
-                <a href="#contacto" class="text-gray-700 hover:text-brand-600 font-medium">Contacto</a>
-                <a href="https://wa.me/5491157694181" class="text-green-600 font-semibold flex items-center gap-2">
-                    <i class="fab fa-whatsapp"></i> WhatsApp
-                </a>
-            </div>
-        </div>
-    </header>
-
-    <!-- Hero Section Mejorado -->
-    <section class="relative pt-32 pb-20 lg:pt-48 lg:pb-32 overflow-hidden">
-        <!-- Fondo con imagen y overlay -->
-        <div class="absolute inset-0 z-0">
-            <img src="https://images.unsplash.com/photo-1503387762-592deb58ef4e?q=80&w=2000&auto=format&fit=crop" alt="Background Construction" class="w-full h-full object-cover">
-            <div class="absolute inset-0 bg-gradient-to-r from-gray-900/90 via-gray-900/80 to-gray-900/40"></div>
-        </div>
-
-        <div class="container mx-auto px-6 relative z-10 text-center lg:text-left">
-            <div class="max-w-3xl" data-aos="fade-up" data-aos-duration="1000">
-                <span class="inline-block py-1 px-3 rounded-full bg-brand-600/20 border border-brand-500 text-brand-100 text-sm font-semibold mb-6 backdrop-blur-sm">
-                    🚀 Envíos a todo el país
-                </span>
-                <h1 class="text-4xl md:text-6xl font-extrabold text-white mb-6 leading-tight">
-                    Construye tus sueños con <span class="text-brand-500">calidad profesional</span>
-                </h1>
-                <p class="text-lg md:text-xl text-gray-300 mb-8 leading-relaxed max-w-2xl">
-                    Especialistas en tanques de agua, impermeabilización y soluciones integrales para el hogar. Venta directa de fábrica y asesoramiento experto.
-                </p>
-                <div class="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start">
-                    <a href="#productos" class="bg-brand-600 hover:bg-brand-700 text-white font-bold py-4 px-8 rounded-xl transition-all shadow-lg shadow-brand-600/30 hover:-translate-y-1 text-center">
-                        Ver Catálogo
-                    </a>
-                    <a href="#contacto" class="bg-white/10 hover:bg-white/20 backdrop-blur-md border border-white/30 text-white font-bold py-4 px-8 rounded-xl transition-all hover:-translate-y-1 text-center">
-                        Ubicación
-                    </a>
-                </div>
-            </div>
-        </div>
-
-        <!-- Curva decorativa inferior -->
-        <div class="absolute bottom-0 left-0 w-full overflow-hidden leading-[0]">
-            <svg class="relative block w-[calc(100%+1.3px)] h-[60px]" data-name="Layer 1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 120" preserveAspectRatio="none">
-                <path d="M321.39,56.44c58-10.79,114.16-30.13,172-41.86,82.39-16.72,168.19-17.73,250.45-.39C823.78,31,906.67,72,985.66,92.83c70.05,18.48,146.53,26.09,214.34,3V0H0V27.35A600.21,600.21,0,0,0,321.39,56.44Z" class="fill-slate-100"></path>
-            </svg>
-        </div>
-    </section>
-
-    <!-- Features sobre el fondo gris -->
-    <section class="py-10 -mt-12 relative z-20">
-        <div class="container mx-auto px-6">
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div class="bg-white p-6 rounded-2xl shadow-xl flex items-center gap-4" data-aos="fade-up" data-aos-delay="0">
-                    <div class="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center text-brand-600 text-xl">
-                        <i class="fas fa-industry"></i>
-                    </div>
-                    <div>
-                        <h3 class="font-bold text-gray-900">Directo de Fábrica</h3>
-                        <p class="text-sm text-gray-500">Mejores precios garantizados</p>
-                    </div>
-                </div>
-                <div class="bg-white p-6 rounded-2xl shadow-xl flex items-center gap-4" data-aos="fade-up" data-aos-delay="100">
-                    <div class="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center text-green-600 text-xl">
-                        <i class="fab fa-whatsapp"></i>
-                    </div>
-                    <div>
-                        <h3 class="font-bold text-gray-900">Atención Personalizada</h3>
-                        <p class="text-sm text-gray-500">Te asesoramos en tu compra</p>
-                    </div>
-                </div>
-                <div class="bg-white p-6 rounded-2xl shadow-xl flex items-center gap-4" data-aos="fade-up" data-aos-delay="200">
-                    <div class="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center text-orange-600 text-xl">
-                        <i class="fas fa-truck"></i>
-                    </div>
-                    <div>
-                        <h3 class="font-bold text-gray-900">Envíos a Domicilio</h3>
-                        <p class="text-sm text-gray-500">Consulta zonas de cobertura</p>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- Productos Section -->
-    <!-- FONDO GRIS PASTEL para separar visualmente las tarjetas -->
-    <section id="productos" class="py-20 bg-slate-100">
-        <div class="container mx-auto px-6">
-            <div class="text-center mb-12" data-aos="fade-up">
-                <h2 class="text-sm font-bold tracking-wide text-brand-600 uppercase mb-2">Nuestra Selección</h2>
-                <h3 class="text-3xl md:text-4xl font-bold text-gray-900">Catálogo de Productos</h3>
-                <div class="w-20 h-1.5 bg-brand-500 mx-auto mt-4 rounded-full"></div>
-            </div>
-            
-            <!-- Filtros Modernos -->
-            <div id="filters" class="flex flex-wrap justify-center gap-3 mb-12" data-aos="fade-up" data-aos-delay="100">
-                <button class="filter-btn active bg-brand-600 text-white font-medium py-2.5 px-6 rounded-full shadow-md transition-all hover:bg-brand-700 border border-transparent" data-filter="all">Todos</button>
-                <!-- JS generará el resto -->
-            </div>
-
-            <!-- Grilla de Productos -->
-            <div id="product-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
-                <!-- JS Insertará tarjetas aquí -->
-            </div>
-        </div>
-    </section>
-
-    <!-- Nosotros Section con diseño asimétrico -->
-    <section id="nosotros" class="py-20 bg-white relative overflow-hidden">
-        <!-- Curva invertida superior para conectar con el fondo gris de productos -->
-        <div class="absolute top-0 left-0 w-full overflow-hidden leading-[0] rotate-180">
-            <svg class="relative block w-[calc(100%+1.3px)] h-[40px]" data-name="Layer 1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 120" preserveAspectRatio="none">
-                <path d="M321.39,56.44c58-10.79,114.16-30.13,172-41.86,82.39-16.72,168.19-17.73,250.45-.39C823.78,31,906.67,72,985.66,92.83c70.05,18.48,146.53,26.09,214.34,3V0H0V27.35A600.21,600.21,0,0,0,321.39,56.44Z" class="fill-slate-100"></path>
-            </svg>
-        </div>
-
-        <div class="absolute top-0 right-0 w-1/3 h-full bg-brand-50 skew-x-12 translate-x-20 z-0"></div>
-        
-        <div class="container mx-auto px-6 relative z-10 mt-10">
-            <div class="flex flex-col lg:flex-row items-center gap-16">
-                <div class="lg:w-1/2 relative" data-aos="fade-right">
-                    <div class="absolute -top-4 -left-4 w-24 h-24 bg-dots-pattern opacity-20"></div> <!-- Pattern decorativo -->
-                    <div class="relative rounded-2xl overflow-hidden shadow-2xl transform rotate-2 hover:rotate-0 transition-all duration-500">
-                        <img src="images/ChatGPTImage6.jpg" onerror="this.onerror=null; this.src='https://placehold.co/800x600/e2e8f0/475569?text=Nuestra+Tienda';" alt="Imagen del negocio Zono" class="w-full object-cover h-96">
-                        <div class="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent"></div>
-                        <div class="absolute bottom-6 left-6 text-white">
-                            <p class="font-bold text-xl">Desde Buenos Aires</p>
-                            <p class="text-sm opacity-90">Calidad garantizada</p>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="lg:w-1/2" data-aos="fade-left">
-                    <h2 class="text-4xl font-bold text-gray-900 mb-6">Sobre <span class="text-brand-600">Zono</span></h2>
-                    <p class="text-gray-600 mb-6 text-lg leading-relaxed">
-                        Somos tu aliado estratégico en construcción y mejoramiento del hogar. Nacimos con la misión de simplificar tus proyectos, combinando la comodidad de la venta online con el respaldo de un local físico.
-                    </p>
-                    <ul class="space-y-4 mb-8">
-                        <li class="flex items-center gap-3">
-                            <i class="fas fa-check-circle text-green-500 text-xl"></i>
-                            <span class="text-gray-700 font-medium">Fabricantes directos de tanques Aquafort.</span>
-                        </li>
-                        <li class="flex items-center gap-3">
-                            <i class="fas fa-check-circle text-green-500 text-xl"></i>
-                            <span class="text-gray-700 font-medium">Stock permanente y variedad de marcas.</span>
-                        </li>
-                        <li class="flex items-center gap-3">
-                            <i class="fas fa-check-circle text-green-500 text-xl"></i>
-                            <span class="text-gray-700 font-medium">Asesoramiento técnico vía WhatsApp.</span>
-                        </li>
-                    </ul>
-                    <a href="#contacto" class="text-brand-600 font-bold hover:text-brand-800 flex items-center gap-2 group">
-                        Conocenos más <i class="fas fa-arrow-right transform group-hover:translate-x-1 transition-transform"></i>
-                    </a>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- Contacto Section -->
-    <section id="contacto" class="py-20 bg-gray-900 text-white relative">
-        <div class="container mx-auto px-6">
-            <div class="text-center mb-16" data-aos="fade-up">
-                <h2 class="text-3xl md:text-4xl font-bold mb-4">¿Listo para empezar tu proyecto?</h2>
-                <p class="text-gray-400 max-w-2xl mx-auto">Visítanos en nuestro local o contáctanos directamente. Estamos para ayudarte.</p>
-            </div>
-            
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                <!-- Info Cards -->
-                <div class="lg:col-span-1 space-y-6">
-                    <div class="bg-gray-800 p-6 rounded-xl shadow-lg border border-gray-700 hover:border-brand-500 transition-colors" data-aos="fade-up" data-aos-delay="0">
-                        <div class="w-12 h-12 bg-brand-600 rounded-lg flex items-center justify-center mb-4 text-2xl">
-                            <i class="fas fa-map-marker-alt"></i>
-                        </div>
-                        <h3 class="text-xl font-bold mb-2">Dirección</h3>
-                        <p class="text-gray-400">Quilmes 4550, Paso del Rey<br>Buenos Aires, Argentina.</p>
-                    </div>
-
-                    <div class="bg-gray-800 p-6 rounded-xl shadow-lg border border-gray-700 hover:border-green-500 transition-colors" data-aos="fade-up" data-aos-delay="100">
-                        <div class="w-12 h-12 bg-green-600 rounded-lg flex items-center justify-center mb-4 text-2xl">
-                            <i class="fab fa-whatsapp"></i>
-                        </div>
-                        <h3 class="text-xl font-bold mb-2">WhatsApp</h3>
-                        <p class="text-gray-400 mb-2">Atención rápida y personalizada.</p>
-                        <a href="https://wa.me/5491157694181" target="_blank" class="text-green-400 hover:text-green-300 font-semibold">11 5769-4181</a>
-                    </div>
-                    
-                    <div class="flex gap-4 mt-4" data-aos="fade-up" data-aos-delay="200">
-                        <a href="https://facebook.com/zonoconstruccion" class="flex-1 bg-blue-600 hover:bg-blue-700 py-3 rounded-lg text-center transition-colors"><i class="fab fa-facebook-f"></i></a>
-                        <a href="https://www.instagram.com/zonoconstruccion" class="flex-1 bg-pink-600 hover:bg-pink-700 py-3 rounded-lg text-center transition-colors"><i class="fab fa-instagram"></i></a>
-                        <a href="mailto:comercial@zono.com.ar" class="flex-1 bg-gray-600 hover:bg-gray-700 py-3 rounded-lg text-center transition-colors"><i class="fas fa-envelope"></i></a>
-                    </div>
-                </div>
-
-                <!-- Mapa -->
-                <div class="lg:col-span-2 h-full min-h-[400px] rounded-2xl overflow-hidden shadow-2xl border border-gray-700" data-aos="zoom-in">
-                    <iframe src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3284.016704782089!2d-58.7499168847698!3d-34.6037388804595!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x95bc9431b5d4d337%3A0x6c6e75e4e7d4a4c!2sQuilmes%204550%2C%20Paso%20del%20Rey%2C%20Provincia%20de%20Buenos%20Aires!5e0!3m2!1ses!2sar!4v1678886400000!5m2!1ses!2sar" width="100%" height="100%" style="border:0; filter: grayscale(100%) invert(92%) contrast(83%);" allowfullscreen="" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- Footer -->
-    <footer class="bg-black text-white py-8 border-t border-gray-800">
-        <div class="container mx-auto px-6 flex flex-col md:flex-row justify-between items-center gap-4">
-            <div class="text-gray-400 text-sm">
-                &copy; <span id="year"></span> <strong>Zono Construcción y Hogar</strong>. Todos los derechos reservados.
-            </div>
-            <div class="flex space-x-6 text-sm font-medium text-gray-500">
-                <a href="#" class="hover:text-white transition-colors">Términos</a>
-                <a href="#" class="hover:text-white transition-colors">Privacidad</a>
-            </div>
-        </div>
-    </footer>
-
-    <!-- Scripts -->
-    <script src="https://unpkg.com/aos@2.3.1/dist/aos.js"></script>
-    <script>
-        // Iniciar animaciones
-        AOS.init({
-            once: true,
-            offset: 100,
-            duration: 800,
-            easing: 'ease-out-cubic',
-        });
-
-        document.addEventListener('DOMContentLoaded', () => {
-            
-            // Mobile Menu Logic
-            const btn = document.getElementById('mobile-menu-btn');
-            const menu = document.getElementById('mobile-menu');
-            
-            btn.addEventListener('click', () => {
-                menu.classList.toggle('hidden');
-            });
-
-            // Datos de Productos (Tanque 280L corregido a 300L)
-            const products = [
-                { category: 'Hogar y Climatización', name: 'Termotanque Sirena 40L', description: 'Eléctrico de colgar. Alta recuperación.', image: 'images/catalogo/TermotanqueSirena.webp' },
-                { category: 'Hogar y Climatización', name: 'Termotanque Sirena 60L', description: 'Eléctrico de colgar. Ideal 2 personas.', image: 'images/catalogo/TermotanqueSirena.webp' },
-                { category: 'Hogar y Climatización', name: 'Termotanque Sirena 90L', description: 'Eléctrico de colgar. Ideal familia.', image: 'images/catalogo/TermotanqueSirena.webp' },
-                
-                // Tanque Corregido
-                { category: 'Tanques de Agua', name: 'Tanque 300L Bicapa Negro', description: 'Aquafort. Resistente UV.', image: 'images/catalogo/Tanque 300 Lts Negro - Aquafort.webp' },
-                
-                { category: 'Tanques de Agua', name: 'Tanque 500L Bicapa Negro', description: 'Aquafort. Estándar domiciliario.', image: 'images/catalogo/Tanque 500 Lts Negro Aquafort.webp' },
-                { category: 'Tanques de Agua', name: 'Tanque 750L Bicapa Negro', description: 'Aquafort. Gran capacidad.', image: 'images/catalogo/Tanque Aquafort 750 Negro.webp' },
-                { category: 'Tanques de Agua', name: 'Tanque 1000L Bicapa Negro', description: 'Aquafort. Máxima reserva.', image: 'images/catalogo/Tanque Aquafort 1000 Negro.webp' },
-                { category: 'Tanques de Agua', name: 'Tanque 500L Tricapa Beige', description: 'Aquafort. Antibacteriano.', image: 'images/catalogo/Tanque 500 Lts Beige - Aquafort.webp' },
-                { category: 'Tratamiento de Aguas', name: 'Biodigestor 600L Biofort', description: 'Tratamiento ecológico de efluentes.', image: 'images/catalogo/Biodigestor 600L Biofort.webp' },
-                { category: 'Tratamiento de Aguas', name: 'Biodigestor 700L Autolimpiante', description: 'Biofort. Mantenimiento simple.', image: 'images/catalogo/Biodigestor 700 Autolimpiante Biofort.webp' },
-                { category: 'Ferretería', name: 'Escalera Articulada 3x4', description: '12 escalones. Multiposición.', image: 'images/catalogo/escalera-articulada-gardenlife-4x4.webp' },
-                { category: 'Ferretería', name: 'Escalera Articulada 4x4', description: '16 escalones. Profesional.', image: 'images/catalogo/escalera-articulada-gardenlife-4x4.webp' },
-            ];
-
-            const productGrid = document.getElementById('product-grid');
-            const filtersContainer = document.getElementById('filters');
-            
-            // Categorías únicas
-            const categories = ['all', ...new Set(products.map(p => p.category))];
-
-            // Generar botones con estilo para fondo gris
-            categories.slice(1).forEach(category => {
-                const button = document.createElement('button');
-                button.className = 'filter-btn bg-white text-gray-600 font-medium py-2.5 px-6 rounded-full border border-gray-200 transition-all hover:bg-white hover:text-brand-600 hover:shadow-md hover:border-brand-300';
-                button.dataset.filter = category;
-                button.textContent = category;
-                filtersContainer.appendChild(button);
-            });
-
-            // Renderizar Productos
-            const displayProducts = (filter = 'all') => {
-                productGrid.innerHTML = '';
-                const filteredProducts = filter === 'all' 
-                    ? products 
-                    : products.filter(p => p.category === filter);
-
-                filteredProducts.forEach((product, index) => {
-                    const whatsappLink = `https://wa.me/5491157694181?text=Hola!%20Me%20interesa%20el%20producto:%20${encodeURIComponent(product.name)}`;
-                    
-                    // Delay escalonado
-                    const delay = (index % 4) * 100; 
-
-                    // TARJETA ACTUALIZADA PARA FONDO GRIS
-                    const card = `
-                        <div class="product-card group bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden flex flex-col transition-all duration-300 hover:-translate-y-2 hover:shadow-2xl" data-aos="fade-up" data-aos-delay="${delay}">
-                            <!-- Contenedor de imagen en BLANCO para blending con JPGs -->
-                            <div class="relative w-full h-64 bg-white border-b border-gray-100 flex items-center justify-center p-6 overflow-hidden">
-                                <span class="absolute top-4 left-4 bg-slate-100 text-slate-600 text-xs font-bold px-3 py-1 rounded-full border border-slate-200 z-10">${product.category}</span>
-                                <img src="${product.image}" onerror="this.onerror=null; this.src='https://placehold.co/400x400/f1f5f9/94a3b8?text=${encodeURIComponent(product.name)}';" alt="${product.name}" class="product-img w-full h-full object-contain transition-transform duration-500 ease-in-out">
-                            </div>
-                            <div class="p-6 flex flex-col flex-grow relative bg-white">
-                                <h3 class="text-lg font-bold text-gray-900 group-hover:text-brand-600 transition-colors leading-tight mb-2">${product.name}</h3>
-                                <p class="text-sm text-gray-500 mb-4 flex-grow line-clamp-2">${product.description}</p>
-                                <div class="pt-2 mt-auto">
-                                    <a href="${whatsappLink}" target="_blank" class="w-full bg-white border-2 border-green-500 text-green-600 hover:bg-green-500 hover:text-white font-bold py-2.5 px-4 rounded-xl flex items-center justify-center space-x-2 transition-all duration-300 group-hover:shadow-lg">
-                                        <i class="fab fa-whatsapp text-lg"></i>
-                                        <span>Consultar Precio</span>
-                                    </a>
-                                </div>
-                            </div>
-                        </div>
-                    `;
-                    productGrid.innerHTML += card;
-                });
-            };
-
-            // Eventos de Filtro
-            filtersContainer.addEventListener('click', (e) => {
-                if (e.target.classList.contains('filter-btn')) {
-                    document.querySelectorAll('.filter-btn').forEach(btn => {
-                        // Estilo Inactivo
-                        btn.className = 'filter-btn bg-white text-gray-600 font-medium py-2.5 px-6 rounded-full border border-gray-200 transition-all hover:bg-white hover:text-brand-600 hover:shadow-md hover:border-brand-300';
-                    });
-                    // Estilo Activo
-                    e.target.className = 'filter-btn active bg-brand-600 text-white font-medium py-2.5 px-6 rounded-full shadow-md transition-all hover:bg-brand-700 border border-transparent';
-                    
-                    displayProducts(e.target.dataset.filter);
-                }
-            });
-
-            displayProducts();
-            document.getElementById('year').textContent = new Date().getFullYear();
-        });
-    </script>
+  <body class="bg-slate-50 text-slate-800 antialiased">
+    <div id="root"></div>
+  <script type="module" src="/index.tsx"></script>
 </body>
 </html>
