@@ -15,7 +15,7 @@ const WHATSAPP_NUMBER = "5491157694181";
 
 // Generar link de WhatsApp con mensaje precargado
 function getWhatsAppLink(productName?: string, userName?: string) {
-  let msg = "¡Hola! 👋 Te contacto desde la web de ZonoHome.";
+  let msg = "¡Hola! 👋 Te contacto desde la *Landing de Tanques* de ZonoHome.";
   if (productName) msg += `\n\nMe interesa: *${productName}*`;
   if (userName) msg += `\nMi nombre es: ${userName}`;
   msg += "\n\n¿Podrían asesorarme con precio y disponibilidad?";
@@ -41,19 +41,45 @@ export default function TanquesLanding() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [userName, setUserName] = useState("");
   const [showForm, setShowForm] = useState(false);
+  const [heroProduct, setHeroProduct] = useState<Product | null>(null);
+
 
   useEffect(() => {
-    async function fetchTanques() {
-      const { data } = await supabase
-        .from("products")
+    async function fetchLandingData() {
+      // 1. Cargar configuración de la landing desde admin
+      const { data: settings } = await supabase
+        .from("site_settings")
         .select("*")
-        .ilike("category", "%tanque%")
-        .order("price", { ascending: true });
+        .in("id", ["landing_hero_product_id", "landing_categories"]);
 
-      if (data) setProducts(data);
+      const heroId = settings?.find(s => s.id === "landing_hero_product_id")?.value || "";
+      const categoriesStr = settings?.find(s => s.id === "landing_categories")?.value || "";
+      const categories = categoriesStr.split(",").filter(Boolean);
+
+      // 2. Cargar productos filtrados por las categorías configuradas
+      let query = supabase.from("products").select("*").order("price", { ascending: true });
+      
+      if (categories.length > 0) {
+        query = query.in("category", categories);
+      }
+      
+      const { data } = await query;
+
+      if (data) {
+        const withImages = data.filter(p => p.image_url && p.image_url.trim() !== '');
+        setProducts(withImages);
+
+        // 3. Determinar producto hero
+        if (heroId) {
+          const found = withImages.find(p => p.id === heroId);
+          setHeroProduct(found || withImages[0] || null);
+        } else {
+          setHeroProduct(withImages[0] || null);
+        }
+      }
       setLoading(false);
     }
-    fetchTanques();
+    fetchLandingData();
 
     // Capturar UTM params para analytics
     if (typeof window !== "undefined") {
@@ -110,7 +136,7 @@ export default function TanquesLanding() {
             >
               <div className="inline-flex items-center gap-2 bg-brand-600/20 border border-brand-500/30 text-brand-300 rounded-full px-4 py-2 text-xs font-black uppercase tracking-widest mb-8 backdrop-blur-sm">
                 <Factory className="w-4 h-4" />
-                Precio Directo de Fábrica
+                ¡Somos Fabricantes!
               </div>
 
               <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black text-white leading-[1.05] tracking-tighter mb-6">
@@ -119,7 +145,7 @@ export default function TanquesLanding() {
               </h1>
 
               <p className="text-lg text-slate-300 mb-8 max-w-lg mx-auto lg:mx-0 font-medium leading-relaxed">
-                BioFort y AquaFort. Desde 200 hasta 10.000 litros. 
+                BioFort y AquaFort. Desde 300 hasta 3.000 litros. 
                 Envíos a todo el país con <strong className="text-white">garantía de fábrica</strong>.
               </p>
 
@@ -144,7 +170,7 @@ export default function TanquesLanding() {
               <div className="flex flex-wrap gap-6 justify-center lg:justify-start text-sm text-slate-400">
                 <span className="flex items-center gap-2"><Shield className="w-4 h-4 text-brand-400" /> Garantía de Fábrica</span>
                 <span className="flex items-center gap-2"><Truck className="w-4 h-4 text-brand-400" /> Envío a Todo el País</span>
-                <span className="flex items-center gap-2"><Star className="w-4 h-4 text-brand-400" /> +500 Clientes Satisfechos</span>
+                <span className="flex items-center gap-2"><Star className="w-4 h-4 text-brand-400" /> +50.000 Clientes Satisfechos</span>
               </div>
             </motion.div>
 
@@ -157,20 +183,26 @@ export default function TanquesLanding() {
             >
               <div className="relative">
                 <div className="absolute -inset-4 bg-brand-600/20 rounded-[3rem] blur-2xl" />
-                <Image
-                  src="https://images.unsplash.com/photo-1585771724684-38269d6639fd?q=80&w=800"
-                  alt="Tanques de Agua"
-                  width={600}
-                  height={600}
-                  className="relative rounded-[2rem] shadow-2xl object-cover"
-                  unoptimized
-                  priority
-                />
+                {heroProduct?.image_url ? (
+                  <Image
+                    src={heroProduct.image_url}
+                    alt={heroProduct.name || "Tanques de Agua"}
+                    width={600}
+                    height={600}
+                    className="relative rounded-[2rem] shadow-2xl object-contain bg-white p-6"
+                    unoptimized
+                    priority
+                  />
+                ) : (
+                  <div className="w-full aspect-square max-w-[600px] relative rounded-[2rem] shadow-2xl bg-white flex items-center justify-center">
+                    <p className="text-slate-300 font-bold">Cargando...</p>
+                  </div>
+                )}
                 {/* Badge de precio */}
                 <div className="absolute -bottom-4 -right-4 bg-white rounded-2xl p-4 shadow-2xl">
                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Desde</p>
                   <p className="text-2xl font-black text-brand-600">
-                    {products.length > 0 ? formatPrice(products[0].price) : "$ --"}
+                    {heroProduct ? formatPrice(heroProduct.price) : "$ --"}
                   </p>
                 </div>
               </div>

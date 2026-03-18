@@ -56,6 +56,8 @@ export default function AdminPage() {
   // Settings State
   const [aboutImageUrl, setAboutImageUrl] = useState('');
   const [settingsFile, setSettingsFile] = useState<File | null>(null);
+  const [landingProductId, setLandingProductId] = useState('');
+  const [landingCategories, setLandingCategories] = useState<string[]>([]);
 
   // Import State
   const [importData, setImportData] = useState("");
@@ -84,12 +86,19 @@ export default function AdminPage() {
 
   const fetchSettings = async () => {
     try {
-      const { data, error } = await supabase.from('site_settings').select('value').eq('id', 'about_image_url').single();
+      const { data, error } = await supabase.from('site_settings').select('*').in('id', ['about_image_url', 'landing_hero_product_id', 'landing_categories']);
       if (error) {
         console.warn("No se encontró configuración previa en Supabase:", error.message);
         return;
       }
-      if (data) setAboutImageUrl(data.value);
+      if (data) {
+        const aboutImg = data.find(d => d.id === 'about_image_url');
+        const heroProduct = data.find(d => d.id === 'landing_hero_product_id');
+        const landingCats = data.find(d => d.id === 'landing_categories');
+        if (aboutImg) setAboutImageUrl(aboutImg.value);
+        if (heroProduct) setLandingProductId(heroProduct.value);
+        if (landingCats && landingCats.value) setLandingCategories(landingCats.value.split(',').filter(Boolean));
+      }
     } catch (err) {
       console.error("Error cargando ajustes:", err);
     }
@@ -179,6 +188,18 @@ export default function AdminPage() {
     setSubmitting(false);
   };
 
+  // Actualización rápida inline (precio, categoría, destacado, liquidación)
+  const handleQuickUpdate = async (productId: string, field: string, value: any) => {
+    // Actualizar estado local inmediatamente
+    setProducts(prev => prev.map(p => p.id === productId ? { ...p, [field]: value } : p));
+    // Persistir en Supabase
+    const { error } = await supabase.from('products').update({ [field]: value }).eq('id', productId);
+    if (error) {
+      alert('Error al actualizar: ' + error.message);
+      fetchProducts(); // Revertir
+    }
+  };
+
   const handleSettingsSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
@@ -202,16 +223,20 @@ export default function AdminPage() {
       }
 
       console.log("Intentando guardar URL en Supabase:", finalUrl);
-      const { error } = await supabase.from('site_settings').upsert({ id: 'about_image_url', value: finalUrl });
+      const { error } = await supabase.from('site_settings').upsert([
+        { id: 'about_image_url', value: finalUrl },
+        { id: 'landing_hero_product_id', value: landingProductId },
+        { id: 'landing_categories', value: landingCategories.join(',') },
+      ]);
       
       if (error) {
         console.error("Error en upsert de site_settings:", error);
-        alert("🚨 Error de Base de Datos:\n" + error.message + "\n\nIMPORTANTE: Asegúrate de haber ejecutado el SQL para crear la tabla 'site_settings'.");
+        alert("🚨 Error de Base de Datos:\n" + error.message + "\n\nIMPORTANTE: Asegurá haber ejecutado el SQL para crear la tabla 'site_settings'.");
       } else {
         setAboutImageUrl(finalUrl); 
         setSettingsFile(null); 
-        alert("✅ ¡Configuración de fábrica guardada con éxito!"); 
-        fetchSettings(); // Refrescar estado
+        alert("✅ ¡Configuración guardada con éxito!"); 
+        fetchSettings();
       }
     } catch (err) {
       console.error("Error crítico en ajustes:", err);
@@ -397,36 +422,76 @@ export default function AdminPage() {
               <table className="w-full text-left">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-100">
-                    <th className="px-8 py-6 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Producto / Interno</th>
-                    <th className="px-8 py-6 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Categoría</th>
-                    <th className="px-8 py-6 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Precio (ARS)</th>
-                    <th className="px-8 py-6 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 text-right">Acciones</th>
+                    <th className="px-6 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Producto / Interno</th>
+                    <th className="px-4 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Categoría</th>
+                    <th className="px-4 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Precio (ARS)</th>
+                    <th className="px-4 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 text-center">⭐</th>
+                    <th className="px-4 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 text-center">🏷️</th>
+                    <th className="px-4 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 text-right">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                   {loading ? (
-                    <tr><td colSpan={4} className="py-32 text-center"><Loader2 className="w-10 h-10 animate-spin mx-auto text-brand-200" /></td></tr>
+                    <tr><td colSpan={6} className="py-32 text-center"><Loader2 className="w-10 h-10 animate-spin mx-auto text-brand-200" /></td></tr>
                   ) : filteredProducts.map((product) => (
                     <tr key={product.id} className="hover:bg-slate-50/50 transition-colors group">
-                      <td className="px-8 py-6">
-                        <div className="flex items-center gap-5">
-                          <div className="w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-300 overflow-hidden border border-slate-100">
-                            {product.image_url ? <img src={product.image_url} className="w-full h-full object-cover" /> : <ImageIcon className="w-6 h-6" />}
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-4">
+                          <div className="w-12 h-12 bg-slate-50 rounded-xl flex items-center justify-center text-slate-300 overflow-hidden border border-slate-100 flex-shrink-0">
+                            {product.image_url ? <img src={product.image_url} className="w-full h-full object-cover" /> : <ImageIcon className="w-5 h-5" />}
                           </div>
-                          <div>
-                            <div className="font-bold text-slate-900">{product.name}</div>
+                          <div className="min-w-0">
+                            <div className="font-bold text-slate-900 text-sm truncate">{product.name}</div>
                             <div className="text-[10px] font-black text-brand-500 uppercase tracking-widest">{product.sku || "SIN SKU"}</div>
                           </div>
                         </div>
                       </td>
-                      <td className="px-8 py-6">
-                        <span className="px-3 py-1 bg-slate-100 text-slate-600 rounded-lg text-[9px] font-black uppercase tracking-widest">{product.category}</span>
+                      <td className="px-4 py-4">
+                        <select
+                          value={product.category}
+                          onChange={(e) => handleQuickUpdate(product.id, 'category', e.target.value)}
+                          className="text-[11px] font-black uppercase tracking-wider px-2 py-1.5 rounded-lg border border-slate-200 bg-white focus:ring-2 focus:ring-brand-500/20 focus:border-brand-300 cursor-pointer"
+                        >
+                          {Array.from(new Set(products.map(p => p.category))).sort().map(cat => (
+                            <option key={cat} value={cat}>{cat}</option>
+                          ))}
+                        </select>
                       </td>
-                      <td className="px-8 py-6 font-black text-slate-900">{formatPrice(product.price)}</td>
-                      <td className="px-8 py-6 text-right">
-                        <div className="flex items-center justify-end gap-3">
-                          <button onClick={() => handleOpenForm(product)} className="p-2 text-slate-300 hover:text-brand-600 hover:bg-brand-50 rounded-xl transition-all"><Edit2 className="w-4 h-4" /></button>
-                          <button onClick={() => handleDelete(product.id)} className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"><Trash2 className="w-4 h-4" /></button>
+                      <td className="px-4 py-4">
+                        <input
+                          type="text"
+                          className="w-32 px-3 py-2 rounded-xl border border-slate-200 font-black text-slate-900 text-sm bg-white focus:ring-2 focus:ring-brand-500/20 focus:border-brand-300"
+                          defaultValue={new Intl.NumberFormat('es-AR', { minimumFractionDigits: 2 }).format(product.price)}
+                          onBlur={(e) => {
+                            const val = e.target.value.replace(/\./g, '').replace(',', '.');
+                            const num = parseFloat(val);
+                            if (!isNaN(num) && num !== product.price) handleQuickUpdate(product.id, 'price', num);
+                          }}
+                          onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                        />
+                      </td>
+                      <td className="px-4 py-4 text-center">
+                        <input
+                          type="checkbox"
+                          checked={product.is_featured || false}
+                          onChange={(e) => handleQuickUpdate(product.id, 'is_featured', e.target.checked)}
+                          className="w-5 h-5 rounded-lg border-2 border-slate-300 text-emerald-600 focus:ring-emerald-500/20 cursor-pointer accent-emerald-600"
+                          title="Destacado"
+                        />
+                      </td>
+                      <td className="px-4 py-4 text-center">
+                        <input
+                          type="checkbox"
+                          checked={product.is_on_sale || false}
+                          onChange={(e) => handleQuickUpdate(product.id, 'is_on_sale', e.target.checked)}
+                          className="w-5 h-5 rounded-lg border-2 border-slate-300 text-red-600 focus:ring-red-500/20 cursor-pointer accent-red-600"
+                          title="Liquidación"
+                        />
+                      </td>
+                      <td className="px-4 py-4 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button onClick={() => handleOpenForm(product)} className="p-2 text-slate-300 hover:text-brand-600 hover:bg-brand-50 rounded-xl transition-all" title="Editar todo"><Edit2 className="w-4 h-4" /></button>
+                          <button onClick={() => handleDelete(product.id)} className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all" title="Eliminar"><Trash2 className="w-4 h-4" /></button>
                         </div>
                       </td>
                     </tr>
@@ -478,6 +543,74 @@ export default function AdminPage() {
           <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl border border-slate-100">
             <h2 className="text-3xl font-black text-slate-900 mb-8 tracking-tighter">Ajustes Generales</h2>
             <form onSubmit={handleSettingsSubmit} className="space-y-8">
+              {/* Producto Hero Landing */}
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">Producto destacado en Landing /tanques</label>
+                <select
+                  value={landingProductId}
+                  onChange={(e) => setLandingProductId(e.target.value)}
+                  className="w-full px-5 py-4 rounded-2xl border border-slate-100 focus:ring-4 focus:ring-brand-500/10 bg-slate-50 font-bold"
+                >
+                  <option value="">Automático (primer producto)</option>
+                  {products.map(p => (
+                    <option key={p.id} value={p.id}>{p.name} - {formatPrice(p.price)}</option>
+                  ))}
+                </select>
+                {landingProductId && (() => {
+                  const sel = products.find(p => p.id === landingProductId);
+                  if (!sel) return null;
+                  return (
+                    <div className="mt-4 flex items-center gap-4 p-4 bg-brand-50 rounded-2xl border border-brand-100">
+                      {sel.image_url && (
+                        <img src={sel.image_url} className="w-16 h-16 rounded-xl object-contain bg-white border border-slate-100" />
+                      )}
+                      <div>
+                        <p className="font-bold text-slate-900 text-sm">{sel.name}</p>
+                        <p className="text-brand-600 font-black">{formatPrice(sel.price)}</p>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Categorías de la Landing */}
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">Categorías a mostrar en Landing /tanques</label>
+                <p className="text-xs text-slate-400 mb-4">Seleccioná qué categorías de productos se muestran en la landing page. Si no seleccionás ninguna, se muestran todos.</p>
+                <div className="flex flex-wrap gap-3">
+                  {Array.from(new Set(products.map(p => p.category))).sort().map(cat => {
+                    const isSelected = landingCategories.includes(cat);
+                    const count = products.filter(p => p.category === cat).length;
+                    return (
+                      <button
+                        key={cat}
+                        type="button"
+                        onClick={() => {
+                          if (isSelected) {
+                            setLandingCategories(prev => prev.filter(c => c !== cat));
+                          } else {
+                            setLandingCategories(prev => [...prev, cat]);
+                          }
+                        }}
+                        className={`px-4 py-3 rounded-2xl text-sm font-bold border-2 transition-all ${
+                          isSelected 
+                            ? 'bg-brand-600 text-white border-brand-600 shadow-lg shadow-brand-600/20' 
+                            : 'bg-white text-slate-500 border-slate-200 hover:border-brand-300'
+                        }`}
+                      >
+                        {isSelected ? '✓ ' : ''}{cat} <span className="text-xs opacity-60">({count})</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {landingCategories.length > 0 && (
+                  <p className="mt-3 text-xs text-brand-600 font-bold">
+                    Mostrando: {landingCategories.join(', ')} ({products.filter(p => landingCategories.includes(p.category)).length} productos)
+                  </p>
+                )}
+              </div>
+
+              {/* Imagen Fabrica */}
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">Imagen Sección "Nuestra Fábrica"</label>
                 <div className="space-y-6">
@@ -519,9 +652,25 @@ export default function AdminPage() {
               </div>
               <div className="space-y-2">
                 <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Categoría</label>
-                <select className="w-full px-5 py-4 rounded-2xl border border-slate-100 focus:ring-4 focus:ring-brand-500/10 bg-slate-50 font-bold" value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})}>
-                  <option>Hogar</option><option>Tanques</option><option>Tratamiento</option><option>Ferretería</option><option>Varios</option>
-                </select>
+                <input 
+                  required 
+                  placeholder="Escribí o elegí abajo" 
+                  className="w-full px-5 py-4 rounded-2xl border border-slate-100 focus:ring-4 focus:ring-brand-500/10 bg-slate-50 font-bold" 
+                  value={formData.category} 
+                  onChange={e => setFormData({...formData, category: e.target.value})} 
+                />
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {Array.from(new Set(products.map(p => p.category))).sort().map(cat => (
+                    <button
+                      key={cat}
+                      type="button"
+                      onClick={() => setFormData({...formData, category: cat})}
+                      className={`text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg border transition-all ${formData.category === cat ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-slate-500 border-slate-200 hover:border-brand-300'}`}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
               </div>
               <div className="space-y-2 md:col-span-2">
                 <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Nombre Público</label>

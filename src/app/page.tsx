@@ -79,7 +79,7 @@ const ProductRow = ({
           className="flex gap-4 overflow-x-auto snap-x snap-mandatory [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] pb-4 scroll-smooth"
         >
           {products.map(product => (
-            <div key={product.id} className="min-w-[75vw] sm:min-w-[260px] md:min-w-[230px] lg:min-w-[220px] snap-start flex-shrink-0">
+            <div key={product.id} className="w-[75vw] sm:w-[240px] md:w-[220px] lg:w-[210px] snap-start flex-shrink-0">
               <ProductCard product={product} />
             </div>
           ))}
@@ -104,7 +104,7 @@ export default function Home() {
         .select('*')
         .order('created_at', { ascending: false });
       
-      if (data) setProducts(data);
+      if (data) setProducts(data.filter(p => p.image_url && p.image_url.trim() !== ''));
       setLoading(false);
     }
 
