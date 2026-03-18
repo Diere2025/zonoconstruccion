@@ -78,9 +78,11 @@ export default function Home() {
               Especialistas en tanques de agua, impermeabilización y soluciones integrales. Venta directa de fábrica y asesoramiento experto.
             </p>
             <div className="flex flex-col sm:flex-row gap-5">
-              <Button size="lg" className="rounded-2xl group shadow-2xl shadow-brand-600/40">
-                Explorar Catálogo <ArrowRight className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" />
-              </Button>
+              <a href="#productos" className="contents">
+                <Button size="lg" className="rounded-2xl group shadow-2xl shadow-brand-600/40 w-full sm:w-auto">
+                  Explorar Catálogo <ArrowRight className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                </Button>
+              </a>
               <a href="#contacto" className="inline-flex h-14 items-center justify-center rounded-2xl border border-white/20 px-8 text-white hover:bg-white/10 hover:border-white/50 transition-all font-bold">
                 Ubicación del Local
               </a>
@@ -170,11 +172,12 @@ export default function Home() {
               <div className="absolute -top-10 -left-10 w-40 h-40 bg-brand-50 rounded-full blur-3xl opacity-60" />
               <div className="relative rounded-[2.5rem] overflow-hidden shadow-2xl rotate-2 hover:rotate-0 transition-transform duration-700">
                 <Image 
-                  src={aboutImageUrl} 
+                  src={aboutImageUrl && aboutImageUrl.trim() !== "" ? aboutImageUrl : "https://images.unsplash.com/photo-1565514020179-026b92b84bb6?q=80&w=1200"} 
                   alt="Nuestra Fábrica" 
                   width={600} 
                   height={800} 
                   className="object-cover h-[600px]"
+                  unoptimized
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-brand-900/60 to-transparent" />
                 <div className="absolute bottom-10 left-10 text-white">

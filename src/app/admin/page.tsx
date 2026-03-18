@@ -79,8 +79,16 @@ export default function AdminPage() {
   }, []);
 
   const fetchSettings = async () => {
-    const { data } = await supabase.from('site_settings').select('value').eq('id', 'about_image_url').single();
-    if (data) setAboutImageUrl(data.value);
+    try {
+      const { data, error } = await supabase.from('site_settings').select('value').eq('id', 'about_image_url').single();
+      if (error) {
+        console.warn("No se encontró configuración previa en Supabase:", error.message);
+        return;
+      }
+      if (data) setAboutImageUrl(data.value);
+    } catch (err) {
+      console.error("Error cargando ajustes:", err);
+    }
   };
 
   async function fetchProducts() {
@@ -162,19 +170,41 @@ export default function AdminPage() {
     setSubmitting(true);
     let finalUrl = aboutImageUrl;
 
-    if (settingsFile) {
-      const fileExt = settingsFile.name.split('.').pop();
-      const filePath = `settings/about-${Math.random()}.${fileExt}`;
-      const { error: uploadError } = await supabase.storage.from('product-images').upload(filePath, settingsFile);
-      if (!uploadError) {
+    try {
+      if (settingsFile) {
+        const fileExt = settingsFile.name.split('.').pop();
+        const filePath = `settings/about-${Math.random()}.${fileExt}`;
+        const { error: uploadError } = await supabase.storage.from('product-images').upload(filePath, settingsFile);
+        
+        if (uploadError) {
+          console.error("Error al subir imagen de fábrica:", uploadError);
+          alert("Error al subir la imagen: " + uploadError.message);
+          setSubmitting(false);
+          return;
+        }
+
         const { data: publicUrlData } = supabase.storage.from('product-images').getPublicUrl(filePath);
         finalUrl = publicUrlData.publicUrl;
       }
-    }
 
-    const { error } = await supabase.from('site_settings').upsert({ id: 'about_image_url', value: finalUrl });
-    if (!error) { setAboutImageUrl(finalUrl); setSettingsFile(null); alert("Configuración guardada!"); }
-    setSubmitting(false);
+      console.log("Intentando guardar URL en Supabase:", finalUrl);
+      const { error } = await supabase.from('site_settings').upsert({ id: 'about_image_url', value: finalUrl });
+      
+      if (error) {
+        console.error("Error en upsert de site_settings:", error);
+        alert("🚨 Error de Base de Datos:\n" + error.message + "\n\nIMPORTANTE: Asegúrate de haber ejecutado el SQL para crear la tabla 'site_settings'.");
+      } else {
+        setAboutImageUrl(finalUrl); 
+        setSettingsFile(null); 
+        alert("✅ ¡Configuración de fábrica guardada con éxito!"); 
+        fetchSettings(); // Refrescar estado
+      }
+    } catch (err) {
+      console.error("Error crítico en ajustes:", err);
+      alert("Error inesperado en los ajustes.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleMassUpdate = async () => {

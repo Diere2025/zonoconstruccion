@@ -39,11 +39,12 @@ export function ProductCard({ product }: ProductCardProps) {
         </span>
         <div className="relative w-full h-full transition-transform duration-500 group-hover:scale-110">
           <Image
-            src={product.image_url}
+            src={product.image_url && product.image_url.trim() !== "" ? product.image_url : "https://placehold.co/600x600?text=Procesando+Imagen"}
             alt={product.name}
             fill
             className="object-contain"
             sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+            unoptimized
           />
         </div>
       </div>
