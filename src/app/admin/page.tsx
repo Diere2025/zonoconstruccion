@@ -69,7 +69,11 @@ export default function AdminPage() {
     description: "",
     price: 0,
     category: "Hogar",
-    image_url: ""
+    image_url: "",
+    brand: "",
+    dimensions: "",
+    is_featured: false,
+    is_on_sale: false
   });
   const [priceInput, setPriceInput] = useState("");
 
@@ -107,9 +111,13 @@ export default function AdminPage() {
         description: product.description || "",
         price: product.price,
         category: product.category,
-        image_url: product.image_url || ""
+        image_url: product.image_url || "",
+        brand: product.brand || "",
+        dimensions: product.dimensions || "",
+        is_featured: product.is_featured || false,
+        is_on_sale: product.is_on_sale || false
       });
-      setPriceInput(product.price.toString().replace('.', ','));
+      setPriceInput(product.price.toLocaleString('es-AR', { minimumFractionDigits: 0 }));
     } else {
       setEditingProduct(null);
       setFormData({
@@ -118,7 +126,11 @@ export default function AdminPage() {
         description: "",
         price: 0,
         category: "Hogar",
-        image_url: ""
+        image_url: "",
+        brand: "",
+        dimensions: "",
+        is_featured: false,
+        is_on_sale: false
       });
       setPriceInput("");
     }
@@ -134,13 +146,13 @@ export default function AdminPage() {
     e.preventDefault();
     setSubmitting(true);
 
-    const finalPrice = parseFloat(priceInput.replace(/\./g, "").replace(",", "."));
+    const finalPriceVal = parseFloat(priceInput.replace(/\./g, "").replace(",", "."));
     let finalImageUrl = formData.image_url;
 
     if (selectedFile) {
       setUploading(true);
       const fileExt = selectedFile.name.split('.').pop();
-      const filePath = `${Math.random()}.${fileExt}`;
+      const filePath = `products/${Math.random()}.${fileExt}`;
       const { error: uploadError } = await supabase.storage.from('product-images').upload(filePath, selectedFile);
       if (!uploadError) {
         const { data: publicUrlData } = supabase.storage.from('product-images').getPublicUrl(filePath);
@@ -151,16 +163,18 @@ export default function AdminPage() {
 
     const payload = { 
       ...formData, 
-      price: isNaN(finalPrice) ? 0 : finalPrice, 
+      price: isNaN(finalPriceVal) ? 0 : finalPriceVal, 
       image_url: finalImageUrl 
     };
 
     if (editingProduct?.id) {
       const { error } = await supabase.from('products').update(payload).eq('id', editingProduct.id);
       if (!error) { setIsFormOpen(false); fetchProducts(); }
+      else { console.error("Update error:", error); alert("Error al actualizar: " + error.message); }
     } else {
       const { error } = await supabase.from('products').insert([payload]);
       if (!error) { setIsFormOpen(false); fetchProducts(); }
+      else { console.error("Insert error:", error); alert("Error al crear: " + error.message); }
     }
     setSubmitting(false);
   };
@@ -225,6 +239,8 @@ export default function AdminPage() {
       const name = parts.length >= 3 ? parts[1] : null;
       const priceStr = parts.length >= 3 ? parts[2] : parts[1];
       const category = parts.length >= 4 ? parts[3] : "Varios";
+      const brand = parts.length >= 5 ? parts[4] : "";
+      const dimensions = parts.length >= 6 ? parts[5] : "";
       
       const price = parseFloat(priceStr.replace(/\./g, "").replace(",", "."));
       if (isNaN(price)) { errors++; continue; }
@@ -232,6 +248,8 @@ export default function AdminPage() {
       const upsertPayload: any = { sku, price };
       if (name) upsertPayload.name = name;
       if (category) upsertPayload.category = category;
+      if (brand) upsertPayload.brand = brand;
+      if (dimensions) upsertPayload.dimensions = dimensions;
 
       const { error } = await supabase.from('products').upsert(upsertPayload, { onConflict: 'sku' });
       if (!error) updatedCount++; else errors++;
@@ -516,6 +534,25 @@ export default function AdminPage() {
               <div className="space-y-2">
                 <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Precio (ARS)</label>
                 <input type="text" required placeholder="Ej: 274.900,00" className="w-full px-5 py-4 rounded-2xl border border-slate-100 focus:ring-4 focus:ring-brand-500/10 bg-slate-50 font-black text-brand-600" value={priceInput} onChange={e => setPriceInput(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Marca</label>
+                <input placeholder="Ej: Aquafort" className="w-full px-5 py-4 rounded-2xl border border-slate-100 focus:ring-4 focus:ring-brand-500/10 bg-slate-50 font-bold" value={formData.brand} onChange={e => setFormData({...formData, brand: e.target.value})} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Dimensiones / Capacidad</label>
+                <input placeholder="Ej: 500L o 3.5m x 2.6m" className="w-full px-5 py-4 rounded-2xl border border-slate-100 focus:ring-4 focus:ring-brand-500/10 bg-slate-50 font-bold" value={formData.dimensions} onChange={e => setFormData({...formData, dimensions: e.target.value})} />
+              </div>
+
+              <div className="flex items-center gap-8 py-4 px-6 bg-slate-50 rounded-2xl border border-slate-100 md:col-span-2">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input type="checkbox" className="w-5 h-5 rounded-md border-slate-300 text-brand-600 focus:ring-brand-500" checked={formData.is_featured} onChange={e => setFormData({...formData, is_featured: e.target.checked})} />
+                  <span className="text-sm font-black text-slate-700 uppercase tracking-widest">Destacado</span>
+                </label>
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input type="checkbox" className="w-5 h-5 rounded-md border-slate-300 text-red-600 focus:ring-red-500" checked={formData.is_on_sale} onChange={e => setFormData({...formData, is_on_sale: e.target.checked})} />
+                  <span className="text-sm font-black text-slate-700 uppercase tracking-widest">Liquidación</span>
+                </label>
               </div>
               <div className="space-y-2 md:col-span-2">
                 <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Imagen</label>
