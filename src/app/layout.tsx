@@ -35,14 +35,14 @@ export default function RootLayout({
             fbq('track', 'PageView');
           `}
         </Script>
-        <Navbar />
+        <div id="site-navbar"><Navbar /></div>
         <main className="flex-grow pt-20">
           {children}
         </main>
-        <CartDrawer />
+        <div id="site-cart"><CartDrawer /></div>
         
         {/* Footer simple for now */}
-        <footer className="bg-slate-950 text-white py-12 border-t border-slate-900">
+        <footer id="site-footer" className="bg-slate-950 text-white py-12 border-t border-slate-900">
           <div className="container mx-auto px-6 flex flex-col md:flex-row justify-between items-center gap-8">
             <div className="text-gray-400 text-sm">
               &copy; {new Date().getFullYear()} <strong>Zono Construcción y Hogar</strong>. Todos los derechos reservados.
