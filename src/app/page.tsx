@@ -103,6 +103,7 @@ export default function Home() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [landingCategories, setLandingCategories] = useState<string[]>([]);
 
   const [aboutImageUrl, setAboutImageUrl] = useState("https://images.unsplash.com/photo-1565514020179-026b92b84bb6?q=80&w=1200");
 
@@ -132,15 +133,15 @@ export default function Home() {
       }
       
       if (aboutUrl) setAboutImageUrl(aboutUrl);
+      if (landingCats.length > 0) setLandingCategories(landingCats);
 
-      // 2. Fetch Products filtered by Landing Categories
-      let query = supabase.from('products').select('*').order('created_at', { ascending: false });
-      
-      if (landingCats.length > 0) {
-        query = query.in('category', landingCats);
-      }
-
-      const { data: productsData } = await query;
+      // 2. Fetch Products
+      // We fetch ALL products to ensure Featured and Sale items are always available,
+      // and filter category rows later according to settings.
+      const { data: productsData } = await supabase
+        .from('products')
+        .select('*')
+        .order('created_at', { ascending: false });
       
       if (productsData) {
         setProducts(productsData.filter(p => p.image_url && p.image_url.trim() !== ''));
@@ -257,6 +258,7 @@ export default function Home() {
 
         {/* Filas por Categoría */}
         {Array.from(new Set(products.map(p => p.category)))
+          .filter(cat => landingCategories.length === 0 || landingCategories.includes(cat))
           .sort()
           .map((cat) => (
             <ProductRow
