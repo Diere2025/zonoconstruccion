@@ -265,6 +265,16 @@ export function ProductFormModal({ product, isOpen, onClose, onSuccess, allProdu
             />
           </div>
 
+          <div className="space-y-2">
+            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Dimensiones</label>
+            <input 
+              placeholder="Ej: 0.80m x 1.20m" 
+              className="w-full px-5 py-4 rounded-2xl border border-slate-100 focus:ring-4 focus:ring-brand-500/10 bg-slate-50 font-bold" 
+              value={formData.dimensions} 
+              onChange={e => setFormData({...formData, dimensions: e.target.value})} 
+            />
+          </div>
+
           {/* 5. DESCRIPCIÓN */}
           <div className="space-y-2 md:col-span-2">
             <div className="flex items-center justify-between mb-2">

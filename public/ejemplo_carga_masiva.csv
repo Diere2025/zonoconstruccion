@@ -1,0 +1,4 @@
+SKU,Nombre,Precio,Categoria,Marca,Dimensiones,Oferta (true/false),Destacado (true/false),Descripcion,URL Imagen
+TANQUE-500-T,Tanque Tricapa 500L,103200,Tanques Tricapa,Aquafort,0.80m x 1.10m,true,false,Tanque de alta durabilidad con proteccion UV.,https://ckvbyfgsbjbfaqotmeld.supabase.co/storage/v1/object/public/product-images/products/example-tanque.jpg
+BOMBA-1HP,Bomba Periferica 1HP,45000,Bombas,Daewoo,20cm x 30cm,false,true,Bomba ideal para elevacion de agua en viviendas.,https://ckvbyfgsbjbfaqotmeld.supabase.co/storage/v1/object/public/product-images/products/example-bomba.jpg
+GRIFO-COCINA,Monocomando Cocina Pulse,85000,Griferia,Flowater,40cm altura,true,true,Griferia monocomando acabado negro mate.,https://ckvbyfgsbjbfaqotmeld.supabase.co/storage/v1/object/public/product-images/products/example-grifo.jpg

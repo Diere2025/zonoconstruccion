@@ -60,6 +60,7 @@ export default function AdminPage() {
 
   // Import State
   const [importData, setImportData] = useState("");
+  const [importFile, setImportFile] = useState<File | null>(null);
   const [importStatus, setImportStatus] = useState<string | null>(null);
 
   // Form State
@@ -177,34 +178,47 @@ export default function AdminPage() {
     }
   };
 
-  const handleMassUpdate = async () => {
-    if (!importData.trim()) return;
+  const processData = async (data: string) => {
+    if (!data.trim()) return;
     setSubmitting(true);
     setImportStatus("Procesando...");
     
-    const lines = importData.split("\n");
+    const lines = data.split("\n");
     let updatedCount = 0;
     let errors = 0;
 
     for (const line of lines) {
+      if (!line.trim() || line.startsWith("SKU,")) continue; // Saltar cabecera si existe
+      
       const parts = line.split(",").map(p => p.trim());
       if (parts.length < 2) continue;
 
       const sku = parts[0];
-      const name = parts.length >= 3 ? parts[1] : null;
-      const priceStr = parts.length >= 3 ? parts[2] : parts[1];
-      const category = parts.length >= 4 ? parts[3] : "Varios";
-      const brand = parts.length >= 5 ? parts[4] : "";
-      const dimensions = parts.length >= 6 ? parts[5] : "";
+      const name = parts[1] || "";
+      const priceStr = parts[2] || "0";
+      const category = parts[3] || "Varios";
+      const brand = parts[4] || "";
+      const dimensions = parts[5] || "";
+      const is_on_sale = parts[6] ? parts[6].toLowerCase() === 'true' : false;
+      const is_featured = parts[7] ? parts[7].toLowerCase() === 'true' : false;
+      const description = parts[8] || "";
+      const image_url = parts[9] || "";
       
       const price = parseFloat(priceStr.replace(/\./g, "").replace(",", "."));
       if (isNaN(price)) { errors++; continue; }
 
-      const upsertPayload: any = { sku, price };
-      if (name) upsertPayload.name = name;
-      if (category) upsertPayload.category = category;
-      if (brand) upsertPayload.brand = brand;
-      if (dimensions) upsertPayload.dimensions = dimensions;
+      const upsertPayload: any = { 
+        sku, 
+        price,
+        name,
+        category,
+        brand,
+        dimensions,
+        is_on_sale,
+        is_featured,
+        description,
+        image_url
+      };
 
       const { error } = await supabase.from('products').upsert(upsertPayload, { onConflict: 'sku' });
       if (!error) updatedCount++; else errors++;
@@ -213,6 +227,24 @@ export default function AdminPage() {
     setImportStatus(`Completado: ${updatedCount} actualizados, ${errors} errores.`);
     fetchProducts();
     setSubmitting(false);
+  };
+
+  const handleMassUpdate = async () => {
+    await processData(importData);
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const content = event.target?.result as string;
+      if (content) {
+        await processData(content);
+      }
+    };
+    reader.readAsText(file);
   };
 
   const handleDelete = async (id: string) => {
@@ -431,22 +463,40 @@ export default function AdminPage() {
           </div>
         </>
       ) : activeTab === 'import' ? (
-        <div className="max-w-3xl">
+        <div className="max-w-4xl">
           <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl border border-slate-100">
-            <h2 className="text-3xl font-black text-slate-900 mb-2 tracking-tighter">Carga Masiva de Precios</h2>
-            <p className="text-slate-500 mb-8 font-medium">Pega los datos separados por coma. Si el SKU coincide, se actualiza el precio.</p>
+            <div className="flex justify-between items-start mb-2 group">
+              <h2 className="text-3xl font-black text-slate-900 tracking-tighter">Carga Masiva de Productos</h2>
+              <div className="flex flex-col items-end gap-1">
+                <a 
+                  href="/ejemplo_carga_masiva.csv" 
+                  download 
+                  className="text-[10px] font-black text-brand-600 hover:text-brand-700 uppercase tracking-widest border-b border-brand-200"
+                >
+                  Descargar Ejemplo CSV
+                </a>
+                <label className="text-[10px] font-black text-slate-400 group-hover:text-brand-500 transition-colors uppercase tracking-widest cursor-pointer">
+                  O subí un archivo .csv
+                  <input type="file" accept=".csv" onChange={handleFileUpload} className="hidden" />
+                </label>
+              </div>
+            </div>
+            <p className="text-slate-500 mb-8 font-medium">Pegá los datos o subí tu archivo CSV. Si el SKU coincide, se actualiza el producto.</p>
             
             <div className="space-y-6">
+              <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 text-[10px] font-mono text-slate-500 mb-4">
+                Orden: SKU, Nombre, Precio, Categoría, Marca, Dimensiones, Oferta (true/false), Destacado (true/false), Descripción, URL Imagen
+              </div>
               <textarea 
                 className="w-full h-64 p-6 rounded-3xl border border-slate-200 focus:ring-4 focus:ring-brand-500/10 font-mono text-sm leading-relaxed outline-none"
-                placeholder={"Ejemplo:\nSKU123, 250000\nSKU456, 180000"}
+                placeholder={"Ejemplo:\nSKU-1, Producto A, 250000, Tanques, Aquafort, 1x1m, false, true, Mi producto, https://...\nSKU-2, Producto B, 50000, Bombas, Daewoo, 0.5x0.5m, true, false, Una bomba, https://..."}
                 value={importData}
                 onChange={(e) => setImportData(e.target.value)}
               />
               {importStatus && <div className="p-4 bg-slate-900 text-white rounded-2xl text-xs font-bold text-center">{importStatus}</div>}
               <Button onClick={handleMassUpdate} className="w-full py-8 text-lg font-black rounded-2xl shadow-2xl shadow-brand-600/20" disabled={submitting}>
                 {submitting ? <Loader2 className="animate-spin" /> : <Upload className="mr-2" />}
-                Procesar e Importar Precios
+                Procesar e Importar Productos
               </Button>
             </div>
           </div>
