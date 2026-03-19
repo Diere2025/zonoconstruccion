@@ -26,7 +26,7 @@ function getWhatsAppLink(productName?: string, userName?: string) {
 function trackConversion() {
   if (typeof window !== "undefined" && (window as any).gtag) {
     (window as any).gtag("event", "conversion", {
-      send_to: "AW-XXXXXXXXX/YYYYYYY", // Reemplazar con tu etiqueta de conversión
+      send_to: "AW-17712339516/IlitCPDnoYscELy08_1B",
     });
   }
   // Facebook Pixel

@@ -20,9 +20,9 @@ export default function LandingLayout({
 }>) {
   return (
     <>
-      {/* Google Ads Conversion Tracking - Reemplazá AW-XXXXXXXXX con tu ID real */}
+      {/* Google Ads Conversion Tracking - Reemplazá AW-17712339516 con tu ID real */}
       <Script
-        src="https://www.googletagmanager.com/gtag/js?id=AW-XXXXXXXXX"
+        src="https://www.googletagmanager.com/gtag/js?id=AW-17712339516"
         strategy="afterInteractive"
       />
       <Script id="google-ads-config" strategy="afterInteractive">
@@ -30,7 +30,7 @@ export default function LandingLayout({
           window.dataLayer = window.dataLayer || [];
           function gtag(){dataLayer.push(arguments);}
           gtag('js', new Date());
-          gtag('config', 'AW-XXXXXXXXX');
+          gtag('config', 'AW-17712339516');
         `}
       </Script>
 
