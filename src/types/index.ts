@@ -10,6 +10,9 @@ export interface Product {
   dimensions?: string;
   is_featured?: boolean;
   is_on_sale?: boolean;
+  upsell_ids?: string[];
+  tags?: string[];
+  settings?: any;
   created_at?: string;
 }
 

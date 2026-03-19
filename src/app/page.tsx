@@ -4,6 +4,8 @@ export const runtime = "edge";
 
 import React, { useState, useEffect, useRef } from "react";
 import { ProductCard } from "@/components/ui/ProductCard";
+import { ProductModal } from "@/components/ui/ProductModal";
+import { ProductFormModal } from "@/components/ui/ProductFormModal";
 import { Button } from "@/components/ui/Button";
 import { ArrowRight, Factory, Phone, Truck, ShieldCheck, Loader2, CheckCircle2, ChevronLeft, ChevronRight } from "lucide-react";
 import Image from "next/image";
@@ -13,17 +15,19 @@ import { supabase } from "@/lib/supabase";
 import { Product } from "@/types";
 
 // Componente helper para las filas de productos con flechas y márgenes
-const ProductRow = ({ 
-  title, 
-  subTitle, 
-  products, 
+const ProductRow = ({
+  title,
+  subTitle,
+  products,
+  onOpenModal,
   isSale = false,
   bgColor = "",
   accentColor = "text-brand-600"
-}: { 
-  title: string; 
-  subTitle: string; 
-  products: Product[]; 
+}: {
+  title: string;
+  subTitle: string;
+  products: Product[];
+  onOpenModal: (product: Product) => void;
   isSale?: boolean;
   bgColor?: string;
   accentColor?: string;
@@ -58,13 +62,13 @@ const ProductRow = ({
             </div>
           </div>
           <div className="hidden md:flex gap-2">
-            <button 
+            <button
               onClick={() => scroll('left')}
               className="p-3 rounded-full border border-slate-200 hover:bg-slate-50 transition-colors shadow-sm bg-white"
             >
               <ChevronLeft className="w-5 h-5" />
             </button>
-            <button 
+            <button
               onClick={() => scroll('right')}
               className="p-3 rounded-full border border-slate-200 hover:bg-slate-50 transition-colors shadow-sm bg-white"
             >
@@ -74,13 +78,13 @@ const ProductRow = ({
         </div>
 
         {/* Carrusel dentro del container para alinear con el titulo */}
-        <div 
+        <div
           ref={scrollRef}
           className="flex gap-4 overflow-x-auto snap-x snap-mandatory [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] pb-4 scroll-smooth"
         >
           {products.map(product => (
             <div key={product.id} className="w-[75vw] sm:w-[240px] md:w-[220px] lg:w-[210px] snap-start flex-shrink-0">
-              <ProductCard product={product} />
+              <ProductCard product={product} onOpenModal={onOpenModal} />
             </div>
           ))}
           {/* Spacer final para margen derecho */}
@@ -94,32 +98,63 @@ const ProductRow = ({
 export default function Home() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
 
   const [aboutImageUrl, setAboutImageUrl] = useState("https://images.unsplash.com/photo-1565514020179-026b92b84bb6?q=80&w=1200");
 
+  const openProductModal = (product: Product) => {
+    setSelectedProduct(product);
+    setIsModalOpen(true);
+  };
+
   useEffect(() => {
-    async function fetchProducts() {
-      const { data, error } = await supabase
-        .from('products')
-        .select('*')
-        .order('created_at', { ascending: false });
+    async function fetchData() {
+      setLoading(true);
       
-      if (data) setProducts(data.filter(p => p.image_url && p.image_url.trim() !== ''));
+      // 1. Fetch Settings
+      const { data: settings } = await supabase
+        .from('site_settings')
+        .select('*')
+        .in('id', ['about_image_url', 'landing_categories']);
+      
+      let aboutUrl = '';
+      let landingCats: string[] = [];
+      
+      if (settings) {
+        const about = settings.find(s => s.id === 'about_image_url');
+        const cats = settings.find(s => s.id === 'landing_categories');
+        if (about) aboutUrl = about.value;
+        if (cats && cats.value) landingCats = cats.value.split(',').filter(Boolean);
+      }
+      
+      if (aboutUrl) setAboutImageUrl(aboutUrl);
+
+      // 2. Fetch Products filtered by Landing Categories
+      let query = supabase.from('products').select('*').order('created_at', { ascending: false });
+      
+      if (landingCats.length > 0) {
+        query = query.in('category', landingCats);
+      }
+
+      const { data: productsData } = await query;
+      
+      if (productsData) {
+        setProducts(productsData.filter(p => p.image_url && p.image_url.trim() !== ''));
+      }
       setLoading(false);
     }
 
-    async function fetchSettings() {
-      const { data } = await supabase
-        .from('site_settings')
-        .select('value')
-        .eq('id', 'about_image_url')
-        .single();
-      
-      if (data) setAboutImageUrl(data.value);
+    async function checkAdmin() {
+      const { data: { session } } = await supabase.auth.getSession();
+      setIsAdmin(!!session);
     }
 
-    fetchProducts();
-    fetchSettings();
+    fetchData();
+    checkAdmin();
   }, []);
 
 
@@ -128,17 +163,17 @@ export default function Home() {
       {/* Hero Section - Mas compacto para enfoque e-commerce */}
       <section className="relative h-[65vh] flex items-center overflow-hidden">
         <div className="absolute inset-0 z-0">
-          <Image 
-            src="https://images.unsplash.com/photo-1503387762-592deb58ef4e?q=80&w=2000" 
-            alt="Hero Background" 
-            fill 
+          <Image
+            src="https://images.unsplash.com/photo-1503387762-592deb58ef4e?q=80&w=2000"
+            alt="Hero Background"
+            fill
             className="object-cover brightness-[0.4]"
             unoptimized
           />
         </div>
-        
+
         <div className="container mx-auto px-6 relative z-10">
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6 }}
@@ -171,21 +206,21 @@ export default function Home() {
       <section className="py-12 -mt-16 relative z-20">
         <div className="container mx-auto px-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <FeatureCard 
-              icon={<Factory className="w-8 h-8" />} 
-              title="Directo de Fábrica" 
+            <FeatureCard
+              icon={<Factory className="w-8 h-8" />}
+              title="Directo de Fábrica"
               desc="Mejores precios garantizados sin intermediarios."
               color="bg-blue-50 text-blue-600"
             />
-            <FeatureCard 
-              icon={<ShieldCheck className="w-8 h-8" />} 
-              title="Garantía de Calidad" 
+            <FeatureCard
+              icon={<ShieldCheck className="w-8 h-8" />}
+              title="Garantía de Calidad"
               desc="Productos certificados para larga durabilidad."
               color="bg-amber-50 text-amber-600"
             />
-            <FeatureCard 
-              icon={<Truck className="w-8 h-8" />} 
-              title="Envíos Express" 
+            <FeatureCard
+              icon={<Truck className="w-8 h-8" />}
+              title="Envíos Express"
               desc="Llegamos a donde estés con logística propia."
               color="bg-green-50 text-green-600"
             />
@@ -194,13 +229,14 @@ export default function Home() {
       </section>
 
       {/* Secciones de Productos - Refactorizado con ProductRow */}
-      <div className="bg-white">
+      <div id="productos" className="bg-white">
         {/* Carrusel Destacados */}
         {products.some(p => p.is_featured) && (
-          <ProductRow 
+          <ProductRow
             title="Productos Destacados"
             subTitle="Selección Premium"
             products={products.filter(p => p.is_featured)}
+            onOpenModal={openProductModal}
             bgColor="bg-emerald-50/50"
             accentColor="text-emerald-600"
           />
@@ -208,10 +244,11 @@ export default function Home() {
 
         {/* Carrusel Liquidación */}
         {products.some(p => p.is_on_sale) && (
-          <ProductRow 
+          <ProductRow
             title="Liquidación Limitada"
             subTitle="Oportunidades"
             products={products.filter(p => p.is_on_sale)}
+            onOpenModal={openProductModal}
             isSale={true}
             bgColor="bg-red-50/50"
             accentColor="text-red-600"
@@ -222,11 +259,12 @@ export default function Home() {
         {Array.from(new Set(products.map(p => p.category)))
           .sort()
           .map((cat) => (
-            <ProductRow 
+            <ProductRow
               key={cat}
               title={cat}
               subTitle="Sección"
               products={products.filter(p => p.category === cat)}
+              onOpenModal={openProductModal}
             />
           ))}
       </div>
@@ -322,6 +360,39 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      {selectedProduct && (
+        <ProductModal
+          isOpen={isModalOpen}
+          onClose={() => setIsModalOpen(false)}
+          product={selectedProduct}
+          allProducts={products}
+          isAdmin={isAdmin}
+          onEdit={(product) => {
+            setEditingProduct(product);
+            setIsModalOpen(false);
+            setIsEditModalOpen(true);
+          }}
+        />
+      )}
+
+      {/* Admin Edit Modal */}
+      {isAdmin && (
+        <ProductFormModal 
+          isOpen={isEditModalOpen}
+          product={editingProduct}
+          onClose={() => setIsEditModalOpen(false)}
+          onSuccess={() => {
+            // Refresh products inline
+            const fetchProducts = async () => {
+              const { data } = await supabase.from('products').select('*').order('created_at', { ascending: false });
+              if (data) setProducts(data.filter(p => p.image_url && p.image_url.trim() !== ''));
+            };
+            fetchProducts();
+          }}
+          allProducts={products}
+        />
+      )}
     </div>
   );
 }

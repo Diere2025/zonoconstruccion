@@ -56,7 +56,7 @@ export default function TanquesLanding() {
       const categoriesStr = settings?.find(s => s.id === "landing_categories")?.value || "";
       const categories = categoriesStr.split(",").filter(Boolean);
 
-      // 2. Cargar productos filtrados por las categorías configuradas
+      // 2. Cargar productos filtrados por las categorías configuradas para Landing
       let query = supabase.from("products").select("*").order("price", { ascending: true });
       
       if (categories.length > 0) {

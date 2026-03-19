@@ -11,14 +11,16 @@ import { trackEvent } from "@/lib/analytics";
 
 interface ProductCardProps {
   product: Product;
+  onOpenModal?: (product: Product) => void;
 }
 
-export function ProductCard({ product }: ProductCardProps) {
+export function ProductCard({ product, onOpenModal }: ProductCardProps) {
   const addItem = useCartStore((state) => state.addItem);
   const setCartOpen = useCartStore((state) => state.setCartOpen);
 
   const handleAdd = (e: React.MouseEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     addItem(product);
     setCartOpen(true);
     trackEvent("AddToCart", {
@@ -30,8 +32,20 @@ export function ProductCard({ product }: ProductCardProps) {
     });
   };
 
+  const handleCardClick = () => {
+    if (onOpenModal) {
+      onOpenModal(product);
+    }
+  };
+
   return (
-    <div className="product-card flex flex-col h-full group bg-white rounded-3xl border border-slate-100 hover:border-brand-200 transition-all duration-300">
+    <div 
+      onClick={handleCardClick}
+      className={cn(
+        "product-card flex flex-col h-full group bg-white rounded-3xl border border-slate-100 hover:border-brand-200 transition-all duration-300 cursor-pointer hover:shadow-xl hover:shadow-brand-600/5",
+        "relative"
+      )}
+    >
       {/* Container de Imagen - Mas compacto */}
       <div className="relative aspect-square w-full bg-white flex items-center justify-center p-4 overflow-hidden rounded-t-3xl">
         <div className="absolute top-3 left-3 flex flex-col gap-1.5 z-10">
@@ -69,17 +83,31 @@ export function ProductCard({ product }: ProductCardProps) {
             {product.brand}
           </span>
         )}
-        <h3 className="text-sm font-bold text-slate-900 mb-1.5 line-clamp-2 min-h-[2.5rem] leading-tight group-hover:text-brand-600 transition-colors">
+        <h3 className="text-sm font-bold text-slate-900 mb-1 line-clamp-2 min-h-[2.5rem] leading-tight group-hover:text-brand-600 transition-colors">
           {product.name}
         </h3>
         
+        {/* Descripción corta opcional */}
+        {product.description && (
+          <p className="text-[10px] text-slate-500 font-medium leading-relaxed mb-4 line-clamp-2">
+            {product.description.replace(/\*\*|\*/g, '')}
+          </p>
+        )}
+        
         <div className="mt-auto pt-3 flex items-center justify-between gap-3 border-t border-slate-50">
-          <span className="text-lg font-black text-slate-900">
-            {formatPrice(product.price)}
-          </span>
+          <div className="flex flex-col">
+            <span className="text-lg font-black text-slate-900 leading-none">
+              {formatPrice(product.price)}
+            </span>
+            {product.is_on_sale && (
+              <span className="text-[10px] text-slate-400 line-through mt-0.5">
+                {formatPrice(product.price * 1.2)}
+              </span>
+            )}
+          </div>
           <button
             onClick={handleAdd}
-            className="p-2 transition-all duration-300 rounded-xl bg-brand-50 text-brand-600 hover:bg-brand-600 hover:text-white"
+            className="p-2 transition-all duration-300 rounded-xl bg-brand-50 text-brand-600 hover:bg-brand-600 hover:text-white shadow-sm"
           >
             <Plus className="w-5 h-5" />
           </button>
