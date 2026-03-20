@@ -192,6 +192,10 @@ export default function AdminPage() {
     // Normalizamos saltos de línea por si viene de Windows (\r\n) -> (\n)
     const text = csvText.replace(/\r\n/g, '\n');
     
+    // Autodetectar delimitador según primera línea
+    const firstLine = text.split('\n')[0] || '';
+    const delimiter = firstLine.includes(';') ? ';' : ',';
+    
     for (let i = 0; i < text.length; i++) {
       const char = text[i];
       const nextChar = text[i + 1];
@@ -208,7 +212,7 @@ export default function AdminPage() {
       } else {
         if (char === '"') {
           inQuotes = true;
-        } else if (char === ',') {
+        } else if (char === delimiter) {
           currentRow.push(currentWord.trim());
           currentWord = '';
         } else if (char === '\n') {
@@ -240,24 +244,46 @@ export default function AdminPage() {
     const rows = parseCSV(data);
     let updatedCount = 0;
     let errors = 0;
+    const errorMessages: string[] = [];
 
     for (const parts of rows) {
       if (!parts[0] || parts[0].toLowerCase().startsWith("sku")) continue; // Saltar cabecera
       if (parts.length < 2) continue;
 
       const sku = parts[0];
-      const upsertPayload: any = { sku };
 
-      // Si vienen exactamente 2 columnas, asumimos SKU y Precio
+      // Si vienen exactamente 2 columnas, asumimos SKU y Precio y HACEMOS UPDATE DIRECTO
       if (parts.length === 2) {
         const priceStr = parts[1];
-        const price = parseFloat(priceStr.replace(/\./g, "").replace(",", "."));
-        if (isNaN(price)) { errors++; continue; }
+        const cleanStr = priceStr.replace(/[$\s]/g, ""); // Remover "$" y espacios
+        const price = parseFloat(cleanStr.replace(/\./g, "").replace(",", "."));
         
-        upsertPayload.price = price;
-        // Solo actualizamos precio; no sobreescribimos descripciones ni nombres
+        if (isNaN(price)) { 
+          errors++; 
+          errorMessages.push(`SKU ${sku}: Precio inválido (${priceStr})`);
+          continue; 
+        }
+        
+        // Usamos update en vez de upsert para evitar errores de columnas faltantes
+        const { error, data } = await supabase
+          .from('products')
+          .update({ price })
+          .eq('sku', sku)
+          .select();
+
+        if (error) {
+          errors++;
+          errorMessages.push(`SKU ${sku}: ${error.message}`);
+        } else if (!data || data.length === 0) {
+          errors++;
+          errorMessages.push(`SKU ${sku}: No encontrado`);
+        } else {
+          updatedCount++;
+        }
+
       } else {
-        // Si vienen más columnas, asumimos el formato completo de 10 columnas
+        // Formato completo de 10 columnas, usamos UPSERT
+        const upsertPayload: any = { sku };
         const name = parts[1] || "";
         const priceStr = parts[2] || "0";
         const category = parts[3] || "Varios";
@@ -268,8 +294,14 @@ export default function AdminPage() {
         const description = parts[8] || "";
         const image_url = parts[9] || "";
         
-        const price = parseFloat(priceStr.replace(/\./g, "").replace(",", "."));
-        if (isNaN(price)) { errors++; continue; }
+        const cleanStr = priceStr.replace(/[$\s]/g, "");
+        const price = parseFloat(cleanStr.replace(/\./g, "").replace(",", "."));
+        
+        if (isNaN(price)) { 
+          errors++; 
+          errorMessages.push(`SKU ${sku}: Precio inválido (${priceStr})`);
+          continue; 
+        }
 
         upsertPayload.name = name;
         upsertPayload.price = price;
@@ -280,14 +312,19 @@ export default function AdminPage() {
         upsertPayload.is_featured = is_featured;
         upsertPayload.description = description;
         upsertPayload.image_url = image_url;
-      }
 
-      // Si el producto existe, Supabase solo actualizará las columnas especificadas en el payload
-      const { error } = await supabase.from('products').upsert(upsertPayload, { onConflict: 'sku' });
-      if (!error) updatedCount++; else errors++;
+        const { error } = await supabase.from('products').upsert(upsertPayload, { onConflict: 'sku' });
+        if (error) {
+          errors++;
+          errorMessages.push(`SKU ${sku}: ${error.message}`);
+        } else {
+          updatedCount++;
+        }
+      }
     }
 
-    setImportStatus(`Completado: ${updatedCount} actualizados, ${errors} errores.`);
+    const errorDetails = errors > 0 ? ` Revisar: ${errorMessages.slice(0, 3).join(" | ")}...` : "";
+    setImportStatus(`Completado: ${updatedCount} actualizados, ${errors} errores.${errorDetails}`);
     fetchProducts();
     setSubmitting(false);
   };
