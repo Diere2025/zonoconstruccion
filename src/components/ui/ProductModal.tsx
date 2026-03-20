@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState, useEffect } from "react";
 import Image from "next/image";
 import { Product } from "@/types";
 import { useCartStore } from "@/store/useCartStore";
@@ -22,7 +22,18 @@ export function ProductModal({ product, isOpen, onClose, allProducts = [], isAdm
   const addItem = useCartStore((state) => state.addItem);
   const setCartOpen = useCartStore((state) => state.setCartOpen);
 
+  const [currentImageIdx, setCurrentImageIdx] = useState(0);
+
+  useEffect(() => {
+    if (isOpen) setCurrentImageIdx(0);
+  }, [isOpen]);
+
   if (!product) return null;
+
+  const allImages = [
+    product.image_url,
+    ...(product.settings?.gallery || [])
+  ].filter(url => url && url.trim() !== "");
 
   const handleAddToCart = () => {
     addItem(product);
@@ -101,16 +112,36 @@ export function ProductModal({ product, isOpen, onClose, allProducts = [], isAdm
             </div>
 
             {/* Imagen del Producto */}
-            <div className="w-full md:w-2/5 bg-slate-50 relative p-8 flex items-center justify-center min-h-[300px] md:min-h-full">
-              <div className="relative w-full aspect-square">
-                <Image
-                  src={product.image_url && product.image_url.trim() !== "" ? product.image_url : "https://placehold.co/600x600?text=Procesando"}
-                  alt={product.name}
-                  fill
-                  className="object-contain"
-                  sizes="(max-width: 768px) 100vw, 500px"
-                  unoptimized
-                />
+            <div className="w-full md:w-2/5 bg-slate-50 relative p-8 flex items-center justify-center min-h-[300px] border-r border-slate-100">
+              <div className="w-full flex flex-col items-center">
+                <div className="relative w-full aspect-square flex-shrink-0">
+                  <Image
+                    src={allImages[currentImageIdx] || "https://placehold.co/600x600?text=Procesando"}
+                    alt={product.name}
+                    fill
+                    className="object-contain"
+                    sizes="(max-width: 768px) 100vw, 500px"
+                    unoptimized
+                  />
+                </div>
+
+                {/* Miniaturas */}
+                {allImages.length > 1 && (
+                  <div className="flex gap-3 mt-8 w-full flex-wrap justify-center">
+                    {allImages.map((imgUrl, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => setCurrentImageIdx(idx)}
+                        className={cn(
+                          "relative w-16 h-16 sm:w-20 sm:h-20 rounded-2xl border-2 flex-shrink-0 overflow-hidden bg-white transition-all shadow-sm",
+                          currentImageIdx === idx ? "border-brand-600 shadow-brand-600/20 scale-105 opacity-100" : "border-slate-200 opacity-60 hover:opacity-100 hover:border-slate-300"
+                        )}
+                      >
+                        <Image src={imgUrl} alt={`${product.name} - Vista ${idx + 1}`} fill className="object-contain p-1" unoptimized />
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
               
               {/* Badges */}

@@ -4,7 +4,7 @@ import React, { useState, useEffect } from "react";
 import { Product } from "@/types";
 import { supabase } from "@/lib/supabase";
 import { Button } from "./Button";
-import { X, Search, CheckCircle2, Plus, Image as ImageIcon, Loader2 } from "lucide-react";
+import { X, Search, CheckCircle2, Plus, Image as ImageIcon, Loader2, Trash2 } from "lucide-react";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
 
@@ -20,6 +20,7 @@ export function ProductFormModal({ product, isOpen, onClose, onSuccess, allProdu
   const [submitting, setSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [galleryFiles, setGalleryFiles] = useState<File[]>([]);
   
   const [formData, setFormData] = useState({
     sku: "",
@@ -32,7 +33,8 @@ export function ProductFormModal({ product, isOpen, onClose, onSuccess, allProdu
     dimensions: "",
     is_featured: false,
     is_on_sale: false,
-    upsell_ids: [] as string[]
+    upsell_ids: [] as string[],
+    settings: { gallery: [] as string[] }
   });
 
   const [priceInput, setPriceInput] = useState("");
@@ -54,7 +56,8 @@ export function ProductFormModal({ product, isOpen, onClose, onSuccess, allProdu
         dimensions: product.dimensions || "",
         is_featured: product.is_featured || false,
         is_on_sale: product.is_on_sale || false,
-        upsell_ids: product.upsell_ids || []
+        upsell_ids: product.upsell_ids || [],
+        settings: product.settings || { gallery: [] }
       });
       setPriceInput(product.price ? product.price.toLocaleString('es-AR', { minimumFractionDigits: 0 }) : "");
     } else {
@@ -69,7 +72,8 @@ export function ProductFormModal({ product, isOpen, onClose, onSuccess, allProdu
         dimensions: "",
         is_featured: false,
         is_on_sale: false,
-        upsell_ids: []
+        upsell_ids: [],
+        settings: { gallery: [] }
       });
       setPriceInput("");
     }
@@ -78,6 +82,27 @@ export function ProductFormModal({ product, isOpen, onClose, onSuccess, allProdu
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) setSelectedFile(e.target.files[0]);
+  };
+
+  const handleGalleryFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      const newFiles = Array.from(e.target.files);
+      setGalleryFiles(prev => [...prev, ...newFiles]);
+    }
+  };
+
+  const removeGalleryUrl = (url: string) => {
+    setFormData(prev => ({
+      ...prev,
+      settings: {
+        ...prev.settings,
+        gallery: (prev.settings?.gallery || []).filter((u: string) => u !== url)
+      }
+    }));
+  };
+
+  const removeGalleryFile = (index: number) => {
+    setGalleryFiles(prev => prev.filter((_, i) => i !== index));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -99,10 +124,29 @@ export function ProductFormModal({ product, isOpen, onClose, onSuccess, allProdu
       setUploading(false);
     }
 
+    const newGalleryUrls: string[] = [];
+    if (galleryFiles.length > 0) {
+      setUploading(true);
+      for (const file of galleryFiles) {
+        const fileExt = file.name.split('.').pop();
+        const filePath = `products/gallery/${Math.random()}.${fileExt}`;
+        const { error: uploadError } = await supabase.storage.from('product-images').upload(filePath, file);
+        if (!uploadError) {
+          const { data: publicUrlData } = supabase.storage.from('product-images').getPublicUrl(filePath);
+          newGalleryUrls.push(publicUrlData.publicUrl);
+        }
+      }
+      setUploading(false);
+    }
+
     const payload = { 
       ...formData, 
       price: isNaN(finalPriceVal) ? 0 : finalPriceVal, 
-      image_url: finalImageUrl 
+      image_url: finalImageUrl,
+      settings: {
+        ...formData.settings,
+        gallery: [...(formData.settings?.gallery || []), ...newGalleryUrls]
+      }
     };
 
     if (product?.id) {
@@ -140,24 +184,60 @@ export function ProductFormModal({ product, isOpen, onClose, onSuccess, allProdu
         </div>
         
         <form onSubmit={handleSubmit} className="p-10 grid grid-cols-1 md:grid-cols-2 gap-8">
-          {/* 1. IMAGEN PRIMERO */}
-          <div className="md:col-span-2">
-            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2 block">Imagen</label>
+          <div className="md:col-span-2 space-y-4">
+            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block">Imágenes</label>
+            
+            {/* Imagen Principal */}
             <div className="flex items-center gap-6 p-4 bg-slate-50 rounded-3xl border border-slate-100">
-              <div className="w-24 h-24 rounded-2xl bg-white border border-slate-200 flex items-center justify-center overflow-hidden shadow-inner">
+              <div className="w-24 h-24 rounded-2xl bg-white border border-slate-200 flex items-center justify-center overflow-hidden shadow-inner flex-shrink-0 relative group">
                 {(selectedFile || formData.image_url) ? (
-                  <img src={selectedFile ? URL.createObjectURL(selectedFile) : formData.image_url} className="w-full h-full object-cover" />
+                  <img src={selectedFile ? URL.createObjectURL(selectedFile) : formData.image_url} className="w-full h-full object-contain p-2" />
                 ) : (
                   <ImageIcon className="w-8 h-8 opacity-20" />
                 )}
+                <div className="absolute top-1 left-1 bg-brand-600 text-white text-[8px] font-black px-2 py-0.5 rounded shadow-sm">PRINCIPAL</div>
               </div>
               <div className="flex-1">
-                <input type="file" accept="image/*" onChange={handleFileChange} className="hidden" id="image-upload-modal" />
-                <label htmlFor="image-upload-modal" className="inline-flex items-center px-6 py-3 bg-white border-2 border-slate-100 rounded-xl text-xs font-black text-slate-700 hover:border-brand-600 hover:text-brand-600 cursor-pointer transition-all uppercase tracking-widest shadow-sm">
+                <input type="file" accept="image/*" onChange={handleFileChange} className="hidden" id="image-upload-main" />
+                <label htmlFor="image-upload-main" className="inline-flex items-center px-6 py-3 bg-white border-2 border-slate-100 rounded-xl text-xs font-black text-slate-700 hover:border-brand-600 hover:text-brand-600 cursor-pointer transition-all uppercase tracking-widest shadow-sm">
                   {uploading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Plus className="w-4 h-4 mr-2" />}
-                  Cambiar Imagen
+                  Elegir Principal
                 </label>
                 <p className="text-[9px] text-slate-400 mt-2 font-medium">PNG, JPG o WebP. Se recomienda fondo blanco.</p>
+              </div>
+            </div>
+
+            {/* Galería Secundaria */}
+            <div className="p-4 bg-slate-50 rounded-3xl border border-slate-100">
+              <div className="flex flex-wrap gap-4 items-center">
+                
+                {/* URLs ya subidas */}
+                {formData.settings?.gallery?.map((url: string, idx: number) => (
+                  <div key={idx} className="w-20 h-20 rounded-xl bg-white border border-slate-200 flex items-center justify-center overflow-hidden shadow-inner relative group">
+                    <img src={url} className="w-full h-full object-contain p-2" />
+                    <button type="button" onClick={() => removeGalleryUrl(url)} className="absolute inset-0 bg-red-500/80 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Trash2 className="w-5 h-5 text-white" />
+                    </button>
+                  </div>
+                ))}
+
+                {/* Archivos pendientes de subir */}
+                {galleryFiles.map((file, idx) => (
+                  <div key={idx} className="w-20 h-20 rounded-xl bg-white border border-slate-200 flex items-center justify-center overflow-hidden shadow-inner relative group">
+                    <img src={URL.createObjectURL(file)} className="w-full h-full object-contain p-2 opacity-70" />
+                    <div className="absolute top-1 right-1 bg-amber-500 text-white text-[8px] font-black px-1.5 py-0.5 rounded shadow-sm">NUEVO</div>
+                    <button type="button" onClick={() => removeGalleryFile(idx)} className="absolute inset-0 bg-red-500/80 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Trash2 className="w-5 h-5 text-white" />
+                    </button>
+                  </div>
+                ))}
+
+                {/* Dropzone para sumar a la galería */}
+                <input type="file" accept="image/*" multiple onChange={handleGalleryFileChange} className="hidden" id="image-upload-gallery" />
+                <label htmlFor="image-upload-gallery" className="w-20 h-20 flex flex-col items-center justify-center bg-white border-2 border-dashed border-slate-200 rounded-xl text-slate-400 hover:border-brand-600 hover:text-brand-600 cursor-pointer transition-all shadow-sm">
+                  <Plus className="w-6 h-6 mb-1" />
+                  <span className="text-[8px] font-black uppercase tracking-widest">Añadir</span>
+                </label>
               </div>
             </div>
           </div>
