@@ -4,7 +4,7 @@ export const runtime = "edge";
 
 import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/Button";
-import { Plus, Edit2, Trash2, Save, X, Image as ImageIcon, Search, Loader2, Upload, Settings, LogOut, CheckCircle2, Download } from "lucide-react";
+import { Plus, Edit2, Trash2, Save, X, Image as ImageIcon, Search, Loader2, Upload, Settings, LogOut, CheckCircle2, Download, Menu } from "lucide-react";
 import { cn, formatPrice } from "@/lib/utils";
 import { Product } from "@/types";
 import { supabase } from "@/lib/supabase";
@@ -57,6 +57,7 @@ export default function AdminPage() {
   const [settingsFile, setSettingsFile] = useState<File | null>(null);
   const [landingProductId, setLandingProductId] = useState('');
   const [landingCategories, setLandingCategories] = useState<string[]>([]);
+  const [tanquesCategories, setTanquesCategories] = useState<string[]>([]);
 
   // Import State
   const [importData, setImportData] = useState("");
@@ -73,7 +74,7 @@ export default function AdminPage() {
 
   const fetchSettings = async () => {
     try {
-      const { data, error } = await supabase.from('site_settings').select('*').in('id', ['about_image_url', 'landing_hero_product_id', 'landing_categories']);
+      const { data, error } = await supabase.from('site_settings').select('*').in('id', ['about_image_url', 'landing_hero_product_id', 'landing_categories', 'tanques_categories']);
       if (error) {
         console.warn("No se encontró configuración previa en Supabase:", error.message);
         return;
@@ -82,9 +83,12 @@ export default function AdminPage() {
         const aboutImg = data.find(d => d.id === 'about_image_url');
         const heroProduct = data.find(d => d.id === 'landing_hero_product_id');
         const landingCats = data.find(d => d.id === 'landing_categories');
+        const tanquesCats = data.find(d => d.id === 'tanques_categories');
+
         if (aboutImg) setAboutImageUrl(aboutImg.value);
         if (heroProduct) setLandingProductId(heroProduct.value);
         if (landingCats && landingCats.value) setLandingCategories(landingCats.value.split(',').filter(Boolean));
+        if (tanquesCats && tanquesCats.value) setTanquesCategories(tanquesCats.value.split(',').filter(Boolean));
       }
     } catch (err) {
       console.error("Error cargando ajustes:", err);
@@ -159,6 +163,7 @@ export default function AdminPage() {
         { id: 'about_image_url', value: finalUrl },
         { id: 'landing_hero_product_id', value: landingProductId },
         { id: 'landing_categories', value: landingCategories.join(',') },
+        { id: 'tanques_categories', value: tanquesCategories.join(',') },
       ]);
       
       if (error) {
@@ -237,36 +242,47 @@ export default function AdminPage() {
     let errors = 0;
 
     for (const parts of rows) {
-      if (!parts[0] || parts[0].startsWith("SKU")) continue; // Saltar cabecera
+      if (!parts[0] || parts[0].toLowerCase().startsWith("sku")) continue; // Saltar cabecera
       if (parts.length < 2) continue;
 
       const sku = parts[0];
-      const name = parts[1] || "";
-      const priceStr = parts[2] || "0";
-      const category = parts[3] || "Varios";
-      const brand = parts[4] || "";
-      const dimensions = parts[5] || "";
-      const is_on_sale = parts[6] ? parts[6].toLowerCase() === 'true' : false;
-      const is_featured = parts[7] ? parts[7].toLowerCase() === 'true' : false;
-      const description = parts[8] || "";
-      const image_url = parts[9] || "";
-      
-      const price = parseFloat(priceStr.replace(/\./g, "").replace(",", "."));
-      if (isNaN(price)) { errors++; continue; }
+      const upsertPayload: any = { sku };
 
-      const upsertPayload: any = { 
-        sku, 
-        price,
-        name,
-        category,
-        brand,
-        dimensions,
-        is_on_sale,
-        is_featured,
-        description,
-        image_url
-      };
+      // Si vienen exactamente 2 columnas, asumimos SKU y Precio
+      if (parts.length === 2) {
+        const priceStr = parts[1];
+        const price = parseFloat(priceStr.replace(/\./g, "").replace(",", "."));
+        if (isNaN(price)) { errors++; continue; }
+        
+        upsertPayload.price = price;
+        // Solo actualizamos precio; no sobreescribimos descripciones ni nombres
+      } else {
+        // Si vienen más columnas, asumimos el formato completo de 10 columnas
+        const name = parts[1] || "";
+        const priceStr = parts[2] || "0";
+        const category = parts[3] || "Varios";
+        const brand = parts[4] || "";
+        const dimensions = parts[5] || "";
+        const is_on_sale = parts[6] ? parts[6].toLowerCase() === 'true' : false;
+        const is_featured = parts[7] ? parts[7].toLowerCase() === 'true' : false;
+        const description = parts[8] || "";
+        const image_url = parts[9] || "";
+        
+        const price = parseFloat(priceStr.replace(/\./g, "").replace(",", "."));
+        if (isNaN(price)) { errors++; continue; }
 
+        upsertPayload.name = name;
+        upsertPayload.price = price;
+        upsertPayload.category = category;
+        upsertPayload.brand = brand;
+        upsertPayload.dimensions = dimensions;
+        upsertPayload.is_on_sale = is_on_sale;
+        upsertPayload.is_featured = is_featured;
+        upsertPayload.description = description;
+        upsertPayload.image_url = image_url;
+      }
+
+      // Si el producto existe, Supabase solo actualizará las columnas especificadas en el payload
       const { error } = await supabase.from('products').upsert(upsertPayload, { onConflict: 'sku' });
       if (!error) updatedCount++; else errors++;
     }
@@ -601,37 +617,158 @@ export default function AdminPage() {
       ) : (
         <div className="max-w-2xl">
           <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl border border-slate-100">
-            <h2 className="text-3xl font-black text-slate-900 mb-8 tracking-tighter">Ajustes Generales</h2>
-            <form onSubmit={handleSettingsSubmit} className="space-y-8">
-              <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">Producto destacado en Landing /tanques</label>
-                <select
-                  value={landingProductId}
-                  onChange={(e) => setLandingProductId(e.target.value)}
-                  className="w-full px-5 py-4 rounded-2xl border border-slate-100 focus:ring-4 focus:ring-brand-500/10 bg-slate-50 font-bold"
-                >
-                  <option value="">Automático</option>
-                  {products.map(p => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">Categorías Landing</label>
-                <div className="flex flex-wrap gap-3">
-                  {Array.from(new Set(products.map(p => p.category))).sort().map(cat => (
-                    <button
-                      key={cat}
-                      type="button"
-                      onClick={() => landingCategories.includes(cat) ? setLandingCategories(prev => prev.filter(c => c !== cat)) : setLandingCategories(prev => [...prev, cat])}
-                      className={`px-4 py-2 rounded-xl text-xs font-bold border ${landingCategories.includes(cat) ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-slate-400 border-slate-200'}`}
-                    >
-                      {cat}
-                    </button>
-                  ))}
+            <h2 className="text-3xl font-black text-slate-900 mb-8 tracking-tighter">Ajustes de Landings</h2>
+            <form onSubmit={handleSettingsSubmit} className="space-y-12">
+              
+              {/* Sección Landing Principal */}
+              <div className="space-y-6 bg-slate-50/50 p-6 rounded-3xl border border-slate-100">
+                <div className="border-b border-slate-200 pb-4 mb-6">
+                  <h3 className="text-xl font-black text-slate-800">Landing Principal (Inicio)</h3>
+                  <p className="text-slate-500 text-sm font-medium">Sitio web general y catálogo</p>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-black text-brand-500 uppercase tracking-[0.2em] mb-4">Orden y Visibilidad de Categorías</label>
+                  <div className="flex flex-col gap-2 mb-6 p-4 rounded-2xl bg-white border border-slate-200 shadow-sm">
+                    {landingCategories.map((cat, index) => (
+                      <div
+                        key={cat}
+                        draggable
+                        onDragStart={(e) => e.dataTransfer.setData("text/plain", index.toString())}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          const fromIndex = parseInt(e.dataTransfer.getData("text/plain"));
+                          if (isNaN(fromIndex)) return;
+                          const newCats = [...landingCategories];
+                          const [movedItem] = newCats.splice(fromIndex, 1);
+                          newCats.splice(index, 0, movedItem);
+                          setLandingCategories(newCats);
+                        }}
+                        className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-slate-800 font-bold flex items-center justify-between cursor-move shadow-sm active:scale-[0.98] transition-transform"
+                      >
+                        <div className="flex items-center gap-3">
+                          <Menu className="w-5 h-5 text-slate-400" />
+                          {cat}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setLandingCategories(prev => prev.filter(c => c !== cat))}
+                          className="text-slate-400 hover:text-red-500 transition-colors p-1"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                    {landingCategories.length === 0 && (
+                       <div className="p-4 rounded-xl border-2 border-dashed border-slate-200 text-slate-400 text-center font-bold text-sm">
+                         Ninguna categoría ordenable fijada. Se muestran todas por orden alfabético.
+                       </div>
+                    )}
+                  </div>
+                  
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">Categorías Ocultas (Agregar al inicio)</label>
+                  <div className="flex flex-wrap gap-2">
+                    {Array.from(new Set(products.map(p => p.category)))
+                      .filter(cat => !landingCategories.includes(cat))
+                      .sort()
+                      .map(cat => (
+                        <button
+                          key={cat}
+                          type="button"
+                          onClick={() => setLandingCategories(prev => [...prev, cat])}
+                          className="px-4 py-2 rounded-xl text-xs font-bold border bg-white text-slate-400 border-slate-200 hover:bg-slate-50 hover:text-brand-600 transition-colors flex items-center gap-2"
+                        >
+                           <Plus className="w-3 h-3" /> {cat}
+                        </button>
+                      ))}
+                  </div>
                 </div>
               </div>
-              <Button type="submit" disabled={submitting} className="w-full py-7 font-black rounded-2xl">
+
+              {/* Sección Landing Tanques */}
+              <div className="space-y-6 bg-blue-50/30 p-6 rounded-3xl border border-blue-100/50">
+                <div className="border-b border-blue-100 pb-4 mb-6">
+                  <h3 className="text-xl font-black text-blue-900">Landing Específica (Tanques)</h3>
+                  <p className="text-blue-600/70 text-sm font-medium">Página promocional exclusiva para ventas de agua</p>
+                </div>
+
+                <div className="mb-6">
+                  <label className="block text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] mb-4">Producto destacado Principal (Hero)</label>
+                  <select
+                    value={landingProductId}
+                    onChange={(e) => setLandingProductId(e.target.value)}
+                    className="w-full px-5 py-4 rounded-2xl border border-blue-200 focus:ring-4 focus:ring-blue-500/10 bg-white font-bold text-slate-700 outline-none"
+                  >
+                    <option value="">Selección Automática (Más caro)</option>
+                    {products.map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] mb-4">Categorías Visibles en Tanques (Arrastrá para ordenar)</label>
+                  <div className="flex flex-col gap-2 mb-6 p-4 rounded-2xl bg-white border border-blue-100 shadow-sm">
+                    {tanquesCategories.map((cat, index) => (
+                      <div
+                        key={cat}
+                        draggable
+                        onDragStart={(e) => e.dataTransfer.setData("text/plain", "t-" + index.toString())}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          const transferData = e.dataTransfer.getData("text/plain");
+                          if (!transferData.startsWith("t-")) return;
+                          const fromIndex = parseInt(transferData.replace("t-", ""));
+                          if (isNaN(fromIndex)) return;
+                          const newCats = [...tanquesCategories];
+                          const [movedItem] = newCats.splice(fromIndex, 1);
+                          newCats.splice(index, 0, movedItem);
+                          setTanquesCategories(newCats);
+                        }}
+                        className="bg-blue-50/50 p-3 rounded-xl border border-blue-100 text-blue-900 font-bold flex items-center justify-between cursor-move shadow-sm active:scale-[0.98] transition-transform"
+                      >
+                        <div className="flex items-center gap-3">
+                          <Menu className="w-5 h-5 text-blue-300" />
+                          {cat}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setTanquesCategories(prev => prev.filter(c => c !== cat))}
+                          className="text-blue-300 hover:text-red-500 transition-colors p-1"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                    {tanquesCategories.length === 0 && (
+                       <div className="p-4 rounded-xl border-2 border-dashed border-blue-200 text-blue-400 text-center font-bold text-sm">
+                         Ninguna categoría elegida. Se mostrarán TODAS las de la tienda por defecto.
+                       </div>
+                    )}
+                  </div>
+                  
+                  <label className="block text-[10px] font-black text-blue-400 uppercase tracking-[0.2em] mb-4">Agregar Categorías a Landing Tanques</label>
+                  <div className="flex flex-wrap gap-2">
+                    {Array.from(new Set(products.map(p => p.category)))
+                      .filter(cat => !tanquesCategories.includes(cat))
+                      .sort()
+                      .map(cat => (
+                        <button
+                          key={cat}
+                          type="button"
+                          onClick={() => setTanquesCategories(prev => [...prev, cat])}
+                          className="px-4 py-2 rounded-xl text-xs font-bold border bg-white text-blue-500 border-blue-200 hover:bg-blue-50 transition-colors flex items-center gap-2"
+                        >
+                           <Plus className="w-3 h-3" /> {cat}
+                        </button>
+                      ))}
+                  </div>
+                </div>
+              </div>
+              
+              <Button type="submit" disabled={submitting} className="w-full py-8 text-lg shadow-xl shadow-brand-600/20 font-black rounded-[2rem]">
                 {submitting ? <Loader2 className="animate-spin" /> : "Guardar Configuración"}
               </Button>
             </form>

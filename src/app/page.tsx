@@ -326,10 +326,10 @@ export default function Home() {
         )}
 
         {/* Filas por Categoría */}
-        {Array.from(new Set(products.map(p => p.category)))
-          .filter(cat => landingCategories.length === 0 || landingCategories.includes(cat))
-          .sort()
-          .map((cat) => (
+        {(landingCategories.length > 0
+          ? landingCategories.filter(cat => products.some(p => p.category === cat))
+          : Array.from(new Set(products.map(p => p.category))).sort()
+        ).map((cat) => (
             <ProductRow
               key={cat}
               title={cat}

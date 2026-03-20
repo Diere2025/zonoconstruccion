@@ -42,6 +42,7 @@ export default function TanquesLanding() {
   const [userName, setUserName] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [heroProduct, setHeroProduct] = useState<Product | null>(null);
+  const [tanquesCategories, setTanquesCategories] = useState<string[]>([]);
 
 
   useEffect(() => {
@@ -50,11 +51,12 @@ export default function TanquesLanding() {
       const { data: settings } = await supabase
         .from("site_settings")
         .select("*")
-        .in("id", ["landing_hero_product_id", "landing_categories"]);
+        .in("id", ["landing_hero_product_id", "tanques_categories"]);
 
       const heroId = settings?.find(s => s.id === "landing_hero_product_id")?.value || "";
-      const categoriesStr = settings?.find(s => s.id === "landing_categories")?.value || "";
+      const categoriesStr = settings?.find(s => s.id === "tanques_categories")?.value || "";
       const categories = categoriesStr.split(",").filter(Boolean);
+      setTanquesCategories(categories);
 
       // 2. Cargar productos filtrados por las categorías configuradas para Landing
       let query = supabase.from("products").select("*").order("price", { ascending: true });
@@ -249,56 +251,70 @@ export default function TanquesLanding() {
               <div className="w-10 h-10 border-4 border-brand-600 border-t-transparent rounded-full animate-spin" />
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {products.map((product) => (
-                <div
-                  key={product.id}
-                  className="bg-white rounded-3xl border border-slate-100 hover:border-brand-200 hover:shadow-xl hover:shadow-brand-600/5 transition-all duration-300 overflow-hidden group cursor-pointer"
-                  onClick={() => handleCTA(product)}
-                >
-                  {/* Imagen */}
-                  <div className="relative aspect-square p-6 bg-white flex items-center justify-center overflow-hidden">
-                    {product.dimensions && (
-                      <span className="absolute top-3 left-3 bg-brand-600/90 text-white text-[9px] font-black px-3 py-1 rounded-lg uppercase tracking-widest z-10">
-                        {product.dimensions}
-                      </span>
-                    )}
-                    {product.is_on_sale && (
-                      <span className="absolute top-3 right-3 bg-red-600 text-white text-[9px] font-black px-3 py-1 rounded-lg uppercase tracking-widest z-10 animate-pulse">
-                        OFERTA
-                      </span>
-                    )}
-                    <div className="relative w-full h-full transition-transform duration-300 group-hover:scale-105">
-                      <Image
-                        src={product.image_url && product.image_url.trim() !== "" ? product.image_url : "https://placehold.co/400x400?text=Tanque"}
-                        alt={product.name}
-                        fill
-                        className="object-contain p-4"
-                        sizes="300px"
-                        unoptimized
-                      />
-                    </div>
-                  </div>
+            <div className="space-y-16">
+              {(tanquesCategories.length > 0
+                ? tanquesCategories.filter(cat => products.some(p => p.category === cat))
+                : Array.from(new Set(products.map(p => p.category))).sort()
+              ).map((cat) => (
+                <div key={cat}>
+                  <h4 className="text-2xl font-black text-slate-800 tracking-tight mb-8 pl-4 border-l-4 border-brand-500">
+                    {cat}
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                    {products.filter(p => p.category === cat).map((product) => (
+                      <div
+                        key={product.id}
+                        className="bg-white rounded-3xl border border-slate-100 hover:border-brand-200 hover:shadow-xl hover:shadow-brand-600/5 transition-all duration-300 overflow-hidden group cursor-pointer flex flex-col h-full"
+                        onClick={() => handleCTA(product)}
+                      >
+                        {/* Imagen */}
+                        <div className="relative aspect-square p-6 bg-white flex items-center justify-center overflow-hidden">
+                          {product.dimensions && (
+                            <span className="absolute top-3 left-3 bg-brand-600/90 text-white text-[9px] font-black px-3 py-1 rounded-lg uppercase tracking-widest z-10">
+                              {product.dimensions}
+                            </span>
+                          )}
+                          {product.is_on_sale && (
+                            <span className="absolute top-3 right-3 bg-red-600 text-white text-[9px] font-black px-3 py-1 rounded-lg uppercase tracking-widest z-10 animate-pulse">
+                              OFERTA
+                            </span>
+                          )}
+                          <div className="relative w-full h-full transition-transform duration-300 group-hover:scale-105">
+                            <Image
+                              src={product.image_url && product.image_url.trim() !== "" ? product.image_url : "https://placehold.co/400x400?text=Tanque"}
+                              alt={product.name}
+                              fill
+                              className="object-contain p-4"
+                              sizes="300px"
+                              unoptimized
+                            />
+                          </div>
+                        </div>
 
-                  {/* Info */}
-                  <div className="p-5 border-t border-slate-50">
-                    {product.brand && (
-                      <span className="text-[9px] font-black text-brand-600 uppercase tracking-widest opacity-70">
-                        {product.brand}
-                      </span>
-                    )}
-                    <h4 className="text-sm font-bold text-slate-900 mt-1 line-clamp-2 min-h-[2.5rem] leading-tight">
-                      {product.name}
-                    </h4>
-                    <div className="flex items-center justify-between mt-4">
-                      <span className="text-xl font-black text-slate-900">
-                        {formatPrice(product.price)}
-                      </span>
-                      <span className="bg-green-600 text-white text-[10px] font-black px-4 py-2 rounded-xl uppercase tracking-widest group-hover:bg-green-500 transition-colors flex items-center gap-1.5">
-                        <MessageCircle className="w-3.5 h-3.5" />
-                        Consultar
-                      </span>
-                    </div>
+                        {/* Info */}
+                        <div className="p-5 border-t border-slate-50 flex flex-col flex-grow">
+                          {product.brand && (
+                            <span className="text-[9px] font-black text-brand-600 uppercase tracking-widest opacity-70">
+                              {product.brand}
+                            </span>
+                          )}
+                          <h4 className="text-sm font-bold text-slate-900 mt-1 line-clamp-2 min-h-[2.5rem] leading-tight">
+                            {product.name}
+                          </h4>
+                          <div className="mt-auto">
+                            <div className="flex items-center justify-between mt-4">
+                              <span className="text-xl font-black text-slate-900">
+                                {formatPrice(product.price)}
+                              </span>
+                              <span className="bg-green-600 text-white text-[10px] font-black px-4 py-2 rounded-xl uppercase tracking-widest group-hover:bg-green-500 transition-colors flex items-center gap-1.5 shrink-0">
+                                <MessageCircle className="w-3.5 h-3.5" />
+                                Consultar
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               ))}
