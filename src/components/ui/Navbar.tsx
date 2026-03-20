@@ -14,16 +14,24 @@ export function Navbar() {
 
   return (
     <header className="fixed w-full top-0 z-50 glass">
-      <div className="container mx-auto px-6 h-20 flex justify-between items-center">
+      <div className="container mx-auto px-6 h-20 flex justify-between items-center relative">
         {/* Logo */}
-        <Link href="/" className="flex items-center gap-2 group">
+        <Link 
+          href="/" 
+          onClick={(e) => {
+            if (window.location.pathname === '/') {
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+          }}
+          className="flex items-center gap-2 group z-10"
+        >
           <div className="relative font-black text-2xl tracking-tighter text-brand-900 group-hover:scale-105 transition-transform">
             ZONO<span className="text-brand-600">HOME</span>
           </div>
         </Link>
 
         {/* Desktop Nav */}
-        <nav className="hidden md:flex items-center space-x-10 font-bold text-slate-600">
+        <nav className="hidden md:flex absolute left-1/2 -translate-x-1/2 items-center space-x-10 font-bold text-slate-600">
           <Link href="/#productos" className="hover:text-brand-600 transition-colors">Catálogo</Link>
           <Link href="/#nosotros" className="hover:text-brand-600 transition-colors">Nosotros</Link>
           <Link href="/#contacto" className="hover:text-brand-600 transition-colors">Ubicación</Link>

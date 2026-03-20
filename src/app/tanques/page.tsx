@@ -134,8 +134,8 @@ export default function TanquesLanding() {
               transition={{ duration: 0.6 }}
               className="flex-1 text-center lg:text-left"
             >
-              <div className="inline-flex items-center gap-2 bg-brand-600/20 border border-brand-500/30 text-brand-300 rounded-full px-4 py-2 text-xs font-black uppercase tracking-widest mb-8 backdrop-blur-sm">
-                <Factory className="w-4 h-4" />
+              <div className="inline-flex items-center gap-2 bg-brand-600/30 border border-brand-500/50 text-brand-100 rounded-full px-4 py-2 text-xs font-black uppercase tracking-widest mb-8 backdrop-blur-sm shadow-sm shadow-brand-500/10">
+                <Factory className="w-4 h-4 text-brand-200" />
                 ¡Somos Fabricantes!
               </div>
 

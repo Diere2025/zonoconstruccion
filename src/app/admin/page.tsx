@@ -4,7 +4,7 @@ export const runtime = "edge";
 
 import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/Button";
-import { Plus, Edit2, Trash2, Save, X, Image as ImageIcon, Search, Loader2, Upload, Settings, LogOut, CheckCircle2 } from "lucide-react";
+import { Plus, Edit2, Trash2, Save, X, Image as ImageIcon, Search, Loader2, Upload, Settings, LogOut, CheckCircle2, Download } from "lucide-react";
 import { cn, formatPrice } from "@/lib/utils";
 import { Product } from "@/types";
 import { supabase } from "@/lib/supabase";
@@ -178,19 +178,66 @@ export default function AdminPage() {
     }
   };
 
+  const parseCSV = (csvText: string) => {
+    const result: string[][] = [];
+    let currentWord = '';
+    let inQuotes = false;
+    let currentRow: string[] = [];
+    
+    // Normalizamos saltos de línea por si viene de Windows (\r\n) -> (\n)
+    const text = csvText.replace(/\r\n/g, '\n');
+    
+    for (let i = 0; i < text.length; i++) {
+      const char = text[i];
+      const nextChar = text[i + 1];
+
+      if (inQuotes) {
+        if (char === '"' && nextChar === '"') {
+          currentWord += '"';
+          i++;
+        } else if (char === '"') {
+          inQuotes = false;
+        } else {
+          currentWord += char;
+        }
+      } else {
+        if (char === '"') {
+          inQuotes = true;
+        } else if (char === ',') {
+          currentRow.push(currentWord.trim());
+          currentWord = '';
+        } else if (char === '\n') {
+          currentRow.push(currentWord.trim());
+          if (currentRow.length > 1 || currentRow[0] !== '') {
+            result.push(currentRow);
+          }
+          currentRow = [];
+          currentWord = '';
+        } else {
+          currentWord += char;
+        }
+      }
+    }
+    
+    currentRow.push(currentWord.trim());
+    if (currentRow.length > 1 || currentRow[0] !== '') {
+      result.push(currentRow);
+    }
+    
+    return result;
+  };
+
   const processData = async (data: string) => {
     if (!data.trim()) return;
     setSubmitting(true);
     setImportStatus("Procesando...");
     
-    const lines = data.split("\n");
+    const rows = parseCSV(data);
     let updatedCount = 0;
     let errors = 0;
 
-    for (const line of lines) {
-      if (!line.trim() || line.startsWith("SKU,")) continue; // Saltar cabecera si existe
-      
-      const parts = line.split(",").map(p => p.trim());
+    for (const parts of rows) {
+      if (!parts[0] || parts[0].startsWith("SKU")) continue; // Saltar cabecera
       if (parts.length < 2) continue;
 
       const sku = parts[0];
@@ -227,6 +274,47 @@ export default function AdminPage() {
     setImportStatus(`Completado: ${updatedCount} actualizados, ${errors} errores.`);
     fetchProducts();
     setSubmitting(false);
+  };
+
+  const handleDownloadCSV = () => {
+    const header = ["SKU", "Nombre", "Precio", "Categoría", "Marca", "Dimensiones", "Oferta", "Destacado", "Descripción", "URL_Imagen"];
+    
+    const rows = products.map(p => {
+      const escapeCSV = (str: any) => {
+        if (str == null) return "";
+        let s = String(str);
+        if (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')) {
+          s = '"' + s.replace(/"/g, '""') + '"';
+        }
+        return s;
+      };
+      
+      return [
+        escapeCSV(p.sku),
+        escapeCSV(p.name),
+        p.price,
+        escapeCSV(p.category),
+        escapeCSV(p.brand),
+        escapeCSV(p.dimensions),
+        p.is_on_sale ? "true" : "false",
+        p.is_featured ? "true" : "false",
+        escapeCSV(p.description),
+        escapeCSV(p.image_url)
+      ].join(",");
+    });
+    
+    const csvContent = [header.join(","), ...rows].join("\n");
+    // Añadimos BOM para que Excel detecte correctamente el UTF-8 y los acentos
+    const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' }); 
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const date = new Date().toISOString().split('T')[0];
+    a.download = `catalogo_productos_${date}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   const handleMassUpdate = async () => {
@@ -465,20 +553,29 @@ export default function AdminPage() {
       ) : activeTab === 'import' ? (
         <div className="max-w-4xl">
           <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl border border-slate-100">
-            <div className="flex justify-between items-start mb-2 group">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 group gap-4">
               <h2 className="text-3xl font-black text-slate-900 tracking-tighter">Carga Masiva de Productos</h2>
-              <div className="flex flex-col items-end gap-1">
-                <a 
-                  href="/ejemplo_carga_masiva.csv" 
-                  download 
-                  className="text-[10px] font-black text-brand-600 hover:text-brand-700 uppercase tracking-widest border-b border-brand-200"
+              <div className="flex flex-col items-start md:items-end gap-3">
+                <button
+                  onClick={handleDownloadCSV}
+                  className="px-5 py-2.5 bg-brand-50 text-brand-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-brand-100 transition-colors flex items-center gap-2"
                 >
-                  Descargar Ejemplo CSV
-                </a>
-                <label className="text-[10px] font-black text-slate-400 group-hover:text-brand-500 transition-colors uppercase tracking-widest cursor-pointer">
-                  O subí un archivo .csv
-                  <input type="file" accept=".csv" onChange={handleFileUpload} className="hidden" />
-                </label>
+                  <Download className="w-4 h-4" />
+                  Descargar Catálogo Actual (CSV)
+                </button>
+                <div className="flex gap-4">
+                  <a 
+                    href="/ejemplo_carga_masiva.csv" 
+                    download 
+                    className="text-[10px] font-black text-slate-400 hover:text-slate-600 uppercase tracking-widest border-b border-slate-200"
+                  >
+                    Plantilla de Ejemplo
+                  </a>
+                  <label className="text-[10px] font-black text-slate-400 hover:text-brand-500 transition-colors uppercase tracking-widest cursor-pointer border-b border-transparent">
+                    Subir archivo .csv
+                    <input type="file" accept=".csv" onChange={handleFileUpload} className="hidden" />
+                  </label>
+                </div>
               </div>
             </div>
             <p className="text-slate-500 mb-8 font-medium">Pegá los datos o subí tu archivo CSV. Si el SKU coincide, se actualiza el producto.</p>
