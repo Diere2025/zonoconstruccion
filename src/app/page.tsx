@@ -7,12 +7,50 @@ import { ProductCard } from "@/components/ui/ProductCard";
 import { ProductModal } from "@/components/ui/ProductModal";
 import { ProductFormModal } from "@/components/ui/ProductFormModal";
 import { Button } from "@/components/ui/Button";
-import { ArrowRight, Factory, Phone, Truck, ShieldCheck, Loader2, CheckCircle2, ChevronLeft, ChevronRight } from "lucide-react";
+import { ArrowRight, Factory, Phone, Truck, ShieldCheck, Loader2, CheckCircle2, ChevronLeft, ChevronRight, Waves, Droplets, Thermometer, Bath, Wrench, Home as HomeIcon } from "lucide-react";
 import Image from "next/image";
 import { cn, formatPrice } from "@/lib/utils";
 import { motion } from "framer-motion";
 import { supabase } from "@/lib/supabase";
 import { Product } from "@/types";
+
+// Componente de Categorías Estilo Mercado Libre
+const CategorySection = () => {
+  const categories = [
+    { title: "Tanques de Agua", icon: <Waves className="w-8 h-8" />, desc: "Reserva segura de agua", href: "/tanques", color: "bg-blue-50 text-blue-600" },
+    { title: "Impermeablización", icon: <Droplets className="w-8 h-8" />, desc: "Protección total de techos", href: "/#impermeabilización", color: "bg-cyan-50 text-cyan-600" },
+    { title: "Termotanques", icon: <Thermometer className="w-8 h-8" />, desc: "Agua caliente siempre", href: "/#termotanques", color: "bg-orange-50 text-orange-600" },
+    { title: "Grifería", icon: <Bath className="w-8 h-8" />, desc: "Diseño y funcionalidad", href: "/#grifería", color: "bg-emerald-50 text-emerald-600" },
+    { title: "Bombas", icon: <Wrench className="w-8 h-8" />, desc: "Presión y elevación", href: "/#bombas", color: "bg-indigo-50 text-indigo-600" },
+    { title: "Hogar y Jardín", icon: <HomeIcon className="w-8 h-8" />, desc: "Todo para tu casa", href: "/#hogar", color: "bg-amber-50 text-amber-600" },
+  ];
+
+  return (
+    <section className="py-16 bg-slate-50/30">
+      <div className="container mx-auto px-6">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+          {categories.map((cat, i) => (
+            <motion.a
+              key={i}
+              href={cat.href}
+              whileHover={{ y: -5 }}
+              className="bg-white rounded-[2rem] p-6 shadow-sm border border-slate-100 flex flex-col items-center text-center group cursor-pointer hover:shadow-xl hover:shadow-slate-200/50 transition-all duration-300"
+            >
+              <div className={cn("w-16 h-16 rounded-2xl flex items-center justify-center mb-6 transition-transform group-hover:scale-110", cat.color)}>
+                {cat.icon}
+              </div>
+              <h3 className="text-sm font-black text-slate-900 mb-2 leading-tight">{cat.title}</h3>
+              <p className="text-[11px] text-slate-500 font-medium mb-4">{cat.desc}</p>
+              <span className="mt-auto text-[10px] font-black text-brand-600 uppercase tracking-widest border-b border-transparent group-hover:border-brand-600 transition-all">
+                Ver Catálogo
+              </span>
+            </motion.a>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+};
 
 // Componente helper para las filas de productos con flechas y márgenes
 const ProductRow = ({
@@ -33,6 +71,7 @@ const ProductRow = ({
   accentColor?: string;
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const id = title.toLowerCase().replace(/\s+/g, '-');
 
   const scroll = (direction: 'left' | 'right') => {
     if (scrollRef.current) {
@@ -44,7 +83,7 @@ const ProductRow = ({
   };
 
   return (
-    <section className={cn("py-14 border-b border-slate-100/60", bgColor)}>
+    <section id={id} className={cn("py-14 border-b border-slate-100/60 scroll-mt-20", bgColor)}>
       <div className="container mx-auto px-6">
         {/* Header con título y flechas */}
         <div className="flex items-end justify-between mb-8">
@@ -161,73 +200,58 @@ export default function Home() {
 
   return (
     <div className="flex flex-col">
-      {/* Hero Section - Mas compacto para enfoque e-commerce */}
-      <section className="relative h-[65vh] flex items-center overflow-hidden">
-        <div className="absolute inset-0 z-0">
-          <Image
-            src="https://images.unsplash.com/photo-1503387762-592deb58ef4e?q=80&w=2000"
-            alt="Hero Background"
-            fill
-            className="object-cover brightness-[0.4]"
-            unoptimized
-          />
+      {/* Hero Section - Centralizado, Útil y con Contraste */}
+      <section className="bg-slate-900 pt-24 pb-20 relative overflow-hidden">
+        {/* Patrón de fondo sutil */}
+        <div className="absolute inset-0 opacity-10 pointer-events-none">
+          <div className="absolute inset-0" style={{ backgroundImage: 'radial-gradient(#fff 1px, transparent 1px)', backgroundSize: '40px 40px' }} />
         </div>
-
-        <div className="container mx-auto px-6 relative z-10">
+        
+        <div className="container mx-auto px-6 relative z-10 text-center">
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
-            className="max-w-3xl"
+            transition={{ duration: 0.5 }}
+            className="max-w-3xl mx-auto"
           >
-            <span className="inline-block py-2 px-4 rounded-full bg-brand-600/30 border border-brand-500/50 text-brand-100 text-[10px] font-black mb-6 backdrop-blur-md uppercase tracking-[0.2em]">
-              🚀 Envíos a todo el país
+            <span className="inline-block py-1.5 px-4 rounded-full bg-brand-500/20 text-brand-400 text-[10px] font-black uppercase tracking-[0.3em] mb-8 border border-brand-500/30">
+              Venta Directa de Fábrica
             </span>
-            <h1 className="text-5xl md:text-7xl font-black text-white mb-6 leading-[1.05] tracking-tighter">
-              Soluciones en <span className="text-brand-500 text-glow">Construcción</span>
+            <h1 className="text-5xl md:text-7xl font-black text-white mb-8 leading-[1.05] tracking-tighter">
+              Soluciones para <br /> <span className="text-brand-500">tu Construcción</span>
             </h1>
-            <p className="text-lg text-slate-300 mb-8 leading-relaxed max-w-xl font-medium">
-              Especialistas en tanques de agua e impermeabilización. Venta directa de fábrica con asesoramiento experto para tu proyecto.
+            <p className="text-xl text-slate-400 font-medium leading-relaxed mb-12 max-w-xl mx-auto">
+              Buscá lo que necesitás para tu obra. Desde tanques hasta impermeabilizantes con el mejor precio garantizado.
             </p>
-            <div className="flex flex-col sm:flex-row gap-4">
-              <a href="#productos" className="contents">
-                <Button size="lg" className="rounded-2xl h-14 px-10 group shadow-2xl shadow-brand-600/40 w-full sm:w-auto text-lg font-black">
-                  Ver Productos <ArrowRight className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" />
+            
+            <div className="flex flex-wrap justify-center gap-4">
+              <a href="#productos">
+                <Button size="lg" className="rounded-2xl h-14 px-10 font-black text-lg bg-brand-600 hover:bg-brand-700">
+                  Ver Todo el Catálogo <ArrowRight className="ml-2 w-5 h-5" />
                 </Button>
-              </a>
-              <a href="#contacto" className="inline-flex h-14 items-center justify-center rounded-2xl border border-white/20 px-8 text-white hover:bg-white/10 hover:border-white/50 transition-all font-bold">
-                Ubicación
               </a>
             </div>
           </motion.div>
         </div>
+        
+        {/* Decoraciones de profundidad */}
+        <div className="absolute -bottom-24 -left-24 w-96 h-96 bg-brand-600/20 rounded-full blur-[120px]" />
+        <div className="absolute -top-24 -right-24 w-96 h-96 bg-blue-600/20 rounded-full blur-[120px]" />
       </section>
 
-      {/* Features */}
-      <section className="py-12 -mt-16 relative z-20">
+      {/* Features Bar - Blanco para contrastar con el hero grisáceo */}
+      <section className="py-10 bg-white border-b border-slate-100">
         <div className="container mx-auto px-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <FeatureCard
-              icon={<Factory className="w-8 h-8" />}
-              title="Directo de Fábrica"
-              desc="Mejores precios garantizados sin intermediarios."
-              color="bg-blue-50 text-blue-600"
-            />
-            <FeatureCard
-              icon={<ShieldCheck className="w-8 h-8" />}
-              title="Garantía de Calidad"
-              desc="Productos certificados para larga durabilidad."
-              color="bg-amber-50 text-amber-600"
-            />
-            <FeatureCard
-              icon={<Truck className="w-8 h-8" />}
-              title="Envíos Express"
-              desc="Llegamos a donde estés con logística propia."
-              color="bg-green-50 text-green-600"
-            />
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            <FeatureItem icon={<Factory className="w-5 h-5" />} text="Fábrica Directa Aquafort" />
+            <FeatureItem icon={<ShieldCheck className="w-5 h-5" />} text="Garantía de Calidad" />
+            <FeatureItem icon={<Truck className="w-5 h-5" />} text="Envíos Express Logística Propia" />
           </div>
         </div>
       </section>
+
+      {/* Categorías Estilo Mercado Libre */}
+      <CategorySection />
 
       {/* Secciones de Productos - Refactorizado con ProductRow */}
       <div id="productos" className="bg-white">
@@ -395,6 +419,17 @@ export default function Home() {
           allProducts={products}
         />
       )}
+    </div>
+  );
+}
+
+function FeatureItem({ icon, text }: { icon: React.ReactNode, text: string }) {
+  return (
+    <div className="flex items-center gap-3 justify-center md:justify-start">
+      <div className="text-brand-600">
+        {icon}
+      </div>
+      <span className="text-xs font-black uppercase tracking-widest text-slate-600">{text}</span>
     </div>
   );
 }

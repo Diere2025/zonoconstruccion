@@ -5,7 +5,7 @@ import Image from "next/image";
 import { Product } from "@/types";
 import { useCartStore } from "@/store/useCartStore";
 import { Button } from "./Button";
-import { ShoppingCart, Plus } from "lucide-react";
+import { ShoppingCart, Plus, Star } from "lucide-react";
 import { cn, formatPrice } from "@/lib/utils";
 import { trackEvent } from "@/lib/analytics";
 
@@ -56,13 +56,18 @@ export function ProductCard({ product, onOpenModal }: ProductCardProps) {
           )}
         </div>
 
-        {product.is_on_sale && (
-          <div className="absolute top-3 right-3 z-10">
-            <span className="bg-red-600 text-white text-[9px] font-black px-2 py-1 rounded-lg uppercase tracking-widest animate-pulse">
+        <div className="absolute top-3 right-3 flex flex-col items-end gap-1.5 z-10">
+          {product.is_featured && (
+            <div className="bg-amber-400 text-white p-1 rounded-lg shadow-lg shadow-amber-500/30">
+              <Star className="w-3.5 h-3.5 fill-current" />
+            </div>
+          )}
+          {product.is_on_sale && (
+            <span className="bg-red-600 text-white text-[9px] font-black px-2 py-1 rounded-lg uppercase tracking-widest animate-pulse shadow-lg">
               OFF
             </span>
-          </div>
-        )}
+          )}
+        </div>
 
         <div className="relative w-full h-full transition-transform duration-500 group-hover:scale-105">
           <Image
