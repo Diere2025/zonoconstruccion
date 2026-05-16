@@ -18,16 +18,17 @@ export default function PresupuestosPage() {
   const [quoteItems, setQuoteItems] = useState<QuoteItem[]>([]);
   const [usageCounts, setUsageCounts] = useState<Record<string, number>>({});
   
-  // Mock payment methods until DB is populated
-  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([
-    { id: "1", name: "Efectivo / Transferencia", surcharge_percentage: 0, installments: 1, is_active: true },
-    { id: "2", name: "Tarjeta de Crédito (3 Cuotas)", surcharge_percentage: 15, installments: 3, is_active: true },
-    { id: "3", name: "Tarjeta de Crédito (6 Cuotas)", surcharge_percentage: 34, installments: 6, is_active: true },
-  ]);
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod>(paymentMethods[0]);
+  const [paymentType, setPaymentType] = useState<'efectivo' | 'tarjeta'>('efectivo');
+  const [cardInstallments, setCardInstallments] = useState<number>(3);
+  const [cardSurcharge, setCardSurcharge] = useState<number>(34);
+
+  const selectedPaymentMethod = paymentType === 'efectivo' 
+    ? { id: "1", name: "Efectivo / Transferencia", surcharge_percentage: 0, installments: 1, is_active: true }
+    : { id: "2", name: cardInstallments === 1 ? "Tarjeta de Crédito (1 Pago)" : `Tarjeta de Crédito (${cardInstallments} Cuotas)`, surcharge_percentage: cardSurcharge, installments: cardInstallments, is_active: true };
   
   const [isFreeShipping, setIsFreeShipping] = useState(true);
   const [shippingCost, setShippingCost] = useState<number>(0);
+  const [includeIVA, setIncludeIVA] = useState(false);
   
   const [copied, setCopied] = useState(false);
 
@@ -97,7 +98,9 @@ export default function PresupuestosPage() {
   const subtotal = quoteItems.reduce((acc, item) => acc + item.customPrice * item.quantity, 0);
   const shippingAmount = isFreeShipping ? 0 : shippingCost;
   const surcharge = subtotal * (selectedPaymentMethod.surcharge_percentage / 100);
-  const total = subtotal + surcharge + shippingAmount;
+  const subtotalWithSurchargeAndShipping = subtotal + surcharge + shippingAmount;
+  const ivaAmount = includeIVA ? subtotalWithSurchargeAndShipping * 0.21 : 0;
+  const total = subtotalWithSurchargeAndShipping + ivaAmount;
   const installmentValue = selectedPaymentMethod.installments > 1 ? total / selectedPaymentMethod.installments : 0;
 
   const generateWhatsAppText = () => {
@@ -124,6 +127,9 @@ export default function PresupuestosPage() {
     text += `*Medio de pago:* ${selectedPaymentMethod.name}\n`;
     if (surcharge > 0) {
       text += `*Recargo por pago en cuotas:* ${formatPrice(surcharge)} (${selectedPaymentMethod.surcharge_percentage}%)\n`;
+    }
+    if (includeIVA) {
+      text += `*IVA (21%):* ${formatPrice(ivaAmount)}\n`;
     }
     text += `➖\n`;
     text += `*TOTAL A ABONAR:* ${formatPrice(total)}\n`;
@@ -212,25 +218,61 @@ export default function PresupuestosPage() {
               <Calculator className="w-5 h-5 text-brand-500" /> Método de Pago
             </h2>
             <div className="space-y-3">
-              {paymentMethods.map(pm => (
-                <label key={pm.id} className={`flex items-center justify-between p-4 rounded-xl border-2 cursor-pointer transition-colors ${selectedPaymentMethod.id === pm.id ? 'border-brand-500 bg-brand-50' : 'border-slate-100 hover:border-slate-200'}`}>
+              <label className={`flex items-center justify-between p-4 rounded-xl border-2 cursor-pointer transition-colors ${paymentType === 'efectivo' ? 'border-brand-500 bg-brand-50' : 'border-slate-100 hover:border-slate-200'}`}>
+                <div className="flex items-center gap-3">
+                  <input 
+                    type="radio" 
+                    name="paymentType" 
+                    className="w-4 h-4 text-brand-600"
+                    checked={paymentType === 'efectivo'}
+                    onChange={() => setPaymentType('efectivo')}
+                  />
+                  <span className="font-bold text-slate-800 text-sm">Efectivo / Transferencia</span>
+                </div>
+              </label>
+
+              <label className={`flex flex-col p-4 rounded-xl border-2 cursor-pointer transition-colors ${paymentType === 'tarjeta' ? 'border-brand-500 bg-brand-50' : 'border-slate-100 hover:border-slate-200'}`}>
+                <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <input 
                       type="radio" 
-                      name="paymentMethod" 
+                      name="paymentType" 
                       className="w-4 h-4 text-brand-600"
-                      checked={selectedPaymentMethod.id === pm.id}
-                      onChange={() => setSelectedPaymentMethod(pm)}
+                      checked={paymentType === 'tarjeta'}
+                      onChange={() => setPaymentType('tarjeta')}
                     />
-                    <span className="font-bold text-slate-800 text-sm">{pm.name}</span>
+                    <span className="font-bold text-slate-800 text-sm">Tarjeta de Crédito</span>
                   </div>
-                  {pm.surcharge_percentage > 0 && (
-                    <span className="text-[10px] font-black bg-white text-red-500 px-2 py-1 rounded-md border border-red-100 shadow-sm uppercase tracking-widest">
-                      +{pm.surcharge_percentage}% Recargo
-                    </span>
-                  )}
-                </label>
-              ))}
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Recargo %</span>
+                    <input 
+                      type="number"
+                      value={cardSurcharge}
+                      onChange={(e) => setCardSurcharge(Number(e.target.value))}
+                      onClick={(e) => e.stopPropagation()}
+                      className="w-16 px-2 py-1 text-sm font-bold border border-slate-200 rounded-lg text-center focus:ring-2 focus:ring-brand-500/20 outline-none bg-white text-red-500"
+                    />
+                  </div>
+                </div>
+                
+                {paymentType === 'tarjeta' && (
+                  <div className="mt-4 pt-4 border-t border-brand-100/50 flex flex-col gap-2" onClick={(e) => e.stopPropagation()}>
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Cantidad de Cuotas</span>
+                    <div className="flex gap-2">
+                      {[1, 3, 6].map(cuota => (
+                        <button
+                          key={cuota}
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setCardInstallments(cuota); }}
+                          className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all border-2 ${cardInstallments === cuota ? 'bg-brand-600 border-brand-600 text-white' : 'bg-white border-brand-100 text-brand-600 hover:border-brand-300'}`}
+                        >
+                          {cuota} {cuota === 1 ? 'Pago' : 'Cuotas'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </label>
             </div>
           </div>
         </div>
@@ -333,6 +375,22 @@ export default function PresupuestosPage() {
                 <span>+{formatPrice(surcharge)}</span>
               </div>
             )}
+            
+            <div className="flex justify-between items-center text-sm font-medium text-slate-500">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <span>Factura con IVA (+21%)</span>
+                <input 
+                  type="checkbox" 
+                  checked={includeIVA} 
+                  onChange={(e) => setIncludeIVA(e.target.checked)}
+                  className="w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500/20 cursor-pointer"
+                />
+              </label>
+              {includeIVA && (
+                <span className="font-bold text-slate-600">+{formatPrice(ivaAmount)}</span>
+              )}
+            </div>
+
             <div className="flex justify-between text-2xl font-black text-slate-900 pt-2 border-t border-slate-100">
               <span>Total</span>
               <span>{formatPrice(total)}</span>
