@@ -161,7 +161,7 @@ export default function PedidosPage() {
         max_delivery_date: entregaMaxima,
         order_date: new Date().toISOString(),
         customer_name: cliente,
-        locality,
+        locality: localidad,
         address: direccion,
         google_maps_link: linkMaps,
         payment_method_id: selectedPaymentMethodId,
