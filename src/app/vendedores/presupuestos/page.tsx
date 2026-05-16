@@ -51,7 +51,7 @@ export default function PresupuestosPage() {
   const [newKitGlobal, setNewKitGlobal] = useState(false);
   
   const [paymentType, setPaymentType] = useState<'efectivo' | 'tarjeta'>('efectivo');
-  const [cardInstallments, setCardInstallments] = useState<number>(3);
+  const [cardInstallments, setCardInstallments] = useState<number>(6);
   const [cardSurcharge, setCardSurcharge] = useState<number>(34);
 
   const selectedPaymentMethod = paymentType === 'efectivo' 
