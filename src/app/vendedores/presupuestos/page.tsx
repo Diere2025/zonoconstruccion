@@ -202,7 +202,18 @@ export default function PresupuestosPage() {
   };
 
   const loadKit = (kit: Kit) => {
-    setQuoteItems([...quoteItems, ...kit.items]);
+    const newQuoteItems = [...quoteItems];
+    for (const kitItem of kit.items) {
+      const existing = newQuoteItems.find(i => i.id === kitItem.id);
+      if (existing) {
+        existing.quantity += kitItem.quantity;
+        existing.customPrice = kitItem.customPrice;
+      } else {
+        newQuoteItems.push({ ...kitItem });
+      }
+    }
+    setQuoteItems(newQuoteItems);
+    
     if (kit.detailText) {
       setKitDetailText(prev => prev ? `${prev}\n${kit.detailText}` : kit.detailText);
     }
