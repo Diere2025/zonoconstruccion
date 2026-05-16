@@ -6,10 +6,14 @@ import { supabase } from "@/lib/supabase";
 import { LayoutDashboard, FileText, ShoppingBag, Map, Settings, LogOut, Loader2, BookOpen } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/Button";
 
 export default function VendedoresLayout({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
 
@@ -35,17 +39,55 @@ export default function VendedoresLayout({ children }: { children: React.ReactNo
     return <div className="min-h-screen flex items-center justify-center bg-slate-50"><Loader2 className="w-8 h-8 animate-spin text-brand-500" /></div>;
   }
 
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoggingIn(true);
+    const { error } = await supabase.auth.signInWithPassword({
+      email: loginEmail,
+      password: loginPassword,
+    });
+    if (error) alert("Credenciales inválidas");
+    setIsLoggingIn(false);
+  };
+
   // Simplified auth check for UI demo (in production should check sellers table)
   if (!session) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
-        <div className="bg-white p-8 rounded-3xl shadow-xl text-center max-w-sm">
-          <Settings className="w-12 h-12 text-brand-500 mx-auto mb-4" />
-          <h2 className="text-2xl font-black mb-2">Portal Vendedores</h2>
-          <p className="text-slate-500 mb-6 font-medium">Inicia sesión como administrador o vendedor para acceder.</p>
-          <Link href="/admin">
-             <button className="w-full bg-brand-600 text-white font-bold py-3 rounded-xl">Ir al Login</button>
-          </Link>
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+        <div className="bg-white p-12 rounded-[3rem] shadow-2xl border border-slate-100 w-full max-w-md">
+          <div className="text-center mb-10">
+            <div className="w-16 h-16 bg-brand-50 rounded-2xl flex items-center justify-center mx-auto mb-6">
+              <Settings className="w-8 h-8 text-brand-600 animate-spin-slow" />
+            </div>
+            <h1 className="text-3xl font-black text-slate-900 tracking-tighter">Portal Vendedores</h1>
+            <p className="text-slate-500 font-medium mt-2">Inicia sesión para acceder</p>
+          </div>
+          
+          <form onSubmit={handleLogin} className="space-y-6">
+            <div className="space-y-2">
+              <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Email</label>
+              <input 
+                type="email" 
+                required 
+                className="w-full px-5 py-4 rounded-2xl border border-slate-100 focus:ring-4 focus:ring-brand-500/10 bg-slate-50 font-bold"
+                value={loginEmail}
+                onChange={(e) => setLoginEmail(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Contraseña</label>
+              <input 
+                type="password" 
+                required 
+                className="w-full px-5 py-4 rounded-2xl border border-slate-100 focus:ring-4 focus:ring-brand-500/10 bg-slate-50 font-bold"
+                value={loginPassword}
+                onChange={(e) => setLoginPassword(e.target.value)}
+              />
+            </div>
+            <Button type="submit" disabled={isLoggingIn} className="w-full py-8 text-lg font-black rounded-2xl">
+              {isLoggingIn ? <Loader2 className="animate-spin" /> : "Iniciar Sesión"}
+            </Button>
+          </form>
         </div>
       </div>
     );
