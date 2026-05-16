@@ -9,7 +9,7 @@ export function formatPrice(price: number) {
   return new Intl.NumberFormat("es-AR", {
     style: "currency",
     currency: "ARS",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(price);
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(price).replace(/\s+/g, '').replace('\u00A0', '');
 }

@@ -227,7 +227,7 @@ export default function Home() {
         .order('created_at', { ascending: false });
       
       if (productsData) {
-        setProducts(productsData.filter(p => p.image_url && p.image_url.trim() !== ''));
+        setProducts(productsData.filter(p => p.is_active !== false && p.image_url && p.image_url.trim() !== ''));
       }
       setLoading(false);
     }

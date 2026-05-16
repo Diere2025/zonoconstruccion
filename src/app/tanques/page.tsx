@@ -68,7 +68,7 @@ export default function TanquesLanding() {
       const { data } = await query;
 
       if (data) {
-        const withImages = data.filter(p => p.image_url && p.image_url.trim() !== '');
+        const withImages = data.filter(p => p.is_active !== false && p.image_url && p.image_url.trim() !== '');
         setProducts(withImages);
 
         // 3. Determinar producto hero

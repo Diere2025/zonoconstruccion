@@ -33,6 +33,7 @@ export function ProductFormModal({ product, isOpen, onClose, onSuccess, allProdu
     dimensions: "",
     is_featured: false,
     is_on_sale: false,
+    is_active: true,
     upsell_ids: [] as string[],
     settings: { gallery: [] as string[] }
   });
@@ -56,6 +57,7 @@ export function ProductFormModal({ product, isOpen, onClose, onSuccess, allProdu
         dimensions: product.dimensions || "",
         is_featured: product.is_featured || false,
         is_on_sale: product.is_on_sale || false,
+        is_active: product.is_active !== false, // Por defecto true, a menos que sea explícitamente false
         upsell_ids: product.upsell_ids || [],
         settings: product.settings || { gallery: [] }
       });
@@ -72,6 +74,7 @@ export function ProductFormModal({ product, isOpen, onClose, onSuccess, allProdu
         dimensions: "",
         is_featured: false,
         is_on_sale: false,
+        is_active: true,
         upsell_ids: [],
         settings: { gallery: [] }
       });
@@ -242,8 +245,8 @@ export function ProductFormModal({ product, isOpen, onClose, onSuccess, allProdu
             </div>
           </div>
 
-          {/* 2. DESTACADO Y LIQUIDACIÓN */}
-          <div className="flex items-center gap-8 py-6 px-8 bg-slate-50 rounded-[1.5rem] border border-slate-100 md:col-span-2 shadow-inner">
+          {/* 2. DESTACADO, LIQUIDACIÓN Y VISIBILIDAD */}
+          <div className="flex flex-wrap items-center gap-8 py-6 px-8 bg-slate-50 rounded-[1.5rem] border border-slate-100 md:col-span-2 shadow-inner">
             <label className="flex items-center gap-3 cursor-pointer group">
               <input type="checkbox" className="w-6 h-6 rounded-lg border-2 border-slate-300 text-brand-600 focus:ring-brand-500/20 cursor-pointer transition-all checked:border-brand-600" checked={formData.is_featured} onChange={e => setFormData({...formData, is_featured: e.target.checked})} />
               <span className="text-sm font-black text-slate-600 uppercase tracking-widest group-hover:text-slate-900 transition-colors">Destacado</span>
@@ -251,6 +254,10 @@ export function ProductFormModal({ product, isOpen, onClose, onSuccess, allProdu
             <label className="flex items-center gap-3 cursor-pointer group">
               <input type="checkbox" className="w-6 h-6 rounded-lg border-2 border-slate-300 text-red-600 focus:ring-red-500/20 cursor-pointer transition-all checked:border-red-600" checked={formData.is_on_sale} onChange={e => setFormData({...formData, is_on_sale: e.target.checked})} />
               <span className="text-sm font-black text-slate-600 uppercase tracking-widest group-hover:text-slate-900 transition-colors">Liquidación</span>
+            </label>
+            <label className="flex items-center gap-3 cursor-pointer group ml-auto">
+              <input type="checkbox" className="w-6 h-6 rounded-lg border-2 border-slate-300 text-blue-600 focus:ring-blue-500/20 cursor-pointer transition-all checked:border-blue-600" checked={formData.is_active} onChange={e => setFormData({...formData, is_active: e.target.checked})} />
+              <span className="text-sm font-black text-slate-600 uppercase tracking-widest group-hover:text-blue-600 transition-colors">Visible (Activo)</span>
             </label>
           </div>
 
