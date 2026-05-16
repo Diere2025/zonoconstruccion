@@ -333,7 +333,7 @@ export default function PresupuestosPage() {
                 return true;
               });
 
-              if (savedKits.length === 0 || searchTerm) return null;
+              if ((savedKits.length === 0 && !isAdmin) || searchTerm) return null;
 
               return (
                 <div className="mt-4 border-b border-slate-100 pb-4">
