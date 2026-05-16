@@ -17,7 +17,18 @@ interface Kit {
   name: string;
   items: QuoteItem[];
   detailText: string;
+  category: string;
+  isGlobal: boolean;
+  sellerId: string;
 }
+
+const KIT_CATEGORIES = [
+  "Tanques de Agua",
+  "Pinturas",
+  "Biodigestores",
+  "Instalaciones de biodigestores",
+  "Otros"
+];
 
 export default function PresupuestosPage() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -25,11 +36,18 @@ export default function PresupuestosPage() {
   const [quoteItems, setQuoteItems] = useState<QuoteItem[]>([]);
   const [usageCounts, setUsageCounts] = useState<Record<string, number>>({});
   
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string>("");
   const [savedKits, setSavedKits] = useState<Kit[]>([]);
   const [kitDetailText, setKitDetailText] = useState("");
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>("");
+  const [adminSellerFilter, setAdminSellerFilter] = useState<string>("mis_kits");
+  
   const [showSaveKitModal, setShowSaveKitModal] = useState(false);
   const [newKitName, setNewKitName] = useState("");
   const [newKitDetail, setNewKitDetail] = useState("");
+  const [newKitCategory, setNewKitCategory] = useState("Otros");
+  const [newKitGlobal, setNewKitGlobal] = useState(false);
   
   const [paymentType, setPaymentType] = useState<'efectivo' | 'tarjeta'>('efectivo');
   const [cardInstallments, setCardInstallments] = useState<number>(3);
@@ -53,12 +71,48 @@ export default function PresupuestosPage() {
     fetchProducts();
     // In the future: fetch payment_methods from Supabase
     
-    // Cargar uso frecuente y kits
+    async function loadUserAndKits() {
+      const { data: userData } = await supabase.auth.getUser();
+      if (!userData.user) return;
+      setCurrentUserId(userData.user.id);
+      
+      const { data: sellerData } = await supabase.from('sellers').select('role').eq('id', userData.user.id).single();
+      const isUserAdmin = sellerData?.role === 'admin';
+      setIsAdmin(isUserAdmin);
+
+      const { data: kitsData } = await supabase.from('kits').select(`
+        *,
+        kit_items (
+          product_id,
+          quantity,
+          custom_price,
+          products (*)
+        )
+      `).order('created_at', { ascending: false });
+      
+      if (kitsData) {
+        const mappedKits: Kit[] = kitsData.map((k: any) => ({
+          id: k.id,
+          name: k.name,
+          detailText: k.detail_text || "",
+          category: k.category,
+          isGlobal: k.is_global,
+          sellerId: k.seller_id,
+          items: (k.kit_items || []).map((item: any) => ({
+            ...item.products,
+            quantity: item.quantity,
+            customPrice: item.custom_price
+          }))
+        }));
+        setSavedKits(mappedKits);
+      }
+    }
+    loadUserAndKits();
+
+    // Cargar uso frecuente
     try {
       const counts = JSON.parse(localStorage.getItem('product_usage_counts') || '{}');
       setUsageCounts(counts);
-      const kits = JSON.parse(localStorage.getItem('personal_kits') || '[]');
-      setSavedKits(kits);
     } catch(e) {}
   }, []);
 
@@ -96,21 +150,54 @@ export default function PresupuestosPage() {
     } catch (e) {}
   };
 
-  const handleSaveKit = () => {
+  const handleSaveKit = async () => {
     if (!newKitName.trim() || quoteItems.length === 0) return;
-    const newKit: Kit = {
-      id: Math.random().toString(36).substring(7),
-      name: newKitName,
-      items: [...quoteItems],
-      detailText: newKitDetail
-    };
-    const updatedKits = [...savedKits, newKit];
-    setSavedKits(updatedKits);
-    localStorage.setItem('personal_kits', JSON.stringify(updatedKits));
-    setShowSaveKitModal(false);
-    setNewKitName("");
-    setNewKitDetail("");
-    alert("Kit guardado con éxito.");
+    
+    const { data: userData } = await supabase.auth.getUser();
+    if (!userData.user) return alert("Debes iniciar sesión.");
+
+    try {
+      const { data: newKitData, error: kitError } = await supabase.from('kits').insert({
+        name: newKitName,
+        detail_text: newKitDetail,
+        category: newKitCategory,
+        seller_id: userData.user.id,
+        is_global: isAdmin ? newKitGlobal : false
+      }).select().single();
+
+      if (kitError) throw kitError;
+
+      const itemsToInsert = quoteItems.map(item => ({
+        kit_id: newKitData.id,
+        product_id: item.id,
+        quantity: item.quantity,
+        custom_price: item.customPrice
+      }));
+
+      const { error: itemsError } = await supabase.from('kit_items').insert(itemsToInsert);
+      if (itemsError) throw itemsError;
+
+      const addedKit: Kit = {
+        id: newKitData.id,
+        name: newKitData.name,
+        detailText: newKitData.detail_text || "",
+        category: newKitData.category,
+        isGlobal: newKitData.is_global,
+        sellerId: newKitData.seller_id,
+        items: [...quoteItems]
+      };
+      setSavedKits([addedKit, ...savedKits]);
+      
+      setShowSaveKitModal(false);
+      setNewKitName("");
+      setNewKitDetail("");
+      setNewKitCategory("Otros");
+      setNewKitGlobal(false);
+      alert("Kit guardado con éxito.");
+    } catch (error) {
+      console.error(error);
+      alert("Error al guardar el kit.");
+    }
   };
 
   const loadKit = (kit: Kit) => {
@@ -120,12 +207,15 @@ export default function PresupuestosPage() {
     }
   };
 
-  const deleteKit = (id: string, e: React.MouseEvent) => {
+  const deleteKit = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (confirm("¿Eliminar este kit?")) {
-      const updated = savedKits.filter(k => k.id !== id);
-      setSavedKits(updated);
-      localStorage.setItem('personal_kits', JSON.stringify(updated));
+      const { error } = await supabase.from('kits').delete().eq('id', id);
+      if (!error) {
+        setSavedKits(savedKits.filter(k => k.id !== id));
+      } else {
+        alert("Error al eliminar el kit.");
+      }
     }
   };
 
@@ -222,28 +312,66 @@ export default function PresupuestosPage() {
               />
             </div>
             
-            {savedKits.length > 0 && !searchTerm && (
-              <div className="mt-4 border-b border-slate-100 pb-4">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Mis Kits Guardados</p>
-                <div className="flex flex-wrap gap-2">
-                  {savedKits.map(kit => (
-                    <button
-                      key={kit.id}
-                      type="button"
-                      onClick={() => loadKit(kit)}
-                      className="px-3 py-1.5 bg-indigo-50 border border-indigo-100 text-indigo-600 hover:bg-indigo-600 hover:text-white rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-2 group"
-                      title="Cargar kit al presupuesto"
-                    >
-                      <Package className="w-3.5 h-3.5 text-indigo-400 group-hover:text-white transition-colors" />
-                      {kit.name}
-                      <span onClick={(e) => deleteKit(kit.id, e)} className="ml-1 p-0.5 rounded-md hover:bg-red-500 hover:text-white text-indigo-300 transition-colors">
-                        <Trash2 className="w-3 h-3" />
-                      </span>
-                    </button>
-                  ))}
+            {(() => {
+              const displayKits = savedKits.filter(k => {
+                if (selectedCategoryFilter && k.category !== selectedCategoryFilter) return false;
+                if (adminSellerFilter === 'mis_kits') {
+                   return k.isGlobal || k.sellerId === currentUserId;
+                }
+                return true;
+              });
+
+              if (savedKits.length === 0 || searchTerm) return null;
+
+              return (
+                <div className="mt-4 border-b border-slate-100 pb-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Kits Guardados</p>
+                    <div className="flex items-center gap-2">
+                      <select 
+                        value={selectedCategoryFilter} 
+                        onChange={(e) => setSelectedCategoryFilter(e.target.value)}
+                        className="text-xs px-2 py-1 rounded-md border border-slate-200 bg-slate-50 outline-none font-bold text-slate-600 cursor-pointer"
+                      >
+                        <option value="">Todas las categorías</option>
+                        {KIT_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                      {isAdmin && (
+                        <select
+                          value={adminSellerFilter}
+                          onChange={(e) => setAdminSellerFilter(e.target.value)}
+                          className="text-xs px-2 py-1 rounded-md border border-slate-200 bg-slate-50 outline-none font-bold text-slate-600 cursor-pointer"
+                        >
+                          <option value="mis_kits">Mis Kits y Globales</option>
+                          <option value="todos">Todos los Kits</option>
+                        </select>
+                      )}
+                    </div>
+                  </div>
+                  
+                  <div className="flex flex-wrap gap-2">
+                    {displayKits.map(kit => (
+                      <button
+                        key={kit.id}
+                        type="button"
+                        onClick={() => loadKit(kit)}
+                        className={`px-3 py-1.5 border rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-2 group ${kit.isGlobal ? 'bg-amber-50 border-amber-100 text-amber-600 hover:bg-amber-500' : 'bg-indigo-50 border-indigo-100 text-indigo-600 hover:bg-indigo-600'} hover:text-white`}
+                        title={kit.isGlobal ? "Kit Global" : "Kit Personal"}
+                      >
+                        <Package className={`w-3.5 h-3.5 transition-colors ${kit.isGlobal ? 'text-amber-400 group-hover:text-white' : 'text-indigo-400 group-hover:text-white'}`} />
+                        {kit.name}
+                        {(kit.sellerId === currentUserId || isAdmin) && (
+                          <span onClick={(e) => deleteKit(kit.id, e)} className={`ml-1 p-0.5 rounded-md hover:bg-red-500 hover:text-white transition-colors ${kit.isGlobal ? 'text-amber-300' : 'text-indigo-300'}`}>
+                            <Trash2 className="w-3 h-3" />
+                          </span>
+                        )}
+                      </button>
+                    ))}
+                    {displayKits.length === 0 && <span className="text-xs text-slate-400 font-medium">No hay kits en esta categoría.</span>}
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
             
             {/* Tags de productos más utilizados */}
             {frequentProducts.length > 0 && !searchTerm && (
@@ -545,6 +673,30 @@ export default function PresupuestosPage() {
                   className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-brand-500/20 bg-slate-50 text-sm font-medium outline-none resize-none h-20"
                 />
               </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Categoría</label>
+                <select 
+                  value={newKitCategory}
+                  onChange={(e) => setNewKitCategory(e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-brand-500/20 bg-slate-50 font-bold outline-none cursor-pointer"
+                >
+                  {KIT_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              
+              {isAdmin && (
+                <div className="pt-2">
+                  <label className="flex items-center gap-2 cursor-pointer bg-brand-50 p-3 rounded-xl border border-brand-100">
+                    <input 
+                      type="checkbox" 
+                      checked={newKitGlobal}
+                      onChange={(e) => setNewKitGlobal(e.target.checked)}
+                      className="w-4 h-4 rounded text-brand-600 focus:ring-brand-500/20"
+                    />
+                    <span className="text-sm font-bold text-brand-700">Hacer este Kit Global (visible para todos)</span>
+                  </label>
+                </div>
+              )}
             </div>
             
             <div className="p-6 border-t border-slate-100 bg-slate-50 rounded-b-3xl flex justify-end gap-3">
