@@ -42,6 +42,7 @@ export default function PresupuestosPage() {
   const [kitDetailText, setKitDetailText] = useState("");
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>("");
   const [adminSellerFilter, setAdminSellerFilter] = useState<string>("mis_kits");
+  const [selectedKitId, setSelectedKitId] = useState<string>("");
   
   const [showSaveKitModal, setShowSaveKitModal] = useState(false);
   const [newKitName, setNewKitName] = useState("");
@@ -349,26 +350,54 @@ export default function PresupuestosPage() {
                     </div>
                   </div>
                   
-                  <div className="flex flex-wrap gap-2">
-                    {displayKits.map(kit => (
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
+                    <select
+                      value={selectedKitId}
+                      onChange={(e) => setSelectedKitId(e.target.value)}
+                      className="flex-1 w-full text-sm px-3 py-2 rounded-xl border border-slate-200 bg-white outline-none font-bold text-slate-700 cursor-pointer shadow-sm focus:ring-2 focus:ring-brand-500/20"
+                    >
+                      <option value="">-- Seleccionar un Kit --</option>
+                      {displayKits.map(kit => (
+                        <option key={kit.id} value={kit.id}>
+                          {kit.isGlobal ? "⭐ " : ""}{kit.name}
+                        </option>
+                      ))}
+                    </select>
+
+                    <div className="flex gap-2 w-full sm:w-auto">
                       <button
-                        key={kit.id}
                         type="button"
-                        onClick={() => loadKit(kit)}
-                        className={`px-3 py-1.5 border rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-2 group ${kit.isGlobal ? 'bg-amber-50 border-amber-100 text-amber-600 hover:bg-amber-500' : 'bg-indigo-50 border-indigo-100 text-indigo-600 hover:bg-indigo-600'} hover:text-white`}
-                        title={kit.isGlobal ? "Kit Global" : "Kit Personal"}
+                        onClick={() => {
+                          const kit = displayKits.find(k => k.id === selectedKitId);
+                          if (kit) loadKit(kit);
+                        }}
+                        disabled={!selectedKitId}
+                        className="flex-1 sm:flex-none px-4 py-2 bg-brand-50 border border-brand-100 text-brand-600 hover:bg-brand-600 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed rounded-xl text-xs font-black transition-all shadow-sm flex items-center justify-center gap-2 group"
                       >
-                        <Package className={`w-3.5 h-3.5 transition-colors ${kit.isGlobal ? 'text-amber-400 group-hover:text-white' : 'text-indigo-400 group-hover:text-white'}`} />
-                        {kit.name}
-                        {(kit.sellerId === currentUserId || isAdmin) && (
-                          <span onClick={(e) => deleteKit(kit.id, e)} className={`ml-1 p-0.5 rounded-md hover:bg-red-500 hover:text-white transition-colors ${kit.isGlobal ? 'text-amber-300' : 'text-indigo-300'}`}>
-                            <Trash2 className="w-3 h-3" />
-                          </span>
-                        )}
+                        <Package className="w-4 h-4 text-brand-400 group-hover:text-white transition-colors" />
+                        Cargar
                       </button>
-                    ))}
-                    {displayKits.length === 0 && <span className="text-xs text-slate-400 font-medium">No hay kits en esta categoría.</span>}
+
+                      {(() => {
+                        const selectedKit = displayKits.find(k => k.id === selectedKitId);
+                        const canDelete = selectedKit && (selectedKit.sellerId === currentUserId || isAdmin);
+                        return canDelete ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              deleteKit(selectedKit.id, e);
+                              setSelectedKitId("");
+                            }}
+                            className="px-3 py-2 bg-red-50 border border-red-100 text-red-600 hover:bg-red-500 hover:text-white rounded-xl transition-all shadow-sm flex items-center justify-center"
+                            title="Eliminar Kit"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        ) : null;
+                      })()}
+                    </div>
                   </div>
+                  {displayKits.length === 0 && <span className="text-xs text-slate-400 font-medium block mt-2">No hay kits en esta categoría.</span>}
                 </div>
               );
             })()}
