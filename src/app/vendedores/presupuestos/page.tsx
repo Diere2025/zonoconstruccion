@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { Product, PaymentMethod } from "@/types";
-import { Search, Plus, Trash2, Copy, Check, Calculator, ArrowRight } from "lucide-react";
+import { Search, Plus, Trash2, Copy, Check, Calculator, ArrowRight, Save, Package } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { formatPrice } from "@/lib/utils";
 
@@ -12,11 +12,24 @@ interface QuoteItem extends Product {
   customPrice: number;
 }
 
+interface Kit {
+  id: string;
+  name: string;
+  items: QuoteItem[];
+  detailText: string;
+}
+
 export default function PresupuestosPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [quoteItems, setQuoteItems] = useState<QuoteItem[]>([]);
   const [usageCounts, setUsageCounts] = useState<Record<string, number>>({});
+  
+  const [savedKits, setSavedKits] = useState<Kit[]>([]);
+  const [kitDetailText, setKitDetailText] = useState("");
+  const [showSaveKitModal, setShowSaveKitModal] = useState(false);
+  const [newKitName, setNewKitName] = useState("");
+  const [newKitDetail, setNewKitDetail] = useState("");
   
   const [paymentType, setPaymentType] = useState<'efectivo' | 'tarjeta'>('efectivo');
   const [cardInstallments, setCardInstallments] = useState<number>(3);
@@ -40,10 +53,12 @@ export default function PresupuestosPage() {
     fetchProducts();
     // In the future: fetch payment_methods from Supabase
     
-    // Cargar uso frecuente
+    // Cargar uso frecuente y kits
     try {
       const counts = JSON.parse(localStorage.getItem('product_usage_counts') || '{}');
       setUsageCounts(counts);
+      const kits = JSON.parse(localStorage.getItem('personal_kits') || '[]');
+      setSavedKits(kits);
     } catch(e) {}
   }, []);
 
@@ -79,6 +94,39 @@ export default function PresupuestosPage() {
       localStorage.setItem('product_usage_counts', JSON.stringify(counts));
       setUsageCounts(counts);
     } catch (e) {}
+  };
+
+  const handleSaveKit = () => {
+    if (!newKitName.trim() || quoteItems.length === 0) return;
+    const newKit: Kit = {
+      id: Math.random().toString(36).substring(7),
+      name: newKitName,
+      items: [...quoteItems],
+      detailText: newKitDetail
+    };
+    const updatedKits = [...savedKits, newKit];
+    setSavedKits(updatedKits);
+    localStorage.setItem('personal_kits', JSON.stringify(updatedKits));
+    setShowSaveKitModal(false);
+    setNewKitName("");
+    setNewKitDetail("");
+    alert("Kit guardado con éxito.");
+  };
+
+  const loadKit = (kit: Kit) => {
+    setQuoteItems([...quoteItems, ...kit.items]);
+    if (kit.detailText) {
+      setKitDetailText(prev => prev ? `${prev}\n${kit.detailText}` : kit.detailText);
+    }
+  };
+
+  const deleteKit = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (confirm("¿Eliminar este kit?")) {
+      const updated = savedKits.filter(k => k.id !== id);
+      setSavedKits(updated);
+      localStorage.setItem('personal_kits', JSON.stringify(updated));
+    }
   };
 
   const removeItem = (id: string) => {
@@ -131,6 +179,9 @@ export default function PresupuestosPage() {
     if (includeIVA) {
       text += `*IVA (21%):* ${formatPrice(ivaAmount)}\n`;
     }
+    if (kitDetailText) {
+      text += `*Aclaración:* ${kitDetailText}\n`;
+    }
     text += `➖\n`;
     text += `*TOTAL A ABONAR:* ${formatPrice(total)}\n`;
     
@@ -170,6 +221,29 @@ export default function PresupuestosPage() {
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
+            
+            {savedKits.length > 0 && !searchTerm && (
+              <div className="mt-4 border-b border-slate-100 pb-4">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Mis Kits Guardados</p>
+                <div className="flex flex-wrap gap-2">
+                  {savedKits.map(kit => (
+                    <button
+                      key={kit.id}
+                      type="button"
+                      onClick={() => loadKit(kit)}
+                      className="px-3 py-1.5 bg-indigo-50 border border-indigo-100 text-indigo-600 hover:bg-indigo-600 hover:text-white rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-2 group"
+                      title="Cargar kit al presupuesto"
+                    >
+                      <Package className="w-3.5 h-3.5 text-indigo-400 group-hover:text-white transition-colors" />
+                      {kit.name}
+                      <span onClick={(e) => deleteKit(kit.id, e)} className="ml-1 p-0.5 rounded-md hover:bg-red-500 hover:text-white text-indigo-300 transition-colors">
+                        <Trash2 className="w-3 h-3" />
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             
             {/* Tags de productos más utilizados */}
             {frequentProducts.length > 0 && !searchTerm && (
@@ -283,13 +357,22 @@ export default function PresupuestosPage() {
             <span>Vista Previa del Presupuesto</span>
             <div className="flex items-center gap-3">
               {quoteItems.length > 0 && (
-                <button 
-                  onClick={() => setQuoteItems([])}
-                  className="text-xs font-bold text-slate-400 hover:text-red-500 transition-colors flex items-center gap-1"
-                  title="Vaciar presupuesto"
-                >
-                  <Trash2 className="w-3.5 h-3.5" /> Limpiar
-                </button>
+                <>
+                  <button 
+                    onClick={() => setShowSaveKitModal(true)}
+                    className="text-xs font-bold text-slate-400 hover:text-indigo-600 transition-colors flex items-center gap-1"
+                    title="Guardar este presupuesto como Kit"
+                  >
+                    <Save className="w-3.5 h-3.5" /> Guardar Kit
+                  </button>
+                  <button 
+                    onClick={() => { setQuoteItems([]); setKitDetailText(""); }}
+                    className="text-xs font-bold text-slate-400 hover:text-red-500 transition-colors flex items-center gap-1"
+                    title="Vaciar presupuesto"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" /> Limpiar
+                  </button>
+                </>
               )}
               <span className="text-sm bg-brand-50 text-brand-600 px-3 py-1 rounded-lg">
                 {quoteItems.length} items
@@ -401,6 +484,16 @@ export default function PresupuestosPage() {
                 <span>{formatPrice(installmentValue)}</span>
               </div>
             )}
+            
+            <div className="mt-4 space-y-2">
+              <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Aclaraciones / Detalle del Combo</label>
+              <textarea 
+                value={kitDetailText}
+                onChange={(e) => setKitDetailText(e.target.value)}
+                placeholder="Ej. Con 15% de descuento aplicado en el total."
+                className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-brand-500/20 bg-slate-50 text-sm font-medium outline-none resize-none h-20"
+              />
+            </div>
           </div>
 
           <Button 
@@ -421,6 +514,53 @@ export default function PresupuestosPage() {
           )}
         </div>
       </div>
+
+      {/* Modal Guardar Kit */}
+      {showSaveKitModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-6 border-b border-slate-100">
+              <h2 className="text-xl font-black text-slate-900">Guardar como Kit</h2>
+              <p className="text-sm font-medium text-slate-500 mt-1">Guardá esta combinación de productos y precios para usarla rápido en el futuro.</p>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Nombre del Kit</label>
+                <input 
+                  type="text" 
+                  value={newKitName}
+                  onChange={(e) => setNewKitName(e.target.value)}
+                  placeholder="Ej. Combo Tanque + Base"
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-brand-500/20 bg-slate-50 font-bold outline-none"
+                  autoFocus
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Detalle / Descuento (Opcional)</label>
+                <textarea 
+                  value={newKitDetail}
+                  onChange={(e) => setNewKitDetail(e.target.value)}
+                  placeholder="Ej. Incluye 15% de descuento por pago en efectivo."
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-brand-500/20 bg-slate-50 text-sm font-medium outline-none resize-none h-20"
+                />
+              </div>
+            </div>
+            
+            <div className="p-6 border-t border-slate-100 bg-slate-50 rounded-b-3xl flex justify-end gap-3">
+               <button 
+                 onClick={() => setShowSaveKitModal(false)}
+                 className="px-5 py-2.5 rounded-xl font-bold text-slate-600 hover:bg-slate-200 transition-colors"
+               >
+                 Cancelar
+               </button>
+               <Button onClick={handleSaveKit} className="px-6 py-2.5 rounded-xl font-black">
+                 Guardar Kit
+               </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
