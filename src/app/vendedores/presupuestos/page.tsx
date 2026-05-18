@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { Product, PaymentMethod } from "@/types";
-import { Search, Plus, Trash2, Copy, Check, Calculator, ArrowRight, Save, Package } from "lucide-react";
+import { Search, Plus, Trash2, Copy, Check, Calculator, ArrowRight, Save, Package, Globe, Edit2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { formatPrice } from "@/lib/utils";
 
@@ -49,6 +49,10 @@ export default function PresupuestosPage() {
   const [newKitDetail, setNewKitDetail] = useState("");
   const [newKitCategory, setNewKitCategory] = useState("Otros");
   const [newKitGlobal, setNewKitGlobal] = useState(false);
+  
+  const [showEditNameModal, setShowEditNameModal] = useState(false);
+  const [editKitId, setEditKitId] = useState("");
+  const [editKitNameValue, setEditKitNameValue] = useState("");
   
   const [paymentType, setPaymentType] = useState<'efectivo' | 'tarjeta'>('efectivo');
   const [cardInstallments, setCardInstallments] = useState<number>(6);
@@ -231,6 +235,33 @@ export default function PresupuestosPage() {
     }
   };
 
+  const makeKitGlobal = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (confirm("¿Hacer este kit global para todos los vendedores?")) {
+      const { error } = await supabase.from('kits').update({ is_global: true }).eq('id', id);
+      if (!error) {
+        setSavedKits(savedKits.map(k => k.id === id ? { ...k, isGlobal: true } : k));
+        alert("El kit ahora es global.");
+      } else {
+        alert("Error al hacer el kit global.");
+      }
+    }
+  };
+
+  const handleEditKitName = async () => {
+    if (!editKitNameValue.trim() || !editKitId) return;
+    
+    const { error } = await supabase.from('kits').update({ name: editKitNameValue }).eq('id', editKitId);
+    if (!error) {
+      setSavedKits(savedKits.map(k => k.id === editKitId ? { ...k, name: editKitNameValue } : k));
+      setShowEditNameModal(false);
+      setEditKitId("");
+      setEditKitNameValue("");
+    } else {
+      alert("Error al actualizar el nombre.");
+    }
+  };
+
   const removeItem = (id: string) => {
     setQuoteItems(quoteItems.filter(i => i.id !== id));
   };
@@ -391,20 +422,52 @@ export default function PresupuestosPage() {
 
                       {(() => {
                         const selectedKit = displayKits.find(k => k.id === selectedKitId);
-                        const canDelete = selectedKit && (selectedKit.sellerId === currentUserId || isAdmin);
-                        return canDelete ? (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              deleteKit(selectedKit.id, e);
-                              setSelectedKitId("");
-                            }}
-                            className="px-3 py-2 bg-red-50 border border-red-100 text-red-600 hover:bg-red-500 hover:text-white rounded-xl transition-all shadow-sm flex items-center justify-center"
-                            title="Eliminar Kit"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        ) : null;
+                        if (!selectedKit) return null;
+                        
+                        const canModify = selectedKit.sellerId === currentUserId || isAdmin;
+                        
+                        return (
+                          <>
+                            {isAdmin && !selectedKit.isGlobal && (
+                              <button
+                                type="button"
+                                onClick={(e) => makeKitGlobal(selectedKit.id, e)}
+                                className="px-3 py-2 bg-indigo-50 border border-indigo-100 text-indigo-600 hover:bg-indigo-500 hover:text-white rounded-xl transition-all shadow-sm flex items-center justify-center"
+                                title="Hacer Global"
+                              >
+                                <Globe className="w-4 h-4" />
+                              </button>
+                            )}
+                            {canModify && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditKitId(selectedKit.id);
+                                  setEditKitNameValue(selectedKit.name);
+                                  setShowEditNameModal(true);
+                                }}
+                                className="px-3 py-2 bg-amber-50 border border-amber-100 text-amber-600 hover:bg-amber-500 hover:text-white rounded-xl transition-all shadow-sm flex items-center justify-center"
+                                title="Editar Nombre"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                            )}
+                            {canModify && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  deleteKit(selectedKit.id, e);
+                                  setSelectedKitId("");
+                                }}
+                                className="px-3 py-2 bg-red-50 border border-red-100 text-red-600 hover:bg-red-500 hover:text-white rounded-xl transition-all shadow-sm flex items-center justify-center"
+                                title="Eliminar Kit"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </>
+                        );
                       })()}
                     </div>
                   </div>
@@ -556,30 +619,33 @@ export default function PresupuestosPage() {
               </div>
             ) : (
               quoteItems.map(item => (
-                <div key={item.id} className="p-4 bg-slate-50 border border-slate-100 rounded-2xl relative group">
+                <div key={item.id} className="p-3 bg-slate-50 border border-slate-100 rounded-xl relative group flex flex-col sm:flex-row sm:items-center justify-between gap-2" title={item.name}>
                   <button 
                     onClick={() => removeItem(item.id)}
-                    className="absolute -top-2 -right-2 bg-red-100 text-red-600 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="absolute -top-1.5 -right-1.5 bg-red-100 text-red-600 p-1 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity z-10 shadow-sm"
                   >
-                    <Trash2 className="w-4 h-4" />
+                    <Trash2 className="w-3.5 h-3.5" />
                   </button>
-                  <p className="text-[10px] font-black text-brand-500 uppercase tracking-widest mb-1">{item.sku || "SIN INTERNO"}</p>
-                  <p className="font-bold text-slate-800 text-sm mb-3 pr-6">{item.name}</p>
+
+                  <div className="flex-1 min-w-0 pr-2">
+                    <p className="text-[9px] font-black text-brand-500 uppercase tracking-widest leading-tight mb-0.5">{item.sku || "SIN INTERNO"}</p>
+                    <p className="font-bold text-slate-800 text-xs truncate">{item.name}</p>
+                  </div>
                   
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="flex items-center bg-white border border-slate-200 rounded-lg overflow-hidden">
-                      <button onClick={() => updateQuantity(item.id, item.quantity - 1)} className="px-3 py-1 font-black text-slate-500 hover:bg-slate-50">-</button>
-                      <span className="px-2 font-bold text-sm min-w-[2rem] text-center">{item.quantity}</span>
-                      <button onClick={() => updateQuantity(item.id, item.quantity + 1)} className="px-3 py-1 font-black text-slate-500 hover:bg-slate-50">+</button>
+                  <div className="flex items-center gap-2 sm:shrink-0 mt-2 sm:mt-0">
+                    <div className="flex items-center bg-white border border-slate-200 rounded-lg overflow-hidden h-8">
+                      <button onClick={() => updateQuantity(item.id, item.quantity - 1)} className="px-2.5 font-black text-slate-500 hover:bg-slate-50 leading-none">-</button>
+                      <span className="px-1.5 font-bold text-xs min-w-[1.5rem] text-center">{item.quantity}</span>
+                      <button onClick={() => updateQuantity(item.id, item.quantity + 1)} className="px-2.5 font-black text-slate-500 hover:bg-slate-50 leading-none">+</button>
                     </div>
                     
-                    <div className="flex items-center gap-2">
-                       <span className="text-xs font-bold text-slate-400">$</span>
+                    <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg px-2 h-8 focus-within:ring-2 focus-within:ring-brand-500/20">
+                       <span className="text-[10px] font-bold text-slate-400">$</span>
                        <input 
                          type="number" 
                          value={item.customPrice}
                          onChange={(e) => updateCustomPrice(item.id, Number(e.target.value))}
-                         className="w-24 px-2 py-1 text-sm font-bold border border-slate-200 rounded-lg text-right focus:ring-2 focus:ring-brand-500/20 outline-none"
+                         className="w-20 px-1 text-xs font-bold text-right outline-none bg-transparent"
                        />
                     </div>
                   </div>
@@ -748,6 +814,42 @@ export default function PresupuestosPage() {
                </button>
                <Button onClick={handleSaveKit} className="px-6 py-2.5 rounded-xl font-black">
                  Guardar Kit
+               </Button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Modal Editar Nombre Kit */}
+      {showEditNameModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm flex flex-col animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-6 border-b border-slate-100">
+              <h2 className="text-xl font-black text-slate-900">Editar Nombre del Kit</h2>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Nuevo Nombre</label>
+                <input 
+                  type="text" 
+                  value={editKitNameValue}
+                  onChange={(e) => setEditKitNameValue(e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-brand-500/20 bg-slate-50 font-bold outline-none"
+                  autoFocus
+                />
+              </div>
+            </div>
+            <div className="p-6 border-t border-slate-100 bg-slate-50 rounded-b-3xl flex justify-end gap-3">
+               <button 
+                 onClick={() => {
+                   setShowEditNameModal(false);
+                   setEditKitId("");
+                 }}
+                 className="px-5 py-2.5 rounded-xl font-bold text-slate-600 hover:bg-slate-200 transition-colors"
+               >
+                 Cancelar
+               </button>
+               <Button onClick={handleEditKitName} className="px-6 py-2.5 rounded-xl font-black">
+                 Guardar
                </Button>
             </div>
           </div>

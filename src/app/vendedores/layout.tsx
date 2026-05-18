@@ -103,7 +103,7 @@ export default function VendedoresLayout({ children }: { children: React.ReactNo
   return (
     <div className="min-h-[calc(100vh-80px)] bg-slate-50 flex flex-col md:flex-row border-t border-slate-200">
       {/* Sidebar */}
-      <aside className="w-full md:w-64 bg-white border-r border-slate-200 flex flex-col h-auto md:min-h-full shadow-sm z-10">
+      <aside className="w-full md:w-64 bg-white border-r border-slate-200 flex flex-col h-auto md:h-[calc(100vh-80px)] md:sticky md:top-20 shadow-sm z-10">
         <div className="p-6 border-b border-slate-100 flex items-center gap-3">
           <div className="w-10 h-10 bg-brand-100 text-brand-600 rounded-xl flex items-center justify-center font-black text-xl">
              V
