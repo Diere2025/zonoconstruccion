@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabase';
 
 // Force dynamic execution to prevent caching by Next.js or Vercel CDN
 export const dynamic = 'force-dynamic';
+export const runtime = 'edge';
 
 export async function GET() {
   const start = Date.now();
