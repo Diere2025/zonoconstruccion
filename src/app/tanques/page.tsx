@@ -1,7 +1,5 @@
 "use client";
 
-export const runtime = "edge";
-
 import React, { useState, useEffect } from "react";
 import Image from "next/image";
 import { Phone, Shield, Truck, Factory, Star, ChevronDown, CheckCircle2, ArrowRight, MessageCircle } from "lucide-react";
@@ -69,14 +67,29 @@ export default function TanquesLanding() {
 
       if (data) {
         const withImages = data.filter(p => p.is_active !== false && p.image_url && p.image_url.trim() !== '');
-        setProducts(withImages);
+        
+        // Herencia de precios para variantes (ciegos toman precio del principal)
+        const productsWithParentPrices = withImages.map(p => {
+          if (p.parent_id) {
+            const parentProduct = withImages.find(parent => parent.id === p.parent_id);
+            if (parentProduct) {
+              return {
+                ...p,
+                price: parentProduct.price
+              };
+            }
+          }
+          return p;
+        });
+
+        setProducts(productsWithParentPrices);
 
         // 3. Determinar producto hero
         if (heroId) {
-          const found = withImages.find(p => p.id === heroId);
-          setHeroProduct(found || withImages[0] || null);
+          const found = productsWithParentPrices.find(p => p.id === heroId);
+          setHeroProduct(found || productsWithParentPrices[0] || null);
         } else {
-          setHeroProduct(withImages[0] || null);
+          setHeroProduct(productsWithParentPrices[0] || null);
         }
       }
       setLoading(false);
@@ -253,15 +266,15 @@ export default function TanquesLanding() {
           ) : (
             <div className="space-y-16">
               {(tanquesCategories.length > 0
-                ? tanquesCategories.filter(cat => products.some(p => p.category === cat))
-                : Array.from(new Set(products.map(p => p.category))).sort()
+                ? tanquesCategories.filter(cat => products.some(p => p.category === cat && !p.parent_id))
+                : Array.from(new Set(products.filter(p => !p.parent_id).map(p => p.category))).sort()
               ).map((cat) => (
                 <div key={cat}>
                   <h4 className="text-2xl font-black text-slate-800 tracking-tight mb-8 pl-4 border-l-4 border-brand-500">
                     {cat}
                   </h4>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                    {products.filter(p => p.category === cat).map((product) => (
+                    {products.filter(p => p.category === cat && !p.parent_id).map((product) => (
                       <div
                         key={product.id}
                         className="bg-white rounded-3xl border border-slate-100 hover:border-brand-200 hover:shadow-xl hover:shadow-brand-600/5 transition-all duration-300 overflow-hidden group cursor-pointer flex flex-col h-full"
@@ -339,6 +352,46 @@ export default function TanquesLanding() {
                 </div>
 
                 <form onSubmit={handleSubmitLead} className="space-y-5">
+                  {(() => {
+                    const parentProduct = selectedProduct.parent_id 
+                      ? products.find(p => p.id === selectedProduct.parent_id) || selectedProduct 
+                      : selectedProduct;
+                    const selectedProductVariants = [
+                      parentProduct,
+                      ...products.filter(p => p.parent_id === parentProduct.id && p.id !== parentProduct.id)
+                    ].filter(p => p.is_active !== false);
+
+                    if (selectedProductVariants.length <= 1) return null;
+
+                    return (
+                      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm text-left">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2 block">
+                          Tipo / Terminación
+                        </label>
+                        <div className="flex gap-2">
+                          {selectedProductVariants.map(v => {
+                            const isSelected = selectedProduct.id === v.id;
+                            const label = v.variant_type === 'ciego' ? 'Ciego (Sin Agujero)' : 'Estándar (Con Agujero)';
+                            return (
+                              <button
+                                key={v.id}
+                                type="button"
+                                onClick={() => setSelectedProduct(v)}
+                                className={`flex-1 py-2.5 px-3 text-xs font-black uppercase tracking-wider rounded-xl transition-all border-2 ${
+                                  isSelected 
+                                    ? "bg-brand-600 border-brand-600 text-white shadow-md shadow-brand-600/10 scale-[1.01]" 
+                                    : "bg-slate-50 border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-100"
+                                }`}
+                              >
+                                {label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
                   <div>
                     <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2 block">
                       Tu Nombre (opcional)

@@ -35,7 +35,17 @@ export function ProductFormModal({ product, isOpen, onClose, onSuccess, allProdu
     is_on_sale: false,
     is_active: true,
     upsell_ids: [] as string[],
-    settings: { gallery: [] as string[] }
+    settings: { gallery: [] as string[] },
+    parent_id: null as string | null,
+    variant_type: "estandar",
+    production_type: "comprado" as "comprado" | "fabricado" | "ensamblado",
+    is_insumo: false,
+    insumo_use: "fabricacion" as "fabricacion" | "ensamblado" | "ensamblado_venta" | undefined,
+    labor_cost: 0,
+    overhead_cost: 0,
+    cost_price: 0,
+    is_generic: false,
+    mapped_real_product_id: null as string | null
   });
 
   const [priceInput, setPriceInput] = useState("");
@@ -43,6 +53,8 @@ export function ProductFormModal({ product, isOpen, onClose, onSuccess, allProdu
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
   const [upsellSearch, setUpsellSearch] = useState("");
   const [upsellSearchResults, setUpsellSearchResults] = useState<Product[]>([]);
+  const [parentSearch, setParentSearch] = useState("");
+  const [parentSearchResults, setParentSearchResults] = useState<Product[]>([]);
 
   useEffect(() => {
     if (product) {
@@ -59,7 +71,17 @@ export function ProductFormModal({ product, isOpen, onClose, onSuccess, allProdu
         is_on_sale: product.is_on_sale || false,
         is_active: product.is_active !== false, // Por defecto true, a menos que sea explícitamente false
         upsell_ids: product.upsell_ids || [],
-        settings: product.settings || { gallery: [] }
+        settings: product.settings || { gallery: [] },
+        parent_id: product.parent_id || null,
+        variant_type: product.variant_type || "estandar",
+        production_type: product.production_type || "comprado",
+        is_insumo: product.is_insumo || false,
+        insumo_use: product.insumo_use || "fabricacion",
+        labor_cost: product.labor_cost || 0,
+        overhead_cost: product.overhead_cost || 0,
+        cost_price: product.cost_price || 0,
+        is_generic: product.is_generic || false,
+        mapped_real_product_id: product.mapped_real_product_id || null
       });
       setPriceInput(product.price ? product.price.toLocaleString('es-AR', { minimumFractionDigits: 0 }) : "");
     } else {
@@ -76,11 +98,23 @@ export function ProductFormModal({ product, isOpen, onClose, onSuccess, allProdu
         is_on_sale: false,
         is_active: true,
         upsell_ids: [],
-        settings: { gallery: [] }
+        settings: { gallery: [] },
+        parent_id: null,
+        variant_type: "estandar",
+        production_type: "comprado",
+        is_insumo: false,
+        insumo_use: "fabricacion",
+        labor_cost: 0,
+        overhead_cost: 0,
+        cost_price: 0,
+        is_generic: false,
+        mapped_real_product_id: null
       });
       setPriceInput("");
     }
     setSelectedFile(null);
+    setParentSearch("");
+    setParentSearchResults([]);
   }, [product, isOpen]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -158,7 +192,7 @@ export function ProductFormModal({ product, isOpen, onClose, onSuccess, allProdu
         onSuccess(); 
         onClose();
       } else { 
-        console.error("Update error:", error); 
+        console.warn("Update error:", error); 
         alert("Error al actualizar: " + error.message); 
       }
     } else {
@@ -167,8 +201,12 @@ export function ProductFormModal({ product, isOpen, onClose, onSuccess, allProdu
         onSuccess(); 
         onClose();
       } else { 
-        console.error("Insert error:", error); 
-        alert("Error al crear: " + error.message); 
+        console.warn("Insert error:", error); 
+        if (error.message.includes("unique constraint") || error.code === "23505") {
+          alert("Error: Ya existe un producto con el mismo SKU en el catálogo. Si estás resolviendo un huérfano, vinculalo al producto existente o utilizá un SKU diferente.");
+        } else {
+          alert("Error al crear: " + error.message);
+        }
       }
     }
     setSubmitting(false);
@@ -362,6 +400,161 @@ export function ProductFormModal({ product, isOpen, onClose, onSuccess, allProdu
             />
           </div>
 
+          {/* Configuración de Costos y Producción */}
+          <div className="md:col-span-2 p-6 bg-slate-50 rounded-[2rem] border border-slate-100 shadow-inner space-y-6">
+            <h3 className="text-xs font-black uppercase tracking-wider text-slate-500">🏭 Configuración de Costos y Producción</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              
+              {/* Es Insumo / Materia Prima */}
+              <div className="space-y-2">
+                <label className="flex items-center gap-3 cursor-pointer group mt-2">
+                  <input 
+                    type="checkbox" 
+                    className="w-6 h-6 rounded-lg border-2 border-slate-300 text-brand-600 focus:ring-brand-500/20 cursor-pointer transition-all checked:border-brand-600" 
+                    checked={formData.is_insumo} 
+                    onChange={e => setFormData({
+                      ...formData, 
+                      is_insumo: e.target.checked,
+                      insumo_use: e.target.checked ? formData.insumo_use || 'fabricacion' : undefined
+                    })} 
+                  />
+                  <span className="text-sm font-black text-slate-600 uppercase tracking-widest group-hover:text-slate-900 transition-colors">¿Es Insumo / Materia Prima?</span>
+                </label>
+              </div>
+
+              {/* Uso del Insumo */}
+              {formData.is_insumo && (
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Uso del Insumo</label>
+                  <select
+                    value={formData.insumo_use || 'fabricacion'}
+                    onChange={e => setFormData({ ...formData, insumo_use: e.target.value as any })}
+                    className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none cursor-pointer focus:ring-4 focus:ring-brand-500/10"
+                  >
+                    <option value="fabricacion">Únicamente para Fabricación</option>
+                    <option value="ensamblado">Únicamente para Ensamblado</option>
+                    <option value="ensamblado_venta">Ensamblado y también para Venta</option>
+                  </select>
+                </div>
+              )}
+
+              {/* Es Insumo Genérico / Ficticio */}
+              {formData.is_insumo && (
+                <div className="space-y-2">
+                  <label className="flex items-center gap-3 cursor-pointer group mt-2">
+                    <input 
+                      type="checkbox" 
+                      className="w-6 h-6 rounded-lg border-2 border-slate-300 text-brand-600 focus:ring-brand-500/20 cursor-pointer transition-all checked:border-brand-600" 
+                      checked={formData.is_generic} 
+                      onChange={e => setFormData({
+                        ...formData, 
+                        is_generic: e.target.checked,
+                        mapped_real_product_id: e.target.checked ? formData.mapped_real_product_id : null
+                      })} 
+                    />
+                    <span className="text-sm font-black text-slate-600 uppercase tracking-widest group-hover:text-slate-900 transition-colors">¿Es Insumo Genérico (Ficticio)?</span>
+                  </label>
+                </div>
+              )}
+
+              {/* Mapeo del Insumo Genérico */}
+              {formData.is_insumo && formData.is_generic && (
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Insumo Real del Inventario Mapeado</label>
+                  <select
+                    value={formData.mapped_real_product_id || ""}
+                    onChange={e => setFormData({ ...formData, mapped_real_product_id: e.target.value || null })}
+                    className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none cursor-pointer focus:ring-4 focus:ring-brand-500/10"
+                  >
+                    <option value="">Seleccionar insumo real...</option>
+                    {allProducts
+                      .filter(p => p.id !== product?.id && p.is_insumo && !p.is_generic)
+                      .map(p => (
+                        <option key={p.id} value={p.id}>
+                          {p.sku ? `[${p.sku}] ` : ''}{p.name}
+                        </option>
+                      ))}
+                  </select>
+                  <p className="text-[8px] text-slate-400 font-medium">Asociación central. Si cambia, afectará todas las recetas.</p>
+                </div>
+              )}
+
+              {/* Tipo de Producción */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Origen / Tipo de Producción</label>
+                <select
+                  value={formData.production_type || 'comprado'}
+                  onChange={e => setFormData({ ...formData, production_type: e.target.value as any })}
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none cursor-pointer focus:ring-4 focus:ring-brand-500/10"
+                >
+                  <option value="comprado">Comprado (Proveedor)</option>
+                  <option value="fabricado">Fabricado por nosotros</option>
+                  <option value="ensamblado">Ensamblado (Combinado)</option>
+                </select>
+              </div>
+
+              {/* Costos dependiendo del tipo de producción */}
+              {formData.production_type === 'comprado' ? (
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Costo Base / Compra (ARS)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="0.00"
+                    className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white font-bold text-xs focus:ring-4 focus:ring-brand-500/10 outline-none"
+                    value={formData.cost_price || ''}
+                    onChange={e => setFormData({ ...formData, cost_price: parseFloat(e.target.value) || 0 })}
+                  />
+                  <p className="text-[8px] text-slate-400 font-medium">Costo de adquisición directa.</p>
+                </div>
+              ) : (
+                <>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Costo de Mano de Obra (ARS)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder="0.00"
+                      className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white font-bold text-xs focus:ring-4 focus:ring-brand-500/10 outline-none"
+                      value={formData.labor_cost || ''}
+                      onChange={e => setFormData({ ...formData, labor_cost: parseFloat(e.target.value) || 0 })}
+                    />
+                    <p className="text-[8px] text-slate-400 font-medium">Costo de mano de obra directa para producir 1 unidad.</p>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Gastos Indirectos / Overhead (ARS)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder="0.00"
+                      className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white font-bold text-xs focus:ring-4 focus:ring-brand-500/10 outline-none"
+                      value={formData.overhead_cost || ''}
+                      onChange={e => setFormData({ ...formData, overhead_cost: parseFloat(e.target.value) || 0 })}
+                    />
+                    <p className="text-[8px] text-slate-400 font-medium">Costos de energía, desgaste, mantenimiento, etc., por unidad.</p>
+                  </div>
+                  <div className="space-y-2 md:col-span-2 p-3 bg-white/50 rounded-xl border border-slate-100 flex justify-between items-center">
+                    <div>
+                      <span className="text-[9px] font-black text-slate-400 block uppercase tracking-wider">Costo Unitario Total</span>
+                      <span className="text-xs font-bold text-slate-500">
+                        {formData.production_type === 'fabricado' ? 'Fabricación' : 'Ensamblado'} (Componentes BOM + Costos Directos)
+                      </span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-lg font-black text-brand-600 block">
+                        {formData.cost_price ? `$${formData.cost_price.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '$0.00'}
+                      </span>
+                      <span className="text-[8px] text-slate-400 font-medium block">Calculado automáticamente por base de datos</span>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
           {/* 5. DESCRIPCIÓN */}
           <div className="space-y-2 md:col-span-2">
             <div className="flex items-center justify-between mb-2">
@@ -399,6 +592,132 @@ export function ProductFormModal({ product, isOpen, onClose, onSuccess, allProdu
               onChange={e => setFormData({...formData, description: e.target.value})} 
               placeholder="Insertar detalles técnicos, ventajas o notas..."
             />
+          </div>
+
+          {/* 5.5 VARIANTE Y RELACIÓN */}
+          <div className="md:col-span-2 p-6 bg-slate-50 rounded-[2rem] border border-slate-100 shadow-inner space-y-4">
+            <h3 className="text-xs font-black uppercase tracking-wider text-slate-500">🔗 Configuración de Variante (Opcional)</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              
+              {/* Producto Principal */}
+              <div className="space-y-2 relative">
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Producto Principal (Padre)</label>
+                
+                {formData.parent_id ? (
+                  <div className="flex items-center justify-between bg-brand-50 border border-brand-100 px-4 py-3 rounded-xl">
+                    <div className="min-w-0 flex-1">
+                      <span className="text-[9px] font-black text-brand-500 block uppercase tracking-wider">
+                        {allProducts.find(p => p.id === formData.parent_id)?.sku || "SIN SKU"}
+                      </span>
+                      <span className="text-xs font-bold text-slate-700 truncate block">
+                        {allProducts.find(p => p.id === formData.parent_id)?.name || "Producto no encontrado"}
+                      </span>
+                    </div>
+                    <button 
+                      type="button" 
+                      onClick={() => setFormData(prev => ({ ...prev, parent_id: null }))}
+                      className="ml-2 text-xs font-black text-red-600 hover:text-red-800 transition-colors uppercase tracking-wider bg-white px-2.5 py-1 rounded-lg border border-red-100 shadow-sm"
+                    >
+                      Desvincular
+                    </button>
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input 
+                      type="text" 
+                      placeholder="Buscar producto principal..." 
+                      className="w-full pl-9 pr-4 py-3 rounded-xl border border-slate-200 bg-white text-xs font-bold focus:ring-4 focus:ring-brand-500/10 outline-none"
+                      value={parentSearch}
+                      onChange={(e) => {
+                        const term = e.target.value;
+                        setParentSearch(term);
+                        if (term.length > 1) {
+                          // Filtrar productos que puedan ser padre
+                          // Excluir el producto actual y productos que ya sean variantes
+                          const results = allProducts.filter(p => 
+                            (p.name.toLowerCase().includes(term.toLowerCase()) || 
+                             (p.sku && p.sku.toLowerCase().includes(term.toLowerCase()))) && 
+                            p.id !== product?.id &&
+                            !p.parent_id
+                          ).slice(0, 5);
+                          setParentSearchResults(results);
+                        } else {
+                          setParentSearchResults([]);
+                        }
+                      }}
+                    />
+                    {parentSearchResults.length > 0 && (
+                      <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-xl border border-slate-100 z-50 overflow-hidden divide-y divide-slate-50 max-h-48 overflow-y-auto">
+                        {parentSearchResults.map(p => (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => {
+                              setFormData(prev => ({ ...prev, parent_id: p.id }));
+                              setParentSearch("");
+                              setParentSearchResults([]);
+                            }}
+                            className="w-full px-4 py-3 text-left hover:bg-brand-50 flex items-center justify-between group"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <span className="text-[8px] font-black text-brand-500 block uppercase tracking-wider">{p.sku}</span>
+                              <span className="text-[10px] font-bold text-slate-700 block truncate">{p.name}</span>
+                            </div>
+                            <Plus className="w-3.5 h-3.5 text-slate-300 group-hover:text-brand-600 flex-shrink-0" />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Tipo de Variante */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Tipo de Variante</label>
+                <div className="flex gap-2">
+                  <select
+                    value={["estandar", "Gris", "Ciego", "Ciego Gris", "Beige", "Rojo", "Verde"].includes(formData.variant_type || "") ? (formData.variant_type || "estandar") : "custom"}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === "custom") {
+                        setFormData(prev => ({ ...prev, variant_type: "" }));
+                      } else {
+                        setFormData(prev => ({ ...prev, variant_type: val }));
+                      }
+                    }}
+                    className="flex-1 px-4 py-3 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none cursor-pointer focus:ring-4 focus:ring-brand-500/10"
+                  >
+                    <option value="estandar">Estándar</option>
+                    <option value="Gris">Gris</option>
+                    <option value="Ciego">Ciego</option>
+                    <option value="Ciego Gris">Ciego Gris</option>
+                    <option value="Beige">Beige</option>
+                    <option value="Rojo">Rojo</option>
+                    <option value="Verde">Verde</option>
+                    <option value="custom">Personalizado...</option>
+                  </select>
+                  
+                  {(!["estandar", "Gris", "Ciego", "Ciego Gris", "Beige", "Rojo", "Verde"].includes(formData.variant_type || "")) && (
+                    <input 
+                      type="text"
+                      placeholder="Ej. Ciego Azul"
+                      className="w-1/2 px-3 py-3 rounded-xl border border-slate-200 bg-white font-bold text-xs focus:ring-4 focus:ring-brand-500/10 outline-none"
+                      value={formData.variant_type || ""}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setFormData(prev => ({ ...prev, variant_type: val }));
+                      }}
+                    />
+                  )}
+                </div>
+                <p className="text-[8px] text-slate-400 font-medium mt-1">
+                  Establecé el tipo de variante para que los vendedores la diferencien al vender.
+                </p>
+              </div>
+
+            </div>
           </div>
 
           {/* 6. UPSELLS */}

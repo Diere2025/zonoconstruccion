@@ -1,7 +1,5 @@
 "use client";
 
-export const runtime = "edge";
-
 import React, { useState, useEffect, useRef } from "react";
 import { ProductCard } from "@/components/ui/ProductCard";
 import { ProductModal } from "@/components/ui/ProductModal";
@@ -300,11 +298,11 @@ export default function Home() {
       {/* Secciones de Productos - Refactorizado con ProductRow */}
       <div id="productos" className="bg-white">
         {/* Carrusel Destacados */}
-        {products.some(p => p.is_featured) && (
+        {products.some(p => p.is_featured && !p.parent_id) && (
           <ProductRow
             title="Productos Destacados"
             subTitle="Selección Premium"
-            products={products.filter(p => p.is_featured)}
+            products={products.filter(p => p.is_featured && !p.parent_id)}
             onOpenModal={openProductModal}
             bgColor="bg-emerald-50/50"
             accentColor="text-emerald-600"
@@ -313,11 +311,11 @@ export default function Home() {
         )}
 
         {/* Carrusel Liquidación */}
-        {products.some(p => p.is_on_sale) && (
+        {products.some(p => p.is_on_sale && !p.parent_id) && (
           <ProductRow
             title="Liquidación Limitada"
             subTitle="Oportunidades"
-            products={products.filter(p => p.is_on_sale)}
+            products={products.filter(p => p.is_on_sale && !p.parent_id)}
             onOpenModal={openProductModal}
             isSale={true}
             bgColor="bg-red-50/50"
@@ -327,14 +325,14 @@ export default function Home() {
 
         {/* Filas por Categoría */}
         {(landingCategories.length > 0
-          ? landingCategories.filter(cat => products.some(p => p.category === cat))
-          : Array.from(new Set(products.map(p => p.category))).sort()
+          ? landingCategories.filter(cat => products.some(p => p.category === cat && !p.parent_id))
+          : Array.from(new Set(products.filter(p => !p.parent_id).map(p => p.category))).sort()
         ).map((cat) => (
             <ProductRow
               key={cat}
               title={cat}
               subTitle="Sección"
-              products={products.filter(p => p.category === cat)}
+              products={products.filter(p => p.category === cat && !p.parent_id)}
               onOpenModal={openProductModal}
             />
           ))}

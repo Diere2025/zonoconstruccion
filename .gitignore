@@ -39,3 +39,15 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# scratch and test files
+/scratch/
+/test_query_times.js
+/scratch_test.js
+/check_db.js
+/check_orders.js
+/import_localities.js
+/localities_sheet.csv
+/run_sql.js
+
+

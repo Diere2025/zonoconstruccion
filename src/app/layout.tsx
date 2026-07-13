@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import { Navbar } from "@/components/ui/Navbar";
-import { CartDrawer } from "@/components/ui/CartDrawer";
+import { LayoutWrapper } from "@/components/ui/LayoutWrapper";
 import { cn } from "@/lib/utils";
 import Script from "next/script";
 
@@ -35,25 +34,9 @@ export default function RootLayout({
             fbq('track', 'PageView');
           `}
         </Script>
-        <div id="site-navbar"><Navbar /></div>
-        <main className="flex-grow pt-20">
+        <LayoutWrapper>
           {children}
-        </main>
-        <div id="site-cart"><CartDrawer /></div>
-        
-        {/* Footer simple for now */}
-        <footer id="site-footer" className="bg-slate-950 text-white py-12 border-t border-slate-900">
-          <div className="container mx-auto px-6 flex flex-col md:flex-row justify-between items-center gap-8">
-            <div className="text-gray-400 text-sm">
-              &copy; {new Date().getFullYear()} <strong>Zono Construcción y Hogar</strong>. Todos los derechos reservados.
-            </div>
-            <div className="flex space-x-8 text-sm font-bold text-slate-500">
-              <a href="#" className="hover:text-white transition-colors">Términos</a>
-              <a href="#" className="hover:text-white transition-colors">Privacidad</a>
-              <a href="#" className="hover:text-white transition-colors">Cookies</a>
-            </div>
-          </div>
-        </footer>
+        </LayoutWrapper>
       </body>
     </html>
   );
