@@ -114,11 +114,26 @@ export default function LogisticsAuditPage() {
 
   const { stats, postponed, discrepancies } = data;
 
-  // Search logic
+  // Search logic and sorting by ERP status (Pendiente -> Entregado -> Cancelado)
+  const getStatusOrder = (status: string) => {
+    const s = (status || "").toLowerCase();
+    if (s === "pendiente" || s === "confirmado" || s === "entregando") return 1;
+    if (s === "entregado") return 2;
+    if (s === "cancelado" || s === "anulado") return 3;
+    return 4;
+  };
+
   const filteredPostponed = postponed.filter((p: any) => 
     p.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
     p.client.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  ).sort((a: any, b: any) => {
+    const orderA = getStatusOrder(a.dbStatus);
+    const orderB = getStatusOrder(b.dbStatus);
+    if (orderA !== orderB) {
+      return orderA - orderB;
+    }
+    return b.count - a.count;
+  });
 
   const filteredDiscrepancies = discrepancies.filter((d: any) => 
     d.code.toLowerCase().includes(searchQuery.toLowerCase()) ||

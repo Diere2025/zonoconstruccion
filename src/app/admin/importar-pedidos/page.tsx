@@ -197,6 +197,93 @@ export default function ImportarPedidosPage() {
     return result;
   };
 
+  const mergeContiguousSheetRows = (rows: string[][]): string[][] => {
+    if (rows.length <= 1) return rows;
+    const merged: string[][] = [rows[0]];
+    
+    for (let i = 1; i < rows.length; i++) {
+      const currentRow = [...rows[i]];
+      const prevRow = merged[merged.length - 1];
+      
+      const code1 = (prevRow[1] || "").trim().toUpperCase();
+      const code2 = (currentRow[1] || "").trim().toUpperCase();
+      
+      const match1 = code1.match(/^([A-Z]+)(\d+)$/);
+      const match2 = code2.match(/^([A-Z]+)(\d+)$/);
+      
+      let isConsecutive = false;
+      if (match1 && match2 && match1[1] === match2[1]) {
+        const num1 = parseInt(match1[2], 10);
+        const num2 = parseInt(match2[2], 10);
+        if (Math.abs(num1 - num2) === 1) {
+          isConsecutive = true;
+        }
+      }
+      
+      const client1 = normalizeText(prevRow[5] || "");
+      const client2 = normalizeText(currentRow[5] || "");
+      const sameClient = client1 === client2 && client1 !== "";
+      
+      const date1 = (prevRow[3] || "").trim();
+      const date2 = (currentRow[3] || "").trim();
+      const sameDate = date1 === date2 && date1 !== "";
+      
+      const addr1 = normalizeText(prevRow[18] || "");
+      const addr2 = normalizeText(currentRow[18] || "");
+      const sameAddr = addr1 === addr2 && addr1 !== "";
+      
+      if (isConsecutive && sameClient && sameDate && sameAddr) {
+        prevRow[1] = `${prevRow[1].trim()} / ${currentRow[1].trim()}`;
+        
+        const subtotal1 = parseSpanishNumber(prevRow[28]);
+        const subtotal2 = parseSpanishNumber(currentRow[28]);
+        prevRow[28] = (subtotal1 + subtotal2).toString();
+        
+        const freight1 = parseSpanishNumber(prevRow[27]);
+        const freight2 = parseSpanishNumber(currentRow[27]);
+        prevRow[27] = (freight1 + freight2).toString();
+
+        const surcharge1 = parseSpanishNumber(prevRow[25]);
+        const surcharge2 = parseSpanishNumber(currentRow[25]);
+        prevRow[25] = (surcharge1 + surcharge2).toString();
+
+        const abonado1 = parseSpanishNumber(prevRow[24]);
+        const abonado2 = parseSpanishNumber(currentRow[24]);
+        prevRow[24] = (abonado1 + abonado2).toString();
+
+        const pending1 = parseSpanishNumber(prevRow[29]);
+        const pending2 = parseSpanishNumber(currentRow[29]);
+        prevRow[29] = (pending1 + pending2).toString();
+
+        // Concatenate products
+        let emptyIdx = 30;
+        while (emptyIdx <= 74 && (prevRow[emptyIdx] || "").trim() !== "" && (prevRow[emptyIdx] || "").trim() !== "0") {
+          emptyIdx += 4;
+        }
+
+        for (let pIdx = 30; pIdx <= 74; pIdx += 4) {
+          const prodName = (currentRow[pIdx] || "").trim();
+          const prodQty = (currentRow[pIdx+1] || "").trim();
+          const prodPrice = (currentRow[pIdx+2] || "").trim();
+          const prodSubt = (currentRow[pIdx+3] || "").trim();
+
+          if (prodName && prodName !== "0" && prodName.toLowerCase() !== "descuento") {
+            if (emptyIdx <= 74) {
+              prevRow[emptyIdx] = prodName;
+              prevRow[emptyIdx+1] = prodQty;
+              prevRow[emptyIdx+2] = prodPrice;
+              prevRow[emptyIdx+3] = prodSubt;
+              emptyIdx += 4;
+            }
+          }
+        }
+      } else {
+        merged.push(currentRow);
+      }
+    }
+    return merged;
+  };
+
   // Import Orders from Google Sheets Logic
   const handleImportOrders = async () => {
     setImportingOrders(true);
@@ -358,14 +445,19 @@ export default function ImportarPedidosPage() {
         if (error) throw error;
         if (data && data.length > 0) {
           data.forEach(o => {
-            const code = (o.legacy_code || "").trim();
-            if (code) {
-              existingOrdersMap.set(code, { 
-                id: o.id, 
-                status: o.status || "", 
-                delivery_detail: o.delivery_detail || "",
-                whaticket_link: o.whaticket_link || "",
-                order_medium_id: o.order_medium_id || ""
+            const rawCode = (o.legacy_code || "").trim();
+            if (rawCode) {
+              const parts = rawCode.split(/[\/,]/).map((c: string) => c.trim().toUpperCase());
+              parts.forEach((code: string) => {
+                if (code) {
+                  existingOrdersMap.set(code, { 
+                    id: o.id, 
+                    status: o.status || "", 
+                    delivery_detail: o.delivery_detail || "",
+                    whaticket_link: o.whaticket_link || "",
+                    order_medium_id: o.order_medium_id || ""
+                  });
+                }
               });
             }
           });
@@ -378,6 +470,20 @@ export default function ImportarPedidosPage() {
         }
       }
       addLog(`Pedidos históricos existentes en DB: ${existingOrdersMap.size}`);
+
+      const findExistingOrder = (orderCode: string) => {
+        const code = orderCode.trim().toUpperCase();
+        if (existingOrdersMap.has(code)) {
+          return existingOrdersMap.get(code);
+        }
+        for (const [key, val] of existingOrdersMap.entries()) {
+          const parts = key.split(/[\/,]/).map(p => p.trim().toUpperCase());
+          if (parts.includes(code)) {
+            return val;
+          }
+        }
+        return null;
+      };
 
       // Download and parse claims sheet for linking returns/exchanges
       let claimsMap = new Map<string, string[]>();
@@ -500,8 +606,9 @@ export default function ImportarPedidosPage() {
           throw new Error(`Error al descargar planilla de ${sheet.name} (Status ${response.status})`);
         }
         const csvText = await response.text();
-        const rows = parseCSV(csvText);
-        addLog(`Planilla de ${sheet.name}: ${rows.length} filas leídas.`);
+        const rawRows = parseCSV(csvText);
+        const rows = mergeContiguousSheetRows(rawRows);
+        addLog(`Planilla de ${sheet.name}: ${rawRows.length} filas leídas (${rows.length} después de unificar contiguos).`);
 
         const targetRows = rows.filter((row, idx) => {
           if (idx === 0) return false;
@@ -573,8 +680,8 @@ export default function ImportarPedidosPage() {
           let didDbWrite = false;
           try {
             await withTimeout((async () => {
-              if (existingOrdersMap.has(orderCode)) {
-            const dbOrder = existingOrdersMap.get(orderCode)!;
+              const dbOrder = findExistingOrder(orderCode);
+              if (dbOrder) {
             const activeStatuses = ['Pendiente', 'Confirmado', 'Entregando'];
             if (activeStatuses.includes(dbOrder.status)) {
               const rawStatusVal = (row[0] || "").trim();
@@ -877,6 +984,88 @@ export default function ImportarPedidosPage() {
                         }
                       }
                     }
+                  }
+                }
+              }
+            }
+
+            // Sync items for existing active orders (to handle late product modifications in the spreadsheet)
+            if (['Pendiente', 'Confirmado', 'Entregando'].includes(dbOrder.status)) {
+              const { data: dbItems } = await supabase
+                .from('order_items')
+                .select('id, product_name, quantity, unit_price, product_id')
+                .eq('order_id', dbOrder.id);
+
+              const sheetItems = [];
+              for (let pIdx = 30; pIdx <= 74; pIdx += 4) {
+                const prodName = (row[pIdx] || "").trim();
+                const prodQtyRaw = (row[pIdx + 1] || "").trim();
+                const prodPriceRaw = (row[pIdx + 2] || "").trim();
+
+                if (!prodName || prodName === "0" || prodName.toLowerCase() === "descuento") {
+                  continue;
+                }
+
+                const qty = parseInt(prodQtyRaw.replace(/[^0-9.-]/g, ''), 10) || 0;
+                const unitPrice = parseSpanishNumber(prodPriceRaw);
+                
+                if (qty <= 0) continue;
+
+                const csvCleanName = cleanProductName(prodName);
+                const matchedProd = dbProducts?.find(p => 
+                  cleanProductName(p.name) === csvCleanName || 
+                  (p.sku && cleanProductName(p.sku) === csvCleanName)
+                );
+                const productId = matchedProd ? matchedProd.id : null;
+
+                sheetItems.push({
+                  order_id: dbOrder.id,
+                  product_id: productId,
+                  product_name: prodName,
+                  quantity: qty,
+                  unit_price: unitPrice,
+                  discount_percentage: 0,
+                  historical_unit_cost: 0
+                });
+              }
+
+              let itemsChanged = false;
+              if (!dbItems || dbItems.length !== sheetItems.length) {
+                itemsChanged = true;
+              } else {
+                for (const sItem of sheetItems) {
+                  const sClean = cleanProductName(sItem.product_name);
+                  const hasMatch = dbItems.some(dbi => 
+                    cleanProductName(dbi.product_name) === sClean && 
+                    dbi.quantity === sItem.quantity && 
+                    dbi.product_id === sItem.product_id && 
+                    Math.abs(dbi.unit_price - sItem.unit_price) <= 5.0
+                  );
+                  if (!hasMatch) {
+                    itemsChanged = true;
+                    break;
+                  }
+                }
+              }
+
+              if (itemsChanged) {
+                addLog(`  🔄 Sincronizando artículos modificados para pedido ${orderCode}...`);
+                await supabase
+                  .from('order_items')
+                  .delete()
+                  .eq('order_id', dbOrder.id);
+
+                if (sheetItems.length > 0) {
+                  const { error: errInsItems } = await supabase
+                    .from('order_items')
+                    .insert(sheetItems);
+                  if (errInsItems) {
+                    addLog(`  ❌ Error al re-insertar artículos: ${errInsItems.message}`);
+                  } else {
+                    addLog(`  ✅ Artículos re-sincronizados con éxito (${sheetItems.length} items).`);
+                    totalItemsImported += sheetItems.length;
+                    totalUpdated++;
+                    didDbWrite = true;
                   }
                 }
               }

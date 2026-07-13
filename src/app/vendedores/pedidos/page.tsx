@@ -435,7 +435,6 @@ export default function PedidosPage() {
   // Filter products for the searchable dropdown using smart multi-word search on Name and SKU
   const filteredDropdownProducts = products
     .filter(p => {
-      if (p.is_active === false) return false;
       if (!productSearchTerm) return true;
       
       const searchWords = productSearchTerm.toLowerCase().split(/\s+/).filter(Boolean);
@@ -988,20 +987,25 @@ export default function PedidosPage() {
 
       if (ordersData && ordersData.length > 0) {
         ordersData.forEach(item => {
-          if (item.legacy_code && item.legacy_code.toUpperCase().startsWith(prefix.toUpperCase())) {
-            const numStr = item.legacy_code.slice(prefix.length);
-            const num = parseInt(numStr, 10);
-            if (!isNaN(num)) {
-              if (num > maxNum) {
-                maxNum = num;
-                if (numStr.startsWith("0") && numStr.length > 1) {
-                  needsPadding = true;
-                  paddingLength = numStr.length;
-                } else {
-                  needsPadding = false;
+          if (item.legacy_code) {
+            const parts = item.legacy_code.split(/[\/,]/).map((c: string) => c.trim().toUpperCase());
+            parts.forEach((part: string) => {
+              if (part.startsWith(prefix.toUpperCase())) {
+                const numStr = part.slice(prefix.length);
+                const num = parseInt(numStr, 10);
+                if (!isNaN(num)) {
+                  if (num > maxNum) {
+                    maxNum = num;
+                    if (numStr.startsWith("0") && numStr.length > 1) {
+                      needsPadding = true;
+                      paddingLength = numStr.length;
+                    } else {
+                      needsPadding = false;
+                    }
+                  }
                 }
               }
-            }
+            });
           }
         });
       }

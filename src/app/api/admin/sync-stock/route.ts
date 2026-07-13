@@ -64,6 +64,10 @@ export async function GET() {
     const csvText = await csvRes.text();
     const sheetRows = parseCSV(csvText);
 
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const dateLimitStr = thirtyDaysAgo.toISOString().split('T')[0];
+
     // 2. Fetch products and active orders from database
     const [productsRes, pendingRes] = await Promise.all([
       supabaseAdmin
@@ -72,8 +76,9 @@ export async function GET() {
         .order('name'),
       supabaseAdmin
         .from('order_items')
-        .select('product_id, quantity, orders!inner(status)')
+        .select('product_id, quantity, orders!inner(status, order_date)')
         .in('orders.status', ['Pendiente', 'Confirmado'])
+        .gt('orders.order_date', dateLimitStr)
     ]);
 
     if (productsRes.error) throw productsRes.error;
@@ -176,10 +181,14 @@ export async function POST() {
     const csvText = await csvRes.text();
     const sheetRows = parseCSV(csvText);
 
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const dateLimitStr = thirtyDaysAgo.toISOString().split('T')[0];
+
     // 2. Fetch products and active orders from database
     const [productsRes, pendingRes] = await Promise.all([
       supabaseAdmin.from('products').select('id, name, sku, stock_physical, stock_reserved, stock_current'),
-      supabaseAdmin.from('order_items').select('product_id, quantity, orders!inner(status)').in('orders.status', ['Pendiente', 'Confirmado'])
+      supabaseAdmin.from('order_items').select('product_id, quantity, orders!inner(status, order_date)').in('orders.status', ['Pendiente', 'Confirmado']).gt('orders.order_date', dateLimitStr)
     ]);
 
     if (productsRes.error) throw productsRes.error;

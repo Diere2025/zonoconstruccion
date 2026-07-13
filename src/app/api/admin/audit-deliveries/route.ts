@@ -87,6 +87,23 @@ const normalizeText = (text: string): string => {
     .replace(/[^a-z0-9]/g, "");
 };
 
+const summarizeItems = (items: any[]) => {
+  const summarized: any[] = [];
+  for (const item of items) {
+    const cleanName = cleanProductName(item.product_name);
+    const match = summarized.find(s => 
+      cleanProductName(s.product_name) === cleanName && 
+      Math.abs(s.unit_price - item.unit_price) < 1.0
+    );
+    if (match) {
+      match.quantity += item.quantity;
+    } else {
+      summarized.push({ ...item });
+    }
+  }
+  return summarized;
+};
+
 export async function GET() {
   try {
     // 1. Fetch Logistics CSV from Google Sheets
@@ -141,7 +158,8 @@ export async function GET() {
 
     const dbOrdersMap = new Map<string, any>();
     dbOrdersList.forEach(o => {
-      dbOrdersMap.set(o.legacy_code.trim().toUpperCase(), {
+      const codes = o.legacy_code.split(/[\/,]/).map((c: string) => c.trim().toUpperCase());
+      const orderObj = {
         id: o.id,
         legacy_code: o.legacy_code,
         status: o.status,
@@ -149,14 +167,17 @@ export async function GET() {
         payment_method_name: o.payment_methods ? (o.payment_methods as any).name : 'Sin especificar',
         customer_name: o.customer_name,
         items: []
+      };
+      codes.forEach((c: string) => {
+        dbOrdersMap.set(c, orderObj);
       });
     });
 
     dbItemsList.forEach(item => {
-      // Find matching order legacy code to push item
       for (const order of dbOrdersList) {
         if (item.order_id === order.id) {
-          const mapped = dbOrdersMap.get(order.legacy_code.trim().toUpperCase());
+          const firstCode = order.legacy_code.split(/[\/,]/)[0].trim().toUpperCase();
+          const mapped = dbOrdersMap.get(firstCode);
           if (mapped) {
             mapped.items.push(item);
           }
@@ -187,6 +208,7 @@ export async function GET() {
       const code = (row[0] || "").trim().toUpperCase();
       const attemptDateStr = (row[1] || "").trim();
       const initialDateStr = (row[2] || "").trim();
+      const limitDateStr = (row[3] || "").trim();
       const client = (row[4] || "").trim();
       const status = (row[15] || "").trim();
       const motive = (row[91] || "").trim();
@@ -201,6 +223,7 @@ export async function GET() {
           code,
           client,
           initialDateStr,
+          limitDateStr,
           attempts: []
         });
       }
@@ -211,13 +234,94 @@ export async function GET() {
       });
 
       // Audit discrepancies only for rows with "Entregado" status
-      const isDelivered = status.toLowerCase().includes("entregado");
+      const isDelivered = status.toLowerCase().includes("entregado") && !status.toLowerCase().includes("no entregado");
+      if (isDelivered) {
+        checkedCount++;
+      }
+    }
+
+    const aggregatedSheetOrders = new Map<string, {
+      code: string;
+      customer_name: string;
+      sheetTotal: number;
+      sheetPayment: string;
+      sheetPayments: Set<string>;
+      sheetItems: any[];
+    }>();
+
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (row.length < 30) continue;
+
+      const code = (row[0] || "").trim().toUpperCase();
+      const status = (row[15] || "").trim();
+
+      if (!code || !code.match(/^[A-Z]+\d+$/)) {
+        continue;
+      }
+
+      const isDelivered = status.toLowerCase().includes("entregado") && !status.toLowerCase().includes("no entregado");
       if (!isDelivered) continue;
 
-      checkedCount++;
+      const rowTotal = parseSpanishNumber(row[27]) + parseSpanishNumber(row[24]);
+      const rowPayment = (row[20] || "").trim();
 
-      if (dbOrdersMap.has(code)) {
-        const dbOrder = dbOrdersMap.get(code);
+      const rowItems: any[] = [];
+      for (let pIdx = 29; pIdx <= 73; pIdx += 4) {
+        const prodName = (row[pIdx] || "").trim();
+        const qtyRaw = (row[pIdx + 1] || "").trim();
+        const priceRaw = (row[pIdx + 2] || "").trim();
+        
+        if (prodName && prodName !== "0" && prodName.toLowerCase() !== "descuento") {
+          const qty = parseInt(qtyRaw, 10) || 0;
+          const price = parseSpanishNumber(priceRaw);
+          if (qty > 0) {
+            rowItems.push({
+              product_name: prodName,
+              quantity: qty,
+              unit_price: price
+            });
+          }
+        }
+      }
+
+      const dbOrder = dbOrdersMap.get(code);
+      const key = dbOrder ? dbOrder.legacy_code.trim().toUpperCase() : code;
+
+      if (aggregatedSheetOrders.has(key)) {
+        const existing = aggregatedSheetOrders.get(key)!;
+        existing.sheetTotal += rowTotal;
+        if (rowPayment) {
+          existing.sheetPayments.add(rowPayment);
+          if (!existing.sheetPayment) {
+            existing.sheetPayment = rowPayment;
+          }
+        }
+        rowItems.forEach(ri => existing.sheetItems.push(ri));
+      } else {
+        const pSet = new Set<string>();
+        if (rowPayment) pSet.add(rowPayment);
+        aggregatedSheetOrders.set(key, {
+          code: dbOrder ? dbOrder.legacy_code : code,
+          customer_name: (row[4] || "").trim(),
+          sheetTotal: rowTotal,
+          sheetPayment: rowPayment,
+          sheetPayments: pSet,
+          sheetItems: rowItems
+        });
+      }
+    }
+
+    for (const sheetOrder of aggregatedSheetOrders.values()) {
+      sheetOrder.sheetItems = summarizeItems(sheetOrder.sheetItems);
+    }
+
+    for (const sheetOrder of aggregatedSheetOrders.values()) {
+      const code = sheetOrder.code;
+      const firstCode = code.split(/[\/,]/)[0].trim().toUpperCase();
+
+      if (dbOrdersMap.has(firstCode)) {
+        const dbOrder = dbOrdersMap.get(firstCode);
         const errors: string[] = [];
 
         // Audit A: Status mismatch
@@ -227,7 +331,7 @@ export async function GET() {
         }
 
         // Audit B: Total amount mismatch
-        const sheetTotal = parseSpanishNumber(row[27]) + parseSpanishNumber(row[24]);
+        const sheetTotal = sheetOrder.sheetTotal;
         const dbTotal = parseFloat(dbOrder.total_amount || 0);
         if (Math.abs(sheetTotal - dbTotal) > 1.0) {
           errors.push(`Diferencia de monto: Planilla indica $${sheetTotal.toLocaleString()} (Total/Recargo sin flete) pero base de datos indica $${dbTotal.toLocaleString()}.`);
@@ -235,62 +339,71 @@ export async function GET() {
         }
 
         // Audit C: Payment method mismatch
-        const sheetPayment = (row[20] || "").trim();
+        const sheetPayments = sheetOrder.sheetPayments;
         const dbPayment = dbOrder.payment_method_name;
         
-        let payMatches = sheetPayment.toLowerCase() === dbPayment.toLowerCase();
+        let payMatches = false;
+        sheetPayments.forEach((sp: string) => {
+          if (sp.toLowerCase() === dbPayment.toLowerCase()) {
+            payMatches = true;
+          }
+        });
 
-        if (!payMatches && sheetPayment && dbPayment !== "Sin especificar") {
-          errors.push(`Método de pago modificado: Planilla indica "${sheetPayment}" pero base de datos indica "${dbPayment}".`);
+        if (!payMatches && sheetPayments.size > 0 && dbPayment !== "Sin especificar") {
+          const sheetPaymentsStr = Array.from(sheetPayments).join(" o ");
+          errors.push(`Método de pago modificado: Planilla indica "${sheetPaymentsStr}" pero base de datos indica "${dbPayment}".`);
           paymentMismatchesCount++;
         }
 
         // Audit D: Products/Quantities comparison
-        const sheetItems: any[] = [];
-        for (let pIdx = 29; pIdx <= 73; pIdx += 4) {
-          const prodName = (row[pIdx] || "").trim();
-          const qtyRaw = (row[pIdx + 1] || "").trim();
-          const priceRaw = (row[pIdx + 2] || "").trim();
-          
-          if (prodName && prodName !== "0" && prodName.toLowerCase() !== "descuento") {
-            const qty = parseInt(qtyRaw, 10) || 0;
-            const price = parseSpanishNumber(priceRaw);
-            if (qty > 0) {
-              sheetItems.push({
-                product_name: prodName,
-                quantity: qty,
-                unit_price: price
-              });
-            }
-          }
-        }
-
         let itemDiscrepancy = false;
-        sheetItems.forEach(sItem => {
-          const sClean = cleanProductName(sItem.product_name);
-          const dbMatch = dbOrder.items.find((dbi: any) => cleanProductName(dbi.product_name) === sClean);
-          
-          if (!dbMatch) {
-            itemDiscrepancy = true;
-            errors.push(`Producto entregado ausente en DB: "${sItem.product_name}" (x${sItem.quantity}).`);
-          } else {
-            if (dbMatch.quantity !== sItem.quantity) {
-              itemDiscrepancy = true;
-              errors.push(`Diferencia de cantidad: "${sItem.product_name}" (Planilla: x${sItem.quantity} | DB: x${dbMatch.quantity}).`);
-            }
-            if (Math.abs(dbMatch.unit_price - sItem.unit_price) > 5.0) {
-              itemDiscrepancy = true;
-              errors.push(`Diferencia de precio unitario: "${sItem.product_name}" (Planilla: $${sItem.unit_price.toLocaleString()} | DB: $${dbMatch.unit_price.toLocaleString()}).`);
-            }
-          }
+        
+        const sheetGroup = new Map<string, any[]>();
+        sheetOrder.sheetItems.forEach((sItem: any) => {
+          const cleanName = cleanProductName(sItem.product_name);
+          if (!sheetGroup.has(cleanName)) sheetGroup.set(cleanName, []);
+          sheetGroup.get(cleanName)!.push(sItem);
         });
 
-        dbOrder.items.forEach((dbi: any) => {
-          const dbClean = cleanProductName(dbi.product_name);
-          const sheetMatch = sheetItems.find(si => cleanProductName(si.product_name) === dbClean);
-          if (!sheetMatch && dbi.product_name.toLowerCase() !== 'descuento') {
-            itemDiscrepancy = true;
-            errors.push(`Producto de DB ausente en planilla: "${dbi.product_name}" (x${dbi.quantity}) no figura como entregado.`);
+        const dbGroup = new Map<string, any[]>();
+        dbOrder.items.forEach((dbItem: any) => {
+          const cleanName = cleanProductName(dbItem.product_name);
+          if (!dbGroup.has(cleanName)) dbGroup.set(cleanName, []);
+          dbGroup.get(cleanName)!.push(dbItem);
+        });
+
+        const allCleanNames = new Set<string>([...sheetGroup.keys(), ...dbGroup.keys()]);
+
+        allCleanNames.forEach((cleanName: string) => {
+          const sheetSubList = sheetGroup.get(cleanName) || [];
+          const dbSubList = dbGroup.get(cleanName) || [];
+
+          sheetSubList.sort((a, b) => a.unit_price - b.unit_price);
+          dbSubList.sort((a, b) => a.unit_price - b.unit_price);
+
+          const maxLen = Math.max(sheetSubList.length, dbSubList.length);
+          for (let k = 0; k < maxLen; k++) {
+            const sItem = sheetSubList[k];
+            const dbItem = dbSubList[k];
+
+            if (sItem && dbItem) {
+              if (dbItem.quantity !== sItem.quantity) {
+                itemDiscrepancy = true;
+                errors.push(`Diferencia de cantidad: "${sItem.product_name}" (Planilla: x${sItem.quantity} | DB: x${dbItem.quantity}).`);
+              }
+              if (Math.abs(dbItem.unit_price - sItem.unit_price) > 5.0) {
+                itemDiscrepancy = true;
+                errors.push(`Diferencia de precio unitario: "${sItem.product_name}" (Planilla: $${sItem.unit_price.toLocaleString()} | DB: $${dbItem.unit_price.toLocaleString()}).`);
+              }
+            } else if (sItem) {
+              itemDiscrepancy = true;
+              errors.push(`Producto entregado ausente en DB: "${sItem.product_name}" (x${sItem.quantity}).`);
+            } else if (dbItem) {
+              if (dbItem.product_name.toLowerCase() !== 'descuento') {
+                itemDiscrepancy = true;
+                errors.push(`Producto de DB ausente en planilla: "${dbItem.product_name}" (x${dbItem.quantity}) no figura como entregado.`);
+              }
+            }
           }
         });
 
@@ -310,7 +423,7 @@ export async function GET() {
 
     // 4. Group multiple postponements and delays stats
     const postponed: any[] = [];
-    const delayStats: number[] = [];
+    const delayStats: any[] = [];
 
     for (const [code, info] of orderAttempts.entries()) {
       info.attempts.sort((a: any, b: any) => {
@@ -332,16 +445,21 @@ export async function GET() {
         });
       }
 
-      const deliveredAttempt = info.attempts.find((a: any) => a.status.toLowerCase().includes("entregado"));
+      const deliveredAttempt = info.attempts.find((a: any) => a.status.toLowerCase().includes("entregado") && !a.status.toLowerCase().includes("no entregado"));
       if (deliveredAttempt) {
         const initDate = parseDate(info.initialDateStr);
         const delDate = parseDate(deliveredAttempt.dateStr);
+        const limitDate = parseDate(info.limitDateStr);
         if (initDate && delDate) {
-          const diffTime = delDate.getTime() - initDate.getTime();
+          const comparisonDate = limitDate || initDate;
+          const diffTime = delDate.getTime() - comparisonDate.getTime();
           const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-          if (diffDays >= 0) {
-            delayStats.push(diffDays);
-          }
+          const isOnTime = limitDate ? (delDate.getTime() <= limitDate.getTime()) : (diffDays <= 0);
+          
+          delayStats.push({
+            delayDays: Math.max(0, diffDays),
+            isOnTime
+          });
         }
       }
     }
@@ -353,10 +471,10 @@ export async function GET() {
     let pctOnTime = 0;
 
     if (delayStats.length > 0) {
-      avgDelay = delayStats.reduce((sum, d) => sum + d, 0) / delayStats.length;
-      maxDelay = Math.max(...delayStats);
-      const zeroDelayCount = delayStats.filter(d => d === 0).length;
-      pctOnTime = (zeroDelayCount / delayStats.length) * 100;
+      avgDelay = delayStats.reduce((sum, d) => sum + d.delayDays, 0) / delayStats.length;
+      maxDelay = Math.max(...delayStats.map(d => d.delayDays));
+      const onTimeCount = delayStats.filter(d => d.isOnTime).length;
+      pctOnTime = (onTimeCount / delayStats.length) * 100;
     }
 
     return NextResponse.json({
@@ -471,7 +589,8 @@ export async function POST() {
 
     const dbOrdersMap = new Map<string, any>();
     dbOrdersList.forEach(o => {
-      dbOrdersMap.set(o.legacy_code.trim().toUpperCase(), {
+      const codes = o.legacy_code.split(/[\/,]/).map((c: string) => c.trim().toUpperCase());
+      const orderObj = {
         id: o.id,
         legacy_code: o.legacy_code,
         status: o.status,
@@ -479,13 +598,17 @@ export async function POST() {
         payment_method_id: o.payment_method_id,
         customer_name: o.customer_name,
         items: []
+      };
+      codes.forEach((c: string) => {
+        dbOrdersMap.set(c, orderObj);
       });
     });
 
     dbItemsList.forEach(item => {
       for (const order of dbOrdersList) {
         if (item.order_id === order.id) {
-          const mapped = dbOrdersMap.get(order.legacy_code.trim().toUpperCase());
+          const firstCode = order.legacy_code.split(/[\/,]/)[0].trim().toUpperCase();
+          const mapped = dbOrdersMap.get(firstCode);
           if (mapped) {
             mapped.items.push(item);
           }
@@ -539,6 +662,7 @@ export async function POST() {
       status: string;
       sheetTotal: number;
       sheetPayment: string;
+      sheetPayments: Set<string>;
       sheetItems: any[];
     }>();
 
@@ -554,7 +678,7 @@ export async function POST() {
         continue;
       }
 
-      const isDelivered = status.toLowerCase().includes("entregado");
+      const isDelivered = status.toLowerCase().includes("entregado") && !status.toLowerCase().includes("no entregado");
       if (!isDelivered) continue;
 
       checkedLogiRows++;
@@ -586,41 +710,32 @@ export async function POST() {
         }
       }
 
-      if (aggregatedSheetOrders.has(code)) {
-        const existing = aggregatedSheetOrders.get(code)!;
+      const dbOrder = dbOrdersMap.get(code);
+      const key = dbOrder ? dbOrder.legacy_code.trim().toUpperCase() : code;
+
+      if (aggregatedSheetOrders.has(key)) {
+        const existing = aggregatedSheetOrders.get(key)!;
         existing.sheetTotal += rowTotal;
-        if (rowPayment && !existing.sheetPayment) {
-          existing.sheetPayment = rowPayment;
+        if (rowPayment) {
+          existing.sheetPayments.add(rowPayment);
+          if (!existing.sheetPayment) {
+            existing.sheetPayment = rowPayment;
+          }
         }
         rowItems.forEach(ri => existing.sheetItems.push(ri));
       } else {
-        aggregatedSheetOrders.set(code, {
-          code,
+        const pSet = new Set<string>();
+        if (rowPayment) pSet.add(rowPayment);
+        aggregatedSheetOrders.set(key, {
+          code: dbOrder ? dbOrder.legacy_code : code,
           status,
           sheetTotal: rowTotal,
           sheetPayment: rowPayment,
+          sheetPayments: pSet,
           sheetItems: rowItems
         });
       }
     }
-
-    // Summarize quantities for duplicate items with the exact same name and price (user request)
-    const summarizeItems = (items: any[]) => {
-      const summarized: any[] = [];
-      for (const item of items) {
-        const cleanName = cleanProductName(item.product_name);
-        const match = summarized.find(s => 
-          cleanProductName(s.product_name) === cleanName && 
-          Math.abs(s.unit_price - item.unit_price) < 1.0
-        );
-        if (match) {
-          match.quantity += item.quantity;
-        } else {
-          summarized.push({ ...item });
-        }
-      }
-      return summarized;
-    };
 
     for (const sheetOrder of aggregatedSheetOrders.values()) {
       sheetOrder.sheetItems = summarizeItems(sheetOrder.sheetItems);
@@ -632,9 +747,10 @@ export async function POST() {
     console.log(`POST: Loop started over ${aggregatedSheetOrders.size} aggregated sheet orders...`);
     for (const sheetOrder of aggregatedSheetOrders.values()) {
       const code = sheetOrder.code;
+      const firstCode = code.split(/[\/,]/)[0].trim().toUpperCase();
 
-      if (dbOrdersMap.has(code)) {
-        const dbOrder = dbOrdersMap.get(code);
+      if (dbOrdersMap.has(firstCode)) {
+        const dbOrder = dbOrdersMap.get(firstCode);
 
         const sheetTotal = sheetOrder.sheetTotal;
         const sheetPayment = sheetOrder.sheetPayment;
@@ -658,10 +774,14 @@ export async function POST() {
         }
 
         // C. Check payment method (only if spreadsheet has one specified)
-        if (sheetPayment) {
-          if (!sheetPaymentId) {
-            needsUpdate = true;
-          } else if (dbOrder.payment_method_id !== sheetPaymentId) {
+        const sheetPaymentIds = new Set<string>();
+        sheetOrder.sheetPayments.forEach((sp: string) => {
+          const id = getPaymentMethodId(sp);
+          if (id) sheetPaymentIds.add(id);
+        });
+
+        if (sheetPaymentIds.size > 0) {
+          if (!dbOrder.payment_method_id || !sheetPaymentIds.has(dbOrder.payment_method_id)) {
             needsUpdate = true;
           }
         }
