@@ -27,7 +27,8 @@ CreditCard,
   MessageSquare,
   GripVertical,
   Printer,
-  RotateCcw
+  RotateCcw,
+  X
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { formatPrice } from "@/lib/utils";
@@ -100,6 +101,10 @@ export default function RuteoPage() {
   const [editingOrderItems, setEditingOrderItems] = useState<{ id: string | null; product_name: string; quantity: number; unit_price: number }[]>([]);
   const [editChangeReason, setEditChangeReason] = useState("");
   const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [showRuteoPostponementModal, setShowRuteoPostponementModal] = useState(false);
+  const [ruteoPostponementReasonType, setRuteoPostponementReasonType] = useState<'cliente' | 'empresa'>('cliente');
+  const [ruteoPostponementMotive, setRuteoPostponementMotive] = useState("");
+  const [hasDeclaredRuteoPostponementReason, setHasDeclaredRuteoPostponementReason] = useState(false);
 
   const [editCustomerName, setEditCustomerName] = useState("");
   const [editAddress, setEditAddress] = useState("");
@@ -1356,6 +1361,17 @@ export default function RuteoPage() {
       return;
     }
 
+    const toUpdate = filteredPending.filter(d => selectedDeliveryIds.has(d.id));
+    const postponedDeliveries = toUpdate.filter(d => {
+      if (!d.delivery_date) return false;
+      return new Date(bulkDeliveryDate) > new Date(d.delivery_date);
+    });
+
+    if (postponedDeliveries.length > 0 && !hasDeclaredRuteoPostponementReason) {
+      setShowRuteoPostponementModal(true);
+      return;
+    }
+
     try {
       setSavingBulk(true);
 
@@ -1403,6 +1419,9 @@ export default function RuteoPage() {
       const toUpdate = filteredPending.filter(d => selectedDeliveryIds.has(d.id));
 
       for (const del of toUpdate) {
+        const originalDate = del.delivery_date;
+        const isPostponed = originalDate && (new Date(bulkDeliveryDate) > new Date(originalDate));
+
         const { error } = await supabase
           .from('deliveries')
           .update({
@@ -1417,6 +1436,20 @@ export default function RuteoPage() {
           .eq('id', del.id);
 
         if (error) throw error;
+
+        if (isPostponed && hasDeclaredRuteoPostponementReason) {
+          await supabase
+            .from('delivery_postponements')
+            .insert({
+              delivery_id: del.id,
+              original_date: originalDate,
+              new_date: bulkDeliveryDate,
+              reason_type: ruteoPostponementReasonType,
+              motive: ruteoPostponementMotive || null,
+              created_by_name: "Logística / Ruteo"
+            });
+        }
+
         nextOrder++;
       }
 
@@ -1427,6 +1460,9 @@ export default function RuteoPage() {
       alert("Error en asignación masiva: " + (err as AppError).message);
     } finally {
       setSavingBulk(false);
+      setHasDeclaredRuteoPostponementReason(false);
+      setRuteoPostponementMotive("");
+      setRuteoPostponementReasonType('cliente');
     }
   };
 
@@ -5703,6 +5739,101 @@ export default function RuteoPage() {
                   </button>
                 </>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* RUTEO POSTPONEMENT MODAL */}
+      {showRuteoPostponementModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md flex flex-col animate-in zoom-in-95 duration-200">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50 rounded-t-3xl">
+              <div>
+                <h2 className="text-sm font-black text-slate-900 uppercase tracking-wider">Reprogramación de Entrega</h2>
+                <p className="text-[10px] font-bold text-slate-500 mt-0.5">Por favor, registra el motivo por el cual se pospone la fecha.</p>
+              </div>
+              <button 
+                onClick={() => {
+                  setShowRuteoPostponementModal(false);
+                  setHasDeclaredRuteoPostponementReason(false);
+                }} 
+                className="p-1.5 hover:bg-slate-200 rounded-full transition-colors text-slate-500"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              <div>
+                <span className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">Clasificación del Retraso</span>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setRuteoPostponementReasonType('cliente')}
+                    className={`py-3 px-4 rounded-xl border text-xs font-black uppercase tracking-wider transition-all flex flex-col items-center gap-1 cursor-pointer ${
+                      ruteoPostponementReasonType === 'cliente'
+                        ? 'border-brand-500 bg-brand-50/50 text-brand-700 shadow-sm'
+                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    👤 Temas del Cliente
+                    <span className="text-[9px] font-bold text-slate-400 lowercase italic normal-case font-normal">no está, reprogramó él, etc.</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRuteoPostponementReasonType('empresa')}
+                    className={`py-3 px-4 rounded-xl border text-xs font-black uppercase tracking-wider transition-all flex flex-col items-center gap-1 cursor-pointer ${
+                      ruteoPostponementReasonType === 'empresa'
+                        ? 'border-brand-500 bg-brand-50/50 text-brand-700 shadow-sm'
+                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    🚚 Temas de Empresa / Logística
+                    <span className="text-[9px] font-bold text-slate-400 lowercase italic normal-case font-normal">falta stock, camión lleno, etc.</span>
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <span className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1.5">Detalle / Observación</span>
+                <textarea
+                  value={ruteoPostponementMotive}
+                  onChange={(e) => setRuteoPostponementMotive(e.target.value)}
+                  placeholder="Ej: El camión no tenía espacio y se reprogramó..."
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-semibold focus:border-brand-500 focus:ring-1 focus:ring-brand-500 outline-none h-24 bg-white"
+                />
+              </div>
+            </div>
+
+            <div className="p-6 border-t border-slate-100 bg-slate-50 flex items-center justify-end gap-2 rounded-b-3xl">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowRuteoPostponementModal(false);
+                  setHasDeclaredRuteoPostponementReason(false);
+                }}
+                className="px-4 py-2 border border-slate-200 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-100 transition-all cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!ruteoPostponementMotive.trim()) {
+                    alert("Por favor, ingresá una observación para el retraso.");
+                    return;
+                  }
+                  setShowRuteoPostponementModal(false);
+                  setHasDeclaredRuteoPostponementReason(true);
+                  setTimeout(() => {
+                    handleSaveRouteBulk();
+                  }, 50);
+                }}
+                className="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl text-xs shadow-md shadow-brand-500/10 transition-all cursor-pointer"
+              >
+                Confirmar Reprogramación
+              </button>
             </div>
           </div>
         </div>

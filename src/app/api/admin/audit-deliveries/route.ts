@@ -186,6 +186,11 @@ export async function GET() {
       }
     });
 
+    // Fetch database postponements
+    const { data: dbPostponements } = await supabaseAdmin
+      .from('delivery_postponements')
+      .select('id, delivery_id, original_date, new_date, reason_type, motive, created_at, created_by_name, deliveries(order_id, orders(legacy_code, customer_name))');
+
     // 3. Process CSV Rows
     const orderAttempts = new Map<string, any>();
     let checkedCount = 0;
@@ -238,6 +243,41 @@ export async function GET() {
       if (isDelivered) {
         checkedCount++;
       }
+    }
+
+    // Merge database postponements into orderAttempts map
+    if (dbPostponements && dbPostponements.length > 0) {
+      dbPostponements.forEach((dp: any) => {
+        const order = dp.deliveries?.orders;
+        if (!order) return;
+        const codes = (order.legacy_code || "").split(/[\/,]/).map((c: string) => c.trim().toUpperCase());
+        const code = codes[0];
+        if (!code) return;
+
+        if (!orderAttempts.has(code)) {
+          orderAttempts.set(code, {
+            code,
+            client: order.customer_name || dp.created_by_name || "Cliente",
+            initialDateStr: dp.original_date ? new Date(dp.original_date + 'T12:00:00').toLocaleDateString('es-AR') : "",
+            limitDateStr: dp.new_date ? new Date(dp.new_date + 'T12:00:00').toLocaleDateString('es-AR') : "",
+            attempts: []
+          });
+        }
+
+        const formattedDate = dp.created_at ? new Date(dp.created_at).toLocaleDateString('es-AR') : "";
+        const isDuplicate = orderAttempts.get(code).attempts.some((a: any) => 
+          a.dateStr === formattedDate && 
+          (a.status || "").toLowerCase().includes("postergado")
+        );
+
+        if (!isDuplicate) {
+          orderAttempts.get(code).attempts.push({
+            dateStr: formattedDate,
+            status: `Postergado (${dp.reason_type === 'cliente' ? 'Cliente' : 'Logística'})`,
+            motive: dp.motive || "Reprogramación en sistema"
+          });
+        }
+      });
     }
 
     const aggregatedSheetOrders = new Map<string, {

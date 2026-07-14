@@ -473,13 +473,20 @@ export default function ImportarPedidosPage() {
 
       const findExistingOrder = (orderCode: string) => {
         const code = orderCode.trim().toUpperCase();
-        if (existingOrdersMap.has(code)) {
-          return existingOrdersMap.get(code);
+        const incomingParts = code.split(/[\/,]/).map(p => p.trim()).filter(Boolean);
+        
+        for (const part of incomingParts) {
+          if (existingOrdersMap.has(part)) {
+            return existingOrdersMap.get(part);
+          }
         }
+        
         for (const [key, val] of existingOrdersMap.entries()) {
           const parts = key.split(/[\/,]/).map(p => p.trim().toUpperCase());
-          if (parts.includes(code)) {
-            return val;
+          for (const part of incomingParts) {
+            if (parts.includes(part)) {
+              return val;
+            }
           }
         }
         return null;
@@ -1824,7 +1831,12 @@ export default function ImportarPedidosPage() {
             }
           }
           
-              existingOrdersMap.set(orderCode, { id: orderId, status: dbOrderStatus });
+              const parts = orderCode.split(/[\/,]/).map((c: string) => c.trim().toUpperCase());
+              parts.forEach((code: string) => {
+                if (code) {
+                  existingOrdersMap.set(code, { id: orderId, status: dbOrderStatus });
+                }
+              });
               addLog(`Pedido ${orderCode} importado con éxito.`);
             })(), 20000, "Tiempo de espera agotado en operaciones de base de datos (20s)");
           } catch (err) {

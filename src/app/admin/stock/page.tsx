@@ -217,17 +217,35 @@ export default function StockControlPage() {
           </div>
         </div>
 
-        {/* Warning / Informational Card */}
-        <div className="bg-blue-50/50 border border-blue-100 p-5 rounded-2xl flex gap-3 text-blue-800 text-xs font-medium">
-          <Info className="w-5 h-5 text-blue-500 shrink-0" />
-          <div className="space-y-1">
-            <span className="block font-black text-blue-900 uppercase tracking-wider">¿Cómo funciona la sincronización y cálculo de stock?</span>
-            <ul className="list-disc pl-4 space-y-1 text-blue-700">
-              <li>El <b>Stock Actual (Físico)</b> se actualiza tomando el valor ingresado en la planilla.</li>
-              <li>El <b>Stock Reservado</b> se calcula automáticamente sumando el stock comprometido en los pedidos en estados activos (<i>Pendiente, Confirmado</i>), excluyendo <i>Entregando</i> ya que su mercadería ya fue restada del stock físico de la planilla.</li>
-              <li>El <b>Stock Disponible</b> se actualiza como la diferencia: <code>Disponible = Físico - Reservado</code>.</li>
-              <li>En la comparativa inferior se resaltan en amarillo los productos donde el stock reservado de la planilla difiere del calculado en base a los pedidos reales del sistema. Esto te ayuda a auditar inconsistencias.</li>
-            </ul>
+        {/* Info & Warning Cards Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* How it works Card */}
+          <div className="bg-blue-50/50 border border-blue-100 p-5 rounded-2xl flex gap-3 text-blue-800 text-xs font-medium">
+            <Info className="w-5 h-5 text-blue-500 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <span className="block font-black text-blue-900 uppercase tracking-wider">¿Cómo funciona la sincronización y cálculo de stock?</span>
+              <ul className="list-disc pl-4 space-y-1 text-blue-700">
+                <li>El <b>Stock Actual (Físico)</b> se actualiza tomando el valor ingresado en la planilla.</li>
+                <li>El <b>Stock Reservado</b> se calcula automáticamente sumando el stock comprometido en los pedidos en estados activos (<i>Pendiente, Confirmado</i>), excluyendo <i>Entregando</i> ya que su mercadería ya fue restada del stock físico de la planilla.</li>
+                <li>El <b>Stock Disponible</b> se actualiza como la diferencia: <code>Disponible = Físico - Reservado</code>.</li>
+                <li>En la comparativa inferior se resaltan en amarillo los productos donde el stock reservado de la planilla difiere del calculado en base a los pedidos reales del sistema. Esto te ayuda a auditar inconsistencias.</li>
+              </ul>
+            </div>
+          </div>
+
+          {/* Potential Discrepancy Reasons Card */}
+          <div className="bg-amber-50/50 border border-amber-100 p-5 rounded-2xl flex gap-3 text-amber-800 text-xs font-medium">
+            <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <span className="block font-black text-amber-900 uppercase tracking-wider">¿Por qué pueden existir diferencias de stock?</span>
+              <p className="text-amber-700 font-semibold mb-1">Si detectas discrepancias entre la planilla y el sistema, puede deberse a:</p>
+              <ul className="list-decimal pl-4 space-y-1 text-amber-700">
+                <li><b>Pedidos de Central no importados:</b> Los pedidos nuevos cargados en Central aún no se han sincronizado a la base de datos del sistema.</li>
+                <li><b>Pedidos de Logística desactualizados:</b> Falta actualizar o cargar las planillas más recientes de logística.</li>
+                <li><b>Pedidos de vendedores pendientes:</b> Hay pedidos de vendedores que afectan el stock reservado pero aún no fueron transferidos a Central.</li>
+                <li><b>Pedidos en proceso de entrega:</b> Pedidos en estado <i>"Entregando"</i> donde la mercadería ya salió física pero no se ha asentado aún en la planilla de stock.</li>
+              </ul>
+            </div>
           </div>
         </div>
 

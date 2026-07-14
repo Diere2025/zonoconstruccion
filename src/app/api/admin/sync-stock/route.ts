@@ -14,7 +14,8 @@ const normalizeText = (text: string): string => {
     .trim()
     .toLowerCase()
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, ""); // remove accents
+    .replace(/[\u0300-\u036f]/g, "") // remove accents
+    .replace(/[^a-z0-9]/g, ""); // remove spaces, quotes, and symbols for robust matching
 };
 
 function parseCSV(text: string): any[] {

@@ -523,6 +523,27 @@ export default function PedidosPage() {
   const [paymentState, setPaymentState] = useState<'unpaid' | 'partial' | 'paid'>('unpaid');
   const [depositAmountInput, setDepositAmountInput] = useState<number>(0);
 
+  // Dynamic payments list
+  interface PaymentBreakdownItem {
+    id: string;
+    payment_method_id: string;
+    amount: number;
+    card_installments?: number;
+    card_surcharge?: number;
+    receipt_url?: string;
+    notes?: string;
+    created_at?: string;
+  }
+  const [paymentsList, setPaymentsList] = useState<PaymentBreakdownItem[]>([
+    {
+      id: Math.random().toString(36).substring(2, 9),
+      payment_method_id: "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3", // default cash/transfer ID
+      amount: 0,
+      receipt_url: "",
+      notes: ""
+    }
+  ]);
+
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>("");
   const [adminSellerFilter, setAdminSellerFilter] = useState<string>("mis_kits");
   const [selectedKitId, setSelectedKitId] = useState<string>("");
@@ -903,6 +924,32 @@ export default function PedidosPage() {
     }
   };
 
+  const handlePaymentReceiptUpload = async (id: string, file: File) => {
+    setUploadingReceipt(true);
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `payment_${id}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
+      const filePath = `receipts/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('product-images')
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: publicUrlData } = supabase.storage
+        .from('product-images')
+        .getPublicUrl(filePath);
+
+      setPaymentsList(prev => prev.map(p => p.id === id ? { ...p, receipt_url: publicUrlData.publicUrl } : p));
+    } catch (err: any) {
+      console.error("Error al subir el comprobante del pago:", err);
+      alert("Error al subir el comprobante: " + err.message);
+    } finally {
+      setUploadingReceipt(false);
+    }
+  };
+
   const selectedPaymentMethod = (() => {
     if (paymentType === 'efectivo') {
       const cashMethod = dbPaymentMethods.find(pm => pm.id === "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3") || 
@@ -954,6 +1001,11 @@ export default function PedidosPage() {
   }, []);
 
   const [showSummaryModal, setShowSummaryModal] = useState(false);
+  const [showPostponementModal, setShowPostponementModal] = useState(false);
+  const [originalDeliveryDate, setOriginalDeliveryDate] = useState("");
+  const [postponementReasonType, setPostponementReasonType] = useState<'cliente' | 'empresa'>('cliente');
+  const [postponementMotive, setPostponementMotive] = useState("");
+  const [hasDeclaredPostponementReason, setHasDeclaredPostponementReason] = useState(false);
 
   // Helper to generate next sequential legacy code for a seller
   const generateNextLegacyCode = async (userId: string) => {
@@ -1801,7 +1853,9 @@ export default function PedidosPage() {
       }
       
       setFlete(order.freight_type || "");
-      setEntregaInicial(order.initial_delivery_date ? order.initial_delivery_date.split('T')[0] : "");
+      const initDelDateStr = order.initial_delivery_date ? order.initial_delivery_date.split('T')[0] : "";
+      setEntregaInicial(initDelDateStr);
+      setOriginalDeliveryDate(initDelDateStr);
       setEntregaMaxima(order.max_delivery_date ? order.max_delivery_date.split('T')[0] : "");
       setFechaPedido(order.order_date ? order.order_date.split('T')[0] : order.created_at.split('T')[0]);
       setWhaticketLink(order.whaticket_link || "");
@@ -1847,6 +1901,43 @@ export default function PedidosPage() {
       }
       
       setDepositReceiptUrl(totalsObj.deposit_receipt_url || "");
+
+      // Load payments breakdown if available, else load fallback
+      if (totalsObj.payments_breakdown && Array.isArray(totalsObj.payments_breakdown)) {
+        setPaymentsList(totalsObj.payments_breakdown);
+      } else {
+        const fallbackPmId = orderPmId || "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3";
+        let paymentAmount = 0;
+        if (payStatus === 'Abonado') {
+          paymentAmount = order.total_amount || 0;
+        } else if (payStatus === 'Seniado') {
+          paymentAmount = totalsObj.deposit_amount || 0;
+        }
+
+        // Subtract surcharge if loaded under a card plan to get the base amount
+        let baseAmount = paymentAmount;
+        let surchargePercentage = 0;
+        if (isCardOrSurcharge) {
+          const pmObj = dbPaymentMethods.find(p => p.id === fallbackPmId);
+          surchargePercentage = pmObj?.surcharge_percentage || 0;
+          if (surchargePercentage > 0) {
+            baseAmount = paymentAmount / (1 + surchargePercentage / 100);
+          }
+        }
+
+        setPaymentsList([
+          {
+            id: Math.random().toString(36).substring(2, 9),
+            payment_method_id: fallbackPmId,
+            amount: Number(baseAmount.toFixed(2)),
+            card_installments: isCardOrSurcharge ? (totalsObj.installments || pm?.installments || 1) : undefined,
+            card_surcharge: isCardOrSurcharge ? surchargePercentage : undefined,
+            receipt_url: totalsObj.deposit_receipt_url || "",
+            notes: payStatus === 'Seniado' ? "Seña inicial (Migrado)" : (payStatus === 'Abonado' ? "Pago completo (Migrado)" : ""),
+            created_at: order.created_at
+          }
+        ]);
+      }
       
       // 6. Origen y Recepción
       setLegacyCode(order.legacy_code || "");
@@ -2100,16 +2191,55 @@ export default function PedidosPage() {
   };
 
   const subtotal = orderItems.reduce((acc, item) => acc + item.customPrice * item.quantity, 0);
-  const surcharge = subtotal * (selectedPaymentMethod.surcharge_percentage / 100);
   const shippingAmount = isFreeShipping ? 0 : shippingCost;
-  const subtotalWithSurchargeAndShipping = subtotal + surcharge + shippingAmount;
+
+  // Calculate surcharges and totals dynamically per payment item (Proportional Surcharges)
+  const paymentsWithSurcharges = paymentsList.map(p => {
+    const pm = dbPaymentMethods.find(m => m.id === p.payment_method_id) || { id: "", name: "", surcharge_percentage: 0, installments: 1 };
+    
+    // If it's a card method (excluding the default cash/transfer ID and checking for card-like names or surcharge)
+    const isCard = pm.id && pm.id !== "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3" && 
+                   ((pm.surcharge_percentage || 0) > 0 || 
+                    (pm.name && (pm.name.toLowerCase().includes("tarjeta") || pm.name.toLowerCase().includes("cuota") || pm.name.toLowerCase().includes("link"))));
+    
+    const surchargePct = isCard 
+      ? (p.card_surcharge !== undefined ? p.card_surcharge : pm.surcharge_percentage) 
+      : 0;
+    
+    const installments = isCard
+      ? (p.card_installments !== undefined ? p.card_installments : pm.installments)
+      : 1;
+
+    const surchargeVal = p.amount * (surchargePct / 100);
+    
+    return {
+      ...p,
+      isCard,
+      surchargePercentage: surchargePct,
+      surchargeValue: surchargeVal,
+      installments,
+      totalAmount: p.amount + surchargeVal
+    };
+  });
+
+  const totalSurcharges = paymentsWithSurcharges.reduce((acc, p) => acc + p.surchargeValue, 0);
+  const subtotalWithSurchargeAndShipping = subtotal + totalSurcharges + shippingAmount;
   const ivaAmount = includeIVA ? subtotalWithSurchargeAndShipping * 0.21 : 0;
   const total = subtotalWithSurchargeAndShipping + ivaAmount;
 
   // derived values
-  const hasDeposit = paymentState !== 'unpaid';
-  const depositAmount = paymentState === 'paid' ? total : (paymentState === 'partial' ? depositAmountInput : 0);
-  const pendingBalance = Math.max(0, total - depositAmount);
+  const totalPaid = paymentsWithSurcharges.reduce((acc, p) => acc + p.totalAmount, 0);
+  const pendingBalance = Math.max(0, total - totalPaid);
+  const hasDeposit = totalPaid > 0;
+  const depositAmount = totalPaid;
+  const surcharge = totalSurcharges; // Alias to match other variables in page.tsx
+
+  // Auto-sync paymentState and depositAmountInput with breakdown totals
+  useEffect(() => {
+    const state = totalPaid === 0 ? 'unpaid' : (pendingBalance <= 0.05 ? 'paid' : 'partial');
+    setPaymentState(state);
+    setDepositAmountInput(totalPaid);
+  }, [totalPaid, pendingBalance]);
 
   const filteredClients = clientSearchQuery.trim()
     ? clients.filter(c => 
@@ -2263,6 +2393,13 @@ export default function PedidosPage() {
   };
 
   const confirmAndSubmit = async () => {
+    const isPostponed = editingOrderId && originalDeliveryDate && (new Date(entregaInicial) > new Date(originalDeliveryDate));
+    if (isPostponed && !hasDeclaredPostponementReason) {
+      setShowSummaryModal(false);
+      setShowPostponementModal(true);
+      return;
+    }
+
     setShowSummaryModal(false);
     setSubmitting(true);
     try {
@@ -2380,7 +2517,7 @@ export default function PedidosPage() {
             google_maps_link: linkMaps,
             delivery_notes: aclaraciones || null,
             whaticket_link: whaticketLink || null,
-            payment_method_id: selectedPaymentMethod.id,
+            payment_method_id: paymentsList[0]?.payment_method_id || 'a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3',
             freight_type: flete,
             total_amount: total,
             totals: {
@@ -2391,8 +2528,9 @@ export default function PedidosPage() {
               total,
               has_deposit: hasDeposit,
               deposit_amount: hasDeposit ? depositAmount : 0,
-              deposit_receipt_url: hasDeposit ? depositReceiptUrl : "",
-              pending_balance: pendingBalance
+              deposit_receipt_url: paymentsList.find(p => p.receipt_url)?.receipt_url || "",
+              pending_balance: pendingBalance,
+              payments_breakdown: paymentsList
             },
             payment_status: paymentState === 'paid' ? 'Abonado' : (paymentState === 'partial' ? 'Seniado' : 'Pendiente'),
             logistics_zone_id: localities.find(l => l.id === localidadId)?.zone_id || null,
@@ -2418,6 +2556,28 @@ export default function PedidosPage() {
           .from('deliveries')
           .update({ delivery_date: entregaInicial })
           .eq('order_id', editingOrderId);
+
+        if (isPostponed) {
+          const { data: delData } = await supabase
+            .from('deliveries')
+            .select('id')
+            .eq('order_id', editingOrderId)
+            .maybeSingle();
+
+          if (delData) {
+            await supabase
+              .from('delivery_postponements')
+              .insert({
+                delivery_id: delData.id,
+                original_date: originalDeliveryDate,
+                new_date: entregaInicial,
+                reason_type: postponementReasonType,
+                motive: postponementMotive || null,
+                created_by_id: seller_id,
+                created_by_name: isNewClient ? newClientName : (cliente || "Vendedor")
+              });
+          }
+        }
 
         // Cancelar reservas antiguas
         if (oldItems && oldItems.length > 0) {
@@ -2462,7 +2622,7 @@ export default function PedidosPage() {
             google_maps_link: linkMaps,
             delivery_notes: aclaraciones || null,
             whaticket_link: whaticketLink || null,
-            payment_method_id: selectedPaymentMethod.id,
+            payment_method_id: paymentsList[0]?.payment_method_id || 'a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3',
             freight_type: flete,
             total_amount: total,
             status: orderStatus,
@@ -2474,8 +2634,9 @@ export default function PedidosPage() {
               total,
               has_deposit: hasDeposit,
               deposit_amount: hasDeposit ? depositAmount : 0,
-              deposit_receipt_url: hasDeposit ? depositReceiptUrl : "",
-              pending_balance: pendingBalance
+              deposit_receipt_url: paymentsList.find(p => p.receipt_url)?.receipt_url || "",
+              pending_balance: pendingBalance,
+              payments_breakdown: paymentsList
             },
             channel: sellerType === 'mayorista' ? 'mayorista' : 'vendedor_externo',
             payment_status: paymentState === 'paid' ? 'Abonado' : (paymentState === 'partial' ? 'Seniado' : 'Pendiente'),
@@ -2533,6 +2694,10 @@ export default function PedidosPage() {
       }
       
       // Reset form
+      setOriginalDeliveryDate("");
+      setHasDeclaredPostponementReason(false);
+      setPostponementMotive("");
+      setPostponementReasonType('cliente');
       setEntregaInicial("");
       setEntregaMaxima("");
       setFechaPedido(() => {
@@ -2564,6 +2729,15 @@ export default function PedidosPage() {
       setPaymentState('unpaid');
       setDepositAmountInput(0);
       setDepositReceiptUrl("");
+      setPaymentsList([
+        {
+          id: Math.random().toString(36).substring(2, 9),
+          payment_method_id: "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3",
+          amount: 0,
+          receipt_url: "",
+          notes: ""
+        }
+      ]);
       setSelectedClientId("");
       setSelectedAddressId("");
       setClientSearchQuery("");
@@ -2649,6 +2823,10 @@ export default function PedidosPage() {
                 type="button"
                 onClick={() => {
                   setEditingOrderId(null);
+                  setOriginalDeliveryDate("");
+                  setHasDeclaredPostponementReason(false);
+                  setPostponementMotive("");
+                  setPostponementReasonType('cliente');
                   setEntregaInicial("");
                   setEntregaMaxima("");
                   setFechaPedido(() => {
@@ -2672,6 +2850,15 @@ export default function PedidosPage() {
                   setPaymentState('unpaid');
                   setDepositAmountInput(0);
                   setDepositReceiptUrl("");
+                  setPaymentsList([
+                    {
+                      id: Math.random().toString(36).substring(2, 9),
+                      payment_method_id: "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3",
+                      amount: 0,
+                      receipt_url: "",
+                      notes: ""
+                    }
+                  ]);
                   setSelectedClientId("");
                   setSelectedAddressId("");
                   setClientSearchQuery("");
@@ -3870,101 +4057,190 @@ export default function PedidosPage() {
                 )}
               </div>
 
-              {/* Método de Pago */}
+              {/* Métodos de Pago / Financiación */}
               <div className="space-y-4 bg-slate-50/90 p-4 rounded-xl border border-slate-200/95">
-                <h3 className="flex items-center gap-1.5 font-black text-slate-800 border-b border-slate-200/60 pb-1.5 mb-3 text-xs uppercase tracking-wider">
-                  <CreditCard className="w-4 h-4 text-brand-500" /> Método de Pago
-                </h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <label className={`flex items-center justify-between p-2.5 rounded-xl border cursor-pointer transition-all ${paymentType === 'efectivo' ? 'border-brand-600 bg-brand-50/80 ring-2 ring-brand-600/40 shadow-sm scale-[1.01]' : 'border-slate-200 hover:border-slate-300 bg-white'}`}>
-                    <div className="flex items-center gap-2.5">
-                      <input 
-                        type="radio" 
-                        name="paymentType" 
-                        className="w-3.5 h-3.5 text-brand-600 cursor-pointer focus:ring-brand-500/10"
-                        checked={paymentType === 'efectivo'}
-                        onChange={() => setPaymentType('efectivo')}
-                      />
-                      <span className={`text-[10px] ${paymentType === 'efectivo' ? 'text-brand-900 font-extrabold' : 'font-bold text-slate-800'}`}>Efectivo / Transferencia</span>
-                    </div>
-                    {paymentType === 'efectivo' && (
-                      <div className="w-3.5 h-3.5 rounded-full bg-brand-600 flex items-center justify-center text-white shrink-0">
-                        <Check className="w-2 h-2 stroke-[3.5]" />
-                      </div>
-                    )}
-                  </label>
+                <div className="flex items-center justify-between border-b border-slate-200/60 pb-1.5 mb-3">
+                  <h3 className="flex items-center gap-1.5 font-black text-slate-800 text-xs uppercase tracking-wider">
+                    <CreditCard className="w-4 h-4 text-brand-500" /> Detalle de Pagos y Financiación
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPaymentsList(prev => [
+                        ...prev,
+                        {
+                          id: Math.random().toString(36).substring(2, 9),
+                          payment_method_id: "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3",
+                          amount: 0,
+                          receipt_url: "",
+                          notes: ""
+                        }
+                      ]);
+                    }}
+                    className="text-[9px] font-black text-brand-600 hover:text-brand-700 transition-colors flex items-center gap-1 uppercase tracking-wider cursor-pointer"
+                  >
+                    <Plus className="w-3 h-3" /> Agregar Pago
+                  </button>
+                </div>
 
-                  <label className={`flex flex-col p-2.5 rounded-xl border cursor-pointer transition-all ${paymentType === 'tarjeta' ? 'border-brand-600 bg-brand-50/80 ring-2 ring-brand-600/40 shadow-sm scale-[1.01]' : 'border-slate-200 hover:border-slate-300 bg-white'}`}>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2.5">
-                        <input 
-                          type="radio" 
-                          name="paymentType" 
-                          className="w-3.5 h-3.5 text-brand-600 cursor-pointer focus:ring-brand-500/10"
-                          checked={paymentType === 'tarjeta'}
-                          onChange={() => setPaymentType('tarjeta')}
-                        />
-                        <span className={`text-[10px] ${paymentType === 'tarjeta' ? 'text-brand-900 font-extrabold' : 'font-bold text-slate-800'}`}>Tarjeta / Recargo</span>
-                      </div>
-                      {paymentType === 'tarjeta' && (
-                        <div className="w-3.5 h-3.5 rounded-full bg-brand-600 flex items-center justify-center text-white shrink-0">
-                          <Check className="w-2 h-2 stroke-[3.5]" />
-                        </div>
+                <div className="space-y-3.5">
+                  {paymentsWithSurcharges.map((p, idx) => (
+                    <div key={p.id} className="p-3 bg-white rounded-xl border border-slate-200 space-y-2.5 relative group animate-in fade-in duration-200">
+                      {paymentsList.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPaymentsList(prev => prev.filter(item => item.id !== p.id));
+                          }}
+                          className="absolute top-2 right-2 text-slate-400 hover:text-red-500 p-1.5 rounded-lg transition-colors cursor-pointer"
+                          title="Eliminar este pago"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       )}
-                    </div>
-                    
-                    {paymentType === 'tarjeta' && (
-                      <div className="mt-2 pt-2 border-t border-brand-100/50 flex flex-col gap-2" onClick={(e) => e.stopPropagation()}>
+
+                      <div className="flex items-center gap-1.5">
+                        <span className="bg-slate-100 text-slate-600 text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full">
+                          Pago #{idx + 1}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {/* Selector de Medio de Pago */}
                         <div className="flex flex-col gap-1">
-                          <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider">Plan / Medio de Pago</span>
+                          <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider">Medio de Pago</span>
                           <select
-                            value={selectedPaymentMethodId}
+                            value={p.payment_method_id}
                             onChange={(e) => {
                               const val = e.target.value;
-                              setSelectedPaymentMethodId(val);
-                              const pm = dbPaymentMethods.find(p => p.id === val);
-                              if (pm) {
-                                setCardSurcharge(pm.surcharge_percentage);
-                                setCardInstallments(pm.installments);
-                              }
+                              const pm = dbPaymentMethods.find(m => m.id === val);
+                              setPaymentsList(prev => prev.map(item => {
+                                if (item.id === p.id) {
+                                  return {
+                                    ...item,
+                                    payment_method_id: val,
+                                    card_surcharge: pm ? pm.surcharge_percentage : 0,
+                                    card_installments: pm ? pm.installments : 1
+                                  };
+                                }
+                                return item;
+                              }));
                             }}
-                            className="w-full px-2 py-1 text-[10px] font-bold border border-slate-200 rounded outline-none bg-white text-slate-700 focus:ring-2 focus:ring-brand-500/10"
+                            className="w-full px-2.5 py-1.5 text-xs font-bold border border-slate-200 rounded-lg outline-none bg-slate-50 text-slate-700 focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500"
                           >
-                            <option value="">-- Seleccionar Plan --</option>
-                            {dbPaymentMethods
-                              .filter(pm => pm.id !== "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3" && pm.name.toLowerCase() !== "efectivo")
-                              .map(pm => (
-                                <option key={pm.id} value={pm.id}>
-                                  {pm.name}
-                                </option>
-                              ))
-                            }
+                            {dbPaymentMethods.map(pm => (
+                              <option key={pm.id} value={pm.id}>
+                                {pm.name} {pm.surcharge_percentage > 0 ? `(+${pm.surcharge_percentage}% Recargo)` : ''}
+                              </option>
+                            ))}
                           </select>
                         </div>
 
-                        <div className="flex items-center gap-3 mt-1">
-                          <div className="flex-1 flex items-center gap-1.5">
-                            <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider whitespace-nowrap">Recargo %</span>
-                            <input 
+                        {/* Monto Base */}
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider">Monto a Acreditar</span>
+                          <div className="relative">
+                            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">$</span>
+                            <input
                               type="number"
-                              value={cardSurcharge}
-                              onChange={(e) => setCardSurcharge(Number(e.target.value))}
-                              className="w-full px-1 py-0.5 text-[10px] font-bold border border-slate-200 rounded text-center focus:ring-2 focus:ring-brand-500/10 outline-none bg-white text-red-500 font-bold"
-                            />
-                          </div>
-                          <div className="flex-1 flex items-center gap-1.5">
-                            <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider whitespace-nowrap">Cuotas</span>
-                            <input 
-                              type="number"
-                              value={cardInstallments}
-                              onChange={(e) => setCardInstallments(Number(e.target.value))}
-                              className="w-full px-1 py-0.5 text-[10px] font-bold border border-slate-200 rounded text-center focus:ring-2 focus:ring-brand-500/10 outline-none bg-white text-slate-700 font-bold"
+                              value={p.amount === 0 ? "" : p.amount}
+                              onChange={(e) => {
+                                const val = Math.max(0, Number(e.target.value));
+                                setPaymentsList(prev => prev.map(item => item.id === p.id ? { ...item, amount: val } : item));
+                              }}
+                              placeholder="Monto a abonar..."
+                              className="w-full pl-5 pr-2.5 py-1.5 border border-slate-200 rounded-lg text-xs font-bold outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 bg-slate-50"
                             />
                           </div>
                         </div>
                       </div>
-                    )}
-                  </label>
+
+                      {/* Configuración de Tarjeta Específica si corresponde */}
+                      {p.isCard && (
+                        <div className="bg-brand-50/50 p-2.5 rounded-lg border border-brand-100 flex flex-col sm:flex-row gap-3 items-center justify-between">
+                          <div className="flex items-center gap-3 w-full sm:w-auto">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider whitespace-nowrap">Recargo %</span>
+                              <input
+                                type="number"
+                                value={p.card_surcharge}
+                                onChange={(e) => {
+                                  const val = Number(e.target.value);
+                                  setPaymentsList(prev => prev.map(item => item.id === p.id ? { ...item, card_surcharge: val } : item));
+                                }}
+                                className="w-12 px-1 py-0.5 text-[10px] font-bold border border-slate-200 rounded text-center outline-none bg-white text-slate-700"
+                              />
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider whitespace-nowrap">Cuotas</span>
+                              <input
+                                type="number"
+                                value={p.card_installments}
+                                onChange={(e) => {
+                                  const val = Number(e.target.value);
+                                  setPaymentsList(prev => prev.map(item => item.id === p.id ? { ...item, card_installments: val } : item));
+                                }}
+                                className="w-12 px-1 py-0.5 text-[10px] font-bold border border-slate-200 rounded text-center outline-none bg-white text-slate-700"
+                              />
+                            </div>
+                          </div>
+                          <div className="text-[10px] font-extrabold text-brand-700 whitespace-nowrap">
+                            Cobrar en terminal: <span className="text-xs font-black">{formatPrice(p.totalAmount)}</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Comprobante de pago y notas */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 border-t border-slate-100">
+                        {/* Notas */}
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider">Notas de Pago</span>
+                          <input
+                            type="text"
+                            value={p.notes || ""}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setPaymentsList(prev => prev.map(item => item.id === p.id ? { ...item, notes: val } : item));
+                            }}
+                            placeholder="Ej: Seña inicial o Comentario..."
+                            className="w-full px-2 py-1.5 border border-slate-200 rounded-lg text-[10px] font-bold outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500"
+                          />
+                        </div>
+
+                        {/* Comprobante */}
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider">Comprobante de Pago</span>
+                          <div className="flex items-center gap-2">
+                            <label className="flex-1 flex items-center justify-center gap-1 py-1 border border-dashed border-slate-300 rounded-lg cursor-pointer bg-slate-50 hover:bg-slate-100 transition-colors text-slate-600">
+                              <UploadCloud className="w-3.5 h-3.5 text-slate-400" />
+                              <span className="text-[9px] font-extrabold">{uploadingReceipt ? "Subiendo..." : "Subir archivo"}</span>
+                              <input
+                                type="file"
+                                accept="image/*,application/pdf"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) handlePaymentReceiptUpload(p.id, file);
+                                }}
+                                className="hidden"
+                                disabled={uploadingReceipt}
+                              />
+                            </label>
+                            {p.receipt_url && (
+                              <a
+                                href={p.receipt_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="p-1.5 bg-brand-50 text-brand-600 hover:bg-brand-100 rounded-lg transition-colors border border-brand-100 shrink-0"
+                                title="Ver comprobante"
+                              >
+                                <FileText className="w-3.5 h-3.5" />
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
@@ -4077,101 +4353,46 @@ export default function PedidosPage() {
                     />
                   </label>
 
-                  {/* Pago de Seña */}
+                  {/* Resumen de Pagos Registrados */}
                   <div className="flex flex-col gap-2.5 p-2.5 bg-white rounded-xl border border-slate-200">
                     <span className="text-[9px] font-black text-slate-600 uppercase tracking-wide">Estado de Pago del Pedido</span>
-                    <div className="grid grid-cols-3 gap-1 bg-slate-100 p-1 rounded-lg">
-                      <button
-                        type="button"
-                        onClick={() => setPaymentState('unpaid')}
-                        className={`py-1.5 px-2 rounded-md text-[10px] font-black transition-all ${
-                          paymentState === 'unpaid'
-                            ? 'bg-red-500 text-white shadow-sm'
-                            : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
-                        }`}
-                      >
-                        ❌ Impago
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setPaymentState('partial')}
-                        className={`py-1.5 px-2 rounded-md text-[10px] font-black transition-all ${
-                          paymentState === 'partial'
-                            ? 'bg-amber-500 text-white shadow-sm'
-                            : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
-                        }`}
-                      >
-                        💵 Seña
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setPaymentState('paid')}
-                        className={`py-1.5 px-2 rounded-md text-[10px] font-black transition-all ${
-                          paymentState === 'paid'
-                            ? 'bg-emerald-600 text-white shadow-sm'
-                            : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
-                        }`}
-                      >
-                        ✅ Abonado
-                      </button>
+                    <div className="flex items-center gap-2">
+                      {paymentState === 'paid' ? (
+                        <span className="px-2 py-1 rounded bg-emerald-100 text-emerald-800 text-[10px] font-black uppercase tracking-wider flex items-center gap-1">
+                          <Check className="w-3 h-3 stroke-[3]" /> Completado (Abonado)
+                        </span>
+                      ) : paymentState === 'partial' ? (
+                        <span className="px-2 py-1 rounded bg-amber-100 text-amber-800 text-[10px] font-black uppercase tracking-wider flex items-center gap-1">
+                          💵 Parcial (Señado)
+                        </span>
+                      ) : (
+                        <span className="px-2 py-1 rounded bg-red-100 text-red-800 text-[10px] font-black uppercase tracking-wider flex items-center gap-1">
+                          ❌ Pendiente (Impago)
+                        </span>
+                      )}
                     </div>
-
-                    {paymentState === 'partial' && (
-                      <div className="space-y-1.5 pt-1.5 border-t border-slate-100 animate-in fade-in slide-in-from-top-1">
-                        <label className="text-[8px] font-black uppercase text-slate-400 tracking-wide">Monto de la Seña</label>
-                        <div className="relative">
-                          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">$</span>
-                          <input 
-                            type="number" 
-                            value={depositAmountInput === 0 ? "" : depositAmountInput} 
-                            onChange={(e) => setDepositAmountInput(Math.max(0, Number(e.target.value)))} 
-                            placeholder="Monto de la seña..."
-                            className="w-full pl-5 pr-2.5 py-1.5 border border-slate-200 rounded-lg text-xs font-bold outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500"
-                          />
-                        </div>
+                    
+                    <div className="pt-2 border-t border-slate-100 space-y-1.5">
+                      <span className="text-[8px] font-black text-slate-400 uppercase tracking-wide block">Desglose de Transacciones</span>
+                      <div className="space-y-1 max-h-36 overflow-y-auto pr-0.5">
+                        {paymentsWithSurcharges.map((p, idx) => {
+                          const pm = dbPaymentMethods.find(m => m.id === p.payment_method_id);
+                          return (
+                            <div key={p.id} className="flex items-center justify-between text-[10px] text-slate-600 font-bold bg-slate-50 p-1.5 rounded border border-slate-100">
+                              <span className="truncate max-w-[120px]">{pm?.name || "Efectivo/Transferencia"}</span>
+                              <div className="flex items-center gap-1.5">
+                                <span>{formatPrice(p.totalAmount)}</span>
+                                {p.receipt_url && (
+                                  <a href={p.receipt_url} target="_blank" rel="noreferrer" className="text-brand-600 hover:text-brand-700">
+                                    <FileText className="w-3 h-3" />
+                                  </a>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
-                    )}
-
-                    {hasDeposit && (
-                      <div className="space-y-2.5 pt-2 border-t border-slate-100 animate-in fade-in slide-in-from-top-1">
-                        <div className="space-y-1">
-                          <label className="text-[8px] font-black uppercase text-slate-400 tracking-wide">Comprobante de Pago (PDF o Imagen)</label>
-                          <div className="flex items-center gap-2">
-                            <label className="flex-1 flex items-center justify-center gap-1.5 py-1.5 border border-dashed border-slate-300 rounded-lg cursor-pointer bg-slate-50 hover:bg-slate-100 transition-colors text-slate-600">
-                              {uploadingReceipt ? (
-                                <>
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin text-brand-500" />
-                                  <span className="text-[10px] font-bold text-slate-500">Subiendo...</span>
-                                </>
-                              ) : (
-                                <>
-                                  <UploadCloud className="w-3.5 h-3.5 text-slate-400" />
-                                  <span className="text-[10px] font-bold">Seleccionar archivo</span>
-                                </>
-                              )}
-                              <input 
-                                type="file" 
-                                accept="image/*,application/pdf" 
-                                className="hidden" 
-                                disabled={uploadingReceipt}
-                                onChange={handleReceiptUpload} 
-                              />
-                            </label>
-                            {depositReceiptUrl && (
-                              <a 
-                                href={depositReceiptUrl} 
-                                target="_blank" 
-                                rel="noopener noreferrer" 
-                                className="p-2 bg-emerald-50 border border-emerald-200 text-emerald-600 rounded-lg hover:bg-emerald-100 transition-colors shrink-0"
-                                title="Ver comprobante de seña"
-                              >
-                                <FileText className="w-4 h-4" />
-                              </a>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    )}
+                    </div>
                   </div>
                 </div>
 
@@ -4418,6 +4639,10 @@ export default function PedidosPage() {
                 type="button"
                 onClick={() => {
                   setEditingOrderId(null);
+                  setOriginalDeliveryDate("");
+                  setHasDeclaredPostponementReason(false);
+                  setPostponementMotive("");
+                  setPostponementReasonType('cliente');
                   setOrderItems([]);
                   setOrderCategory("auto");
                   setActiveTab('form');
@@ -4753,6 +4978,101 @@ export default function PedidosPage() {
                  {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Check className="w-5 h-5" />}
                  {submitting ? "Confirmando y Reservando..." : "Enviar a Preparación"}
                </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Postponement Reason Modal */}
+      {showPostponementModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md flex flex-col animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50 rounded-t-3xl">
+              <div>
+                <h2 className="text-sm font-black text-slate-900 uppercase tracking-wider">Reprogramación de Entrega</h2>
+                <p className="text-[10px] font-bold text-slate-500 mt-0.5">Por favor, registra el motivo por el cual se pospone la fecha.</p>
+              </div>
+              <button 
+                onClick={() => {
+                  setShowPostponementModal(false);
+                  setHasDeclaredPostponementReason(false);
+                }} 
+                className="p-1.5 hover:bg-slate-200 rounded-full transition-colors text-slate-500"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              <div>
+                <span className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">Clasificación del Retraso</span>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPostponementReasonType('cliente')}
+                    className={`py-3 px-4 rounded-xl border text-xs font-black uppercase tracking-wider transition-all flex flex-col items-center gap-1 cursor-pointer ${
+                      postponementReasonType === 'cliente'
+                        ? 'border-brand-500 bg-brand-50/50 text-brand-700 shadow-sm'
+                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    👤 Temas del Cliente
+                    <span className="text-[9px] font-bold text-slate-400 lowercase italic normal-case">no está, reprogramó él, etc.</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPostponementReasonType('empresa')}
+                    className={`py-3 px-4 rounded-xl border text-xs font-black uppercase tracking-wider transition-all flex flex-col items-center gap-1 cursor-pointer ${
+                      postponementReasonType === 'empresa'
+                        ? 'border-brand-500 bg-brand-50/50 text-brand-700 shadow-sm'
+                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    🚚 Temas de Empresa / Logística
+                    <span className="text-[9px] font-bold text-slate-400 lowercase italic normal-case">falta stock, camión lleno, etc.</span>
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <span className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1.5">Detalle / Observación</span>
+                <textarea
+                  value={postponementMotive}
+                  onChange={(e) => setPostponementMotive(e.target.value)}
+                  placeholder="Ej: El cliente no tenía fondos y pidió pasar el lunes..."
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-semibold focus:border-brand-500 focus:ring-1 focus:ring-brand-500 outline-none h-24 bg-white"
+                />
+              </div>
+            </div>
+
+            <div className="p-6 border-t border-slate-100 bg-slate-50 flex items-center justify-end gap-2 rounded-b-3xl">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowPostponementModal(false);
+                  setHasDeclaredPostponementReason(false);
+                }}
+                className="px-4 py-2 border border-slate-200 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-100 transition-all cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!postponementMotive.trim()) {
+                    alert("Por favor, ingresá una observación para el retraso.");
+                    return;
+                  }
+                  setShowPostponementModal(false);
+                  setHasDeclaredPostponementReason(true);
+                  setTimeout(() => {
+                    confirmAndSubmit();
+                  }, 50);
+                }}
+                className="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl text-xs shadow-md shadow-brand-500/10 transition-all cursor-pointer"
+              >
+                Confirmar Reprogramación
+              </button>
             </div>
           </div>
         </div>
