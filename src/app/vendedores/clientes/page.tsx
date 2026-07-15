@@ -162,6 +162,7 @@ export default function ClientesPage() {
 
   // Load Data
   useEffect(() => {
+    console.log("[ClientesPage] useEffect mounted");
     loadLocalities();
     loadPaymentMethods();
     fetchUserAndRegister();
@@ -169,10 +170,12 @@ export default function ClientesPage() {
 
   // Reload clients when filter type or debounced search query changes
   useEffect(() => {
+    console.log("[ClientesPage] search/filter changed, reloading clients. debouncedSearchQuery:", debouncedSearchQuery, "filterType:", filterType);
     loadClients();
   }, [debouncedSearchQuery, filterType]);
 
   async function loadClients() {
+    console.log("[ClientesPage] loadClients started");
     try {
       setLoading(true);
       

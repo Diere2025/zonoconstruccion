@@ -1316,7 +1316,7 @@ export default function ImportarPedidosPage() {
               termotanqueCount += qty;
             } else if (nameLower.includes("aquafort") || nameLower.includes("tanque") || nameLower.includes("base") || nameLower.includes("flotante") || nameLower.includes("flotador")) {
               tanquesCount += qty;
-            } else if (nameLower.includes("biofort")) {
+            } else if (nameLower.includes("biofort") || nameLower.includes("biodigestor") || nameLower.includes("septic") || nameLower.includes("séptic") || nameLower.includes("desengrasadora") || nameLower.includes("inspeccion") || nameLower.includes("inspección") || nameLower.includes("lodos") || nameLower.includes("wp") || nameLower.includes("aerosol") || nameLower.includes("lubricante")) {
               biofortCount += qty;
             } else if (nameLower.includes("meps") || nameLower.includes("equilibrio") || nameLower.includes("membrana")) {
               mepsCount += qty;
@@ -1336,8 +1336,7 @@ export default function ImportarPedidosPage() {
             { cat: "Biodigestores", count: biofortCount },
             { cat: "MEPS", count: mepsCount },
             { cat: "Escaleras", count: escalerasCount },
-            { cat: "Pinturas", count: pinturasCount },
-            { cat: "Otros", count: otrosCount }
+            { cat: "Pinturas", count: pinturasCount }
           ];
           counts.sort((a, b) => b.count - a.count);
           if (counts[0].count > 0) {

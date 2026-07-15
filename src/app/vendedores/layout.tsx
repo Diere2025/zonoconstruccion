@@ -16,16 +16,25 @@ export default function VendedoresLayout({ children }: { children: React.ReactNo
   const router = useRouter();
 
   useEffect(() => {
+    console.log("[VendedoresLayout] useEffect mounted");
     supabase.auth.getSession().then(({ data: { session } }) => {
+      console.log("[VendedoresLayout] getSession resolved. Session user:", session?.user?.email);
       setSession(session);
+      setLoading(false);
+    }).catch(err => {
+      console.error("[VendedoresLayout] getSession error:", err);
       setLoading(false);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      console.log("[VendedoresLayout] onAuthStateChange fired. Event:", _event, "Session user:", session?.user?.email);
       setSession(session);
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      console.log("[VendedoresLayout] useEffect unmounting");
+      subscription.unsubscribe();
+    };
   }, []);
 
   if (loading) {

@@ -631,7 +631,7 @@ export default function MetaAdsPage() {
       category = "Termotanques";
     } else if (nameLower.includes("aquafort") || nameLower.includes("tanque") || nameLower.includes("aquatank") || nameLower.includes("base") || nameLower.includes("flotante") || nameLower.includes("flotador")) {
       category = "Tanques de Agua";
-    } else if (nameLower.includes("biofort") || nameLower.includes("biodigestor")) {
+    } else if (nameLower.includes("biofort") || nameLower.includes("biodigestor") || nameLower.includes("septic") || nameLower.includes("séptic") || nameLower.includes("desengrasadora") || nameLower.includes("inspeccion") || nameLower.includes("inspección") || nameLower.includes("lodos") || nameLower.includes("wp") || nameLower.includes("aerosol") || nameLower.includes("lubricante")) {
       category = "Biodigestores";
     } else if (nameLower.includes("meps") || nameLower.includes("equilibrio") || nameLower.includes("membrana")) {
       category = "MEPS";

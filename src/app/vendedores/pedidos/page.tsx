@@ -469,9 +469,9 @@ export default function PedidosPage() {
         termotanqueCount += item.quantity;
       } else if (nameLower.includes("aquafort") || nameLower.includes("tanque") || nameLower.includes("base") || nameLower.includes("flotante") || nameLower.includes("flotador")) {
         tanquesCount += item.quantity;
-      } else if (nameLower.includes("biofort")) {
+      } else if (nameLower.includes("biofort") || nameLower.includes("biodigestor") || nameLower.includes("septic") || nameLower.includes("séptic") || nameLower.includes("desengrasadora") || nameLower.includes("inspeccion") || nameLower.includes("inspección") || nameLower.includes("lodos") || nameLower.includes("wp") || nameLower.includes("aerosol") || nameLower.includes("lubricante")) {
         biofortCount += item.quantity;
-      } else if (nameLower.includes("meps") || nameLower.includes("equilibrio")) {
+      } else if (nameLower.includes("meps") || nameLower.includes("equilibrio") || nameLower.includes("membrana")) {
         mepsCount += item.quantity;
       } else if (nameLower.includes("escalera")) {
         escalerasCount += item.quantity;
@@ -489,8 +489,7 @@ export default function PedidosPage() {
       { cat: "Biodigestores", count: biofortCount },
       { cat: "MEPS", count: mepsCount },
       { cat: "Escaleras", count: escalerasCount },
-      { cat: "Pinturas", count: pinturasCount },
-      { cat: "Otros", count: otrosCount }
+      { cat: "Pinturas", count: pinturasCount }
     ];
     
     // Sort descending by count, and default to the highest
@@ -504,6 +503,7 @@ export default function PedidosPage() {
   const [sellerType, setSellerType] = useState<'minorista' | 'mayorista'>('minorista');
   const [listType, setListType] = useState<'mis_pedidos' | 'todos'>('mis_pedidos');
   const [orders, setOrders] = useState<any[]>([]);
+  const [loadingOrders, setLoadingOrders] = useState(false);
   const [orderSearchQuery, setOrderSearchQuery] = useState("");
   const [sortField, setSortField] = useState<'order_date' | 'seller'>('order_date');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
@@ -1653,84 +1653,91 @@ export default function PedidosPage() {
   useEffect(() => {
     async function fetchOrders() {
       if (activeTab === 'list') {
-        const { data: userData } = await supabase.auth.getUser();
-        if (!userData.user) return;
-        
-        let query = supabase
-          .from('orders')
-          .select(
-            selectedProducts.length > 0
-              ? '*, zones(name), sellers(full_name), clients(is_wholesale), order_items!inner(product_id, product_name)'
-              : '*, zones(name), sellers(full_name), clients(is_wholesale), order_items(product_id, product_name)'
-          )
-          .order('order_date', { ascending: false })
-          .order('created_at', { ascending: false });
+        setLoadingOrders(true);
+        try {
+          const { data: userData } = await supabase.auth.getUser();
+          if (!userData.user) return;
           
-        if (listType === 'mis_pedidos' || role !== 'admin') {
-          query = query.eq('seller_id', userData.user.id);
-        }
-        
-        // Apply status filter
-        if (statusFilter === 'Pendientes') {
-          query = query.not('status', 'in', '("Entregado","Cancelado","En Revisión")');
-        } else if (statusFilter === 'En Revisión') {
-          query = query.eq('status', 'En Revisión');
-        } else if (statusFilter === 'Entregados') {
-          query = query.eq('status', 'Entregado');
-        } else if (statusFilter === 'Anulados') {
-          query = query.eq('status', 'Cancelado');
-        }
-        
-        if (debouncedOrderSearch.trim()) {
-          const q = debouncedOrderSearch.trim();
-          query = query.or(`customer_name.ilike.%${q}%,status.ilike.%${q}%,locality.ilike.%${q}%,freight_type.ilike.%${q}%,legacy_code.ilike.%${q}%`);
-        }
-        
-        // Filter by product if active using inner join and OR filter on foreign table
-        if (selectedProducts.length > 0) {
-          const idsToQuery = Array.from(expandedSelectedProductIds);
-          if (idsToQuery.length > 0) {
-            const conditions = [`product_id.in.(${idsToQuery.join(',')})`];
+          let query = supabase
+            .from('orders')
+            .select(
+              selectedProducts.length > 0
+                ? '*, zones(name), sellers(full_name), clients(is_wholesale), order_items!inner(product_id, product_name)'
+                : '*, zones(name), sellers(full_name), clients(is_wholesale), order_items(product_id, product_name)'
+            )
+            .order('order_date', { ascending: false })
+            .order('created_at', { ascending: false });
             
-            selectedProducts.forEach(id => {
-              const prod = products.find(p => p.id === id);
-              if (prod) {
-                const cleanName = prod.name.replace(/[(),]/g, '').trim();
-                if (cleanName) {
-                  conditions.push(`and(product_id.is.null,product_name.ilike.%${cleanName}%)`);
-                }
-                if (prod.sku) {
-                  const cleanSku = prod.sku.replace(/[(),]/g, '').trim();
-                  if (cleanSku) {
-                    conditions.push(`and(product_id.is.null,product_name.ilike.%${cleanSku}%)`);
+          if (listType === 'mis_pedidos' || role !== 'admin') {
+            query = query.eq('seller_id', userData.user.id);
+          }
+          
+          // Apply status filter
+          if (statusFilter === 'Pendientes') {
+            query = query.not('status', 'in', '("Entregado","Cancelado","En Revisión")');
+          } else if (statusFilter === 'En Revisión') {
+            query = query.eq('status', 'En Revisión');
+          } else if (statusFilter === 'Entregados') {
+            query = query.eq('status', 'Entregado');
+          } else if (statusFilter === 'Anulados') {
+            query = query.eq('status', 'Cancelado');
+          }
+          
+          if (debouncedOrderSearch.trim()) {
+            const q = debouncedOrderSearch.trim();
+            query = query.or(`customer_name.ilike.%${q}%,status.ilike.%${q}%,locality.ilike.%${q}%,freight_type.ilike.%${q}%,legacy_code.ilike.%${q}%`);
+          }
+          
+          // Filter by product if active using inner join and OR filter on foreign table
+          if (selectedProducts.length > 0) {
+            const idsToQuery = Array.from(expandedSelectedProductIds);
+            if (idsToQuery.length > 0) {
+              const conditions = [`product_id.in.(${idsToQuery.join(',')})`];
+              
+              selectedProducts.forEach(id => {
+                const prod = products.find(p => p.id === id);
+                if (prod) {
+                  const cleanName = prod.name.replace(/[(),]/g, '').trim();
+                  if (cleanName) {
+                    conditions.push(`and(product_id.is.null,product_name.ilike.%${cleanName}%)`);
+                  }
+                  if (prod.sku) {
+                    const cleanSku = prod.sku.replace(/[(),]/g, '').trim();
+                    if (cleanSku) {
+                      conditions.push(`and(product_id.is.null,product_name.ilike.%${cleanSku}%)`);
+                    }
                   }
                 }
-              }
-            });
-            
-            query = query.or(conditions.join(','), { foreignTable: 'order_items' });
+              });
+              
+              query = query.or(conditions.join(','), { foreignTable: 'order_items' });
+            }
           }
-        }
-        
-        // Apply client type filter (wholesale vs retail) on the database query level
-        if (clientTypeFilter === 'minoristas') {
-          query = query.neq('channel', 'mayorista').or('legacy_code.is.null,and(legacy_code.not.ilike.AQU%,legacy_code.not.ilike.POW%,legacy_code.not.ilike.AQ-DB%)');
-        } else if (clientTypeFilter === 'mayoristas') {
-          query = query.or('channel.eq.mayorista,legacy_code.ilike.AQU%,legacy_code.ilike.POW%,legacy_code.ilike.AQ-DB%');
-        }
-        
-        // Limit to 1000 for active states to display all pending orders, and 100 for history to keep UI fast
-        if (statusFilter === 'Pendientes' || statusFilter === 'En Revisión') {
-          query = query.limit(1000);
-        } else {
-          query = query.limit(100);
-        }
-        
-        const { data, error } = await query;
-        if (error) {
-          console.error("Error fetching orders:", error);
-        } else if (data) {
-          setOrders(data);
+          
+          // Apply client type filter (wholesale vs retail) on the database query level
+          if (clientTypeFilter === 'minoristas') {
+            query = query.neq('channel', 'mayorista').or('legacy_code.is.null,and(legacy_code.not.ilike.AQU%,legacy_code.not.ilike.POW%,legacy_code.not.ilike.AQ-DB%)');
+          } else if (clientTypeFilter === 'mayoristas') {
+            query = query.or('channel.eq.mayorista,legacy_code.ilike.AQU%,legacy_code.ilike.POW%,legacy_code.ilike.AQ-DB%');
+          }
+          
+          // Limit to 500 for active states to display all pending orders, and 100 for history to keep UI fast
+          if (statusFilter === 'Pendientes' || statusFilter === 'En Revisión') {
+            query = query.limit(500);
+          } else {
+            query = query.limit(100);
+          }
+          
+          const { data, error } = await query;
+          if (error) {
+            console.error("Error fetching orders:", error);
+          } else if (data) {
+            setOrders(data);
+          }
+        } catch (err) {
+          console.error("Error in fetchOrders:", err);
+        } finally {
+          setLoadingOrders(false);
         }
       }
     }
@@ -4690,7 +4697,16 @@ export default function PedidosPage() {
                </tr>
              </thead>
              <tbody className="divide-y divide-slate-100">
-               {filteredOrders.length > 0 ? filteredOrders.map((p, i) => (
+                {loadingOrders ? (
+                  <tr>
+                    <td colSpan={7} className="px-4 py-12 text-center text-slate-500 font-medium">
+                      <div className="flex flex-col items-center justify-center gap-3">
+                        <Loader2 className="w-8 h-8 text-brand-600 animate-spin" />
+                        <span>Cargando listado de pedidos...</span>
+                      </div>
+                    </td>
+                  </tr>
+                ) : filteredOrders.length > 0 ? filteredOrders.map((p, i) => (
                  <tr key={i} className="hover:bg-slate-50/40 transition-colors">
                      <td className="px-4 py-2 text-xs font-black text-slate-700">
                        {formatDate(p.order_date || p.created_at)}
@@ -4810,7 +4826,7 @@ export default function PedidosPage() {
                   </tr>
                 )) : (
                   <tr>
-                    <td colSpan={5} className="px-4 py-6 text-center text-slate-400 font-bold text-xs">No se encontraron pedidos.</td>
+                    <td colSpan={7} className="px-4 py-6 text-center text-slate-400 font-bold text-xs">No se encontraron pedidos.</td>
                   </tr>
                 )}
               </tbody>
