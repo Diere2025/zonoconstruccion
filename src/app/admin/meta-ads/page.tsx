@@ -324,10 +324,27 @@ async function fetchExchangeRateFromSheet(targetDateStr?: string): Promise<Excha
     // Fallback to latest
     const latest = rows[rows.length - 1];
     return { rate: latest.venta, date: latest.fechaStr, isMatched: false, allRows: rows };
-} catch (e) {
+  } catch (e) {
     console.warn("Error fetching exchange rate:", e);
     return null;
   }
+}
+function promiseWithTimeout<T>(promise: Promise<T>, ms: number, errorMsg: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(errorMsg));
+    }, ms);
+    promise.then(
+      (res) => {
+        clearTimeout(timer);
+        resolve(res);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
 }
 
 export default function MetaAdsPage() {
@@ -519,7 +536,11 @@ export default function MetaAdsPage() {
     setError(null);
     try {
       const url = `https://graph.facebook.com/v19.0/me/adaccounts?fields=name,account_id,currency&limit=50&access_token=${accessToken}`;
-      const res = await fetch(url);
+      const res = await promiseWithTimeout(
+        fetch(url),
+        15000,
+        "La consulta de cuentas de anuncios a Meta excedió el tiempo límite (15s)."
+      );
       if (!res.ok) {
         const errJson = await res.json();
         throw new Error(errJson?.error?.message || "Error al conectar con Meta.");
@@ -729,7 +750,11 @@ export default function MetaAdsPage() {
 
         const insightsUrl = `https://graph.facebook.com/v19.0/act_${cleanAccId}/insights?level=${level}&fields=${fields}&time_range=${encodeURIComponent(timeRange)}&time_increment=1&limit=1000&access_token=${token}`;
         
-        const insightsRes = await fetch(insightsUrl);
+        const insightsRes = await promiseWithTimeout(
+          fetch(insightsUrl),
+          20000,
+          `La consulta de insights para la cuenta ${accountName} excedió el tiempo límite (20s).`
+        );
         if (!insightsRes.ok) {
           const errJson = await insightsRes.json();
           throw new Error(`[Account ${accountName}]: ${errJson?.error?.message || "Error trayendo insights"}`);
@@ -745,7 +770,11 @@ export default function MetaAdsPage() {
         // Parallel Fetch of Campaign properties for budget & status
         setLoadStatus(`Cargando campañas de la cuenta: ${accountName}...`);
         const campaignsUrl = `https://graph.facebook.com/v19.0/act_${cleanAccId}/campaigns?fields=id,name,effective_status,status,daily_budget,budget_remaining,bid_strategy,objective&limit=1000&access_token=${token}`;
-        const campaignsRes = await fetch(campaignsUrl);
+        const campaignsRes = await promiseWithTimeout(
+          fetch(campaignsUrl),
+          20000,
+          `La consulta de campañas para la cuenta ${accountName} excedió el tiempo límite (20s).`
+        );
         const campaignMap: Record<string, CampaignDetails> = {};
         if (campaignsRes.ok) {
           const campaignsJson = await campaignsRes.json();
@@ -758,7 +787,11 @@ export default function MetaAdsPage() {
         // Parallel Fetch of Adsets properties for budget
         setLoadStatus(`Cargando adsets de la cuenta: ${accountName}...`);
         const adsetsUrl = `https://graph.facebook.com/v19.0/act_${cleanAccId}/adsets?fields=id,campaign_id,name,effective_status,status,daily_budget,budget_remaining&limit=1000&access_token=${token}`;
-        const adsetsRes = await fetch(adsetsUrl);
+        const adsetsRes = await promiseWithTimeout(
+          fetch(adsetsUrl),
+          20000,
+          `La consulta de conjuntos de anuncios (adsets) para la cuenta ${accountName} excedió el tiempo límite (20s).`
+        );
         const adsetMap: Record<string, AdsetDetails> = {};
         const campaignAdsetsMap: Record<string, AdsetDetails[]> = {}; // campaignId -> adsets[]
         if (adsetsRes.ok) {
