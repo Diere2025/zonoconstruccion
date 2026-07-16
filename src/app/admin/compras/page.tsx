@@ -310,7 +310,9 @@ export default function ComprasAdminPage() {
   const [showNewPOModal, setShowNewPOModal] = useState(false);
 
   const [filterPoStatus, setFilterPoStatus] = useState<string>("activas");
-  const [filterPoSupplierId, setFilterPoSupplierId] = useState<string>("");
+  const [filterPoSupplierIds, setFilterPoSupplierIds] = useState<string[]>([]);
+  const [supplierSearchQuery, setSupplierSearchQuery] = useState("");
+  const [showSupplierDropdown, setShowSupplierDropdown] = useState(false);
   const [expandedPoIds, setExpandedPoIds] = useState<Record<string, boolean>>({});
   const [poItemsMap, setPoItemsMap] = useState<Record<string, any[]>>({});
   const [loadingPoItemsMap, setLoadingPoItemsMap] = useState<Record<string, boolean>>({});
@@ -3596,8 +3598,11 @@ export default function ComprasAdminPage() {
   const bomOverhead = parseFloat(bomOverheadCost) || 0;
   const bomSimulatedCost = bomComponentsCost + bomLabor + bomOverhead;
   const filteredPurchaseOrders = purchaseOrders.filter(po => {
-    const matchStatus = filterPoStatus === "all" || po.status === filterPoStatus;
-    const matchSupplier = !filterPoSupplierId || po.supplier_id === filterPoSupplierId;
+    const matchStatus = 
+      filterPoStatus === "all" ? true :
+      filterPoStatus === "activas" ? (po.status === "Pendiente" || po.status === "Parcial") :
+      po.status === filterPoStatus;
+    const matchSupplier = filterPoSupplierIds.length === 0 || filterPoSupplierIds.includes(po.supplier_id);
     return matchStatus && matchSupplier;
   });
 
@@ -3831,18 +3836,101 @@ export default function ComprasAdminPage() {
                 <option value="all">Todos</option>
               </select>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 relative">
               <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Proveedor:</span>
-              <select
-                value={filterPoSupplierId}
-                onChange={e => setFilterPoSupplierId(e.target.value)}
-                className="px-3 py-1.5 rounded-lg border bg-slate-50 font-bold text-xs"
-              >
-                <option value="">Todos</option>
-                {suppliers.map(s => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
-              </select>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowSupplierDropdown(prev => !prev)}
+                  className="px-3 py-1.5 rounded-lg border bg-slate-50 font-bold text-xs flex items-center justify-between gap-2 min-w-[160px] text-left hover:bg-slate-100 transition-colors"
+                >
+                  <span className="truncate max-w-[140px]">
+                    {filterPoSupplierIds.length === 0 
+                      ? "Todos los proveedores" 
+                      : filterPoSupplierIds.length === 1 
+                      ? suppliers.find(s => s.id === filterPoSupplierIds[0])?.name || "1 seleccionado"
+                      : `${filterPoSupplierIds.length} seleccionados`}
+                  </span>
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                </button>
+
+                {showSupplierDropdown && (
+                  <>
+                    <div 
+                      className="fixed inset-0 z-20" 
+                      onClick={() => {
+                        setShowSupplierDropdown(false);
+                        setSupplierSearchQuery("");
+                      }}
+                    />
+                    
+                    <div className="absolute left-0 mt-1.5 w-64 bg-white border border-slate-200/80 rounded-2xl shadow-xl p-3 space-y-2 z-30 animate-in fade-in slide-in-from-top-2 duration-150">
+                      <div className="relative">
+                        <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input
+                          type="text"
+                          placeholder="Buscar proveedor..."
+                          value={supplierSearchQuery}
+                          onChange={e => setSupplierSearchQuery(e.target.value)}
+                          className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-slate-200 text-xs font-bold bg-slate-50 focus:outline-none focus:border-brand-500 text-slate-800"
+                          onClick={e => e.stopPropagation()}
+                          autoFocus
+                        />
+                      </div>
+
+                      <div className="flex justify-between items-center text-[9px] font-black uppercase text-brand-600 px-1">
+                        <button 
+                          type="button" 
+                          onClick={() => setFilterPoSupplierIds([])} 
+                          className="hover:underline"
+                        >
+                          Limpiar Todos
+                        </button>
+                        <button 
+                          type="button" 
+                          onClick={() => setFilterPoSupplierIds(suppliers.map(s => s.id))} 
+                          className="hover:underline"
+                        >
+                          Seleccionar Todos
+                        </button>
+                      </div>
+
+                      <div className="space-y-0.5 max-h-48 overflow-y-auto pr-1">
+                        {suppliers
+                          .filter(s => s.name.toLowerCase().includes(supplierSearchQuery.toLowerCase()))
+                          .map(s => {
+                            const isSelected = filterPoSupplierIds.includes(s.id);
+                            return (
+                              <label
+                                key={s.id}
+                                className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-slate-50 cursor-pointer select-none text-xs font-bold text-slate-700 hover:text-brand-600 transition-colors"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => {
+                                    setFilterPoSupplierIds(prev => 
+                                      prev.includes(s.id) 
+                                        ? prev.filter(id => id !== s.id) 
+                                        : [...prev, s.id]
+                                    );
+                                  }}
+                                  className="rounded border-slate-300 text-brand-600 focus:ring-brand-500 w-3.5 h-3.5"
+                                />
+                                <span className="truncate">{s.name}</span>
+                              </label>
+                            );
+                          })}
+                        {suppliers.filter(s => s.name.toLowerCase().includes(supplierSearchQuery.toLowerCase())).length === 0 && (
+                          <div className="text-center text-slate-400 text-xs py-4 font-bold">
+                            No se encontraron proveedores.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
             <div className="text-xs text-slate-400 ml-auto font-bold">
               Mostrando {filteredPurchaseOrders.length} de {purchaseOrders.length} OCs
