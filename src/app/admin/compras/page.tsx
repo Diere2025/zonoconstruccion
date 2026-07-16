@@ -228,7 +228,7 @@ const DatePickerDDMMYYYY = ({
 };
 
 export default function ComprasAdminPage() {
-  const [activeSubTab, setActiveSubTab] = useState<'suppliers' | 'pricelists' | 'relations' | 'new_purchase' | 'purchases_history' | 'alerts' | 'hold_orders' | 'claims_exchanges' | 'boms' | 'production' | 'insumos' | 'make_vs_buy' | 'bom_explorer' | 'purchase_orders' | 'receptions' | 'import_compras' | 'purchase_calculator'>('suppliers');
+  const [activeSubTab, setActiveSubTab] = useState<'suppliers' | 'pricelists' | 'relations' | 'new_purchase' | 'purchases_history' | 'alerts' | 'hold_orders' | 'claims_exchanges' | 'boms' | 'production' | 'insumos' | 'make_vs_buy' | 'bom_explorer' | 'purchase_orders' | 'receptions' | 'import_compras' | 'purchase_calculator'>('purchase_orders');
   const [loading, setLoading] = useState(true);
 
   // Costos & BOM (Recetas) States
@@ -309,7 +309,7 @@ export default function ComprasAdminPage() {
   const [loadingPoDetail, setLoadingPoDetail] = useState(false);
   const [showNewPOModal, setShowNewPOModal] = useState(false);
 
-  const [filterPoStatus, setFilterPoStatus] = useState<string>("Pendiente");
+  const [filterPoStatus, setFilterPoStatus] = useState<string>("activas");
   const [filterPoSupplierId, setFilterPoSupplierId] = useState<string>("");
   const [expandedPoIds, setExpandedPoIds] = useState<Record<string, boolean>>({});
   const [poItemsMap, setPoItemsMap] = useState<Record<string, any[]>>({});
@@ -994,19 +994,12 @@ export default function ComprasAdminPage() {
     return result;
   };
 
-  const handleImportCSVs = async (fileText: string, type: 'ocs' | 'detalle_ocs' | 'recepciones') => {
-    setImporting(true);
-    setImportLog([]);
-    const logList: string[] = [];
-    const addLog = (msg: string) => {
-      console.log(msg);
-      logList.push(msg);
-      setImportLog([...logList]);
-    };
-
+  const executeImportCSV = async (
+    fileText: string,
+    type: 'ocs' | 'detalle_ocs' | 'recepciones',
+    addLog: (msg: string) => void
+  ) => {
     try {
-      addLog(`📋 Iniciando importación de ${type.toUpperCase()}...`);
-      
       const lines = fileText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
       if (lines.length <= 1) {
         throw new Error("El archivo CSV está vacío o solo contiene cabeceras.");
@@ -1187,8 +1180,15 @@ export default function ComprasAdminPage() {
             
             const rawLineStatus = row['Estado por línea de Pedido'] || row['Estado por linea de Pedido'] || 'Pendiente';
             let lineStatus = 'Pendiente';
-            if (rawLineStatus.toLowerCase().includes('cumplida') || rawLineStatus.toLowerCase().includes('cumplido')) lineStatus = 'Cumplido';
-            else if (rawLineStatus.toLowerCase().includes('parcial')) lineStatus = 'Parcial';
+            const isCancelledSheet = row['Cancelar'] === 'SI' || row['Cancelar'] === 'si' || row['Cancelar'] === 'Yes' || row['Cancelar'] === 'yes';
+            
+            if (isCancelledSheet) {
+              lineStatus = 'Cancelado';
+            } else if (rawLineStatus.toLowerCase().includes('cumplida') || rawLineStatus.toLowerCase().includes('cumplido')) {
+              lineStatus = 'Cumplido';
+            } else if (rawLineStatus.toLowerCase().includes('parcial')) {
+              lineStatus = 'Parcial';
+            }
 
             // Check if item already exists to avoid duplicates
             const { data: existing } = await supabase
@@ -1372,12 +1372,82 @@ export default function ComprasAdminPage() {
         addLog(`✅ Importación finalizada. Recepciones exitosas: ${successCount}. Errores: ${errorCount}`);
       }
 
-      loadAllData(true);
     } catch (err: any) {
       console.error(err);
       addLog(`❌ Error crítico de importación: ${err.message}`);
+      throw err;
+    }
+  };
+
+  const handleImportCSVs = async (fileText: string, type: 'ocs' | 'detalle_ocs' | 'recepciones') => {
+    setImporting(true);
+    setImportLog([]);
+    const logList: string[] = [];
+    const addLog = (msg: string) => {
+      console.log(msg);
+      logList.push(msg);
+      setImportLog([...logList]);
+    };
+
+    try {
+      addLog(`📋 Iniciando importación de ${type.toUpperCase()}...`);
+      await executeImportCSV(fileText, type, addLog);
+    } catch (err) {
+      // Errors already logged in executeImportCSV
     } finally {
       setImporting(false);
+      loadAllData(true);
+    }
+  };
+
+  const handleSyncFromSpreadsheet = async () => {
+    const confirm = window.confirm("¿Estás seguro de que deseas sincronizar las Órdenes de Compra y Recepciones directamente desde la planilla de Google Sheets? Esto puede demorar unos minutos.");
+    if (!confirm) return;
+
+    setImporting(true);
+    setImportLog([]);
+    const logList: string[] = [];
+    const addLog = (msg: string) => {
+      console.log(msg);
+      logList.push(msg);
+      setImportLog([...logList]);
+    };
+
+    try {
+      const sheetId = '1cbqEFLraMcSVnHdMpb3C8OrvCKFXed2Hq_RxeylEK0w';
+      
+      // 1. Cabeceras (OCs)
+      addLog("📥 Descargando Cabeceras de OCs desde la planilla...");
+      const resOcs = await fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=2027396748`);
+      if (!resOcs.ok) throw new Error("Error al descargar cabeceras de OCs de Google Sheets.");
+      const csvOcs = await resOcs.text();
+      addLog("⚡ Procesando e importando Cabeceras de OCs...");
+      await executeImportCSV(csvOcs, 'ocs', addLog);
+
+      // 2. Detalle OCs
+      addLog("📥 Descargando Detalles de OCs desde la planilla...");
+      const resDetalle = await fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=2147240034`);
+      if (!resDetalle.ok) throw new Error("Error al descargar detalles de OCs de Google Sheets.");
+      const csvDetalle = await resDetalle.text();
+      addLog("⚡ Procesando e importando Detalles de OCs...");
+      await executeImportCSV(csvDetalle, 'detalle_ocs', addLog);
+
+      // 3. Recepciones
+      addLog("📥 Descargando Documentos de Recepción desde la planilla...");
+      const resRec = await fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=1210887591`);
+      if (!resRec.ok) throw new Error("Error al descargar documentos de recepción de Google Sheets.");
+      const csvRec = await resRec.text();
+      addLog("⚡ Procesando e importando Recepciones...");
+      await executeImportCSV(csvRec, 'recepciones', addLog);
+
+      addLog("✨ Sincronización masiva finalizada con éxito desde Google Sheets!");
+      alert("Sincronización con la planilla completada con éxito.");
+    } catch (err: any) {
+      addLog(`❌ Error en sincronización: ${err.message}`);
+      alert("Error durante la sincronización: " + err.message);
+    } finally {
+      setImporting(false);
+      loadAllData(true);
     }
   };
 
@@ -3734,6 +3804,14 @@ export default function ComprasAdminPage() {
             }} className="rounded-xl gap-1.5 py-2 px-3 text-xs font-black">
               <Plus className="w-3.5 h-3.5" /> Nueva OC
             </Button>
+            <Button
+              onClick={handleSyncFromSpreadsheet}
+              disabled={importing}
+              className="rounded-xl gap-1.5 py-2 px-3 text-xs font-black bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              <ArrowRightLeft className="w-3.5 h-3.5" />
+              {importing ? "Sincronizando..." : "Sincronizar con Planilla"}
+            </Button>
           </div>
 
           {/* Filtros de Búsqueda y Control */}
@@ -3745,8 +3823,9 @@ export default function ComprasAdminPage() {
                 onChange={e => setFilterPoStatus(e.target.value)}
                 className="px-3 py-1.5 rounded-lg border bg-slate-50 font-bold text-xs"
               >
-                <option value="Pendiente">Pendiente</option>
-                <option value="Parcial">Parcial</option>
+                <option value="activas">Activas (Pendiente/Parcial)</option>
+                <option value="Pendiente">Solo Pendientes</option>
+                <option value="Parcial">Solo Parciales</option>
                 <option value="Cumplido">Cumplido</option>
                 <option value="Cancelado">Cancelado</option>
                 <option value="all">Todos</option>
