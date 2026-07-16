@@ -1124,14 +1124,18 @@ export default function ImportarPedidosPage() {
                 const rawPending = parseSpanishNumber(row[29]);
                 const calculatedTotal = rawSubtotal + rawFreight + rawSurcharge;
 
+                const totalsJson = {
+                  subtotal: rawSubtotal,
+                  freight: rawFreight,
+                  payment_surcharges: rawSurcharge,
+                  deposit_amount: rawAbonado,
+                  pending_balance: rawPending
+                };
+
                 const { error: errOrdUpdate } = await supabase
                   .from('orders')
                   .update({
-                    subtotal: rawSubtotal,
-                    freight: rawFreight,
-                    payment_surcharges: rawSurcharge,
-                    deposit_amount: rawAbonado,
-                    pending_balance: rawPending,
+                    totals: totalsJson,
                     total_amount: calculatedTotal,
                     category: deducedCategory
                   })
