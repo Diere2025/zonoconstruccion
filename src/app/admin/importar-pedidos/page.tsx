@@ -257,24 +257,22 @@ export default function ImportarPedidosPage() {
 
         // Concatenate products
         let emptyIdx = 30;
-        while (emptyIdx <= 74 && (prevRow[emptyIdx] || "").trim() !== "" && (prevRow[emptyIdx] || "").trim() !== "0") {
+        while ((prevRow[emptyIdx] || "").trim() !== "" && (prevRow[emptyIdx] || "").trim() !== "0") {
           emptyIdx += 4;
         }
 
-        for (let pIdx = 30; pIdx <= 74; pIdx += 4) {
+        for (let pIdx = 30; pIdx < currentRow.length; pIdx += 4) {
           const prodName = (currentRow[pIdx] || "").trim();
           const prodQty = (currentRow[pIdx+1] || "").trim();
           const prodPrice = (currentRow[pIdx+2] || "").trim();
           const prodSubt = (currentRow[pIdx+3] || "").trim();
 
           if (prodName && prodName !== "0" && prodName.toLowerCase() !== "descuento") {
-            if (emptyIdx <= 74) {
-              prevRow[emptyIdx] = prodName;
-              prevRow[emptyIdx+1] = prodQty;
-              prevRow[emptyIdx+2] = prodPrice;
-              prevRow[emptyIdx+3] = prodSubt;
-              emptyIdx += 4;
-            }
+            prevRow[emptyIdx] = prodName;
+            prevRow[emptyIdx+1] = prodQty;
+            prevRow[emptyIdx+2] = prodPrice;
+            prevRow[emptyIdx+3] = prodSubt;
+            emptyIdx += 4;
           }
         }
       } else {
@@ -619,9 +617,10 @@ export default function ImportarPedidosPage() {
 
         const targetRows = rows.filter((row, idx) => {
           if (idx === 0) return false;
+          const orderCode = (row[1] || "").trim();
+          if (!orderCode) return false;
+
           if (sheet.isCentralSheet) {
-            const orderCode = (row[1] || "").trim();
-            if (!orderCode) return false;
             const isWholesaleCode = orderCode.toUpperCase().startsWith("AQU") || orderCode.toUpperCase().startsWith("POW") || orderCode.toUpperCase().startsWith("AQ-DB");
             if (sheet.isAquafortSheet) {
               return isWholesaleCode;
@@ -630,7 +629,16 @@ export default function ImportarPedidosPage() {
             }
           } else {
             const estado = (row[0] || "").trim().toLowerCase();
-            return estado === "no esta" || estado === "no está";
+            if (estado === "no esta" || estado === "no está") {
+              return true;
+            }
+            // Include active existing orders to sync modifications
+            const parts = orderCode.split(/[\/,]/).map(c => c.trim().toUpperCase());
+            const hasActiveDbOrder = parts.some(part => {
+              const dbOrd = existingOrdersMap.get(part);
+              return dbOrd && ['Pendiente', 'Confirmado', 'Entregando'].includes(dbOrd.status);
+            });
+            return hasActiveDbOrder;
           }
         });
 
@@ -1004,7 +1012,7 @@ export default function ImportarPedidosPage() {
                 .eq('order_id', dbOrder.id);
 
               const sheetItems = [];
-              for (let pIdx = 30; pIdx <= 74; pIdx += 4) {
+              for (let pIdx = 30; pIdx < row.length; pIdx += 4) {
                 const prodName = (row[pIdx] || "").trim();
                 const prodQtyRaw = (row[pIdx + 1] || "").trim();
                 const prodPriceRaw = (row[pIdx + 2] || "").trim();
@@ -1057,6 +1065,82 @@ export default function ImportarPedidosPage() {
 
               if (itemsChanged) {
                 addLog(`  🔄 Sincronizando artículos modificados para pedido ${orderCode}...`);
+                
+                // Recalculate category
+                let termotanqueCount = 0;
+                let tanquesCount = 0;
+                let biofortCount = 0;
+                let mepsCount = 0;
+                let escalerasCount = 0;
+                let pinturasCount = 0;
+                let otrosCount = 0;
+
+                for (let pIdx = 30; pIdx < row.length; pIdx += 4) {
+                  const prodName = (row[pIdx] || "").trim();
+                  const prodQtyRaw = (row[pIdx + 1] || "").trim();
+                  if (!prodName || prodName === "0" || prodName.toLowerCase() === "descuento") {
+                    continue;
+                  }
+                  const qty = parseInt(prodQtyRaw.replace(/[^0-9.-]/g, ''), 10) || 0;
+                  if (qty <= 0) continue;
+
+                  const nameLower = prodName.toLowerCase();
+                  if (nameLower.includes("termotanque") || nameLower.includes("termo")) {
+                    termotanqueCount += qty;
+                  } else if (nameLower.includes("aquafort") || nameLower.includes("tanque") || nameLower.includes("base") || nameLower.includes("flotante") || nameLower.includes("flotador")) {
+                    tanquesCount += qty;
+                  } else if (nameLower.includes("biofort") || nameLower.includes("biodigestor") || nameLower.includes("septic") || nameLower.includes("séptic") || nameLower.includes("desengrasadora") || nameLower.includes("inspeccion") || nameLower.includes("inspección") || nameLower.includes("lodos") || nameLower.includes("wp") || nameLower.includes("aerosol") || nameLower.includes("lubricante")) {
+                    biofortCount += qty;
+                  } else if (nameLower.includes("meps") || nameLower.includes("equilibrio") || nameLower.includes("membrana")) {
+                    mepsCount += qty;
+                  } else if (nameLower.includes("escalera")) {
+                    escalerasCount += qty;
+                  } else if (nameLower.includes("látex") || nameLower.includes("latex") || nameLower.includes("pintura")) {
+                    pinturasCount += qty;
+                  } else {
+                    otrosCount += qty;
+                  }
+                }
+
+                let deducedCategory = "Otros";
+                const counts = [
+                  { cat: "Termotanques", count: termotanqueCount },
+                  { cat: "Tanques de Agua", count: tanquesCount },
+                  { cat: "Biodigestores", count: biofortCount },
+                  { cat: "MEPS", count: mepsCount },
+                  { cat: "Escaleras", count: escalerasCount },
+                  { cat: "Pinturas", count: pinturasCount }
+                ];
+                counts.sort((a, b) => b.count - a.count);
+                if (counts[0].count > 0) {
+                  deducedCategory = counts[0].cat;
+                }
+
+                // Update order totals
+                const rawSubtotal = parseSpanishNumber(row[28]);
+                const rawFreight = parseSpanishNumber(row[27]);
+                const rawSurcharge = parseSpanishNumber(row[25]);
+                const rawAbonado = parseSpanishNumber(row[24]);
+                const rawPending = parseSpanishNumber(row[29]);
+                const calculatedTotal = rawSubtotal + rawFreight + rawSurcharge;
+
+                const { error: errOrdUpdate } = await supabase
+                  .from('orders')
+                  .update({
+                    subtotal: rawSubtotal,
+                    freight: rawFreight,
+                    payment_surcharges: rawSurcharge,
+                    deposit_amount: rawAbonado,
+                    pending_balance: rawPending,
+                    total_amount: calculatedTotal,
+                    category: deducedCategory
+                  })
+                  .eq('id', dbOrder.id);
+
+                if (errOrdUpdate) {
+                  addLog(`  ❌ Error al actualizar montos del pedido ${orderCode}: ${errOrdUpdate.message}`);
+                }
+
                 await supabase
                   .from('order_items')
                   .delete()
@@ -1302,7 +1386,7 @@ export default function ImportarPedidosPage() {
           let pinturasCount = 0;
           let otrosCount = 0;
 
-          for (let pIdx = 30; pIdx <= 74; pIdx += 4) {
+          for (let pIdx = 30; pIdx < row.length; pIdx += 4) {
             const prodName = (row[pIdx] || "").trim();
             const prodQtyRaw = (row[pIdx + 1] || "").trim();
             if (!prodName || prodName === "0" || prodName.toLowerCase() === "descuento") {
@@ -1474,7 +1558,7 @@ export default function ImportarPedidosPage() {
           const importedExchangeItems = [];
           const orderItemsToInsert = [];
 
-          for (let pIdx = 30; pIdx <= 74; pIdx += 4) {
+          for (let pIdx = 30; pIdx < row.length; pIdx += 4) {
             const prodName = (row[pIdx] || "").trim();
             const prodQtyRaw = (row[pIdx + 1] || "").trim();
             const prodPriceRaw = (row[pIdx + 2] || "").trim();
