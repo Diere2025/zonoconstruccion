@@ -308,6 +308,33 @@ export default function ComprasAdminPage() {
   const [loadingPoDetail, setLoadingPoDetail] = useState(false);
   const [showNewPOModal, setShowNewPOModal] = useState(false);
 
+  const [filterPoStatus, setFilterPoStatus] = useState<string>("Pendiente");
+  const [filterPoSupplierId, setFilterPoSupplierId] = useState<string>("");
+  const [expandedPoIds, setExpandedPoIds] = useState<Record<string, boolean>>({});
+  const [poItemsMap, setPoItemsMap] = useState<Record<string, any[]>>({});
+  const [loadingPoItemsMap, setLoadingPoItemsMap] = useState<Record<string, boolean>>({});
+
+  const togglePoExpand = async (poId: string) => {
+    const isExpanded = !expandedPoIds[poId];
+    setExpandedPoIds(prev => ({ ...prev, [poId]: isExpanded }));
+
+    if (isExpanded && !poItemsMap[poId]) {
+      setLoadingPoItemsMap(prev => ({ ...prev, [poId]: true }));
+      try {
+        const { data, error } = await supabase
+          .from('purchase_order_items')
+          .select('*, product:products(id, name, sku)')
+          .eq('purchase_order_id', poId);
+        if (error) throw error;
+        setPoItemsMap(prev => ({ ...prev, [poId]: data || [] }));
+      } catch (err: any) {
+        console.error("Error fetching PO items:", err);
+      } finally {
+        setLoadingPoItemsMap(prev => ({ ...prev, [poId]: false }));
+      }
+    }
+  };
+
   // New PO Form states
   const [poSupplierId, setPoSupplierId] = useState("");
   const [poCode, setPoCode] = useState("");
@@ -3429,6 +3456,11 @@ export default function ComprasAdminPage() {
   const bomLabor = parseFloat(bomLaborCost) || 0;
   const bomOverhead = parseFloat(bomOverheadCost) || 0;
   const bomSimulatedCost = bomComponentsCost + bomLabor + bomOverhead;
+  const filteredPurchaseOrders = purchaseOrders.filter(po => {
+    const matchStatus = filterPoStatus === "all" || po.status === filterPoStatus;
+    const matchSupplier = !filterPoSupplierId || po.supplier_id === filterPoSupplierId;
+    return matchStatus && matchSupplier;
+  });
 
   return (
     <div className="space-y-4">
@@ -3635,6 +3667,40 @@ export default function ComprasAdminPage() {
             </Button>
           </div>
 
+          {/* Filtros de Búsqueda y Control */}
+          <div className="bg-white p-4 rounded-xl border border-slate-200/60 shadow-sm flex flex-wrap gap-4 items-center">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Estado:</span>
+              <select
+                value={filterPoStatus}
+                onChange={e => setFilterPoStatus(e.target.value)}
+                className="px-3 py-1.5 rounded-lg border bg-slate-50 font-bold text-xs"
+              >
+                <option value="Pendiente">Pendiente</option>
+                <option value="Parcial">Parcial</option>
+                <option value="Cumplido">Cumplido</option>
+                <option value="Cancelado">Cancelado</option>
+                <option value="all">Todos</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Proveedor:</span>
+              <select
+                value={filterPoSupplierId}
+                onChange={e => setFilterPoSupplierId(e.target.value)}
+                className="px-3 py-1.5 rounded-lg border bg-slate-50 font-bold text-xs"
+              >
+                <option value="">Todos</option>
+                {suppliers.map(s => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="text-xs text-slate-400 ml-auto font-bold">
+              Mostrando {filteredPurchaseOrders.length} de {purchaseOrders.length} OCs
+            </div>
+          </div>
+
           <div className="bg-white border rounded-3xl overflow-hidden shadow-sm">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse">
@@ -3650,41 +3716,109 @@ export default function ComprasAdminPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-bold text-slate-700">
-                  {purchaseOrders.length === 0 ? (
+                  {filteredPurchaseOrders.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="p-8 text-center text-slate-400">No hay Órdenes de Compra registradas.</td>
+                      <td colSpan={7} className="p-8 text-center text-slate-400">No hay Órdenes de Compra que coincidan con los filtros.</td>
                     </tr>
                   ) : (
-                    purchaseOrders.map(po => (
-                      <tr key={po.id} className="hover:bg-slate-50/50 transition-colors">
-                        <td className="p-4 text-brand-600 font-black">{po.oc_code}</td>
-                        <td className="p-4 font-normal">{formatDateDDMMYYYY(po.order_date)}</td>
-                        <td className="p-4 text-slate-900">{po.supplier?.name}</td>
-                        <td className="p-4 font-normal">{po.payment_condition} {po.payment_term_days > 0 ? `(${po.payment_term_days} días)` : ''}</td>
-                        <td className="p-4 text-slate-900">{formatPrice(po.total_amount)}</td>
-                        <td className="p-4">
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
-                            po.status === 'Cumplido' ? 'bg-green-50 text-green-700 border border-green-200' :
-                            po.status === 'Parcial' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
-                            po.status === 'Cancelado' ? 'bg-rose-50 text-rose-700 border border-rose-200' :
-                            'bg-slate-50 text-slate-700 border border-slate-200'
-                          }`}>
-                            {po.status}
-                          </span>
-                        </td>
-                        <td className="p-4 text-center">
-                          <button
-                            onClick={() => {
-                              setSelectedPO(po);
-                              fetchPoDetails(po.id);
-                            }}
-                            className="p-1 text-slate-400 hover:text-brand-600 hover:bg-slate-100 rounded-lg transition-all"
-                            title="Ver Detalle"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </button>
-                        </td>
-                      </tr>
+                    filteredPurchaseOrders.map(po => (
+                      <React.Fragment key={po.id}>
+                        <tr
+                          onClick={() => togglePoExpand(po.id)}
+                          className="hover:bg-slate-50/50 transition-colors cursor-pointer select-none"
+                        >
+                          <td className="p-4 text-brand-600 font-black flex items-center gap-1.5">
+                            <span className="text-[9px] text-slate-400 font-normal">
+                              {expandedPoIds[po.id] ? '▼' : '▶'}
+                            </span>
+                            <span>{po.oc_code}</span>
+                          </td>
+                          <td className="p-4 font-normal">{formatDateDDMMYYYY(po.order_date)}</td>
+                          <td className="p-4 text-slate-900">{po.supplier?.name}</td>
+                          <td className="p-4 font-normal">{po.payment_condition} {po.payment_term_days > 0 ? `(${po.payment_term_days} días)` : ''}</td>
+                          <td className="p-4 text-slate-900">{formatPrice(po.total_amount)}</td>
+                          <td className="p-4">
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                              po.status === 'Cumplido' ? 'bg-green-50 text-green-700 border border-green-200' :
+                              po.status === 'Parcial' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
+                              po.status === 'Cancelado' ? 'bg-rose-50 text-rose-700 border border-rose-200' :
+                              'bg-slate-50 text-slate-700 border border-slate-200'
+                            }`}>
+                              {po.status}
+                            </span>
+                          </td>
+                          <td className="p-4 text-center" onClick={e => e.stopPropagation()}>
+                            <button
+                              onClick={() => {
+                                setSelectedPO(po);
+                                fetchPoDetails(po.id);
+                              }}
+                              className="p-1 text-slate-400 hover:text-brand-600 hover:bg-slate-100 rounded-lg transition-all"
+                              title="Ver Detalle Completo"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                        {expandedPoIds[po.id] && (
+                          <tr>
+                            <td colSpan={7} className="bg-slate-50/50 p-4 border-t border-b border-slate-100">
+                              {loadingPoItemsMap[po.id] ? (
+                                <div className="flex items-center justify-center p-4">
+                                  <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
+                                  <span className="text-xs text-slate-400 ml-2">Cargando productos...</span>
+                                </div>
+                              ) : !poItemsMap[po.id] || poItemsMap[po.id].length === 0 ? (
+                                <div className="text-center text-xs text-slate-400 p-2 font-medium">
+                                  No hay productos cargados en esta orden de compra.
+                                </div>
+                              ) : (
+                                <div className="overflow-x-auto rounded-2xl border border-slate-200/60 bg-white shadow-sm max-w-4xl mx-auto my-1">
+                                  <table className="w-full text-left text-xs border-collapse">
+                                    <thead>
+                                      <tr className="bg-slate-100/80 border-b text-slate-400 font-bold uppercase tracking-wider">
+                                        <th className="p-2.5 pl-4">Artículo / Detalle</th>
+                                        <th className="p-2.5 text-right">Solicitado</th>
+                                        <th className="p-2.5 text-right">Recibido</th>
+                                        <th className="p-2.5 text-right">Pendiente</th>
+                                        <th className="p-2.5 text-right">Costo Unit.</th>
+                                        <th className="p-2.5 text-right pr-4">Subtotal</th>
+                                        <th className="p-2.5 text-center">Estado</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 text-slate-700 font-medium">
+                                      {poItemsMap[po.id].map(item => {
+                                        const pendingQty = Math.max(0, item.quantity_ordered - item.quantity_received);
+                                        return (
+                                          <tr key={item.id} className="hover:bg-slate-50/30 transition-colors">
+                                            <td className="p-2.5 pl-4 text-slate-900 font-bold">{item.raw_product_name} {item.product?.sku ? `(${item.product.sku})` : ''}</td>
+                                            <td className="p-2.5 text-right font-normal">{item.quantity_ordered}</td>
+                                            <td className="p-2.5 text-right text-green-600 font-normal">{item.quantity_received}</td>
+                                            <td className={`p-2.5 text-right font-bold ${pendingQty > 0 ? 'text-amber-600' : 'text-slate-400'}`}>
+                                              {pendingQty}
+                                            </td>
+                                            <td className="p-2.5 text-right font-normal">{formatPrice(item.unit_cost)}</td>
+                                            <td className="p-2.5 text-right pr-4 text-slate-900">{formatPrice(item.subtotal)}</td>
+                                            <td className="p-2.5 text-center">
+                                              <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-black ${
+                                                item.status === 'Cumplido' ? 'bg-green-50 text-green-700 border border-green-200' :
+                                                item.status === 'Parcial' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
+                                                'bg-slate-50 text-slate-700 border border-slate-200'
+                                              }`}>
+                                                {item.status}
+                                              </span>
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
                     ))
                   )}
                 </tbody>
