@@ -37,7 +37,8 @@ import {
   Percent,
   Users,
   Scale,
-  TrendingUp
+  TrendingUp,
+  XCircle
 } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
@@ -732,6 +733,74 @@ export default function ComprasAdminPage() {
       alert("Error al cargar detalle de OC: " + err.message);
     } finally {
       setLoadingPoDetail(false);
+    }
+  };
+
+  const handleCancelPOLine = async (itemId: string, poId: string) => {
+    const confirm = window.confirm("¿Estás seguro de que deseas cancelar esta línea de pedido?");
+    if (!confirm) return;
+    
+    const note = window.prompt("Aclaración/Motivo de la cancelación (opcional):") || "";
+    
+    try {
+      const { error } = await supabase
+        .from('purchase_order_items')
+        .update({ status: 'Cancelado', notes: note.trim() || null })
+        .eq('id', itemId);
+
+      if (error) throw error;
+
+      // Actualizar localmente el mapa de ítems
+      setPoItemsMap(prev => {
+        const updated = { ...prev };
+        if (updated[poId]) {
+          updated[poId] = updated[poId].map(item => 
+            item.id === itemId ? { ...item, status: 'Cancelado', notes: note.trim() || null } : item
+          );
+        }
+        return updated;
+      });
+
+      alert("Línea cancelada exitosamente.");
+      loadAllData(true);
+    } catch (err: any) {
+      console.error("Error al cancelar línea:", err);
+      alert("Error al cancelar línea: " + err.message);
+    }
+  };
+
+  const handleCancelWholePO = async (poId: string) => {
+    const confirm = window.confirm("¿Estás seguro de que deseas cancelar esta Orden de Compra por completo? Se cancelarán todos sus ítems no entregados.");
+    if (!confirm) return;
+
+    const note = window.prompt("Aclaración/Motivo de la cancelación de la orden (opcional):") || "";
+
+    try {
+      // 1. Cancelar ítems no cumplidos
+      const { error: itemsError } = await supabase
+        .from('purchase_order_items')
+        .update({ status: 'Cancelado' })
+        .eq('purchase_order_id', poId)
+        .neq('status', 'Cumplido');
+
+      if (itemsError) throw itemsError;
+
+      // 2. Cancelar cabecera
+      const { error: poError } = await supabase
+        .from('purchase_orders')
+        .update({
+          status: 'Cancelado',
+          notes: note.trim() ? note.trim() : null
+        })
+        .eq('id', poId);
+
+      if (poError) throw poError;
+
+      alert("Orden de Compra cancelada exitosamente.");
+      loadAllData(true);
+    } catch (err: any) {
+      console.error("Error al cancelar la orden completa:", err);
+      alert("Error al cancelar la orden: " + err.message);
     }
   };
 
@@ -3748,16 +3817,27 @@ export default function ComprasAdminPage() {
                             </span>
                           </td>
                           <td className="p-4 text-center" onClick={e => e.stopPropagation()}>
-                            <button
-                              onClick={() => {
-                                setSelectedPO(po);
-                                fetchPoDetails(po.id);
-                              }}
-                              className="p-1 text-slate-400 hover:text-brand-600 hover:bg-slate-100 rounded-lg transition-all"
-                              title="Ver Detalle Completo"
-                            >
-                              <Eye className="w-4 h-4" />
-                            </button>
+                            <div className="flex items-center justify-center gap-1.5">
+                              <button
+                                onClick={() => {
+                                  setSelectedPO(po);
+                                  fetchPoDetails(po.id);
+                                }}
+                                className="p-1 text-slate-400 hover:text-brand-600 hover:bg-slate-100 rounded-lg transition-all"
+                                title="Ver Detalle Completo"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
+                              {po.status !== 'Cumplido' && po.status !== 'Cancelado' && (
+                                <button
+                                  onClick={() => handleCancelWholePO(po.id)}
+                                  className="p-1 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-all"
+                                  title="Cancelar Orden Completa"
+                                >
+                                  <XCircle className="w-4 h-4" />
+                                </button>
+                              )}
+                            </div>
                           </td>
                         </tr>
                         {expandedPoIds[po.id] && (
@@ -3782,8 +3862,9 @@ export default function ComprasAdminPage() {
                                         <th className="p-2.5 text-right">Recibido</th>
                                         <th className="p-2.5 text-right">Pendiente</th>
                                         <th className="p-2.5 text-right">Costo Unit.</th>
-                                        <th className="p-2.5 text-right pr-4">Subtotal</th>
+                                        <th className="p-2.5 text-right">Subtotal</th>
                                         <th className="p-2.5 text-center">Estado</th>
+                                        <th className="p-2.5 text-center pr-4">Acción</th>
                                       </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100 text-slate-700 font-medium">
@@ -3791,22 +3872,41 @@ export default function ComprasAdminPage() {
                                         const pendingQty = Math.max(0, item.quantity_ordered - item.quantity_received);
                                         return (
                                           <tr key={item.id} className="hover:bg-slate-50/30 transition-colors">
-                                            <td className="p-2.5 pl-4 text-slate-900 font-bold">{item.raw_product_name} {item.product?.sku ? `(${item.product.sku})` : ''}</td>
+                                            <td className="p-2.5 pl-4 text-slate-900 font-bold">
+                                              <div>{item.raw_product_name} {item.product?.sku ? `(${item.product.sku})` : ''}</div>
+                                              {item.notes && <div className="text-[10px] text-slate-400 font-normal italic mt-0.5">Nota: {item.notes}</div>}
+                                            </td>
                                             <td className="p-2.5 text-right font-normal">{item.quantity_ordered}</td>
                                             <td className="p-2.5 text-right text-green-600 font-normal">{item.quantity_received}</td>
                                             <td className={`p-2.5 text-right font-bold ${pendingQty > 0 ? 'text-amber-600' : 'text-slate-400'}`}>
                                               {pendingQty}
                                             </td>
                                             <td className="p-2.5 text-right font-normal">{formatPrice(item.unit_cost)}</td>
-                                            <td className="p-2.5 text-right pr-4 text-slate-900">{formatPrice(item.subtotal)}</td>
+                                            <td className="p-2.5 text-right text-slate-900">{formatPrice(item.subtotal)}</td>
                                             <td className="p-2.5 text-center">
                                               <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-black ${
                                                 item.status === 'Cumplido' ? 'bg-green-50 text-green-700 border border-green-200' :
                                                 item.status === 'Parcial' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
+                                                item.status === 'Cancelado' ? 'bg-rose-50 text-rose-700 border border-rose-200' :
                                                 'bg-slate-50 text-slate-700 border border-slate-200'
                                               }`}>
                                                 {item.status}
                                               </span>
+                                            </td>
+                                            <td className="p-2.5 text-center pr-4">
+                                              {item.status !== 'Cumplido' && item.status !== 'Cancelado' && (
+                                                <button
+                                                  type="button"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleCancelPOLine(item.id, po.id);
+                                                  }}
+                                                  className="p-1 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-all"
+                                                  title="Cancelar Línea"
+                                                >
+                                                  <X className="w-3.5 h-3.5" />
+                                                </button>
+                                              )}
                                             </td>
                                           </tr>
                                         );
@@ -3867,7 +3967,10 @@ export default function ComprasAdminPage() {
                         <tbody className="divide-y divide-slate-100 font-bold text-slate-700">
                           {poItemsDetail.map(item => (
                             <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
-                              <td className="p-3 text-slate-900">{item.raw_product_name} {item.product?.sku ? `(${item.product.sku})` : ''}</td>
+                              <td className="p-3 text-slate-900">
+                                <div>{item.raw_product_name} {item.product?.sku ? `(${item.product.sku})` : ''}</div>
+                                {item.notes && <div className="text-[10px] text-slate-400 font-normal italic mt-0.5">Nota: {item.notes}</div>}
+                              </td>
                               <td className="p-3 text-right">{item.quantity_ordered}</td>
                               <td className="p-3 text-right text-brand-600">{item.quantity_received}</td>
                               <td className="p-3 text-right">{formatPrice(item.unit_cost)}</td>
@@ -3876,6 +3979,7 @@ export default function ComprasAdminPage() {
                                 <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-black ${
                                   item.status === 'Cumplido' ? 'bg-green-50 text-green-700 border border-green-200' :
                                   item.status === 'Parcial' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
+                                  item.status === 'Cancelado' ? 'bg-rose-50 text-rose-700 border border-rose-200' :
                                   'bg-slate-50 text-slate-700 border border-slate-200'
                                 }`}>
                                   {item.status}
@@ -3886,6 +3990,21 @@ export default function ComprasAdminPage() {
                         </tbody>
                       </table>
                     </div>
+
+                    {selectedPO.status !== 'Cumplido' && selectedPO.status !== 'Cancelado' && (
+                      <div className="flex justify-end pt-4 border-t border-slate-100">
+                        <Button
+                          type="button"
+                          onClick={() => {
+                            handleCancelWholePO(selectedPO.id);
+                            setSelectedPO(null);
+                          }}
+                          className="bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-black text-xs px-4 py-2.5"
+                        >
+                          Cancelar Orden de Compra Completa
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
