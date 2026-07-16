@@ -1010,16 +1010,35 @@ export default function ComprasAdminPage() {
       // Detect delimiter
       const firstLine = lines[0];
       const delimiter = firstLine.includes(';') ? ';' : ',';
-      const headers = parseCSVLine(firstLine, delimiter).map(h => h.replace(/^["']|["']$/g, '').trim());
-      addLog(`Headers detectados: [${headers.join(', ')}] (Delimitador: '${delimiter}')`);
+      
+      let headerLineIndex = 0;
+      for (let i = 0; i < lines.length; i++) {
+        const parsedHeaders = parseCSVLine(lines[i], delimiter).map(h => h.replace(/^["']|["']$/g, '').trim());
+        const hasActualHeaders = parsedHeaders.some(h => 
+          h.toLowerCase().includes('proveedor') || 
+          h.toLowerCase().includes('producto') || 
+          h.toLowerCase().includes('código') || 
+          h.toLowerCase().includes('codigo') || 
+          h.toLowerCase().includes('fecha')
+        );
+        if (hasActualHeaders) {
+          headerLineIndex = i;
+          break;
+        }
+      }
+      
+      const headers = parseCSVLine(lines[headerLineIndex], delimiter).map(h => h.replace(/^["']|["']$/g, '').trim());
+      addLog(`Headers detectados en línea ${headerLineIndex}: [${headers.join(', ')}] (Delimitador: '${delimiter}')`);
 
       const rows: any[] = [];
-      for (let i = 1; i < lines.length; i++) {
+      for (let i = headerLineIndex + 1; i < lines.length; i++) {
         const fields = parseCSVLine(lines[i], delimiter).map(f => f.replace(/^["']|["']$/g, '').trim());
-        if (fields.length === headers.length) {
+        if (fields.length >= headers.length) {
           const rowObj: any = {};
           headers.forEach((h, idx) => {
-            rowObj[h] = fields[idx];
+            if (h) {
+              rowObj[h] = fields[idx];
+            }
           });
           rows.push(rowObj);
         }
@@ -1245,11 +1264,11 @@ export default function ComprasAdminPage() {
         for (const row of rows) {
           try {
             const rawDate = row['Fecha'];
+            if (!rawDate || !rawDate.includes('/')) continue;
+            
             let recDate = new Date();
-            if (rawDate) {
-              const parts = rawDate.split('/');
-              if (parts.length === 3) recDate = new Date(`${parts[2]}-${parts[1]}-${parts[0]}T12:00:00`);
-            }
+            const parts = rawDate.split('/');
+            if (parts.length === 3) recDate = new Date(`${parts[2]}-${parts[1]}-${parts[0]}T12:00:00`);
 
             const supName = row['Proveedor'];
             const supId = await getOrCreateSupplier(supName);
