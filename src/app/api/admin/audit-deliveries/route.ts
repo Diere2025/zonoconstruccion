@@ -604,15 +604,41 @@ export async function POST() {
     }
     console.log(`POST: Loaded ${dbItemsList.length} database order items.`);
 
-    const [productsRes, payMethodsRes] = await Promise.all([
-      supabaseAdmin.from('products').select('id, name, sku'),
+    // Helper function to fetch all products
+    async function fetchProductsAll() {
+      let allProducts: any[] = [];
+      let page = 0;
+      const pageSize = 1000;
+      let hasMore = true;
+      while (hasMore) {
+        const { data, error } = await supabaseAdmin
+          .from('products')
+          .select('id, name, sku')
+          .range(page * pageSize, (page + 1) * pageSize - 1);
+        if (error) throw error;
+        if (data && data.length > 0) {
+          allProducts = [...allProducts, ...data];
+          if (data.length < pageSize) {
+            hasMore = false;
+          } else {
+            page++;
+          }
+        } else {
+          hasMore = false;
+        }
+      }
+      return allProducts;
+    }
+
+    const [products, payMethodsRes] = await Promise.all([
+      fetchProductsAll(),
       supabaseAdmin.from('payment_methods').select('id, name')
     ]);
 
-    if (productsRes.error) throw productsRes.error;
+    
     if (payMethodsRes.error) throw payMethodsRes.error;
 
-    const dbProducts = productsRes.data || [];
+    const dbProducts = products || [];
     const payMethods = payMethodsRes.data || [];
     console.log(`POST: Loaded ${dbProducts.length} products and ${payMethods.length} payment methods.`);
 

@@ -8,8 +8,34 @@ const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 
 export async function GET() {
   try {
+    // Helper function to fetch all products
+    async function fetchProductsAll() {
+      let allProducts: any[] = [];
+      let page = 0;
+      const pageSize = 1000;
+      let hasMore = true;
+      while (hasMore) {
+        const { data, error } = await supabaseAdmin
+          .from('products')
+          .select('id, name, sku, price')
+          .range(page * pageSize, (page + 1) * pageSize - 1);
+        if (error) throw error;
+        if (data && data.length > 0) {
+          allProducts = [...allProducts, ...data];
+          if (data.length < pageSize) {
+            hasMore = false;
+          } else {
+            page++;
+          }
+        } else {
+          hasMore = false;
+        }
+      }
+      return allProducts;
+    }
+
     const [
-      productsRes,
+      products,
       sellersRes,
       localitiesRes,
       advSourcesRes,
@@ -18,17 +44,20 @@ export async function GET() {
       phoneLinesRes,
       ordersRes
     ] = await Promise.all([
-      supabaseAdmin.from('products').select('id, name, sku, price'),
+      fetchProductsAll(),
       supabaseAdmin.from('sellers').select('id, full_name, is_organic'),
       supabaseAdmin.from('localities').select('id, name, zone_id'),
       supabaseAdmin.from('advertising_sources').select('id, name'),
       supabaseAdmin.from('order_mediums').select('id, name'),
       supabaseAdmin.from('payment_methods').select('id, name, surcharge_percentage, installments'),
       supabaseAdmin.from('phone_lines').select('id, phone_number'),
-      supabaseAdmin.from('orders').select('id, legacy_code, status, delivery_detail, whaticket_link, order_medium_id')
+      // Fetch only active orders to prevent 1000 cap from omitting them
+      supabaseAdmin.from('orders')
+        .select('id, legacy_code, status, delivery_detail, whaticket_link, order_medium_id')
+        .in('status', ['Pendiente', 'Confirmado', 'Entregando'])
     ]);
 
-    if (productsRes.error) throw productsRes.error;
+    
     if (sellersRes.error) throw sellersRes.error;
     if (localitiesRes.error) throw localitiesRes.error;
     if (advSourcesRes.error) throw advSourcesRes.error;
@@ -38,7 +67,7 @@ export async function GET() {
     if (ordersRes.error) throw ordersRes.error;
 
     return NextResponse.json({
-      products: productsRes.data,
+      products,
       sellers: sellersRes.data,
       localities: localitiesRes.data,
       advertising_sources: advSourcesRes.data,
