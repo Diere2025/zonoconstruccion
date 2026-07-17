@@ -2128,43 +2128,33 @@ export default function ImportarPedidosPage() {
               </label>
 
               {/* Reclamos */}
-              <div className={cn("p-3 rounded-xl border border-slate-100 hover:bg-slate-50/50 transition-all space-y-2", !useClaimsSheet && "opacity-50")}>
-                <div className="flex items-center justify-between">
-                  <label className="flex items-center gap-2.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={useClaimsSheet}
-                      onChange={(e) => setUseClaimsSheet(e.target.checked)}
-                      className="w-4 h-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500/10 cursor-pointer accent-amber-600"
-                    />
-                    <div>
-                      <span className="text-xs font-bold text-slate-800">Planilla de Reclamos</span>
-                      <span className="ml-2 bg-amber-50 text-amber-600 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-md">Postventa</span>
-                    </div>
-                  </label>
-                  <a
-                    href="https://docs.google.com/spreadsheets/d/1PzbotWVO-iLqV0rPvH2ZlXKkMGYPTIkmBd1owU45OCo/edit?gid=1414092286"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-slate-400 hover:text-slate-600 p-1 font-bold text-xs"
-                    title="Abrir Planilla Original"
-                  >
-                    ↗
-                  </a>
-                </div>
-                {useClaimsSheet && (
-                  <div className="flex items-center gap-2 pt-1 border-t border-slate-100">
-                    <label className="text-[8px] font-black text-slate-400 uppercase tracking-wider whitespace-nowrap">CSV:</label>
-                    <input
-                      type="text"
-                      value={claimsSheetUrl}
-                      onChange={(e) => setClaimsSheetUrl(e.target.value)}
-                      className="flex-1 px-2.5 py-1 text-[10px] border border-slate-200 rounded-md focus:outline-none focus:border-amber-400 font-mono text-slate-600 bg-slate-50"
-                      title="CSV Endpoint URL"
-                    />
+              {!skipCAMB && (
+                <div className={cn("p-3 rounded-xl border border-slate-100 hover:bg-slate-50/50 transition-all space-y-2", !useClaimsSheet && "opacity-50")}>
+                  <div className="flex items-center justify-between">
+                    <label className="flex items-center gap-2.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={useClaimsSheet}
+                        onChange={(e) => setUseClaimsSheet(e.target.checked)}
+                        className="w-4 h-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500/10 cursor-pointer accent-amber-600"
+                      />
+                      <div>
+                        <span className="text-xs font-bold text-slate-800">Planilla de Reclamos</span>
+                        <span className="ml-2 bg-amber-50 text-amber-600 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-md">Postventa</span>
+                      </div>
+                    </label>
+                    <a
+                      href="https://docs.google.com/spreadsheets/d/1PzbotWVO-iLqV0rPvH2ZlXKkMGYPTIkmBd1owU45OCo/edit?gid=1414092286"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-slate-400 hover:text-slate-600 p-1 font-bold text-xs"
+                      title="Abrir Planilla Original"
+                    >
+                      ↗
+                    </a>
                   </div>
-                )}
-              </div>
+                </div>
+              )}
             </div>
 
           </div>
