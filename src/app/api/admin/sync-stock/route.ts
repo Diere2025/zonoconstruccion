@@ -207,6 +207,7 @@ export async function POST() {
 
     let updatedCount = 0;
     const sheetProductNames = new Set<string>();
+    const updatesToUpsert: any[] = [];
 
     // Update matched products
     for (const row of sheetRows) {
@@ -226,20 +227,12 @@ export async function POST() {
         const dbCalculatedReserved = dbCalculatedReservesMap.get(dbProd.id) || 0;
         const newAvailable = sheetPhysical - dbCalculatedReserved;
 
-        const { error: updateErr } = await supabaseAdmin
-          .from('products')
-          .update({
-            stock_physical: sheetPhysical,
-            stock_reserved: dbCalculatedReserved,
-            stock_current: newAvailable
-          })
-          .eq('id', dbProd.id);
-
-        if (updateErr) {
-          console.error(`Error updating product stock for ${dbProd.name}:`, updateErr.message);
-        } else {
-          updatedCount++;
-        }
+        updatesToUpsert.push({
+          id: dbProd.id,
+          stock_physical: sheetPhysical,
+          stock_reserved: dbCalculatedReserved,
+          stock_current: newAvailable
+        });
       }
     }
 
@@ -256,19 +249,23 @@ export async function POST() {
 
         const currentReserved = parseFloat(p.stock_reserved || '0') || 0;
         if (currentReserved !== dbCalculatedReserved) {
-          const { error: updateErr } = await supabaseAdmin
-            .from('products')
-            .update({
-              stock_reserved: dbCalculatedReserved,
-              stock_current: newAvailable
-            })
-            .eq('id', p.id);
-          
-          if (!updateErr) {
-            updatedCount++;
-          }
+          updatesToUpsert.push({
+            id: p.id,
+            stock_physical: dbPhysical,
+            stock_reserved: dbCalculatedReserved,
+            stock_current: newAvailable
+          });
         }
       }
+    }
+
+    if (updatesToUpsert.length > 0) {
+      const { error: upsertErr } = await supabaseAdmin
+        .from('products')
+        .upsert(updatesToUpsert, { onConflict: 'id' });
+
+      if (upsertErr) throw upsertErr;
+      updatedCount = updatesToUpsert.length;
     }
 
     return NextResponse.json({ success: true, updatedCount });
