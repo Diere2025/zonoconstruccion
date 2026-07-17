@@ -15,7 +15,8 @@ export async function GET() {
       advSourcesRes,
       orderMediumsRes,
       paymentMethodsRes,
-      phoneLinesRes
+      phoneLinesRes,
+      ordersRes
     ] = await Promise.all([
       supabaseAdmin.from('products').select('id, name, sku, price'),
       supabaseAdmin.from('sellers').select('id, full_name, is_organic'),
@@ -23,7 +24,8 @@ export async function GET() {
       supabaseAdmin.from('advertising_sources').select('id, name'),
       supabaseAdmin.from('order_mediums').select('id, name'),
       supabaseAdmin.from('payment_methods').select('id, name, surcharge_percentage, installments'),
-      supabaseAdmin.from('phone_lines').select('id, phone_number')
+      supabaseAdmin.from('phone_lines').select('id, phone_number'),
+      supabaseAdmin.from('orders').select('id, legacy_code, status, delivery_detail, whaticket_link, order_medium_id')
     ]);
 
     if (productsRes.error) throw productsRes.error;
@@ -33,6 +35,7 @@ export async function GET() {
     if (orderMediumsRes.error) throw orderMediumsRes.error;
     if (paymentMethodsRes.error) throw paymentMethodsRes.error;
     if (phoneLinesRes.error) throw phoneLinesRes.error;
+    if (ordersRes.error) throw ordersRes.error;
 
     return NextResponse.json({
       products: productsRes.data,
@@ -41,7 +44,8 @@ export async function GET() {
       advertising_sources: advSourcesRes.data,
       order_mediums: orderMediumsRes.data,
       payment_methods: paymentMethodsRes.data,
-      phone_lines: phoneLinesRes.data
+      phone_lines: phoneLinesRes.data,
+      orders: ordersRes.data
     });
   } catch (error: any) {
     console.error('[API Master Data] Error:', error);

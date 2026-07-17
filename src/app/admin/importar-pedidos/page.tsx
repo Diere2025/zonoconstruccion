@@ -358,6 +358,7 @@ export default function ImportarPedidosPage() {
       let dbOrderMediums: any[] | null = null;
       let dbPaymentMethods: any[] | null = null;
       let dbPhoneLines: any[] | null = null;
+      let masterPayload: any = null;
 
       try {
         addLog("  -> Cargando productos, vendedores, localidades, orígenes, medios de pedido, métodos de pago y líneas telefónicas...");
@@ -370,14 +371,14 @@ export default function ImportarPedidosPage() {
           throw new Error(errData.error || `HTTP error ${res.status}`);
         }
         
-        const payload = await res.json();
-        dbProducts = payload.products;
-        dbSellers = payload.sellers;
-        dbLocalities = payload.localities;
-        dbAdvSources = payload.advertising_sources;
-        dbOrderMediums = payload.order_mediums;
-        dbPaymentMethods = payload.payment_methods;
-        dbPhoneLines = payload.phone_lines;
+        masterPayload = await res.json();
+        dbProducts = masterPayload.products;
+        dbSellers = masterPayload.sellers;
+        dbLocalities = masterPayload.localities;
+        dbAdvSources = masterPayload.advertising_sources;
+        dbOrderMediums = masterPayload.order_mediums;
+        dbPaymentMethods = masterPayload.payment_methods;
+        dbPhoneLines = masterPayload.phone_lines;
 
         addLog(`  ✅ Productos cargados: ${dbProducts?.length || 0}`);
         addLog(`  ✅ Vendedores cargados: ${dbSellers?.length || 0}`);
@@ -394,50 +395,25 @@ export default function ImportarPedidosPage() {
 
       addLog("Obteniendo códigos y estados de pedidos existentes...");
       const existingOrdersMap = new Map<string, { id: string; status: string; delivery_detail?: string; whaticket_link?: string; order_medium_id?: string }>();
-      let page = 0;
-      const pageSize = 1000;
-      let hasMore = true;
       
-      while (hasMore) {
-        if (cancelImportRef.current) {
-          addLog("🔴 Proceso cancelado durante la carga de códigos inicial.");
-          throw new Error("Importación cancelada por el usuario.");
-        }
-        const { data, error } = await supabase
-          .from('orders')
-          .select('id, legacy_code, status, delivery_detail, whaticket_link, order_medium_id')
-          .not('legacy_code', 'is', null)
-          .order('id')
-          .range(page * pageSize, (page + 1) * pageSize - 1);
-
-          
-        if (error) throw error;
-        if (data && data.length > 0) {
-          data.forEach(o => {
-            const rawCode = (o.legacy_code || "").trim();
-            if (rawCode) {
-              const parts = rawCode.split(/[\/,]/).map((c: string) => c.trim().toUpperCase());
-              parts.forEach((code: string) => {
-                if (code) {
-                  existingOrdersMap.set(code, { 
-                    id: o.id, 
-                    status: o.status || "", 
-                    delivery_detail: o.delivery_detail || "",
-                    whaticket_link: o.whaticket_link || "",
-                    order_medium_id: o.order_medium_id || ""
-                  });
-                }
+      const serverOrders = masterPayload?.orders || [];
+      serverOrders.forEach((o: any) => {
+        const rawCode = (o.legacy_code || "").trim();
+        if (rawCode) {
+          const parts = rawCode.split(/[\/,]/).map((c: string) => c.trim().toUpperCase());
+          parts.forEach((code: string) => {
+            if (code) {
+              existingOrdersMap.set(code, { 
+                id: o.id, 
+                status: o.status || "", 
+                delivery_detail: o.delivery_detail || "",
+                whaticket_link: o.whaticket_link || "",
+                order_medium_id: o.order_medium_id || ""
               });
             }
           });
-          page++;
-          if (data.length < pageSize) {
-            hasMore = false;
-          }
-        } else {
-          hasMore = false;
         }
-      }
+      });
       addLog(`Pedidos históricos existentes en DB: ${existingOrdersMap.size}`);
 
       const findExistingOrder = (orderCode: string) => {
