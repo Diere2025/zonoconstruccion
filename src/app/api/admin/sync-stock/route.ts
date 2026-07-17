@@ -27,7 +27,7 @@ async function fetchProductsAll() {
   while (hasMore) {
     const { data, error } = await supabaseAdmin
       .from('products')
-      .select('id, name, sku, stock_physical, stock_reserved, stock_current')
+      .select('*')
       .range(page * pageSize, (page + 1) * pageSize - 1);
     if (error) throw error;
     if (data && data.length > 0) {
@@ -247,7 +247,7 @@ export async function POST() {
         const newAvailable = sheetPhysical - dbCalculatedReserved;
 
         updatesToUpsert.push({
-          id: dbProd.id,
+          ...dbProd,
           stock_physical: sheetPhysical,
           stock_reserved: dbCalculatedReserved,
           stock_current: newAvailable
@@ -269,7 +269,7 @@ export async function POST() {
         const currentReserved = parseFloat(p.stock_reserved || '0') || 0;
         if (currentReserved !== dbCalculatedReserved) {
           updatesToUpsert.push({
-            id: p.id,
+            ...p,
             stock_physical: dbPhysical,
             stock_reserved: dbCalculatedReserved,
             stock_current: newAvailable
