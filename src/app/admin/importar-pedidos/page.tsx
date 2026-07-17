@@ -21,42 +21,38 @@ const withTimeout = <T,>(promise: Promise<T>, ms: number, errorMessage = "Timeou
   });
 };
 
-const withTimeoutAndRetry = <T,>(
+const withTimeoutAndRetry = async <T,>(
   fn: () => Promise<T>,
   ms: number,
   retries = 2,
   errorMessage = "Timeout"
 ): Promise<T> => {
-  const runAttempt = (attempt: number): Promise<T> => {
-    return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        if (attempt < retries) {
-          console.warn(`[Supabase] Attempt ${attempt + 1} timed out after ${ms}ms. Retrying...`);
-          resolve(runAttempt(attempt + 1));
-        } else {
-          reject(new Error(errorMessage));
-        }
-      }, ms);
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      let timer: any;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(errorMessage)), ms);
+      });
 
-      fn()
-        .then((res) => {
+      const result = await Promise.race([
+        fn().then((res) => {
           clearTimeout(timer);
-          resolve(res);
-        })
-        .catch((err) => {
-          clearTimeout(timer);
-          if (attempt < retries) {
-            console.warn(`[Supabase] Attempt ${attempt + 1} failed: ${err.message || err}. Retrying...`);
-            setTimeout(() => {
-              resolve(runAttempt(attempt + 1));
-            }, 1000);
-          } else {
-            reject(err);
-          }
-        });
-    });
-  };
-  return runAttempt(0);
+          return res;
+        }),
+        timeoutPromise
+      ]);
+
+      return result;
+    } catch (err: any) {
+      if (attempt < retries) {
+        console.warn(`[Supabase] Attempt ${attempt + 1} failed or timed out: ${err.message || err}. Retrying in 1s...`);
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      } else {
+        throw err;
+      }
+    }
+  }
+  throw new Error(errorMessage);
 };
 
 export default function ImportarPedidosPage() {
@@ -364,49 +360,67 @@ export default function ImportarPedidosPage() {
 
       try {
         addLog("  -> Cargando productos, vendedores, localidades, orígenes, medios de pedido, métodos de pago y líneas telefónicas...");
-        console.log("[ImportarPedidos] Iniciando carga de datos maestros secuencialmente");
+        console.log("[ImportarPedidos] Iniciando carga de datos maestros en paralelo");
         
-        dbProducts = await withTimeoutAndRetry(async () => {
-          const { data, error } = await supabase.from('products').select('id, name, sku, price');
-          if (error) throw error;
-          return data;
-        }, 30000, 2, "Tiempo de espera agotado al cargar productos (30s)");
-        
-        dbSellers = await withTimeoutAndRetry(async () => {
-          const { data, error } = await supabase.from('sellers').select('id, full_name, is_organic');
-          if (error) throw error;
-          return data;
-        }, 30000, 2, "Tiempo de espera agotado al cargar vendedores (30s)");
-        
-        dbLocalities = await withTimeoutAndRetry(async () => {
-          const { data, error } = await supabase.from('localities').select('id, name, zone_id');
-          if (error) throw error;
-          return data;
-        }, 30000, 2, "Tiempo de espera agotado al cargar localidades (30s)");
-        
-        dbAdvSources = await withTimeoutAndRetry(async () => {
-          const { data, error } = await supabase.from('advertising_sources').select('id, name');
-          if (error) throw error;
-          return data;
-        }, 30000, 2, "Tiempo de espera agotado al cargar orígenes (30s)");
-        
-        dbOrderMediums = await withTimeoutAndRetry(async () => {
-          const { data, error } = await supabase.from('order_mediums').select('id, name');
-          if (error) throw error;
-          return data;
-        }, 30000, 2, "Tiempo de espera agotado al cargar medios (30s)");
-        
-        dbPaymentMethods = await withTimeoutAndRetry(async () => {
-          const { data, error } = await supabase.from('payment_methods').select('id, name, surcharge_percentage, installments');
-          if (error) throw error;
-          return data;
-        }, 30000, 2, "Tiempo de espera agotado al cargar métodos de pago (30s)");
-        
-        dbPhoneLines = await withTimeoutAndRetry(async () => {
-          const { data, error } = await supabase.from('phone_lines').select('id, phone_number');
-          if (error) throw error;
-          return data;
-        }, 30000, 2, "Tiempo de espera agotado al cargar líneas telefónicas (30s)");
+        const [
+          productsRes,
+          sellersRes,
+          localitiesRes,
+          advSourcesRes,
+          orderMediumsRes,
+          paymentMethodsRes,
+          phoneLinesRes
+        ] = await Promise.all([
+          withTimeoutAndRetry(async () => {
+            const { data, error } = await supabase.from('products').select('id, name, sku, price');
+            if (error) throw error;
+            return data;
+          }, 15000, 2, "Tiempo de espera agotado al cargar productos (15s)"),
+          
+          withTimeoutAndRetry(async () => {
+            const { data, error } = await supabase.from('sellers').select('id, full_name, is_organic');
+            if (error) throw error;
+            return data;
+          }, 15000, 2, "Tiempo de espera agotado al cargar vendedores (15s)"),
+          
+          withTimeoutAndRetry(async () => {
+            const { data, error } = await supabase.from('localities').select('id, name, zone_id');
+            if (error) throw error;
+            return data;
+          }, 15000, 2, "Tiempo de espera agotado al cargar localidades (15s)"),
+          
+          withTimeoutAndRetry(async () => {
+            const { data, error } = await supabase.from('advertising_sources').select('id, name');
+            if (error) throw error;
+            return data;
+          }, 15000, 2, "Tiempo de espera agotado al cargar orígenes (15s)"),
+          
+          withTimeoutAndRetry(async () => {
+            const { data, error } = await supabase.from('order_mediums').select('id, name');
+            if (error) throw error;
+            return data;
+          }, 15000, 2, "Tiempo de espera agotado al cargar medios (15s)"),
+          
+          withTimeoutAndRetry(async () => {
+            const { data, error } = await supabase.from('payment_methods').select('id, name, surcharge_percentage, installments');
+            if (error) throw error;
+            return data;
+          }, 15000, 2, "Tiempo de espera agotado al cargar métodos de pago (15s)"),
+          
+          withTimeoutAndRetry(async () => {
+            const { data, error } = await supabase.from('phone_lines').select('id, phone_number');
+            if (error) throw error;
+            return data;
+          }, 15000, 2, "Tiempo de espera agotado al cargar líneas telefónicas (15s)")
+        ]);
+
+        dbProducts = productsRes;
+        dbSellers = sellersRes;
+        dbLocalities = localitiesRes;
+        dbAdvSources = advSourcesRes;
+        dbOrderMediums = orderMediumsRes;
+        dbPaymentMethods = paymentMethodsRes;
+        dbPhoneLines = phoneLinesRes;
 
         addLog(`  ✅ Productos cargados: ${dbProducts?.length || 0}`);
         addLog(`  ✅ Vendedores cargados: ${dbSellers?.length || 0}`);
