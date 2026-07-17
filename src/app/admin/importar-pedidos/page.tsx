@@ -361,110 +361,31 @@ export default function ImportarPedidosPage() {
 
       try {
         addLog("  -> Cargando productos, vendedores, localidades, orígenes, medios de pedido, métodos de pago y líneas telefónicas...");
-        console.log("[ImportarPedidos] Iniciando carga de datos maestros en paralelo con logs en vivo");
+        console.log("[ImportarPedidos] Iniciando carga de datos maestros vía API Next.js server-side");
         
-        const loadProducts = async () => {
-          const start = Date.now();
-          const data = await withTimeoutAndRetry(async () => {
-            const { data, error } = await supabase.from('products').select('id, name, sku, price');
-            if (error) throw error;
-            return data;
-          }, 45000, 2, "Tiempo de espera agotado al cargar productos (45s)");
-          addLog(`  ✅ Productos cargados: ${data?.length || 0} (${Date.now() - start}ms)`);
-          return data;
-        };
+        const start = Date.now();
+        const res = await fetch("/api/admin/import-master-data");
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || `HTTP error ${res.status}`);
+        }
+        
+        const payload = await res.json();
+        dbProducts = payload.products;
+        dbSellers = payload.sellers;
+        dbLocalities = payload.localities;
+        dbAdvSources = payload.advertising_sources;
+        dbOrderMediums = payload.order_mediums;
+        dbPaymentMethods = payload.payment_methods;
+        dbPhoneLines = payload.phone_lines;
 
-        const loadSellers = async () => {
-          const start = Date.now();
-          const data = await withTimeoutAndRetry(async () => {
-            const { data, error } = await supabase.from('sellers').select('id, full_name, is_organic');
-            if (error) throw error;
-            return data;
-          }, 45000, 2, "Tiempo de espera agotado al cargar vendedores (45s)");
-          addLog(`  ✅ Vendedores cargados: ${data?.length || 0} (${Date.now() - start}ms)`);
-          return data;
-        };
-
-        const loadLocalities = async () => {
-          const start = Date.now();
-          const data = await withTimeoutAndRetry(async () => {
-            const { data, error } = await supabase.from('localities').select('id, name, zone_id');
-            if (error) throw error;
-            return data;
-          }, 45000, 2, "Tiempo de espera agotado al cargar localidades (45s)");
-          addLog(`  ✅ Localidades cargadas: ${data?.length || 0} (${Date.now() - start}ms)`);
-          return data;
-        };
-
-        const loadAdvSources = async () => {
-          const start = Date.now();
-          const data = await withTimeoutAndRetry(async () => {
-            const { data, error } = await supabase.from('advertising_sources').select('id, name');
-            if (error) throw error;
-            return data;
-          }, 45000, 2, "Tiempo de espera agotado al cargar orígenes (45s)");
-          addLog(`  ✅ Orígenes cargados: ${data?.length || 0} (${Date.now() - start}ms)`);
-          return data;
-        };
-
-        const loadOrderMediums = async () => {
-          const start = Date.now();
-          const data = await withTimeoutAndRetry(async () => {
-            const { data, error } = await supabase.from('order_mediums').select('id, name');
-            if (error) throw error;
-            return data;
-          }, 45000, 2, "Tiempo de espera agotado al cargar medios (45s)");
-          addLog(`  ✅ Medios cargados: ${data?.length || 0} (${Date.now() - start}ms)`);
-          return data;
-        };
-
-        const loadPaymentMethods = async () => {
-          const start = Date.now();
-          const data = await withTimeoutAndRetry(async () => {
-            const { data, error } = await supabase.from('payment_methods').select('id, name, surcharge_percentage, installments');
-            if (error) throw error;
-            return data;
-          }, 45000, 2, "Tiempo de espera agotado al cargar métodos de pago (45s)");
-          addLog(`  ✅ Métodos de pago cargados: ${data?.length || 0} (${Date.now() - start}ms)`);
-          return data;
-        };
-
-        const loadPhoneLines = async () => {
-          const start = Date.now();
-          const data = await withTimeoutAndRetry(async () => {
-            const { data, error } = await supabase.from('phone_lines').select('id, phone_number');
-            if (error) throw error;
-            return data;
-          }, 45000, 2, "Tiempo de espera agotado al cargar líneas telefónicas (45s)");
-          addLog(`  ✅ Líneas telefónicas cargadas: ${data?.length || 0} (${Date.now() - start}ms)`);
-          return data;
-        };
-
-        const [
-          productsRes,
-          sellersRes,
-          localitiesRes,
-          advSourcesRes,
-          orderMediumsRes,
-          paymentMethodsRes,
-          phoneLinesRes
-        ] = await Promise.all([
-          loadProducts(),
-          loadSellers(),
-          loadLocalities(),
-          loadAdvSources(),
-          loadOrderMediums(),
-          loadPaymentMethods(),
-          loadPhoneLines()
-        ]);
-
-        dbProducts = productsRes;
-        dbSellers = sellersRes;
-        dbLocalities = localitiesRes;
-        dbAdvSources = advSourcesRes;
-        dbOrderMediums = orderMediumsRes;
-        dbPaymentMethods = paymentMethodsRes;
-        dbPhoneLines = phoneLinesRes;
+        addLog(`  ✅ Productos cargados: ${dbProducts?.length || 0}`);
+        addLog(`  ✅ Vendedores cargados: ${dbSellers?.length || 0}`);
+        addLog(`  ✅ Localidades cargadas: ${dbLocalities?.length || 0}`);
+        addLog(`  ✅ Orígenes cargados: ${dbAdvSources?.length || 0}`);
+        addLog(`  ✅ Medios cargados: ${dbOrderMediums?.length || 0}`);
+        addLog(`  ✅ Métodos de pago cargados: ${dbPaymentMethods?.length || 0}`);
+        addLog(`  ✅ Líneas telefónicas cargadas: ${dbPhoneLines?.length || 0} (${Date.now() - start}ms)`);
       } catch (err: any) {
         console.error("[ImportarPedidos] Error crítico cargando datos maestros:", err);
         addLog(`❌ Error en carga de datos maestros: ${err.message || String(err)}`);
