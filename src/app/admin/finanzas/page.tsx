@@ -356,48 +356,58 @@ export default function AdminFinanzasPage() {
   const [valConcept, setValConcept] = useState("");
   const [submittingValidation, setSubmittingValidation] = useState(false);
 
-  const loadHelperLists = async () => {
-    try {
-      const [empRes, supRes, purRes, ordRes, routeRes] = await Promise.all([
-        supabase.from('employees').select('*').eq('is_active', true).order('full_name'),
-        supabase.from('suppliers').select('*').order('name'),
-        supabase.from('supplier_purchases').select('*, supplier:suppliers(name)').neq('status', 'Pagado').neq('status', 'Anulado').order('purchase_date', { ascending: false }),
-        supabase.from('orders').select('*, clients(business_name)').neq('payment_status', 'Abonado').neq('status', 'Cancelado').order('order_date', { ascending: false }),
-        supabase.from('route_sheets').select('*, carriers(name)').order('delivery_date', { ascending: false }).limit(200)
-      ]);
-
-      if (empRes.data) setEmployees(empRes.data);
-      if (supRes.data) setSuppliers(supRes.data);
-      if (purRes.data) setPendingPurchases(purRes.data);
-      if (ordRes.data) setPendingOrders(ordRes.data);
-      if (routeRes.data) setRouteSheets(routeRes.data);
-    } catch (err) {
-      console.error("Error loading helper lists for Finanzas:", err);
-    }
-  };
+  const loadHelperLists = async () => {};
+  const loadFinancialAccounts = async () => {};
+  const loadCostCenters = async () => {};
 
   const loadValidationOrders = async () => {
     try {
-      const { data, error } = await supabase
-        .from('orders')
-        .select('*, clients(business_name), payment_methods(name)')
-        .eq('payment_approved', false)
-        .neq('status', 'Cancelado')
-        .order('order_date', { ascending: false });
-      
-      if (error) throw error;
-      if (data) {
-        // Filter those that have digital payments (has_deposit = true or not cash)
-        const filtered = (data as unknown as PendingOrder[]).filter((o) => {
-          const hasDeposit = o.totals?.has_deposit;
-          const pmName = o.payment_methods?.name || '';
-          const isCash = pmName.toLowerCase().includes('efectivo');
-          return hasDeposit || !isCash;
-        });
-        setValidationOrders(filtered);
-      }
+      const res = await fetch("/api/admin/finanzas-data?action=validations");
+      if (!res.ok) throw new Error("Error loading validation orders from API");
+      const payload = await res.json();
+      if (payload.validationOrders) setValidationOrders(payload.validationOrders);
     } catch (err) {
       console.error("Error loading validation orders:", err);
+    }
+  };
+
+  const initData = async () => {
+    try {
+      const res = await fetch("/api/admin/finanzas-data?action=init");
+      if (!res.ok) throw new Error("Error initializing finanzas data");
+      const payload = await res.json();
+      
+      if (payload.employees) setEmployees(payload.employees);
+      if (payload.suppliers) setSuppliers(payload.suppliers);
+      if (payload.pendingPurchases) setPendingPurchases(payload.pendingPurchases);
+      if (payload.pendingOrders) setPendingOrders(payload.pendingOrders);
+      if (payload.routeSheets) setRouteSheets(payload.routeSheets);
+      if (payload.costCenters) {
+        setCostCenters(payload.costCenters);
+        if (payload.costCenters.length > 0) setTxCostCenterId(payload.costCenters[0].id);
+      }
+      if (payload.validationOrders) setValidationOrders(payload.validationOrders);
+      
+      if (payload.financialAccounts) {
+        const accountsWithBalances = (payload.financialAccounts as unknown as FinancialAccount[]).map((acc) => ({
+          ...acc,
+          balance: Number(acc.balance) || 0,
+          total_income: Number(acc.total_income) || 0,
+          total_expense: Number(acc.total_expense) || 0
+        }));
+
+        setFinancialAccounts(accountsWithBalances);
+        
+        if (accountsWithBalances.length > 0) {
+          const defaultAcc = accountsWithBalances.find(a => a.name.toLowerCase().includes("efectivo pesos") || a.name.toLowerCase() === "caja efectivo pesos") || accountsWithBalances[0];
+          setTxAccountId(defaultAcc.id);
+          setTfSourceId(defaultAcc.id);
+          const other = accountsWithBalances.find((a) => a.id !== defaultAcc.id) || accountsWithBalances[0];
+          setTfDestId(other.id);
+        }
+      }
+    } catch (err) {
+      console.error("Error loading financial lists:", err);
     }
   };
 
@@ -412,10 +422,7 @@ export default function AdminFinanzasPage() {
       setTxCreatedAt(new Date(now.getTime() - tzOffset).toISOString().slice(0, 10));
     }
     init();
-    loadFinancialAccounts();
-    loadCostCenters();
-    loadHelperLists();
-    loadValidationOrders();
+    initData();
   }, []);
 
   useEffect(() => {
@@ -429,140 +436,15 @@ export default function AdminFinanzasPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, startDate, endDate]);
 
-  // =========================================================================
-  // CARGA DE DATOS
-  // =========================================================================
-  
-  const loadFinancialAccounts = async () => {
-    try {
-      const { data, error } = await supabase.rpc('get_financial_accounts_balances');
-      if (error) throw error;
-      if (data) {
-        const accountsWithBalances = (data as unknown as FinancialAccount[]).map((acc) => ({
-          ...acc,
-          balance: Number(acc.balance) || 0,
-          total_income: Number(acc.total_income) || 0,
-          total_expense: Number(acc.total_expense) || 0
-        }));
-
-        setFinancialAccounts(accountsWithBalances);
-        
-        // Autoseleccionar primera cuenta en formularios si no hay
-        if (accountsWithBalances.length > 0) {
-          const defaultAcc = accountsWithBalances.find(a => a.name.toLowerCase().includes("efectivo pesos") || a.name.toLowerCase() === "caja efectivo pesos") || accountsWithBalances[0];
-          setTxAccountId(defaultAcc.id);
-          setTfSourceId(defaultAcc.id);
-          const other = accountsWithBalances.find((a) => a.id !== defaultAcc.id) || accountsWithBalances[0];
-          setTfDestId(other.id);
-        }
-      }
-    } catch (err) {
-      console.error("Error al cargar cuentas financieras:", err);
-    }
-  };
-
-  const loadCostCenters = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('cost_centers')
-        .select('*')
-        .eq('is_active', true)
-        .order('name');
-      if (error) throw error;
-      if (data) {
-        setCostCenters(data);
-        if (data.length > 0) setTxCostCenterId(data[0].id);
-      }
-    } catch (err) {
-      console.error("Error al cargar centros de costo:", err);
-    }
-  };
-
   const loadTransactions = async () => {
     setLoading(true);
     try {
-      let allData: CashTransactionWithRelations[] = [];
-      let page = 0;
-      const pageSize = 1000;
-      let hasMore = true;
-
-      while (hasMore) {
-        const { data, error } = await supabase
-          .from('cash_transactions')
-          .select(`
-            *,
-            financial_accounts(name, type),
-            cost_centers(name, code),
-            employees(full_name),
-            route_sheets(
-              id,
-              delivery_date,
-              run_number,
-              carriers(name)
-            ),
-            client_payments(
-              id,
-              order_id,
-              amount,
-              orders(
-                id,
-                legacy_code,
-                customer_name
-              )
-            ),
-            supplier_payments(
-              id,
-              purchase_id,
-              amount,
-              supplier_purchases(
-                id,
-                invoice_number
-              ),
-              suppliers(
-                id,
-                name
-              )
-            )
-          `)
-          .lte('created_at', `${endDate}T23:59:59.999Z`)
-          .order('created_at', { ascending: true })
-          .range(page * pageSize, (page + 1) * pageSize - 1);
-
-        if (error) throw error;
-        if (data) {
-          const casted = data as unknown as CashTransactionWithRelations[];
-          allData = [...allData, ...casted];
-          if (casted.length < pageSize) {
-            hasMore = false;
-          } else {
-            page++;
-          }
-        } else {
-          hasMore = false;
-        }
+      const res = await fetch(`/api/admin/finanzas-data?action=transactions&startDate=${startDate}&endDate=${endDate}`);
+      if (!res.ok) throw new Error("Error loading transactions");
+      const payload = await res.json();
+      if (payload.transactions) {
+        setTransactions(payload.transactions);
       }
-
-      const accountBalances: Record<string, number> = {};
-      const txsWithRunningBalance = allData.map(t => {
-        const accId = t.financial_account_id || 'cash_register';
-        const amt = Number(t.amount) || 0;
-        if (!accountBalances[accId]) accountBalances[accId] = 0;
-        
-        if (t.type === 'ingreso') {
-          accountBalances[accId] += amt;
-        } else {
-          accountBalances[accId] -= amt;
-        }
-        
-        return {
-          ...t,
-          running_balance: accountBalances[accId]
-        };
-      });
-
-      // Reverse to display newest first
-      txsWithRunningBalance.reverse();
-      setTransactions(txsWithRunningBalance);
     } catch (err) {
       console.error("Error al cargar transacciones generales:", err);
     } finally {
@@ -573,132 +455,11 @@ export default function AdminFinanzasPage() {
   const loadCheckingAccounts = async () => {
     setLoading(true);
     try {
-      // 1. Obtener clientes con pedidos y cobranzas
-      const [clsRes, ordersRes, paymentsRes] = await Promise.all([
-        supabase.from('clients').select('id, business_name'),
-        supabase.from('orders').select('client_id, total_amount, status, currency'),
-        supabase.from('client_payments').select('client_id, amount, currency')
-      ]);
-
-      const clsMap: Record<string, ClientBalanceItem> = {};
-      if (clsRes.data) {
-        clsRes.data.forEach(c => {
-          clsMap[c.id] = {
-            id: c.id,
-            full_name: c.business_name || '',
-            business_name: c.business_name,
-            total_orders_ars: 0,
-            total_payments_ars: 0,
-            balance_ars: 0,
-            total_orders_usd: 0,
-            total_payments_usd: 0,
-            balance_usd: 0
-          };
-        });
-      }
-
-      // Sumar pedidos del cliente (excluyendo cancelados)
-      if (ordersRes.data) {
-        ordersRes.data.forEach(o => {
-          if (o.client_id && o.status !== 'Cancelado' && clsMap[o.client_id]) {
-            const amt = Number(o.total_amount) || 0;
-            if (o.currency === 'USD') {
-              clsMap[o.client_id].total_orders_usd += amt;
-            } else {
-              clsMap[o.client_id].total_orders_ars += amt;
-            }
-          }
-        });
-      }
-
-      // Sumar cobranzas del cliente
-      if (paymentsRes.data) {
-        paymentsRes.data.forEach(p => {
-          if (p.client_id && clsMap[p.client_id]) {
-            const amt = Number(p.amount) || 0;
-            if (p.currency === 'USD') {
-              clsMap[p.client_id].total_payments_usd += amt;
-            } else {
-              clsMap[p.client_id].total_payments_ars += amt;
-            }
-          }
-        });
-      }
-
-      // Calcular saldos (Saldo = Pedidos - Cobranzas) -> Si es positivo, debe. Si es negativo, saldo a favor.
-      Object.keys(clsMap).forEach(id => {
-        clsMap[id].balance_ars = clsMap[id].total_orders_ars - clsMap[id].total_payments_ars;
-        clsMap[id].balance_usd = clsMap[id].total_orders_usd - clsMap[id].total_payments_usd;
-      });
-
-      // Filtrar sólo clientes que tengan algún movimiento comercial
-      const finalClients = Object.values(clsMap).filter(c => 
-        c.total_orders_ars > 0 || c.total_payments_ars > 0 || c.total_orders_usd > 0 || c.total_payments_usd > 0
-      );
-      setClientsBalances(finalClients);
-
-      // 2. Obtener proveedores con compras y pagos
-      const [supsRes, purchasesRes, supPaymentsRes] = await Promise.all([
-        supabase.from('suppliers').select('id, name'),
-        supabase.from('supplier_purchases').select('supplier_id, total_amount, status, currency'),
-        supabase.from('supplier_payments').select('supplier_id, amount, currency')
-      ]);
-
-      const supsMap: Record<string, SupplierBalanceItem> = {};
-      if (supsRes.data) {
-        supsRes.data.forEach(s => {
-          supsMap[s.id] = {
-            id: s.id,
-            name: s.name,
-            total_purchases_ars: 0,
-            total_payments_ars: 0,
-            balance_ars: 0,
-            total_purchases_usd: 0,
-            total_payments_usd: 0,
-            balance_usd: 0
-          };
-        });
-      }
-
-      // Sumar compras al proveedor (excluyendo anuladas)
-      if (purchasesRes.data) {
-        purchasesRes.data.forEach(p => {
-          if (p.supplier_id && p.status !== 'Anulado' && supsMap[p.supplier_id]) {
-            const amt = Number(p.total_amount) || 0;
-            if (p.currency === 'USD') {
-              supsMap[p.supplier_id].total_purchases_usd += amt;
-            } else {
-              supsMap[p.supplier_id].total_purchases_ars += amt;
-            }
-          }
-        });
-      }
-
-      // Sumar pagos al proveedor
-      if (supPaymentsRes.data) {
-        supPaymentsRes.data.forEach(p => {
-          if (p.supplier_id && supsMap[p.supplier_id]) {
-            const amt = Number(p.amount) || 0;
-            if (p.currency === 'USD') {
-              supsMap[p.supplier_id].total_payments_usd += amt;
-            } else {
-              supsMap[p.supplier_id].total_payments_ars += amt;
-            }
-          }
-        });
-      }
-
-      // Calcular saldos (Saldo = Compras - Pagos) -> Si es positivo, debemos. Si es negativo, saldo a favor.
-      Object.keys(supsMap).forEach(id => {
-        supsMap[id].balance_ars = supsMap[id].total_purchases_ars - supsMap[id].total_payments_ars;
-        supsMap[id].balance_usd = supsMap[id].total_purchases_usd - supsMap[id].total_payments_usd;
-      });
-
-      const finalSuppliers = Object.values(supsMap).filter(s =>
-        s.total_purchases_ars > 0 || s.total_payments_ars > 0 || s.total_purchases_usd > 0 || s.total_payments_usd > 0
-      );
-      setSuppliersBalances(finalSuppliers);
-
+      const res = await fetch("/api/admin/finanzas-data?action=balances");
+      if (!res.ok) throw new Error("Error loading checking accounts balances");
+      const payload = await res.json();
+      if (payload.clientsBalances) setClientsBalances(payload.clientsBalances);
+      if (payload.suppliersBalances) setSuppliersBalances(payload.suppliersBalances);
     } catch (err) {
       console.error("Error al cargar cuentas corrientes:", err);
     } finally {
