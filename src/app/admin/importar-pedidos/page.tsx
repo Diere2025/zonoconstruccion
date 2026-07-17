@@ -569,11 +569,28 @@ export default function ImportarPedidosPage() {
 
           if (sheet.isCentralSheet) {
             const isWholesaleCode = orderCode.toUpperCase().startsWith("AQU") || orderCode.toUpperCase().startsWith("POW") || orderCode.toUpperCase().startsWith("AQ-DB");
+            let matchesWholesale = false;
             if (sheet.isAquafortSheet) {
-              return isWholesaleCode;
+              matchesWholesale = isWholesaleCode;
             } else {
-              return !isWholesaleCode;
+              matchesWholesale = !isWholesaleCode;
             }
+            if (!matchesWholesale) return false;
+
+            // Filter out completed historical orders from Central sheet unless they are active in DB
+            const status = (row[0] || "").trim().toLowerCase();
+            const isCompleted = status === "entregado" || status === "cancelado" || status === "anulado" || status === "pasado";
+            if (isCompleted) {
+              const parts = orderCode.split(/[/,]/).map(c => c.trim().toUpperCase());
+              const hasActiveDbOrder = parts.some(part => {
+                const dbOrd = existingOrdersMap.get(part);
+                return dbOrd && ['Pendiente', 'Confirmado', 'Entregando'].includes(dbOrd.status);
+              });
+              if (!hasActiveDbOrder) {
+                return false;
+              }
+            }
+            return true;
           } else {
             const estado = (row[0] || "").trim().toLowerCase();
             if (estado === "no esta" || estado === "no está") {
