@@ -18,6 +18,32 @@ const normalizeText = (text: string): string => {
     .replace(/[^a-z0-9]/g, ""); // remove spaces, quotes, and symbols for robust matching
 };
 
+
+async function fetchProductsAll() {
+  let allProducts: any[] = [];
+  let page = 0;
+  const pageSize = 1000;
+  let hasMore = true;
+  while (hasMore) {
+    const { data, error } = await supabaseAdmin
+      .from('products')
+      .select('id, name, sku, stock_physical, stock_reserved, stock_current')
+      .range(page * pageSize, (page + 1) * pageSize - 1);
+    if (error) throw error;
+    if (data && data.length > 0) {
+      allProducts = [...allProducts, ...data];
+      if (data.length < pageSize) {
+        hasMore = false;
+      } else {
+        page++;
+      }
+    } else {
+      hasMore = false;
+    }
+  }
+  return allProducts;
+}
+
 function parseCSV(text: string): any[] {
   const lines = text.split('\n');
   const results: any[] = [];
@@ -70,11 +96,8 @@ export async function GET() {
     const dateLimitStr = thirtyDaysAgo.toISOString().split('T')[0];
 
     // 2. Fetch products and active orders from database
-    const [productsRes, pendingRes] = await Promise.all([
-      supabaseAdmin
-        .from('products')
-        .select('id, name, sku, stock_physical, stock_reserved, stock_current')
-        .order('name'),
+    const [dbProducts, pendingRes] = await Promise.all([
+      fetchProductsAll(),
       supabaseAdmin
         .from('order_items')
         .select('product_id, quantity, orders!inner(status, order_date)')
@@ -82,10 +105,8 @@ export async function GET() {
         .gt('orders.order_date', dateLimitStr)
     ]);
 
-    if (productsRes.error) throw productsRes.error;
     if (pendingRes.error) throw pendingRes.error;
 
-    const dbProducts = productsRes.data || [];
     const pendingItems = pendingRes.data || [];
 
     // Calculate DB reserves (sum of quantities of pending order items)
@@ -187,15 +208,13 @@ export async function POST() {
     const dateLimitStr = thirtyDaysAgo.toISOString().split('T')[0];
 
     // 2. Fetch products and active orders from database
-    const [productsRes, pendingRes] = await Promise.all([
-      supabaseAdmin.from('products').select('id, name, sku, stock_physical, stock_reserved, stock_current'),
+    const [dbProducts, pendingRes] = await Promise.all([
+      fetchProductsAll(),
       supabaseAdmin.from('order_items').select('product_id, quantity, orders!inner(status, order_date)').in('orders.status', ['Pendiente', 'Confirmado']).gt('orders.order_date', dateLimitStr)
     ]);
 
-    if (productsRes.error) throw productsRes.error;
     if (pendingRes.error) throw pendingRes.error;
 
-    const dbProducts = productsRes.data || [];
     const pendingItems = pendingRes.data || [];
 
     // Calculate DB reserves (sum of quantities of pending order items)

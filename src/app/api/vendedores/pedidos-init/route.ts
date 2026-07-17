@@ -6,6 +6,32 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
 const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
+async function fetchAllProducts() {
+  let allProducts: any[] = [];
+  let page = 0;
+  const pageSize = 1000;
+  let hasMore = true;
+  while (hasMore) {
+    const { data, error } = await supabaseAdmin
+      .from('products')
+      .select('*')
+      .range(page * pageSize, (page + 1) * pageSize - 1);
+    if (error) throw error;
+    if (data && data.length > 0) {
+      allProducts = [...allProducts, ...data];
+      if (data.length < pageSize) {
+        hasMore = false;
+      } else {
+        page++;
+      }
+    } else {
+      hasMore = false;
+    }
+  }
+  return allProducts;
+}
+
+
 
 export async function GET(request: Request) {
   try {
@@ -33,7 +59,7 @@ export async function GET(request: Request) {
         .select('role, seller_type, is_organic')
         .eq('id', userId)
         .single(),
-      supabaseAdmin.from("products").select("*").order("name"),
+      fetchAllProducts(),
       supabaseAdmin
         .from("v_client_balances_and_stats")
         .select("id, business_name, tax_id, phone_primary, phone_secondary, billing_address, is_wholesale")
@@ -80,7 +106,7 @@ export async function GET(request: Request) {
     ]);
 
     if (sellerRes.error) throw sellerRes.error;
-    if (productsRes.error) throw productsRes.error;
+
     if (clientsRes.error) throw clientsRes.error;
     if (localitiesRes.error) throw localitiesRes.error;
     if (dtRes.error) throw dtRes.error;
@@ -97,7 +123,7 @@ export async function GET(request: Request) {
     const role = seller?.role === 'admin' ? 'admin' : 'seller';
 
     // Calculate bulk dynamic prices on the server
-    const rawProducts = productsRes.data || [];
+    const rawProducts = productsRes || [];
     let calculatedPrices: any = {};
     try {
       calculatedPrices = await calculateBulkPrices(supabaseAdmin, rawProducts, sellerType);
