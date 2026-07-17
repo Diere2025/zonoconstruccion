@@ -666,7 +666,8 @@ export default function ComprasAdminPage() {
       const { data: pos } = await supabase
         .from("purchase_orders")
         .select("*, supplier:suppliers(name)")
-        .order("created_at", { ascending: false });
+        .order("order_date", { ascending: false })
+        .order("oc_code", { ascending: false });
       if (pos) setPurchaseOrders(pos);
 
       // Fetch Purchase Receptions
@@ -1199,7 +1200,7 @@ export default function ComprasAdminPage() {
             const subtotal = qtyOrdered * costUnit;
             const qtyReceived = parseFloat(row['Nuevos Recibidos']) || 0;
             
-            const rawLineStatus = row['Estado por línea de Pedido'] || row['Estado por linea de Pedido'] || 'Pendiente';
+            const rawLineStatus = row['Estado por línea de Pedido'] || row['Estado por linea de Pedido'] || row['Linea de Pedido'] || row['Linea de pedido'] || 'Pendiente';
             let lineStatus = 'Pendiente';
             const isCancelledSheet = row['Cancelar'] === 'SI' || row['Cancelar'] === 'si' || row['Cancelar'] === 'Yes' || row['Cancelar'] === 'yes';
             
