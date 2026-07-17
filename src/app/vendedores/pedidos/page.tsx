@@ -1173,241 +1173,105 @@ export default function PedidosPage() {
           return;
         }
 
-        const [
-          sellerRes, 
-          productsRes, 
-          clientsRes, 
-          localitiesRes, 
-          dtRes, 
-          kitsRes, 
-          advRes, 
-          mediumRes, 
-          phoneLinesRes, 
-          payMethodsRes,
-          recentOrdersRes
-        ] = await Promise.all([
-          supabase
-            .from('sellers')
-            .select('role, seller_type, is_organic')
-            .eq('id', userId)
-            .single(),
-          supabase.from("products").select("*").order("name"),
-          supabase
-            .from("v_client_balances_and_stats")
-            .select("id, business_name, tax_id, phone_primary, phone_secondary, billing_address, is_wholesale")
-            .order("orders_count", { ascending: false })
-            .limit(50),
-          supabase
-            .from("localities")
-            .select("id, name, zone_id, zones(name, delivery_schedule, delivery_time_id, delivery_times(name, description, delivery_days))")
-            .eq("is_active", true)
-            .order("name"),
-          supabase
-            .from("delivery_times")
-            .select("id, name, description, category, delivery_days")
-            .eq("is_active", true)
-            .order("name"),
-          supabase
-            .from("kits")
-            .select("*, kit_items(*)"),
-          supabase
-            .from('advertising_sources')
-            .select('*')
-            .eq('is_active', true)
-            .order('name'),
-          supabase
-            .from('order_mediums')
-            .select('*')
-            .eq('is_active', true)
-            .order('name'),
-          supabase
-            .from('phone_lines')
-            .select('*, seller_phone_lines(seller_id)')
-            .eq('is_active', true)
-            .order('name'),
-          supabase
-            .from('payment_methods')
-            .select('*')
-            .eq('is_active', true)
-            .order('name'),
-          supabase
-            .from('orders')
-            .select('advertising_source_id, order_medium_id, received_phone_line_id')
-            .order('created_at', { ascending: false })
-            .limit(100)
-        ]);
-
-        const seller = sellerRes.data;
-        const type = seller?.seller_type || 'minorista';
-        setSellerType(type);
-        sessionStorage.setItem("cached_pedidos_seller_type", type);
+        // Cargar desde la API en el backend
+        const res = await fetch(`/api/vendedores/pedidos-init?userId=${userId}`);
+        if (!res.ok) throw new Error(`HTTP error ${res.status}`);
         
-        const organic = seller?.is_organic || false;
-        setIsOrganic(organic);
-        sessionStorage.setItem("cached_pedidos_organic", String(organic));
+        const payload = await res.json();
+        
+        setSellerType(payload.sellerType);
+        sessionStorage.setItem("cached_pedidos_seller_type", payload.sellerType);
+        
+        setIsOrganic(payload.isOrganic);
+        sessionStorage.setItem("cached_pedidos_organic", String(payload.isOrganic));
 
-        if (seller?.role === 'admin') {
-          setRole('admin');
-          sessionStorage.setItem("cached_pedidos_role", 'admin');
-          setListType('todos');
-        } else {
-          sessionStorage.setItem("cached_pedidos_role", 'seller');
-          setListType('mis_pedidos');
+        setRole(payload.role);
+        sessionStorage.setItem("cached_pedidos_role", payload.role);
+        setListType(payload.role === 'admin' ? 'todos' : 'mis_pedidos');
+
+        if (payload.advertisingSources) {
+          setAdvertisingSources(payload.advertisingSources);
+          sessionStorage.setItem("cached_pedidos_adv", JSON.stringify(payload.advertisingSources));
+        }
+        if (payload.orderMediums) {
+          setOrderMediums(payload.orderMediums);
+          sessionStorage.setItem("cached_pedidos_mediums", JSON.stringify(payload.orderMediums));
+        }
+        if (payload.phoneLines) {
+          setPhoneLines(payload.phoneLines);
+          sessionStorage.setItem("cached_pedidos_lines", JSON.stringify(payload.phoneLines));
+        }
+        if (payload.paymentMethods) {
+          setDbPaymentMethods(payload.paymentMethods);
+          sessionStorage.setItem("cached_pedidos_payment_methods", JSON.stringify(payload.paymentMethods));
         }
 
-        if (advRes.data) {
-          setAdvertisingSources(advRes.data);
-          sessionStorage.setItem("cached_pedidos_adv", JSON.stringify(advRes.data));
-        }
-        if (mediumRes.data) {
-          setOrderMediums(mediumRes.data);
-          sessionStorage.setItem("cached_pedidos_mediums", JSON.stringify(mediumRes.data));
-        }
-        if (phoneLinesRes.data) {
-          setPhoneLines(phoneLinesRes.data);
-          sessionStorage.setItem("cached_pedidos_lines", JSON.stringify(phoneLinesRes.data));
-        }
-        if (payMethodsRes.data) {
-          setDbPaymentMethods(payMethodsRes.data);
-          sessionStorage.setItem("cached_pedidos_payment_methods", JSON.stringify(payMethodsRes.data));
-        }
+        const recentOrders = payload.recentOrders || [];
 
-        // Calcular frecuencias para selección rápida de procedencia, medio y línea
-        const recentOrders = recentOrdersRes.data || [];
-
-        // 1. Procedencia Publicitaria (advertising_sources)
+        // 1. Procedencia Publicitaria
         const advCounts: Record<string, number> = {};
         recentOrders.forEach((o: any) => {
           if (o.advertising_source_id) {
             advCounts[o.advertising_source_id] = (advCounts[o.advertising_source_id] || 0) + 1;
           }
         });
-        const topAdvIds = Object.keys(advCounts)
-          .sort((a, b) => advCounts[b] - advCounts[a])
-          .slice(0, 3);
+        const topAdvIds = Object.keys(advCounts).sort((a, b) => advCounts[b] - advCounts[a]).slice(0, 3);
         const topAdvs = topAdvIds
-          .map(id => (advRes.data || []).find((x: any) => x.id === id))
+          .map(id => (payload.advertisingSources || []).find((x: any) => x.id === id))
           .filter(Boolean) as AdvertisingSource[];
         setTopAdvertisingSources(topAdvs);
 
-        // 2. Medio de Recepción (order_mediums)
+        // 2. Medio de Recepción
         const medCounts: Record<string, number> = {};
         recentOrders.forEach((o: any) => {
           if (o.order_medium_id) {
             medCounts[o.order_medium_id] = (medCounts[o.order_medium_id] || 0) + 1;
           }
         });
-        const topMedIds = Object.keys(medCounts)
-          .sort((a, b) => medCounts[b] - medCounts[a])
-          .slice(0, 3);
+        const topMedIds = Object.keys(medCounts).sort((a, b) => medCounts[b] - medCounts[a]).slice(0, 3);
         const topMeds = topMedIds
-          .map(id => (mediumRes.data || []).find((x: any) => x.id === id))
+          .map(id => (payload.orderMediums || []).find((x: any) => x.id === id))
           .filter(Boolean) as OrderMedium[];
         setTopOrderMediums(topMeds);
 
-        // 3. Línea Telefónica (phone_lines)
+        // 3. Línea Telefónica
         const lineCounts: Record<string, number> = {};
         recentOrders.forEach((o: any) => {
           if (o.received_phone_line_id) {
             lineCounts[o.received_phone_line_id] = (lineCounts[o.received_phone_line_id] || 0) + 1;
           }
         });
-        const topLineIds = Object.keys(lineCounts)
-          .sort((a, b) => lineCounts[b] - lineCounts[a])
-          .slice(0, 3);
+        const topLineIds = Object.keys(lineCounts).sort((a, b) => lineCounts[b] - lineCounts[a]).slice(0, 3);
         const topLines = topLineIds
-          .map(id => (phoneLinesRes.data || []).find((x: any) => x.id === id))
+          .map(id => (payload.phoneLines || []).find((x: any) => x.id === id))
           .filter(Boolean) as PhoneLine[];
         setTopPhoneLines(topLines);
 
-        // 1. Clientes
-        if (clientsRes.data) {
-          setClients(clientsRes.data);
-          sessionStorage.setItem("cached_pedidos_clients", JSON.stringify(clientsRes.data));
+        if (payload.clients) {
+          setClients(payload.clients);
+          sessionStorage.setItem("cached_pedidos_clients", JSON.stringify(payload.clients));
         }
 
-        // 2. Localidades
-        let mappedLocalities: any[] = [];
-        if (localitiesRes.data) {
-          mappedLocalities = (localitiesRes.data as any[]).map(item => ({
-            id: item.id,
-            name: item.name,
-            zone_id: item.zone_id,
-            zones: Array.isArray(item.zones) ? item.zones[0] : item.zones
-          }));
-          setLocalities(mappedLocalities);
-          sessionStorage.setItem("cached_pedidos_localities", JSON.stringify(mappedLocalities));
+        if (payload.localities) {
+          setLocalities(payload.localities);
+          sessionStorage.setItem("cached_pedidos_localities", JSON.stringify(payload.localities));
         }
 
-        // 3. Tipos de entrega
-        if (dtRes.data) {
-          setDeliveryTimes(dtRes.data as DeliveryTime[]);
-          sessionStorage.setItem("cached_pedidos_dt", JSON.stringify(dtRes.data));
+        if (payload.deliveryTimes) {
+          setDeliveryTimes(payload.deliveryTimes);
+          sessionStorage.setItem("cached_pedidos_dt", JSON.stringify(payload.deliveryTimes));
         }
 
-        // 4. Productos con cálculo de precio dinámico
-        const rawProducts = productsRes.data;
-        let productsWithPrices: Product[] = [];
-        if (rawProducts && rawProducts.length > 0) {
-          let calculatedPrices: any = {};
-          try {
-            calculatedPrices = await calculateBulkPrices(supabase, rawProducts, type);
-          } catch (e) {
-            console.warn("No se pudieron calcular precios dinámicos de costos. Usando precios fijos de productos.", e);
-          }
-
-          productsWithPrices = rawProducts.map(p => ({
-            ...p,
-            price: calculatedPrices[p?.id] ? calculatedPrices[p.id].price : p.price,
-            stock_current: p.stock_current !== undefined ? p.stock_current : 999
-          }));
-
-          // Herencia de precios para variantes (ciegos toman precio del principal)
-          productsWithPrices = productsWithPrices.map(p => {
-            if (p.parent_id) {
-              const parentProduct = productsWithPrices.find(parent => parent.id === p.parent_id);
-              if (parentProduct) {
-                return {
-                  ...p,
-                  price: parentProduct.price
-                };
-              }
-            }
-            return p;
-          });
-
-          setProducts(productsWithPrices);
-          sessionStorage.setItem("cached_pedidos_products", JSON.stringify(productsWithPrices));
+        if (payload.products) {
+          setProducts(payload.products);
+          sessionStorage.setItem("cached_pedidos_products", JSON.stringify(payload.products));
         }
 
-        // 5. Kits con mapeo de productos
-        if (kitsRes.data && productsWithPrices.length > 0) {
-          const rawKits = kitsRes.data || [];
-          const mappedKits: Kit[] = rawKits.map((k: any) => {
-            const items = (k.kit_items || []).map((ki: any) => {
-              const prod = productsWithPrices.find((p: any) => p.id === ki.product_id);
-              if (!prod) return null;
-              return {
-                ...prod,
-                quantity: ki.quantity,
-                customPrice: ki.custom_price !== null ? ki.custom_price : prod.price
-              };
-            }).filter(Boolean) as OrderItem[];
-
-            return {
-              id: k.id,
-              name: k.name,
-              detailText: k.detail_text || "",
-              category: k.category || "",
-              isGlobal: k.is_global,
-              sellerId: k.seller_id,
-              items
-            };
-          });
-          setKits(mappedKits);
-          sessionStorage.setItem("cached_pedidos_kits", JSON.stringify(mappedKits));
+        if (payload.kits) {
+          setKits(payload.kits);
+          sessionStorage.setItem("cached_pedidos_kits", JSON.stringify(payload.kits));
         }
-        
+
         // Autogenerar código de pedido al inicio
         await generateNextLegacyCode(userId);
       } catch (err) {
