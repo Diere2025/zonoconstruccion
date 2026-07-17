@@ -70,6 +70,7 @@ export default function ImportarPedidosPage() {
   const [syncPaymentMethods, setSyncPaymentMethods] = useState(false);
   const [useClaimsSheet, setUseClaimsSheet] = useState(true);
   const [claimsSheetUrl, setClaimsSheetUrl] = useState("https://docs.google.com/spreadsheets/d/1PzbotWVO-iLqV0rPvH2ZlXKkMGYPTIkmBd1owU45OCo/gviz/tq?tqx=out:csv&gid=1414092286");
+  const [showRules, setShowRules] = useState(false);
   const cancelImportRef = useRef(false);
 
   // Helper normalizers/parsers for import
@@ -2032,252 +2033,261 @@ export default function ImportarPedidosPage() {
 
   return (
     <div className="space-y-6 max-w-4xl">
-      <div className="bg-white p-8 rounded-[2rem] shadow-xl border border-slate-100">
-        <h2 className="text-2xl font-black text-slate-900 tracking-tight mb-2">Importador de Pedidos desde Planillas Faltantes</h2>
-        <p className="text-xs font-semibold text-slate-400 mb-6">
-          Este módulo permite buscar, parsear e incorporar directamente a la base de datos los pedidos faltantes del sistema. Procesa tanto las planillas individuales de vendedores como la planilla general de logística.
-        </p>
-
-        {/* Planilla Principal (Central) */}
-        <div className="mb-6">
-          <span className="block font-black text-slate-800 text-[10px] uppercase tracking-wider mb-2">Planilla de Operaciones Principal</span>
-          <div className={cn("bg-white p-5 rounded-2xl border-2 border-brand-500 shadow-md flex flex-col md:flex-row justify-between items-start md:items-center gap-4 transition-opacity", !importCentral && "opacity-60")}>
-            <div className="flex-1">
-              <div className="flex items-center gap-3 mb-1">
-                <span className="block text-sm font-extrabold uppercase tracking-wide text-brand-600">Planilla Central / Ruteo</span>
-                <span className="bg-brand-50 text-brand-600 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full">Recomendado</span>
-              </div>
-              <span className="block text-xs text-slate-500 font-bold truncate">Docs ID: 1nz545_xNUgdI2LMAGIDCjh6Qs8-vUDHdynzj7jU2wm0</span>
-            </div>
-            <div className="flex items-center gap-4 self-stretch md:self-auto justify-between md:justify-end border-t md:border-t-0 pt-3 md:pt-0 border-slate-100">
-              <a
-                href="https://docs.google.com/spreadsheets/d/1nz545_xNUgdI2LMAGIDCjh6Qs8-vUDHdynzj7jU2wm0/edit?gid=786380854"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex text-[10px] font-black text-brand-600 hover:text-brand-800 uppercase tracking-widest border-b border-brand-200"
-              >
-                Abrir Planilla Original ↗
-              </a>
-              <input
-                type="checkbox"
-                checked={importCentral}
-                onChange={(e) => setImportCentral(e.target.checked)}
-                className="w-5 h-5 rounded border-slate-300 text-brand-600 focus:ring-brand-500/10 cursor-pointer accent-brand-600"
-                title="Habilitar/Deshabilitar esta planilla para la importación"
-              />
-            </div>
+      <div className="bg-white p-6 rounded-[2rem] shadow-xl border border-slate-100 space-y-4">
+        {/* Cabecera */}
+        <div className="flex justify-between items-start border-b border-slate-100 pb-4">
+          <div>
+            <h2 className="text-xl font-black text-slate-900 tracking-tight">Importador de Pedidos</h2>
+            <p className="text-[10px] font-semibold text-slate-400">
+              Sincroniza y procesa pedidos faltantes desde planillas operativas y de vendedores.
+            </p>
           </div>
+          
+          <button 
+            type="button" 
+            onClick={() => setShowRules(!showRules)}
+            className="text-[10px] font-bold text-slate-500 hover:text-slate-700 bg-slate-100 px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition-all"
+          >
+            {showRules ? "Ocultar Reglas ℹ️" : "Ver Reglas ℹ️"}
+          </button>
         </div>
 
-        {/* Planilla de Mayoristas */}
-        <div className="mb-6">
-          <span className="block font-black text-slate-800 text-[10px] uppercase tracking-wider mb-2">Planilla de Mayoristas</span>
-          <div className={cn("bg-white p-5 rounded-2xl border-2 border-emerald-500 shadow-md flex flex-col md:flex-row justify-between items-start md:items-center gap-4 transition-opacity", !importAquafort && "opacity-60")}>
-            <div className="flex-1">
-              <div className="flex items-center gap-3 mb-1">
-                <span className="block text-sm font-extrabold uppercase tracking-wide text-emerald-600">Pedidos Mayoristas (AQU/AQ-DB)</span>
-                <span className="bg-emerald-50 text-emerald-600 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full">Mayorista</span>
-              </div>
-              <span className="block text-xs text-slate-500 font-bold truncate">Docs ID: 1nz545_xNUgdI2LMAGIDCjh6Qs8-vUDHdynzj7jU2wm0 (Filtrado por AQU, POW, AQ-DB)</span>
-            </div>
-            <div className="flex items-center gap-4 self-stretch md:self-auto justify-between md:justify-end border-t md:border-t-0 pt-3 md:pt-0 border-slate-100">
-              <a
-                href="https://docs.google.com/spreadsheets/d/1nz545_xNUgdI2LMAGIDCjh6Qs8-vUDHdynzj7jU2wm0/edit?gid=786380854"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex text-[10px] font-black text-brand-600 hover:text-brand-800 uppercase tracking-widest border-b border-brand-200"
-              >
-                Abrir Planilla Original ↗
-              </a>
-              <input
-                type="checkbox"
-                checked={importAquafort}
-                onChange={(e) => setImportAquafort(e.target.checked)}
-                className="w-5 h-5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500/10 cursor-pointer accent-emerald-600"
-                title="Habilitar/Deshabilitar esta planilla para la importación"
-              />
-            </div>
+        {/* Collapsible Rules */}
+        {showRules && (
+          <div className="bg-blue-50/40 border border-blue-100/50 p-4 rounded-xl text-[11px] text-blue-800 space-y-1 font-semibold">
+            <span className="block font-black text-[10px] uppercase tracking-wider mb-1 text-blue-900">Reglas del Proceso:</span>
+            <ul className="list-disc pl-4 space-y-0.5">
+              <li>En planillas de Jazmín/Diego, filtra por estado "No está" adicionalmente.</li>
+              <li>Filtra y omite los prefijos de pedido (ENC, CAMB) de acuerdo con los selectores configurados arriba.</li>
+              <li>Compara contra los registros existentes en la base de datos (columna `legacy_code`) para evitar duplicaciones.</li>
+              <li>Busca y vincula clientes preexistentes por teléfono; si no los halla, crea el cliente e inserta sus direcciones de entrega correspondientes.</li>
+              <li>Convierte los importes numéricos corrigiendo el error de divisiones o saltos por miles (notación decimal es-AR).</li>
+              <li>Asocia los artículos al catálogo. Si el producto no existe, se guardará como huérfano para posterior regularización.</li>
+            </ul>
           </div>
-        </div>
+        )}
 
-        {/* Planilla de Reclamos para Resolución de Cambios */}
-        <div className="mb-6">
-          <span className="block font-black text-slate-800 text-[10px] uppercase tracking-wider mb-2">Resolución de Reclamos y Cambios (Postventa)</span>
-          <div className={cn("bg-white p-5 rounded-2xl border-2 border-amber-500 shadow-md flex flex-col md:flex-row justify-between items-start md:items-center gap-4 transition-opacity", !useClaimsSheet && "opacity-60")}>
-            <div className="flex-1 md:max-w-[70%]">
-              <div className="flex items-center gap-3 mb-1">
-                <span className="block text-sm font-extrabold uppercase tracking-wide text-amber-600">Planilla General de Reclamos</span>
-                <span className="bg-amber-50 text-amber-600 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full">Vinculación Automática</span>
-              </div>
-              <span className="block text-xs text-slate-500 font-bold truncate mb-2">Docs ID: 1PzbotWVO-iLqV0rPvH2ZlXKkMGYPTIkmBd1owU45OCo</span>
-              <div className="flex items-center gap-2">
-                <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider whitespace-nowrap">CSV Endpoint:</label>
-                <input
-                  type="text"
-                  value={claimsSheetUrl}
-                  onChange={(e) => setClaimsSheetUrl(e.target.value)}
-                  className="flex-1 px-3 py-1 text-[11px] border border-slate-200 rounded-lg focus:outline-none focus:border-amber-400 font-mono text-slate-600 bg-slate-50"
-                  title="URL GViz CSV de la planilla de reclamos"
-                />
+        {/* Grid of sheets to sync */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          
+          {/* Left Column: Main Operations & Postventa */}
+          <div className="space-y-3">
+            <span className="block font-black text-slate-500 text-[9px] uppercase tracking-wider">Planillas Operativas</span>
+            
+            <div className="space-y-2.5">
+              {/* Central */}
+              <label className={cn("flex items-center justify-between p-3 rounded-xl border border-slate-100 hover:bg-slate-50/50 cursor-pointer transition-all", !importCentral && "opacity-50")}>
+                <div className="flex items-center gap-2.5">
+                  <input
+                    type="checkbox"
+                    checked={importCentral}
+                    onChange={(e) => setImportCentral(e.target.checked)}
+                    className="w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500/10 cursor-pointer accent-brand-600"
+                  />
+                  <div>
+                    <span className="text-xs font-bold text-slate-800">Planilla Central / Ruteo</span>
+                    <span className="ml-2 bg-brand-50 text-brand-600 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-md">Principal</span>
+                  </div>
+                </div>
+                <a
+                  href="https://docs.google.com/spreadsheets/d/1nz545_xNUgdI2LMAGIDCjh6Qs8-vUDHdynzj7jU2wm0/edit?gid=786380854"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-slate-400 hover:text-slate-600 p-1 font-bold text-xs"
+                  title="Abrir Planilla Original"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  ↗
+                </a>
+              </label>
+
+              {/* Mayoristas */}
+              <label className={cn("flex items-center justify-between p-3 rounded-xl border border-slate-100 hover:bg-slate-50/50 cursor-pointer transition-all", !importAquafort && "opacity-50")}>
+                <div className="flex items-center gap-2.5">
+                  <input
+                    type="checkbox"
+                    checked={importAquafort}
+                    onChange={(e) => setImportAquafort(e.target.checked)}
+                    className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500/10 cursor-pointer accent-emerald-600"
+                  />
+                  <div>
+                    <span className="text-xs font-bold text-slate-800">Pedidos Mayoristas</span>
+                    <span className="ml-2 bg-emerald-50 text-emerald-600 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-md">AQU/AQ-DB</span>
+                  </div>
+                </div>
+                <a
+                  href="https://docs.google.com/spreadsheets/d/1nz545_xNUgdI2LMAGIDCjh6Qs8-vUDHdynzj7jU2wm0/edit?gid=786380854"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-slate-400 hover:text-slate-600 p-1 font-bold text-xs"
+                  title="Abrir Planilla Original"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  ↗
+                </a>
+              </label>
+
+              {/* Reclamos */}
+              <div className={cn("p-3 rounded-xl border border-slate-100 hover:bg-slate-50/50 transition-all space-y-2", !useClaimsSheet && "opacity-50")}>
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center gap-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={useClaimsSheet}
+                      onChange={(e) => setUseClaimsSheet(e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500/10 cursor-pointer accent-amber-600"
+                    />
+                    <div>
+                      <span className="text-xs font-bold text-slate-800">Planilla de Reclamos</span>
+                      <span className="ml-2 bg-amber-50 text-amber-600 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-md">Postventa</span>
+                    </div>
+                  </label>
+                  <a
+                    href="https://docs.google.com/spreadsheets/d/1PzbotWVO-iLqV0rPvH2ZlXKkMGYPTIkmBd1owU45OCo/edit?gid=1414092286"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-slate-400 hover:text-slate-600 p-1 font-bold text-xs"
+                    title="Abrir Planilla Original"
+                  >
+                    ↗
+                  </a>
+                </div>
+                {useClaimsSheet && (
+                  <div className="flex items-center gap-2 pt-1 border-t border-slate-100">
+                    <label className="text-[8px] font-black text-slate-400 uppercase tracking-wider whitespace-nowrap">CSV:</label>
+                    <input
+                      type="text"
+                      value={claimsSheetUrl}
+                      onChange={(e) => setClaimsSheetUrl(e.target.value)}
+                      className="flex-1 px-2.5 py-1 text-[10px] border border-slate-200 rounded-md focus:outline-none focus:border-amber-400 font-mono text-slate-600 bg-slate-50"
+                      title="CSV Endpoint URL"
+                    />
+                  </div>
+                )}
               </div>
             </div>
-            <div className="flex items-center gap-4 self-stretch md:self-auto justify-between md:justify-end border-t md:border-t-0 pt-3 md:pt-0 border-slate-100 shrink-0">
-              <a
-                href="https://docs.google.com/spreadsheets/d/1PzbotWVO-iLqV0rPvH2ZlXKkMGYPTIkmBd1owU45OCo/edit?gid=1414092286"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex text-[10px] font-black text-amber-600 hover:text-amber-800 uppercase tracking-widest border-b border-amber-200"
-              >
-                Abrir Planilla Original ↗
-              </a>
-              <input
-                type="checkbox"
-                checked={useClaimsSheet}
-                onChange={(e) => setUseClaimsSheet(e.target.checked)}
-                className="w-5 h-5 rounded border-slate-300 text-amber-600 focus:ring-amber-500/10 cursor-pointer accent-amber-600"
-                title="Habilitar/Deshabilitar planilla de reclamos para completar datos de CAMB"
-              />
-            </div>
+
           </div>
-        </div>
 
-        {/* Planillas de Vendedores */}
-        <div className="mb-6">
-          <span className="block font-black text-slate-800 text-[10px] uppercase tracking-wider mb-2">Planillas Individuales de Vendedores (Opcional)</span>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* Jazmín Card */}
-            <div className={cn("bg-slate-50 p-5 rounded-2xl border border-slate-100 flex flex-col justify-between transition-opacity", !importJazmin && "opacity-60")}>
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="block text-[10px] font-black uppercase tracking-wider text-slate-500">Planilla Jazmín Sánchez</span>
+          {/* Right Column: Sellers (Jazmín, Diego, Ludmila) */}
+          <div className="space-y-3">
+            <span className="block font-black text-slate-500 text-[9px] uppercase tracking-wider">Planillas de Vendedores</span>
+            
+            <div className="space-y-2.5">
+              {/* Jazmin */}
+              <label className={cn("flex items-center justify-between p-3 rounded-xl border border-slate-100 hover:bg-slate-50/50 cursor-pointer transition-all", !importJazmin && "opacity-50")}>
+                <div className="flex items-center gap-2.5">
                   <input
                     type="checkbox"
                     checked={importJazmin}
                     onChange={(e) => setImportJazmin(e.target.checked)}
                     className="w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500/10 cursor-pointer accent-brand-600"
-                    title="Habilitar/Deshabilitar esta planilla para la importación"
                   />
+                  <span className="text-xs font-bold text-slate-800">Jazmín Sánchez</span>
                 </div>
-                <span className="block text-[11px] text-slate-500 font-semibold mb-3 truncate" title="Docs ID: 16DPcJEdrTMYvNSaUKQo9ODKClqe1VHLlKOX6O_sELRw">Docs ID: 16DPcJEdrTMYvN...</span>
-              </div>
-              <a
-                href="https://docs.google.com/spreadsheets/d/16DPcJEdrTMYvNSaUKQo9ODKClqe1VHLlKOX6O_sELRw/edit?gid=1414092286"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex text-[10px] font-black text-slate-400 hover:text-slate-600 uppercase tracking-widest border-b border-slate-200 self-start"
-              >
-                Abrir Planilla Original ↗
-              </a>
-            </div>
+                <a
+                  href="https://docs.google.com/spreadsheets/d/16DPcJEdrTMYvNSaUKQo9ODKClqe1VHLlKOX6O_sELRw/edit?gid=1414092286"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-slate-400 hover:text-slate-600 p-1 font-bold text-xs"
+                  title="Abrir Planilla Original"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  ↗
+                </a>
+              </label>
 
-            {/* Diego Card */}
-            <div className={cn("bg-slate-50 p-5 rounded-2xl border border-slate-100 flex flex-col justify-between transition-opacity", !importDiego && "opacity-60")}>
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="block text-[10px] font-black uppercase tracking-wider text-slate-500">Planilla Diego Bóveda</span>
+              {/* Diego */}
+              <label className={cn("flex items-center justify-between p-3 rounded-xl border border-slate-100 hover:bg-slate-50/50 cursor-pointer transition-all", !importDiego && "opacity-50")}>
+                <div className="flex items-center gap-2.5">
                   <input
                     type="checkbox"
                     checked={importDiego}
                     onChange={(e) => setImportDiego(e.target.checked)}
                     className="w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500/10 cursor-pointer accent-brand-600"
-                    title="Habilitar/Deshabilitar esta planilla para la importación"
                   />
+                  <span className="text-xs font-bold text-slate-800">Diego Bóveda</span>
                 </div>
-                <span className="block text-[11px] text-slate-500 font-semibold mb-3 truncate" title="Docs ID: 1ccs1yPtwSSUf6dcA5XpxhpvPaWmHfJ0zsCfyJvEBvtg">Docs ID: 1ccs1yPtwSSUf6...</span>
-              </div>
-              <a
-                href="https://docs.google.com/spreadsheets/d/1ccs1yPtwSSUf6dcA5XpxhpvPaWmHfJ0zsCfyJvEBvtg/edit?gid=1414092286"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex text-[10px] font-black text-slate-400 hover:text-slate-600 uppercase tracking-widest border-b border-slate-200 self-start"
-              >
-                Abrir Planilla Original ↗
-              </a>
-            </div>
+                <a
+                  href="https://docs.google.com/spreadsheets/d/1ccs1yPtwSSUf6dcA5XpxhpvPaWmHfJ0zsCfyJvEBvtg/edit?gid=1414092286"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-slate-400 hover:text-slate-600 p-1 font-bold text-xs"
+                  title="Abrir Planilla Original"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  ↗
+                </a>
+              </label>
 
-            {/* Ludmila Card */}
-            <div className={cn("bg-slate-50 p-5 rounded-2xl border border-slate-100 flex flex-col justify-between transition-opacity", !importLudmila && "opacity-60")}>
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="block text-[10px] font-black uppercase tracking-wider text-slate-500">Planilla Ludmila Krenz</span>
+              {/* Ludmila */}
+              <label className={cn("flex items-center justify-between p-3 rounded-xl border border-slate-100 hover:bg-slate-50/50 cursor-pointer transition-all", !importLudmila && "opacity-50")}>
+                <div className="flex items-center gap-2.5">
                   <input
                     type="checkbox"
                     checked={importLudmila}
                     onChange={(e) => setImportLudmila(e.target.checked)}
                     className="w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500/10 cursor-pointer accent-brand-600"
-                    title="Habilitar/Deshabilitar esta planilla para la importación"
                   />
+                  <span className="text-xs font-bold text-slate-800">Ludmila Krenz</span>
                 </div>
-                <span className="block text-[11px] text-slate-500 font-semibold mb-3 truncate" title="Docs ID: 1tp10RNH7z5VpWL9eVmofpOVrB2HzEpfbSEc1ngKO9_8">Docs ID: 1tp10RNH7z5VpW...</span>
-              </div>
-              <a
-                href="https://docs.google.com/spreadsheets/d/1tp10RNH7z5VpWL9eVmofpOVrB2HzEpfbSEc1ngKO9_8/edit?gid=1414092286"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex text-[10px] font-black text-slate-400 hover:text-slate-600 uppercase tracking-widest border-b border-slate-200 self-start"
-              >
-                Abrir Planilla Original ↗
-              </a>
+                <a
+                  href="https://docs.google.com/spreadsheets/d/1tp10RNH7z5VpWL9eVmofpOVrB2HzEpfbSEc1ngKO9_8/edit?gid=1414092286"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-slate-400 hover:text-slate-600 p-1 font-bold text-xs"
+                  title="Abrir Planilla Original"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  ↗
+                </a>
+              </label>
             </div>
+
           </div>
+
         </div>
 
-        <div className="bg-slate-50 border border-slate-200/60 p-5 rounded-2xl mb-6 shadow-sm">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <span className="block font-black text-slate-800 text-[10px] uppercase tracking-wider mb-3">Filtros de Prefijos de Pedido</span>
-              <div className="flex flex-col gap-2.5 text-xs font-semibold text-slate-600">
-                <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={skipENC}
-                    onChange={(e) => setSkipENC(e.target.checked)}
-                    className="w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500/10 cursor-pointer accent-brand-600"
-                  />
-                  <span>Omitir <strong>ENC</strong> (Logística Especial)</span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={skipCAMB}
-                    onChange={(e) => setSkipCAMB(e.target.checked)}
-                    className="w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500/10 cursor-pointer accent-brand-600"
-                  />
-                  <span>Omitir <strong>CAMB</strong> (Cambios)</span>
-                </label>
-              </div>
-            </div>
-            
-            <div className="border-t md:border-t-0 md:border-l border-slate-200 pt-4 md:pt-0 md:pl-4">
-              <span className="block font-black text-slate-800 text-[10px] uppercase tracking-wider mb-3">Sincronización Adicional</span>
-              <div className="flex flex-col gap-2.5 text-xs font-semibold text-slate-600">
-                <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={syncPaymentMethods}
-                    onChange={(e) => setSyncPaymentMethods(e.target.checked)}
-                    className="w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500/10 cursor-pointer accent-brand-600"
-                  />
-                  <span>Sincronizar Medios de Pago y Recargos</span>
-                </label>
-                <p className="text-[10px] text-slate-400 font-medium leading-normal">
-                  Descarga y actualiza los planes/recargos desde la pestaña "BD Recargos" de Google Sheets. Manténlo desmarcado para conservar los ajustes manuales vigentes de la base de datos.
-                </p>
-              </div>
+        {/* Configuration Row */}
+        <div className="bg-slate-50 border border-slate-100 p-4 rounded-2xl grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Filters */}
+          <div className="space-y-2">
+            <span className="block font-black text-slate-500 text-[8px] uppercase tracking-wider">Filtros de Prefijo</span>
+            <div className="flex gap-4 text-xs font-bold text-slate-600">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={skipENC}
+                  onChange={(e) => setSkipENC(e.target.checked)}
+                  className="w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500/10 cursor-pointer accent-brand-600"
+                />
+                <span>Omitir ENC</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={skipCAMB}
+                  onChange={(e) => setSkipCAMB(e.target.checked)}
+                  className="w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500/10 cursor-pointer accent-brand-600"
+                />
+                <span>Omitir CAMB</span>
+              </label>
             </div>
           </div>
-        </div>
 
-        <div className="bg-blue-50/50 border border-blue-100 p-5 rounded-2xl space-y-2 mb-6">
-          <span className="block font-black text-blue-900 text-xs uppercase tracking-wider">Reglas del Proceso de Importación:</span>
-          <ul className="list-disc pl-4 text-xs font-semibold text-blue-800 space-y-1">
-            <li>En planillas de Jazmín/Diego, filtra por estado "No está" adicionalmente.</li>
-            <li>Filtra y omite los prefijos de pedido (ENC, CAMB) de acuerdo con los selectores configurados arriba.</li>
-            <li>Compara contra los registros existentes en la base de datos (columna `legacy_code`) para evitar duplicaciones.</li>
-            <li>Busca y vincula clientes preexistentes por teléfono; si no los halla, crea el cliente e inserta sus direcciones de entrega correspondientes.</li>
-            <li>Convierte los importes numéricos corrigiendo el error de divisiones o saltos por miles (notación decimal es-AR).</li>
-            <li>Asocia los artículos al catálogo. Si el producto no existe, se guardará como huérfano para posterior regularización.</li>
-          </ul>
+          {/* Sync pay methods */}
+          <div className="space-y-1 md:border-l md:border-slate-200 md:pl-4">
+            <span className="block font-black text-slate-500 text-[8px] uppercase tracking-wider">Configuración Adicional</span>
+            <label className="flex items-center gap-2 cursor-pointer select-none text-xs font-bold text-slate-600">
+              <input
+                type="checkbox"
+                checked={syncPaymentMethods}
+                onChange={(e) => setSyncPaymentMethods(e.target.checked)}
+                className="w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500/10 cursor-pointer accent-brand-600"
+              />
+              <span>Sincronizar Medios de Pago y Recargos</span>
+            </label>
+          </div>
         </div>
 
         <div className="space-y-4">
