@@ -7,10 +7,14 @@ import { Settings, Loader2, ShieldAlert, Mail, ArrowLeft, CheckCircle2 } from "l
 import { Button } from "@/components/ui/Button";
 import { AdminLayout } from "@/components/ui/AdminLayout";
 
+let globalAdminSession: any = null;
+let globalAdminChecked = false;
+let globalIsAdmin = false;
+
 export default function AdminLayoutWrapper({ children }: { children: React.ReactNode }) {
-  const [session, setSession] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [session, setSession] = useState<any>(globalAdminSession);
+  const [loading, setLoading] = useState(!globalAdminChecked);
+  const [isAdmin, setIsAdmin] = useState(globalIsAdmin);
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [isLoggingIn, setIsLoggingIn] = useState(false);
@@ -36,6 +40,10 @@ export default function AdminLayoutWrapper({ children }: { children: React.React
       setShowDiagnostics(true);
     }, 2000);
 
+    if (globalAdminChecked) {
+      setLoading(false);
+    }
+
     async function checkAuth() {
       addLog("checkAuth started");
       try {
@@ -46,6 +54,8 @@ export default function AdminLayoutWrapper({ children }: { children: React.React
         } else {
           addLog(`session fetched successfully. User present: ${!!session?.user}`);
         }
+        globalAdminSession = session;
+        globalAdminChecked = true;
         setSession(session);
         
         if (session?.user) {
@@ -57,9 +67,11 @@ export default function AdminLayoutWrapper({ children }: { children: React.React
             .single();
           
           addLog(`seller role query finished. Role: ${seller?.role}, error: ${error ? error.message : "none"}`);
-          setIsAdmin(seller?.role === 'admin');
+          globalIsAdmin = seller?.role === 'admin';
+          setIsAdmin(globalIsAdmin);
         } else {
           addLog("no user in session, admin is false");
+          globalIsAdmin = false;
           setIsAdmin(false);
         }
       } catch (err: any) {
@@ -75,6 +87,8 @@ export default function AdminLayoutWrapper({ children }: { children: React.React
     addLog("subscribing to onAuthStateChange...");
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       addLog(`onAuthStateChange event: ${event}, user present: ${!!session?.user}`);
+      globalAdminSession = session;
+      globalAdminChecked = true;
       setSession(session);
       try {
         if (session?.user) {
@@ -83,8 +97,10 @@ export default function AdminLayoutWrapper({ children }: { children: React.React
             .select('role')
             .eq('id', session.user.id)
             .single();
-          setIsAdmin(seller?.role === 'admin');
+          globalIsAdmin = seller?.role === 'admin';
+          setIsAdmin(globalIsAdmin);
         } else {
+          globalIsAdmin = false;
           setIsAdmin(false);
         }
       } catch (err: any) {

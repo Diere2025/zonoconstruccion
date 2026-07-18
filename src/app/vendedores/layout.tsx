@@ -7,9 +7,12 @@ import { Settings, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { AdminLayout } from "@/components/ui/AdminLayout";
 
+let globalSession: any = null;
+let globalSessionChecked = false;
+
 export default function VendedoresLayout({ children }: { children: React.ReactNode }) {
-  const [session, setSession] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const [session, setSession] = useState<any>(globalSession);
+  const [loading, setLoading] = useState(!globalSessionChecked);
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [isLoggingIn, setIsLoggingIn] = useState(false);
@@ -17,17 +20,27 @@ export default function VendedoresLayout({ children }: { children: React.ReactNo
 
   useEffect(() => {
     console.log("[VendedoresLayout] useEffect mounted");
+    
+    if (globalSessionChecked) {
+      setLoading(false);
+    }
+
     supabase.auth.getSession().then(({ data: { session } }) => {
       console.log("[VendedoresLayout] getSession resolved. Session user:", session?.user?.email);
+      globalSession = session;
+      globalSessionChecked = true;
       setSession(session);
       setLoading(false);
     }).catch(err => {
       console.error("[VendedoresLayout] getSession error:", err);
+      globalSessionChecked = true;
       setLoading(false);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       console.log("[VendedoresLayout] onAuthStateChange fired. Event:", _event, "Session user:", session?.user?.email);
+      globalSession = session;
+      globalSessionChecked = true;
       setSession(session);
     });
 

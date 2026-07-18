@@ -291,6 +291,10 @@ export async function POST(request: Request) {
       const orderCode = (row[1] || "").trim();
       if (!orderCode) continue;
 
+      if (skipENC && orderCode.toUpperCase().startsWith("ENC")) {
+        continue;
+      }
+
       const rawStatus = (row[0] || "Pendiente").trim();
       const rawSolDate = (row[3] || "").trim();
       const rawEntDate = (row[2] || "").trim();
