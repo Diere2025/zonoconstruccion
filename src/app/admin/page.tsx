@@ -20,37 +20,7 @@ export default function AdminPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [isFormOpen, setIsFormOpen] = useState(false);
   
-  const [session, setSession] = useState<any>(null);
-  const [loginEmail, setLoginEmail] = useState("");
-  const [loginPassword, setLoginPassword] = useState("");
-  const [isLoggingIn, setIsLoggingIn] = useState(false);
 
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-    });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
-
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoggingIn(true);
-    const { error } = await supabase.auth.signInWithPassword({
-      email: loginEmail,
-      password: loginPassword,
-    });
-    if (error) alert("Credenciales inválidas");
-    setIsLoggingIn(false);
-  };
-
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-  };
   
   // Settings State
   const [aboutImageUrl, setAboutImageUrl] = useState('');
@@ -199,7 +169,7 @@ export default function AdminPage() {
 
   // Handle ?edit=ID parameter for deep-linking from catalog
   useEffect(() => {
-    if (session && products.length > 0) {
+    if (products.length > 0) {
       const urlParams = new URLSearchParams(window.location.search);
       const editId = urlParams.get('edit');
       if (editId) {
@@ -212,7 +182,7 @@ export default function AdminPage() {
         }
       }
     }
-  }, [products, session]);
+  }, [products]);
 
   // Load orphans when activeTab changes to 'orphans'
   useEffect(() => {
@@ -1184,47 +1154,7 @@ export default function AdminPage() {
     return searchTerms.every(term => searchableText.includes(term));
   });
 
-  if (!session) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
-        <div className="bg-white p-12 rounded-[3rem] shadow-2xl border border-slate-100 w-full max-w-md">
-          <div className="text-center mb-10">
-            <div className="w-16 h-16 bg-brand-50 rounded-2xl flex items-center justify-center mx-auto mb-6">
-              <Settings className="w-8 h-8 text-brand-600 animate-spin-slow" />
-            </div>
-            <h1 className="text-3xl font-black text-slate-900 tracking-tighter">Panel Admin</h1>
-            <p className="text-slate-500 font-medium mt-2">Ingresa para gestionar el sitio</p>
-          </div>
-          
-          <form onSubmit={handleLogin} className="space-y-6">
-            <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Email</label>
-              <input 
-                type="email" 
-                required 
-                className="w-full px-5 py-4 rounded-2xl border border-slate-100 focus:ring-4 focus:ring-brand-500/10 bg-slate-50 font-bold"
-                value={loginEmail}
-                onChange={(e) => setLoginEmail(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Contraseña</label>
-              <input 
-                type="password" 
-                required 
-                className="w-full px-5 py-4 rounded-2xl border border-slate-100 focus:ring-4 focus:ring-brand-500/10 bg-slate-50 font-bold"
-                value={loginPassword}
-                onChange={(e) => setLoginPassword(e.target.value)}
-              />
-            </div>
-            <Button type="submit" disabled={isLoggingIn} className="w-full py-8 text-lg font-black rounded-2xl">
-              {isLoggingIn ? <Loader2 className="animate-spin" /> : "Iniciar Sesión"}
-            </Button>
-          </form>
-        </div>
-      </div>
-    );
-  }
+
 
   // Define processed profitability products and metrics
   const processedProfitabilityProducts = products
@@ -1364,7 +1294,7 @@ export default function AdminPage() {
           <div className="flex flex-col md:flex-row md:items-center gap-4 mb-2">
             <h1 className="text-4xl font-black text-slate-900 tracking-tighter">Panel de Control</h1>
             <button 
-              onClick={handleLogout} 
+              onClick={() => supabase.auth.signOut()} 
               className="flex items-center gap-2 text-[10px] font-black text-red-500 hover:text-white hover:bg-red-500 uppercase tracking-[0.2em] border border-red-100 hover:border-red-500 px-4 py-2 rounded-xl transition-all w-fit"
             >
               <LogOut className="w-3.5 h-3.5" />

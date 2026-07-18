@@ -11,6 +11,48 @@ let globalAdminSession: any = null;
 let globalAdminChecked = false;
 let globalIsAdmin = false;
 
+// Cache to prevent duplicate concurrent queries to `sellers` table
+let cachedUserId: string | null = null;
+let cachedRole: string | null = null;
+let rolePromise: Promise<string | null> | null = null;
+
+async function getSellerRole(userId: string): Promise<string | null> {
+  if (cachedUserId === userId && cachedRole !== null) {
+    return cachedRole;
+  }
+  if (rolePromise && cachedUserId === userId) {
+    return rolePromise;
+  }
+  cachedUserId = userId;
+  rolePromise = (async () => {
+    try {
+      const { data, error } = await supabase
+        .from('sellers')
+        .select('role')
+        .eq('id', userId)
+        .single();
+      if (error) {
+        cachedRole = null;
+        return null;
+      }
+      cachedRole = data?.role || null;
+      return cachedRole;
+    } catch {
+      cachedRole = null;
+      return null;
+    } finally {
+      rolePromise = null;
+    }
+  })();
+  return rolePromise;
+}
+
+const clearRoleCache = () => {
+  cachedUserId = null;
+  cachedRole = null;
+  rolePromise = null;
+};
+
 export default function AdminLayoutWrapper({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<any>(globalAdminSession);
   const [loading, setLoading] = useState(!globalAdminChecked);
@@ -35,10 +77,10 @@ export default function AdminLayoutWrapper({ children }: { children: React.React
   };
 
   useEffect(() => {
-    // Show diagnostics after 2 seconds if still loading
+    // Show diagnostics after 10 seconds if still loading (prevents premature warning pages)
     const timer = setTimeout(() => {
       setShowDiagnostics(true);
-    }, 2000);
+    }, 10000);
 
     if (globalAdminChecked) {
       setLoading(false);
@@ -60,14 +102,9 @@ export default function AdminLayoutWrapper({ children }: { children: React.React
         
         if (session?.user) {
           addLog(`fetching seller role for user id: ${session.user.id}`);
-          const { data: seller, error } = await supabase
-            .from('sellers')
-            .select('role')
-            .eq('id', session.user.id)
-            .single();
-          
-          addLog(`seller role query finished. Role: ${seller?.role}, error: ${error ? error.message : "none"}`);
-          globalIsAdmin = seller?.role === 'admin';
+          const role = await getSellerRole(session.user.id);
+          addLog(`seller role query finished. Role: ${role}`);
+          globalIsAdmin = role === 'admin';
           setIsAdmin(globalIsAdmin);
         } else {
           addLog("no user in session, admin is false");
@@ -92,16 +129,13 @@ export default function AdminLayoutWrapper({ children }: { children: React.React
       setSession(session);
       try {
         if (session?.user) {
-          const { data: seller } = await supabase
-            .from('sellers')
-            .select('role')
-            .eq('id', session.user.id)
-            .single();
-          globalIsAdmin = seller?.role === 'admin';
+          const role = await getSellerRole(session.user.id);
+          globalIsAdmin = role === 'admin';
           setIsAdmin(globalIsAdmin);
         } else {
           globalIsAdmin = false;
           setIsAdmin(false);
+          clearRoleCache();
         }
       } catch (err: any) {
         addLog(`onAuthStateChange handler caught exception: ${err.message || err}`);
@@ -117,6 +151,7 @@ export default function AdminLayoutWrapper({ children }: { children: React.React
   const handleResetSession = async () => {
     addLog("Manual session reset requested. Clearing storage and signing out...");
     try {
+      clearRoleCache();
       if (typeof window !== "undefined") {
         window.localStorage.clear();
         window.sessionStorage.clear();
