@@ -25,23 +25,32 @@ export default function VendedoresLayout({ children }: { children: React.ReactNo
       setLoading(false);
     }
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      console.log("[VendedoresLayout] getSession resolved. Session user:", session?.user?.email);
-      globalSession = session;
-      globalSessionChecked = true;
-      setSession(session);
-      setLoading(false);
-    }).catch(err => {
-      console.error("[VendedoresLayout] getSession error:", err);
-      globalSessionChecked = true;
-      setLoading(false);
-    });
+    // Race to prevent getSession from hanging forever
+    const getSessionPromise = supabase.auth.getSession();
+    const timeoutPromise = new Promise<{ data: { session: null }; error: any }>((_, reject) =>
+      setTimeout(() => reject(new Error("Timeout getting session")), 2500)
+    );
+
+    Promise.race([getSessionPromise, timeoutPromise as any])
+      .then(({ data: { session } }) => {
+        console.log("[VendedoresLayout] getSession resolved. Session user:", session?.user?.email);
+        globalSession = session;
+        globalSessionChecked = true;
+        setSession(session);
+        setLoading(false);
+      })
+      .catch(err => {
+        console.error("[VendedoresLayout] getSession error or timeout:", err);
+        globalSessionChecked = true;
+        setLoading(false);
+      });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       console.log("[VendedoresLayout] onAuthStateChange fired. Event:", _event, "Session user:", session?.user?.email);
       globalSession = session;
       globalSessionChecked = true;
       setSession(session);
+      setLoading(false);
     });
 
     return () => {

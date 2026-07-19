@@ -172,7 +172,7 @@ export async function GET(request: Request) {
         supabaseAdmin.from('orders').select('client_id, total_amount, status, currency'),
         supabaseAdmin.from('client_payments').select('client_id, amount, currency'),
         supabaseAdmin.from('suppliers').select('id, name'),
-        supabaseAdmin.from('supplier_purchases').select('supplier_id, total_amount, status, currency'),
+        supabaseAdmin.from('supplier_purchases').select('supplier_id, total_amount, status, currency, document_type'),
         supabaseAdmin.from('supplier_payments').select('supplier_id, amount, currency')
       ]);
 
@@ -247,7 +247,8 @@ export async function GET(request: Request) {
 
       (supplierPurchasesRes.data || []).forEach(p => {
         if (p.supplier_id && p.status !== 'Anulado' && supsMap[p.supplier_id]) {
-          const amt = Number(p.total_amount) || 0;
+          const isCreditNote = p.document_type === 'Nota de Crédito';
+          const amt = (Number(p.total_amount) || 0) * (isCreditNote ? -1 : 1);
           if (p.currency === 'USD') {
             supsMap[p.supplier_id].total_purchases_usd += amt;
           } else {

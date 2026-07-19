@@ -157,9 +157,36 @@ export default function AdminPage() {
 
   async function fetchProducts() {
     setLoading(true);
-    const { data } = await supabase.from('products').select('*').order('created_at', { ascending: false });
-    if (data) setProducts(data);
-    setLoading(false);
+    let allProducts: any[] = [];
+    let page = 0;
+    const pageSize = 1000;
+    let hasMore = true;
+    
+    try {
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from('products')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .range(page * pageSize, (page + 1) * pageSize - 1);
+          
+        if (error) throw error;
+        if (data && data.length > 0) {
+          allProducts = [...allProducts, ...data];
+          page++;
+          if (data.length < pageSize) {
+            hasMore = false;
+          }
+        } else {
+          hasMore = false;
+        }
+      }
+      setProducts(allProducts);
+    } catch (err) {
+      console.error("Error cargando productos:", err);
+    } finally {
+      setLoading(false);
+    }
   }
 
   const handleOpenForm = (product?: Product) => {

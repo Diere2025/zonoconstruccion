@@ -90,7 +90,16 @@ export default function AdminLayoutWrapper({ children }: { children: React.React
       addLog("checkAuth started");
       try {
         addLog("fetching session...");
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        const getSessionPromise = supabase.auth.getSession();
+        const timeoutPromise = new Promise<{ data: { session: null }; error: any }>((_, reject) =>
+          setTimeout(() => reject(new Error("Timeout getting session")), 2500)
+        );
+
+        const { data: { session }, error: sessionError } = await Promise.race([
+          getSessionPromise,
+          timeoutPromise as any
+        ]);
+
         if (sessionError) {
           addLog(`session fetch error: ${sessionError.message}`);
         } else {
@@ -129,16 +138,22 @@ export default function AdminLayoutWrapper({ children }: { children: React.React
       setSession(session);
       try {
         if (session?.user) {
+          addLog("onAuthStateChange: fetching seller role...");
           const role = await getSellerRole(session.user.id);
+          addLog(`onAuthStateChange: seller role query finished. Role: ${role}`);
           globalIsAdmin = role === 'admin';
           setIsAdmin(globalIsAdmin);
         } else {
+          addLog("onAuthStateChange: no user, admin is false");
           globalIsAdmin = false;
           setIsAdmin(false);
           clearRoleCache();
         }
       } catch (err: any) {
         addLog(`onAuthStateChange handler caught exception: ${err.message || err}`);
+      } finally {
+        addLog("onAuthStateChange finished processing, setting loading to false");
+        setLoading(false);
       }
     });
 

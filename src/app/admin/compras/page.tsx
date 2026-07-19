@@ -38,7 +38,8 @@ import {
   Users,
   Scale,
   TrendingUp,
-  XCircle
+  XCircle,
+  Edit
 } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
@@ -119,6 +120,7 @@ interface ProductCostAlert {
     id: string;
     name: string;
     sku?: string;
+    price?: number;
   };
   purchase?: {
     id: string;
@@ -150,6 +152,12 @@ interface SupplierPurchase {
   };
   supplier?: {
     name: string;
+  };
+  document_type?: 'Factura' | 'Nota de Crédito' | 'Remito';
+  purchase_order_id?: string;
+  purchase_reception_id?: string;
+  purchase_orders?: {
+    oc_code: string;
   };
 }
 
@@ -363,7 +371,7 @@ export default function ComprasAdminPage() {
   const [receptionItems, setReceptionItems] = useState<any[]>([]); // { poItemId, productId, productName, quantityOrdered, quantityReceivedPrior, quantityReceivedNew, unitCost }
 
   // Importer States
-  const [importType, setImportType] = useState<'ocs' | 'detalle_ocs' | 'recepciones'>('ocs');
+  const [importType, setImportType] = useState<'ocs' | 'detalle_ocs' | 'recepciones' | 'conciliacion_unificada'>('conciliacion_unificada');
   const [importLog, setImportLog] = useState<string[]>([]);
   const [importing, setImporting] = useState(false);
   // --- Purchase Calculator States ---
@@ -386,12 +394,123 @@ export default function ComprasAdminPage() {
   // Selection states
   const [selectedSupplierId, setSelectedSupplierId] = useState("");
 
+  // Purchases History Filters & Pagination
+  const [searchInvoiceNumber, setSearchInvoiceNumber] = useState("");
+  const [searchOC, setSearchOC] = useState("");
+  const [filterSupplierId, setFilterSupplierId] = useState("");
+  const [filterDocumentType, setFilterDocumentType] = useState("");
+  const [historyPage, setHistoryPage] = useState(1);
+  const [supplierSearchText, setSupplierSearchText] = useState("");
+  const [isSupplierDropdownOpen, setIsSupplierDropdownOpen] = useState(false);
+
+  // Edit Purchase State
+  const [editingPurchase, setEditingPurchase] = useState<any | null>(null);
+  const [showEditPurchaseModal, setShowEditPurchaseModal] = useState(false);
+  const [editInvoiceNumber, setEditInvoiceNumber] = useState("");
+  const [editPurchaseDate, setEditPurchaseDate] = useState("");
+  const [editTotalAmount, setEditTotalAmount] = useState(0);
+  const [editDocumentType, setEditDocumentType] = useState("Factura");
+  const [editStatus, setEditStatus] = useState("Pendiente");
+  const [editNotes, setEditNotes] = useState("");
+  const [editPOId, setEditPOId] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  // Searchable PO products states
+  const [poProductSearchText, setPoProductSearchText] = useState("");
+  const [isPoProductDropdownOpen, setIsPoProductDropdownOpen] = useState(false);
+
+  // Searchable Goods Reception states
+  const [modalSupplierSearchText, setModalSupplierSearchText] = useState("");
+  const [isModalSupplierDropdownOpen, setIsModalSupplierDropdownOpen] = useState(false);
+  const [modalOCSearchText, setModalOCSearchText] = useState("");
+  const [isModalOCDropdownOpen, setIsModalOCDropdownOpen] = useState(false);
+
+  // Cost Alerts Filters & Sorting states
+  const [alertFilterSupplierId, setAlertFilterSupplierId] = useState("");
+  const [alertSupplierSearchText, setAlertSupplierSearchText] = useState("");
+  const [isAlertSupplierDropdownOpen, setIsAlertSupplierDropdownOpen] = useState(false);
+  const [alertSearchQuery, setAlertSearchQuery] = useState("");
+  const [alertVariationFilter, setAlertVariationFilter] = useState("all"); // "all", "increase", "decrease"
+  const [alertSortBy, setAlertSortBy] = useState("margin_loss"); // "margin_loss", "variation_pct", "variation_amount", "date"
+
   // Modals / Form toggles
   const [isSupplierFormOpen, setIsSupplierFormOpen] = useState(false);
   const [isPricelistFormOpen, setIsPricelistFormOpen] = useState(false);
   const [selectedPurchase, setSelectedPurchase] = useState<SupplierPurchase | null>(null);
   const [purchaseItemsDetail, setPurchaseItemsDetail] = useState<any[]>([]);
   const [loadingDetail, setLoadingDetail] = useState(false);
+
+  const uniqueAlerts = React.useMemo(() => {
+    // 1. Group by product_id first to get only the most recent alert for each product
+    const groupedMap = new Map<string, any>();
+    
+    // Since alerts from DB are sorted by created_at DESC, the first one we see is the latest
+    for (const alt of alerts) {
+      if (!alt.product_id) continue;
+      if (!groupedMap.has(alt.product_id)) {
+        groupedMap.set(alt.product_id, alt);
+      }
+    }
+    
+    let list = Array.from(groupedMap.values());
+
+    // 2. Apply Filters
+    if (alertFilterSupplierId) {
+      list = list.filter(alt => alt.purchase?.supplier?.id === alertFilterSupplierId);
+    }
+    
+    if (alertSearchQuery) {
+      const q = alertSearchQuery.toLowerCase();
+      list = list.filter(alt => 
+        alt.product?.name?.toLowerCase().includes(q) || 
+        alt.product?.sku?.toLowerCase().includes(q)
+      );
+    }
+
+    if (alertVariationFilter !== "all") {
+      list = list.filter(alt => {
+        const diff = alt.purchase_cost - alt.catalog_cost;
+        if (alertVariationFilter === "increase") return diff > 0;
+        if (alertVariationFilter === "decrease") return diff < 0;
+        return true;
+      });
+    }
+
+    // 3. Apply Sorting
+    list.sort((a, b) => {
+      if (alertSortBy === "margin_loss") {
+        const priceA = a.product?.price || 0;
+        const priceB = b.product?.price || 0;
+        const costA = a.purchase_cost;
+        const costB = b.purchase_cost;
+
+        if (priceA <= 0 && priceB <= 0) return 0;
+        if (priceA <= 0) return 1;
+        if (priceB <= 0) return -1;
+
+        const marginPctA = ((priceA - costA) / priceA) * 100;
+        const marginPctB = ((priceB - costB) / priceB) * 100;
+
+        return marginPctA - marginPctB; // Lowest/most negative margin first (worst losses first)
+      }
+
+      const diffPctA = a.catalog_cost > 0 ? ((a.purchase_cost - a.catalog_cost) / a.catalog_cost) * 100 : 100;
+      const diffPctB = b.catalog_cost > 0 ? ((b.purchase_cost - b.catalog_cost) / b.catalog_cost) * 100 : 100;
+
+      if (alertSortBy === "variation_pct") {
+        return Math.abs(diffPctB) - Math.abs(diffPctA); // Highest variation percentage first
+      } else if (alertSortBy === "variation_amount") {
+        const diffAmtA = Math.abs(a.purchase_cost - a.catalog_cost);
+        const diffAmtB = Math.abs(b.purchase_cost - b.catalog_cost);
+        return diffAmtB - diffAmtA; // Highest variation amount first
+      } else {
+        // Date sorting
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      }
+    });
+
+    return list;
+  }, [alerts, alertFilterSupplierId, alertSearchQuery, alertVariationFilter, alertSortBy]);
 
   // New Supplier form state
   const [newSupplierName, setNewSupplierName] = useState("");
@@ -447,6 +566,25 @@ export default function ComprasAdminPage() {
   // States for searchable product combobox
   const [productSearchQuery, setProductSearchQuery] = useState("");
   const [showProductSearchDropdown, setShowProductSearchDropdown] = useState(false);
+
+  useEffect(() => {
+    if (!filterSupplierId) {
+      setSupplierSearchText("");
+    }
+  }, [filterSupplierId]);
+
+  useEffect(() => {
+    if (!showNewReceptionModal) {
+      setModalSupplierSearchText("");
+      setModalOCSearchText("");
+    }
+  }, [showNewReceptionModal]);
+
+  useEffect(() => {
+    if (!showNewPOModal) {
+      setPoProductSearchText("");
+    }
+  }, [showNewPOModal]);
 
   useEffect(() => {
     if (!currentItemProductId) {
@@ -596,7 +734,7 @@ export default function ComprasAdminPage() {
         .from("product_cost_alerts")
         .select(`
           *,
-          product:products(id, name, sku),
+          product:products(id, name, sku, price),
           purchase:supplier_purchases(
             id,
             invoice_number,
@@ -657,7 +795,8 @@ export default function ComprasAdminPage() {
         .select(`
           *,
           supplier:suppliers(name),
-          cost_centers:cost_centers(id, name, code)
+          cost_centers:cost_centers(id, name, code),
+          purchase_orders:purchase_orders(oc_code)
         `)
         .order("created_at", { ascending: false });
       if (purc) setPurchases(purc as any);
@@ -896,6 +1035,53 @@ export default function ComprasAdminPage() {
     }
   };
 
+  const handleSelectSupplierInModal = (supId: string, name: string) => {
+    setReceptionSupplierId(supId);
+    setModalSupplierSearchText(name);
+    setIsModalSupplierDropdownOpen(false);
+    
+    // Clear OC selection
+    setReceptionPOId("");
+    setModalOCSearchText("");
+    setReceptionItems([]);
+  };
+
+  const handleSelectOCInModal = async (poId: string, ocCode: string) => {
+    setReceptionPOId(poId);
+    setModalOCSearchText(ocCode);
+    setIsModalOCDropdownOpen(false);
+
+    if (!poId) {
+      setReceptionItems([]);
+      return;
+    }
+
+    // Fetch items of the selected PO
+    const { data, error } = await supabase
+      .from('purchase_order_items')
+      .select(`
+        *,
+        product:products(id, name, sku)
+      `)
+      .eq('purchase_order_id', poId);
+    
+    if (error) {
+      alert("Error al cargar ítems de la OC: " + error.message);
+    } else if (data) {
+      const items = data.map(item => ({
+        poItemId: item.id,
+        productId: item.product_id,
+        productName: item.raw_product_name,
+        sku: item.product?.sku,
+        quantityOrdered: Number(item.quantity_ordered),
+        quantityReceivedPrior: Number(item.quantity_received),
+        quantityReceivedNew: 0,
+        unitCost: Number(item.unit_cost)
+      }));
+      setReceptionItems(items);
+    }
+  };
+
   const handleSaveReception = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!receptionSupplierId) {
@@ -969,6 +1155,8 @@ export default function ComprasAdminPage() {
       setReceptionPOId("");
       setReceptionNotes("");
       setReceptionItems([]);
+      setModalSupplierSearchText("");
+      setModalOCSearchText("");
       loadAllData(true);
     } catch (err: any) {
       console.error("Error creating reception:", err);
@@ -999,7 +1187,7 @@ export default function ComprasAdminPage() {
 
   const executeImportCSV = async (
     fileText: string,
-    type: 'ocs' | 'detalle_ocs' | 'recepciones',
+    type: 'ocs' | 'detalle_ocs' | 'recepciones' | 'conciliacion_unificada',
     addLog: (msg: string) => void
   ) => {
     try {
@@ -1049,7 +1237,25 @@ export default function ComprasAdminPage() {
 
       // Retrieve all suppliers and products mapping to reduce DB requests
       const { data: dbSuppliers } = await supabase.from('suppliers').select('id, name');
-      const { data: dbProducts } = await supabase.from('products').select('id, name, sku');
+      
+      let dbProducts: any[] = [];
+      let productPage = 0;
+      const pageSize = 1000;
+      let hasMoreProducts = true;
+      while (hasMoreProducts) {
+        const { data, error } = await supabase
+          .from('products')
+          .select('id, name, sku')
+          .range(productPage * pageSize, (productPage + 1) * pageSize - 1);
+        if (error) throw error;
+        if (data && data.length > 0) {
+          dbProducts = [...dbProducts, ...data];
+          productPage++;
+          if (data.length < pageSize) hasMoreProducts = false;
+        } else {
+          hasMoreProducts = false;
+        }
+      }
 
       let successCount = 0;
       let errorCount = 0;
@@ -1394,6 +1600,370 @@ export default function ComprasAdminPage() {
         addLog(`✅ Importación finalizada. Recepciones exitosas: ${successCount}. Errores: ${errorCount}`);
       }
 
+      else if (type === 'conciliacion_unificada') {
+        const parseSpanishFloat = (valStr: string): number => {
+          if (!valStr) return 0;
+          let clean = valStr.replace(/[\$\s]/g, '');
+          if (clean.includes(',') && clean.includes('.')) {
+            if (clean.indexOf('.') < clean.indexOf(',')) {
+              clean = clean.replace(/\./g, '').replace(',', '.');
+            } else {
+              clean = clean.replace(/,/g, '');
+            }
+          } else if (clean.includes(',')) {
+            clean = clean.replace(',', '.');
+          }
+          const parsed = parseFloat(clean);
+          return isNaN(parsed) ? 0 : parsed;
+        };
+
+        const normalizeText = (str: string): string => {
+          if (!str) return '';
+          return str
+            .toLowerCase()
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .replace(/[^a-z0-9]/g, "")
+            .trim();
+        };
+
+        const findKey = (row: any, searchTerms: string[]): string | null => {
+          const keys = Object.keys(row);
+          for (const key of keys) {
+            const normKey = normalizeText(key);
+            if (searchTerms.some(term => normalizeText(term) === normKey || normKey.includes(normalizeText(term)))) {
+              return key;
+            }
+          }
+          return null;
+        };
+
+        addLog(`📦 Analizando columnas para Planilla Unificada...`);
+
+        const groupedDocuments = new Map<string, any[]>();
+
+        for (const row of rows) {
+          const dateKey = findKey(row, ['Fecha', 'fecha recibida']);
+          const docNumKey = findKey(row, ['N°', 'Nro', 'Número de boleta', 'Numero de boleta', 'comprobante', 'factura']);
+          const typeKey = findKey(row, ['Tipo']);
+          const supplierKey = findKey(row, ['Proveedor']);
+          const productKey = findKey(row, ['Producto', 'Detalle Producto', 'Detalle']);
+          const qtyKey = findKey(row, ['Cantidad']);
+          const priceKey = findKey(row, ['Precio Unitario', 'Precio Unitario de Lista']);
+          const coefKey = findKey(row, ['Coeficiente', 'Coeficiente de descuento']);
+          const ivaKey = findKey(row, ['IVA', 'Si tiene IVA']);
+          const iibbKey = findKey(row, ['IIBB', 'Si tiene percepción de IIBB']);
+          const cabaKey = findKey(row, ['CABA', 'Si tiene percepción de CABA']);
+          const otrasKey = findKey(row, ['Otras', 'Otras percepciones']);
+          const totalParcialKey = findKey(row, ['Total Parcial desp', 'Total Parcial', 'Total parcial dsp de impuestos']);
+          const totalDocKey = findKey(row, ['Total']);
+          const statusKey = findKey(row, ['Estado']);
+
+          const rawDate = dateKey ? row[dateKey] : '';
+          
+          let itemDate = new Date();
+          if (rawDate && rawDate.includes('/')) {
+            const parts = rawDate.split('/');
+            if (parts.length === 3) {
+              const day = parseInt(parts[0], 10);
+              const month = parseInt(parts[1], 10) - 1;
+              const year = parseInt(parts[2], 10);
+              itemDate = new Date(year, month, day, 12, 0, 0);
+            }
+          } else if (rawDate && rawDate.includes('-')) {
+            itemDate = new Date(rawDate);
+          }
+
+          if (itemDate.getFullYear() < 2026) {
+            continue; // Skip 2025 and earlier
+          }
+
+          const rawDocNum = docNumKey ? row[docNumKey] : '';
+          const rawType = typeKey ? row[typeKey] : '';
+          const rawSupplier = supplierKey ? row[supplierKey] : '';
+          const rawProduct = productKey ? row[productKey] : '';
+          const rawQty = qtyKey ? row[qtyKey] : '0';
+          const rawPrice = priceKey ? row[priceKey] : '0';
+          const rawCoef = coefKey ? row[coefKey] : '1';
+          const rawIva = ivaKey ? row[ivaKey] : '1';
+          const rawIibb = iibbKey ? row[iibbKey] : '0';
+          const rawCaba = cabaKey ? row[cabaKey] : '0';
+          const rawOtras = otrasKey ? row[otrasKey] : '0';
+          const rawTotalParcial = totalParcialKey ? row[totalParcialKey] : '0';
+          const rawTotalDoc = totalDocKey ? row[totalDocKey] : '0';
+          const rawStatus = statusKey ? row[statusKey] : '';
+
+          if (!rawSupplier || !rawDocNum || !rawProduct) {
+            continue;
+          }
+
+          const item = {
+            date: rawDate,
+            docNum: rawDocNum.trim(),
+            docType: rawType.trim(),
+            supplier: rawSupplier.trim(),
+            productName: rawProduct.trim(),
+            quantity: parseSpanishFloat(rawQty),
+            listPrice: parseSpanishFloat(rawPrice),
+            coef: parseSpanishFloat(rawCoef),
+            iva: parseSpanishFloat(rawIva),
+            iibb: parseSpanishFloat(rawIibb),
+            caba: parseSpanishFloat(rawCaba),
+            otras: parseSpanishFloat(rawOtras),
+            totalParcial: parseSpanishFloat(rawTotalParcial),
+            totalDoc: parseSpanishFloat(rawTotalDoc),
+            status: rawStatus.trim().toUpperCase()
+          };
+
+          const groupKey = `${item.supplier.toLowerCase()}||${item.docNum.toLowerCase()}`;
+          const existingGroup = groupedDocuments.get(groupKey) || [];
+          existingGroup.push(item);
+          groupedDocuments.set(groupKey, existingGroup);
+        }
+
+        addLog(`📋 Encontrados ${groupedDocuments.size} documentos únicos en el CSV. Procesando...`);
+
+        const { data: { user } } = await supabase.auth.getUser();
+        const currentUserId = user?.id || null;
+
+        for (const [groupKey, items] of groupedDocuments.entries()) {
+          try {
+            const firstItem = items[0];
+            const supplierName = firstItem.supplier;
+            const docNum = firstItem.docNum;
+            const rawType = firstItem.docType;
+            const docDateStr = firstItem.date;
+
+            addLog(`⚙️ Procesando Documento N° ${docNum} de Proveedor ${supplierName}...`);
+
+            const supplierId = await getOrCreateSupplier(supplierName);
+            if (!supplierId) {
+              addLog(`⚠️ Proveedor ${supplierName} no pudo ser resuelto. Saltando documento.`);
+              continue;
+            }
+
+            let docDate = new Date();
+            if (docDateStr && docDateStr.includes('/')) {
+              const parts = docDateStr.split('/');
+              if (parts.length === 3) docDate = new Date(`${parts[2]}-${parts[1]}-${parts[0]}T12:00:00`);
+            }
+
+            const totalDocAmt = items.reduce((sum, it) => sum + it.totalParcial, 0);
+
+            const lowerType = rawType.toLowerCase();
+            let mappedDocType: 'Factura' | 'Nota de Crédito' | 'Remito' = 'Factura';
+            if (lowerType.includes('nc') || lowerType.includes('nota de credito') || lowerType.includes('nota de crédito')) {
+              mappedDocType = 'Nota de Crédito';
+            } else if (lowerType.includes('boleta') || lowerType.includes('remito')) {
+              mappedDocType = 'Remito';
+            }
+
+            const ocCode = `OC-${supplierName.toUpperCase().replace(/[^A-Z0-9]/g, '').substring(0, 5)}-${docNum}`;
+            
+            const { data: existingOC } = await supabase
+              .from('purchase_orders')
+              .select('id')
+              .eq('oc_code', ocCode)
+              .limit(1);
+
+            let poId = existingOC && existingOC.length > 0 ? existingOC[0].id : null;
+            if (!poId) {
+              const { data: newPo, error: poErr } = await supabase
+                .from('purchase_orders')
+                .insert({
+                  oc_code: ocCode,
+                  supplier_id: supplierId,
+                  order_date: docDate.toISOString(),
+                  estimated_delivery_date: docDate.toISOString(),
+                  payment_condition: 'Efectivo',
+                  notes: `OC generada automáticamente de planilla de conciliación`,
+                  total_amount: totalDocAmt,
+                  status: items.every(it => it.status === 'OK') ? 'Cumplido' : (items.some(it => it.status === 'OK') ? 'Parcial' : 'Pendiente'),
+                  created_by: currentUserId
+                })
+                .select()
+                .single();
+              if (poErr) throw poErr;
+              poId = newPo.id;
+            }
+
+            const poItemMap = new Map<string, string>();
+            for (const it of items) {
+              const prodId = await getOrCreateProduct(it.productName);
+              if (!prodId) continue;
+
+              const baseUnitCost = it.listPrice * it.coef;
+              const subtotal = it.quantity * baseUnitCost;
+
+              const { data: existingPOItem } = await supabase
+                .from('purchase_order_items')
+                .select('id')
+                .eq('purchase_order_id', poId)
+                .eq('raw_product_name', it.productName)
+                .limit(1);
+
+              let poItemId = existingPOItem && existingPOItem.length > 0 ? existingPOItem[0].id : null;
+              const lineStatus = it.status === 'OK' ? 'Cumplido' : 'Pendiente';
+
+              if (!poItemId) {
+                const { data: newPOItem, error: itemErr } = await supabase
+                  .from('purchase_order_items')
+                  .insert({
+                    purchase_order_id: poId,
+                    product_id: prodId,
+                    raw_product_name: it.productName,
+                    quantity_ordered: it.quantity,
+                    quantity_received: it.status === 'OK' ? it.quantity : 0,
+                    unit_cost: baseUnitCost,
+                    subtotal: subtotal,
+                    status: lineStatus
+                  })
+                  .select()
+                  .single();
+                if (itemErr) throw itemErr;
+                poItemId = newPOItem.id;
+              } else {
+                const { error: updateErr } = await supabase
+                  .from('purchase_order_items')
+                  .update({
+                    quantity_received: it.status === 'OK' ? it.quantity : 0,
+                    status: lineStatus
+                  })
+                  .eq('id', poItemId);
+                if (updateErr) throw updateErr;
+              }
+
+              poItemMap.set(it.productName, poItemId);
+            }
+
+            const hasReceivedItems = items.some(it => it.status === 'OK');
+            let receptionId = null;
+
+            if (hasReceivedItems) {
+              const slipNumber = docNum;
+              
+              const { data: existingRec } = await supabase
+                .from('purchase_receptions')
+                .select('id')
+                .eq('supplier_id', supplierId)
+                .eq('delivery_slip_number', slipNumber)
+                .limit(1);
+
+              receptionId = existingRec && existingRec.length > 0 ? existingRec[0].id : null;
+              if (!receptionId) {
+                const { data: newRec, error: recErr } = await supabase
+                  .from('purchase_receptions')
+                  .insert({
+                    reception_date: docDate.toISOString(),
+                    supplier_id: supplierId,
+                    delivery_slip_number: slipNumber,
+                    purchase_order_id: poId,
+                    notes: `Remito unificado - importado de conciliación`,
+                    created_by: currentUserId
+                  })
+                  .select()
+                  .single();
+                if (recErr) throw recErr;
+                receptionId = newRec.id;
+              }
+
+              for (const it of items) {
+                if (it.status !== 'OK') continue;
+                const prodId = await getOrCreateProduct(it.productName);
+                if (!prodId) continue;
+                const poItemId = poItemMap.get(it.productName) || null;
+                const baseUnitCost = it.listPrice * it.coef;
+
+                const { data: existingRecItem } = await supabase
+                  .from('purchase_reception_items')
+                  .select('id')
+                  .eq('purchase_reception_id', receptionId)
+                  .eq('product_id', prodId)
+                  .limit(1);
+
+                if (!existingRecItem || existingRecItem.length === 0) {
+                  const { error: recItemErr } = await supabase
+                    .from('purchase_reception_items')
+                    .insert({
+                      purchase_reception_id: receptionId,
+                      purchase_order_item_id: poItemId,
+                      product_id: prodId,
+                      quantity_received: it.quantity,
+                      unit_cost: baseUnitCost
+                    });
+                  if (recItemErr) throw recItemErr;
+                }
+              }
+            }
+
+            const { data: existingSupPurchase } = await supabase
+              .from('supplier_purchases')
+              .select('id')
+              .eq('supplier_id', supplierId)
+              .eq('invoice_number', docNum)
+              .limit(1);
+
+            let purchaseId = existingSupPurchase && existingSupPurchase.length > 0 ? existingSupPurchase[0].id : null;
+            if (!purchaseId) {
+              const { data: newSupPurchase, error: spErr } = await supabase
+                .from('supplier_purchases')
+                .insert({
+                  supplier_id: supplierId,
+                  invoice_number: docNum,
+                  purchase_date: docDate.toISOString(),
+                  due_date: docDate.toISOString(),
+                  total_amount: totalDocAmt,
+                  paid_amount: 0,
+                  currency: 'ARS',
+                  status: 'Pendiente',
+                  document_type: mappedDocType,
+                  purchase_order_id: poId,
+                  purchase_reception_id: receptionId,
+                  notes: `Factura importada y vinculada a OC ${ocCode}`,
+                  created_by: currentUserId
+                })
+                .select()
+                .single();
+              if (spErr) throw spErr;
+              purchaseId = newSupPurchase.id;
+            }
+
+            for (const it of items) {
+              const prodId = await getOrCreateProduct(it.productName);
+              if (!prodId) continue;
+
+              const finalUnitCost = it.quantity > 0 ? (it.totalParcial / it.quantity) : 0;
+
+              const { data: existingSPItem } = await supabase
+                .from('supplier_purchase_items')
+                .select('id')
+                .eq('purchase_id', purchaseId)
+                .eq('product_id', prodId)
+                .limit(1);
+
+              if (!existingSPItem || existingSPItem.length === 0) {
+                const { error: spItemErr } = await supabase
+                  .from('supplier_purchase_items')
+                  .insert({
+                    purchase_id: purchaseId,
+                    product_id: prodId,
+                    quantity: it.quantity,
+                    unit_cost: finalUnitCost
+                  });
+                if (spItemErr) throw spItemErr;
+              }
+            }
+
+            successCount++;
+          } catch (err: any) {
+            errorCount++;
+            addLog(`❌ Error procesando comprobante: ${err.message || err}`);
+          }
+        }
+
+        addLog(`✅ Conciliación unificada finalizada. Comprobantes exitosos: ${successCount}. Errores: ${errorCount}`);
+      }
+
     } catch (err: any) {
       console.error(err);
       addLog(`❌ Error crítico de importación: ${err.message}`);
@@ -1401,7 +1971,7 @@ export default function ComprasAdminPage() {
     }
   };
 
-  const handleImportCSVs = async (fileText: string, type: 'ocs' | 'detalle_ocs' | 'recepciones') => {
+  const handleImportCSVs = async (fileText: string, type: 'ocs' | 'detalle_ocs' | 'recepciones' | 'conciliacion_unificada') => {
     setImporting(true);
     setImportLog([]);
     const logList: string[] = [];
@@ -1423,7 +1993,7 @@ export default function ComprasAdminPage() {
   };
 
   const handleSyncFromSpreadsheet = async () => {
-    const confirm = window.confirm("¿Estás seguro de que deseas sincronizar las Órdenes de Compra y Recepciones directamente desde la planilla de Google Sheets? Esto puede demorar unos minutos.");
+    const confirm = window.confirm("¿Estás seguro de que deseas sincronizar las Órdenes de Compra, Recepciones y Facturas directamente desde la planilla de Conciliación de Facturas? Esto sobrescribirá y actualizará los comprobantes.");
     if (!confirm) return;
 
     setImporting(true);
@@ -1436,34 +2006,19 @@ export default function ComprasAdminPage() {
     };
 
     try {
-      const sheetId = '1cbqEFLraMcSVnHdMpb3C8OrvCKFXed2Hq_RxeylEK0w';
+      const sheetId = '1orAhg5O_8AHeFihgeXvT512TvokQmf3qDQWQAVVjpNk';
+      const gid = '134506688';
       
-      // 1. Cabeceras (OCs)
-      addLog("📥 Descargando Cabeceras de OCs desde la planilla...");
-      const resOcs = await fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=2027396748`);
-      if (!resOcs.ok) throw new Error("Error al descargar cabeceras de OCs de Google Sheets.");
-      const csvOcs = await resOcs.text();
-      addLog("⚡ Procesando e importando Cabeceras de OCs...");
-      await executeImportCSV(csvOcs, 'ocs', addLog);
-
-      // 2. Detalle OCs
-      addLog("📥 Descargando Detalles de OCs desde la planilla...");
-      const resDetalle = await fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=2147240034`);
-      if (!resDetalle.ok) throw new Error("Error al descargar detalles de OCs de Google Sheets.");
-      const csvDetalle = await resDetalle.text();
-      addLog("⚡ Procesando e importando Detalles de OCs...");
-      await executeImportCSV(csvDetalle, 'detalle_ocs', addLog);
-
-      // 3. Recepciones
-      addLog("📥 Descargando Documentos de Recepción desde la planilla...");
-      const resRec = await fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=1210887591`);
-      if (!resRec.ok) throw new Error("Error al descargar documentos de recepción de Google Sheets.");
-      const csvRec = await resRec.text();
-      addLog("⚡ Procesando e importando Recepciones...");
-      await executeImportCSV(csvRec, 'recepciones', addLog);
+      addLog("📥 Descargando Planilla Unificada de Conciliación desde Google Sheets...");
+      const res = await fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`);
+      if (!res.ok) throw new Error("Error al descargar planilla de conciliación de Google Sheets.");
+      const csvText = await res.text();
+      
+      addLog("⚡ Procesando e importando conciliación unificada de compras...");
+      await executeImportCSV(csvText, 'conciliacion_unificada', addLog);
 
       addLog("✨ Sincronización masiva finalizada con éxito desde Google Sheets!");
-      alert("Sincronización con la planilla completada con éxito.");
+      alert("Sincronización con la planilla de conciliación completada con éxito.");
     } catch (err: any) {
       addLog(`❌ Error en sincronización: ${err.message}`);
       alert("Error durante la sincronización: " + err.message);
@@ -3007,7 +3562,7 @@ export default function ComprasAdminPage() {
         }
       }
 
-      // Resolve the alert
+      // Resolve the alert and all other pending alerts for the same product
       const { error: updateAlertErr } = await supabase
         .from('product_cost_alerts')
         .update({
@@ -3015,7 +3570,8 @@ export default function ComprasAdminPage() {
           resolved_at: new Date().toISOString(),
           created_by: userId
         })
-        .eq('id', alertItem.id);
+        .eq('product_id', alertItem.product_id)
+        .eq('status', 'Pendiente');
 
       if (updateAlertErr) throw updateAlertErr;
 
@@ -3576,6 +4132,51 @@ export default function ComprasAdminPage() {
     }
   };
 
+  const handleOpenEditPurchase = (purchase: any) => {
+    setEditingPurchase(purchase);
+    setEditInvoiceNumber(purchase.invoice_number || "");
+    setEditPurchaseDate(purchase.purchase_date ? purchase.purchase_date.split('T')[0] : "");
+    setEditTotalAmount(Number(purchase.total_amount) || 0);
+    setEditDocumentType(purchase.document_type || "Factura");
+    setEditStatus(purchase.status || "Pendiente");
+    setEditNotes(purchase.notes || "");
+    setEditPOId(purchase.purchase_order_id || "");
+    setShowEditPurchaseModal(true);
+  };
+
+  const handleSaveEditPurchase = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingPurchase) return;
+    setSavingEdit(true);
+
+    try {
+      const { error } = await supabase
+        .from('supplier_purchases')
+        .update({
+          invoice_number: editInvoiceNumber,
+          purchase_date: editPurchaseDate ? new Date(editPurchaseDate).toISOString() : null,
+          total_amount: editTotalAmount,
+          document_type: editDocumentType,
+          status: editStatus,
+          notes: editNotes || null,
+          purchase_order_id: editPOId || null
+        })
+        .eq('id', editingPurchase.id);
+
+      if (error) throw error;
+
+      alert("Comprobante actualizado correctamente.");
+      setShowEditPurchaseModal(false);
+      setEditingPurchase(null);
+      loadAllData(true);
+    } catch (err: any) {
+      console.error("Error editing purchase:", err);
+      alert("Error al actualizar comprobante: " + err.message);
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-[60vh] flex flex-col items-center justify-center gap-4">
@@ -3701,9 +4302,9 @@ export default function ComprasAdminPage() {
             }`}
           >
             Alertas de Costos
-            {alerts.length > 0 && (
+            {uniqueAlerts.length > 0 && (
               <span className="bg-red-500 text-white text-[9px] px-1.5 py-0.5 rounded-full font-black animate-pulse">
-                {alerts.length}
+                {uniqueAlerts.length}
               </span>
             )}
           </button>
@@ -4286,34 +4887,97 @@ export default function ComprasAdminPage() {
                   
                   {/* Row to add item to PO */}
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                    <div className="md:col-span-2 space-y-1">
+                    <div className="md:col-span-2 space-y-1 relative">
                       <label className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Producto Catalogo / Nombre Libre</label>
-                      <select
-                        onChange={e => {
-                          const val = e.target.value;
-                          if (val) {
-                            const p = products.find(prod => prod.id === val);
-                            if (p) {
-                              // Auto add
-                              const exists = poItems.some(i => i.productId === p.id);
-                              if (exists) {
-                                alert("El producto ya se encuentra cargado.");
-                                return;
-                              }
-                              setPoItems([...poItems, {
-                                productId: p.id,
-                                rawProductName: p.name,
-                                quantityOrdered: 1,
-                                unitCost: Number(p.price) || 0
-                              }]);
-                            }
-                          }
-                        }}
-                        className="w-full px-3 py-2 rounded-xl border bg-white font-bold text-xs"
-                      >
-                        <option value="">-- Buscar Producto del Catálogo --</option>
-                        {products.map(p => <option key={p.id} value={p.id}>{p.name} {p.sku ? `(${p.sku})` : ''}</option>)}
-                      </select>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          placeholder={poSupplierId ? "Buscar producto en catálogo..." : "Seleccioná un proveedor arriba..."}
+                          disabled={!poSupplierId}
+                          value={poProductSearchText}
+                          onFocus={() => setIsPoProductDropdownOpen(true)}
+                          onChange={e => {
+                            setPoProductSearchText(e.target.value);
+                            setIsPoProductDropdownOpen(true);
+                          }}
+                          className="w-full px-3 py-2 pr-8 rounded-xl border bg-white font-bold text-xs outline-none focus:border-brand-500 disabled:opacity-50"
+                        />
+                        {poProductSearchText && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPoProductSearchText("");
+                              setIsPoProductDropdownOpen(false);
+                            }}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+
+                      {isPoProductDropdownOpen && poSupplierId && (
+                        <>
+                          <div 
+                            className="fixed inset-0 z-10" 
+                            onClick={() => setIsPoProductDropdownOpen(false)} 
+                          />
+                          <div className="absolute left-0 right-0 mt-1 max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg z-20 py-1 divide-y divide-slate-50">
+                            {(() => {
+                              const supplierProductIds = relations
+                                .filter(r => r.supplier_id === poSupplierId)
+                                .map(r => r.product_id);
+                              
+                              const filtered = products
+                                .filter(p => {
+                                  // First filter by supplier products
+                                  if (!supplierProductIds.includes(p.id)) return false;
+                                  // Then filter by text search query
+                                  if (poProductSearchText) {
+                                    const search = poProductSearchText.toLowerCase();
+                                    return p.name.toLowerCase().includes(search) || (p.sku && p.sku.toLowerCase().includes(search));
+                                  }
+                                  return true;
+                                });
+
+                              return (
+                                <>
+                                  {filtered.map(p => (
+                                    <button
+                                      key={p.id}
+                                      type="button"
+                                      onClick={() => {
+                                        const exists = poItems.some(i => i.productId === p.id);
+                                        if (exists) {
+                                          alert("El producto ya se encuentra cargado.");
+                                          setIsPoProductDropdownOpen(false);
+                                          return;
+                                        }
+                                        setPoItems([...poItems, {
+                                          productId: p.id,
+                                          rawProductName: p.name,
+                                          quantityOrdered: 1,
+                                          unitCost: Number(p.price) || 0
+                                        }]);
+                                        setPoProductSearchText("");
+                                        setIsPoProductDropdownOpen(false);
+                                      }}
+                                      className="w-full text-left px-3 py-2 text-xs font-semibold hover:bg-slate-50 text-slate-700 hover:text-brand-600 transition-colors"
+                                    >
+                                      {p.name} {p.sku ? `(${p.sku})` : ''}
+                                    </button>
+                                  ))}
+                                  {filtered.length === 0 && (
+                                    <div className="px-3 py-2 text-xs text-slate-400 italic">
+                                      No se encontraron productos vinculados a este proveedor
+                                    </div>
+                                  )}
+                                </>
+                              );
+                            })()}
+                          </div>
+                        </>
+                      )}
                       
                       <div className="pt-2 flex gap-2">
                         <input
@@ -4551,6 +5215,134 @@ export default function ComprasAdminPage() {
             </div>
           )}
 
+          {/* Modal Edit Purchase Invoice */}
+          {showEditPurchaseModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm overflow-y-auto">
+              <form onSubmit={handleSaveEditPurchase} className="bg-white rounded-3xl w-full max-w-xl shadow-2xl p-6 space-y-6 my-8 animate-in zoom-in-95 duration-150">
+                <div className="flex justify-between items-center border-b pb-4">
+                  <div>
+                    <h3 className="text-lg font-black text-slate-900">Editar Comprobante de Compra</h3>
+                    <p className="text-xs text-slate-400">Modificá los detalles de la factura o boleta.</p>
+                  </div>
+                  <button type="button" onClick={() => { setShowEditPurchaseModal(false); setEditingPurchase(null); }} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-colors">
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Nro de Comprobante / Factura</label>
+                      <input
+                        type="text"
+                        required
+                        value={editInvoiceNumber}
+                        onChange={e => setEditInvoiceNumber(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Fecha</label>
+                      <input
+                        type="date"
+                        required
+                        value={editPurchaseDate}
+                        onChange={e => setEditPurchaseDate(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Tipo de Documento</label>
+                      <select
+                        value={editDocumentType}
+                        onChange={e => setEditDocumentType(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
+                      >
+                        <option value="Factura">Factura (FC A)</option>
+                        <option value="Nota de Crédito">Nota de Crédito (NC)</option>
+                        <option value="Remito">Remito / Boleta</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Monto Total</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        required
+                        value={editTotalAmount}
+                        onChange={e => setEditTotalAmount(Number(e.target.value))}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Estado de Pago</label>
+                      <select
+                        value={editStatus}
+                        onChange={e => setEditStatus(e.target.value as any)}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
+                      >
+                        <option value="Pendiente">Pendiente</option>
+                        <option value="Parcial">Parcial</option>
+                        <option value="Pagado">Pagado</option>
+                        <option value="Anulado">Anulado</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">OC Asociada</label>
+                      <select
+                        value={editPOId}
+                        onChange={e => setEditPOId(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
+                      >
+                        <option value="">Ninguna OC</option>
+                        {purchaseOrders
+                          .filter(po => po.supplier_id === editingPurchase?.supplier_id)
+                          .map(po => (
+                            <option key={po.id} value={po.id}>{po.oc_code} (Total: {formatPrice(po.total_amount)})</option>
+                          ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Notas / Observaciones</label>
+                    <textarea
+                      rows={2}
+                      value={editNotes}
+                      onChange={e => setEditNotes(e.target.value)}
+                      placeholder="Observaciones adicionales..."
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500 resize-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-3 pt-4 border-t">
+                  <button
+                    type="button"
+                    onClick={() => { setShowEditPurchaseModal(false); setEditingPurchase(null); }}
+                    className="px-4 py-2 hover:bg-slate-50 text-slate-500 rounded-xl font-bold text-xs"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={savingEdit}
+                    className="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    {savingEdit && <Loader2 className="w-3 h-3 animate-spin" />}
+                    Guardar Cambios
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+
           {/* Modal New Goods Reception */}
           {showNewReceptionModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm overflow-y-auto">
@@ -4566,22 +5358,72 @@ export default function ComprasAdminPage() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="space-y-1">
+                  <div className="space-y-1 relative">
                     <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Proveedor *</label>
-                    <select
-                      required
-                      value={receptionSupplierId}
-                      onChange={async (e) => {
-                        const supId = e.target.value;
-                        setReceptionSupplierId(supId);
-                        setReceptionPOId("");
-                        setReceptionItems([]);
-                      }}
-                      className="w-full px-4 py-2.5 rounded-xl border bg-slate-50 font-bold text-xs"
-                    >
-                      <option value="">-- Seleccionar --</option>
-                      {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                    </select>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        placeholder="Buscar proveedor..."
+                        required={!receptionSupplierId}
+                        value={modalSupplierSearchText}
+                        onFocus={() => setIsModalSupplierDropdownOpen(true)}
+                        onChange={e => {
+                          setModalSupplierSearchText(e.target.value);
+                          setIsModalSupplierDropdownOpen(true);
+                          if (e.target.value === "") {
+                            setReceptionSupplierId("");
+                            setReceptionPOId("");
+                            setModalOCSearchText("");
+                            setReceptionItems([]);
+                          }
+                        }}
+                        className="w-full px-4 py-2.5 rounded-xl border bg-slate-50 font-bold text-xs outline-none focus:border-brand-500"
+                      />
+                      {modalSupplierSearchText && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setModalSupplierSearchText("");
+                            setReceptionSupplierId("");
+                            setReceptionPOId("");
+                            setModalOCSearchText("");
+                            setReceptionItems([]);
+                            setIsModalSupplierDropdownOpen(false);
+                          }}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+
+                    {isModalSupplierDropdownOpen && (
+                      <>
+                        <div 
+                          className="fixed inset-0 z-10" 
+                          onClick={() => setIsModalSupplierDropdownOpen(false)} 
+                        />
+                        <div className="absolute left-0 right-0 mt-1 max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg z-20 py-1 divide-y divide-slate-50">
+                          {suppliers
+                            .filter(s => s.name.toLowerCase().includes(modalSupplierSearchText.toLowerCase()))
+                            .map(s => (
+                              <button
+                                key={s.id}
+                                type="button"
+                                onClick={() => handleSelectSupplierInModal(s.id, s.name)}
+                                className="w-full text-left px-3 py-2 text-xs font-semibold hover:bg-slate-50 text-slate-700 hover:text-brand-600 transition-colors"
+                              >
+                                {s.name}
+                              </button>
+                            ))}
+                          {suppliers.filter(s => s.name.toLowerCase().includes(modalSupplierSearchText.toLowerCase())).length === 0 && (
+                            <div className="px-3 py-2 text-xs text-slate-400 italic">
+                              No se encontraron proveedores
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    )}
                   </div>
 
                   <div className="space-y-1">
@@ -4595,51 +5437,81 @@ export default function ComprasAdminPage() {
                     />
                   </div>
 
-                  <div className="space-y-1">
+                  <div className="space-y-1 relative">
                     <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Vincular a Orden de Compra (OC)</label>
-                    <select
-                      value={receptionPOId}
-                      disabled={!receptionSupplierId}
-                      onChange={async (e) => {
-                        const poId = e.target.value;
-                        setReceptionPOId(poId);
-                        if (!poId) {
-                          setReceptionItems([]);
-                          return;
-                        }
-                        // Fetch items of the selected PO
-                        const { data, error } = await supabase
-                          .from('purchase_order_items')
-                          .select(`
-                            *,
-                            product:products(id, name, sku)
-                          `)
-                          .eq('purchase_order_id', poId);
-                        
-                        if (error) {
-                          alert("Error al cargar ítems de la OC: " + error.message);
-                        } else if (data) {
-                          const items = data.map(item => ({
-                            poItemId: item.id,
-                            productId: item.product_id,
-                            productName: item.raw_product_name,
-                            sku: item.product?.sku,
-                            quantityOrdered: Number(item.quantity_ordered),
-                            quantityReceivedPrior: Number(item.quantity_received),
-                            quantityReceivedNew: 0,
-                            unitCost: Number(item.unit_cost)
-                          }));
-                          setReceptionItems(items);
-                        }
-                      }}
-                      className="w-full px-4 py-2.5 rounded-xl border bg-slate-50 font-bold text-xs"
-                    >
-                      <option value="">-- Sin OC de origen (Ingreso In-Situ) --</option>
-                      {purchaseOrders
-                        .filter(po => po.supplier_id === receptionSupplierId && po.status !== 'Cumplido' && po.status !== 'Cancelado')
-                        .map(po => <option key={po.id} value={po.id}>{po.oc_code} (Monto: {formatPrice(po.total_amount)})</option>)
-                      }
-                    </select>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        placeholder={receptionSupplierId ? "Buscar OC..." : "Seleccioná un proveedor..."}
+                        disabled={!receptionSupplierId}
+                        value={modalOCSearchText}
+                        onFocus={() => setIsModalOCDropdownOpen(true)}
+                        onChange={e => {
+                          setModalOCSearchText(e.target.value);
+                          setIsModalOCDropdownOpen(true);
+                        }}
+                        className="w-full px-4 py-2.5 rounded-xl border bg-slate-50 font-bold text-xs outline-none focus:border-brand-500 disabled:opacity-50"
+                      />
+                      {modalOCSearchText && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleSelectOCInModal("", "");
+                            setIsModalOCDropdownOpen(false);
+                          }}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+
+                    {isModalOCDropdownOpen && receptionSupplierId && (
+                      <>
+                        <div 
+                          className="fixed inset-0 z-10" 
+                          onClick={() => setIsModalOCDropdownOpen(false)} 
+                        />
+                        <div className="absolute left-0 right-0 mt-1 max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg z-20 py-1 divide-y divide-slate-50">
+                          {/* Option for Sin OC */}
+                          <button
+                            type="button"
+                            onClick={() => handleSelectOCInModal("", "")}
+                            className="w-full text-left px-3 py-2 text-xs font-black text-brand-600 hover:bg-slate-50 transition-colors"
+                          >
+                            -- Sin OC de origen (Ingreso In-Situ) --
+                          </button>
+                          {(() => {
+                            const filteredOCs = purchaseOrders
+                              .filter(po => po.supplier_id === receptionSupplierId && po.status !== 'Cumplido' && po.status !== 'Cancelado')
+                              .filter(po => {
+                                if (!modalOCSearchText) return true;
+                                return po.oc_code.toLowerCase().includes(modalOCSearchText.toLowerCase());
+                              });
+
+                            return (
+                              <>
+                                {filteredOCs.map(po => (
+                                  <button
+                                    key={po.id}
+                                    type="button"
+                                    onClick={() => handleSelectOCInModal(po.id, po.oc_code)}
+                                    className="w-full text-left px-3 py-2 text-xs font-semibold hover:bg-slate-50 text-slate-700 hover:text-brand-600 transition-colors"
+                                  >
+                                    {po.oc_code} (Monto: {formatPrice(po.total_amount)})
+                                  </button>
+                                ))}
+                                {filteredOCs.length === 0 && (
+                                  <div className="px-3 py-2 text-xs text-slate-400 italic">
+                                    No se encontraron OCs pendientes para este proveedor
+                                  </div>
+                                )}
+                              </>
+                            );
+                          })()}
+                        </div>
+                      </>
+                    )}
                   </div>
 
                   <div className="md:col-span-3 space-y-1">
@@ -5155,9 +6027,10 @@ export default function ComprasAdminPage() {
                     onChange={e => setImportType(e.target.value as any)}
                     className="w-full px-4 py-3 rounded-xl border bg-slate-50 font-bold text-xs"
                   >
-                    <option value="ocs">1. Cabeceras de OCs (Hoja "OCs")</option>
-                    <option value="detalle_ocs">2. Detalle de OCs (Hoja "DetalleOCs")</option>
-                    <option value="recepciones">3. Recepciones / Remitos (Hoja "DocumentosDeRecepción")</option>
+                    <option value="conciliacion_unificada">1. Planilla de Conciliación de Facturas (Unificada)</option>
+                    <option value="ocs">2. Cabeceras de OCs (Hoja "OCs")</option>
+                    <option value="detalle_ocs">3. Detalle de OCs (Hoja "DetalleOCs")</option>
+                    <option value="recepciones">4. Recepciones / Remitos (Hoja "DocumentosDeRecepción")</option>
                   </select>
                 </div>
 
@@ -6174,70 +7047,252 @@ export default function ComprasAdminPage() {
       {/* SUBTAB 5: HISTORIAL DE COMPRAS */}
       {activeSubTab === 'purchases_history' && (
         <div className="space-y-4 animate-in fade-in duration-150">
-          <div className="bg-white rounded-xl border border-slate-200/60 shadow-sm overflow-hidden">
-            <table className="w-full text-left">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-100">
-                  <th className="px-4 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400">Proveedor</th>
-                  <th className="px-4 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400">Nro Factura</th>
-                  <th className="px-4 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400">Fecha</th>
-                  <th className="px-4 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400">Monto Total</th>
-                  <th className="px-4 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400">Monto Pagado</th>
-                  <th className="px-4 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400">Estado</th>
-                  <th className="px-4 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400 text-center">Acciones</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {purchases.map(p => (
-                  <tr key={p.id} className="hover:bg-slate-50/40 transition-colors">
-                    <td className="px-4 py-3 font-bold text-slate-800 text-xs">{p.supplier?.name || "Desconocido"}</td>
-                    <td className="px-4 py-3">
-                      <div className="font-mono text-xs text-slate-600 font-bold">{p.invoice_number}</div>
-                      {p.cost_centers && (
-                        <div className="text-[10px] text-brand-600 font-extrabold mt-0.5">
-                          [{p.cost_centers.code}]
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-slate-500 font-semibold">
-                      {formatDateDDMMYYYY(p.purchase_date)}
-                    </td>
-                    <td className="px-4 py-3 font-black text-xs text-slate-900">
-                      {formatPrice(p.total_amount)} <span className="text-[10px] text-slate-400">{p.currency}</span>
-                    </td>
-                    <td className="px-4 py-3 font-bold text-xs text-emerald-600">
-                      {formatPrice(p.paid_amount)} <span className="text-[10px] text-slate-400">{p.currency}</span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-wider ${
-                        p.status === 'Pagado' ? 'text-emerald-700 bg-emerald-50 border border-emerald-100' :
-                        p.status === 'Parcial' ? 'text-amber-700 bg-amber-50 border border-amber-100' :
-                        p.status === 'Anulado' ? 'text-red-700 bg-red-50 border border-red-100' :
-                        'text-slate-500 bg-slate-50 border border-slate-100'
-                      }`}>
-                        {p.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <button
-                        onClick={() => handleViewPurchaseDetails(p)}
-                        className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all inline-flex items-center gap-1"
-                      >
-                        <Eye className="w-3 h-3" /> Ver Detalle
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-                {purchases.length === 0 && (
-                  <tr>
-                    <td colSpan={7} className="px-6 py-8 text-center text-slate-500 font-medium">
-                      No se registraron facturas de compras todavía.
-                    </td>
-                  </tr>
+          {/* FILTERS PANEL */}
+          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200/60 grid grid-cols-1 md:grid-cols-4 gap-3">
+            <div className="space-y-1 relative">
+              <label className="text-[10px] font-black uppercase text-slate-400">Proveedor</label>
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="Buscar proveedor..."
+                  value={supplierSearchText}
+                  onFocus={() => setIsSupplierDropdownOpen(true)}
+                  onChange={e => {
+                    setSupplierSearchText(e.target.value);
+                    setIsSupplierDropdownOpen(true);
+                    if (e.target.value === "") {
+                      setFilterSupplierId("");
+                      setHistoryPage(1);
+                    }
+                  }}
+                  className="w-full px-3 py-2 pr-8 rounded-lg border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
+                />
+                {supplierSearchText && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSupplierSearchText("");
+                      setFilterSupplierId("");
+                      setHistoryPage(1);
+                      setIsSupplierDropdownOpen(false);
+                    }}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
                 )}
-              </tbody>
-            </table>
+              </div>
+
+              {isSupplierDropdownOpen && (
+                <>
+                  <div 
+                    className="fixed inset-0 z-10" 
+                    onClick={() => setIsSupplierDropdownOpen(false)} 
+                  />
+                  <div className="absolute left-0 right-0 mt-1 max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg z-20 py-1 divide-y divide-slate-50">
+                    {suppliers
+                      .filter(s => s.name.toLowerCase().includes(supplierSearchText.toLowerCase()))
+                      .map(s => (
+                        <button
+                          key={s.id}
+                          type="button"
+                          onClick={() => {
+                            setFilterSupplierId(s.id);
+                            setSupplierSearchText(s.name);
+                            setIsSupplierDropdownOpen(false);
+                            setHistoryPage(1);
+                          }}
+                          className="w-full text-left px-3 py-2 text-xs font-semibold hover:bg-slate-50 text-slate-700 hover:text-brand-600 transition-colors"
+                        >
+                          {s.name}
+                        </button>
+                      ))}
+                    {suppliers.filter(s => s.name.toLowerCase().includes(supplierSearchText.toLowerCase())).length === 0 && (
+                      <div className="px-3 py-2 text-xs text-slate-400 italic">
+                        No se encontraron proveedores
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+            
+            <div className="space-y-1">
+              <label className="text-[10px] font-black uppercase text-slate-400">Tipo de Documento</label>
+              <select
+                value={filterDocumentType}
+                onChange={e => { setFilterDocumentType(e.target.value); setHistoryPage(1); }}
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
+              >
+                <option value="">Todos los tipos</option>
+                <option value="Factura">Facturas (FC A)</option>
+                <option value="Nota de Crédito">Notas de Crédito (NC)</option>
+                <option value="Remito">Remitos / Boletas</option>
+              </select>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[10px] font-black uppercase text-slate-400">Nro Factura / Boleta</label>
+              <input
+                type="text"
+                placeholder="Buscar por número..."
+                value={searchInvoiceNumber}
+                onChange={e => { setSearchInvoiceNumber(e.target.value); setHistoryPage(1); }}
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[10px] font-black uppercase text-slate-400">OC Asociada</label>
+              <input
+                type="text"
+                placeholder="Buscar por OC..."
+                value={searchOC}
+                onChange={e => { setSearchOC(e.target.value); setHistoryPage(1); }}
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
+              />
+            </div>
           </div>
+
+          {(() => {
+            const filtered = purchases.filter(p => {
+              if (filterSupplierId && p.supplier_id !== filterSupplierId) return false;
+              if (filterDocumentType && p.document_type !== filterDocumentType) return false;
+              if (searchInvoiceNumber) {
+                const normInvoiceDb = p.invoice_number.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+                const normSearch = searchInvoiceNumber.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+                if (!normInvoiceDb.includes(normSearch)) return false;
+              }
+              if (searchOC) {
+                const ocCode = p.purchase_orders?.oc_code || '';
+                if (!ocCode.toLowerCase().includes(searchOC.toLowerCase())) return false;
+              }
+              return true;
+            });
+
+            const totalCount = filtered.length;
+            const limit = 30;
+            const totalPages = Math.ceil(totalCount / limit) || 1;
+            const startIndex = (historyPage - 1) * limit;
+            const paginated = filtered.slice(startIndex, startIndex + limit);
+
+            return (
+              <>
+                <div className="bg-white rounded-xl border border-slate-200/60 shadow-sm overflow-hidden">
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-100">
+                        <th className="px-4 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400">Proveedor</th>
+                        <th className="px-4 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400">Tipo</th>
+                        <th className="px-4 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400">Nro Factura</th>
+                        <th className="px-4 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400">OC Asociada</th>
+                        <th className="px-4 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400">Fecha</th>
+                        <th className="px-4 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400">Monto Total</th>
+                        <th className="px-4 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400">Monto Pagado</th>
+                        <th className="px-4 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400">Estado</th>
+                        <th className="px-4 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400 text-center">Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {paginated.map(p => (
+                        <tr key={p.id} className="hover:bg-slate-50/40 transition-colors">
+                          <td className="px-4 py-3 font-bold text-slate-800 text-xs">{p.supplier?.name || "Desconocido"}</td>
+                          <td className="px-4 py-3">
+                            <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-wider ${
+                              p.document_type === 'Nota de Crédito' ? 'text-rose-700 bg-rose-50 border border-rose-100' :
+                              p.document_type === 'Remito' ? 'text-cyan-700 bg-cyan-50 border border-cyan-100' :
+                              'text-blue-700 bg-blue-50 border border-blue-100'
+                            }`}>
+                              {p.document_type || 'Factura'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="font-mono text-xs text-slate-600 font-bold">{p.invoice_number}</div>
+                            {p.cost_centers && (
+                              <div className="text-[10px] text-brand-600 font-extrabold mt-0.5">
+                                [{p.cost_centers.code}]
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-xs text-slate-500 font-semibold font-mono">
+                            {p.purchase_orders?.oc_code || <span className="text-slate-300">S/D</span>}
+                          </td>
+                          <td className="px-4 py-3 text-xs text-slate-500 font-semibold">
+                            {formatDateDDMMYYYY(p.purchase_date)}
+                          </td>
+                          <td className="px-4 py-3 font-black text-xs text-slate-900">
+                            {formatPrice(p.total_amount)} <span className="text-[10px] text-slate-400">{p.currency}</span>
+                          </td>
+                          <td className="px-4 py-3 font-bold text-xs text-emerald-600">
+                            {formatPrice(p.paid_amount)} <span className="text-[10px] text-slate-400">{p.currency}</span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-wider ${
+                              p.status === 'Pagado' ? 'text-emerald-700 bg-emerald-50 border border-emerald-100' :
+                              p.status === 'Parcial' ? 'text-amber-700 bg-amber-50 border border-amber-100' :
+                              p.status === 'Anulado' ? 'text-red-700 bg-red-50 border border-red-100' :
+                              'text-slate-500 bg-slate-50 border border-slate-100'
+                            }`}>
+                              {p.status}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-center space-x-1.5 whitespace-nowrap">
+                            <button
+                              onClick={() => handleViewPurchaseDetails(p)}
+                              className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all inline-flex items-center gap-1"
+                            >
+                              <Eye className="w-3 h-3" /> Ver
+                            </button>
+                            <button
+                              onClick={() => handleOpenEditPurchase(p)}
+                              className="px-2 py-1 bg-brand-50 hover:bg-brand-100 text-brand-700 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all inline-flex items-center gap-1"
+                            >
+                              <Edit className="w-3 h-3" /> Editar
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                      {paginated.length === 0 && (
+                        <tr>
+                          <td colSpan={9} className="px-6 py-8 text-center text-slate-500 font-medium">
+                            No se encontraron facturas o boletas para los filtros seleccionados.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* PAGINATION CONTROLS */}
+                {totalPages > 1 && (
+                  <div className="flex justify-between items-center bg-slate-50 px-4 py-3 rounded-xl border border-slate-200/60 text-xs">
+                    <div className="text-slate-500 font-bold">
+                      Mostrando {startIndex + 1} - {Math.min(startIndex + limit, totalCount)} de {totalCount} comprobantes
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => setHistoryPage(prev => Math.max(1, prev - 1))}
+                        disabled={historyPage === 1}
+                        className="px-3 py-1 bg-white border rounded-lg font-bold hover:bg-slate-50 disabled:opacity-50 disabled:hover:bg-white text-slate-700"
+                      >
+                        Anterior
+                      </button>
+                      <span className="px-3 text-slate-600 font-black">
+                        Pág {historyPage} de {totalPages}
+                      </span>
+                      <button
+                        onClick={() => setHistoryPage(prev => Math.min(totalPages, prev + 1))}
+                        disabled={historyPage === totalPages}
+                        className="px-3 py-1 bg-white border rounded-lg font-bold hover:bg-slate-50 disabled:opacity-50 disabled:hover:bg-white text-slate-700"
+                      >
+                        Siguiente
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            );
+          })()}
         </div>
       )}
 
@@ -6255,6 +7310,116 @@ export default function ComprasAdminPage() {
             </div>
           </div>
 
+          {/* COST ALERTS FILTERS PANEL */}
+          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200/60 grid grid-cols-1 md:grid-cols-4 gap-3">
+            {/* Searchable Supplier Filter */}
+            <div className="space-y-1 relative">
+              <label className="text-[10px] font-black uppercase text-slate-400">Proveedor</label>
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="Filtrar por proveedor..."
+                  value={alertSupplierSearchText}
+                  onFocus={() => setIsAlertSupplierDropdownOpen(true)}
+                  onChange={e => {
+                    setAlertSupplierSearchText(e.target.value);
+                    setIsAlertSupplierDropdownOpen(true);
+                    if (e.target.value === "") {
+                      setAlertFilterSupplierId("");
+                    }
+                  }}
+                  className="w-full px-3 py-2 pr-8 rounded-lg border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
+                />
+                {alertSupplierSearchText && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAlertSupplierSearchText("");
+                      setAlertFilterSupplierId("");
+                      setIsAlertSupplierDropdownOpen(false);
+                    }}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {isAlertSupplierDropdownOpen && (
+                <>
+                  <div 
+                    className="fixed inset-0 z-10" 
+                    onClick={() => setIsAlertSupplierDropdownOpen(false)} 
+                  />
+                  <div className="absolute left-0 right-0 mt-1 max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg z-20 py-1 divide-y divide-slate-50">
+                    {suppliers
+                      .filter(s => s.name.toLowerCase().includes(alertSupplierSearchText.toLowerCase()))
+                      .map(s => (
+                        <button
+                          key={s.id}
+                          type="button"
+                          onClick={() => {
+                            setAlertFilterSupplierId(s.id);
+                            setAlertSupplierSearchText(s.name);
+                            setIsAlertSupplierDropdownOpen(false);
+                          }}
+                          className="w-full text-left px-3 py-2 text-xs font-semibold hover:bg-slate-50 text-slate-700 hover:text-brand-600 transition-colors"
+                        >
+                          {s.name}
+                        </button>
+                      ))}
+                    {suppliers.filter(s => s.name.toLowerCase().includes(alertSupplierSearchText.toLowerCase())).length === 0 && (
+                      <div className="px-3 py-2 text-xs text-slate-400 italic">
+                        No se encontraron proveedores
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Product Filter */}
+            <div className="space-y-1">
+              <label className="text-[10px] font-black uppercase text-slate-400">Buscar Producto</label>
+              <input
+                type="text"
+                placeholder="Nombre o SKU..."
+                value={alertSearchQuery}
+                onChange={e => setAlertSearchQuery(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
+              />
+            </div>
+
+            {/* Variation Direction Filter */}
+            <div className="space-y-1">
+              <label className="text-[10px] font-black uppercase text-slate-400">Variación</label>
+              <select
+                value={alertVariationFilter}
+                onChange={e => setAlertVariationFilter(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
+              >
+                <option value="all">Todas las variaciones</option>
+                <option value="increase">Solo aumentos (+)</option>
+                <option value="decrease">Solo disminuciones (-)</option>
+              </select>
+            </div>
+
+            {/* Sorting Filter */}
+            <div className="space-y-1">
+              <label className="text-[10px] font-black uppercase text-slate-400">Ordenar por</label>
+              <select
+                value={alertSortBy}
+                onChange={e => setAlertSortBy(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
+              >
+                <option value="margin_loss">Margen / Pérdida (Peor primero)</option>
+                <option value="variation_pct">Variación % (Mayor primero)</option>
+                <option value="variation_amount">Variación $ (Monto mayor)</option>
+                <option value="date">Fecha (Más reciente)</option>
+              </select>
+            </div>
+          </div>
+
           <div className="bg-white rounded-xl border border-slate-200/60 shadow-sm overflow-hidden">
             <table className="w-full text-left">
               <thead>
@@ -6264,11 +7429,12 @@ export default function ComprasAdminPage() {
                   <th className="px-4 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400 text-right">Costo Catálogo</th>
                   <th className="px-4 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400 text-right">Costo Factura</th>
                   <th className="px-4 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400 text-center">Variación</th>
+                  <th className="px-4 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400 text-right">Precio Venta</th>
                   <th className="px-4 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400 text-right">Resolución Rápida</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {alerts.map(alt => {
+                {uniqueAlerts.map(alt => {
                   const diffPct = alt.catalog_cost > 0 
                     ? ((alt.purchase_cost - alt.catalog_cost) / alt.catalog_cost) * 100 
                     : 100;
@@ -6296,6 +7462,38 @@ export default function ComprasAdminPage() {
                           {diffPct > 0 ? '+' : ''}{diffPct.toFixed(1)}%
                         </span>
                       </td>
+                      <td className="px-4 py-3 text-right whitespace-nowrap">
+                        <div className="font-bold text-xs text-brand-600">
+                          {alt.product?.price ? formatPrice(alt.product.price) : "S/D"}
+                        </div>
+                        {(() => {
+                          const price = alt.product?.price || 0;
+                          const cost = alt.purchase_cost;
+                          if (price <= 0) return null;
+                          const profit = price - cost;
+                          const marginPct = (profit / price) * 100;
+                          
+                          if (profit < 0) {
+                            return (
+                              <span className="inline-block mt-1 px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 text-[9px] font-black uppercase tracking-wider animate-pulse">
+                                Pérdida ({marginPct.toFixed(0)}%)
+                              </span>
+                            );
+                          } else if (marginPct < 15) {
+                            return (
+                              <span className="inline-block mt-1 px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 text-[9px] font-black uppercase tracking-wider">
+                                Poca ({marginPct.toFixed(0)}%)
+                              </span>
+                            );
+                          } else {
+                            return (
+                              <span className="inline-block mt-1 px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 text-[9px] font-black uppercase tracking-wider">
+                                Ok ({marginPct.toFixed(0)}%)
+                              </span>
+                            );
+                          }
+                        })()}
+                      </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-2">
                           <button
@@ -6315,9 +7513,9 @@ export default function ComprasAdminPage() {
                     </tr>
                   );
                 })}
-                {alerts.length === 0 && (
+                {uniqueAlerts.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-6 py-8 text-center text-slate-500 font-medium">
+                    <td colSpan={7} className="px-6 py-8 text-center text-slate-500 font-medium">
                       No hay discrepancias de costos pendientes. ¡Catálogo al día!
                     </td>
                   </tr>
