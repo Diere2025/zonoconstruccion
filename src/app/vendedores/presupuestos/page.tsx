@@ -118,7 +118,7 @@ const parseWhatsAppBudget = (text: string): ParsedBudget => {
   let includeIVA = false;
   let kitDetailText = '';
 
-  const itemRegex = /(?:🔸|•|\*|-)?\s*(\d+)\s*[xX]\s*\*([^*]+)\*\s*a\s*\$?\s*([\d.,]+)/;
+  const itemRegex = /(?:🔸|•|\*|-)?\s*(\d+)\s*[xX]\s*\*?([^*]+?)\*?\s+a\s+\$?\s*([\d.,]+)/;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
