@@ -285,9 +285,12 @@ export default function ImportarPedidosPage() {
         
         const results = await Promise.all([
           withTimeoutAndRetry(async () => {
-            const { data, error } = await supabase.from('products').select('id, name, sku, price');
-            if (error) throw error;
-            return data;
+            const [res1, res2] = await Promise.all([
+              supabase.from('products').select('id, name, sku, price').range(0, 999),
+              supabase.from('products').select('id, name, sku, price').range(1000, 1999)
+            ]);
+            const allProducts = [...(res1.data || []), ...(res2.data || [])];
+            return allProducts;
           }, 30000, 2, "Tiempo de espera agotado al cargar productos (30s)"),
           
           withTimeoutAndRetry(async () => {

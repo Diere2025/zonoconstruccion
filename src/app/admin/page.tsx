@@ -101,8 +101,12 @@ export default function AdminPage() {
 
   async function fetchProducts() {
     setLoading(true);
-    const { data } = await supabase.from('products').select('*').order('created_at', { ascending: false });
-    if (data) setProducts(data);
+    const [res1, res2] = await Promise.all([
+      supabase.from('products').select('*').order('created_at', { ascending: false }).range(0, 999),
+      supabase.from('products').select('*').order('created_at', { ascending: false }).range(1000, 1999)
+    ]);
+    const allProducts = [...(res1.data || []), ...(res2.data || [])];
+    if (allProducts.length > 0) setProducts(allProducts);
     setLoading(false);
   }
 
@@ -453,9 +457,12 @@ export default function AdminPage() {
     setCleaningDuplicates(true);
     setCleanupResult(null);
     try {
-      const { data: allProducts, error } = await supabase.from('products').select('*');
-      if (error) throw error;
-      if (!allProducts) return;
+      const [res1, res2] = await Promise.all([
+        supabase.from('products').select('*').range(0, 999),
+        supabase.from('products').select('*').range(1000, 1999)
+      ]);
+      const allProducts = [...(res1.data || []), ...(res2.data || [])];
+      if (!allProducts || allProducts.length === 0) return;
 
       // Agrupar por SKU normalizado
       const skuGroups = new Map<string, Product[]>();

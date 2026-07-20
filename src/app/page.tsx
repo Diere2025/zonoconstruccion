@@ -221,13 +221,14 @@ export default function Home() {
       // 2. Fetch Products
       // We fetch ALL products to ensure Featured and Sale items are always available,
       // and filter category rows later according to settings.
-      const { data: productsData } = await supabase
-        .from('products')
-        .select('*')
-        .order('created_at', { ascending: false });
+      const [res1, res2] = await Promise.all([
+        supabase.from('products').select('*').order('created_at', { ascending: false }).range(0, 999),
+        supabase.from('products').select('*').order('created_at', { ascending: false }).range(1000, 1999)
+      ]);
+      const allProducts = [...(res1.data || []), ...(res2.data || [])];
       
-      if (productsData) {
-        setProducts(productsData.filter(p => p.is_active !== false && p.image_url && p.image_url.trim() !== ''));
+      if (allProducts.length > 0) {
+        setProducts(allProducts.filter(p => p.is_active !== false && p.image_url && p.image_url.trim() !== ''));
       }
       setLoading(false);
     }
@@ -534,11 +535,15 @@ export default function Home() {
           onClose={() => setIsEditModalOpen(false)}
           onSuccess={() => {
             // Refresh products inline
-            const fetchProducts = async () => {
-              const { data } = await supabase.from('products').select('*').order('created_at', { ascending: false });
-              if (data) setProducts(data.filter(p => p.image_url && p.image_url.trim() !== ''));
-            };
-            fetchProducts();
+             const fetchProducts = async () => {
+               const [res1, res2] = await Promise.all([
+                 supabase.from('products').select('*').order('created_at', { ascending: false }).range(0, 999),
+                 supabase.from('products').select('*').order('created_at', { ascending: false }).range(1000, 1999)
+               ]);
+               const allProducts = [...(res1.data || []), ...(res2.data || [])];
+               if (allProducts.length > 0) setProducts(allProducts.filter(p => p.image_url && p.image_url.trim() !== ''));
+             };
+             fetchProducts();
           }}
           allProducts={products}
         />
