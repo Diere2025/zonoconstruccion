@@ -22,6 +22,14 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+import CategorySalesChart, { CategoryData } from "@/components/dashboard/CategorySalesChart";
+import CancelledOrdersChart, { DailyCancelledData } from "@/components/dashboard/CancelledOrdersChart";
+
+export interface TopCustomer {
+  name: string;
+  totalSales: number;
+  ordersCount: number;
+}
 
 export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
@@ -49,12 +57,47 @@ export default function AdminDashboard() {
     const d = new Date();
     const day = d.getDay();
     const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-    const start = new Date(d.setDate(diff));
-    const year = start.getFullYear();
-    const month = String(start.getMonth() + 1).padStart(2, '0');
-    const dateVal = String(start.getDate()).padStart(2, '0');
-    return `${year}-${month}-${dateVal}`;
+    d.setDate(diff);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const date = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${date}`;
   };
+
+  const [datePreset, setDatePreset] = useState<string>("month");
+  const [customStartDate, setCustomStartDate] = useState<string>(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+  });
+  const [customEndDate, setCustomEndDate] = useState<string>(getTodayDate());
+
+  const [stats, setStats] = useState({
+    monthlySales: 0,
+    activeOrders: 0,
+    deliveredCount: 0,
+    pendingCount: 0,
+    cancelledCount: 0,
+    totalOrdersCount: 0,
+    deliveredBilling: 0,
+    pendingBilling: 0,
+    cancelledBilling: 0,
+    totalBillingCount: 0,
+    totalClients: 0,
+    totalProducts: 0,
+  });
+  
+  const [topSellers, setTopSellers] = useState<any[]>([]);
+  const [topCustomers, setTopCustomers] = useState<TopCustomer[]>([]);
+  const [leaderboardTab, setLeaderboardTab] = useState<"customers" | "sellers">("customers");
+  const [recentOrders, setRecentOrders] = useState<any[]>([]);
+  const [productsSold, setProductsSold] = useState<any[]>([]);
+  const [sellersList, setSellersList] = useState<any[]>([]);
+  const [selectedSellerId, setSelectedSellerId] = useState<string>("all");
+
+  const [categorySales, setCategorySales] = useState<CategoryData[]>([]);
+  const [totalCategoryQty, setTotalCategoryQty] = useState<number>(0);
+  const [dailyCancelledData, setDailyCancelledData] = useState<DailyCancelledData[]>([]);
+  const [selectedCatFilter, setSelectedCatFilter] = useState<string>("all");
 
   const getStartOfMonth = () => {
     const d = new Date();
@@ -332,27 +375,6 @@ export default function AdminDashboard() {
     setPresetRange("personalizado");
   };
 
-  const [stats, setStats] = useState({
-    monthlySales: 0,
-    activeOrders: 0,
-    deliveredCount: 0,
-    pendingCount: 0,
-    cancelledCount: 0,
-    totalOrdersCount: 0,
-    deliveredBilling: 0,
-    pendingBilling: 0,
-    cancelledBilling: 0,
-    totalBillingCount: 0,
-    totalClients: 0,
-    totalProducts: 0,
-  });
-  
-  const [topSellers, setTopSellers] = useState<any[]>([]);
-  const [recentOrders, setRecentOrders] = useState<any[]>([]);
-  const [productsSold, setProductsSold] = useState<any[]>([]);
-  const [sellersList, setSellersList] = useState<any[]>([]);
-  const [selectedSellerId, setSelectedSellerId] = useState<string>("all");
-
   const loadData = async (start: string, end: string, sellerId: string = selectedSellerId) => {
     try {
       setLoading(true);
@@ -363,7 +385,7 @@ export default function AdminDashboard() {
         .limit(6);
         
       let rangeQuery = supabase.from("orders")
-        .select("id, total_amount, status, seller_id, order_date, created_at")
+        .select("id, legacy_code, customer_name, total_amount, status, seller_id, order_date, created_at")
         .gte("order_date", start)
         .lte("order_date", end);
 
@@ -373,7 +395,7 @@ export default function AdminDashboard() {
           product_name, 
           quantity, 
           unit_price, 
-          products(sku),
+          products(sku, category),
           orders!inner(id, status, order_date, created_at, seller_id)
         `)
         .neq("orders.status", "Cancelado")
@@ -406,9 +428,20 @@ export default function AdminDashboard() {
       if (sellersRes.error) throw sellersRes.error;
       if (itemsRes.error) throw itemsRes.error;
 
-      const ordersInRange = ordersInRangeRes.data || [];
+      const rawOrdersInRange = ordersInRangeRes.data || [];
       const sellers = sellersRes.data || [];
       setSellersList(sellers);
+
+      // Deduplicate orders in range by legacy_code to prevent double counting
+      const seenLegacyCodes = new Set<string>();
+      const ordersInRange = rawOrdersInRange.filter(o => {
+        if (o.legacy_code && String(o.legacy_code).trim() !== '') {
+          const code = String(o.legacy_code).trim();
+          if (seenLegacyCodes.has(code)) return false;
+          seenLegacyCodes.add(code);
+        }
+        return true;
+      });
 
       // Compute Sales Sum (all except Cancelado)
       const salesSum = ordersInRange
@@ -455,6 +488,26 @@ export default function AdminDashboard() {
         .sort((a, b) => b.sales - a.sales)
         .slice(0, 5);
 
+      // Compute Top Customers for current range
+      const customerSalesMap: Record<string, { name: string; totalSales: number; ordersCount: number }> = {};
+      ordersInRange
+        .filter(o => o.status !== "Cancelado")
+        .forEach(o => {
+          const name = (o.customer_name || 'Cliente sin Nombre').trim();
+          if (!customerSalesMap[name]) {
+            customerSalesMap[name] = { name, totalSales: 0, ordersCount: 0 };
+          }
+          customerSalesMap[name].totalSales += (Number(o.total_amount) || 0);
+          customerSalesMap[name].ordersCount += 1;
+        });
+
+      const customersRanked = Object.values(customerSalesMap)
+        .sort((a, b) => b.totalSales - a.totalSales)
+        .slice(0, 5);
+
+      setTopSellers(sellersRanked);
+      setTopCustomers(customersRanked);
+
       setStats({
         monthlySales: salesSum,
         activeOrders: totalOrdersCount,
@@ -484,24 +537,253 @@ export default function AdminDashboard() {
 
       const items = itemsRes.data || [];
 
-      const productSales: Record<string, { name: string, sku: string, qty: number, total: number }> = {};
+      const productSales: Record<string, { name: string, sku: string, category: string, qty: number, total: number }> = {};
+      
+      // Helper function for category classification
+      const getCategoryForProduct = (pNameRaw: string, dbCategoryRaw: string | undefined, orderPrimaryCategory?: string): string => {
+        const pName = (pNameRaw || '').toLowerCase();
+        let cat = dbCategoryRaw;
+
+        const isDiscount = pName.includes('descuento') || pName.includes('bonificaci');
+
+        if (isDiscount) {
+          if (pName.includes('mep')) return 'MEPS';
+          if (pName.includes('bomba')) return 'Bombas';
+          return orderPrimaryCategory || 'Tanques de Agua';
+        }
+
+        if (pName.includes('bomba') || cat === 'Bombas') {
+          return 'Bombas';
+        } else if (pName.includes('puerta') || pName.includes('ventana') || cat === 'Aberturas') {
+          return 'Aberturas';
+        } else if (pName.includes('termotanque') || pName.includes('turboflex') || cat === 'Termotanques') {
+          return 'Termotanques';
+        } else if (
+          cat === 'Complementos para tanques' ||
+          cat === 'Tanques' ||
+          cat === 'Tanques Bicapa' ||
+          cat === 'Tanques Cisterna' ||
+          cat === 'Tanques Tricapa Beige' ||
+          cat === 'Tanques Tricapa Oferta' ||
+          pName.includes('cuatr') || 
+          pName.includes('cuatricapa') || 
+          pName.includes('aquafort') || 
+          pName.includes('tanque') || 
+          pName.includes('cisterna') || 
+          pName.includes('tricapa') || 
+          pName.includes('bicapa') ||
+          pName.includes('complemento') ||
+          pName.includes('base') ||
+          pName.includes('hierro') ||
+          pName.includes('flotante') ||
+          pName.includes('boya')
+        ) {
+          return 'Tanques de Agua';
+        } else if (
+          pName.includes('biofort') || 
+          pName.includes('biodigestor') || 
+          pName.includes('biolam') ||
+          pName.includes('awaduct') ||
+          pName.includes('desengrasadora') || 
+          pName.includes('séptica') || 
+          pName.includes('septica') || 
+          pName.includes('cámara') || 
+          pName.includes('camara') ||
+          cat === 'Biodigestores' ||
+          cat === 'Cámaras Sépticas' ||
+          cat === 'Cámaras Desengrasadoras'
+        ) {
+          return 'Biodigestores';
+        } else if (
+          pName.includes('pintura') || 
+          pName.includes('latex') || 
+          pName.includes('látex') || 
+          pName.includes('andina') || 
+          pName.includes('lavable') || 
+          pName.includes('zono') ||
+          pName.includes('pinceleta') ||
+          pName.includes('pincel') ||
+          pName.includes('lija') ||
+          pName.includes('rodillo') ||
+          pName.includes('guante') ||
+          pName.includes('fijador') ||
+          pName.includes('sellador') ||
+          pName.includes('enduido') ||
+          pName.includes('endui') ||
+          pName.includes('sintetico') ||
+          pName.includes('sintético') ||
+          cat === 'Pinturas' ||
+          cat === 'Herramientas de pintura' ||
+          cat === 'Accesorios de pintura'
+        ) {
+          return 'Pinturas';
+        } else if (
+          pName.includes('venda') || 
+          pName.includes('mep') ||
+          pName.includes('meps') || 
+          (pName.includes('rodillo') && pName.includes('meps')) ||
+          (pName.includes('guante') && pName.includes('meps')) ||
+          pName.includes('equilibrio') || 
+          cat === 'MEPS'
+        ) {
+          return 'MEPS';
+        } else if (pName.includes('escalera')) {
+          return 'Escaleras';
+        } else if (!cat || cat.trim() === '' || cat === 'otro' || cat === 'Otros' || cat === 'Interno') {
+          return 'Otros / General';
+        }
+
+        return cat;
+      };
+
+      // Pass 1: Build map of primary category per order ID
+      const orderPrimaryCatMap: Record<string, string> = {};
       items.forEach(item => {
-        const sku = (item as any).products?.sku || 'SIN SKU';
-        const key = sku !== 'SIN SKU' ? sku : item.product_name;
+        const pName = item.product_name || '';
+        const isDiscount = pName.toLowerCase().includes('descuento') || pName.toLowerCase().includes('bonificaci');
+        if (!isDiscount) {
+          const orderId = (item as any).orders?.id || (item as any).order_id;
+          if (orderId && !orderPrimaryCatMap[orderId]) {
+            const cat = getCategoryForProduct(pName, (item as any).products?.category);
+            if (cat && cat !== 'Otros / General') {
+              orderPrimaryCatMap[orderId] = cat;
+            }
+          }
+        }
+      });
+
+      // Category Breakdown Aggregation
+      const catSalesMap: Record<string, {
+        category: string;
+        totalBilling: number;
+        totalQty: number;
+        productsMap: Record<string, number>;
+      }> = {};
+
+      let totalCatBillingAcc = 0;
+      let totalCatQtyAcc = 0;
+
+      // Pass 2: Aggregate product sales and category totals
+      items.forEach(item => {
+        const rawSku = (item as any).products?.sku || 'SIN SKU';
+        const normName = (item.product_name || 'DESCONOCIDO').trim();
+        const key = normName.toLowerCase();
+        const orderId = (item as any).orders?.id || (item as any).order_id;
+        const orderPrimaryCat = orderPrimaryCatMap[orderId] || 'Tanques de Agua';
+
+        const cat = getCategoryForProduct(normName, (item as any).products?.category, orderPrimaryCat);
+
         if (!productSales[key]) {
           productSales[key] = {
-            name: item.product_name,
-            sku: sku,
+            name: normName,
+            sku: rawSku,
+            category: cat,
             qty: 0,
             total: 0
           };
+        } else if (productSales[key].sku.startsWith('AUTO-') && !rawSku.startsWith('AUTO-') && rawSku !== 'SIN SKU') {
+          // Prefer explicit human SKU over auto-generated SKU
+          productSales[key].sku = rawSku;
         }
+
         productSales[key].qty += Number(item.quantity) || 0;
         productSales[key].total += (Number(item.quantity) || 0) * (Number(item.unit_price) || 0);
+
+        if (!catSalesMap[cat]) {
+          catSalesMap[cat] = {
+            category: cat,
+            totalBilling: 0,
+            totalQty: 0,
+            productsMap: {}
+          };
+        }
+
+        const qty = Number(item.quantity) || 0;
+        const lineTotal = qty * (Number(item.unit_price) || 0);
+
+        catSalesMap[cat].totalBilling += lineTotal;
+        catSalesMap[cat].totalQty += qty;
+        totalCatBillingAcc += lineTotal;
+        totalCatQtyAcc += qty;
+
+        const prodName = item.product_name || 'Desconocido';
+        catSalesMap[cat].productsMap[prodName] = (catSalesMap[cat].productsMap[prodName] || 0) + lineTotal;
       });
 
       const sortedProductSales = Object.values(productSales);
       setProductsSold(sortedProductSales);
+
+      const categorySalesList: CategoryData[] = Object.values(catSalesMap).map(c => {
+        let topProd = '';
+        let maxVal = -1;
+        Object.entries(c.productsMap).forEach(([pName, val]) => {
+          if (val > maxVal) {
+            maxVal = val;
+            topProd = pName;
+          }
+        });
+
+        return {
+          category: c.category,
+          totalBilling: c.totalBilling,
+          totalQty: c.totalQty,
+          pctBilling: totalCatBillingAcc > 0 ? (c.totalBilling / totalCatBillingAcc) * 100 : 0,
+          pctQty: totalCatQtyAcc > 0 ? (c.totalQty / totalCatQtyAcc) * 100 : 0,
+          topProduct: topProd
+        };
+      });
+
+      setCategorySales(categorySalesList);
+      setTotalCategoryQty(totalCatQtyAcc);
+
+      // Generate Daily Cancelled Breakdown
+      const generateDateRange = (startDateStr: string, endDateStr: string) => {
+        const dates: string[] = [];
+        try {
+          let curr = new Date(startDateStr + "T00:00:00");
+          const stop = new Date(endDateStr + "T00:00:00");
+          while (curr <= stop) {
+            const y = curr.getFullYear();
+            const m = String(curr.getMonth() + 1).padStart(2, '0');
+            const d = String(curr.getDate()).padStart(2, '0');
+            dates.push(`${y}-${m}-${d}`);
+            curr.setDate(curr.getDate() + 1);
+          }
+        } catch (e) {
+          dates.push(startDateStr);
+        }
+        return dates.length > 0 ? dates : [startDateStr];
+      };
+
+      const dateRange = generateDateRange(start, end);
+
+      const dailyCancelledList: DailyCancelledData[] = dateRange.map(dStr => {
+        const parts = dStr.split("-");
+        const displayDate = parts.length === 3 ? `${parts[2]}/${parts[1]}` : dStr;
+
+        const ordersOnDate = ordersInRange.filter(o => {
+          const oDate = (o.order_date || o.created_at || "").slice(0, 10);
+          return oDate === dStr;
+        });
+
+        const cancelledOrdersOnDate = ordersOnDate.filter(o => o.status === "Cancelado");
+
+        const cancelledCount = cancelledOrdersOnDate.length;
+        const totalOrdersCountOnDate = ordersOnDate.length;
+        const cancelledBillingOnDate = cancelledOrdersOnDate.reduce((acc, o) => acc + (Number(o.total_amount) || 0), 0);
+        const totalBillingOnDate = ordersOnDate.reduce((acc, o) => acc + (Number(o.total_amount) || 0), 0);
+
+        return {
+          date: dStr,
+          displayDate,
+          cancelledCount,
+          totalOrdersCount: totalOrdersCountOnDate,
+          cancelledBilling: cancelledBillingOnDate,
+          totalBilling: totalBillingOnDate
+        };
+      });
+
+      setDailyCancelledData(dailyCancelledList);
 
     } catch (err) {
       console.error("Error loading admin dashboard stats:", err);
@@ -523,13 +805,15 @@ export default function AdminDashboard() {
     );
   }
 
-  const sortedProductsSold = [...productsSold].sort((a, b) => {
-    if (productSortKey === 'qty') {
-      return b.qty - a.qty;
-    } else {
-      return b.total - a.total;
-    }
-  });
+  const sortedProductsSold = [...productsSold]
+    .filter((p) => selectedCatFilter === "all" || p.category === selectedCatFilter)
+    .sort((a, b) => {
+      if (productSortKey === "qty") {
+        return b.qty - a.qty;
+      } else {
+        return b.total - a.total;
+      }
+    });
 
   const month1Year = viewDate.getFullYear();
   const month1Month = viewDate.getMonth();
@@ -932,39 +1216,106 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        {/* Top Sellers Leaderboard */}
+        {/* Leaderboard Card: Clientes Principales & Vendedores Líderes */}
         <div className="bg-white p-6 rounded-3xl border border-slate-200/60 shadow-sm flex flex-col justify-between">
           <div>
-            <h2 className="text-sm font-black text-slate-800 uppercase tracking-wider mb-4 flex items-center gap-1.5">
-              <Award className="w-4.5 h-4.5 text-brand-600" />
-              Vendedores Líderes
-            </h2>
-            <div className="space-y-4">
-              {topSellers.map((seller, idx) => (
-                <div key={seller.id} className="flex items-center justify-between border-b border-slate-50 pb-3 last:border-b-0 last:pb-0">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-6 h-6 rounded-md font-black text-xs flex items-center justify-center ${
-                      idx === 0 ? "bg-amber-100 text-amber-800" :
-                      idx === 1 ? "bg-slate-200 text-slate-800" :
-                      idx === 2 ? "bg-orange-100 text-orange-800" :
-                      "bg-slate-100 text-slate-500"
-                    }`}>
-                      {idx + 1}
-                    </div>
-                    <div>
-                      <h3 className="font-bold text-xs text-slate-900">{seller.name}</h3>
-                      <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Ventas del Periodo</p>
-                    </div>
-                  </div>
-                  <span className="text-xs font-black text-slate-900">{formatPrice(seller.sales)}</span>
-                </div>
-              ))}
-              {topSellers.length === 0 && (
-                <p className="text-xs font-bold text-slate-400 text-center py-8">
-                  No hay ventas registradas en este periodo.
-                </p>
-              )}
+            {/* Tab Selector Header */}
+            <div className="flex items-center justify-between gap-2 mb-4 border-b border-slate-100 pb-3">
+              <button
+                type="button"
+                onClick={() => setLeaderboardTab("customers")}
+                className={`flex items-center gap-1.5 text-xs font-black uppercase tracking-wider pb-1 transition-all cursor-pointer border-b-2 ${
+                  leaderboardTab === "customers"
+                    ? "text-brand-700 border-brand-600"
+                    : "text-slate-400 border-transparent hover:text-slate-700"
+                }`}
+              >
+                <Users className="w-4 h-4 text-brand-600" />
+                Clientes Principales
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setLeaderboardTab("sellers")}
+                className={`flex items-center gap-1.5 text-xs font-black uppercase tracking-wider pb-1 transition-all cursor-pointer border-b-2 ${
+                  leaderboardTab === "sellers"
+                    ? "text-brand-700 border-brand-600"
+                    : "text-slate-400 border-transparent hover:text-slate-700"
+                }`}
+              >
+                <Award className="w-4 h-4 text-amber-500" />
+                Vendedores Líderes
+              </button>
             </div>
+
+            {/* Content */}
+            {leaderboardTab === "customers" ? (
+              <div className="space-y-4">
+                {topCustomers.map((cust, idx) => (
+                  <div key={cust.name} className="flex items-center justify-between border-b border-slate-50 pb-3 last:border-b-0 last:pb-0">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className={`w-6 h-6 rounded-md font-black text-xs shrink-0 flex items-center justify-center ${
+                        idx === 0 ? "bg-amber-100 text-amber-800" :
+                        idx === 1 ? "bg-slate-200 text-slate-800" :
+                        idx === 2 ? "bg-orange-100 text-orange-800" :
+                        "bg-slate-100 text-slate-500"
+                      }`}>
+                        {idx + 1}
+                      </div>
+                      <div className="min-w-0">
+                        <h3 className="font-bold text-xs text-slate-900 truncate max-w-[140px]" title={cust.name}>
+                          {cust.name}
+                        </h3>
+                        <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">
+                          {cust.ordersCount} {cust.ordersCount === 1 ? "Pedido" : "Pedidos"} en el periodo
+                        </p>
+                      </div>
+                    </div>
+                    <span className="text-xs font-black text-slate-900 shrink-0">
+                      {formatPrice(cust.totalSales)}
+                    </span>
+                  </div>
+                ))}
+                {topCustomers.length === 0 && (
+                  <p className="text-xs font-bold text-slate-400 text-center py-8">
+                    No hay compras registradas en este periodo.
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {topSellers.map((seller, idx) => (
+                  <div key={seller.id} className="flex items-center justify-between border-b border-slate-50 pb-3 last:border-b-0 last:pb-0">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className={`w-6 h-6 rounded-md font-black text-xs shrink-0 flex items-center justify-center ${
+                        idx === 0 ? "bg-amber-100 text-amber-800" :
+                        idx === 1 ? "bg-slate-200 text-slate-800" :
+                        idx === 2 ? "bg-orange-100 text-orange-800" :
+                        "bg-slate-100 text-slate-500"
+                      }`}>
+                        {idx + 1}
+                      </div>
+                      <div className="min-w-0">
+                        <h3 className="font-bold text-xs text-slate-900 truncate max-w-[140px]" title={seller.name}>
+                          {seller.name}
+                        </h3>
+                        <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">
+                          Ventas del Periodo
+                        </p>
+                      </div>
+                    </div>
+                    <span className="text-xs font-black text-slate-900 shrink-0">
+                      {formatPrice(seller.sales)}
+                    </span>
+                  </div>
+                ))}
+                {topSellers.length === 0 && (
+                  <p className="text-xs font-bold text-slate-400 text-center py-8">
+                    No hay ventas registradas en este periodo.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="bg-slate-50 border border-slate-100 p-4 rounded-2xl flex items-start gap-2.5 mt-4">
@@ -972,30 +1323,73 @@ export default function AdminDashboard() {
             <div>
               <p className="font-bold text-[10px] text-slate-500 uppercase tracking-wider">Corte Estadístico</p>
               <p className="text-[10px] font-semibold text-slate-400 leading-snug mt-0.5">
-                Las estadísticas mostradas computan todos los pedidos registrados en el periodo (Pendientes, Confirmados, Entregando y Entregados), excluyendo únicamente los cancelados.
+                Las estadísticas computan pedidos registrados en el periodo, deduplicando códigos y excluyendo cancelados.
               </p>
             </div>
           </div>
         </div>
       </div>
 
+      {/* Category Sales & Donut Chart */}
+      <CategorySalesChart
+        categories={categorySales}
+        totalBillingAll={stats.deliveredBilling + stats.pendingBilling}
+        totalQtyAll={totalCategoryQty}
+      />
+
       {/* Products Sold Breakdown */}
-      <div className="bg-white p-6 rounded-3xl border border-slate-200/60 shadow-sm">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
-            <ShoppingCart className="w-4.5 h-4.5 text-brand-600" />
-            Productos más Vendidos en el Periodo
-          </h2>
+      <div className="bg-white p-6 rounded-3xl border border-slate-200/60 shadow-sm space-y-4">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+          <div>
+            <h2 className="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
+              <ShoppingCart className="w-4.5 h-4.5 text-brand-600" />
+              Productos más Vendidos en el Periodo
+            </h2>
+            <p className="text-[11px] font-semibold text-slate-400 mt-0.5">
+              Desglose detallado por producto e integración de categorías
+            </p>
+          </div>
           <span className="text-[10px] bg-brand-50 border border-brand-100 text-brand-700 px-2 py-0.5 rounded-full font-black uppercase tracking-wider">
-            Detalle por Ítems
+            {sortedProductsSold.length} Productos
           </span>
         </div>
+
+        {/* Category Filter Pills */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 pt-1 scrollbar-none">
+          <button
+            type="button"
+            onClick={() => setSelectedCatFilter("all")}
+            className={`px-3 py-1 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all whitespace-nowrap cursor-pointer ${
+              selectedCatFilter === "all"
+                ? "bg-brand-600 text-white shadow-xs"
+                : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+            }`}
+          >
+            Todas las Categorías
+          </button>
+          {categorySales.map((cat) => (
+            <button
+              key={cat.category}
+              type="button"
+              onClick={() => setSelectedCatFilter(cat.category)}
+              className={`px-3 py-1 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all whitespace-nowrap cursor-pointer ${
+                selectedCatFilter === cat.category
+                  ? "bg-brand-600 text-white shadow-xs"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              {cat.category}
+            </button>
+          ))}
+        </div>
+
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead>
               <tr className="border-b border-slate-100 text-[10px] font-black uppercase text-slate-400">
                 <th className="py-2.5">Producto</th>
                 <th className="py-2.5">SKU</th>
+                <th className="py-2.5">Categoría</th>
                 <th 
                   className={`py-2.5 text-center cursor-pointer select-none transition-colors hover:text-slate-800 ${
                     productSortKey === 'qty' ? 'text-brand-600 font-extrabold' : ''
@@ -1033,6 +1427,11 @@ export default function AdminDashboard() {
                 <tr key={idx} className="hover:bg-slate-50/40">
                   <td className="py-3 font-bold text-slate-900">{prod.name}</td>
                   <td className="py-3 font-mono text-[10px] text-slate-500 uppercase">{prod.sku}</td>
+                  <td className="py-3">
+                    <span className="inline-block px-2.5 py-0.5 rounded-md text-[9px] font-extrabold uppercase tracking-wider bg-slate-100 text-slate-700 border border-slate-200">
+                      {prod.category}
+                    </span>
+                  </td>
                   <td className="py-3 text-center">
                     <span className={`inline-block px-3 py-1 border font-extrabold rounded-lg transition-colors ${
                       productSortKey === 'qty' 
@@ -1051,8 +1450,8 @@ export default function AdminDashboard() {
               ))}
               {sortedProductsSold.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="py-8 text-center text-slate-400 font-bold">
-                    No se registran ventas de productos en este periodo de tiempo.
+                  <td colSpan={5} className="py-8 text-center text-slate-400 font-bold">
+                    No se registran ventas de productos para la categoría seleccionada en este periodo.
                   </td>
                 </tr>
               )}
@@ -1060,6 +1459,19 @@ export default function AdminDashboard() {
           </table>
         </div>
       </div>
+
+      {/* Cancelled Orders Percentage & Daily Chart at the very bottom */}
+      <CancelledOrdersChart
+        totalOrdersCount={stats.totalOrdersCount}
+        cancelledCount={stats.cancelledCount}
+        deliveredCount={stats.deliveredCount}
+        pendingCount={stats.pendingCount}
+        totalBillingCount={stats.totalBillingCount}
+        cancelledBilling={stats.cancelledBilling}
+        deliveredBilling={stats.deliveredBilling}
+        pendingBilling={stats.pendingBilling}
+        dailyData={dailyCancelledData}
+      />
     </div>
   );
 }

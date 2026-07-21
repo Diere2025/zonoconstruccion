@@ -100,20 +100,42 @@ export async function GET() {
       fetchProductsAll(),
       supabaseAdmin
         .from('order_items')
-        .select('product_id, quantity, orders!inner(status, order_date)')
+        .select('product_id, product_name, quantity, orders!inner(id, legacy_code, status, order_date)')
         .in('orders.status', ['Pendiente', 'Confirmado'])
         .gt('orders.order_date', dateLimitStr)
     ]);
 
     if (pendingRes.error) throw pendingRes.error;
 
-    const pendingItems = pendingRes.data || [];
+    // Deduplicate pending items by order legacy_code + product_id to prevent double counting
+    const seenOrderKeys = new Set<string>();
+    const rawPendingItems = pendingRes.data || [];
+    const pendingItems = rawPendingItems.filter((item: any) => {
+      const code = (item.orders?.legacy_code || '').trim();
+      if (code) {
+        const pKey = item.product_id || item.product_name;
+        const key = `${code}_${pKey}`;
+        if (seenOrderKeys.has(key)) return false;
+        seenOrderKeys.add(key);
+      }
+      return true;
+    });
 
-    // Calculate DB reserves (sum of quantities of pending order items)
+    const productByIdMap = new Map<string, any>();
+    dbProducts.forEach((p: any) => productByIdMap.set(p.id, p));
+
+    // Calculate DB reserves (by product_id AND by normalized name for consolidation)
     const dbCalculatedReservesMap = new Map<string, number>();
     pendingItems.forEach((item: any) => {
-      const current = dbCalculatedReservesMap.get(item.product_id) || 0;
-      dbCalculatedReservesMap.set(item.product_id, current + parseFloat(item.quantity || 0));
+      const qty = parseFloat(item.quantity || 0);
+      if (item.product_id) {
+        dbCalculatedReservesMap.set(item.product_id, (dbCalculatedReservesMap.get(item.product_id) || 0) + qty);
+      }
+      const prod = productByIdMap.get(item.product_id);
+      const normName = normalizeText(prod ? prod.name : (item.product_name || ''));
+      if (normName) {
+        dbCalculatedReservesMap.set(`norm_${normName}`, (dbCalculatedReservesMap.get(`norm_${normName}`) || 0) + qty);
+      }
     });
 
     const comparisonList: any[] = [];
@@ -126,11 +148,21 @@ export async function GET() {
 
       const normProdName = normalizeText(prodName);
 
-      // Find match in DB
-      const dbProd = dbProducts.find((p: any) => 
+      // Find match in DB (prefer non-AUTO SKU)
+      const matchingProds = dbProducts.filter((p: any) => 
         normalizeText(p.name) === normProdName || 
         normalizeText(p.sku) === normProdName
       );
+
+      matchingProds.sort((a: any, b: any) => {
+        const aIsAuto = (a.sku || '').startsWith('AUTO-');
+        const bIsAuto = (b.sku || '').startsWith('AUTO-');
+        if (aIsAuto && !bIsAuto) return 1;
+        if (!aIsAuto && bIsAuto) return -1;
+        return 0;
+      });
+
+      const dbProd = matchingProds[0];
 
       if (dbProd) {
         matchedProductIds.add(dbProd.id);
@@ -140,7 +172,7 @@ export async function GET() {
 
         const dbPhysical = parseFloat(dbProd.stock_physical || '0') || 0;
         const dbReserved = parseFloat(dbProd.stock_reserved || '0') || 0;
-        const dbCalculatedReserved = dbCalculatedReservesMap.get(dbProd.id) || 0;
+        const dbCalculatedReserved = dbCalculatedReservesMap.get(`norm_${normProdName}`) || dbCalculatedReservesMap.get(dbProd.id) || 0;
         const dbAvailable = parseFloat(dbProd.stock_current || '0') || 0;
 
         comparisonList.push({
@@ -210,18 +242,40 @@ export async function POST() {
     // 2. Fetch products and active orders from database
     const [dbProducts, pendingRes] = await Promise.all([
       fetchProductsAll(),
-      supabaseAdmin.from('order_items').select('product_id, quantity, orders!inner(status, order_date)').in('orders.status', ['Pendiente', 'Confirmado']).gt('orders.order_date', dateLimitStr)
+      supabaseAdmin.from('order_items').select('product_id, product_name, quantity, orders!inner(id, legacy_code, status, order_date)').in('orders.status', ['Pendiente', 'Confirmado']).gt('orders.order_date', dateLimitStr)
     ]);
 
     if (pendingRes.error) throw pendingRes.error;
 
-    const pendingItems = pendingRes.data || [];
+    // Deduplicate pending items by order legacy_code + product_id to prevent double counting
+    const seenPostOrderKeys = new Set<string>();
+    const rawPostPendingItems = pendingRes.data || [];
+    const pendingItems = rawPostPendingItems.filter((item: any) => {
+      const code = (item.orders?.legacy_code || '').trim();
+      if (code) {
+        const pKey = item.product_id || item.product_name;
+        const key = `${code}_${pKey}`;
+        if (seenPostOrderKeys.has(key)) return false;
+        seenPostOrderKeys.add(key);
+      }
+      return true;
+    });
 
-    // Calculate DB reserves (sum of quantities of pending order items)
+    const productByIdMap = new Map<string, any>();
+    dbProducts.forEach((p: any) => productByIdMap.set(p.id, p));
+
+    // Calculate DB reserves (by product_id AND by normalized name for consolidation)
     const dbCalculatedReservesMap = new Map<string, number>();
     pendingItems.forEach((item: any) => {
-      const current = dbCalculatedReservesMap.get(item.product_id) || 0;
-      dbCalculatedReservesMap.set(item.product_id, current + parseFloat(item.quantity || 0));
+      const qty = parseFloat(item.quantity || 0);
+      if (item.product_id) {
+        dbCalculatedReservesMap.set(item.product_id, (dbCalculatedReservesMap.get(item.product_id) || 0) + qty);
+      }
+      const prod = productByIdMap.get(item.product_id);
+      const normName = normalizeText(prod ? prod.name : (item.product_name || ''));
+      if (normName) {
+        dbCalculatedReservesMap.set(`norm_${normName}`, (dbCalculatedReservesMap.get(`norm_${normName}`) || 0) + qty);
+      }
     });
 
     let updatedCount = 0;
@@ -236,14 +290,24 @@ export async function POST() {
       const normProdName = normalizeText(prodName);
       sheetProductNames.add(normProdName);
 
-      const dbProd = dbProducts.find((p: any) => 
+      const matchingProds = dbProducts.filter((p: any) => 
         normalizeText(p.name) === normProdName || 
         normalizeText(p.sku) === normProdName
       );
 
+      matchingProds.sort((a: any, b: any) => {
+        const aIsAuto = (a.sku || '').startsWith('AUTO-');
+        const bIsAuto = (b.sku || '').startsWith('AUTO-');
+        if (aIsAuto && !bIsAuto) return 1;
+        if (!aIsAuto && bIsAuto) return -1;
+        return 0;
+      });
+
+      const dbProd = matchingProds[0];
+
       if (dbProd) {
         const sheetPhysical = parseFloat((row['Stock Actual'] || '0').replace(',', '.')) || 0;
-        const dbCalculatedReserved = dbCalculatedReservesMap.get(dbProd.id) || 0;
+        const dbCalculatedReserved = dbCalculatedReservesMap.get(`norm_${normProdName}`) || dbCalculatedReservesMap.get(dbProd.id) || 0;
         const newAvailable = sheetPhysical - dbCalculatedReserved;
 
         updatesToUpsert.push({

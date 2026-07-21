@@ -2,13 +2,14 @@ import React, { useEffect, useState, useRef } from "react";
 import { Calendar } from "lucide-react";
 
 interface DateInputProps {
-  label: string;
+  label?: string;
   value: string; // YYYY-MM-DD format
   onChange: (val: string) => void;
   required?: boolean;
+  className?: string;
 }
 
-export const DateInput: React.FC<DateInputProps> = ({ label, value, onChange, required = false }) => {
+export const DateInput: React.FC<DateInputProps> = ({ label, value, onChange, required = false, className }) => {
   const [typedValue, setTypedValue] = useState("");
 
   useEffect(() => {
@@ -79,8 +80,8 @@ export const DateInput: React.FC<DateInputProps> = ({ label, value, onChange, re
   };
 
   return (
-    <div className="space-y-1">
-      <label className="text-[9px] font-black uppercase tracking-wider text-slate-400 font-bold">{label}</label>
+    <div className={label ? "space-y-1" : ""}>
+      {label && <label className="text-[9px] font-black uppercase tracking-wider text-slate-400 font-bold">{label}</label>}
       <div className="relative">
         <input
           type="text"
@@ -89,12 +90,12 @@ export const DateInput: React.FC<DateInputProps> = ({ label, value, onChange, re
           onChange={handleTextChange}
           onBlur={handleBlur}
           placeholder="dd/mm/aaaa"
-          className="w-full pl-2.5 pr-8 py-1.5 rounded-lg border border-slate-200 bg-white font-bold text-xs focus:ring-2 focus:ring-brand-500/10 outline-none text-slate-800"
+          className={className || "w-full pl-2.5 pr-8 py-1.5 rounded-lg border border-slate-200 bg-white font-bold text-xs focus:ring-2 focus:ring-brand-500/10 outline-none text-slate-800"}
         />
         <button
           type="button"
           onClick={handleCalendarClick}
-          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
         >
           <Calendar className="w-3.5 h-3.5" />
         </button>

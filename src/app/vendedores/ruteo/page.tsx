@@ -17,6 +17,8 @@ CheckCircle,
   Loader2, 
   Info,
   Layers,
+  ClipboardList,
+  Eye,
   TrendingUp,
   Map,
 Navigation,
@@ -31,7 +33,7 @@ CreditCard,
   X
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { formatPrice } from "@/lib/utils";
+import { formatPrice, formatDateDDMMYYYY } from "@/lib/utils";
 import { createBulkStockTransactions } from "@/lib/erp/stock";
 
 interface AppError {
@@ -70,6 +72,78 @@ Delivery,
 } from "./types";
 import { CashRegister, Locality } from "@/types";
 
+function getCategoryBadgeStyle(category: string): string {
+  switch (category) {
+    case 'Tanques de Agua':
+      return 'bg-blue-50 border-blue-200 text-blue-800';
+    case 'Biodigestores':
+      return 'bg-emerald-50 border-emerald-200 text-emerald-800';
+    case 'Pinturas':
+      return 'bg-purple-50 border-purple-200 text-purple-800';
+    case 'Termotanques':
+      return 'bg-amber-50 border-amber-200 text-amber-800';
+    case 'MEPS':
+      return 'bg-cyan-50 border-cyan-200 text-cyan-800';
+    case 'Bombas':
+      return 'bg-teal-50 border-teal-200 text-teal-800';
+    case 'Aberturas':
+      return 'bg-orange-50 border-orange-200 text-orange-800';
+    case 'Escaleras':
+      return 'bg-indigo-50 border-indigo-200 text-indigo-800';
+    default:
+      return 'bg-slate-100 border-slate-200 text-slate-700';
+  }
+}
+
+function getOrderCategorySummary(orderItems: { product_name: string; quantity: number }[]) {
+  if (!orderItems || orderItems.length === 0) {
+    return { mainCategory: 'Sin productos', totalItems: 0 };
+  }
+
+  let totalQty = 0;
+  const categoryCounts: Record<string, number> = {};
+
+  orderItems.forEach(item => {
+    const qty = item.quantity || 1;
+    totalQty += qty;
+    const pName = (item.product_name || '').toLowerCase();
+    if (pName.includes('descuento') || pName.includes('bonificaci')) return;
+
+    let cat = 'Tanques de Agua';
+    if (pName.includes('bomba')) cat = 'Bombas';
+    else if (pName.includes('puerta') || pName.includes('ventana')) cat = 'Aberturas';
+    else if (pName.includes('termotanque') || pName.includes('turboflex')) cat = 'Termotanques';
+    else if (
+      pName.includes('biofort') || pName.includes('biodigestor') || pName.includes('biolam') ||
+      pName.includes('awaduct') || pName.includes('desengrasadora') || pName.includes('séptica') || pName.includes('septica') || pName.includes('cámara') || pName.includes('camara')
+    ) cat = 'Biodigestores';
+    else if (
+      pName.includes('cuatr') || pName.includes('cuatricapa') || pName.includes('aquafort') ||
+      pName.includes('tanque') || pName.includes('cisterna') || pName.includes('tricapa') || pName.includes('bicapa') ||
+      pName.includes('complemento') || pName.includes('base') || pName.includes('hierro') || pName.includes('flotante') || pName.includes('boya')
+    ) cat = 'Tanques de Agua';
+    else if (
+      pName.includes('pintura') || pName.includes('latex') || pName.includes('látex') || pName.includes('andina') ||
+      pName.includes('lavable') || pName.includes('zono') || pName.includes('pinceleta') || pName.includes('pincel') ||
+      pName.includes('lija') || pName.includes('rodillo') || pName.includes('guante') || pName.includes('fijador') ||
+      pName.includes('sellador') || pName.includes('enduido') || pName.includes('endui') || pName.includes('sintetico') || pName.includes('sintético')
+    ) cat = 'Pinturas';
+    else if (pName.includes('venda') || pName.includes('mep') || pName.includes('meps') || pName.includes('equilibrio')) cat = 'MEPS';
+    else if (pName.includes('escalera')) cat = 'Escaleras';
+    else cat = 'Varios';
+
+    categoryCounts[cat] = (categoryCounts[cat] || 0) + qty;
+  });
+
+  const categories = Object.keys(categoryCounts);
+  if (categories.length === 0) {
+    return { mainCategory: 'Tanques de Agua', totalItems: totalQty || orderItems.length };
+  }
+
+  categories.sort((a, b) => categoryCounts[b] - categoryCounts[a]);
+  return { mainCategory: categories[0], totalItems: totalQty || orderItems.length };
+}
+
 export default function RuteoPage() {
   const [activeTab, setActiveTab] = useState<'pending' | 'planned' | 'in_transit' | 'history' | 'take_away' | 'carriers'>('pending');
   const [loading, setLoading] = useState(true);
@@ -105,6 +179,19 @@ export default function RuteoPage() {
   const [ruteoPostponementReasonType, setRuteoPostponementReasonType] = useState<'cliente' | 'empresa'>('cliente');
   const [ruteoPostponementMotive, setRuteoPostponementMotive] = useState("");
   const [hasDeclaredRuteoPostponementReason, setHasDeclaredRuteoPostponementReason] = useState(false);
+  const [postponedDeliveriesList, setPostponedDeliveriesList] = useState<Delivery[]>([]);
+  const [showMultiCodeModal, setShowMultiCodeModal] = useState(false);
+  const [multiCodeInput, setMultiCodeInput] = useState("");
+  const [expandedProductDeliveryIds, setExpandedProductDeliveryIds] = useState<Set<string>>(new Set());
+
+  const toggleProductExpand = (id: string) => {
+    setExpandedProductDeliveryIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   const [editCustomerName, setEditCustomerName] = useState("");
   const [editAddress, setEditAddress] = useState("");
@@ -1368,6 +1455,7 @@ export default function RuteoPage() {
     });
 
     if (postponedDeliveries.length > 0 && !hasDeclaredRuteoPostponementReason) {
+      setPostponedDeliveriesList(postponedDeliveries);
       setShowRuteoPostponementModal(true);
       return;
     }
@@ -3057,13 +3145,20 @@ export default function RuteoPage() {
         cleanTextForSearch(order ? order.locality : (encomienda?.locality || "")).includes("deposito") || 
         cleanTextForSearch(order ? order.address : (encomienda?.address || "")).includes("deposito");
 
-      // 1. Search term: matches client name or order code (legacy_code or order_id) or encomienda code
+      // 1. Search term: matches client name or order code (legacy_code or order_id) or encomienda code (supports pasting multiple codes)
       if (searchTerm.trim()) {
-        const query = searchTerm.toLowerCase();
-        const client = order ? (order.customer_name || "") : (encomienda?.client_name || "");
-        const code = order ? (order.legacy_code || order.id || "") : (encomienda?.code || "");
-        if (!client.toLowerCase().includes(query) && !code.toLowerCase().includes(query)) {
-          return false;
+        const rawTokens = searchTerm
+          .toLowerCase()
+          .split(/[\s,\n;\r]+/)
+          .map(t => t.trim())
+          .filter(t => t.length > 0);
+
+        if (rawTokens.length > 0) {
+          const client = (order ? (order.customer_name || "") : (encomienda?.client_name || "")).toLowerCase();
+          const code = (order ? (order.legacy_code || order.id || "") : (encomienda?.code || "")).toLowerCase();
+          
+          const matchesAny = rawTokens.some(token => client.includes(token) || code.includes(token));
+          if (!matchesAny) return false;
         }
       }
 
@@ -3251,58 +3346,56 @@ export default function RuteoPage() {
     <>
       <div id="ruteo-page-content" className="space-y-6 min-w-max print:hidden">
         {/* Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div className="flex flex-col md:flex-row md:items-center gap-3">
-          <div>
-            <h1 className="text-2xl font-black text-slate-900 tracking-tight flex items-center gap-2">
-              <Truck className="w-7 h-7 text-brand-600 animate-pulse" /> Planificación y Hojas de Ruta
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 pb-1 border-b border-slate-100">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className="text-lg font-black text-slate-900 tracking-tight flex items-center gap-1.5">
+              <Truck className="w-5 h-5 text-brand-600" /> Planificación y Hojas de Ruta
             </h1>
-            <p className="text-slate-500 font-semibold text-xs mt-0.5">
-              Planifica ruteos, despacha hojas de ruta, carga cobranzas de reparto y realiza arqueos de caja.
-            </p>
+            {missingMapCount > 0 && (
+              <div className="bg-rose-50 border border-rose-200 text-rose-700 px-2 py-0.5 rounded-lg flex items-center gap-1 text-[10px] font-black uppercase tracking-wider shrink-0">
+                <span className="flex h-1.5 w-1.5 relative shrink-0">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-rose-500"></span>
+                </span>
+                <span>{missingMapCount} sin mapa</span>
+              </div>
+            )}
           </div>
-          {missingMapCount > 0 && (
-            <div className="bg-rose-50 border border-rose-200 text-rose-700 px-3 py-1.5 rounded-xl flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider shadow-sm self-start md:self-center shrink-0">
-              <span className="flex h-2 w-2 relative shrink-0">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
-              </span>
-              <span>{missingMapCount} sin mapa</span>
-            </div>
-          )}
+          
+          <div className="flex items-center gap-2">
+            {activeTab === 'carriers' && (
+              <button 
+                onClick={() => {
+                  setSelectedCarrierId(null);
+                  setCarrierName("");
+                  setCarrierVehicle("");
+                  setCarrierPlate("");
+                  setCarrierPhone("");
+                  setShowCarrierModal(true);
+                }}
+                className="flex items-center gap-1 px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer shadow-sm"
+              >
+                <Plus className="w-3.5 h-3.5" /> Chofer / Vehículo
+              </button>
+            )}
+
+            {activeTab === 'pending' && (
+              <button 
+                onClick={openNewEncomiendaModal}
+                className="flex items-center gap-1 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer shadow-sm"
+              >
+                <Plus className="w-3.5 h-3.5" /> Diligencia / Encomienda
+              </button>
+            )}
+          </div>
         </div>
-        
-        {activeTab === 'carriers' && (
-          <button 
-            onClick={() => {
-              setSelectedCarrierId(null);
-              setCarrierName("");
-              setCarrierVehicle("");
-              setCarrierPlate("");
-              setCarrierPhone("");
-              setShowCarrierModal(true);
-            }}
-            className="flex items-center gap-1.5 px-4 py-2.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-md shadow-brand-600/10"
-          >
-            <Plus className="w-4 h-4" /> Agregar Chofer / Vehículo
-          </button>
-        )}
 
-        {activeTab === 'pending' && (
-          <button 
-            onClick={openNewEncomiendaModal}
-            className="flex items-center gap-1.5 px-4 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-md shadow-purple-600/10 cursor-pointer"
-          >
-            <Plus className="w-4 h-4" /> Nueva Diligencia / Encomienda
-          </button>
-        )}
-      </div>
-
-      {/* Tabs */}
-      <div className="flex flex-wrap gap-2 border-b pb-1 border-slate-200">
+      {/* Consolidated Tabs */}
+      <div className="flex flex-wrap gap-1 border-b pb-1 border-slate-200 select-none">
         <button 
+          type="button"
           onClick={() => setActiveTab('pending')}
-          className={`px-4 py-2 text-xs font-black uppercase tracking-wider border-b-2 transition-all ${
+          className={`px-3 py-1.5 text-xs font-black uppercase tracking-wider border-b-2 transition-all cursor-pointer ${
             activeTab === 'pending' 
               ? 'border-brand-600 text-brand-600' 
               : 'border-transparent text-slate-400 hover:text-slate-600'
@@ -3310,19 +3403,56 @@ export default function RuteoPage() {
         >
           Pendientes ({filteredPending.length})
         </button>
+
         <button 
-          onClick={() => setActiveTab('planned')}
-          className={`px-4 py-2 text-xs font-black uppercase tracking-wider border-b-2 transition-all ${
-            activeTab === 'planned' 
+          type="button"
+          onClick={() => {
+            setActiveTab('planned');
+            setPlannedSubTab('Borrador');
+          }}
+          className={`px-3 py-1.5 text-xs font-black uppercase tracking-wider border-b-2 transition-all cursor-pointer ${
+            activeTab === 'planned' && plannedSubTab === 'Borrador'
               ? 'border-brand-600 text-brand-600' 
               : 'border-transparent text-slate-400 hover:text-slate-600'
           }`}
         >
-          Hojas de Ruta ({getPlannedGroups().length} Hojas)
+          Borradores ({getPlannedGroups().filter(g => g.status === 'Borrador').length})
         </button>
+
         <button 
+          type="button"
+          onClick={() => {
+            setActiveTab('planned');
+            setPlannedSubTab('En Viaje');
+          }}
+          className={`px-3 py-1.5 text-xs font-black uppercase tracking-wider border-b-2 transition-all cursor-pointer ${
+            activeTab === 'planned' && plannedSubTab === 'En Viaje'
+              ? 'border-brand-600 text-brand-600' 
+              : 'border-transparent text-slate-400 hover:text-slate-600'
+          }`}
+        >
+          En Viaje ({getPlannedGroups().filter(g => g.status === 'En Viaje').length})
+        </button>
+
+        <button 
+          type="button"
+          onClick={() => {
+            setActiveTab('planned');
+            setPlannedSubTab('Cerrada');
+          }}
+          className={`px-3 py-1.5 text-xs font-black uppercase tracking-wider border-b-2 transition-all cursor-pointer ${
+            activeTab === 'planned' && plannedSubTab === 'Cerrada'
+              ? 'border-brand-600 text-brand-600' 
+              : 'border-transparent text-slate-400 hover:text-slate-600'
+          }`}
+        >
+          Cerradas ({getPlannedGroups().filter(g => g.status === 'Cerrada').length})
+        </button>
+
+        <button 
+          type="button"
           onClick={() => setActiveTab('in_transit')}
-          className={`px-4 py-2 text-xs font-black uppercase tracking-wider border-b-2 transition-all ${
+          className={`px-3 py-1.5 text-xs font-black uppercase tracking-wider border-b-2 transition-all cursor-pointer ${
             activeTab === 'in_transit' 
               ? 'border-brand-600 text-brand-600' 
               : 'border-transparent text-slate-400 hover:text-slate-600'
@@ -3330,19 +3460,23 @@ export default function RuteoPage() {
         >
           En Recorrido ({inTransitList.length})
         </button>
+
         <button 
+          type="button"
           onClick={() => setActiveTab('take_away')}
-          className={`px-4 py-2 text-xs font-black uppercase tracking-wider border-b-2 transition-all ${
+          className={`px-3 py-1.5 text-xs font-black uppercase tracking-wider border-b-2 transition-all cursor-pointer ${
             activeTab === 'take_away' 
               ? 'border-brand-600 text-brand-600' 
               : 'border-transparent text-slate-400 hover:text-slate-600'
           }`}
         >
-          Retiro en Depósito
+          Retiro Depósito
         </button>
+
         <button 
+          type="button"
           onClick={() => setActiveTab('history')}
-          className={`px-4 py-2 text-xs font-black uppercase tracking-wider border-b-2 transition-all ${
+          className={`px-3 py-1.5 text-xs font-black uppercase tracking-wider border-b-2 transition-all cursor-pointer ${
             activeTab === 'history' 
               ? 'border-brand-600 text-brand-600' 
               : 'border-transparent text-slate-400 hover:text-slate-600'
@@ -3350,9 +3484,11 @@ export default function RuteoPage() {
         >
           Historial Entregas
         </button>
+
         <button 
+          type="button"
           onClick={() => setActiveTab('carriers')}
-          className={`px-4 py-2 text-xs font-black uppercase tracking-wider border-b-2 transition-all ${
+          className={`px-3 py-1.5 text-xs font-black uppercase tracking-wider border-b-2 transition-all cursor-pointer ${
             activeTab === 'carriers' 
               ? 'border-brand-600 text-brand-600' 
               : 'border-transparent text-slate-400 hover:text-slate-600'
@@ -3378,12 +3514,22 @@ export default function RuteoPage() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 bg-slate-50/70 p-4 border rounded-3xl border-slate-100 shadow-sm">
                     {/* Search by Client/Code */}
                     <div className="relative">
-                      <span className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">Buscar</span>
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">Buscar</span>
+                        <button
+                          type="button"
+                          onClick={() => setShowMultiCodeModal(true)}
+                          className="text-[9px] font-black text-brand-600 hover:text-brand-800 uppercase tracking-wider flex items-center gap-1 cursor-pointer bg-brand-50 px-2 py-0.5 rounded-md border border-brand-100/60 hover:bg-brand-100 transition-colors"
+                        >
+                          <ClipboardList className="w-3 h-3" />
+                          Pegar Lista
+                        </button>
+                      </div>
                       <div className="relative">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
                         <input 
                           type="text"
-                          placeholder="Cliente o código..."
+                          placeholder="Cliente o códigos (ej: JS23992 JS23966)..."
                           value={searchTerm}
                           onChange={(e) => setSearchTerm(e.target.value)}
                           className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold focus:border-brand-500 transition-all outline-none"
@@ -3654,12 +3800,13 @@ export default function RuteoPage() {
                         </select>
 
                         {pendingFilterVencimientoOpt === 'custom' && (
-                          <input
-                            type="date"
-                            value={pendingFilterVencimientoDate}
-                            onChange={(e) => setPendingFilterVencimientoDate(e.target.value)}
-                            className="w-28 px-2 py-1 border rounded-xl text-xs font-bold bg-white focus:border-brand-500 outline-none cursor-pointer"
-                          />
+                          <div className="w-28">
+                            <DateInput
+                              value={pendingFilterVencimientoDate}
+                              onChange={(val) => setPendingFilterVencimientoDate(val)}
+                              className="w-full pl-2 pr-6 py-1 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500 text-slate-800"
+                            />
+                          </div>
                         )}
                       </div>
                     </div>
@@ -3723,12 +3870,13 @@ export default function RuteoPage() {
 
                       <div className="flex items-center gap-1.5">
                         <span className="text-[10px] font-black text-slate-400 uppercase">Fecha:</span>
-                        <input 
-                          type="date" 
-                          value={bulkDeliveryDate}
-                          onChange={(e) => setBulkDeliveryDate(e.target.value)}
-                          className="text-[11px] font-bold border border-slate-200 rounded-xl p-1 bg-white outline-none w-28 cursor-pointer focus:border-brand-500 focus:ring-1 focus:ring-brand-500"
-                        />
+                        <div className="w-28">
+                          <DateInput
+                            value={bulkDeliveryDate}
+                            onChange={(val) => setBulkDeliveryDate(val)}
+                            className="w-full pl-2 pr-6 py-1 rounded-xl border border-slate-200 bg-white font-bold text-[11px] outline-none focus:border-brand-500 text-slate-800"
+                          />
+                        </div>
                       </div>
 
                       <div className="flex items-center gap-2">
@@ -4022,13 +4170,28 @@ export default function RuteoPage() {
                                   </button>
                                 </div>
                               </td>
-                              <td className="px-3 py-2 text-brand-600 font-black text-[10px] max-w-[200px]" title={orderCompactItems}>
-                                <div className="truncate">{orderCompactItems}</div>
-                                {!isEncomienda && parseReturnItemsFromNotes(order?.delivery_notes).length > 0 && (
-                                  <div className="mt-1 text-[8px] font-black text-red-650 bg-red-50 border border-red-200 rounded px-1.5 py-0.5 inline-block uppercase tracking-wider animate-pulse">
-                                    🔄 RETIRAR: {parseReturnItemsFromNotes(order?.delivery_notes).join(", ")}
-                                  </div>
-                                )}
+                              <td className="px-3 py-2">
+                                {isEncomienda ? (
+                                  <div className="truncate text-brand-600 font-black">{orderCompactItems}</div>
+                                ) : (() => {
+                                  const items = order?.order_items || [];
+                                  const summary = getOrderCategorySummary(items);
+                                  return (
+                                    <div className="flex flex-col gap-1 items-start">
+                                      <span 
+                                        className={`inline-flex items-center px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider border shadow-2xs ${getCategoryBadgeStyle(summary.mainCategory)}`}
+                                        title={orderCompactItems}
+                                      >
+                                        {summary.mainCategory}
+                                      </span>
+                                      {!isEncomienda && parseReturnItemsFromNotes(order?.delivery_notes).length > 0 && (
+                                        <div className="mt-1 text-[8px] font-black text-red-650 bg-red-50 border border-red-200 rounded px-1.5 py-0.5 inline-block uppercase tracking-wider animate-pulse">
+                                          🔄 RETIRAR: {parseReturnItemsFromNotes(order?.delivery_notes).join(", ")}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })()}
                               </td>
                             </tr>
                           );
@@ -4042,86 +4205,47 @@ export default function RuteoPage() {
 
             {/* PLANIFICADOS / HOJAS DE RUTA TAB */}
             {activeTab === 'planned' && (
-              <div className="space-y-6 min-w-max">
-                {/* Planned Sub-tabs */}
-                <div className="flex flex-wrap gap-2 border-b pb-1 border-slate-200 select-none">
-                  <button 
-                    type="button"
-                    onClick={() => setPlannedSubTab('Borrador')}
-                    className={`px-4 py-2 text-xs font-black uppercase border-b-2 transition-all ${
-                      plannedSubTab === 'Borrador' 
-                        ? 'border-brand-600 text-brand-600' 
-                        : 'border-transparent text-slate-400 hover:text-slate-650'
-                    }`}
-                  >
-                    Borradores ({getPlannedGroups().filter(g => g.status === 'Borrador').length})
-                  </button>
-                  <button 
-                    type="button"
-                    onClick={() => setPlannedSubTab('En Viaje')}
-                    className={`px-4 py-2 text-xs font-black uppercase border-b-2 transition-all ${
-                      plannedSubTab === 'En Viaje' 
-                        ? 'border-brand-600 text-brand-600' 
-                        : 'border-transparent text-slate-400 hover:text-slate-650'
-                    }`}
-                  >
-                    En Viaje ({getPlannedGroups().filter(g => g.status === 'En Viaje').length})
-                  </button>
-                  <button 
-                    type="button"
-                    onClick={() => setPlannedSubTab('Cerrada')}
-                    className={`px-4 py-2 text-xs font-black uppercase border-b-2 transition-all ${
-                      plannedSubTab === 'Cerrada' 
-                        ? 'border-brand-600 text-brand-600' 
-                        : 'border-transparent text-slate-400 hover:text-slate-650'
-                    }`}
-                  >
-                    Cerradas ({getPlannedGroups().filter(g => g.status === 'Cerrada').length})
-                  </button>
-                </div>
-
+              <div className="space-y-4 min-w-max">
                 {getPlannedGroups().filter(g => g.status === plannedSubTab).length === 0 ? (
                   <div className="text-center py-16 text-slate-400 space-y-2">
                     <Info className="w-10 h-10 mx-auto text-slate-300" />
                     <p className="font-bold text-xs">No hay hojas de ruta en estado {plannedSubTab.toLowerCase()}.</p>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 gap-6">
+                  <div className="grid grid-cols-1 gap-4">
                     {getPlannedGroups()
                       .filter(g => g.status === plannedSubTab)
                       .map((group, index) => {
                         const allProcessed = group.items.every(d => d.status === 'entregado' || d.status === 'fallido');
                         // eslint-disable-next-line @typescript-eslint/no-unused-vars
-              const totalTheoretical = group.items
+                        const totalTheoretical = group.items
                           .filter(d => d.status === 'entregado' && d.orders?.payment_status !== 'Abonado')
                           .reduce((sum, d) => sum + Number(d.orders?.total_amount || 0), 0);
 
                         return (
                           <div key={index} className="border border-slate-100 rounded-3xl overflow-hidden shadow-sm bg-white min-w-max">
-                            {/* Group Header */}
-                            <div className="bg-slate-900 text-white p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                              <div>
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 text-[9px] font-black uppercase tracking-wider">
-                                    {group.routeSheet.delivery_date ? new Date(group.routeSheet.delivery_date + 'T00:00:00').toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : 'S/D'}
-                                  </span>
-                                  <span className="px-2 py-0.5 rounded bg-brand-500 text-white text-[9px] font-black uppercase tracking-wider">
-                                    Recorrido {group.run_number}
-                                  </span>
-                                  <h3 className="font-black text-sm tracking-tight">{group.carrier.name}</h3>
-                                  <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase ${
-                                    group.status === 'Cerrada' 
-                                      ? 'bg-slate-800 text-slate-400' 
-                                      : group.status === 'En Viaje' 
-                                        ? 'bg-blue-500 text-white animate-pulse'
-                                        : 'bg-amber-500 text-white'
-                                  }`}>
-                                    {group.status}
-                                  </span>
-                                </div>
-                                <p className="text-[10px] text-slate-400 font-semibold mt-0.5">
-                                  Vehículo: {group.carrier.vehicle_description || "S/D"} | Patente: {group.carrier.plate_number || "S/D"}
-                                </p>
+                            {/* Group Header - Ultra Compact */}
+                            <div className="bg-slate-900 text-white px-3.5 py-2 flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 text-[9px] font-black uppercase tracking-wider">
+                                  {group.routeSheet.delivery_date ? new Date(group.routeSheet.delivery_date + 'T00:00:00').toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : 'S/D'}
+                                </span>
+                                <span className="px-1.5 py-0.5 rounded bg-brand-500 text-white text-[9px] font-black uppercase tracking-wider">
+                                  R{group.run_number}
+                                </span>
+                                <h3 className="font-black text-xs tracking-tight">{group.carrier.name}</h3>
+                                <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase ${
+                                  group.status === 'Cerrada' 
+                                    ? 'bg-slate-800 text-slate-400' 
+                                    : group.status === 'En Viaje' 
+                                      ? 'bg-blue-500 text-white animate-pulse'
+                                      : 'bg-amber-500 text-white'
+                                }`}>
+                                  {group.status}
+                                </span>
+                                <span className="text-[9px] text-slate-400 font-semibold hidden lg:inline">
+                                  | Vehículo: {group.carrier.vehicle_description || "S/D"} ({group.carrier.plate_number || "S/D"})
+                                </span>
                               </div>
                               
                               <div className="flex items-center gap-3">
@@ -4664,25 +4788,19 @@ export default function RuteoPage() {
                                           ) : (() => {
                                             const items = order?.order_items || [];
                                             if (items.length === 0) return '-';
-                                            const displayItems = items.slice(0, 4);
-                                            const remaining = items.length - 4;
+                                            const summary = getOrderCategorySummary(items);
+                                            const itemsTooltip = items.map(i => `${i.quantity}x ${i.product_name}`).join('\n');
                                             return (
-                                              <div className="flex flex-col gap-0.5 text-[10px] font-bold text-slate-800 leading-tight">
-                                                {displayItems.map((item, idx) => (
-                                                  <div key={idx} className="whitespace-nowrap flex items-center gap-1">
-                                                    <span className="font-extrabold text-brand-700 bg-brand-50 border border-brand-100 px-1 py-0.25 rounded text-[8px] leading-none shrink-0 min-w-[16px] text-center">
-                                                      {item.quantity}
-                                                    </span>
-                                                    <span className="truncate max-w-[250px]" title={item.product_name}>{item.product_name}</span>
-                                                  </div>
-                                                ))}
-                                                {remaining > 0 && (
-                                                  <span className="text-[8.5px] text-slate-400 font-extrabold mt-0.5 italic">
-                                                    + {remaining} más...
-                                                  </span>
-                                                )}
+                                              <div className="flex flex-col gap-1 items-start">
+                                                <span 
+                                                  className={`inline-flex items-center px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider border shadow-2xs ${getCategoryBadgeStyle(summary.mainCategory)}`}
+                                                  title={itemsTooltip}
+                                                >
+                                                  {summary.mainCategory}
+                                                </span>
+
                                                 {!isEncomienda && parseReturnItemsFromNotes(order?.delivery_notes).length > 0 && (
-                                                  <div className="mt-1 text-[8.5px] font-black text-red-650 bg-red-50 border border-red-200 rounded px-1.5 py-0.5 inline-block uppercase tracking-wider animate-pulse self-start">
+                                                  <div className="mt-1 text-[8.5px] font-black text-red-650 bg-red-50 border border-red-200 rounded px-1.5 py-0.5 inline-block uppercase tracking-wider animate-pulse">
                                                     🔄 RETIRAR: {parseReturnItemsFromNotes(order?.delivery_notes).join(", ")}
                                                   </div>
                                                 )}
@@ -5765,6 +5883,36 @@ export default function RuteoPage() {
             </div>
             
             <div className="p-6 space-y-4">
+              {/* List of affected postponed deliveries */}
+              {postponedDeliveriesList.length > 0 && (
+                <div className="bg-amber-50/80 border border-amber-200/80 p-3 rounded-2xl space-y-1.5">
+                  <div className="flex justify-between items-center">
+                    <span className="block text-[10px] font-black uppercase text-amber-900 tracking-wider">
+                      {postponedDeliveriesList.length} {postponedDeliveriesList.length === 1 ? 'Pedido posterga su fecha original' : 'Pedidos postergan su fecha original'}:
+                    </span>
+                    <span className="text-[9px] bg-amber-200 text-amber-900 font-extrabold px-2 py-0.5 rounded-full">
+                      Nueva Ruta: {formatDateDDMMYYYY(bulkDeliveryDate)}
+                    </span>
+                  </div>
+                  <div className="space-y-1.5 max-h-32 overflow-y-auto pr-1">
+                    {postponedDeliveriesList.map(d => {
+                      const name = d.orders?.customer_name || d.encomiendas?.client_name || 'Cliente sin nombre';
+                      const code = d.orders?.legacy_code || d.encomiendas?.code || 'SIN REF';
+                      return (
+                        <div key={d.id} className="flex items-center justify-between text-[11px] font-bold text-slate-800 bg-white/80 p-2 rounded-xl border border-amber-200/60 shadow-2xs">
+                          <span className="truncate max-w-[200px]" title={name}>
+                            <strong className="text-amber-900 font-mono">[{code}]</strong> {name}
+                          </span>
+                          <span className="text-[9px] text-amber-900 font-black shrink-0 bg-amber-100 px-1.5 py-0.5 rounded-md">
+                            {formatDateDDMMYYYY(d.delivery_date)} ➔ {formatDateDDMMYYYY(bulkDeliveryDate)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               <div>
                 <span className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">Clasificación del Retraso</span>
                 <div className="grid grid-cols-2 gap-2">
@@ -5796,44 +5944,163 @@ export default function RuteoPage() {
               </div>
 
               <div>
-                <span className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1.5">Detalle / Observación</span>
+                <span className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1.5">Detalle / Observación (Opcional)</span>
                 <textarea
                   value={ruteoPostponementMotive}
                   onChange={(e) => setRuteoPostponementMotive(e.target.value)}
-                  placeholder="Ej: El camión no tenía espacio y se reprogramó..."
-                  className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-semibold focus:border-brand-500 focus:ring-1 focus:ring-brand-500 outline-none h-24 bg-white"
+                  placeholder="Ej: Reorganización masiva de ruta..."
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-semibold focus:border-brand-500 focus:ring-1 focus:ring-brand-500 outline-none h-20 bg-white"
                 />
               </div>
             </div>
 
-            <div className="p-6 border-t border-slate-100 bg-slate-50 flex items-center justify-end gap-2 rounded-b-3xl">
+            <div className="p-6 border-t border-slate-100 bg-slate-50 flex items-center justify-between gap-2 rounded-b-3xl">
               <button
                 type="button"
                 onClick={() => {
-                  setShowRuteoPostponementModal(false);
-                  setHasDeclaredRuteoPostponementReason(false);
-                }}
-                className="px-4 py-2 border border-slate-200 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-100 transition-all cursor-pointer"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (!ruteoPostponementMotive.trim()) {
-                    alert("Por favor, ingresá una observación para el retraso.");
-                    return;
-                  }
                   setShowRuteoPostponementModal(false);
                   setHasDeclaredRuteoPostponementReason(true);
+                  if (!ruteoPostponementMotive) {
+                    setRuteoPostponementMotive("Reorganización masiva de ruta");
+                  }
                   setTimeout(() => {
                     handleSaveRouteBulk();
                   }, 50);
                 }}
-                className="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl text-xs shadow-md shadow-brand-500/10 transition-all cursor-pointer"
+                className="px-3.5 py-2 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-200/60 transition-all cursor-pointer"
               >
-                Confirmar Reprogramación
+                Omitir y Asignar
               </button>
+              
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowRuteoPostponementModal(false);
+                    setHasDeclaredRuteoPostponementReason(false);
+                  }}
+                  className="px-4 py-2 border border-slate-200 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-100 transition-all cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowRuteoPostponementModal(false);
+                    setHasDeclaredRuteoPostponementReason(true);
+                    if (!ruteoPostponementMotive.trim()) {
+                      setRuteoPostponementMotive("Asignación masiva de ruta");
+                    }
+                    setTimeout(() => {
+                      handleSaveRouteBulk();
+                    }, 50);
+                  }}
+                  className="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl text-xs shadow-md shadow-brand-500/10 transition-all cursor-pointer"
+                >
+                  Confirmar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MULTI-CODE PASTE MODAL */}
+      {showMultiCodeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg flex flex-col animate-in zoom-in-95 duration-200">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50 rounded-t-3xl">
+              <div>
+                <h2 className="text-sm font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                  <ClipboardList className="w-4.5 h-4.5 text-brand-600" />
+                  Pegar Lista de Códigos de Pedidos
+                </h2>
+                <p className="text-[10px] font-bold text-slate-500 mt-0.5">
+                  Ingresá o pegá varios códigos (uno por línea, separados por comas o espacios).
+                </p>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setShowMultiCodeModal(false)}
+                className="p-1.5 hover:bg-slate-200 rounded-full transition-colors text-slate-500 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div>
+                <span className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1.5">
+                  Lista de Códigos
+                </span>
+                <textarea
+                  value={multiCodeInput}
+                  onChange={(e) => setMultiCodeInput(e.target.value)}
+                  placeholder={"JS23992\nJS23966\nJS23860\nJS23764\n..."}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-xs font-mono font-bold focus:border-brand-500 focus:ring-1 focus:ring-brand-500 outline-none h-44 bg-slate-50/70"
+                />
+              </div>
+            </div>
+
+            <div className="p-6 border-t border-slate-100 bg-slate-50 flex items-center justify-between gap-2 rounded-b-3xl">
+              <button
+                type="button"
+                onClick={() => {
+                  setMultiCodeInput("");
+                  setSearchTerm("");
+                  setShowMultiCodeModal(false);
+                }}
+                className="px-3.5 py-2 border border-slate-200 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-100 transition-all cursor-pointer"
+              >
+                Limpiar Filtro
+              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchTerm(multiCodeInput);
+                    setShowMultiCodeModal(false);
+                  }}
+                  className="px-4 py-2 border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 font-bold rounded-xl text-xs transition-all cursor-pointer"
+                >
+                  Filtrar en Lista
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchTerm(multiCodeInput);
+                    setShowMultiCodeModal(false);
+
+                    const rawTokens = multiCodeInput
+                      .toLowerCase()
+                      .split(/[\s,\n;\r]+/)
+                      .map(t => t.trim())
+                      .filter(t => t.length > 0);
+
+                    if (rawTokens.length > 0) {
+                      const matchingIds = new Set<string>();
+                      deliveries.forEach(d => {
+                        if (d.status !== 'pendiente_ruteo') return;
+                        const order = d.orders;
+                        const encomienda = d.encomiendas;
+                        if (!order && !encomienda) return;
+
+                        const client = (order ? (order.customer_name || "") : (encomienda?.client_name || "")).toLowerCase();
+                        const code = (order ? (order.legacy_code || order.id || "") : (encomienda?.code || "")).toLowerCase();
+
+                        if (rawTokens.some(t => client.includes(t) || code.includes(t))) {
+                          matchingIds.add(d.id);
+                        }
+                      });
+                      setSelectedDeliveryIds(matchingIds);
+                    }
+                  }}
+                  className="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl text-xs shadow-md shadow-brand-500/10 transition-all cursor-pointer"
+                >
+                  Filtrar y Seleccionar Todos
+                </button>
+              </div>
             </div>
           </div>
         </div>
