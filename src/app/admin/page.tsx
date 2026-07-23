@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/Button";
-import { Plus, Edit2, Trash2, Save, X, Image as ImageIcon, Search, Loader2, Upload, Settings, LogOut, CheckCircle2, Download, Menu, RefreshCw, Eye, EyeOff, AlertTriangle, FileText, Sparkles, Check, Coins } from "lucide-react";
+import { Plus, Edit2, Trash2, Save, X, Image as ImageIcon, Search, Loader2, Upload, Settings, LogOut, CheckCircle2, Download, Menu, RefreshCw, Eye, EyeOff, AlertTriangle, FileText, Sparkles, Check, Coins, Database, Package } from "lucide-react";
 import { cn, formatPrice } from "@/lib/utils";
 import { Product } from "@/types";
 import { supabase } from "@/lib/supabase";
@@ -1315,102 +1315,107 @@ export default function AdminPage() {
   };
 
   return (
-    <div className="container mx-auto px-6 py-12 max-w-6xl">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-12">
+    <div className="p-6 max-w-7xl mx-auto space-y-6">
+      {/* Header Standard ERP */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <div className="flex flex-col md:flex-row md:items-center gap-4 mb-2">
-            <h1 className="text-4xl font-black text-slate-900 tracking-tighter">Panel de Control</h1>
-            <button 
-              onClick={() => supabase.auth.signOut()} 
-              className="flex items-center gap-2 text-[10px] font-black text-red-500 hover:text-white hover:bg-red-500 uppercase tracking-[0.2em] border border-red-100 hover:border-red-500 px-4 py-2 rounded-xl transition-all w-fit"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              Cerrar Sesión
-            </button>
-          </div>
-          <p className="text-slate-500 font-medium">Gestión total de catálogo e inventario</p>
+          <h1 className="text-2xl font-black text-slate-900 tracking-tight flex items-center gap-2.5">
+            <Database className="w-6 h-6 text-brand-600 shrink-0" />
+            Catálogo e Inventario
+          </h1>
+          <p className="text-xs font-semibold text-slate-500 mt-0.5">
+            Gestión total de productos, precios, variantes, carga masiva y rentabilidad
+          </p>
         </div>
-        
-        <div className="flex items-center gap-3">
-          <div className="flex bg-slate-100 p-1 rounded-2xl shadow-inner">
-            <button 
-              onClick={() => setActiveTab('products')}
-              className={cn(
-                "px-4 py-2 rounded-xl text-sm font-black transition-all",
-                activeTab === 'products' ? "bg-white text-brand-600 shadow-sm" : "text-slate-400 hover:text-slate-600"
-              )}
-            >
-              Productos
-            </button>
-            <button 
-              onClick={() => setActiveTab('import')}
-              className={cn(
-                "px-4 py-2 rounded-xl text-sm font-black transition-all",
-                activeTab === 'import' ? "bg-white text-brand-600 shadow-sm" : "text-slate-400 hover:text-slate-600"
-              )}
-            >
-              Carga Masiva
-            </button>
-            <button 
-              onClick={() => setActiveTab('orphans')}
-              className={cn(
-                "px-4 py-2 rounded-xl text-sm font-black transition-all",
-                activeTab === 'orphans' ? "bg-white text-brand-600 shadow-sm" : "text-slate-400 hover:text-slate-600"
-              )}
-            >
-              Huérfanos
-            </button>
-            <button 
-              onClick={() => setActiveTab('profitability')}
-              className={cn(
-                "px-4 py-2 rounded-xl text-sm font-black transition-all",
-                activeTab === 'profitability' ? "bg-white text-brand-600 shadow-sm" : "text-slate-400 hover:text-slate-600"
-              )}
-            >
-              Costos y Rentabilidad
-            </button>
-          </div>
-          
-          {activeTab === 'products' && (
-            <Button onClick={() => handleOpenForm()} className="gap-2 rounded-2xl shadow-lg shadow-brand-600/20 py-6">
-              <Plus className="w-5 h-5" />
-              Nuevo Producto
-            </Button>
+
+        {activeTab === 'products' && (
+          <Button onClick={() => handleOpenForm()} className="gap-2 rounded-xl shadow-sm bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs px-4 py-2.5 cursor-pointer">
+            <Plus className="w-4 h-4" />
+            Nuevo Producto
+          </Button>
+        )}
+      </div>
+
+      {/* Tabs Horizontal Navigation */}
+      <div className="flex items-center gap-1.5 p-1 bg-slate-100 border border-slate-200/80 rounded-xl overflow-x-auto">
+        <button
+          onClick={() => setActiveTab('products')}
+          className={cn(
+            "px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap",
+            activeTab === 'products' ? "bg-white text-brand-600 shadow-sm font-black" : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
           )}
-        </div>
+        >
+          <Package className="w-4 h-4" />
+          Productos
+        </button>
+        <button
+          onClick={() => setActiveTab('import')}
+          className={cn(
+            "px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap",
+            activeTab === 'import' ? "bg-white text-brand-600 shadow-sm font-black" : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
+          )}
+        >
+          <Upload className="w-4 h-4" />
+          Carga Masiva
+        </button>
+        <button
+          onClick={() => setActiveTab('orphans')}
+          className={cn(
+            "px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap",
+            activeTab === 'orphans' ? "bg-white text-brand-600 shadow-sm font-black" : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
+          )}
+        >
+          <Sparkles className="w-4 h-4" />
+          Huérfanos
+        </button>
+        <button
+          onClick={() => setActiveTab('profitability')}
+          className={cn(
+            "px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap",
+            activeTab === 'profitability' ? "bg-white text-brand-600 shadow-sm font-black" : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
+          )}
+        >
+          <Coins className="w-4 h-4" />
+          Costos y Rentabilidad
+        </button>
       </div>
 
       {activeTab === 'products' ? (
         <>
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-8">
-            <div className="lg:col-span-3 relative">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+            <div className="md:col-span-3 relative">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
               <input 
                 type="text" 
                 placeholder="Buscar por nombre, SKU o categoría..." 
-                className="w-full pl-12 pr-4 py-4 rounded-[1.5rem] border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all font-medium"
+                className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all text-sm font-medium text-slate-800"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
-            <div className="bg-brand-50 p-4 rounded-3xl border border-brand-100 flex flex-col justify-center">
-              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-500 mb-1">Total Items</span>
-              <span className="text-3xl font-black text-brand-900 leading-none">{products.length}</span>
+            <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-3">
+              <div className="w-10 h-10 bg-brand-50 rounded-xl flex items-center justify-center text-brand-600 shrink-0">
+                <Package className="w-5 h-5" />
+              </div>
+              <div>
+                <span className="block text-[10px] font-black uppercase tracking-wider text-slate-400">Total Items</span>
+                <span className="text-xl font-black text-slate-900 leading-none">{products.length}</span>
+              </div>
             </div>
           </div>
 
-          <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-2xl shadow-slate-200/50 overflow-hidden">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-left table-fixed">
                 <thead>
-                  <tr className="bg-slate-50 border-b border-slate-100">
-                    <th className="px-6 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 w-full">Producto / Interno</th>
-                    <th className="px-4 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 w-32 md:w-40">Categoría</th>
-                    <th className="px-4 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 w-32 md:w-40">Precio (ARS)</th>
-                    <th className="px-2 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 text-center w-12" title="Destacado">⭐</th>
-                    <th className="px-2 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 text-center w-12" title="Liquidación">🏷️</th>
-                    <th className="px-2 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 text-center w-16" title="Visible en Catálogo Público">👁️</th>
-                    <th className="px-4 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 text-right w-24">Acciones</th>
+                  <tr className="bg-slate-50/80 border-b border-slate-200">
+                    <th className="px-4 py-3.5 text-[10px] font-black uppercase tracking-wider text-slate-500 w-full">Producto / Interno</th>
+                    <th className="px-4 py-3.5 text-[10px] font-black uppercase tracking-wider text-slate-500 w-32 md:w-40">Categoría</th>
+                    <th className="px-4 py-3.5 text-[10px] font-black uppercase tracking-wider text-slate-500 w-32 md:w-40">Precio (ARS)</th>
+                    <th className="px-2 py-3.5 text-[10px] font-black uppercase tracking-wider text-slate-500 text-center w-16" title="Destacado">Destacado</th>
+                    <th className="px-2 py-3.5 text-[10px] font-black uppercase tracking-wider text-slate-500 text-center w-16" title="Liquidación">Oferta</th>
+                    <th className="px-2 py-3.5 text-[10px] font-black uppercase tracking-wider text-slate-500 text-center w-16" title="Visible en Catálogo Público">Visible</th>
+                    <th className="px-4 py-3.5 text-[10px] font-black uppercase tracking-wider text-slate-500 text-right w-24">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
@@ -1494,59 +1499,60 @@ export default function AdminPage() {
           </div>
         </>
       ) : activeTab === 'import' ? (
-        <div className="max-w-4xl">
-          <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl border border-slate-100">
+        <div className="space-y-6">
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 group gap-4">
-              <h2 className="text-3xl font-black text-slate-900 tracking-tighter">Carga Masiva de Productos</h2>
-              <div className="flex flex-col items-start md:items-end gap-3">
+              <div>
+                <h2 className="text-xl font-black text-slate-900 tracking-tight">Carga Masiva de Productos</h2>
+                <p className="text-xs font-semibold text-slate-400 mt-0.5">Sincroniza y actualiza productos en lote desde archivos CSV o Google Sheets</p>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
                 <button
                   onClick={handleDownloadCSV}
-                  className="px-5 py-2.5 bg-brand-50 text-brand-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-brand-100 transition-colors flex items-center gap-2"
+                  className="px-3.5 py-2 bg-brand-50 text-brand-600 rounded-xl text-xs font-bold hover:bg-brand-100 transition-colors flex items-center gap-1.5 cursor-pointer"
                 >
                   <Download className="w-4 h-4" />
-                  Descargar Catálogo Actual (CSV)
+                  Descargar CSV Actual
                 </button>
-                <div className="flex gap-4">
-                  <a 
-                    href="/ejemplo_carga_masiva.csv" 
-                    download 
-                    className="text-[10px] font-black text-slate-400 hover:text-slate-600 uppercase tracking-widest border-b border-slate-200"
-                  >
-                    Plantilla de Ejemplo
-                  </a>
-                </div>
+                <a 
+                  href="/ejemplo_carga_masiva.csv" 
+                  download 
+                  className="text-xs font-bold text-slate-500 hover:text-slate-700 underline px-2 py-1"
+                >
+                  Plantilla de Ejemplo
+                </a>
               </div>
             </div>
             
             <div className="mb-6">
-              <label className="flex flex-col items-center justify-center gap-3 bg-brand-50 hover:bg-brand-100 text-brand-700 p-8 rounded-[2rem] border-2 border-dashed border-brand-200 cursor-pointer transition-colors group">
-                <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center shadow-sm group-hover:scale-110 transition-transform">
-                  <Upload className="w-6 h-6 text-brand-600" />
+              <label className="flex flex-col items-center justify-center gap-2 bg-brand-50/50 hover:bg-brand-50 text-brand-700 p-6 rounded-2xl border-2 border-dashed border-brand-200 cursor-pointer transition-all group">
+                <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-sm group-hover:scale-105 transition-transform text-brand-600">
+                  <Upload className="w-5 h-5" />
                 </div>
                 <div className="text-center">
-                  <span className="font-black text-xl block mb-1">Subir Archivo .CSV</span>
-                  <span className="font-medium text-brand-600/70 text-sm">Hacé click acá para cargar tu archivo de Excel guardado como CSV</span>
+                  <span className="font-bold text-sm text-slate-800 block">Subir Archivo .CSV</span>
+                  <span className="font-medium text-slate-400 text-xs">Cargar archivo guardado en formato CSV</span>
                 </div>
                 <input type="file" accept=".csv" onChange={handleFileUpload} className="hidden" />
               </label>
             </div>
 
-            <p className="text-slate-500 mb-6 font-medium">O si preferís, pegá los datos manualmente en el cuadro de abajo. Si el SKU coincide, se actualiza el producto.</p>
+            <p className="text-slate-500 mb-4 text-xs font-medium">O pegá los datos manualmente en el cuadro inferior (formato CSV separado por comas):</p>
             
-            <div className="space-y-6">
-              <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 text-[10px] font-mono text-slate-500 mb-4">
+            <div className="space-y-4">
+              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-[11px] font-mono text-slate-500">
                 Orden: SKU, Nombre, Precio, Categoría, Marca, Dimensiones, Oferta (true/false), Destacado (true/false), Descripción, URL Imagen
               </div>
               <textarea 
-                className="w-full h-64 p-6 rounded-3xl border border-slate-200 focus:ring-4 focus:ring-brand-500/10 font-mono text-sm leading-relaxed outline-none"
+                className="w-full h-48 p-4 rounded-xl border border-slate-200 focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 font-mono text-xs leading-relaxed outline-none bg-white text-slate-800"
                 placeholder={"Ejemplo:\nSKU-1, Producto A, 250000, Tanques, Aquafort, 1x1m, false, true, Mi producto, https://...\nSKU-2, Producto B, 50000, Bombas, Daewoo, 0.5x0.5m, true, false, Una bomba, https://..."}
                 value={importData}
                 onChange={(e) => setImportData(e.target.value)}
               />
-              {importStatus && <div className={`p-4 rounded-2xl text-xs font-bold text-center ${importErrors.length > 0 ? 'bg-red-600 text-white shadow-xl shadow-red-600/20' : 'bg-slate-900 text-white shadow-xl shadow-slate-900/20'}`}>{importStatus}</div>}
+              {importStatus && <div className={`p-3.5 rounded-xl text-xs font-bold text-center ${importErrors.length > 0 ? 'bg-red-600 text-white' : 'bg-slate-900 text-white'}`}>{importStatus}</div>}
               {importErrors.length > 0 && (
-                <div className="flex flex-col gap-3 animate-in fade-in slide-in-from-top-4 duration-300">
-                  <div className="bg-red-50 text-red-700 p-4 rounded-2xl border border-red-100 max-h-48 overflow-y-auto text-[11px] font-mono leading-relaxed shadow-inner">
+                <div className="flex flex-col gap-3 animate-in fade-in duration-200">
+                  <div className="bg-red-50 text-red-700 p-4 rounded-xl border border-red-100 max-h-48 overflow-y-auto text-[11px] font-mono leading-relaxed">
                     {importErrors.map((err, idx) => (
                       <div key={idx} className="mb-1 border-b border-red-100/50 pb-1 last:border-0">{err}</div>
                     ))}
@@ -1563,19 +1569,19 @@ export default function AdminPage() {
                       document.body.removeChild(a);
                       URL.revokeObjectURL(url);
                     }}
-                    className="self-end px-5 py-2.5 bg-white text-red-600 border border-red-200 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-red-50 hover:border-red-300 transition-all flex items-center gap-2"
+                    className="self-end px-4 py-2 bg-white text-red-600 border border-red-200 rounded-xl text-xs font-bold uppercase tracking-wider hover:bg-red-50 transition-all flex items-center gap-1.5"
                   >
-                    <Download className="w-4 h-4" /> Descargar Log Completo
+                    <Download className="w-3.5 h-3.5" /> Descargar Log Completo
                   </button>
                 </div>
               )}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Button onClick={handleMassUpdate} className="w-full py-8 text-lg font-black rounded-2xl shadow-2xl shadow-brand-600/20" disabled={submittingType !== null}>
-                  {submittingType === 'manual' ? <Loader2 className="animate-spin" /> : <Upload className="mr-2" />}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
+                <Button onClick={handleMassUpdate} className="w-full py-3 text-sm font-bold rounded-xl bg-brand-600 hover:bg-brand-700 text-white shadow-sm" disabled={submittingType !== null}>
+                  {submittingType === 'manual' ? <Loader2 className="animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
                   Procesar CSV Manual
                 </Button>
-                <Button onClick={handleGoogleSheetsSync} className="w-full py-8 text-lg font-black bg-green-600 hover:bg-green-700 rounded-2xl shadow-2xl shadow-green-600/20" disabled={submittingType !== null}>
-                  {submittingType === 'sheets' ? <Loader2 className="animate-spin" /> : <RefreshCw className="mr-2" />}
+                <Button onClick={handleGoogleSheetsSync} className="w-full py-3 text-sm font-bold rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm" disabled={submittingType !== null}>
+                  {submittingType === 'sheets' ? <Loader2 className="animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
                   Sincronizar Google Sheets
                 </Button>
               </div>
@@ -1583,41 +1589,35 @@ export default function AdminPage() {
           </div>
 
           {/* Sincronización de Costos */}
-          <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl border border-slate-100 mt-10">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-              <div>
-                <h2 className="text-3xl font-black text-slate-900 tracking-tighter">Sincronización de Costos</h2>
-                <p className="text-slate-500 font-medium mt-1">
-                  Actualiza el costo de lista (`Costo sin IVA`) de los productos mapeándolos por nombre.
-                </p>
-              </div>
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+            <div>
+              <h2 className="text-xl font-black text-slate-900 tracking-tight">Sincronización de Costos</h2>
+              <p className="text-xs font-semibold text-slate-400 mt-0.5">
+                Actualiza el costo de lista (Costo sin IVA) de los productos mapeándolos por nombre.
+              </p>
             </div>
 
-            <p className="text-slate-500 mb-6 font-medium">
-              Podés sincronizar directamente desde la planilla de Google Sheets o pegar el contenido CSV manualmente abajo.
-            </p>
-
-            <div className="space-y-6">
-              <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 text-[10px] font-mono text-slate-500 mb-4">
+            <div className="space-y-4">
+              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-[11px] font-mono text-slate-500">
                 Orden esperado del CSV manual: Producto (Nombre), P. Lista, Coef, IVA, Costo sin IVA
               </div>
               <textarea 
-                className="w-full h-48 p-6 rounded-3xl border border-slate-200 focus:ring-4 focus:ring-brand-500/10 font-mono text-sm leading-relaxed outline-none"
+                className="w-full h-40 p-4 rounded-xl border border-slate-200 focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 font-mono text-xs leading-relaxed outline-none bg-white text-slate-800"
                 placeholder={"Ejemplo:\nAlberti - Bidet Largo 3 agujeros, 0, 90%, 21%, 15000\nAlma rústica - Artículo A, 30000, 100%, 21%, 30000"}
                 value={costsImportData}
                 onChange={(e) => setCostsImportData(e.target.value)}
               />
               {costsImportStatus && (
-                <div className={`p-4 rounded-2xl text-xs font-bold text-center ${costsImportErrors.length > 0 ? 'bg-red-600 text-white shadow-xl shadow-red-600/20' : 'bg-slate-900 text-white shadow-xl shadow-slate-900/20'}`}>
+                <div className={`p-3.5 rounded-xl text-xs font-bold text-center ${costsImportErrors.length > 0 ? 'bg-red-600 text-white' : 'bg-slate-900 text-white'}`}>
                   {costsImportStatus}
                 </div>
               )}
               {costsImportLogs.length > 0 && (
-                <div className="space-y-2">
-                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Consola de Progreso:</span>
+                <div className="space-y-1.5">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Consola de Progreso:</span>
                   <div 
                     ref={costsConsoleRef}
-                    className="bg-slate-950 text-emerald-400 font-mono text-[10px] p-4 rounded-xl max-h-64 overflow-y-auto space-y-1 shadow-inner leading-relaxed border border-slate-800"
+                    className="bg-slate-950 text-emerald-400 font-mono text-[10px] p-3.5 rounded-xl max-h-48 overflow-y-auto space-y-1 leading-relaxed border border-slate-800"
                   >
                     {costsImportLogs.map((log, lIdx) => (
                       <div key={lIdx} className="font-mono">
@@ -1628,8 +1628,8 @@ export default function AdminPage() {
                 </div>
               )}
               {costsImportErrors.length > 0 && (
-                <div className="flex flex-col gap-3 animate-in fade-in slide-in-from-top-4 duration-300">
-                  <div className="bg-red-50 text-red-700 p-4 rounded-2xl border border-red-100 max-h-48 overflow-y-auto text-[11px] font-mono leading-relaxed shadow-inner">
+                <div className="flex flex-col gap-3 animate-in fade-in duration-200">
+                  <div className="bg-red-50 text-red-700 p-4 rounded-xl border border-red-100 max-h-48 overflow-y-auto text-[11px] font-mono leading-relaxed">
                     {costsImportErrors.map((err, idx) => (
                       <div key={idx} className="mb-1 border-b border-red-100/50 pb-1 last:border-0">{err}</div>
                     ))}
@@ -1646,27 +1646,27 @@ export default function AdminPage() {
                       document.body.removeChild(a);
                       URL.revokeObjectURL(url);
                     }}
-                    className="self-end px-5 py-2.5 bg-white text-red-600 border border-red-200 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-red-50 hover:border-red-300 transition-all flex items-center gap-2"
+                    className="self-end px-4 py-2 bg-white text-red-600 border border-red-200 rounded-xl text-xs font-bold uppercase tracking-wider hover:bg-red-50 transition-all flex items-center gap-1.5"
                   >
-                    <Download className="w-4 h-4" /> Descargar Log de Errores Completo
+                    <Download className="w-3.5 h-3.5" /> Descargar Log de Errores Completo
                   </button>
                 </div>
               )}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
                 <Button 
                   onClick={handleManualCostsSync} 
-                  className="w-full py-8 text-lg font-black rounded-2xl shadow-2xl shadow-brand-600/20" 
+                  className="w-full py-3 text-sm font-bold rounded-xl bg-brand-600 hover:bg-brand-700 text-white shadow-sm" 
                   disabled={submittingCostsType !== null}
                 >
-                  {submittingCostsType === 'manual' ? <Loader2 className="animate-spin" /> : <Upload className="mr-2" />}
+                  {submittingCostsType === 'manual' ? <Loader2 className="animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
                   Procesar Costos CSV Manual
                 </Button>
                 <Button 
                   onClick={handleGoogleSheetsCostsSync} 
-                  className="w-full py-8 text-lg font-black bg-emerald-600 hover:bg-emerald-700 rounded-2xl shadow-2xl shadow-emerald-600/20 text-white" 
+                  className="w-full py-3 text-sm font-bold rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm" 
                   disabled={submittingCostsType !== null}
                 >
-                  {submittingCostsType === 'sheets' ? <Loader2 className="animate-spin" /> : <Coins className="mr-2" />}
+                  {submittingCostsType === 'sheets' ? <Loader2 className="animate-spin" /> : <Coins className="w-4 h-4 mr-2" />}
                   Sincronizar Costos desde Google Sheets
                 </Button>
               </div>
@@ -1676,60 +1676,60 @@ export default function AdminPage() {
       ) : activeTab === 'profitability' ? (
         <div className="space-y-6 animate-in fade-in duration-300">
           {/* Tarjeta de métricas principales */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-xl flex items-center justify-between">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
               <div>
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Total Productos</span>
-                <span className="text-3xl font-black text-slate-900 mt-1 block">{totalAnalyzedCount}</span>
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Total Productos</span>
+                <span className="text-2xl font-black text-slate-900 mt-1 block">{totalAnalyzedCount}</span>
               </div>
-              <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400">
-                <FileText className="w-6 h-6" />
+              <div className="w-11 h-11 bg-slate-100 rounded-xl flex items-center justify-center text-slate-500 shrink-0">
+                <FileText className="w-5 h-5" />
               </div>
             </div>
 
-            <div className={`p-6 rounded-3xl border shadow-xl flex items-center justify-between transition-all ${
-              missingCostCount > 0 ? 'bg-amber-50/50 border-amber-100' : 'bg-white border-slate-100'
+            <div className={`p-5 rounded-2xl border shadow-sm flex items-center justify-between transition-all ${
+              missingCostCount > 0 ? 'bg-amber-50/50 border-amber-200' : 'bg-white border-slate-200'
             }`}>
               <div>
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Sin Costo Asignado</span>
-                <span className={`text-3xl font-black mt-1 block ${missingCostCount > 0 ? 'text-amber-600' : 'text-slate-900'}`}>{missingCostCount}</span>
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Sin Costo Asignado</span>
+                <span className={`text-2xl font-black mt-1 block ${missingCostCount > 0 ? 'text-amber-600' : 'text-slate-900'}`}>{missingCostCount}</span>
               </div>
-              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${
-                missingCostCount > 0 ? 'bg-amber-100 text-amber-600' : 'bg-slate-50 text-slate-400'
+              <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${
+                missingCostCount > 0 ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-400'
               }`}>
-                <AlertTriangle className="w-6 h-6" />
+                <AlertTriangle className="w-5 h-5" />
               </div>
             </div>
 
-            <div className={`p-6 rounded-3xl border shadow-xl flex items-center justify-between transition-all ${
-              negativeMarginCount > 0 ? 'bg-red-50/50 border-red-100 animate-pulse' : 'bg-white border-slate-100'
+            <div className={`p-5 rounded-2xl border shadow-sm flex items-center justify-between transition-all ${
+              negativeMarginCount > 0 ? 'bg-rose-50/50 border-rose-200' : 'bg-white border-slate-200'
             }`}>
               <div>
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Margen Negativo (Pérdida)</span>
-                <span className={`text-3xl font-black mt-1 block ${negativeMarginCount > 0 ? 'text-red-600' : 'text-slate-900'}`}>{negativeMarginCount}</span>
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Margen Negativo (Pérdida)</span>
+                <span className={`text-2xl font-black mt-1 block ${negativeMarginCount > 0 ? 'text-rose-600' : 'text-slate-900'}`}>{negativeMarginCount}</span>
               </div>
-              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${
-                negativeMarginCount > 0 ? 'bg-red-100 text-red-600' : 'bg-slate-50 text-slate-400'
+              <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${
+                negativeMarginCount > 0 ? 'bg-rose-100 text-rose-600' : 'bg-slate-100 text-slate-400'
               }`}>
-                <AlertTriangle className="w-6 h-6" />
+                <AlertTriangle className="w-5 h-5" />
               </div>
             </div>
 
-            <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-xl flex items-center justify-between">
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
               <div>
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Rentabilidad Promedio</span>
-                <span className="text-3xl font-black text-emerald-600 mt-1 block">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Rentabilidad Promedio</span>
+                <span className="text-2xl font-black text-emerald-600 mt-1 block">
                   {avgProfitMargin > 0 ? `${avgProfitMargin.toFixed(1)}%` : '--'}
                 </span>
               </div>
-              <div className="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center text-emerald-600">
-                <Coins className="w-6 h-6" />
+              <div className="w-11 h-11 bg-emerald-50 rounded-xl flex items-center justify-center text-emerald-600 shrink-0">
+                <Coins className="w-5 h-5" />
               </div>
             </div>
           </div>
 
           {/* Filtros e informes */}
-          <div className="bg-white p-8 rounded-[2rem] shadow-xl border border-slate-100">
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 mb-6">
               <div>
                 <h2 className="text-2xl font-black text-slate-900 tracking-tight">Análisis de Costos y Margen Comercial</h2>

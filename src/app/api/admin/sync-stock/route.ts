@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { getArgentinaDaysAgoString } from '@/lib/utils';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -91,18 +92,16 @@ export async function GET() {
     const csvText = await csvRes.text();
     const sheetRows = parseCSV(csvText);
 
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const dateLimitStr = thirtyDaysAgo.toISOString().split('T')[0];
+    const dateLimitStr = getArgentinaDaysAgoString(30);
 
-    // 2. Fetch products and active orders from database
+    // 2. Fetch products and active orders from database (active orders in Pendiente/Confirmado within GMT-3 30-day window)
     const [dbProducts, pendingRes] = await Promise.all([
       fetchProductsAll(),
       supabaseAdmin
         .from('order_items')
         .select('product_id, product_name, quantity, orders!inner(id, legacy_code, status, order_date)')
         .in('orders.status', ['Pendiente', 'Confirmado'])
-        .gt('orders.order_date', dateLimitStr)
+        .gte('orders.order_date', dateLimitStr)
     ]);
 
     if (pendingRes.error) throw pendingRes.error;
@@ -235,14 +234,16 @@ export async function POST() {
     const csvText = await csvRes.text();
     const sheetRows = parseCSV(csvText);
 
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const dateLimitStr = thirtyDaysAgo.toISOString().split('T')[0];
+    const dateLimitStr = getArgentinaDaysAgoString(30);
 
-    // 2. Fetch products and active orders from database
+    // 2. Fetch products and active orders from database (active orders in Pendiente/Confirmado within GMT-3 30-day window)
     const [dbProducts, pendingRes] = await Promise.all([
       fetchProductsAll(),
-      supabaseAdmin.from('order_items').select('product_id, product_name, quantity, orders!inner(id, legacy_code, status, order_date)').in('orders.status', ['Pendiente', 'Confirmado']).gt('orders.order_date', dateLimitStr)
+      supabaseAdmin
+        .from('order_items')
+        .select('product_id, product_name, quantity, orders!inner(id, legacy_code, status, order_date)')
+        .in('orders.status', ['Pendiente', 'Confirmado'])
+        .gte('orders.order_date', dateLimitStr)
     ]);
 
     if (pendingRes.error) throw pendingRes.error;

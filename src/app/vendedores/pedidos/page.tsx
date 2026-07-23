@@ -74,6 +74,21 @@ interface Kit {
   sellerId: string;
 }
 
+interface CustomView {
+  id: string;
+  name: string;
+  isDefault?: boolean;
+  filters: {
+    statusFilter: 'Pendientes' | 'En Revisión' | 'Entregados' | 'Anulados' | 'Todos';
+    clientTypeFilter: 'todos' | 'minoristas' | 'mayoristas';
+    selectedProducts: string[];
+    orderSearchQuery: string;
+    listType: 'mis_pedidos' | 'todos';
+    dateFrom?: string;
+    dateTo?: string;
+  };
+}
+
 interface Client {
   id: string;
   business_name: string;
@@ -516,6 +531,221 @@ export default function PedidosPage() {
       setSortDirection('asc');
     }
   };
+
+  // Custom Views & URL Filter Sync States
+  const [customViews, setCustomViews] = useState<CustomView[]>([]);
+  const [showCustomViewsDropdown, setShowCustomViewsDropdown] = useState(false);
+  const [showSaveViewModal, setShowSaveViewModal] = useState(false);
+  const [newViewName, setNewViewName] = useState("");
+  const [dateFrom, setDateFrom] = useState<string>("");
+  const [dateTo, setDateTo] = useState<string>("");
+  const [showDateDropdown, setShowDateDropdown] = useState<boolean>(false);
+  const isInitialMount = useRef(true);
+
+  // Load custom views from localStorage and parse URL query params on initial mount
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("zc_pedidos_custom_views");
+        if (saved) {
+          setCustomViews(JSON.parse(saved));
+        }
+      } catch (e) {
+        console.error("Error loading custom views from localStorage:", e);
+      }
+
+      const params = new URLSearchParams(window.location.search);
+      const urlStatus = params.get("status");
+      if (urlStatus && ['Pendientes', 'En Revisión', 'Entregados', 'Anulados', 'Todos'].includes(urlStatus)) {
+        setStatusFilter(urlStatus as any);
+      }
+      const urlClientType = params.get("client_type");
+      if (urlClientType && ['todos', 'minoristas', 'mayoristas'].includes(urlClientType)) {
+        setClientTypeFilter(urlClientType as any);
+      }
+      const urlProducts = params.get("products");
+      if (urlProducts) {
+        const pIds = urlProducts.split(',').map(s => s.trim()).filter(Boolean);
+        setSelectedProducts(pIds);
+      }
+      const urlSearch = params.get("search");
+      if (urlSearch !== null) {
+        setOrderSearchQuery(urlSearch);
+      }
+      const urlListType = params.get("list_type");
+      if (urlListType && ['mis_pedidos', 'todos'].includes(urlListType)) {
+        setListType(urlListType as any);
+      }
+      const urlDateFrom = params.get("date_from");
+      if (urlDateFrom) {
+        setDateFrom(urlDateFrom);
+      }
+      const urlDateTo = params.get("date_to");
+      if (urlDateTo) {
+        setDateTo(urlDateTo);
+      }
+    }
+  }, []);
+
+  // Update browser URL query string smoothly whenever active filters change
+  useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
+    if (typeof window === "undefined") return;
+
+    const params = new URLSearchParams(window.location.search);
+
+    if (statusFilter !== 'Pendientes') {
+      params.set("status", statusFilter);
+    } else {
+      params.delete("status");
+    }
+
+    if (clientTypeFilter !== 'todos') {
+      params.set("client_type", clientTypeFilter);
+    } else {
+      params.delete("client_type");
+    }
+
+    if (selectedProducts.length > 0) {
+      params.set("products", selectedProducts.join(","));
+    } else {
+      params.delete("products");
+    }
+
+    if (orderSearchQuery.trim()) {
+      params.set("search", orderSearchQuery.trim());
+    } else {
+      params.delete("search");
+    }
+
+    if (listType !== 'mis_pedidos') {
+      params.set("list_type", listType);
+    } else {
+      params.delete("list_type");
+    }
+
+    if (dateFrom) {
+      params.set("date_from", dateFrom);
+    } else {
+      params.delete("date_from");
+    }
+
+    if (dateTo) {
+      params.set("date_to", dateTo);
+    } else {
+      params.delete("date_to");
+    }
+
+    const newQueryString = params.toString();
+    const newPath = newQueryString 
+      ? `${window.location.pathname}?${newQueryString}` 
+      : window.location.pathname;
+
+    window.history.replaceState(null, "", newPath);
+  }, [statusFilter, clientTypeFilter, selectedProducts, orderSearchQuery, listType, dateFrom, dateTo]);
+
+  // Support browser back/forward buttons (popstate)
+  useEffect(() => {
+    const handlePopState = () => {
+      const params = new URLSearchParams(window.location.search);
+      setStatusFilter((params.get("status") as any) || 'Pendientes');
+      setClientTypeFilter((params.get("client_type") as any) || 'todos');
+      setSelectedProducts(params.get("products") ? params.get("products")!.split(',').filter(Boolean) : []);
+      setOrderSearchQuery(params.get("search") || '');
+      setListType((params.get("list_type") as any) || 'mis_pedidos');
+      setDateFrom(params.get("date_from") || '');
+      setDateTo(params.get("date_to") || '');
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  const saveCustomView = (name: string) => {
+    if (!name.trim()) return;
+    const newView: CustomView = {
+      id: 'view_' + Date.now(),
+      name: name.trim(),
+      filters: {
+        statusFilter,
+        clientTypeFilter,
+        selectedProducts,
+        orderSearchQuery,
+        listType,
+        dateFrom,
+        dateTo
+      }
+    };
+    const updatedViews = [...customViews, newView];
+    setCustomViews(updatedViews);
+    try {
+      localStorage.setItem("zc_pedidos_custom_views", JSON.stringify(updatedViews));
+    } catch (e) {
+      console.error("Error saving custom view to localStorage:", e);
+    }
+    setNewViewName("");
+    setShowSaveViewModal(false);
+  };
+
+  const deleteCustomView = (id: string) => {
+    const updatedViews = customViews.filter(v => v.id !== id);
+    setCustomViews(updatedViews);
+    try {
+      localStorage.setItem("zc_pedidos_custom_views", JSON.stringify(updatedViews));
+    } catch (e) {
+      console.error("Error deleting custom view from localStorage:", e);
+    }
+  };
+
+  const applyCustomView = (view: CustomView) => {
+    setStatusFilter(view.filters.statusFilter);
+    setClientTypeFilter(view.filters.clientTypeFilter);
+    setSelectedProducts(view.filters.selectedProducts || []);
+    setOrderSearchQuery(view.filters.orderSearchQuery || "");
+    if (view.filters.listType) {
+      setListType(view.filters.listType);
+    }
+    setDateFrom(view.filters.dateFrom || "");
+    setDateTo(view.filters.dateTo || "");
+    setShowCustomViewsDropdown(false);
+  };
+
+  const resetAllFilters = () => {
+    setStatusFilter('Pendientes');
+    setClientTypeFilter('todos');
+    setSelectedProducts([]);
+    setOrderSearchQuery("");
+    setListType('mis_pedidos');
+    setDateFrom("");
+    setDateTo("");
+    setShowCustomViewsDropdown(false);
+  };
+
+  const currentActiveViewName = useMemo(() => {
+    const matched = customViews.find(v => 
+      v.filters.statusFilter === statusFilter &&
+      v.filters.clientTypeFilter === clientTypeFilter &&
+      JSON.stringify((v.filters.selectedProducts || []).slice().sort()) === JSON.stringify(selectedProducts.slice().sort()) &&
+      v.filters.orderSearchQuery === orderSearchQuery &&
+      (v.filters.listType || 'mis_pedidos') === listType &&
+      (v.filters.dateFrom || "") === dateFrom &&
+      (v.filters.dateTo || "") === dateTo
+    );
+    return matched ? matched.name : null;
+  }, [customViews, statusFilter, clientTypeFilter, selectedProducts, orderSearchQuery, listType, dateFrom, dateTo]);
+
+  const hasActiveCustomFilters = useMemo(() => {
+    return statusFilter !== 'Pendientes' || 
+           clientTypeFilter !== 'todos' || 
+           selectedProducts.length > 0 || 
+           orderSearchQuery.trim() !== '' ||
+           listType !== 'mis_pedidos' ||
+           dateFrom !== '' ||
+           dateTo !== '';
+  }, [statusFilter, clientTypeFilter, selectedProducts, orderSearchQuery, listType, dateFrom, dateTo]);
 
   // Kits & Payment States
   const [kits, setKits] = useState<Kit[]>([]);
@@ -1584,6 +1814,14 @@ export default function PedidosPage() {
           } else if (clientTypeFilter === 'mayoristas') {
             query = query.or('channel.eq.mayorista,legacy_code.ilike.AQU%,legacy_code.ilike.POW%,legacy_code.ilike.AQ-DB%');
           }
+
+          // Apply date range filter
+          if (dateFrom) {
+            query = query.gte('order_date', dateFrom);
+          }
+          if (dateTo) {
+            query = query.lte('order_date', dateTo);
+          }
           
           // Limit to 500 for active states to display all pending orders, and 100 for history to keep UI fast
           if (statusFilter === 'Pendientes' || statusFilter === 'En Revisión') {
@@ -1606,7 +1844,7 @@ export default function PedidosPage() {
       }
     }
     fetchOrders();
-  }, [activeTab, listType, role, debouncedOrderSearch, statusFilter, selectedProducts, expandedSelectedProductIds, products, clientTypeFilter]);
+  }, [activeTab, listType, role, debouncedOrderSearch, statusFilter, selectedProducts, expandedSelectedProductIds, products, clientTypeFilter, dateFrom, dateTo]);
 
   const handleEditOrder = async (order: any) => {
     isEditingRef.current = true;
@@ -4506,6 +4744,232 @@ export default function PedidosPage() {
                 )}
               </div>
 
+              {/* Dropdown Vistas Personalizadas */}
+              <div className="relative shrink-0 w-full sm:w-52">
+                <button
+                  type="button"
+                  onClick={() => setShowCustomViewsDropdown(prev => !prev)}
+                  className={`w-full px-3 py-1.5 rounded-xl border font-bold text-[10px] uppercase tracking-wider focus:ring-2 focus:ring-brand-500/10 outline-none cursor-pointer transition-all flex items-center justify-between gap-1.5 h-[28px] ${
+                    currentActiveViewName
+                      ? "bg-violet-50 border-violet-200 text-violet-700"
+                      : hasActiveCustomFilters
+                      ? "bg-amber-50 border-amber-200 text-amber-700"
+                      : "bg-white border-slate-200 text-slate-600 hover:text-slate-800"
+                  }`}
+                >
+                  <span className="truncate flex items-center gap-1.5">
+                    <Eye className="w-3.5 h-3.5 text-violet-500 shrink-0" />
+                    {currentActiveViewName || "Vistas Personalizadas"}
+                  </span>
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                </button>
+
+                {showCustomViewsDropdown && (
+                  <>
+                    <div 
+                      className="fixed inset-0 z-40" 
+                      onClick={() => setShowCustomViewsDropdown(false)} 
+                    />
+                    <div className="absolute right-0 sm:left-0 mt-1 w-64 bg-white rounded-xl border border-slate-200 shadow-lg z-50 overflow-hidden flex flex-col">
+                      <div className="p-2 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
+                        <span className="text-[10px] font-black uppercase text-slate-500 tracking-wider">
+                          Vistas Guardadas
+                        </span>
+                        {hasActiveCustomFilters && (
+                          <button
+                            type="button"
+                            onClick={resetAllFilters}
+                            className="text-[9px] font-bold text-slate-400 hover:text-slate-600 uppercase cursor-pointer"
+                          >
+                            Restablecer
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="max-h-[220px] overflow-y-auto divide-y divide-slate-50">
+                        {customViews.length === 0 ? (
+                          <div className="p-3 text-center text-slate-400 text-xs font-medium">
+                            No tienes vistas guardadas.
+                          </div>
+                        ) : (
+                          customViews.map(view => {
+                            const isActive = currentActiveViewName === view.name;
+                            return (
+                              <div
+                                key={view.id}
+                                className={`flex items-center justify-between px-3 py-2 text-xs transition-colors hover:bg-slate-50 ${
+                                  isActive ? "bg-violet-50/60 font-bold text-violet-700" : "text-slate-700"
+                                }`}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => applyCustomView(view)}
+                                  className="flex-1 text-left truncate font-medium flex items-center gap-1.5 cursor-pointer"
+                                >
+                                  {isActive && <Check className="w-3.5 h-3.5 text-violet-600 shrink-0" />}
+                                  <span className="truncate">{view.name}</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    deleteCustomView(view.id);
+                                  }}
+                                  className="p-1 text-slate-400 hover:text-red-600 rounded transition-colors cursor-pointer"
+                                  title="Eliminar vista"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+
+                      <div className="p-2 border-t border-slate-100 bg-slate-50/50">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowCustomViewsDropdown(false);
+                            setShowSaveViewModal(true);
+                          }}
+                          className="w-full py-1.5 bg-violet-600 hover:bg-violet-700 text-white font-bold text-[10px] uppercase tracking-wider rounded-lg transition-colors flex items-center justify-center gap-1 cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" /> Guardar Vista Actual
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Filtro por Fecha (Rango) */}
+              <div className="relative shrink-0 w-full sm:w-48">
+                <button
+                  type="button"
+                  onClick={() => setShowDateDropdown(prev => !prev)}
+                  className={`w-full px-3 py-1.5 rounded-xl border font-bold text-[10px] uppercase tracking-wider focus:ring-2 focus:ring-brand-500/10 outline-none cursor-pointer transition-all flex items-center justify-between gap-1.5 h-[28px] ${
+                    dateFrom || dateTo
+                      ? "bg-blue-50 border-blue-200 text-blue-700"
+                      : "bg-white border-slate-200 text-slate-600 hover:text-slate-800"
+                  }`}
+                >
+                  <span className="truncate flex items-center gap-1.5">
+                    <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                    {dateFrom && dateTo
+                      ? `${formatDate(dateFrom)} - ${formatDate(dateTo)}`
+                      : dateFrom
+                      ? `Desde ${formatDate(dateFrom)}`
+                      : dateTo
+                      ? `Hasta ${formatDate(dateTo)}`
+                      : "Filtrar por Fecha"
+                    }
+                  </span>
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                </button>
+
+                {showDateDropdown && (
+                  <>
+                    <div 
+                      className="fixed inset-0 z-40" 
+                      onClick={() => setShowDateDropdown(false)} 
+                    />
+                    <div className="absolute right-0 sm:left-0 mt-1 w-64 bg-white rounded-xl border border-slate-200 shadow-lg z-50 p-3 flex flex-col gap-2.5">
+                      <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                        <span className="text-[10px] font-black uppercase text-slate-500 tracking-wider">
+                          Rango de Fechas
+                        </span>
+                        {(dateFrom || dateTo) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDateFrom("");
+                              setDateTo("");
+                            }}
+                            className="text-[9px] font-bold text-red-600 hover:text-red-700 uppercase cursor-pointer"
+                          >
+                            Limpiar
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Presets rápidos */}
+                      <div className="grid grid-cols-2 gap-1 text-[10px] font-bold">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const today = new Date().toISOString().split('T')[0];
+                            setDateFrom(today);
+                            setDateTo(today);
+                          }}
+                          className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors cursor-pointer text-center"
+                        >
+                          Hoy
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+                            setDateFrom(yesterday);
+                            setDateTo(yesterday);
+                          }}
+                          className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors cursor-pointer text-center"
+                        >
+                          Ayer
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const today = new Date().toISOString().split('T')[0];
+                            const last7 = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
+                            setDateFrom(last7);
+                            setDateTo(today);
+                          }}
+                          className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors cursor-pointer text-center"
+                        >
+                          Últimos 7 días
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const now = new Date();
+                            const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+                            const today = now.toISOString().split('T')[0];
+                            setDateFrom(firstDay);
+                            setDateTo(today);
+                          }}
+                          className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors cursor-pointer text-center"
+                        >
+                          Este mes
+                        </button>
+                      </div>
+
+                      {/* Inputs manuales */}
+                      <div className="space-y-1.5 pt-1 border-t border-slate-100">
+                        <div className="flex flex-col gap-0.5">
+                          <label className="text-[9px] font-black uppercase text-slate-400">Desde</label>
+                          <input
+                            type="date"
+                            value={dateFrom}
+                            onChange={(e) => setDateFrom(e.target.value)}
+                            className="w-full px-2 py-1 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 outline-none focus:ring-1 focus:ring-brand-500"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-0.5">
+                          <label className="text-[9px] font-black uppercase text-slate-400">Hasta</label>
+                          <input
+                            type="date"
+                            value={dateTo}
+                            onChange={(e) => setDateTo(e.target.value)}
+                            className="w-full px-2 py-1 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 outline-none focus:ring-1 focus:ring-brand-500"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+
               <button
                 type="button"
                 onClick={() => {
@@ -5135,6 +5599,92 @@ export default function PedidosPage() {
                <Button onClick={handleEditKitName} className="px-4 py-1.5 rounded-lg font-black text-xs">
                  Guardar
                </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Guardar Vista Personalizada */}
+      {showSaveViewModal && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-2xl border border-slate-100 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-black text-sm text-slate-800 flex items-center gap-2">
+                <Save className="w-4 h-4 text-violet-600" />
+                Guardar Vista Personalizada
+              </h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSaveViewModal(false);
+                  setNewViewName("");
+                }}
+                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-500 mb-3">
+              Asigna un nombre a esta combinación de filtros activa para acceder a ella rápidamente en cualquier momento.
+            </p>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-[10px] font-black uppercase text-slate-400 block mb-1">
+                  Nombre de la vista
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ej: Mayoristas Pendientes"
+                  value={newViewName}
+                  onChange={(e) => setNewViewName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      saveCustomView(newViewName);
+                    }
+                  }}
+                  autoFocus
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 outline-none"
+                />
+              </div>
+
+              <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-100 text-[10px] text-slate-500 space-y-1">
+                <div className="font-bold text-slate-700 mb-1 uppercase tracking-wider">Filtros incluidos:</div>
+                <div>• Estado: <span className="font-semibold text-slate-800">{statusFilter}</span></div>
+                <div>• Cliente: <span className="font-semibold text-slate-800">{clientTypeFilter}</span></div>
+                {selectedProducts.length > 0 && (
+                  <div>• Productos: <span className="font-semibold text-slate-800">{selectedProducts.length} seleccionados</span></div>
+                )}
+                {orderSearchQuery && (
+                  <div>• Búsqueda: <span className="font-semibold text-slate-800">"{orderSearchQuery}"</span></div>
+                )}
+                {(dateFrom || dateTo) && (
+                  <div>• Fechas: <span className="font-semibold text-slate-800">{dateFrom ? formatDate(dateFrom) : 'Inicio'} a {dateTo ? formatDate(dateTo) : 'Hoy'}</span></div>
+                )}
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => {
+                    setShowSaveViewModal(false);
+                    setNewViewName("");
+                  }}
+                  className="text-xs font-bold text-slate-500 cursor-pointer"
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => saveCustomView(newViewName)}
+                  disabled={!newViewName.trim()}
+                  className="bg-violet-600 hover:bg-violet-700 text-white font-bold text-xs px-4 py-2 rounded-xl cursor-pointer"
+                >
+                  Guardar Vista
+                </Button>
+              </div>
             </div>
           </div>
         </div>

@@ -19,7 +19,8 @@ import {
   AlertCircle,
   ToggleLeft,
   ToggleRight,
-  Pencil
+  Pencil,
+  Settings
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { Product } from "@/types";
@@ -585,65 +586,76 @@ export default function AjustesPage() {
   }
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto pb-10">
-      <div className="bg-white p-6 sm:p-10 rounded-[2.5rem] shadow-2xl border border-slate-100">
-        
-        {/* Main Tabs Navigation */}
-        <div className="flex flex-wrap border-b border-slate-200 mb-8 p-1.5 bg-slate-100/80 rounded-[1.5rem] gap-1">
-          <button
-            type="button"
-            onClick={() => setMainTab("general")}
-            className={`flex items-center justify-center gap-2 px-5 py-3.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all ${
-              mainTab === "general"
-                ? "bg-white text-brand-600 shadow-sm border border-slate-200/50"
-                : "text-slate-500 hover:text-slate-800 hover:bg-slate-50/50"
-            }`}
-          >
-            <Globe className="w-4 h-4" />
-            General y Landings
-          </button>
-          <button
-            type="button"
-            onClick={() => setMainTab("payments")}
-            className={`flex items-center justify-center gap-2 px-5 py-3.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all ${
-              mainTab === "payments"
-                ? "bg-white text-brand-600 shadow-sm border border-slate-200/50"
-                : "text-slate-500 hover:text-slate-800 hover:bg-slate-50/50"
-            }`}
-          >
-            <CreditCard className="w-4 h-4" />
-            Medios de Pago
-          </button>
-          <button
-            type="button"
-            onClick={() => setMainTab("reception")}
-            className={`flex items-center justify-center gap-2 px-5 py-3.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all ${
-              mainTab === "reception"
-                ? "bg-white text-brand-600 shadow-sm border border-slate-200/50"
-                : "text-slate-500 hover:text-slate-800 hover:bg-slate-50/50"
-            }`}
-          >
-            <Phone className="w-4 h-4" />
-            Parámetros de Recepción
-          </button>
-          <button
-            type="button"
-            onClick={() => setMainTab("maintenance")}
-            className={`flex items-center justify-center gap-2 px-5 py-3.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all ${
-              mainTab === "maintenance"
-                ? "bg-white text-brand-600 shadow-sm border border-slate-200/50"
-                : "text-slate-500 hover:text-slate-800 hover:bg-slate-50/50"
-            }`}
-          >
-            <Database className="w-4 h-4" />
-            Mantenimiento BD
-          </button>
+    <div className="p-6 max-w-7xl mx-auto space-y-6">
+      {/* Header Standard ERP */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-black text-slate-900 tracking-tight flex items-center gap-2.5">
+            <Settings className="w-6 h-6 text-brand-600 shrink-0" />
+            Configuración General
+          </h1>
+          <p className="text-xs font-semibold text-slate-500 mt-0.5">
+            Administración de landings, medios de pago, parámetros de recepción y mantenimiento del sistema
+          </p>
         </div>
+      </div>
 
-        {/* TAB 1: GENERAL & LANDINGS */}
-        {mainTab === "general" && (
-          <div className="animate-in fade-in duration-200 space-y-6">
-            <h2 className="text-3xl font-black text-slate-900 mb-6 tracking-tighter">Ajustes de Landings y Contenido</h2>
+      {/* Main Tabs Navigation */}
+      <div className="flex items-center gap-1.5 p-1 bg-slate-100 border border-slate-200/80 rounded-xl overflow-x-auto">
+        <button
+          type="button"
+          onClick={() => setMainTab("general")}
+          className={`flex items-center justify-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer whitespace-nowrap ${
+            mainTab === "general"
+              ? "bg-white text-brand-600 shadow-sm font-black"
+              : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
+          }`}
+        >
+          <Globe className="w-4 h-4" />
+          General y Landings
+        </button>
+        <button
+          type="button"
+          onClick={() => setMainTab("payments")}
+          className={`flex items-center justify-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer whitespace-nowrap ${
+            mainTab === "payments"
+              ? "bg-white text-brand-600 shadow-sm font-black"
+              : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
+          }`}
+        >
+          <CreditCard className="w-4 h-4" />
+          Medios de Pago
+        </button>
+        <button
+          type="button"
+          onClick={() => setMainTab("reception")}
+          className={`flex items-center justify-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer whitespace-nowrap ${
+            mainTab === "reception"
+              ? "bg-white text-brand-600 shadow-sm font-black"
+              : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
+          }`}
+        >
+          <Phone className="w-4 h-4" />
+          Parámetros de Recepción
+        </button>
+        <button
+          type="button"
+          onClick={() => setMainTab("maintenance")}
+          className={`flex items-center justify-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer whitespace-nowrap ${
+            mainTab === "maintenance"
+              ? "bg-white text-brand-600 shadow-sm font-black"
+              : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
+          }`}
+        >
+          <Database className="w-4 h-4" />
+          Mantenimiento BD
+        </button>
+      </div>
+
+      {/* TAB 1: GENERAL & LANDINGS */}
+      {mainTab === "general" && (
+        <div className="animate-in fade-in duration-200 space-y-6 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+          <h2 className="text-xl font-black text-slate-900 tracking-tight">Ajustes de Landings y Contenido</h2>
             <form onSubmit={handleSettingsSubmit} className="space-y-12">
               
               {/* Sección Landing Principal */}
@@ -1524,8 +1536,6 @@ export default function AjustesPage() {
             </div>
           </div>
         )}
-
-      </div>
     </div>
   );
 }

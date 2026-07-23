@@ -24,3 +24,31 @@ export function formatDateDDMMYYYY(dateInput: Date | string | undefined | null):
   return `${day}/${month}/${year}`;
 }
 
+/**
+ * Retorna la fecha actual en zona horaria Argentina (GMT-3) como string YYYY-MM-DD
+ */
+export function getArgentinaDateString(date: Date = new Date()): string {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Argentina/Buenos_Aires',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  });
+  return formatter.format(date);
+}
+
+/**
+ * Retorna la fecha de N días atrás en zona horaria Argentina (GMT-3) como string YYYY-MM-DD
+ */
+export function getArgentinaDaysAgoString(daysAgo: number): string {
+  const argDateStr = getArgentinaDateString();
+  const [year, month, day] = argDateStr.split('-').map(Number);
+  const d = new Date(Date.UTC(year, month - 1, day));
+  d.setUTCDate(d.getUTCDate() - daysAgo);
+  
+  const resYear = d.getUTCFullYear();
+  const resMonth = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const resDay = String(d.getUTCDate()).padStart(2, '0');
+  return `${resYear}-${resMonth}-${resDay}`;
+}
+
