@@ -90,10 +90,10 @@ export default function StockControlPage() {
     setSuccessMessage(null);
     try {
       const res = await fetch("/api/admin/sync-stock", { method: "POST" });
-      if (!res.ok) {
-        throw new Error("Error en la sincronización del stock.");
-      }
       const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Error en la sincronización del stock.");
+      }
       setSuccessMessage(`Sincronización masiva finalizada con éxito. Se actualizaron los niveles de ${data.updatedCount} productos.`);
       await fetchData(); // Reload to show synchronized levels
     } catch (err: any) {

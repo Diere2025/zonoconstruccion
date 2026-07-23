@@ -281,7 +281,7 @@ export async function POST() {
 
     let updatedCount = 0;
     const sheetProductNames = new Set<string>();
-    const updatesToUpsert: any[] = [];
+    const updatesToUpsertMap = new Map<string, any>();
 
     // Update matched products
     for (const row of sheetRows) {
@@ -311,7 +311,7 @@ export async function POST() {
         const dbCalculatedReserved = dbCalculatedReservesMap.get(`norm_${normProdName}`) || dbCalculatedReservesMap.get(dbProd.id) || 0;
         const newAvailable = sheetPhysical - dbCalculatedReserved;
 
-        updatesToUpsert.push({
+        updatesToUpsertMap.set(dbProd.id, {
           ...dbProd,
           stock_physical: sheetPhysical,
           stock_reserved: dbCalculatedReserved,
@@ -333,7 +333,7 @@ export async function POST() {
 
         const currentReserved = parseFloat(p.stock_reserved || '0') || 0;
         if (currentReserved !== dbCalculatedReserved) {
-          updatesToUpsert.push({
+          updatesToUpsertMap.set(p.id, {
             ...p,
             stock_physical: dbPhysical,
             stock_reserved: dbCalculatedReserved,
@@ -342,6 +342,8 @@ export async function POST() {
         }
       }
     }
+
+    const updatesToUpsert = Array.from(updatesToUpsertMap.values());
 
     if (updatesToUpsert.length > 0) {
       const { error: upsertErr } = await supabaseAdmin
