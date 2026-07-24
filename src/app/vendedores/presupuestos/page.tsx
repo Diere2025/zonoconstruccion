@@ -321,7 +321,7 @@ export default function PresupuestosPage() {
     const sortedIds = Object.keys(usageCounts).sort((a, b) => usageCounts[b] - usageCounts[a]);
     return sortedIds
       .map(id => products.find(p => p.id === id))
-      .filter(p => p && !p.parent_id && !EXCLUDED_IDS.includes(p.id)) // Exclude child variants and dynamic variants from favorites list
+      .filter(p => p && p.is_active !== false && !p.name?.toLowerCase().startsWith('[interno]') && !p.parent_id && !EXCLUDED_IDS.includes(p.id)) // Exclude inactive, internal, child variants and dynamic variants from favorites list
       .slice(0, 10) as Product[];
   }, [products, usageCounts]);
 
@@ -374,6 +374,9 @@ export default function PresupuestosPage() {
 
   const searchTerms = searchTerm.toLowerCase().split(/\s+/).filter(Boolean);
   const filteredProducts = products.filter(p => {
+    if (p.is_active === false) return false; // Hide inactive products
+    if (p.name?.toLowerCase().startsWith('[interno]')) return false; // Hide internal raw placeholders
+    if (p.sku?.startsWith('AUTO-COMP-') && (!p.price || p.price === 0)) return false; // Hide legacy $0 auto-comp items
     if (p.parent_id) return false; // Hide child variants from main search results
     if (EXCLUDED_IDS.includes(p.id)) return false; // Hide dynamic variants from main results
     if (searchTerms.length === 0) return false;
