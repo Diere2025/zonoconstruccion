@@ -30,15 +30,17 @@ async function getSellerRole(userId: string): Promise<string | null> {
         .from('sellers')
         .select('role')
         .eq('id', userId)
-        .single();
+        .maybeSingle();
+
       if (error) {
-        cachedRole = null;
+        console.warn("Error fetching seller role:", error.message);
+        // Do not cache error as permanent null
         return null;
       }
       cachedRole = data?.role || null;
       return cachedRole;
-    } catch {
-      cachedRole = null;
+    } catch (err) {
+      console.warn("Exception fetching seller role:", err);
       return null;
     } finally {
       rolePromise = null;
@@ -90,15 +92,7 @@ export default function AdminLayoutWrapper({ children }: { children: React.React
       addLog("checkAuth started");
       try {
         addLog("fetching session...");
-        const getSessionPromise = supabase.auth.getSession();
-        const timeoutPromise = new Promise<{ data: { session: null }; error: any }>((_, reject) =>
-          setTimeout(() => reject(new Error("Timeout getting session")), 2500)
-        );
-
-        const { data: { session }, error: sessionError } = await Promise.race([
-          getSessionPromise,
-          timeoutPromise as any
-        ]);
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
 
         if (sessionError) {
           addLog(`session fetch error: ${sessionError.message}`);
@@ -106,7 +100,6 @@ export default function AdminLayoutWrapper({ children }: { children: React.React
           addLog(`session fetched successfully. User present: ${!!session?.user}`);
         }
         globalAdminSession = session;
-        globalAdminChecked = true;
         setSession(session);
         
         if (session?.user) {
@@ -120,6 +113,7 @@ export default function AdminLayoutWrapper({ children }: { children: React.React
           globalIsAdmin = false;
           setIsAdmin(false);
         }
+        globalAdminChecked = true;
       } catch (err: any) {
         addLog(`Auth check caught exception: ${err.message || err}`);
       } finally {
@@ -134,7 +128,6 @@ export default function AdminLayoutWrapper({ children }: { children: React.React
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       addLog(`onAuthStateChange event: ${event}, user present: ${!!session?.user}`);
       globalAdminSession = session;
-      globalAdminChecked = true;
       setSession(session);
       try {
         if (session?.user) {
@@ -149,6 +142,7 @@ export default function AdminLayoutWrapper({ children }: { children: React.React
           setIsAdmin(false);
           clearRoleCache();
         }
+        globalAdminChecked = true;
       } catch (err: any) {
         addLog(`onAuthStateChange handler caught exception: ${err.message || err}`);
       } finally {

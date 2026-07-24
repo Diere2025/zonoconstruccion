@@ -25,13 +25,8 @@ export default function VendedoresLayout({ children }: { children: React.ReactNo
       setLoading(false);
     }
 
-    // Race to prevent getSession from hanging forever
-    const getSessionPromise = supabase.auth.getSession();
-    const timeoutPromise = new Promise<{ data: { session: null }; error: any }>((_, reject) =>
-      setTimeout(() => reject(new Error("Timeout getting session")), 2500)
-    );
-
-    Promise.race([getSessionPromise, timeoutPromise as any])
+    // Fetch session without premature timeout race
+    supabase.auth.getSession()
       .then(({ data: { session } }) => {
         console.log("[VendedoresLayout] getSession resolved. Session user:", session?.user?.email);
         globalSession = session;
@@ -40,7 +35,7 @@ export default function VendedoresLayout({ children }: { children: React.ReactNo
         setLoading(false);
       })
       .catch(err => {
-        console.error("[VendedoresLayout] getSession error or timeout:", err);
+        console.error("[VendedoresLayout] getSession error:", err);
         globalSessionChecked = true;
         setLoading(false);
       });
