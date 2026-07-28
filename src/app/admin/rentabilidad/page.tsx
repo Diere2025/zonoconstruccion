@@ -389,18 +389,13 @@ export default function RentabilidadDashboard() {
     try {
       setLoading(true);
 
-      // 1. Fetch reference lists (sellers, products, relations, and active price list costs)
+      // 1. Fetch reference lists (sellers, products, relations, and price list costs)
       const [sellersRes, allProductsRes, relationsRes, activeCostItemsRes] = await Promise.all([
         supabase.from("sellers").select("id, full_name"),
         supabase.from("products").select("id, sku, name, price, is_active").eq("is_active", true),
         supabase.from("product_supplier_relations").select("product_id, supplier_id, is_primary"),
-        supabase.from("price_list_items").select("sku, final_cost, price_lists!inner(supplier_id, is_active)").eq("price_lists.is_active", true)
+        supabase.from("price_list_items").select("sku, final_cost, list_cost")
       ]);
-
-      if (sellersRes.error) throw sellersRes.error;
-      if (allProductsRes.error) throw allProductsRes.error;
-      if (relationsRes.error) throw relationsRes.error;
-      if (activeCostItemsRes.error) throw activeCostItemsRes.error;
 
       const sellers = sellersRes.data || [];
       setSellersList(sellers);
@@ -467,13 +462,13 @@ export default function RentabilidadDashboard() {
       }
 
       // 3. Build Cost Maps in Memory
-      // Mapping Active Price List Cost Items: sku -> Map(supplierId -> final_cost)
+      // Mapping Active Price List Cost Items: sku -> Map(supplierId -> cost)
       const priceListCostMap = new Map<string, Map<string, number>>();
-      (activeCostItems as unknown as DbPriceListItem[]).forEach((item) => {
+      (activeCostItems as unknown as (DbPriceListItem & { list_cost?: number })[]).forEach((item) => {
         const sku = (item.sku || "").trim().toLowerCase();
-        const supId = item.price_lists?.supplier_id;
-        const cost = Number(item.final_cost) || 0;
-        if (sku && supId) {
+        const supId = item.price_lists?.supplier_id || "general";
+        const cost = Number(item.final_cost) || Number(item.list_cost) || 0;
+        if (sku) {
           if (!priceListCostMap.has(sku)) {
             priceListCostMap.set(sku, new Map());
           }
@@ -653,8 +648,9 @@ export default function RentabilidadDashboard() {
       setMissingCostOrdersList(missingOrdersTemp);
       setMissingCatalogProductsList(missingCatalogTemp);
 
-    } catch (err) {
-      console.error("Error loading profitability metrics:", err);
+    } catch (err: unknown) {
+      const errMsg = err && typeof err === 'object' && 'message' in err ? String((err as { message: string }).message) : String(err);
+      console.warn("Notice loading profitability metrics:", errMsg);
     } finally {
       setLoading(false);
     }

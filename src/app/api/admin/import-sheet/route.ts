@@ -36,9 +36,17 @@ const cleanProductName = (name: any): string => {
   if (!name) return "";
   let clean = name.toString().toLowerCase().trim();
   clean = clean.replace(/^\[interno\]\s*(-\s*)?/, "");
+  clean = clean.replace(/^realizar\s+cobro\s*(de)?\s*/gi, "");
+  clean = clean.replace(/^cobro\s*(de)?\s*/gi, "");
   clean = clean.replace(/\s*-\s*aquafort/g, "");
   clean = clean.replace(/\s*-\s*biofort/g, "");
   clean = clean.replace(/\s*-\s*rotoplas/g, "");
+  clean = clean.replace(/\s*\(?\s*outlet\s*\)?/gi, "");
+  clean = clean.replace(/\bfrente\b/g, "frentes");
+  clean = clean.replace(/\bmep\b/g, "membrana");
+  clean = clean.replace(/\bbic\b/g, "bicapa");
+  clean = clean.replace(/\btric\b/g, "tricapa");
+  clean = clean.replace(/\bcuatr\b/g, "cuatricapa");
   clean = clean.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
   clean = clean.replace(/[^a-z0-9]/g, "");
   return clean;

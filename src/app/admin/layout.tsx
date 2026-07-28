@@ -24,7 +24,8 @@ async function getSellerRole(userId: string): Promise<string | null> {
     return rolePromise;
   }
   cachedUserId = userId;
-  rolePromise = (async () => {
+
+  const fetchPromise = (async () => {
     try {
       const { data, error } = await supabase
         .from('sellers')
@@ -34,7 +35,6 @@ async function getSellerRole(userId: string): Promise<string | null> {
 
       if (error) {
         console.warn("Error fetching seller role:", error.message);
-        // Do not cache error as permanent null
         return null;
       }
       cachedRole = data?.role || null;
@@ -46,6 +46,15 @@ async function getSellerRole(userId: string): Promise<string | null> {
       rolePromise = null;
     }
   })();
+
+  const timeoutPromise = new Promise<string | null>((resolve) => {
+    setTimeout(() => {
+      console.warn("getSellerRole query timed out after 5 seconds");
+      resolve(null);
+    }, 5000);
+  });
+
+  rolePromise = Promise.race([fetchPromise, timeoutPromise]);
   return rolePromise;
 }
 
@@ -79,13 +88,41 @@ export default function AdminLayoutWrapper({ children }: { children: React.React
   };
 
   useEffect(() => {
-    // Show diagnostics after 10 seconds if still loading (prevents premature warning pages)
+    let isMounted = true;
+
+    // Show diagnostics after 8 seconds if still loading
     const timer = setTimeout(() => {
-      setShowDiagnostics(true);
-    }, 10000);
+      if (isMounted) setShowDiagnostics(true);
+    }, 8000);
 
     if (globalAdminChecked) {
       setLoading(false);
+    }
+
+    async function processUserRole(user: any) {
+      if (!user) {
+        addLog("no user in session, admin is false");
+        globalIsAdmin = false;
+        if (isMounted) setIsAdmin(false);
+        globalAdminChecked = true;
+        if (isMounted) setLoading(false);
+        return;
+      }
+
+      addLog(`fetching seller role for user id: ${user.id}`);
+      try {
+        const role = await getSellerRole(user.id);
+        addLog(`seller role query finished. Role: ${role}`);
+        globalIsAdmin = role === 'admin';
+        if (isMounted) setIsAdmin(globalIsAdmin);
+      } catch (err: any) {
+        addLog(`Error fetching seller role: ${err.message || err}`);
+        globalIsAdmin = false;
+        if (isMounted) setIsAdmin(false);
+      } finally {
+        globalAdminChecked = true;
+        if (isMounted) setLoading(false);
+      }
     }
 
     async function checkAuth() {
@@ -100,58 +137,36 @@ export default function AdminLayoutWrapper({ children }: { children: React.React
           addLog(`session fetched successfully. User present: ${!!session?.user}`);
         }
         globalAdminSession = session;
-        setSession(session);
-        
-        if (session?.user) {
-          addLog(`fetching seller role for user id: ${session.user.id}`);
-          const role = await getSellerRole(session.user.id);
-          addLog(`seller role query finished. Role: ${role}`);
-          globalIsAdmin = role === 'admin';
-          setIsAdmin(globalIsAdmin);
-        } else {
-          addLog("no user in session, admin is false");
-          globalIsAdmin = false;
-          setIsAdmin(false);
-        }
-        globalAdminChecked = true;
+        if (isMounted) setSession(session);
+        await processUserRole(session?.user);
       } catch (err: any) {
         addLog(`Auth check caught exception: ${err.message || err}`);
-      } finally {
-        addLog("checkAuth finished, setting loading to false");
-        setLoading(false);
+        if (isMounted) setLoading(false);
       }
     }
 
     checkAuth();
 
     addLog("subscribing to onAuthStateChange...");
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       addLog(`onAuthStateChange event: ${event}, user present: ${!!session?.user}`);
       globalAdminSession = session;
-      setSession(session);
-      try {
-        if (session?.user) {
-          addLog("onAuthStateChange: fetching seller role...");
-          const role = await getSellerRole(session.user.id);
-          addLog(`onAuthStateChange: seller role query finished. Role: ${role}`);
-          globalIsAdmin = role === 'admin';
-          setIsAdmin(globalIsAdmin);
-        } else {
-          addLog("onAuthStateChange: no user, admin is false");
-          globalIsAdmin = false;
-          setIsAdmin(false);
-          clearRoleCache();
-        }
-        globalAdminChecked = true;
-      } catch (err: any) {
-        addLog(`onAuthStateChange handler caught exception: ${err.message || err}`);
-      } finally {
-        addLog("onAuthStateChange finished processing, setting loading to false");
-        setLoading(false);
+      if (isMounted) setSession(session);
+
+      if (!session?.user) {
+        clearRoleCache();
       }
+
+      // Decouple role checking from auth listener execution thread to prevent deadlock
+      setTimeout(() => {
+        if (isMounted) {
+          processUserRole(session?.user);
+        }
+      }, 0);
     });
 
     return () => {
+      isMounted = false;
       clearTimeout(timer);
       subscription.unsubscribe();
     };

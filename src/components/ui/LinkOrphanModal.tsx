@@ -35,14 +35,42 @@ export function LinkOrphanModal({
     // Set initial search term to the candidate SKU or the orphan name
     setSearchTerm(skuCandidate || orphanName);
     
-    // Find a recommended match based on candidate SKU or name (ignoring SKU suffixes in names)
-    const cleanOrphanName = orphanName.replace(/\s*\([^)]+\)\s*$/, '').trim();
-    const match = allProducts.find(p => 
-      (skuCandidate && p.sku?.toLowerCase() === skuCandidate.toLowerCase()) ||
-      p.sku?.toLowerCase() === orphanName.toLowerCase() ||
-      p.name?.toLowerCase() === orphanName.toLowerCase() ||
-      p.name?.toLowerCase() === cleanOrphanName.toLowerCase()
-    );
+    // Find a recommended match based on candidate SKU or name
+    const cleanOrphanName = orphanName
+      .replace(/\s*\(?\s*outlet\s*\)?/gi, '')
+      .replace(/\bfrente\b/gi, 'frentes')
+      .replace(/\s*\([^)]+\)\s*$/, '')
+      .trim();
+
+    const normOrphan = cleanOrphanName.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    const match = allProducts.find(p => {
+      if (!p.name && !p.sku) return false;
+      const skuLower = (p.sku || '').toLowerCase();
+      const nameLower = (p.name || '').toLowerCase();
+
+      // If orphanName doesn't contain "xl", don't match products that contain "(xl)"
+      const orphanHasXL = orphanName.toLowerCase().includes('xl');
+      const productHasXL = nameLower.includes('(xl)') || skuLower.includes('(xl)') || nameLower.includes(' xl ') || skuLower.includes(' xl ');
+      if (!orphanHasXL && productHasXL) return false;
+
+      // If orphanName specifies BIC / Bicapa, don't match TRIC / Tricapa
+      const orphanIsBic = /\bbic\b|\bbicapa\b/i.test(orphanName);
+      const productIsTric = /\btric\b|\btricapa\b/i.test(nameLower) || /\btric\b|\btricapa\b/i.test(skuLower);
+      if (orphanIsBic && productIsTric) return false;
+      
+      if (skuCandidate && skuLower === skuCandidate.toLowerCase()) return true;
+      if (skuLower === orphanName.toLowerCase()) return true;
+      if (nameLower === orphanName.toLowerCase()) return true;
+      if (nameLower === cleanOrphanName.toLowerCase()) return true;
+      
+      const normPName = nameLower.replace(/\bmep\b/g, 'membrana').replace(/[^a-z0-9]/g, '');
+      if (normPName && normOrphan && (normPName === normOrphan || normPName.includes(normOrphan) || normOrphan.includes(normPName))) {
+        return true;
+      }
+      return false;
+    });
+
     setRecommendedProduct(match || null);
   }, [isOpen, orphanName, skuCandidate, allProducts]);
 
