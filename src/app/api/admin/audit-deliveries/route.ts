@@ -744,8 +744,10 @@ export async function POST() {
         continue;
       }
 
-      const isDelivered = status.toLowerCase().includes("entregado") && !status.toLowerCase().includes("no entregado");
-      if (!isDelivered) continue;
+      const normSt = status.toLowerCase();
+      const isDelivering = normSt.includes("entregando");
+      const isDelivered = normSt.includes("entregado") && !normSt.includes("no entregado");
+      if (!isDelivered && !isDelivering) continue;
 
       checkedLogiRows++;
 
@@ -825,11 +827,13 @@ export async function POST() {
         const sheetItems = sheetOrder.sheetItems;
         sheetItems.forEach(si => si.order_id = dbOrder.id);
 
+        const targetStatus = sheetOrder.status.toLowerCase().includes('entregando') ? 'Entregando' : 'Entregado';
+
         // --- OPTIMIZATION: Check if there is ANY difference ---
         let needsUpdate = false;
 
         // A. Check status
-        if (dbOrder.status !== 'Entregado') {
+        if (dbOrder.status !== targetStatus) {
           needsUpdate = true;
         }
 
@@ -877,7 +881,7 @@ export async function POST() {
         }
 
         if (needsUpdate) {
-          console.log(`POST: Updating order "${code}". Reason: statusDiff=${dbOrder.status !== 'Entregado'} (db="${dbOrder.status}", sheet="Entregado"), totalDiff=${Math.abs(sheetTotal - dbTotal) > 1.0} (db="${dbTotal}", sheet="${sheetTotal}"), paymentDiff=${sheetPayment ? (dbOrder.payment_method_id !== sheetPaymentId) : false} (db="${dbOrder.payment_method_id}", sheet="${sheetPaymentId}"/"${sheetPayment}"), itemsDiff=${itemsDiffer}`);
+          console.log(`POST: Updating order "${code}". Reason: statusDiff=${dbOrder.status !== targetStatus} (db="${dbOrder.status}", sheet="${targetStatus}"), totalDiff=${Math.abs(sheetTotal - dbTotal) > 1.0} (db="${dbTotal}", sheet="${sheetTotal}"), paymentDiff=${sheetPayment ? (dbOrder.payment_method_id !== sheetPaymentId) : false} (db="${dbOrder.payment_method_id}", sheet="${sheetPaymentId}"/"${sheetPayment}"), itemsDiff=${itemsDiffer}`);
         }
 
         // If no changes are needed, skip database updates entirely
@@ -894,7 +898,7 @@ export async function POST() {
         const { error: errOrderUpdate } = await supabaseAdmin
           .from('orders')
           .update({
-            status: 'Entregado',
+            status: targetStatus,
             total_amount: sheetTotal,
             payment_method_id: finalPaymentId
           })
