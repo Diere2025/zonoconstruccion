@@ -15,7 +15,7 @@ const getSupabaseClient = (): SupabaseClient => {
           autoRefreshToken: true,
           detectSessionInUrl: true,
           lock: async (name, acquireTimeout, fn) => {
-            return await fn(null as any);
+            return await fn();
           }
         }
       });

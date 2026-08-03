@@ -127,14 +127,25 @@ export async function GET() {
     const dbCalculatedReservesMap = new Map<string, number>();
     pendingItems.forEach((item: any) => {
       const qty = parseFloat(item.quantity || 0);
-      if (item.product_id) {
-        dbCalculatedReservesMap.set(item.product_id, (dbCalculatedReservesMap.get(item.product_id) || 0) + qty);
-      }
+      let targetId = item.product_id;
       const prod = productByIdMap.get(item.product_id);
-      const normName = normalizeText(prod ? prod.name : (item.product_name || ''));
-      if (normName) {
-        dbCalculatedReservesMap.set(`norm_${normName}`, (dbCalculatedReservesMap.get(`norm_${normName}`) || 0) + qty);
+      if (prod && prod.mapped_real_product_id) {
+        targetId = prod.mapped_real_product_id;
       }
+      if (targetId) {
+        dbCalculatedReservesMap.set(targetId, (dbCalculatedReservesMap.get(targetId) || 0) + qty);
+      }
+
+      const realProd = (targetId ? productByIdMap.get(targetId) : null) || prod;
+      const normName = normalizeText(realProd ? realProd.name : (item.product_name || ''));
+      const normCleanName = normName.replace(/^interno\s*/i, "").trim();
+      const normSku = normalizeText(realProd ? (realProd.sku || '') : '');
+      const normCleanSku = normSku.replace(/^interno\s*/i, "").trim();
+
+      if (normName) dbCalculatedReservesMap.set(`norm_${normName}`, (dbCalculatedReservesMap.get(`norm_${normName}`) || 0) + qty);
+      if (normCleanName && normCleanName !== normName) dbCalculatedReservesMap.set(`norm_${normCleanName}`, (dbCalculatedReservesMap.get(`norm_${normCleanName}`) || 0) + qty);
+      if (normSku) dbCalculatedReservesMap.set(`norm_${normSku}`, (dbCalculatedReservesMap.get(`norm_${normSku}`) || 0) + qty);
+      if (normCleanSku && normCleanSku !== normSku) dbCalculatedReservesMap.set(`norm_${normCleanSku}`, (dbCalculatedReservesMap.get(`norm_${normCleanSku}`) || 0) + qty);
     });
 
     const comparisonList: any[] = [];
@@ -145,15 +156,24 @@ export async function GET() {
       const prodName = row['Producto'] || '';
       if (!prodName || prodName === 'Brida') return;
 
+      const cleanProdName = prodName.replace(/^\[interno\]\s*/i, "").trim();
       const normProdName = normalizeText(prodName);
+      const normCleanProdName = normalizeText(cleanProdName);
 
-      // Find match in DB (prefer non-AUTO SKU)
-      const matchingProds = dbProducts.filter((p: any) => 
-        normalizeText(p.name) === normProdName || 
-        normalizeText(p.sku) === normProdName
-      );
+      // Find match in DB (prefer active and non-AUTO SKU)
+      const matchingProds = dbProducts.filter((p: any) => {
+        const normName = normalizeText(p.name);
+        const normSku = normalizeText(p.sku || '');
+        return (
+          normName === normProdName ||
+          normSku === normProdName ||
+          (normCleanProdName && (normName === normCleanProdName || normSku === normCleanProdName))
+        );
+      });
 
       matchingProds.sort((a: any, b: any) => {
+        if (a.is_active && !b.is_active) return -1;
+        if (!a.is_active && b.is_active) return 1;
         const aIsAuto = (a.sku || '').startsWith('AUTO-');
         const bIsAuto = (b.sku || '').startsWith('AUTO-');
         if (aIsAuto && !bIsAuto) return 1;
@@ -171,7 +191,13 @@ export async function GET() {
 
         const dbPhysical = parseFloat(dbProd.stock_physical || '0') || 0;
         const dbReserved = parseFloat(dbProd.stock_reserved || '0') || 0;
-        const dbCalculatedReserved = dbCalculatedReservesMap.get(`norm_${normProdName}`) || dbCalculatedReservesMap.get(dbProd.id) || 0;
+        const dbCalculatedReserved = 
+          dbCalculatedReservesMap.get(dbProd.id) ||
+          dbCalculatedReservesMap.get(`norm_${normCleanProdName}`) ||
+          dbCalculatedReservesMap.get(`norm_${normProdName}`) ||
+          dbCalculatedReservesMap.get(`norm_${normalizeText(dbProd.name)}`) ||
+          dbCalculatedReservesMap.get(`norm_${normalizeText(dbProd.sku || '')}`) ||
+          0;
         const dbAvailable = parseFloat(dbProd.stock_current || '0') || 0;
 
         comparisonList.push({
@@ -269,14 +295,25 @@ export async function POST() {
     const dbCalculatedReservesMap = new Map<string, number>();
     pendingItems.forEach((item: any) => {
       const qty = parseFloat(item.quantity || 0);
-      if (item.product_id) {
-        dbCalculatedReservesMap.set(item.product_id, (dbCalculatedReservesMap.get(item.product_id) || 0) + qty);
-      }
+      let targetId = item.product_id;
       const prod = productByIdMap.get(item.product_id);
-      const normName = normalizeText(prod ? prod.name : (item.product_name || ''));
-      if (normName) {
-        dbCalculatedReservesMap.set(`norm_${normName}`, (dbCalculatedReservesMap.get(`norm_${normName}`) || 0) + qty);
+      if (prod && prod.mapped_real_product_id) {
+        targetId = prod.mapped_real_product_id;
       }
+      if (targetId) {
+        dbCalculatedReservesMap.set(targetId, (dbCalculatedReservesMap.get(targetId) || 0) + qty);
+      }
+
+      const realProd = (targetId ? productByIdMap.get(targetId) : null) || prod;
+      const normName = normalizeText(realProd ? realProd.name : (item.product_name || ''));
+      const normCleanName = normName.replace(/^interno\s*/i, "").trim();
+      const normSku = normalizeText(realProd ? (realProd.sku || '') : '');
+      const normCleanSku = normSku.replace(/^interno\s*/i, "").trim();
+
+      if (normName) dbCalculatedReservesMap.set(`norm_${normName}`, (dbCalculatedReservesMap.get(`norm_${normName}`) || 0) + qty);
+      if (normCleanName && normCleanName !== normName) dbCalculatedReservesMap.set(`norm_${normCleanName}`, (dbCalculatedReservesMap.get(`norm_${normCleanName}`) || 0) + qty);
+      if (normSku) dbCalculatedReservesMap.set(`norm_${normSku}`, (dbCalculatedReservesMap.get(`norm_${normSku}`) || 0) + qty);
+      if (normCleanSku && normCleanSku !== normSku) dbCalculatedReservesMap.set(`norm_${normCleanSku}`, (dbCalculatedReservesMap.get(`norm_${normCleanSku}`) || 0) + qty);
     });
 
     let updatedCount = 0;
@@ -288,15 +325,26 @@ export async function POST() {
       const prodName = row['Producto'] || '';
       if (!prodName || prodName === 'Brida') continue;
 
+      const cleanProdName = prodName.replace(/^\[interno\]\s*/i, "").trim();
       const normProdName = normalizeText(prodName);
+      const normCleanProdName = normalizeText(cleanProdName);
       sheetProductNames.add(normProdName);
+      if (normCleanProdName) sheetProductNames.add(normCleanProdName);
 
-      const matchingProds = dbProducts.filter((p: any) => 
-        normalizeText(p.name) === normProdName || 
-        normalizeText(p.sku) === normProdName
-      );
+      // Find match in DB (prefer active and non-AUTO SKU)
+      const matchingProds = dbProducts.filter((p: any) => {
+        const normName = normalizeText(p.name);
+        const normSku = normalizeText(p.sku || '');
+        return (
+          normName === normProdName ||
+          normSku === normProdName ||
+          (normCleanProdName && (normName === normCleanProdName || normSku === normCleanProdName))
+        );
+      });
 
       matchingProds.sort((a: any, b: any) => {
+        if (a.is_active && !b.is_active) return -1;
+        if (!a.is_active && b.is_active) return 1;
         const aIsAuto = (a.sku || '').startsWith('AUTO-');
         const bIsAuto = (b.sku || '').startsWith('AUTO-');
         if (aIsAuto && !bIsAuto) return 1;
@@ -308,7 +356,13 @@ export async function POST() {
 
       if (dbProd) {
         const sheetPhysical = parseFloat((row['Stock Actual'] || '0').replace(',', '.')) || 0;
-        const dbCalculatedReserved = dbCalculatedReservesMap.get(`norm_${normProdName}`) || dbCalculatedReservesMap.get(dbProd.id) || 0;
+        const dbCalculatedReserved = 
+          dbCalculatedReservesMap.get(dbProd.id) ||
+          dbCalculatedReservesMap.get(`norm_${normCleanProdName}`) ||
+          dbCalculatedReservesMap.get(`norm_${normProdName}`) ||
+          dbCalculatedReservesMap.get(`norm_${normalizeText(dbProd.name)}`) ||
+          dbCalculatedReservesMap.get(`norm_${normalizeText(dbProd.sku || '')}`) ||
+          0;
         const newAvailable = sheetPhysical - dbCalculatedReserved;
 
         updatesToUpsertMap.set(dbProd.id, {

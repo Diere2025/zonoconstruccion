@@ -6,20 +6,40 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
 const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 
+async function withRetry<T>(fn: () => Promise<T>, retries = 3, delayMs = 1500): Promise<T> {
+  let lastError: any;
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      lastError = err;
+      console.warn(`[Supabase Master Data] Attempt ${attempt}/${retries} failed: ${err.message || err}. Retrying in ${delayMs}ms...`);
+      if (attempt < retries) {
+        await new Promise((res) => setTimeout(res, delayMs));
+      }
+    }
+  }
+  throw lastError;
+}
+
 export async function GET() {
   try {
-    // Helper function to fetch all products
+    // Helper function to fetch all products with retries
     async function fetchProductsAll() {
       let allProducts: any[] = [];
       let page = 0;
       const pageSize = 1000;
       let hasMore = true;
       while (hasMore) {
-        const { data, error } = await supabaseAdmin
-          .from('products')
-          .select('id, name, sku, price')
-          .range(page * pageSize, (page + 1) * pageSize - 1);
-        if (error) throw error;
+        const data = await withRetry(async () => {
+          const { data, error } = await supabaseAdmin
+            .from('products')
+            .select('id, name, sku, price')
+            .range(page * pageSize, (page + 1) * pageSize - 1);
+          if (error) throw error;
+          return data;
+        });
+
         if (data && data.length > 0) {
           allProducts = [...allProducts, ...data];
           if (data.length < pageSize) {
@@ -36,48 +56,70 @@ export async function GET() {
 
     const [
       products,
-      sellersRes,
-      localitiesRes,
-      advSourcesRes,
-      orderMediumsRes,
-      paymentMethodsRes,
-      phoneLinesRes,
-      ordersRes
+      sellersData,
+      localitiesData,
+      advSourcesData,
+      orderMediumsData,
+      paymentMethodsData,
+      phoneLinesData,
+      ordersData
     ] = await Promise.all([
       fetchProductsAll(),
-      supabaseAdmin.from('sellers').select('id, full_name, is_organic'),
-      supabaseAdmin.from('localities').select('id, name, zone_id'),
-      supabaseAdmin.from('advertising_sources').select('id, name'),
-      supabaseAdmin.from('order_mediums').select('id, name'),
-      supabaseAdmin.from('payment_methods').select('id, name, surcharge_percentage, installments'),
-      supabaseAdmin.from('phone_lines').select('id, phone_number'),
-      // Fetch only active orders to prevent 1000 cap from omitting them
-      supabaseAdmin.from('orders')
-        .select('id, legacy_code, status, delivery_detail, whaticket_link, order_medium_id')
-        .in('status', ['Pendiente', 'Confirmado', 'Entregando'])
+      withRetry(async () => {
+        const res = await supabaseAdmin.from('sellers').select('id, full_name, is_organic');
+        if (res.error) throw res.error;
+        return res.data;
+      }),
+      withRetry(async () => {
+        const res = await supabaseAdmin.from('localities').select('id, name, zone_id');
+        if (res.error) throw res.error;
+        return res.data;
+      }),
+      withRetry(async () => {
+        const res = await supabaseAdmin.from('advertising_sources').select('id, name');
+        if (res.error) throw res.error;
+        return res.data;
+      }),
+      withRetry(async () => {
+        const res = await supabaseAdmin.from('order_mediums').select('id, name');
+        if (res.error) throw res.error;
+        return res.data;
+      }),
+      withRetry(async () => {
+        const res = await supabaseAdmin.from('payment_methods').select('id, name, surcharge_percentage, installments');
+        if (res.error) throw res.error;
+        return res.data;
+      }),
+      withRetry(async () => {
+        const res = await supabaseAdmin.from('phone_lines').select('id, phone_number');
+        if (res.error) throw res.error;
+        return res.data;
+      }),
+      withRetry(async () => {
+        const res = await supabaseAdmin.from('orders')
+          .select('id, legacy_code, status, delivery_detail, whaticket_link, order_medium_id')
+          .in('status', ['Pendiente', 'Confirmado', 'Entregando']);
+        if (res.error) throw res.error;
+        return res.data;
+      })
     ]);
-
-    
-    if (sellersRes.error) throw sellersRes.error;
-    if (localitiesRes.error) throw localitiesRes.error;
-    if (advSourcesRes.error) throw advSourcesRes.error;
-    if (orderMediumsRes.error) throw orderMediumsRes.error;
-    if (paymentMethodsRes.error) throw paymentMethodsRes.error;
-    if (phoneLinesRes.error) throw phoneLinesRes.error;
-    if (ordersRes.error) throw ordersRes.error;
 
     return NextResponse.json({
       products,
-      sellers: sellersRes.data,
-      localities: localitiesRes.data,
-      advertising_sources: advSourcesRes.data,
-      order_mediums: orderMediumsRes.data,
-      payment_methods: paymentMethodsRes.data,
-      phone_lines: phoneLinesRes.data,
-      orders: ordersRes.data
+      sellers: sellersData,
+      localities: localitiesData,
+      advertising_sources: advSourcesData,
+      order_mediums: orderMediumsData,
+      payment_methods: paymentMethodsData,
+      phone_lines: phoneLinesData,
+      orders: ordersData
     });
   } catch (error: any) {
     console.error('[API Master Data] Error:', error);
-    return NextResponse.json({ error: error.message || String(error) }, { status: 500 });
+    let errMsg = error?.message || String(error);
+    if (errMsg.includes('<!DOCTYPE') || errMsg.includes('<html') || errMsg.includes('Cloudflare')) {
+      errMsg = 'Error de conexión con la base de datos Supabase (Cloudflare/Timeout). Intenta nuevamente en unos instantes.';
+    }
+    return NextResponse.json({ error: errMsg }, { status: 500 });
   }
 }

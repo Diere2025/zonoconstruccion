@@ -74,6 +74,15 @@ export default function ImportarPedidosPage() {
   const cancelImportRef = useRef(false);
 
   // Helper normalizers/parsers for import
+  const sanitizeErrorMessage = (err: any): string => {
+    if (!err) return "Error desconocido";
+    const message = typeof err === "string" ? err : err?.message || String(err);
+    if (message.includes("<!DOCTYPE") || message.includes("<html") || message.includes("Cloudflare")) {
+      return "Error de conexión con la base de datos Supabase (Cloudflare / Tiempo de espera agotado). Por favor reintenta en unos instantes.";
+    }
+    return message;
+  };
+
   const normalizeText = (text: any): string => {
     if (!text) return "";
     return text
@@ -365,10 +374,31 @@ export default function ImportarPedidosPage() {
         console.log("[ImportarPedidos] Iniciando carga de datos maestros vía API Next.js server-side");
         
         const start = Date.now();
-        const res = await fetch("/api/admin/import-master-data");
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.error || `HTTP error ${res.status}`);
+        let res: Response | null = null;
+        let lastErr: any = null;
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          try {
+            res = await fetch("/api/admin/import-master-data");
+            if (res.ok) break;
+          } catch (e) {
+            lastErr = e;
+          }
+          if (attempt < 3) {
+            addLog(`  ⚠️ Reintentando carga de datos maestros (${attempt}/3)...`);
+            await new Promise((r) => setTimeout(r, 1500));
+          }
+        }
+
+        if (!res || !res.ok) {
+          const errText = res ? await res.text().catch(() => "") : "";
+          let errMessage = `HTTP error ${res ? res.status : "desconocido"}`;
+          try {
+            const errData = JSON.parse(errText);
+            if (errData.error) errMessage = errData.error;
+          } catch {
+            errMessage = sanitizeErrorMessage(errText || lastErr);
+          }
+          throw new Error(errMessage);
         }
         
         masterPayload = await res.json();
@@ -389,8 +419,9 @@ export default function ImportarPedidosPage() {
         addLog(`  ✅ Líneas telefónicas cargadas: ${dbPhoneLines?.length || 0} (${Date.now() - start}ms)`);
       } catch (err: any) {
         console.error("[ImportarPedidos] Error crítico cargando datos maestros:", err);
-        addLog(`❌ Error en carga de datos maestros: ${err.message || String(err)}`);
-        throw err;
+        const cleanMsg = sanitizeErrorMessage(err);
+        addLog(`❌ Error en carga de datos maestros: ${cleanMsg}`);
+        throw new Error(cleanMsg);
       }
 
       addLog("Obteniendo códigos y estados de pedidos existentes...");
@@ -558,6 +589,9 @@ export default function ImportarPedidosPage() {
           throw new Error(`Error al descargar planilla de ${sheet.name} (Status ${response.status})`);
         }
         const csvText = await response.text();
+        if (csvText.trim().startsWith("<!DOCTYPE") || csvText.includes("<html")) {
+          throw new Error(`La planilla de ${sheet.name} no devolvió un CSV válido (retornó HTML de Google, verifica permisos o enlace).`);
+        }
         const rawRows = parseCSV(csvText);
         const rows = mergeContiguousSheetRows(rawRows);
         addLog(`Planilla de ${sheet.name}: ${rawRows.length} filas leídas (${rows.length} después de unificar contiguos).`);
@@ -614,24 +648,45 @@ export default function ImportarPedidosPage() {
         if (targetRows.length > 0) {
           addLog(`Enviando ${targetRows.length} pedidos de ${sheet.name} al servidor para procesamiento...`);
           const startProc = Date.now();
-          const importRes = await fetch("/api/admin/import-sheet", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              sheetName: sheet.name,
-              rows: targetRows,
-              skipENC,
-              skipCAMB,
-              syncPaymentMethods,
-              defaultSellerId: sheet.defaultSellerId,
-              defaultChannel: sheet.defaultChannel,
-              isCentralSheet: sheet.isCentralSheet
-            })
-          });
 
-          if (!importRes.ok) {
-            const errData = await importRes.json().catch(() => ({}));
-            throw new Error(errData.error || `HTTP error ${importRes.status}`);
+          let importRes: Response | null = null;
+          let importErrText = "";
+          for (let attempt = 1; attempt <= 2; attempt++) {
+            try {
+              importRes = await fetch("/api/admin/import-sheet", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  sheetName: sheet.name,
+                  rows: targetRows,
+                  skipENC,
+                  skipCAMB,
+                  syncPaymentMethods,
+                  defaultSellerId: sheet.defaultSellerId,
+                  defaultChannel: sheet.defaultChannel,
+                  isCentralSheet: sheet.isCentralSheet
+                })
+              });
+              if (importRes.ok) break;
+            } catch (e) {
+              importErrText = String(e);
+            }
+            if (attempt < 2) {
+              addLog(`  ⚠️ Reintentando envío a servidor para ${sheet.name}...`);
+              await new Promise((r) => setTimeout(r, 2000));
+            }
+          }
+
+          if (!importRes || !importRes.ok) {
+            const errText = importRes ? await importRes.text().catch(() => "") : importErrText;
+            let errMessage = `HTTP error ${importRes ? importRes.status : "desconocido"}`;
+            try {
+              const errData = JSON.parse(errText);
+              if (errData.error) errMessage = errData.error;
+            } catch {
+              errMessage = sanitizeErrorMessage(errText);
+            }
+            throw new Error(errMessage);
           }
 
           const importData = await importRes.json();
@@ -684,8 +739,9 @@ export default function ImportarPedidosPage() {
       }
     } catch (err: any) {
       console.error("Error importing orders:", err);
-      addLog(`ERROR CRÍTICO: ${err.message}`);
-      alert("Error al importar pedidos: " + err.message);
+      const cleanMsg = sanitizeErrorMessage(err);
+      addLog(`ERROR CRÍTICO: ${cleanMsg}`);
+      alert("Error al importar pedidos: " + cleanMsg);
     } finally {
       setImportingOrders(false);
     }

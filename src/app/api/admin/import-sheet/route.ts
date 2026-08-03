@@ -1145,6 +1145,10 @@ export async function POST(request: Request) {
 
   } catch (error: any) {
     console.error('[API Import Sheet] Error:', error);
-    return NextResponse.json({ error: error.message || String(error) }, { status: 500 });
+    let errMsg = error?.message || String(error);
+    if (errMsg.includes('<!DOCTYPE') || errMsg.includes('<html') || errMsg.includes('Cloudflare')) {
+      errMsg = 'Error de conexión con la base de datos Supabase al procesar los pedidos (Cloudflare/Timeout). Intenta nuevamente.';
+    }
+    return NextResponse.json({ error: errMsg }, { status: 500 });
   }
 }

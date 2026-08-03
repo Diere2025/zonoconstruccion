@@ -1298,7 +1298,7 @@ export default function ComprasAdminPage() {
 
         // Auto-create product
         addLog(`➕ Producto '${productName}' no encontrado en catálogo. Creándolo de forma automática...`);
-        const skuAuto = `AUTO-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+        const skuAuto = productName.trim();
         const { data: newProd, error: prodErr } = await supabase
           .from('products')
           .insert({

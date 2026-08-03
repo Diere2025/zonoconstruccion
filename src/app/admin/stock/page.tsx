@@ -446,8 +446,10 @@ export default function StockControlPage() {
                       return (
                         <tr key={c.productId} className="hover:bg-slate-50/50 transition-colors">
                           <td className="py-4 px-6">
-                            <span className="block text-slate-800 font-extrabold">{c.name}</span>
-                            <span className="block text-[10px] text-slate-400 uppercase font-bold">{c.sku || "Sin SKU"}</span>
+                            <span className="block text-slate-800 font-extrabold">{c.sku || c.name}</span>
+                            {c.name && c.name !== c.sku && (
+                              <span className="block text-[10px] text-slate-400 font-medium">{c.name}</span>
+                            )}
                           </td>
                           
                           {/* Stock Físico */}

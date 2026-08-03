@@ -15,6 +15,7 @@ async function fetchAllProducts() {
     const { data, error } = await supabaseAdmin
       .from('products')
       .select('*')
+      .eq('is_active', true)
       .range(page * pageSize, (page + 1) * pageSize - 1);
     if (error) throw error;
     if (data && data.length > 0) {

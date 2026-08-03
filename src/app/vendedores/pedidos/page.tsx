@@ -450,6 +450,8 @@ export default function PedidosPage() {
   // Filter products for the searchable dropdown using smart multi-word search on Name and SKU
   const filteredDropdownProducts = products
     .filter(p => {
+      if (p.is_active === false || p.category === 'Interno' || p.name?.startsWith('[Interno]')) return false;
+      if (p.sku?.startsWith('AUTO-') && products.some(other => other.id !== p.id && other.is_active !== false && other.category !== 'Interno' && !other.sku?.startsWith('AUTO-') && (other.sku === p.name || normalizeText(other.name) === normalizeText(p.name)))) return false;
       if (!productSearchTerm) return true;
       
       const searchWords = productSearchTerm.toLowerCase().split(/\s+/).filter(Boolean);
@@ -1309,6 +1311,12 @@ export default function PedidosPage() {
   useEffect(() => {
     async function loadInitialData() {
       try {
+        const PEDIDOS_CACHE_VER = "zc_pedidos_v10_variants_restored";
+        if (sessionStorage.getItem("cached_pedidos_ver") !== PEDIDOS_CACHE_VER) {
+          sessionStorage.clear();
+          sessionStorage.setItem("cached_pedidos_ver", PEDIDOS_CACHE_VER);
+        }
+
         // Intentar cargar desde caché para velocidad instantánea
         const cachedProducts = sessionStorage.getItem("cached_pedidos_products");
         const cachedClients = sessionStorage.getItem("cached_pedidos_clients");
@@ -1329,7 +1337,8 @@ export default function PedidosPage() {
             setRole(cachedRole as any);
             setListType(cachedRole === 'admin' ? 'todos' : 'mis_pedidos');
           }
-          setProducts(JSON.parse(cachedProducts));
+          const parsedCache = JSON.parse(cachedProducts);
+          setProducts(Array.isArray(parsedCache) ? parsedCache.filter((p: any) => p && p.is_active !== false) : []);
           setClients(JSON.parse(cachedClients));
           setLocalities(JSON.parse(cachedLocalities));
           setDeliveryTimes(JSON.parse(cachedDt));
@@ -1698,7 +1707,7 @@ export default function PedidosPage() {
     const sortedIds = Object.keys(usageCounts).sort((a, b) => usageCounts[b] - usageCounts[a]);
     return sortedIds
       .map(id => products.find(p => p.id === id))
-      .filter(p => p && !p.parent_id && !EXCLUDED_IDS.includes(p.id)) // Exclude child variants and dynamic variants from favorites list
+      .filter(p => p && p.is_active !== false && p.category !== 'Interno' && !p.parent_id && !EXCLUDED_IDS.includes(p.id)) // Exclude child variants and dynamic variants from favorites list
       .slice(0, 10) as Product[];
   }, [products, usageCounts]);
 
@@ -2133,6 +2142,9 @@ export default function PedidosPage() {
 
   const searchTerms = normalizeText(searchTerm).split(/\s+/).filter(Boolean);
   const filteredProducts = products.filter(p => {
+    if (p.is_active === false) return false;
+    if (p.category === 'Interno' || p.name?.startsWith('[Interno]')) return false;
+    if (p.sku?.startsWith('AUTO-') && products.some(other => other.id !== p.id && other.is_active !== false && other.category !== 'Interno' && !other.sku?.startsWith('AUTO-') && (other.sku === p.name || normalizeText(other.name) === normalizeText(p.name)))) return false;
     if (p.parent_id) return false; // Hide child variants from main search results
     if (EXCLUDED_IDS.includes(p.id)) return false; // Hide dynamic variants from main results
     if (searchTerms.length === 0) return false;
@@ -4387,7 +4399,7 @@ export default function PedidosPage() {
                           </button>
 
                           <div className="flex-1 min-w-0 pr-6">
-                            <p className="font-bold text-slate-200 text-xs truncate leading-tight select-none">{item.name}</p>
+                            <p className="font-bold text-slate-200 text-xs truncate leading-tight select-none">{item.sku || item.name}</p>
                           </div>
                           
                           <div className="flex items-center gap-1.5 sm:shrink-0 mt-0.5 sm:mt-0">
@@ -4708,13 +4720,8 @@ export default function PedidosPage() {
                               />
                               <div className="flex flex-col min-w-0">
                                 <span className={`text-[11px] font-semibold leading-tight break-words ${isSelected ? 'text-brand-700' : 'text-slate-600'}`}>
-                                  {p.name}
+                                  {p.sku || p.name}
                                 </span>
-                                {p.sku && (
-                                  <span className="text-[9px] text-slate-400 font-mono mt-0.5">
-                                    SKU: {p.sku}
-                                  </span>
-                                )}
                               </div>
                             </label>
                           );
@@ -5253,7 +5260,7 @@ export default function PedidosPage() {
                       <div key={item.id} className="flex justify-between items-center text-sm">
                         <div className="flex items-center gap-2">
                            <span className="font-black text-slate-400">{item.quantity}x</span>
-                           <span className="font-bold text-slate-700">{item.sku ? `[${item.sku}] ` : ''}{item.name}</span>
+                           <span className="font-bold text-slate-700">{item.sku || item.name}</span>
                         </div>
                         <span className="font-bold text-slate-900">{formatPrice(item.customPrice * item.quantity)}</span>
                       </div>

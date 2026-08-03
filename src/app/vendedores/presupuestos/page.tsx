@@ -253,7 +253,7 @@ export default function PresupuestosPage() {
 
         // Cargar productos, rol de vendedor y kits en paralelo
         const [productsRes, sellerRes, kitsRes] = await Promise.all([
-          supabase.from("products").select("*").order("name"),
+          supabase.from("products").select("*").eq("is_active", true).order("name"),
           supabase.from('sellers').select('role').eq('id', userId).single(),
           supabase.from('kits').select(`
             *,
