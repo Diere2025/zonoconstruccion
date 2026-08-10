@@ -58,7 +58,39 @@ export default function AdminPage() {
   const [orphanSearchTerm, setOrphanSearchTerm] = useState("");
 
   // Tab State
-  const [activeTab, setActiveTab] = useState<'products' | 'import' | 'orphans' | 'settings' | 'profitability'>('products');
+  const [activeTab, setActiveTab] = useState<'products' | 'import' | 'orphans' | 'settings' | 'profitability' | 'taxonomy'>('products');
+
+  // Taxonomy State
+  const [taxonomyParents, setTaxonomyParents] = useState<any[]>([]);
+  const [taxonomySubcategories, setTaxonomySubcategories] = useState<any[]>([]);
+  const [loadingTaxonomy, setLoadingTaxonomy] = useState(false);
+  const [newParentName, setNewParentName] = useState("");
+  const [newSubName, setNewSubName] = useState("");
+  const [newSubParentId, setNewSubParentId] = useState("");
+  const [creatingCategory, setCreatingCategory] = useState(false);
+
+  const fetchTaxonomy = async () => {
+    setLoadingTaxonomy(true);
+    try {
+      const res = await fetch("/api/admin/categories");
+      const json = await res.json();
+      if (json.parents) setTaxonomyParents(json.parents);
+      if (json.subcategories) setTaxonomySubcategories(json.subcategories);
+      if (json.parents && json.parents.length > 0 && !newSubParentId) {
+        setNewSubParentId(json.parents[0].id);
+      }
+    } catch (e) {
+      console.error("Error fetching taxonomy:", e);
+    } finally {
+      setLoadingTaxonomy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'taxonomy') {
+      fetchTaxonomy();
+    }
+  }, [activeTab]);
 
   // Profitability Analysis State
   const [profitabilitySuppliers, setProfitabilitySuppliers] = useState<any[]>([]);
@@ -384,14 +416,14 @@ export default function AdminPage() {
           errors++;
           errorMessages.push(`SKU ${sku}: ${updateError.message}`);
         } else if (!data || data.length === 0) {
-          // No existe, crearlo como interno/oculto
+          // No existe, crearlo con el SKU como nombre
           const upsertPayload = {
             sku,
-            name: `[Interno] ${sku}`,
+            name: sku,
             price,
-            category: 'Interno',
+            category: 'Otros',
             image_url: '', // Sin imagen
-            is_active: false // Inactivo por defecto al ser interno
+            is_active: false // Inactivo por defecto hasta asignar precio en lista
           };
           const { error: insertError } = await supabase.from('products').insert(upsertPayload);
           if (insertError) {
@@ -407,9 +439,9 @@ export default function AdminPage() {
       } else {
         // Formato completo de 10 columnas, usamos UPSERT
         const upsertPayload: any = { sku };
-        const name = parts[1] || `[Interno] ${sku}`;
+        const name = parts[1] || sku;
         const priceStr = parts[2] || "0";
-        const category = parts[3] || "Interno";
+        const category = parts[3] || "Otros";
         const brand = parts[4] || "";
         const dimensions = parts[5] || "";
         const is_on_sale = parts[6] ? parts[6].toLowerCase() === 'true' : false;
@@ -453,40 +485,18 @@ export default function AdminPage() {
 
   const handleGoogleSheetsSync = async () => {
     setSubmittingType('sheets');
-    setImportStatus("Descargando planilla desde Google Sheets...");
+    setImportStatus("Sincronizando productos vigentes y precios desde Google Sheets...");
     setImportErrors([]);
     try {
-      const response = await fetch("https://docs.google.com/spreadsheets/d/1K3c_6SMScaTkSI3FMDnQPVyj-c7MSqQEoWW4q3mL3Jg/export?format=csv&gid=508601925");
-      if (!response.ok) throw new Error("Error al descargar la planilla. Verificá que sea pública.");
+      const res = await fetch("/api/admin/sync-products", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || "Error en el servidor al sincronizar.");
       
-      const csvText = await response.text();
-      const rows = parseCSV(csvText);
-      
-      let syntheticCsv = "SKU,Precio\\n"; // Cabecera para que sea ignorada
-      let count = 0;
-      
-      for (let i = 0; i < rows.length; i++) {
-        const row = rows[i];
-        if (!row[1] || row[1].toLowerCase() === "producto" || row[1].trim() === "") continue;
-        // Columna B (1) es SKU/Nombre, Columna C (2) es Precio
-        const sku = row[1].replace(/"/g, '""'); // Escapar comillas dobles
-        const price = row[2] || "0";
-        syntheticCsv += `"${sku}","${price}"\n`;
-        count++;
-      }
-      
-      if (count === 0) {
-         setImportStatus("No se encontraron productos válidos en la planilla.");
-         setSubmittingType(null);
-         return;
-      }
-      
-      setImportStatus(`Procesando ${count} productos desde Google Sheets...`);
-      // Llamamos al processData enviándole este CSV sintético que armamos
-      // Ya tiene exactamente 2 columnas (SKU y Precio)
-      processData(syntheticCsv);
+      setImportStatus(`Sincronización completada: ${data.pricesUpdatedCount} precios actualizados, ${data.activatedCount} activados, ${data.deactivatedCount} desactivados. Total activos: ${data.totalActiveProducts}.`);
+      fetchProducts();
     } catch (e: any) {
       setImportStatus(`Error de sincronización: ${e.message}`);
+    } finally {
       setSubmittingType(null);
     }
   };
@@ -1378,6 +1388,16 @@ export default function AdminPage() {
           <Coins className="w-4 h-4" />
           Costos y Rentabilidad
         </button>
+        <button
+          onClick={() => setActiveTab('taxonomy')}
+          className={cn(
+            "px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap",
+            activeTab === 'taxonomy' ? "bg-white text-brand-600 shadow-sm font-black" : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
+          )}
+        >
+          <Menu className="w-4 h-4 text-brand-600" />
+          Jerarquía de Categorías
+        </button>
       </div>
 
       {activeTab === 'products' ? (
@@ -1671,6 +1691,251 @@ export default function AdminPage() {
                 </Button>
               </div>
             </div>
+          </div>
+        </div>
+      ) : activeTab === 'taxonomy' ? (
+        <div className="space-y-6">
+          <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-xl space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+              <div>
+                <h2 className="text-xl font-black text-slate-900 tracking-tight flex items-center gap-2">
+                  <Menu className="w-5 h-5 text-brand-600" /> Gestor Jerárquico de Categorías y Subcategorías
+                </h2>
+                <p className="text-xs text-slate-500 font-medium">
+                  Las <b>Subcategorías</b> se usan en la tienda/productos para agrupar ítems. Cada subcategoría tiene una <b>Categoría Padre (Macrocategoría)</b> que se usa para <b>Meta Ads y Comisiones</b>.
+                </p>
+              </div>
+
+              <button
+                onClick={fetchTaxonomy}
+                disabled={loadingTaxonomy}
+                className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl flex items-center gap-2 transition-all cursor-pointer"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loadingTaxonomy ? "animate-spin text-brand-600" : ""}`} /> Actualizar
+              </button>
+            </div>
+
+            {loadingTaxonomy ? (
+              <div className="py-24 text-center">
+                <Loader2 className="w-10 h-10 animate-spin mx-auto text-brand-600" />
+                <span className="text-xs font-bold text-slate-400 mt-2 block">Cargando jerarquía de categorías...</span>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                {/* Left Side: Parent Categories (Macrocategorías) */}
+                <div className="bg-slate-50/70 p-6 rounded-2xl border border-slate-200 space-y-4">
+                  <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+                    <h3 className="font-black text-slate-900 text-sm uppercase tracking-wider flex items-center gap-2">
+                      <Package className="w-4 h-4 text-brand-600" /> Categorías Padre ({taxonomyParents.length})
+                    </h3>
+                    <span className="text-[10px] bg-brand-100 text-brand-900 font-black px-2 py-0.5 rounded-full uppercase">
+                      Usadas en Ads & Comisiones
+                    </span>
+                  </div>
+
+                  {/* Add Parent Category Input */}
+                  <form
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      if (!newParentName.trim()) return;
+                      setCreatingCategory(true);
+                      try {
+                        const res = await fetch("/api/admin/categories", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ name: newParentName })
+                        });
+                        const json = await res.json();
+                        if (json.success) {
+                          setNewParentName("");
+                          fetchTaxonomy();
+                        } else {
+                          alert(json.error || "Error al crear categoría padre");
+                        }
+                      } finally {
+                        setCreatingCategory(false);
+                      }
+                    }}
+                    className="flex items-center gap-2 bg-white p-2 rounded-xl border border-slate-200 shadow-xs"
+                  >
+                    <input
+                      type="text"
+                      placeholder="Nueva Categoría Padre (ej. Pinturas)..."
+                      value={newParentName}
+                      onChange={e => setNewParentName(e.target.value)}
+                      className="flex-1 px-3 py-1.5 text-xs font-bold text-slate-900 placeholder-slate-400 focus:outline-none"
+                    />
+                    <button
+                      type="submit"
+                      disabled={creatingCategory || !newParentName.trim()}
+                      className="px-3.5 py-1.5 bg-brand-600 hover:bg-brand-700 text-white font-black text-xs rounded-lg transition-all disabled:opacity-50 cursor-pointer flex items-center gap-1"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Crear Padre
+                    </button>
+                  </form>
+
+                  {/* List of Parent Categories */}
+                  <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1 custom-sidebar-scrollbar">
+                    {taxonomyParents.map(parent => {
+                      const childCount = taxonomySubcategories.filter(s => s.parent_id === parent.id).length;
+
+                      return (
+                        <div key={parent.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex items-center justify-between gap-3 hover:border-slate-300 transition-all">
+                          <div>
+                            <div className="font-black text-slate-900 text-xs flex items-center gap-2">
+                              {parent.name}
+                            </div>
+                            <span className="text-[10px] text-slate-400 font-bold">
+                              {childCount} {childCount === 1 ? 'subcategoría vinculada' : 'subcategorías vinculadas'}
+                            </span>
+                          </div>
+
+                          <button
+                            onClick={async () => {
+                              if (!confirm(`¿Eliminar la categoría padre "${parent.name}"?`)) return;
+                              await fetch(`/api/admin/categories?id=${parent.id}`, { method: "DELETE" });
+                              fetchTaxonomy();
+                            }}
+                            className="p-1.5 hover:bg-rose-100 text-rose-600 rounded-lg transition-colors cursor-pointer"
+                            title="Eliminar categoría padre"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Right Side: Subcategories (Subcategorías Web) */}
+                <div className="bg-slate-50/70 p-6 rounded-2xl border border-slate-200 space-y-4">
+                  <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+                    <h3 className="font-black text-slate-900 text-sm uppercase tracking-wider flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-emerald-600" /> Subcategorías Web ({taxonomySubcategories.length})
+                    </h3>
+                    <span className="text-[10px] bg-emerald-100 text-emerald-900 font-black px-2 py-0.5 rounded-full uppercase">
+                      Usadas en Productos & Tienda
+                    </span>
+                  </div>
+
+                  {/* Add Subcategory Form */}
+                  <form
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      if (!newSubName.trim() || !newSubParentId) return;
+                      setCreatingCategory(true);
+                      try {
+                        const res = await fetch("/api/admin/categories", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ name: newSubName, parent_id: newSubParentId })
+                        });
+                        const json = await res.json();
+                        if (json.success) {
+                          setNewSubName("");
+                          fetchTaxonomy();
+                        } else {
+                          alert(json.error || "Error al crear subcategoría");
+                        }
+                      } finally {
+                        setCreatingCategory(false);
+                      }
+                    }}
+                    className="flex flex-col gap-2 bg-white p-3 rounded-xl border border-slate-200 shadow-xs"
+                  >
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={newSubParentId}
+                        onChange={e => setNewSubParentId(e.target.value)}
+                        className="w-full text-xs font-bold bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-slate-800"
+                      >
+                        {taxonomyParents.map(p => (
+                          <option key={p.id} value={p.id}>Padre: {p.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        placeholder="Nueva Subcategoría (ej. Tanques Tricapa Beige)..."
+                        value={newSubName}
+                        onChange={e => setNewSubName(e.target.value)}
+                        className="flex-1 px-3 py-1.5 text-xs font-bold text-slate-900 placeholder-slate-400 focus:outline-none"
+                      />
+                      <button
+                        type="submit"
+                        disabled={creatingCategory || !newSubName.trim() || !newSubParentId}
+                        className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-lg transition-all disabled:opacity-50 cursor-pointer flex items-center gap-1"
+                      >
+                        <Plus className="w-3.5 h-3.5" /> Crear Subcategoría
+                      </button>
+                    </div>
+                  </form>
+
+                  {/* List of Subcategories Grouped by Parent */}
+                  <div className="space-y-4 max-h-[500px] overflow-y-auto pr-1 custom-sidebar-scrollbar">
+                    {taxonomyParents.map(parent => {
+                      const subs = taxonomySubcategories.filter(s => s.parent_id === parent.id);
+                      if (subs.length === 0) return null;
+
+                      return (
+                        <div key={parent.id} className="bg-white p-3.5 rounded-xl border border-slate-200 space-y-2">
+                          <span className="text-[10px] font-black uppercase tracking-wider text-brand-600 block border-b border-slate-100 pb-1">
+                            Padre: {parent.name}
+                          </span>
+
+                          <div className="flex flex-wrap gap-2 pt-1">
+                            {subs.map(sub => (
+                              <div
+                                key={sub.id}
+                                className="bg-slate-50 border border-slate-200 text-slate-800 text-xs font-bold px-2.5 py-1 rounded-lg flex items-center gap-2 shadow-xs"
+                              >
+                                <span>{sub.name}</span>
+                                
+                                {/* Quick Parent Reassign Select */}
+                                <select
+                                  value={sub.parent_id || ""}
+                                  onChange={async (e) => {
+                                    const newParentId = e.target.value;
+                                    await fetch("/api/admin/categories", {
+                                      method: "PUT",
+                                      headers: { "Content-Type": "application/json" },
+                                      body: JSON.stringify({ id: sub.id, parent_id: newParentId })
+                                    });
+                                    fetchTaxonomy();
+                                  }}
+                                  className="text-[9px] font-extrabold bg-white text-slate-600 border border-slate-200 rounded px-1 py-0.5 cursor-pointer focus:ring-1 focus:ring-brand-500"
+                                  title="Reasignar Categoría Padre"
+                                >
+                                  {taxonomyParents.map(p => (
+                                    <option key={p.id} value={p.id}>
+                                      Padre: {p.name}
+                                    </option>
+                                  ))}
+                                </select>
+
+                                <button
+                                  onClick={async () => {
+                                    if (!confirm(`¿Eliminar la subcategoría "${sub.name}"?`)) return;
+                                    await fetch(`/api/admin/categories?id=${sub.id}`, { method: "DELETE" });
+                                    fetchTaxonomy();
+                                  }}
+                                  className="text-slate-400 hover:text-rose-600 transition-colors font-black ml-0.5 cursor-pointer"
+                                  title="Eliminar subcategoría"
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       ) : activeTab === 'profitability' ? (
@@ -2165,7 +2430,7 @@ export default function AdminPage() {
              </div>
            </div>
          </div>
-      ) : (
+      ) : activeTab === 'settings' ? (
         <div className="max-w-2xl">
           <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl border border-slate-100">
             <h2 className="text-3xl font-black text-slate-900 mb-8 tracking-tighter">Ajustes de Landings</h2>
@@ -2358,7 +2623,7 @@ export default function AdminPage() {
             </div>
           </div>
         </div>
-      )}
+      ) : null}
 
       {/* REUSABLE MODALS */}
       <ProductFormModal 

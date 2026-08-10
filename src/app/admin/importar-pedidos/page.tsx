@@ -65,6 +65,7 @@ export default function ImportarPedidosPage() {
   const [importJazmin, setImportJazmin] = useState(false);
   const [importDiego, setImportDiego] = useState(false);
   const [importLudmila, setImportLudmila] = useState(false);
+  const [importFacundo, setImportFacundo] = useState(false);
   const [importCentral, setImportCentral] = useState(true);
   const [importAquafort, setImportAquafort] = useState(true);
   const [syncPaymentMethods, setSyncPaymentMethods] = useState(false);
@@ -521,6 +522,7 @@ export default function ImportarPedidosPage() {
       const defaultJazminSellerId = "13430e05-b61a-4a3f-9fc3-152d377c4b0c";
       const defaultDiegoSellerId = "381df0d1-183f-4ccb-aaf2-8147c76159a9";
       const defaultLudmilaSellerId = "8207801b-b6cb-48cc-af0f-d2f9f2c98032";
+      const defaultFacundoSellerId = "54b9ce55-7354-4b39-9886-314aa79f6aa6";
 
       const sheets = [
         {
@@ -549,6 +551,15 @@ export default function ImportarPedidosPage() {
           isCentralSheet: false,
           isAquafortSheet: false,
           enabled: importLudmila
+        },
+        {
+          name: "Facundo Paz",
+          url: "https://docs.google.com/spreadsheets/d/1c0iswWt2GAv8NhXfNgIlaOul9wanpZHaeMFeN2Pr0ns/gviz/tq?tqx=out:csv",
+          defaultSellerId: defaultFacundoSellerId,
+          defaultChannel: "mostrador_minorista",
+          isCentralSheet: false,
+          isAquafortSheet: false,
+          enabled: importFacundo
         },
         {
           name: "Central/Ruteo",
@@ -939,6 +950,29 @@ export default function ImportarPedidosPage() {
                 </div>
                 <a
                   href="https://docs.google.com/spreadsheets/d/1tp10RNH7z5VpWL9eVmofpOVrB2HzEpfbSEc1ngKO9_8/edit?gid=1414092286"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-slate-400 hover:text-slate-600 p-1 font-bold text-xs"
+                  title="Abrir Planilla Original"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  ↗
+                </a>
+              </label>
+
+              {/* Facundo Paz */}
+              <label className={cn("flex items-center justify-between p-3 rounded-xl border border-slate-100 hover:bg-slate-50/50 cursor-pointer transition-all", !importFacundo && "opacity-50")}>
+                <div className="flex items-center gap-2.5">
+                  <input
+                    type="checkbox"
+                    checked={importFacundo}
+                    onChange={(e) => setImportFacundo(e.target.checked)}
+                    className="w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500/10 cursor-pointer accent-brand-600"
+                  />
+                  <span className="text-xs font-bold text-slate-800">Facundo Paz</span>
+                </div>
+                <a
+                  href="https://docs.google.com/spreadsheets/d/1c0iswWt2GAv8NhXfNgIlaOul9wanpZHaeMFeN2Pr0ns/edit"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-slate-400 hover:text-slate-600 p-1 font-bold text-xs"

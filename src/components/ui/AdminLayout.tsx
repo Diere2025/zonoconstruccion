@@ -27,7 +27,8 @@ import {
   Upload,
   Target,
   Coins,
-  Package
+  Package,
+  PackageCheck
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
@@ -112,13 +113,15 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       title: "Tesorería y Administración",
       links: [
         { name: "Caja Diaria", href: "/vendedores/caja", icon: Wallet },
-        { name: "Administración y Finanzas", href: "/admin/finanzas", icon: Coins, adminOnly: true }
+        { name: "Administración y Finanzas", href: "/admin/finanzas", icon: Coins, adminOnly: true },
+        { name: "Comisiones de Vendedores", href: "/admin/comisiones", icon: Coins, adminOnly: true }
       ]
     },
     {
       title: "Logística y Distribución",
       links: [
         { name: "Ruteo de Entregas", href: "/vendedores/ruteo", icon: Truck },
+        { name: "Facturación Pendiente", href: "/admin/facturacion-pendiente", icon: PackageCheck, adminOnly: true },
         { name: "Auditoría de Entregas", href: "/admin/auditoria-logistica", icon: Clock, adminOnly: true },
         { name: "Zonas y Localidades", href: "/admin/localidades-zonas", icon: Map, adminOnly: true },
         { name: "Tiempos de Entrega", href: "/admin/tiempos-entrega", icon: Clock, adminOnly: true }
@@ -322,7 +325,9 @@ export function AdminLayout({ children }: AdminLayoutProps) {
             <div className="h-6 w-px bg-slate-200" />
             <h2 className="font-black text-slate-800 text-sm tracking-tight uppercase">
               {pathname === "/admin" ? "Catálogo e Inventario" :
+               pathname === "/admin/facturacion-pendiente" ? "Facturación Pendiente de Entrega" :
                pathname === "/admin/stock" ? "Control y Sincronización de Stock" :
+               pathname === "/admin/comisiones" ? "Cálculo de Comisiones de Vendedores" :
                pathname === "/admin/finanzas" ? "Administración y Finanzas" :
                pathname === "/admin/compras" ? "Costos y Proveedores" :
                pathname === "/admin/tiempos-entrega" ? "Tiempos de Entrega" :
