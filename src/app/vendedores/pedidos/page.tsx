@@ -2311,7 +2311,13 @@ export default function PedidosPage() {
     setOrderItems(orderItems.map(i => i.id === id ? { ...i, customPrice: price } : i));
   };
 
-  const subtotal = orderItems.reduce((acc, item) => acc + item.customPrice * item.quantity, 0);
+  const subtotal = orderItems.reduce((acc, item) => {
+    const name = (item.name || "").toLowerCase();
+    const sku = (item.sku || "").toLowerCase();
+    const isDisc = name.includes("descuento") || sku.includes("descuento") || name.includes("bonificaci") || sku.includes("bonificaci");
+    const itemVal = isDisc ? -Math.abs(item.customPrice) : item.customPrice;
+    return acc + itemVal * item.quantity;
+  }, 0);
   const shippingAmount = isFreeShipping ? 0 : shippingCost;
 
   // Calculate surcharges and totals dynamically per payment item (Proportional Surcharges)

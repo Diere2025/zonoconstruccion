@@ -8,6 +8,13 @@ import { Search, Plus, Trash2, Copy, Check, Calculator, ArrowRight, Save, Packag
 import { Button } from "@/components/ui/Button";
 import { cn, formatPrice } from "@/lib/utils";
 
+export const isDiscountItem = (item: { name?: string; sku?: string }) => {
+  if (!item) return false;
+  const name = (item.name || "").toLowerCase();
+  const sku = (item.sku || "").toLowerCase();
+  return name.includes("descuento") || sku.includes("descuento") || name.includes("bonificaci") || sku.includes("bonificaci");
+};
+
 interface QuoteItem extends Product {
   quantity: number;
   customPrice: number;
@@ -133,6 +140,28 @@ const parseWhatsAppBudget = (text: string): ParsedBudget => {
         name: productName,
         quantity,
         price: unitPrice
+      });
+      continue;
+    }
+
+    if (line.toLowerCase().includes('descuento') || line.toLowerCase().includes('bonificaci')) {
+      const matchAmount = line.match(/(?:-\$|\$|-)\s*([\d.,]+)/) || line.match(/a\s*(?:-\$|\$)?\s*([\d.,]+)/);
+      let price = 0;
+      if (matchAmount) {
+        price = parsePrice(matchAmount[1]);
+      } else {
+        const anyNumber = line.match(/\$?([\d.,]+)/);
+        if (anyNumber) price = parsePrice(anyNumber[1]);
+      }
+      
+      let label = "Descuento";
+      const labelMatch = line.match(/\*([^*]+)\*/);
+      if (labelMatch) label = labelMatch[1].trim();
+
+      items.push({
+        name: label,
+        quantity: 1,
+        price
       });
       continue;
     }
@@ -321,7 +350,7 @@ export default function PresupuestosPage() {
     const sortedIds = Object.keys(usageCounts).sort((a, b) => usageCounts[b] - usageCounts[a]);
     return sortedIds
       .map(id => products.find(p => p.id === id))
-      .filter(p => p && p.is_active !== false && !p.name?.toLowerCase().startsWith('[interno]') && !p.parent_id && !EXCLUDED_IDS.includes(p.id)) // Exclude inactive, internal, child variants and dynamic variants from favorites list
+      .filter(p => p && p.is_active !== false && !p.name?.toLowerCase().startsWith('[interno]') && !p.parent_id && !EXCLUDED_IDS.includes(p.id)) // Exclude inactive, internal, child variants, and dynamic variants
       .slice(0, 10) as Product[];
   }, [products, usageCounts]);
 
@@ -536,12 +565,16 @@ export default function PresupuestosPage() {
   };
 
   // Calculations
-  const subtotal = quoteItems.reduce((acc, item) => acc + item.customPrice * item.quantity, 0);
+  const subtotal = quoteItems.reduce((acc, item) => {
+    const isDisc = isDiscountItem(item);
+    const itemVal = isDisc ? -Math.abs(item.customPrice) : item.customPrice;
+    return acc + itemVal * item.quantity;
+  }, 0);
   const shippingAmount = isFreeShipping ? 0 : shippingCost;
   const surcharge = subtotal * (selectedPaymentMethod.surcharge_percentage / 100);
   const subtotalWithSurchargeAndShipping = subtotal + surcharge + shippingAmount;
   const ivaAmount = includeIVA ? subtotalWithSurchargeAndShipping * 0.21 : 0;
-  const total = subtotalWithSurchargeAndShipping + ivaAmount;
+  const total = Math.max(0, subtotalWithSurchargeAndShipping + ivaAmount);
   const installmentValue = selectedPaymentMethod.installments > 1 ? total / selectedPaymentMethod.installments : 0;
 
   const generateWhatsAppText = () => {
@@ -550,11 +583,17 @@ export default function PresupuestosPage() {
     
     quoteItems.forEach(item => {
       const internalName = item.sku || item.name;
-      if (item.quantity > 1) {
-        text += `🔸 ${item.quantity}x *${internalName}* a ${formatPrice(item.customPrice)} c/u\n`;
-        text += `   Subtotal: ${formatPrice(item.customPrice * item.quantity)}\n`;
+      const isDisc = isDiscountItem(item);
+      if (isDisc) {
+        const discAmount = Math.abs(item.customPrice * item.quantity);
+        text += `🏷️ *${item.name || internalName}*: -${formatPrice(discAmount)}\n`;
       } else {
-        text += `🔸 1x *${internalName}* a ${formatPrice(item.customPrice)}\n`;
+        if (item.quantity > 1) {
+          text += `🔸 ${item.quantity}x *${internalName}* a ${formatPrice(item.customPrice)} c/u\n`;
+          text += `   Subtotal: ${formatPrice(item.customPrice * item.quantity)}\n`;
+        } else {
+          text += `🔸 1x *${internalName}* a ${formatPrice(item.customPrice)}\n`;
+        }
       }
     });
     
@@ -593,14 +632,17 @@ export default function PresupuestosPage() {
 
   const handleConvertToOrder = () => {
     const budgetData = {
-      items: quoteItems.map(item => ({
-        id: item.id,
-        name: item.name,
-        sku: item.sku || '',
-        quantity: item.quantity,
-        customPrice: item.customPrice,
-        cost: item.cost || 0
-      })),
+      items: quoteItems.map(item => {
+        const isDisc = isDiscountItem(item);
+        return {
+          id: item.id,
+          name: item.name,
+          sku: item.sku || (isDisc ? 'DESCUENTO' : ''),
+          quantity: item.quantity,
+          customPrice: isDisc ? -Math.abs(item.customPrice) : item.customPrice,
+          cost: item.cost || 0
+        };
+      }),
       paymentType,
       cardInstallments,
       cardSurcharge
@@ -626,6 +668,22 @@ export default function PresupuestosPage() {
       const unmatchedNames: string[] = [];
 
       parsed.items.forEach(parsedItem => {
+        if (isDiscountItem(parsedItem)) {
+          newItems.push({
+            id: `discount-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+            name: parsedItem.name || "Descuento",
+            description: "Descuento aplicado",
+            price: parsedItem.price,
+            customPrice: parsedItem.price,
+            image_url: "",
+            category: "Descuento",
+            sku: "DESCUENTO",
+            quantity: 1,
+            is_active: true
+          });
+          return;
+        }
+
         const normalizedMsgName = normalizeForMatching(parsedItem.name);
 
         // Try matching by exact normalized name
