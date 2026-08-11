@@ -382,7 +382,8 @@ export default function PresupuestosPage() {
     if (p.parent_id) return false; // Hide child variants from main search results
     if (p.is_active === false) return false; // Exclude inactive products
     if (p.sku && p.sku.startsWith("AUTO-")) return false; // Exclude auto-generated component products
-    if (p.category === "otro" || p.category === "Insumos") return false; // Exclude raw materials/components
+    const isDisc = (p.name || "").toLowerCase().includes("descuento") || (p.sku || "").toLowerCase().includes("descuento") || (p.name || "").toLowerCase().includes("bonificaci");
+    if (!isDisc && (p.category === "otro" || p.category === "Insumos")) return false; // Exclude raw materials/components except discount products
     if (EXCLUDED_IDS.includes(p.id)) return false; // Hide dynamic variants from main results
     if (searchTerms.length === 0) return false;
     
@@ -541,7 +542,11 @@ export default function PresupuestosPage() {
   };
 
   // Calculations
-  const subtotal = quoteItems.reduce((acc, item) => acc + item.customPrice * item.quantity, 0);
+  const subtotal = quoteItems.reduce((acc, item) => {
+    const isDisc = (item.name || "").toLowerCase().includes("descuento") || (item.sku || "").toLowerCase().includes("descuento") || (item.name || "").toLowerCase().includes("bonificaci");
+    const itemVal = isDisc ? -Math.abs(item.customPrice) : item.customPrice;
+    return acc + itemVal * item.quantity;
+  }, 0);
   const shippingAmount = isFreeShipping ? 0 : shippingCost;
   const surcharge = subtotal * (selectedPaymentMethod.surcharge_percentage / 100);
   const subtotalWithSurchargeAndShipping = subtotal + surcharge + shippingAmount;

@@ -133,7 +133,13 @@ export default function PedidosPage() {
   };
 
   const selectedPaymentMethod = paymentMethods.find(p => p.id === selectedPaymentMethodId);
-  const subtotal = orderItems.reduce((acc, item) => acc + item.customPrice * item.quantity, 0);
+  const subtotal = orderItems.reduce((acc, item) => {
+    const name = (item.name || "").toLowerCase();
+    const sku = (item.sku || "").toLowerCase();
+    const isDisc = name.includes("descuento") || sku.includes("descuento") || name.includes("bonificaci");
+    const itemVal = isDisc ? -Math.abs(item.customPrice) : item.customPrice;
+    return acc + itemVal * item.quantity;
+  }, 0);
   const surcharge = selectedPaymentMethod ? subtotal * (selectedPaymentMethod.surcharge_percentage / 100) : 0;
   const total = subtotal + surcharge;
 
