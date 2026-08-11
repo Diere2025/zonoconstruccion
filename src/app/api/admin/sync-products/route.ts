@@ -267,6 +267,9 @@ export async function POST() {
     }
 
     for (const p of dbProducts) {
+      const isDiscountPseudoProduct = p.name?.toLowerCase().includes('descuento') || p.sku?.toLowerCase().includes('descuento') || p.name?.toLowerCase().includes('bonificaci');
+      if (isDiscountPseudoProduct) continue; // Keep discount pseudo-products active
+
       if (!activeDbProductIds.has(p.id)) {
         const normName = normalizeProductName(p.name);
         const isDiscontinued = bdDiscontinuedSet.has(normName);
