@@ -435,6 +435,49 @@ export default function PedidosPage() {
     return 'bg-slate-200 border-slate-300';
   };
 
+  const getSellerBadgeStyle = (name?: string | null) => {
+    if (!name) return { bg: "bg-slate-50", text: "text-slate-500", border: "border-slate-200", dot: "bg-slate-400" };
+    const lower = name.toLowerCase().trim();
+    if (lower.includes("ludmila")) {
+      return { bg: "bg-purple-50", text: "text-purple-700", border: "border-purple-200", dot: "bg-purple-500" };
+    }
+    if (lower.includes("facundo")) {
+      return { bg: "bg-sky-50", text: "text-sky-700", border: "border-sky-200", dot: "bg-sky-500" };
+    }
+    if (lower.includes("jazmin") || lower.includes("jazmín")) {
+      return { bg: "bg-rose-50", text: "text-rose-700", border: "border-rose-200", dot: "bg-rose-500" };
+    }
+    if (lower.includes("diego")) {
+      return { bg: "bg-amber-50", text: "text-amber-700", border: "border-amber-200", dot: "bg-amber-500" };
+    }
+    if (lower.includes("lucas")) {
+      return { bg: "bg-emerald-50", text: "text-emerald-700", border: "border-emerald-200", dot: "bg-emerald-500" };
+    }
+    if (lower.includes("ezequiel")) {
+      return { bg: "bg-indigo-50", text: "text-indigo-700", border: "border-indigo-200", dot: "bg-indigo-500" };
+    }
+    if (lower.includes("camila")) {
+      return { bg: "bg-teal-50", text: "text-teal-700", border: "border-teal-200", dot: "bg-teal-500" };
+    }
+    if (lower.includes("matias") || lower.includes("matías")) {
+      return { bg: "bg-cyan-50", text: "text-cyan-700", border: "border-cyan-200", dot: "bg-cyan-500" };
+    }
+    if (lower.includes("eriberto")) {
+      return { bg: "bg-blue-50", text: "text-blue-700", border: "border-blue-200", dot: "bg-blue-500" };
+    }
+    const PALETTE = [
+      { bg: "bg-violet-50", text: "text-violet-700", border: "border-violet-200", dot: "bg-violet-500" },
+      { bg: "bg-teal-50", text: "text-teal-700", border: "border-teal-200", dot: "bg-teal-500" },
+      { bg: "bg-orange-50", text: "text-orange-700", border: "border-orange-200", dot: "bg-orange-500" },
+      { bg: "bg-pink-50", text: "text-pink-700", border: "border-pink-200", dot: "bg-pink-500" },
+      { bg: "bg-lime-50", text: "text-lime-700", border: "border-lime-200", dot: "bg-lime-500" },
+      { bg: "bg-fuchsia-50", text: "text-fuchsia-700", border: "border-fuchsia-200", dot: "bg-fuchsia-500" },
+    ];
+    let hash = 0;
+    for (let i = 0; i < lower.length; i++) hash = (hash << 5) - hash + lower.charCodeAt(i);
+    return PALETTE[Math.abs(hash) % PALETTE.length];
+  };
+
   const [activeTab, setActiveTab] = useState<'form' | 'list'>('list');
   const [statusFilter, setStatusFilter] = useState<'Pendientes' | 'En Revisión' | 'Entregados' | 'Anulados' | 'Todos'>('Pendientes');
   const [clientTypeFilter, setClientTypeFilter] = useState<'todos' | 'minoristas' | 'mayoristas'>('todos');
@@ -5005,173 +5048,195 @@ export default function PedidosPage() {
             </div>
           </div>
 
-           <table className="w-full text-left">
-             <thead>
-               <tr className="bg-slate-50 border-b border-slate-100">
-                 <th 
-                   onClick={() => handleSort('order_date')}
-                   className="px-4 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400 cursor-pointer hover:bg-slate-100 select-none transition-colors"
-                 >
-                   <div className="flex items-center gap-1">
-                     <span>Fecha</span>
-                     {sortField === 'order_date' && (
-                       <span className="text-[8px]">{sortDirection === 'asc' ? '▲' : '▼'}</span>
-                     )}
-                   </div>
-                 </th>
-                 <th className="px-4 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400">Cliente</th>
-                 <th 
-                   onClick={() => handleSort('seller')}
-                   className="px-4 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400 cursor-pointer hover:bg-slate-100 select-none transition-colors"
-                 >
-                   <div className="flex items-center gap-1">
-                     <span>Vendedor</span>
-                     {sortField === 'seller' && (
-                       <span className="text-[8px]">{sortDirection === 'asc' ? '▲' : '▼'}</span>
-                     )}
-                   </div>
-                 </th>
-                 <th className="px-4 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400">Localidad</th>
-                 <th className="px-4 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400">Estado</th>
-                 <th className="px-4 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400">Total</th>
-                 <th className="px-4 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400">Acciones</th>
-               </tr>
-             </thead>
-             <tbody className="divide-y divide-slate-100">
+          <div className="overflow-x-auto custom-scrollbar">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-slate-50/80 border-b border-slate-200/80">
+                  <th 
+                    onClick={() => handleSort('order_date')}
+                    className="px-3.5 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400 cursor-pointer hover:bg-slate-100 select-none transition-colors whitespace-nowrap w-24"
+                  >
+                    <div className="flex items-center gap-1">
+                      <span>Fecha</span>
+                      {sortField === 'order_date' && (
+                        <span className="text-[8px] text-brand-600 font-bold">{sortDirection === 'asc' ? '▲' : '▼'}</span>
+                      )}
+                    </div>
+                  </th>
+                  <th className="px-3.5 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400 min-w-[200px]">Cliente</th>
+                  <th 
+                    onClick={() => handleSort('seller')}
+                    className="px-3.5 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400 cursor-pointer hover:bg-slate-100 select-none transition-colors whitespace-nowrap w-36"
+                  >
+                    <div className="flex items-center gap-1">
+                      <span>Vendedor</span>
+                      {sortField === 'seller' && (
+                        <span className="text-[8px] text-brand-600 font-bold">{sortDirection === 'asc' ? '▲' : '▼'}</span>
+                      )}
+                    </div>
+                  </th>
+                  <th className="px-3.5 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400 min-w-[180px]">Localidad & Zona</th>
+                  <th className="px-3.5 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400 text-center w-28 whitespace-nowrap">Estado</th>
+                  <th className="px-3.5 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400 text-right w-28 whitespace-nowrap">Total</th>
+                  <th className="px-3 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400 text-center w-20 whitespace-nowrap">Acciones</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100/90 text-slate-700">
                 {loadingOrders ? (
                   <tr>
                     <td colSpan={7} className="px-4 py-12 text-center text-slate-500 font-medium">
                       <div className="flex flex-col items-center justify-center gap-3">
                         <Loader2 className="w-8 h-8 text-brand-600 animate-spin" />
-                        <span>Cargando listado de pedidos...</span>
+                        <span className="text-xs font-bold">Cargando listado de pedidos...</span>
                       </div>
                     </td>
                   </tr>
                 ) : filteredOrders.length > 0 ? filteredOrders.map((p, i) => (
-                 <tr key={i} className="hover:bg-slate-50/40 transition-colors">
-                     <td className="px-4 py-2 text-xs font-black text-slate-700">
-                       {formatDate(p.order_date || p.created_at)}
-                     </td>
-                     <td className="px-4 py-2">
-                       <div className="font-bold text-slate-800 text-xs flex items-center gap-1.5 flex-wrap">
-                         <span>{p.customer_name}</span>
-                         {(() => {
-                            const isWholesale = !!(
-                              (p.legacy_code && (p.legacy_code.toUpperCase().startsWith("AQU") || p.legacy_code.toUpperCase().startsWith("POW") || p.legacy_code.toUpperCase().startsWith("AQ-DB"))) ||
-                              (p.clients && (Array.isArray(p.clients) ? p.clients[0]?.is_wholesale : p.clients?.is_wholesale))
+                  <tr key={p.id || i} className="hover:bg-blue-50/20 transition-colors group">
+                    {/* Fecha */}
+                    <td className="px-3.5 py-2 text-xs font-extrabold text-slate-700 whitespace-nowrap">
+                      {formatDate(p.order_date || p.created_at)}
+                    </td>
+
+                    {/* Cliente */}
+                    <td className="px-3.5 py-2">
+                      <div className="font-bold text-slate-900 text-xs flex items-center gap-1.5 flex-wrap">
+                        <span className="hover:text-brand-600 transition-colors cursor-default">{p.customer_name}</span>
+                        {(() => {
+                          const isWholesale = !!(
+                            (p.legacy_code && (p.legacy_code.toUpperCase().startsWith("AQU") || p.legacy_code.toUpperCase().startsWith("POW") || p.legacy_code.toUpperCase().startsWith("AQ-DB"))) ||
+                            (p.clients && (Array.isArray(p.clients) ? p.clients[0]?.is_wholesale : p.clients?.is_wholesale))
+                          );
+                          if (isWholesale) {
+                            return (
+                              <span className="inline-flex items-center px-1.5 py-0.25 bg-purple-50 border border-purple-200 text-purple-700 rounded text-[7.5px] font-black uppercase tracking-wider shrink-0 shadow-2xs" title="Cliente Mayorista / Recurrente">
+                                👑 Mayorista
+                              </span>
                             );
-                            if (isWholesale) {
-                              return (
-                                <span className="inline-flex items-center px-1.5 py-0.25 bg-purple-50 border border-purple-200 text-purple-700 rounded text-[7.5px] font-black uppercase tracking-wider shrink-0" title="Cliente Mayorista / Recurrente">
-                                  👑 Mayorista
-                                </span>
-                              );
-                            }
-                            return null;
-                          })()}
-                         {p.legacy_code && (
-                           <span className="inline-flex items-center px-1.5 py-0.25 bg-slate-100 border border-slate-200 text-slate-500 rounded text-[7.5px] font-black uppercase tracking-wider shrink-0" title="Código de pedido anterior">
-                             {p.legacy_code}
-                           </span>
-                         )}
-                         {p.whaticket_link && (
-                           <a 
-                             href={p.whaticket_link}
-                             target="_blank"
-                             rel="noopener noreferrer"
-                             className="inline-flex items-center gap-0.5 px-1 py-0.25 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 rounded text-[7.5px] font-black uppercase tracking-wider transition-all duration-200 shrink-0 hover:scale-105 active:scale-95"
-                             title="Abrir conversación de Whaticket"
-                             onClick={(e) => e.stopPropagation()}
-                           >
-                             Whaticket ↗
-                           </a>
-                         )}
-                       </div>
-                     </td>
-                     <td className="px-4 py-2 text-xs font-semibold text-slate-600">
-                       {p.sellers?.full_name || "Desconocido"}
-                     </td>
-                     <td className="px-4 py-2">
-                       <div className="text-xs font-bold text-slate-600 flex items-center gap-1.5 flex-wrap">
-                         <span>{p.locality}</span>
-                         {(() => {
-                           const zoneName = p.zones ? (Array.isArray(p.zones) ? p.zones[0]?.name : p.zones.name) : null;
-                           if (zoneName) {
-                             return (
-                               <span className="text-[8px] font-black text-brand-600 bg-brand-50 border border-brand-100 px-1 py-0.25 rounded shrink-0">
-                                 {zoneName}
-                               </span>
-                             );
-                           }
-                           return null;
-                         })()}
-                       </div>
+                          }
+                          return null;
+                        })()}
+                        {p.legacy_code && (
+                          <span className="inline-flex items-center px-1.5 py-0.25 bg-slate-100 border border-slate-200 text-slate-500 rounded text-[7.5px] font-black uppercase tracking-wider shrink-0 font-mono" title="Código de pedido anterior">
+                            {p.legacy_code}
+                          </span>
+                        )}
+                        {p.whaticket_link && (
+                          <a 
+                            href={p.whaticket_link}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-0.5 px-1.5 py-0.25 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 rounded text-[7.5px] font-black uppercase tracking-wider transition-all duration-150 shrink-0 hover:scale-105 active:scale-95"
+                            title="Abrir conversación de Whaticket"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            Whaticket ↗
+                          </a>
+                        )}
+                      </div>
+                    </td>
+
+                    {/* Vendedor con Color Específico */}
+                    <td className="px-3.5 py-2 whitespace-nowrap">
+                      {(() => {
+                        const sellerName = p.sellers?.full_name || "Desconocido";
+                        const style = getSellerBadgeStyle(sellerName);
+                        return (
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10.5px] font-bold border ${style.bg} ${style.text} ${style.border} shadow-2xs`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${style.dot} shrink-0`} />
+                            <span className="truncate max-w-[120px]">{sellerName}</span>
+                          </span>
+                        );
+                      })()}
+                    </td>
+
+                    {/* Localidad & Zona Compacta */}
+                    <td className="px-3.5 py-2">
+                      <div className="flex items-center gap-1.5 flex-wrap leading-tight">
+                        <span className="text-xs font-bold text-slate-700">{p.locality || "Sin Localidad"}</span>
+                        {(() => {
+                          const zoneName = p.zones ? (Array.isArray(p.zones) ? p.zones[0]?.name : p.zones.name) : null;
+                          if (zoneName) {
+                            return (
+                              <span className="text-[8px] font-black text-brand-600 bg-brand-50 border border-brand-200/70 px-1.5 py-0.25 rounded uppercase tracking-wider shrink-0">
+                                {zoneName}
+                              </span>
+                            );
+                          }
+                          return null;
+                        })()}
+                      </div>
                       {p.freight_type && (
-                        <div className="flex items-center gap-1 mt-0.5 text-[9px] text-slate-400 font-bold">
-                          <span className={`w-1.5 h-1.5 rounded-full border ${getFreightColor(p.freight_type)}`} />
+                        <div className="flex items-center gap-1 text-[8.5px] text-slate-400 font-bold mt-0.5 leading-none">
+                          <span className={`w-1.5 h-1.5 rounded-full border ${getFreightColor(p.freight_type)} shrink-0`} />
                           <span>Entrega {p.freight_type}</span>
                         </div>
                       )}
                     </td>
-                     <td className="px-4 py-2">
-                       <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-wider ${
-                          p.status === 'Entregado' ? 'text-emerald-700 bg-emerald-50 border border-emerald-100' : 
-                          p.status === 'Entregando' ? 'text-amber-700 bg-amber-50 border border-amber-200' :
-                          p.status === 'Pendiente' ? 'text-orange-700 bg-orange-50 border border-orange-100' : 
-                          p.status === 'En Espera' ? 'text-amber-700 bg-amber-50 border border-amber-200 font-extrabold animate-pulse' : 
-                          p.status === 'En Revisión' ? 'text-rose-700 bg-rose-50 border border-rose-200 font-black animate-pulse' :
-                          'text-blue-700 bg-blue-50 border border-blue-100'
-                       }`}>
-                          {p.status}
-                       </span>
-                     </td>
-                     <td className="px-4 py-2 text-xs font-black text-slate-900">{formatPrice(p.total_amount)}</td>
-                     <td className="px-4 py-2 text-xs">
-                        <div className="flex items-center gap-1.5">
+
+                    {/* Estado */}
+                    <td className="px-3.5 py-2 text-center whitespace-nowrap">
+                      <span className={`inline-block px-2.5 py-0.5 rounded-full text-[8.5px] font-black uppercase tracking-wider shadow-2xs ${
+                        p.status === 'Entregado' ? 'text-emerald-700 bg-emerald-50 border border-emerald-200' : 
+                        p.status === 'Entregando' ? 'text-amber-700 bg-amber-50 border border-amber-200' :
+                        p.status === 'Pendiente' ? 'text-orange-700 bg-orange-50 border border-orange-200' : 
+                        p.status === 'En Espera' ? 'text-amber-700 bg-amber-50 border border-amber-200 font-extrabold animate-pulse' : 
+                        p.status === 'En Revisión' ? 'text-rose-700 bg-rose-50 border border-rose-200 font-black animate-pulse' :
+                        'text-blue-700 bg-blue-50 border border-blue-200'
+                      }`}>
+                        {p.status}
+                      </span>
+                    </td>
+
+                    {/* Total */}
+                    <td className="px-3.5 py-2 text-xs font-black text-slate-900 text-right whitespace-nowrap font-mono">
+                      {formatPrice(p.total_amount)}
+                    </td>
+
+                    {/* Acciones (Solo Íconos) */}
+                    <td className="px-3 py-2 text-center whitespace-nowrap">
+                      <div className="flex items-center justify-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleEditOrder(p)}
+                          className="p-1.5 bg-slate-50 hover:bg-brand-600 text-slate-500 hover:text-white rounded-lg border border-slate-200 hover:border-brand-600 transition-all duration-150 active:scale-90 shadow-2xs cursor-pointer"
+                          title="Editar Pedido"
+                        >
+                          <Edit className="w-3.5 h-3.5" />
+                        </button>
+                        {role === 'admin' && (
                           <button
                             type="button"
-                            onClick={() => handleEditOrder(p)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-brand-50 hover:bg-brand-100 text-brand-700 rounded-lg text-[10px] font-black uppercase tracking-wider border border-brand-200/60 transition-all duration-200 active:scale-95 shadow-sm cursor-pointer"
-                            title="Editar Pedido"
+                            onClick={async () => {
+                              if (!confirm(`¿Estás seguro de que deseas eliminar permanentemente el pedido de "${p.customer_name}"? Esta acción no se puede deshacer.`)) return;
+                              try {
+                                const { error } = await supabase
+                                  .from('orders')
+                                  .delete()
+                                  .eq('id', p.id);
+                                if (error) throw error;
+                                setOrders(orders.filter(o => o.id !== p.id));
+                              } catch (err: any) {
+                                alert(`Error al eliminar pedido: ${err.message || err.details}`);
+                              }
+                            }}
+                            className="p-1.5 bg-slate-50 hover:bg-red-600 text-slate-400 hover:text-white rounded-lg border border-slate-200 hover:border-red-600 transition-all duration-150 active:scale-90 shadow-2xs cursor-pointer"
+                            title="Eliminar Pedido"
                           >
-                            <Edit className="w-3.5 h-3.5" />
-                            <span>Editar</span>
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
-                          {role === 'admin' && (
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                if (!confirm(`¿Estás seguro de que deseas eliminar permanentemente el pedido de "${p.customer_name}"? Esta acción no se puede deshacer.`)) return;
-                                try {
-                                  const { error } = await supabase
-                                    .from('orders')
-                                    .delete()
-                                    .eq('id', p.id);
-                                  if (error) throw error;
-                                  
-                                  // Refresh list
-                                  setOrders(orders.filter(o => o.id !== p.id));
-                                } catch (err: any) {
-                                  alert(`Error al eliminar pedido: ${err.message || err.details}`);
-                                }
-                              }}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 bg-red-50 hover:bg-red-600 text-red-600 hover:text-white rounded-lg text-[10px] font-black uppercase tracking-wider border border-red-200 hover:border-red-600 transition-all duration-200 active:scale-95 shadow-sm cursor-pointer"
-                              title="Eliminar Pedido"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                              <span>Eliminar</span>
-                            </button>
-                          )}
-                        </div>
-                      </td>
+                        )}
+                      </div>
+                    </td>
                   </tr>
                 )) : (
                   <tr>
-                    <td colSpan={7} className="px-4 py-6 text-center text-slate-400 font-bold text-xs">No se encontraron pedidos.</td>
+                    <td colSpan={7} className="px-4 py-8 text-center text-slate-400 font-bold text-xs">No se encontraron pedidos.</td>
                   </tr>
                 )}
               </tbody>
-           </table>
+            </table>
+          </div>
         </div>
       )}
 
