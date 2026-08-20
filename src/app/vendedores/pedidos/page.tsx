@@ -478,6 +478,20 @@ export default function PedidosPage() {
     return PALETTE[Math.abs(hash) % PALETTE.length];
   };
 
+  const isOrderWholesale = (order: any): boolean => {
+    if (!order) return false;
+    if (order.channel === 'mayorista') return true;
+    const legacy = (order.legacy_code || '').toUpperCase().trim();
+    if (legacy.startsWith('AQU') || legacy.startsWith('POW') || legacy.startsWith('AQ-DB')) return true;
+    if (order.clients) {
+      if (Array.isArray(order.clients)) {
+        return !!order.clients[0]?.is_wholesale;
+      }
+      return !!order.clients.is_wholesale;
+    }
+    return false;
+  };
+
   const [activeTab, setActiveTab] = useState<'form' | 'list'>('list');
   const [statusFilter, setStatusFilter] = useState<'Pendientes' | 'En Revisión' | 'Entregados' | 'Anulados' | 'Todos'>('Pendientes');
   const [clientTypeFilter, setClientTypeFilter] = useState<'todos' | 'minoristas' | 'mayoristas'>('todos');
@@ -1859,13 +1873,6 @@ export default function PedidosPage() {
               query = query.or(conditions.join(','), { foreignTable: 'order_items' });
             }
           }
-          
-          // Apply client type filter (wholesale vs retail) on the database query level
-          if (clientTypeFilter === 'minoristas') {
-            query = query.neq('channel', 'mayorista').or('legacy_code.is.null,and(legacy_code.not.ilike.AQU%,legacy_code.not.ilike.POW%,legacy_code.not.ilike.AQ-DB%)');
-          } else if (clientTypeFilter === 'mayoristas') {
-            query = query.or('channel.eq.mayorista,legacy_code.ilike.AQU%,legacy_code.ilike.POW%,legacy_code.ilike.AQ-DB%');
-          }
 
           // Apply date range filter
           if (dateFrom) {
@@ -2438,10 +2445,7 @@ export default function PedidosPage() {
 
 
   const filteredOrders = sortedOrders.filter(p => {
-    const isWholesale = !!(
-      (p.legacy_code && (p.legacy_code.toUpperCase().startsWith("AQU") || p.legacy_code.toUpperCase().startsWith("POW") || p.legacy_code.toUpperCase().startsWith("AQ-DB"))) ||
-      (p.clients && (Array.isArray(p.clients) ? p.clients[0]?.is_wholesale : p.clients?.is_wholesale))
-    );
+    const isWholesale = isOrderWholesale(p);
     if (clientTypeFilter === 'minoristas' && isWholesale) return false;
     if (clientTypeFilter === 'mayoristas' && !isWholesale) return false;
     
@@ -5102,20 +5106,11 @@ export default function PedidosPage() {
                     <td className="px-3.5 py-2">
                       <div className="font-bold text-slate-900 text-xs flex items-center gap-1.5 flex-wrap">
                         <span className="hover:text-brand-600 transition-colors cursor-default">{p.customer_name}</span>
-                        {(() => {
-                          const isWholesale = !!(
-                            (p.legacy_code && (p.legacy_code.toUpperCase().startsWith("AQU") || p.legacy_code.toUpperCase().startsWith("POW") || p.legacy_code.toUpperCase().startsWith("AQ-DB"))) ||
-                            (p.clients && (Array.isArray(p.clients) ? p.clients[0]?.is_wholesale : p.clients?.is_wholesale))
-                          );
-                          if (isWholesale) {
-                            return (
-                              <span className="inline-flex items-center px-1.5 py-0.25 bg-purple-50 border border-purple-200 text-purple-700 rounded text-[7.5px] font-black uppercase tracking-wider shrink-0 shadow-2xs" title="Cliente Mayorista / Recurrente">
-                                👑 Mayorista
-                              </span>
-                            );
-                          }
-                          return null;
-                        })()}
+                        {isOrderWholesale(p) && (
+                          <span className="inline-flex items-center px-1.5 py-0.25 bg-purple-50 border border-purple-200 text-purple-700 rounded text-[7.5px] font-black uppercase tracking-wider shrink-0 shadow-2xs" title="Cliente Mayorista / Recurrente">
+                            👑 Mayorista
+                          </span>
+                        )}
                         {p.legacy_code && (
                           <span className="inline-flex items-center px-1.5 py-0.25 bg-slate-100 border border-slate-200 text-slate-500 rounded text-[7.5px] font-black uppercase tracking-wider shrink-0 font-mono" title="Código de pedido anterior">
                             {p.legacy_code}
