@@ -22,21 +22,37 @@ export function ProductModal({ product, isOpen, onClose, allProducts = [], isAdm
   const addItem = useCartStore((state) => state.addItem);
   const setCartOpen = useCartStore((state) => state.setCartOpen);
 
+  const [selectedVariant, setSelectedVariant] = useState<Product>(product);
   const [currentImageIdx, setCurrentImageIdx] = useState(0);
 
+  // Sync selected variant when product changes
   useEffect(() => {
-    if (isOpen) setCurrentImageIdx(0);
-  }, [isOpen]);
+    if (product && isOpen) {
+      setSelectedVariant(product);
+      setCurrentImageIdx(0);
+    }
+  }, [product, isOpen]);
 
   if (!product) return null;
 
+  // Get standard parent product
+  const parentProduct = product.parent_id 
+    ? allProducts.find(p => p.id === product.parent_id) || product 
+    : product;
+
+  // Get all active variants (standard parent + siblings)
+  const variants = [
+    parentProduct,
+    ...allProducts.filter(p => p.parent_id === parentProduct.id && p.id !== parentProduct.id)
+  ].filter(p => p.is_active !== false);
+
   const allImages = [
-    product.image_url,
-    ...(product.settings?.gallery || [])
+    selectedVariant.image_url || product.image_url,
+    ...(selectedVariant.settings?.gallery || product.settings?.gallery || [])
   ].filter(url => url && url.trim() !== "");
 
   const handleAddToCart = () => {
-    addItem(product);
+    addItem(selectedVariant);
     onClose();
     setCartOpen(true);
   };
@@ -162,26 +178,72 @@ export function ProductModal({ product, isOpen, onClose, allProducts = [], isAdm
             {/* Detalles del Producto */}
             <div className="w-full md:w-3/5 p-8 md:p-12 overflow-y-auto scrollbar-hide">
               <div className="h-full flex flex-col">
-                <div className="mb-8">
-                  {product.brand && (
+                 <div className="mb-6">
+                  {parentProduct.brand && (
                     <span className="text-xs font-black text-brand-600 uppercase tracking-[0.2em] mb-3 block">
-                      {product.brand}
+                      {parentProduct.brand}
                     </span>
                   )}
-                  <h2 className="text-3xl md:text-4xl font-black text-slate-900 tracking-tighter mb-4 leading-tight">
-                    {product.name}
+                  <h2 className="text-3xl md:text-4xl font-black text-slate-900 tracking-tighter mb-2 leading-tight">
+                    {parentProduct.name}
                   </h2>
-                  <div className="flex items-center gap-4 mb-6">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-4">
+                    SKU: {selectedVariant.sku || "SIN SKU"}
+                  </span>
+                  
+                  <div className="flex items-center gap-4 mb-4">
                     <span className="text-4xl font-black text-slate-900">
-                      {formatPrice(product.price)}
+                      {formatPrice(selectedVariant.price)}
                     </span>
-                    {product.is_on_sale && (
+                    {selectedVariant.is_on_sale && (
                       <span className="text-xl text-slate-400 line-through decoration-red-500/50">
-                        {formatPrice(product.price * 1.2)}
+                        {formatPrice(selectedVariant.price * 1.2)}
                       </span>
                     )}
                   </div>
+
+                  {selectedVariant.stock_current !== undefined && (
+                    <p className={cn(
+                      "text-xs font-black uppercase tracking-wider",
+                      selectedVariant.stock_current > 0 ? "text-emerald-600" : "text-red-500"
+                    )}>
+                      {selectedVariant.stock_current > 0 
+                        ? `✓ Stock en depósito: ${selectedVariant.stock_current} u.` 
+                        : '✕ Sin stock en depósito'}
+                    </p>
+                  )}
                 </div>
+
+                {/* Selector de variantes (Estándar vs Ciego) */}
+                {variants.length > 1 && (
+                  <div className="mb-8 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-3">
+                      Tipo / Terminación
+                    </span>
+                    <div className="flex flex-wrap gap-2.5">
+                      {variants.map(v => {
+                        const isSelected = selectedVariant.id === v.id;
+                        const isCiego = v.variant_type === 'ciego';
+                        const label = isCiego ? 'Ciego (Sin Agujero)' : 'Estándar (Con Agujero)';
+                        return (
+                          <button
+                            key={v.id}
+                            type="button"
+                            onClick={() => setSelectedVariant(v)}
+                            className={cn(
+                              "px-4 py-2.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all border-2",
+                              isSelected 
+                                ? "bg-brand-600 border-brand-600 text-white shadow-md shadow-brand-600/20 scale-[1.01]" 
+                                : "bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+                            )}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
 
                 <div className="space-y-6 mb-10 text-slate-600 font-medium leading-relaxed text-sm md:text-base">
                   <div 

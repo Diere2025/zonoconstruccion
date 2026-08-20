@@ -8,6 +8,13 @@ import { Search, Plus, Trash2, Copy, Check, Calculator, ArrowRight, Save, Packag
 import { Button } from "@/components/ui/Button";
 import { cn, formatPrice } from "@/lib/utils";
 
+export const isDiscountItem = (item: { name?: string; sku?: string }) => {
+  if (!item) return false;
+  const name = (item.name || "").toLowerCase();
+  const sku = (item.sku || "").toLowerCase();
+  return name.includes("descuento") || sku.includes("descuento") || name.includes("bonificaci") || sku.includes("bonificaci");
+};
+
 interface QuoteItem extends Product {
   quantity: number;
   customPrice: number;
@@ -118,7 +125,7 @@ const parseWhatsAppBudget = (text: string): ParsedBudget => {
   let includeIVA = false;
   let kitDetailText = '';
 
-  const itemRegex = /(?:🔸|•|\*|-)?\s*(\d+)\s*[xX]\s*\*?([^*]+?)\*?\s+a\s+\$?\s*([\d.,]+)/;
+  const itemRegex = /(?:🔸|•|\*|-)?\s*(\d+)\s*[xX]\s*\*([^*]+)\*\s*a\s*\$?\s*([\d.,]+)/;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
@@ -133,6 +140,28 @@ const parseWhatsAppBudget = (text: string): ParsedBudget => {
         name: productName,
         quantity,
         price: unitPrice
+      });
+      continue;
+    }
+
+    if (line.toLowerCase().includes('descuento') || line.toLowerCase().includes('bonificaci')) {
+      const matchAmount = line.match(/(?:-\$|\$|-)\s*([\d.,]+)/) || line.match(/a\s*(?:-\$|\$)?\s*([\d.,]+)/);
+      let price = 0;
+      if (matchAmount) {
+        price = parsePrice(matchAmount[1]);
+      } else {
+        const anyNumber = line.match(/\$?([\d.,]+)/);
+        if (anyNumber) price = parsePrice(anyNumber[1]);
+      }
+      
+      let label = "Descuento";
+      const labelMatch = line.match(/\*([^*]+)\*/);
+      if (labelMatch) label = labelMatch[1].trim();
+
+      items.push({
+        name: label,
+        quantity: 1,
+        price
       });
       continue;
     }
@@ -252,9 +281,8 @@ export default function PresupuestosPage() {
         setCurrentUserId(userId);
 
         // Cargar productos, rol de vendedor y kits en paralelo
-        const [productsRes1, productsRes2, sellerRes, kitsRes] = await Promise.all([
-          supabase.from("products").select("*").order("name").range(0, 999),
-          supabase.from("products").select("*").order("name").range(1000, 1999),
+        const [productsRes, sellerRes, kitsRes] = await Promise.all([
+          supabase.from("products").select("*").eq("is_active", true).order("name"),
           supabase.from('sellers').select('role').eq('id', userId).single(),
           supabase.from('kits').select(`
             *,
@@ -267,12 +295,8 @@ export default function PresupuestosPage() {
           `).order('created_at', { ascending: false })
         ]);
 
-        const rawProducts = [
-          ...(productsRes1.data || []),
-          ...(productsRes2.data || [])
-        ];
-
-        if (rawProducts.length > 0) {
+        if (productsRes.data) {
+          const rawProducts = productsRes.data;
           const productsWithParentPrices = rawProducts.map(p => {
             if (p.parent_id) {
               const parentProduct = rawProducts.find(parent => parent.id === p.parent_id);
@@ -326,7 +350,7 @@ export default function PresupuestosPage() {
     const sortedIds = Object.keys(usageCounts).sort((a, b) => usageCounts[b] - usageCounts[a]);
     return sortedIds
       .map(id => products.find(p => p.id === id))
-      .filter(p => p && !p.parent_id && !EXCLUDED_IDS.includes(p.id)) // Exclude child variants and dynamic variants from favorites list
+      .filter(p => p && p.is_active !== false && !p.name?.toLowerCase().startsWith('[interno]') && !p.parent_id && !EXCLUDED_IDS.includes(p.id)) // Exclude inactive, internal, child variants, and dynamic variants
       .slice(0, 10) as Product[];
   }, [products, usageCounts]);
 
@@ -379,11 +403,10 @@ export default function PresupuestosPage() {
 
   const searchTerms = searchTerm.toLowerCase().split(/\s+/).filter(Boolean);
   const filteredProducts = products.filter(p => {
+    if (p.is_active === false) return false; // Hide inactive products
+    if (p.name?.toLowerCase().startsWith('[interno]')) return false; // Hide internal raw placeholders
+    if (p.sku?.startsWith('AUTO-COMP-') && (!p.price || p.price === 0)) return false; // Hide legacy $0 auto-comp items
     if (p.parent_id) return false; // Hide child variants from main search results
-    if (p.is_active === false) return false; // Exclude inactive products
-    if (p.sku && p.sku.startsWith("AUTO-")) return false; // Exclude auto-generated component products
-    const isDisc = (p.name || "").toLowerCase().includes("descuento") || (p.sku || "").toLowerCase().includes("descuento") || (p.name || "").toLowerCase().includes("bonificaci");
-    if (!isDisc && (p.category === "otro" || p.category === "Insumos")) return false; // Exclude raw materials/components except discount products
     if (EXCLUDED_IDS.includes(p.id)) return false; // Hide dynamic variants from main results
     if (searchTerms.length === 0) return false;
     
@@ -543,7 +566,7 @@ export default function PresupuestosPage() {
 
   // Calculations
   const subtotal = quoteItems.reduce((acc, item) => {
-    const isDisc = (item.name || "").toLowerCase().includes("descuento") || (item.sku || "").toLowerCase().includes("descuento") || (item.name || "").toLowerCase().includes("bonificaci");
+    const isDisc = isDiscountItem(item);
     const itemVal = isDisc ? -Math.abs(item.customPrice) : item.customPrice;
     return acc + itemVal * item.quantity;
   }, 0);
@@ -551,7 +574,7 @@ export default function PresupuestosPage() {
   const surcharge = subtotal * (selectedPaymentMethod.surcharge_percentage / 100);
   const subtotalWithSurchargeAndShipping = subtotal + surcharge + shippingAmount;
   const ivaAmount = includeIVA ? subtotalWithSurchargeAndShipping * 0.21 : 0;
-  const total = subtotalWithSurchargeAndShipping + ivaAmount;
+  const total = Math.max(0, subtotalWithSurchargeAndShipping + ivaAmount);
   const installmentValue = selectedPaymentMethod.installments > 1 ? total / selectedPaymentMethod.installments : 0;
 
   const generateWhatsAppText = () => {
@@ -560,11 +583,17 @@ export default function PresupuestosPage() {
     
     quoteItems.forEach(item => {
       const internalName = item.sku || item.name;
-      if (item.quantity > 1) {
-        text += `🔸 ${item.quantity}x *${internalName}* a ${formatPrice(item.customPrice)} c/u\n`;
-        text += `   Subtotal: ${formatPrice(item.customPrice * item.quantity)}\n`;
+      const isDisc = isDiscountItem(item);
+      if (isDisc) {
+        const discAmount = Math.abs(item.customPrice * item.quantity);
+        text += `🏷️ *${item.name || internalName}*: -${formatPrice(discAmount)}\n`;
       } else {
-        text += `🔸 1x *${internalName}* a ${formatPrice(item.customPrice)}\n`;
+        if (item.quantity > 1) {
+          text += `🔸 ${item.quantity}x *${internalName}* a ${formatPrice(item.customPrice)} c/u\n`;
+          text += `   Subtotal: ${formatPrice(item.customPrice * item.quantity)}\n`;
+        } else {
+          text += `🔸 1x *${internalName}* a ${formatPrice(item.customPrice)}\n`;
+        }
       }
     });
     
@@ -603,14 +632,17 @@ export default function PresupuestosPage() {
 
   const handleConvertToOrder = () => {
     const budgetData = {
-      items: quoteItems.map(item => ({
-        id: item.id,
-        name: item.name,
-        sku: item.sku || '',
-        quantity: item.quantity,
-        customPrice: item.customPrice,
-        cost: item.cost || 0
-      })),
+      items: quoteItems.map(item => {
+        const isDisc = isDiscountItem(item);
+        return {
+          id: item.id,
+          name: item.name,
+          sku: item.sku || (isDisc ? 'DESCUENTO' : ''),
+          quantity: item.quantity,
+          customPrice: isDisc ? -Math.abs(item.customPrice) : item.customPrice,
+          cost: item.cost || 0
+        };
+      }),
       paymentType,
       cardInstallments,
       cardSurcharge
@@ -636,6 +668,22 @@ export default function PresupuestosPage() {
       const unmatchedNames: string[] = [];
 
       parsed.items.forEach(parsedItem => {
+        if (isDiscountItem(parsedItem)) {
+          newItems.push({
+            id: `discount-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+            name: parsedItem.name || "Descuento",
+            description: "Descuento aplicado",
+            price: parsedItem.price,
+            customPrice: parsedItem.price,
+            image_url: "",
+            category: "Descuento",
+            sku: "DESCUENTO",
+            quantity: 1,
+            is_active: true
+          });
+          return;
+        }
+
         const normalizedMsgName = normalizeForMatching(parsedItem.name);
 
         // Try matching by exact normalized name
