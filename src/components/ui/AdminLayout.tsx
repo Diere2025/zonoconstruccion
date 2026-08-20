@@ -7,7 +7,6 @@ import {
   BarChart3, 
   ShoppingBag, 
   Settings, 
-  Phone,
   LogOut, 
   Users, 
   Menu, 
@@ -29,7 +28,10 @@ import {
   Coins,
   Package,
   PackageCheck,
-  AlertTriangle
+  AlertTriangle,
+  ChevronRight,
+  Home,
+  Shield
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
@@ -76,7 +78,6 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       if (user) {
         setUserEmail(user.email || "");
         
-        // Fetch role
         const { data: seller } = await supabase
           .from('sellers')
           .select('role')
@@ -93,7 +94,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    window.location.href = "/admin"; // Redirect to login
+    window.location.href = "/admin";
   };
 
   const linkSections: SidebarSection[] = [
@@ -102,16 +103,16 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       links: [
         { name: "Dashboard General", href: "/admin/dashboard", icon: BarChart3, adminOnly: true },
         { name: "Dashboard Vendedor", href: "/vendedores", icon: BarChart3, sellerOnly: true },
-        { name: "Pedidos", href: "/vendedores/pedidos", icon: ShoppingCart },
+        { name: "Gestión de Pedidos", href: "/vendedores/pedidos", icon: ShoppingCart },
         { name: "Importar Pedidos", href: "/admin/importar-pedidos", icon: Upload, adminOnly: true },
         { name: "Clientes y Direcciones", href: "/vendedores/clientes", icon: Users },
         { name: "Cotizador / Presupuestos", href: "/vendedores/presupuestos", icon: Calculator },
         { name: "Postventa y Reclamos", href: "/vendedores/postventa", icon: RefreshCw },
-        { name: "Meta Ads", href: "/admin/meta-ads", icon: Target, adminOnly: true }
+        { name: "Meta Ads Performance", href: "/admin/meta-ads", icon: Target, adminOnly: true }
       ]
     },
     {
-      title: "Tesorería y Administración",
+      title: "Tesorería y Finanzas",
       links: [
         { name: "Caja Diaria", href: "/vendedores/caja", icon: Wallet },
         { name: "Administración y Finanzas", href: "/admin/finanzas", icon: Coins, adminOnly: true },
@@ -140,14 +141,9 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       ]
     },
     {
-      title: "Soporte",
+      title: "Soporte y Configuración",
       links: [
-        { name: "Recursos y FAQs", href: "/vendedores/recursos", icon: BookOpen }
-      ]
-    },
-    {
-      title: "Configuración",
-      links: [
+        { name: "Recursos y FAQs", href: "/vendedores/recursos", icon: BookOpen },
         { name: "Configuración General", href: "/admin/ajustes", icon: Settings, adminOnly: true }
       ]
     }
@@ -176,58 +172,74 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     return cleanPathname === pathOnly || cleanPathname.startsWith(pathOnly + "/");
   };
 
+  // Compute dynamic breadcrumbs from current pathname
+  const getBreadcrumbs = () => {
+    for (const section of linkSections) {
+      for (const link of section.links) {
+        if (isActive(link.href)) {
+          return {
+            section: section.title,
+            page: link.name
+          };
+        }
+      }
+    }
+
+    if (pathname === "/admin") return { section: "Catálogo y Costos", page: "Catálogo General" };
+    if (pathname === "/vendedores") return { section: "Consola de Control", page: "Dashboard Vendedor" };
+    return { section: "Panel ERP", page: "Inicio" };
+  };
+
+  const breadcrumbs = getBreadcrumbs();
+  const userInitial = userEmail ? userEmail.charAt(0).toUpperCase() : "U";
+
   return (
-    <div className="min-h-screen flex bg-slate-50 text-slate-900 font-sans">
+    <div className="min-h-screen flex bg-slate-50 text-slate-900 font-sans antialiased">
       {/* Mobile Sidebar Overlay */}
-      {!isSidebarOpen && (
+      {isSidebarOpen && (
         <div 
-          onClick={() => {
-            setIsSidebarOpen(true);
-            localStorage.setItem('sidebar_open', 'true');
-          }}
-          className="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-sm lg:hidden"
+          onClick={toggleSidebar}
+          className="fixed inset-0 z-40 bg-slate-900/60 backdrop-blur-xs lg:hidden"
         />
       )}
 
       {/* Sidebar Navigation */}
       <aside 
-        className={`fixed inset-y-0 left-0 z-50 flex flex-col bg-slate-950 border-r border-slate-900 text-white transition-all duration-300 transform lg:translate-x-0 lg:static lg:h-screen ${
+        className={`fixed inset-y-0 left-0 z-50 flex flex-col bg-slate-900 border-r border-slate-800 text-slate-200 transition-all duration-300 transform lg:translate-x-0 lg:static lg:h-screen ${
           isSidebarOpen 
-            ? "-translate-x-full lg:w-64 lg:min-w-[16rem]" 
-            : "translate-x-0 lg:w-0 lg:min-w-0 lg:overflow-hidden lg:border-r-0"
+            ? "translate-x-0 w-64 min-w-[16rem]" 
+            : "-translate-x-full lg:w-0 lg:min-w-0 lg:overflow-hidden lg:border-r-0"
         }`}
       >
-        {/* Sidebar Header */}
-        <div className="h-14 flex items-center justify-between px-6 border-b border-slate-900 shrink-0">
+        {/* Sidebar Header / Brand */}
+        <div className="h-16 flex items-center justify-between px-5 border-b border-slate-800/80 shrink-0 bg-slate-950/40">
           <Link 
             href={userRole === 'admin' ? "/admin/dashboard" : "/vendedores"} 
-            className="flex items-center gap-2 group"
+            className="flex items-center gap-3 group"
           >
-            <div className="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center font-black text-white text-lg shadow-md shadow-brand-600/30">
+            <div className="w-8 h-8 rounded-xl bg-brand-600 flex items-center justify-center font-black text-white text-base shadow-xs shadow-brand-600/30 group-hover:scale-105 transition-transform">
               Z
             </div>
-            <div>
-              <span className="font-black text-sm tracking-tight text-white group-hover:text-brand-400 transition-colors">
+            <div className="leading-none">
+              <span className="font-bold text-sm tracking-tight text-white group-hover:text-brand-300 transition-colors">
                 Zono Construcción
               </span>
-              <span className="block text-[9px] font-black text-slate-500 uppercase tracking-widest leading-none">
-                Sistemas ERP
+              <span className="block text-[10px] font-semibold text-slate-400 mt-1 uppercase tracking-wider">
+                Sistema ERP
               </span>
             </div>
           </Link>
+
           <button 
-            onClick={() => {
-              setIsSidebarOpen(true);
-              localStorage.setItem('sidebar_open', 'true');
-            }} 
-            className="lg:hidden p-1.5 rounded-lg hover:bg-slate-900 transition-colors text-slate-400"
+            onClick={toggleSidebar} 
+            className="lg:hidden p-1.5 rounded-lg hover:bg-slate-800 transition-colors text-slate-400 hover:text-white"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Navigation Content */}
-        <div className="flex-1 overflow-y-auto custom-sidebar-scrollbar px-4 py-4 space-y-6">
+        <div className="flex-1 overflow-y-auto custom-sidebar-scrollbar px-3 py-4 space-y-6">
           {linkSections.map((section, sIdx) => {
             const visibleLinks = section.links.filter(link => {
               if (link.adminOnly && userRole !== 'admin') return false;
@@ -238,11 +250,11 @@ export function AdminLayout({ children }: AdminLayoutProps) {
             if (visibleLinks.length === 0) return null;
 
             return (
-              <div key={sIdx} className="space-y-3">
-                <h4 className="px-3 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] opacity-90">
+              <div key={sIdx} className="space-y-1.5">
+                <h4 className="px-3 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
                   {section.title}
                 </h4>
-                <div className="space-y-1">
+                <div className="space-y-0.5">
                   {visibleLinks.map(link => {
                     const Icon = link.icon;
                     const active = isActive(link.href);
@@ -250,10 +262,10 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                       <Link 
                         key={link.href}
                         href={link.href}
-                        className={`group flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[13px] font-bold transition-all duration-150 ${
+                        className={`group flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all duration-150 ${
                           active 
-                            ? "bg-gradient-to-r from-brand-600 to-brand-500 text-white shadow-md shadow-brand-950/40" 
-                            : "text-slate-300 hover:text-white hover:bg-slate-900/60"
+                            ? "bg-brand-600 text-white font-semibold shadow-xs" 
+                            : "text-slate-300 hover:text-white hover:bg-slate-800/60"
                         }`}
                       >
                         <Icon className={`w-4 h-4 shrink-0 transition-colors ${
@@ -261,7 +273,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                             ? "text-white" 
                             : "text-slate-400 group-hover:text-slate-200"
                         }`} />
-                        {link.name}
+                        <span className="truncate">{link.name}</span>
                       </Link>
                     );
                   })}
@@ -270,41 +282,44 @@ export function AdminLayout({ children }: AdminLayoutProps) {
             );
           })}
 
-          {/* Enlaces Generales */}
-          <div className="space-y-3">
-            <h4 className="px-3 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] opacity-90">Atajos</h4>
-            <div className="space-y-1">
-              <Link 
-                href="/" 
-                target="_blank"
-                className="flex items-center justify-between px-3 py-2.5 rounded-xl text-[13px] font-bold text-slate-300 hover:text-white hover:bg-slate-900/60 transition-all group"
-              >
-                <span className="flex items-center gap-2.5">
-                  <ShoppingBag className="w-4 h-4 text-slate-400 group-hover:text-slate-200" />
-                  Ir a Tienda Pública
-                </span>
-                <ExternalLink className="w-3.5 h-3.5 text-slate-500 group-hover:text-slate-200" />
-              </Link>
-            </div>
+          {/* Atajos Rápidos / Tienda */}
+          <div className="space-y-1.5 pt-2 border-t border-slate-800/80">
+            <h4 className="px-3 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Acceso Público</h4>
+            <Link 
+              href="/" 
+              target="_blank"
+              className="flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800/60 transition-all group"
+            >
+              <span className="flex items-center gap-2.5">
+                <ShoppingBag className="w-4 h-4 text-slate-400 group-hover:text-slate-200" />
+                Catálogo Web
+              </span>
+              <ExternalLink className="w-3.5 h-3.5 text-slate-500 group-hover:text-slate-300" />
+            </Link>
           </div>
         </div>
 
         {/* User Info & Logout Footer */}
-        <div className="p-4 border-t border-slate-900 shrink-0 bg-slate-950/80 backdrop-blur-md">
+        <div className="p-3 border-t border-slate-800/80 shrink-0 bg-slate-950/60">
           {userEmail && (
-            <div className="px-3 py-2.5 bg-slate-900 border border-slate-800 rounded-xl mb-3 shadow-sm">
-              <span className="block text-[8px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Identificado como</span>
-              <span className="block text-xs font-bold text-slate-200 truncate" title={userEmail}>
-                {userEmail}
-              </span>
-              <span className="inline-block bg-slate-800 text-slate-300 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-full mt-1.5">
-                {userRole === 'admin' ? 'Administrador' : 'Vendedor Externo'}
-              </span>
+            <div className="flex items-center gap-3 p-2 rounded-xl bg-slate-800/40 border border-slate-800 mb-2">
+              <div className="w-8 h-8 rounded-lg bg-brand-700/80 text-white font-bold text-xs flex items-center justify-center shrink-0 border border-brand-500/30">
+                {userInitial}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-medium text-slate-200 truncate" title={userEmail}>
+                  {userEmail}
+                </p>
+                <span className="inline-block text-[10px] text-brand-300 font-medium">
+                  {userRole === 'admin' ? 'Administrador' : 'Vendedor'}
+                </span>
+              </div>
             </div>
           )}
+
           <button 
             onClick={handleLogout}
-            className="w-full flex items-center justify-center gap-2 py-3.5 bg-red-950/20 hover:bg-red-600 text-red-400 hover:text-white border border-red-900/50 hover:border-red-600 rounded-xl text-xs font-black uppercase tracking-widest transition-all cursor-pointer"
+            className="w-full flex items-center justify-center gap-2 py-2 px-3 bg-slate-800/50 hover:bg-rose-950/40 text-slate-400 hover:text-rose-300 border border-slate-700/50 hover:border-rose-900/50 rounded-xl text-xs font-medium transition-all cursor-pointer"
           >
             <LogOut className="w-3.5 h-3.5" />
             Cerrar Sesión
@@ -312,55 +327,53 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         </div>
       </aside>
 
-      {/* Main Content Pane */}
+      {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
-        {/* Topbar */}
-        <header className="h-14 bg-white border-b border-slate-200 flex items-center justify-between px-6 shrink-0">
-          <div className="flex items-center gap-4">
+        {/* Topbar with Breadcrumbs */}
+        <header className="h-16 bg-white border-b border-slate-200/80 flex items-center justify-between px-6 shrink-0 z-10 shadow-2xs">
+          <div className="flex items-center gap-4 min-w-0">
             <button 
               onClick={toggleSidebar}
-              className="p-2 hover:bg-slate-100 rounded-xl transition-colors text-slate-500 cursor-pointer"
-              title={isSidebarOpen ? "Colapsar barra lateral" : "Expandir barra lateral"}
+              className="p-2 hover:bg-slate-100 rounded-xl transition-colors text-slate-500 hover:text-slate-800 cursor-pointer"
+              title={isSidebarOpen ? "Ocultar menú lateral" : "Mostrar menú lateral"}
             >
               <Menu className="w-5 h-5" />
             </button>
-            <div className="h-6 w-px bg-slate-200" />
-            <h2 className="font-black text-slate-800 text-sm tracking-tight uppercase">
-              {pathname === "/admin" ? "Catálogo e Inventario" :
-               pathname === "/admin/facturacion-pendiente" ? "Facturación Pendiente de Entrega" :
-               pathname === "/admin/stock" ? "Control y Sincronización de Stock" :
-               pathname === "/admin/comisiones" ? "Cálculo de Comisiones de Vendedores" :
-               pathname === "/admin/finanzas" ? "Administración y Finanzas" :
-               pathname === "/admin/compras" ? "Costos y Proveedores" :
-               pathname === "/admin/tiempos-entrega" ? "Tiempos de Entrega" :
-               pathname === "/admin/localidades-zonas" ? "Zonas y Localidades" :
-               pathname === "/admin/importar-pedidos" ? "Importación de Pedidos" :
-               pathname === "/admin/rentabilidad" ? "Rentabilidad y Margen" :
-               pathname === "/admin/ajustes" ? "Configuración General" :
-               pathname === "/admin/meta-ads" ? "Meta Ads Performance" :
-               pathname === "/vendedores" ? "Dashboard Operativo" :
-               pathname === "/vendedores/pedidos" ? "Ingresar Pedido" :
-               pathname === "/vendedores/clientes" ? "Clientes y Direcciones" :
-               pathname === "/vendedores/presupuestos" ? "Cotizador / Presupuestos" :
-               pathname === "/vendedores/caja" ? "Caja Diaria" :
-               pathname === "/vendedores/ruteo" ? "Ruteo de Entregas" :
-               pathname === "/vendedores/postventa" ? "Postventa y Reclamos" :
-               pathname === "/vendedores/recursos" ? "Recursos y FAQs" : "Panel ERP"}
-            </h2>
+
+            <div className="h-5 w-px bg-slate-200" />
+
+            {/* Dynamic Breadcrumbs */}
+            <nav className="flex items-center gap-1.5 text-xs text-slate-500 truncate">
+              <span className="font-medium text-slate-400 hover:text-slate-600 transition-colors">
+                {breadcrumbs.section}
+              </span>
+              <ChevronRight className="w-3.5 h-3.5 text-slate-300 shrink-0" />
+              <span className="font-semibold text-slate-900 truncate">
+                {breadcrumbs.page}
+              </span>
+            </nav>
           </div>
 
-          <div className="flex items-center gap-4">
-            {/* Quick Badge */}
-            <span className="bg-slate-100 border text-slate-600 text-[10px] font-black uppercase tracking-wider px-3 py-1.5 rounded-xl flex items-center gap-1.5">
-              <UserCheck className="w-3.5 h-3.5 text-slate-400" />
-              Sesión Segura
-            </span>
+          <div className="flex items-center gap-3">
+            {/* Live System Status Pill */}
+            <div className="hidden sm:flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-medium">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span>En Línea</span>
+            </div>
+
+            {/* Role Badge */}
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-100 border border-slate-200 text-slate-700 text-xs font-medium">
+              <Shield className="w-3.5 h-3.5 text-slate-500" />
+              <span>{userRole === 'admin' ? 'Admin' : 'Vendedor'}</span>
+            </div>
           </div>
         </header>
 
-        {/* Viewport Scroll Container */}
-        <main className="flex-1 overflow-auto p-4">
-          {children}
+        {/* Viewport Scroll Area */}
+        <main className="flex-1 overflow-auto p-6 bg-slate-50 custom-scrollbar">
+          <div className="max-w-7xl mx-auto space-y-6">
+            {children}
+          </div>
         </main>
       </div>
     </div>

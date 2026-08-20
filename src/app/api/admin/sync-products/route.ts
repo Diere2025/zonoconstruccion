@@ -103,7 +103,7 @@ export async function POST() {
       logs.push(`[${new Date().toLocaleTimeString()}] ${msg}`);
     };
 
-    addLog("Iniciando sincronización completa de productos y precios desde Google Sheets...");
+    addLog("Iniciando sincronización completa de productos, precios y proveedores desde Google Sheets...");
 
     // 1. Fetch all products from DB (Paginated)
     let dbProducts: any[] = [];
@@ -137,19 +137,95 @@ export async function POST() {
     // 2. Fetch BDProductos
     const bdRes = await fetch("https://docs.google.com/spreadsheets/d/1FRVREzG1O_m8SENpTv-bOgu7AmnS-Em-cxCy-5_fmGI/export?format=csv&gid=1789541813", { cache: 'no-store' });
     const bdDiscontinuedSet = new Set<string>();
+    const bdProductSupplierMap = new Map<string, string>();
+    const bdSupplierNames = new Set<string>();
+
     if (bdRes.ok) {
       const bdCsv = await bdRes.text();
       const bdRows = parseCSV(bdCsv);
       for (let i = 1; i < bdRows.length; i++) {
         const row = bdRows[i];
         const name = row[0]?.trim();
+        const supp = row[2]?.trim();
         const discFlag = row[9]?.trim()?.toLowerCase();
+        const sku = row[11]?.trim();
+
         if (name && (discFlag === 'si' || discFlag === 'sí' || discFlag === 'true' || discFlag === 'x')) {
           bdDiscontinuedSet.add(normalizeProductName(name));
         }
+
+        if (supp && supp.toLowerCase() !== 'descuento') {
+          bdSupplierNames.add(supp);
+          if (name) bdProductSupplierMap.set(normalizeProductName(name), supp);
+          if (sku) bdProductSupplierMap.set(normalizeProductName(sku), supp);
+        }
       }
-      addLog(`BDProductos cargada con ${bdRows.length - 1} registros.`);
+      addLog(`BDProductos cargada con ${bdRows.length - 1} registros y ${bdSupplierNames.size} proveedores detectados.`);
     }
+
+    // 2b. Sync Suppliers with Database
+    const { data: currentSuppliers, error: suppFetchErr } = await supabaseAdmin
+      .from('suppliers')
+      .select('id, name, business_unit, is_active');
+    
+    if (suppFetchErr) throw suppFetchErr;
+
+    const dbSuppliersMap = new Map<string, any>();
+    (currentSuppliers || []).forEach(s => {
+      if (s.name) dbSuppliersMap.set(normalizeProductName(s.name), s);
+    });
+
+    let suppliersCreatedCount = 0;
+    const newSuppliersToInsert: { name: string; business_unit: string; is_active: boolean; base_discount_percentage: number }[] = [];
+
+    for (const sName of bdSupplierNames) {
+      const normS = normalizeProductName(sName);
+      if (!dbSuppliersMap.has(normS)) {
+        newSuppliersToInsert.push({
+          name: sName,
+          business_unit: 'Zono',
+          is_active: true,
+          base_discount_percentage: 0
+        });
+      }
+    }
+
+    if (newSuppliersToInsert.length > 0) {
+      addLog(`Registrando ${newSuppliersToInsert.length} nuevos proveedores en la base de datos...`);
+      const { data: insertedSuppliers, error: suppInsertErr } = await supabaseAdmin
+        .from('suppliers')
+        .insert(newSuppliersToInsert)
+        .select('id, name, business_unit, is_active');
+
+      if (suppInsertErr) {
+        console.warn("Error auto-inserting suppliers:", suppInsertErr);
+      } else if (insertedSuppliers) {
+        insertedSuppliers.forEach(s => {
+          dbSuppliersMap.set(normalizeProductName(s.name), s);
+          addLog(`  🏢 Proveedor dado de alta: "${s.name}"`);
+        });
+        suppliersCreatedCount = insertedSuppliers.length;
+      }
+    }
+
+    // Ensure generic fallback suppliers exist
+    let genericSupplier = Array.from(dbSuppliersMap.values()).find(s => 
+      ['varios', 'zono', 'generico', 'fábrica propia'].includes(s.name.toLowerCase())
+    ) || currentSuppliers?.[0];
+
+    // 2c. Fetch existing Product-Supplier Relations
+    const { data: currentRelations, error: relFetchErr } = await supabaseAdmin
+      .from('product_supplier_relations')
+      .select('id, product_id, supplier_id, is_primary');
+    
+    if (relFetchErr) throw relFetchErr;
+
+    const relationsByProduct = new Map<string, any[]>();
+    (currentRelations || []).forEach(r => {
+      const list = relationsByProduct.get(r.product_id) || [];
+      list.push(r);
+      relationsByProduct.set(r.product_id, list);
+    });
 
     // 3. Fetch Prices Sheet
     const priceRes = await fetch("https://docs.google.com/spreadsheets/d/1K3c_6SMScaTkSI3FMDnQPVyj-c7MSqQEoWW4q3mL3Jg/export?format=csv&gid=508601925", { cache: 'no-store' });
@@ -175,14 +251,16 @@ export async function POST() {
     }
     addLog(`Encontrados ${activePricesMap.size} productos con precios activos > $0 en Google Sheets.`);
 
-    // 4. Perform Updates / Inserts
+    // 4. Perform Updates / Inserts & Link Suppliers
     let pricesUpdatedCount = 0;
     let activatedCount = 0;
     let deactivatedCount = 0;
     let discontinuedCount = 0;
     let insertedCount = 0;
+    let relationsLinkedCount = 0;
 
     const activeDbProductIds = new Set<string>();
+    const allProductsToLink: Array<{ id: string; name: string; sku?: string; brand?: string }> = [];
 
     for (const [normKey, sheetInfo] of activePricesMap.entries()) {
       const matchedProduct = dbByNameMap.get(normKey) || dbBySkuMap.get(normKey);
@@ -240,6 +318,14 @@ export async function POST() {
             .update(updates)
             .eq('id', matchedProduct.id);
         }
+
+        allProductsToLink.push({
+          id: matchedProduct.id,
+          name: updates.name || matchedProduct.name,
+          sku: matchedProduct.sku,
+          brand: updates.brand || matchedProduct.brand
+        });
+
       } else {
         // Product in Google Sheets does not exist in DB: INSERT IT!
         const cleanTitle = sheetInfo.rawName.replace(/^\[Interno\]\s*/i, '').trim();
@@ -255,22 +341,27 @@ export async function POST() {
             is_active: true,
             is_discontinued: false
           })
-          .select('id')
+          .select('id, name, sku, brand')
           .single();
 
         if (!insertErr && newProd) {
           activeDbProductIds.add(newProd.id);
           insertedCount++;
           addLog(`  ✨ Nuevo producto insertado: ${cleanTitle} ($${sheetInfo.price})`);
+
+          allProductsToLink.push(newProd);
         }
       }
     }
 
+    // Process remaining products in DB that may not be in activePricesMap
     for (const p of dbProducts) {
-      const isDiscountPseudoProduct = p.name?.toLowerCase().includes('descuento') || p.sku?.toLowerCase().includes('descuento') || p.name?.toLowerCase().includes('bonificaci');
-      if (isDiscountPseudoProduct) continue; // Keep discount pseudo-products active
-
       if (!activeDbProductIds.has(p.id)) {
+        allProductsToLink.push(p);
+
+        const isDiscountPseudoProduct = p.name?.toLowerCase().includes('descuento') || p.sku?.toLowerCase().includes('descuento') || p.name?.toLowerCase().includes('bonificaci');
+        if (isDiscountPseudoProduct) continue; // Keep discount pseudo-products active
+
         const normName = normalizeProductName(p.name);
         const isDiscontinued = bdDiscontinuedSet.has(normName);
 
@@ -298,12 +389,85 @@ export async function POST() {
       }
     }
 
-    addLog(`Sincronización finalizada: ${pricesUpdatedCount} precios actualizados, ${insertedCount} nuevos creados, ${activatedCount} activados, ${deactivatedCount} desactivados.`);
+    // 5. Batch Link Suppliers & Relations
+    addLog(`Vinculando proveedores para ${allProductsToLink.length} productos...`);
+    const relationsToUpsert: Array<{ product_id: string; supplier_id: string; is_primary: boolean }> = [];
+
+    for (const product of allProductsToLink) {
+      const normName = normalizeProductName(product.name);
+      const normSku = product.sku ? normalizeProductName(product.sku) : '';
+
+      let matchedSuppName = bdProductSupplierMap.get(normName) || (normSku ? bdProductSupplierMap.get(normSku) : null);
+
+      let matchedSupplier: any = null;
+      if (matchedSuppName) {
+        matchedSupplier = dbSuppliersMap.get(normalizeProductName(matchedSuppName));
+      }
+
+      // Fallback 1: Match by brand
+      if (!matchedSupplier && product.brand) {
+        matchedSupplier = dbSuppliersMap.get(normalizeProductName(product.brand));
+      }
+
+      // Fallback 2: Match by name prefix before '-'
+      if (!matchedSupplier) {
+        const parts = product.name.split('-').map(p => p.trim());
+        if (parts.length > 1 && parts[0].length >= 3) {
+          const prefix = parts[0];
+          matchedSupplier = dbSuppliersMap.get(normalizeProductName(prefix));
+        }
+      }
+
+      // Fallback 3: Use generic supplier
+      if (!matchedSupplier) {
+        matchedSupplier = genericSupplier;
+      }
+
+      if (!matchedSupplier) continue;
+
+      const existingRels = relationsByProduct.get(product.id) || [];
+      const primaryRel = existingRels.find(r => r.is_primary);
+
+      if (!primaryRel || primaryRel.supplier_id !== matchedSupplier.id) {
+        relationsToUpsert.push({
+          product_id: product.id,
+          supplier_id: matchedSupplier.id,
+          is_primary: true
+        });
+      }
+    }
+
+    if (relationsToUpsert.length > 0) {
+      addLog(`Guardando ${relationsToUpsert.length} relaciones producto-proveedor en lote...`);
+      const chunkSize = 100;
+      for (let c = 0; c < relationsToUpsert.length; c += chunkSize) {
+        const chunk = relationsToUpsert.slice(c, c + chunkSize);
+        const { error: upsertErr } = await supabaseAdmin
+          .from('product_supplier_relations')
+          .upsert(chunk, { onConflict: 'product_id,supplier_id' });
+
+        if (!upsertErr) {
+          relationsLinkedCount += chunk.length;
+        } else {
+          console.warn("Error upserting relations chunk:", upsertErr);
+        }
+      }
+    }
+
+    addLog(`Sincronización finalizada con éxito:`);
+    addLog(`  - ${pricesUpdatedCount} precios actualizados`);
+    addLog(`  - ${insertedCount} productos nuevos creados`);
+    addLog(`  - ${suppliersCreatedCount} proveedores nuevos registrados`);
+    addLog(`  - ${relationsLinkedCount} relaciones producto-proveedor actualizadas`);
+    addLog(`  - ${activatedCount} productos activados, ${deactivatedCount} desactivados.`);
 
     return NextResponse.json({
       success: true,
       pricesUpdatedCount,
       insertedCount,
+      suppliersCreatedCount,
+      relationsLinkedCount,
+      totalSuppliers: dbSuppliersMap.size,
       activatedCount,
       deactivatedCount,
       discontinuedCount,

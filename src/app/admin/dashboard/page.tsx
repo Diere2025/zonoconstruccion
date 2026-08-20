@@ -11,19 +11,30 @@ import {
   ArrowUpRight, 
   Loader2, 
   Clock, 
-  AlertCircle,
-  Database,
-  RefreshCw,
-  ArrowUpDown,
-  ChevronDown,
-  Calendar,
-  ChevronLeft,
-  ChevronRight
+  RefreshCw, 
+  ArrowUpDown, 
+  ChevronDown, 
+  Calendar, 
+  ChevronLeft, 
+  ChevronRight, 
+  ArrowUp, 
+  ArrowDown, 
+  Truck, 
+  MapPin, 
+  Search, 
+  DollarSign, 
+  Target, 
+  ShieldAlert, 
+  PlusCircle, 
+  Wallet,
+  CheckCircle2
 } from "lucide-react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import CategorySalesChart, { CategoryData } from "@/components/dashboard/CategorySalesChart";
 import CancelledOrdersChart, { DailyCancelledData } from "@/components/dashboard/CancelledOrdersChart";
+import SalesTrendChart, { DailyTrendPoint } from "@/components/dashboard/SalesTrendChart";
+import { OrderStatusBadge } from "@/components/ui/Badge";
 
 export interface TopCustomer {
   name: string;
@@ -31,10 +42,18 @@ export interface TopCustomer {
   ordersCount: number;
 }
 
+export interface LocalityRank {
+  locality: string;
+  totalSales: number;
+  ordersCount: number;
+}
+
 export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [productSortKey, setProductSortKey] = useState<'billing' | 'qty'>('billing');
-  
+  const [productSearchTerm, setProductSearchTerm] = useState('');
+
   // Date Helpers
   const getTodayDate = () => {
     const d = new Date();
@@ -63,41 +82,6 @@ export default function AdminDashboard() {
     const date = String(d.getDate()).padStart(2, '0');
     return `${year}-${month}-${date}`;
   };
-
-  const [datePreset, setDatePreset] = useState<string>("month");
-  const [customStartDate, setCustomStartDate] = useState<string>(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
-  });
-  const [customEndDate, setCustomEndDate] = useState<string>(getTodayDate());
-
-  const [stats, setStats] = useState({
-    monthlySales: 0,
-    activeOrders: 0,
-    deliveredCount: 0,
-    pendingCount: 0,
-    cancelledCount: 0,
-    totalOrdersCount: 0,
-    deliveredBilling: 0,
-    pendingBilling: 0,
-    cancelledBilling: 0,
-    totalBillingCount: 0,
-    totalClients: 0,
-    totalProducts: 0,
-  });
-  
-  const [topSellers, setTopSellers] = useState<any[]>([]);
-  const [topCustomers, setTopCustomers] = useState<TopCustomer[]>([]);
-  const [leaderboardTab, setLeaderboardTab] = useState<"customers" | "sellers">("customers");
-  const [recentOrders, setRecentOrders] = useState<any[]>([]);
-  const [productsSold, setProductsSold] = useState<any[]>([]);
-  const [sellersList, setSellersList] = useState<any[]>([]);
-  const [selectedSellerId, setSelectedSellerId] = useState<string>("all");
-
-  const [categorySales, setCategorySales] = useState<CategoryData[]>([]);
-  const [totalCategoryQty, setTotalCategoryQty] = useState<number>(0);
-  const [dailyCancelledData, setDailyCancelledData] = useState<DailyCancelledData[]>([]);
-  const [selectedCatFilter, setSelectedCatFilter] = useState<string>("all");
 
   const getStartOfMonth = () => {
     const d = new Date();
@@ -130,9 +114,9 @@ export default function AdminDashboard() {
     return `${pct.toFixed(1)}%`;
   };
 
-  const [startDate, setStartDate] = useState(getTodayDate());
+  const [startDate, setStartDate] = useState(getStartOfMonth());
   const [endDate, setEndDate] = useState(getTodayDate());
-  const [presetRange, setPresetRange] = useState("hoy");
+  const [presetRange, setPresetRange] = useState("mes");
 
   // Custom Picker States
   const [isPickerOpen, setIsPickerOpen] = useState(false);
@@ -141,6 +125,60 @@ export default function AdminDashboard() {
   const [tempPresetRange, setTempPresetRange] = useState(presetRange);
   const [viewDate, setViewDate] = useState(new Date());
   const [hoveredDate, setHoveredDate] = useState<string | null>(null);
+
+  // Stats & Data States
+  const [stats, setStats] = useState({
+    monthlySales: 0,
+    activeOrders: 0,
+    deliveredCount: 0,
+    pendingCount: 0,
+    cancelledCount: 0,
+    totalOrdersCount: 0,
+    deliveredBilling: 0,
+    pendingBilling: 0,
+    cancelledBilling: 0,
+    totalBillingCount: 0,
+    totalClients: 0,
+    totalProducts: 0,
+    averageOrderValue: 0,
+    fulfillmentRate: 0,
+    cancellationRate: 0,
+    avgSalesPerSeller: 0,
+    activeSellersCount: 0
+  });
+
+  // Period Comparison Variance States (% delta vs previous period)
+  const [prevStats, setPrevStats] = useState<{
+    salesVarPct: number | null;
+    ordersVarPct: number | null;
+    aovVarPct: number | null;
+    deliveredVarPct: number | null;
+    prevStartDate: string;
+    prevEndDate: string;
+  }>({
+    salesVarPct: null,
+    ordersVarPct: null,
+    aovVarPct: null,
+    deliveredVarPct: null,
+    prevStartDate: "",
+    prevEndDate: ""
+  });
+
+  const [topSellers, setTopSellers] = useState<any[]>([]);
+  const [topCustomers, setTopCustomers] = useState<TopCustomer[]>([]);
+  const [topLocalities, setTopLocalities] = useState<LocalityRank[]>([]);
+  const [leaderboardTab, setLeaderboardTab] = useState<"customers" | "sellers" | "localities">("customers");
+  const [recentOrders, setRecentOrders] = useState<any[]>([]);
+  const [productsSold, setProductsSold] = useState<any[]>([]);
+  const [sellersList, setSellersList] = useState<any[]>([]);
+  const [selectedSellerId, setSelectedSellerId] = useState<string>("all");
+
+  const [categorySales, setCategorySales] = useState<CategoryData[]>([]);
+  const [totalCategoryQty, setTotalCategoryQty] = useState<number>(0);
+  const [dailyCancelledData, setDailyCancelledData] = useState<DailyCancelledData[]>([]);
+  const [dailyTrendData, setDailyTrendData] = useState<DailyTrendPoint[]>([]);
+  const [selectedCatFilter, setSelectedCatFilter] = useState<string>("all");
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<string>("");
 
   const PRESETS = [
     { id: "hoy", label: "Hoy" },
@@ -175,7 +213,7 @@ export default function AdminDashboard() {
 
   const getFirstDayOfMonth = (year: number, month: number) => {
     const day = new Date(year, month, 1).getDay();
-    return day === 0 ? 6 : day - 1; // Mon=0, Tue=1, ... Sun=6
+    return day === 0 ? 6 : day - 1;
   };
 
   const renderCalendarMonth = (year: number, month: number) => {
@@ -280,14 +318,14 @@ export default function AdminDashboard() {
     const inHoverRange = tempStartDate && !tempEndDate && hoveredDate && dateStr > tempStartDate && dateStr <= hoveredDate;
     const isToday = dateStr === getTodayDate();
 
-    let classes = "w-8 h-8 flex items-center justify-center text-xs font-bold relative transition-all cursor-pointer ";
+    let classes = "w-8 h-8 flex items-center justify-center text-xs font-semibold relative transition-all cursor-pointer ";
 
     if (isStart && isEnd) {
-      classes += "bg-brand-600 text-white rounded-lg z-10 shadow-sm";
+      classes += "bg-brand-600 text-white rounded-lg z-10 shadow-xs";
     } else if (isStart) {
-      classes += "bg-brand-600 text-white rounded-l-lg z-10 shadow-sm";
+      classes += "bg-brand-600 text-white rounded-l-lg z-10 shadow-xs";
     } else if (isEnd) {
-      classes += "bg-brand-600 text-white rounded-r-lg z-10 shadow-sm";
+      classes += "bg-brand-600 text-white rounded-r-lg z-10 shadow-xs";
     } else if (inRange) {
       classes += "bg-brand-50 text-brand-700 rounded-none hover:bg-brand-100";
     } else if (inHoverRange) {
@@ -297,7 +335,7 @@ export default function AdminDashboard() {
     }
 
     if (isToday && !isStart && !isEnd) {
-      classes += " border border-brand-500 text-brand-600 rounded-lg";
+      classes += " border border-brand-500 text-brand-600 rounded-lg font-bold";
     }
 
     return { classes, isStart, isEnd };
@@ -321,63 +359,40 @@ export default function AdminDashboard() {
     return `${names[month]} ${year}`;
   };
 
-  const handlePresetChange = (preset: string) => {
-    setPresetRange(preset);
-    if (preset === "personalizado") return;
+  const calculatePreviousPeriod = (sDateStr: string, eDateStr: string) => {
+    try {
+      const s = new Date(sDateStr + "T00:00:00");
+      const e = new Date(eDateStr + "T00:00:00");
+      const durationDays = Math.max(1, Math.round((e.getTime() - s.getTime()) / (1000 * 3600 * 24)) + 1);
 
-    let start = getTodayDate();
-    let end = getTodayDate();
+      const prevEnd = new Date(s.getTime());
+      prevEnd.setDate(prevEnd.getDate() - 1);
 
-    switch (preset) {
-      case "hoy":
-        start = getTodayDate();
-        end = getTodayDate();
-        break;
-      case "ayer":
-        start = getRelativeDate(1);
-        end = getRelativeDate(1);
-        break;
-      case "7dias":
-        start = getRelativeDate(6);
-        end = getTodayDate();
-        break;
-      case "30dias":
-        start = getRelativeDate(29);
-        end = getTodayDate();
-        break;
-      case "semana":
-        start = getStartOfWeek();
-        end = getTodayDate();
-        break;
-      case "mes":
-        start = getStartOfMonth();
-        end = getTodayDate();
-        break;
-      case "mes_pasado":
-        const range = getPreviousMonthRange();
-        start = range.start;
-        end = range.end;
-        break;
+      const prevStart = new Date(prevEnd.getTime());
+      prevStart.setDate(prevStart.getDate() - durationDays + 1);
+
+      const formatYMD = (d: Date) => {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+      };
+
+      return {
+        prevStartStr: formatYMD(prevStart),
+        prevEndStr: formatYMD(prevEnd)
+      };
+    } catch (err) {
+      return { prevStartStr: sDateStr, prevEndStr: eDateStr };
     }
-
-    setStartDate(start);
-    setEndDate(end);
-    loadData(start, end, selectedSellerId);
-  };
-
-  const handleStartDateChange = (val: string) => {
-    setStartDate(val);
-    setPresetRange("personalizado");
-  };
-
-  const handleEndDateChange = (val: string) => {
-    setEndDate(val);
-    setPresetRange("personalizado");
   };
 
   const loadData = async (start: string, end: string, sellerId: string = selectedSellerId) => {
     try {
       setLoading(true);
+      setIsRefreshing(true);
+
+      const { prevStartStr, prevEndStr } = calculatePreviousPeriod(start, end);
 
       let recentQuery = supabase.from("orders")
         .select("id, legacy_code, customer_name, total_amount, status, created_at, order_date, seller_id")
@@ -385,9 +400,14 @@ export default function AdminDashboard() {
         .limit(6);
         
       let rangeQuery = supabase.from("orders")
-        .select("id, legacy_code, customer_name, total_amount, status, seller_id, order_date, created_at")
+        .select("id, legacy_code, customer_name, locality, total_amount, status, seller_id, order_date, created_at")
         .gte("order_date", start)
         .lte("order_date", end);
+
+      let prevRangeQuery = supabase.from("orders")
+        .select("id, legacy_code, total_amount, status, seller_id, order_date")
+        .gte("order_date", prevStartStr)
+        .lte("order_date", prevEndStr);
 
       let itemsQuery = supabase
         .from("order_items")
@@ -405,6 +425,7 @@ export default function AdminDashboard() {
       if (sellerId !== "all") {
         recentQuery = recentQuery.eq("seller_id", sellerId);
         rangeQuery = rangeQuery.eq("seller_id", sellerId);
+        prevRangeQuery = prevRangeQuery.eq("seller_id", sellerId);
         itemsQuery = itemsQuery.eq("orders.seller_id", sellerId);
       }
 
@@ -414,6 +435,7 @@ export default function AdminDashboard() {
         sellersRes,
         recentOrdersRes,
         ordersInRangeRes,
+        prevOrdersRes,
         itemsRes
       ] = await Promise.all([
         supabase.from("clients").select("id", { count: "exact", head: true }),
@@ -421,6 +443,7 @@ export default function AdminDashboard() {
         supabase.from("sellers").select("id, full_name"),
         recentQuery,
         rangeQuery,
+        prevRangeQuery,
         itemsQuery
       ]);
 
@@ -429,10 +452,11 @@ export default function AdminDashboard() {
       if (itemsRes.error) throw itemsRes.error;
 
       const rawOrdersInRange = ordersInRangeRes.data || [];
+      const rawPrevOrders = prevOrdersRes.data || [];
       const sellers = sellersRes.data || [];
       setSellersList(sellers);
 
-      // Deduplicate orders in range by legacy_code to prevent double counting
+      // Deduplicate current period orders
       const seenLegacyCodes = new Set<string>();
       const ordersInRange = rawOrdersInRange.filter(o => {
         if (o.legacy_code && String(o.legacy_code).trim() !== '') {
@@ -443,18 +467,49 @@ export default function AdminDashboard() {
         return true;
       });
 
-      // Compute Sales Sum (all except Cancelado)
-      const salesSum = ordersInRange
-        .filter(o => o.status !== "Cancelado")
-        .reduce((acc, o) => acc + (Number(o.total_amount) || 0), 0);
+      // Deduplicate previous period orders
+      const seenPrevCodes = new Set<string>();
+      const prevOrdersInRange = rawPrevOrders.filter(o => {
+        if (o.legacy_code && String(o.legacy_code).trim() !== '') {
+          const code = String(o.legacy_code).trim();
+          if (seenPrevCodes.has(code)) return false;
+          seenPrevCodes.add(code);
+        }
+        return true;
+      });
 
-      // Compute breakdowns for orders count
+      // Current Period Sales Sum (all except Cancelado)
+      const activeOrdersList = ordersInRange.filter(o => o.status !== "Cancelado");
+      const salesSum = activeOrdersList.reduce((acc, o) => acc + (Number(o.total_amount) || 0), 0);
+
+      // Previous Period Sales & AOV
+      const prevActiveOrders = prevOrdersInRange.filter(o => o.status !== "Cancelado");
+      const prevSalesSum = prevActiveOrders.reduce((acc, o) => acc + (Number(o.total_amount) || 0), 0);
+      const prevOrdersCount = prevOrdersInRange.length;
+      const prevAOV = prevActiveOrders.length > 0 ? prevSalesSum / prevActiveOrders.length : 0;
+      const prevDeliveredBilling = prevOrdersInRange.filter(o => o.status === "Entregado").reduce((acc, o) => acc + (Number(o.total_amount) || 0), 0);
+
+      // Compute Period-over-Period Variances (% delta)
+      const salesVarPct = prevSalesSum > 0 ? ((salesSum - prevSalesSum) / prevSalesSum) * 100 : null;
+      const ordersVarPct = prevOrdersCount > 0 ? ((ordersInRange.length - prevOrdersCount) / prevOrdersCount) * 100 : null;
+      const currentAOV = activeOrdersList.length > 0 ? salesSum / activeOrdersList.length : 0;
+      const aovVarPct = prevAOV > 0 ? ((currentAOV - prevAOV) / prevAOV) * 100 : null;
+      const deliveredVarPct = prevDeliveredBilling > 0 ? (((ordersInRange.filter(o => o.status === "Entregado").reduce((acc, o) => acc + (Number(o.total_amount) || 0), 0)) - prevDeliveredBilling) / prevDeliveredBilling) * 100 : null;
+
+      setPrevStats({
+        salesVarPct,
+        ordersVarPct,
+        aovVarPct,
+        deliveredVarPct,
+        prevStartDate: prevStartStr,
+        prevEndDate: prevEndStr
+      });
+
       const deliveredCount = ordersInRange.filter(o => o.status === "Entregado").length;
       const pendingCount = ordersInRange.filter(o => ["Pendiente", "Confirmado", "Entregando"].includes(o.status)).length;
       const cancelledCount = ordersInRange.filter(o => o.status === "Cancelado").length;
       const totalOrdersCount = ordersInRange.length;
 
-      // Compute breakdowns for billing
       const deliveredBilling = ordersInRange
         .filter(o => o.status === "Entregado")
         .reduce((acc, o) => acc + (Number(o.total_amount) || 0), 0);
@@ -466,7 +521,10 @@ export default function AdminDashboard() {
         .reduce((acc, o) => acc + (Number(o.total_amount) || 0), 0);
       const totalBillingCount = deliveredBilling + pendingBilling + cancelledBilling;
 
-      // Compute Top Sellers for current range
+      const fulfillmentRate = totalOrdersCount > 0 ? (deliveredCount / totalOrdersCount) * 100 : 0;
+      const cancellationRate = totalOrdersCount > 0 ? (cancelledCount / totalOrdersCount) * 100 : 0;
+
+      // Top Sellers
       const sellerSales: Record<string, number> = {};
       ordersInRange
         .filter(o => o.status !== "Cancelado")
@@ -488,7 +546,10 @@ export default function AdminDashboard() {
         .sort((a, b) => b.sales - a.sales)
         .slice(0, 5);
 
-      // Compute Top Customers for current range
+      const activeSellersCount = Object.keys(sellerSales).length;
+      const avgSalesPerSeller = activeSellersCount > 0 ? salesSum / activeSellersCount : 0;
+
+      // Top Customers
       const customerSalesMap: Record<string, { name: string; totalSales: number; ordersCount: number }> = {};
       ordersInRange
         .filter(o => o.status !== "Cancelado")
@@ -505,8 +566,26 @@ export default function AdminDashboard() {
         .sort((a, b) => b.totalSales - a.totalSales)
         .slice(0, 5);
 
+      // Top Localities
+      const localityMap: Record<string, { locality: string; totalSales: number; ordersCount: number }> = {};
+      ordersInRange
+        .filter(o => o.status !== "Cancelado")
+        .forEach(o => {
+          const locName = (o.locality || 'Sin Localidad / Mostrador').trim();
+          if (!localityMap[locName]) {
+            localityMap[locName] = { locality: locName, totalSales: 0, ordersCount: 0 };
+          }
+          localityMap[locName].totalSales += (Number(o.total_amount) || 0);
+          localityMap[locName].ordersCount += 1;
+        });
+
+      const localitiesRanked = Object.values(localityMap)
+        .sort((a, b) => b.totalSales - a.totalSales)
+        .slice(0, 5);
+
       setTopSellers(sellersRanked);
       setTopCustomers(customersRanked);
+      setTopLocalities(localitiesRanked);
 
       setStats({
         monthlySales: salesSum,
@@ -521,11 +600,13 @@ export default function AdminDashboard() {
         totalBillingCount,
         totalClients: clientsCountRes.count || 0,
         totalProducts: productsCountRes.count || 0,
+        averageOrderValue: currentAOV,
+        fulfillmentRate,
+        cancellationRate,
+        avgSalesPerSeller,
+        activeSellersCount
       });
 
-      setTopSellers(sellersRanked);
-
-      // Format recent orders with seller names
       const formattedRecent = (recentOrdersRes.data || []).map(o => {
         const seller = sellers.find(s => s.id === o.seller_id);
         return {
@@ -536,14 +617,11 @@ export default function AdminDashboard() {
       setRecentOrders(formattedRecent);
 
       const items = itemsRes.data || [];
-
       const productSales: Record<string, { name: string, sku: string, category: string, qty: number, total: number }> = {};
       
-      // Helper function for category classification
       const getCategoryForProduct = (pNameRaw: string, dbCategoryRaw: string | undefined, orderPrimaryCategory?: string): string => {
         const pName = (pNameRaw || '').toLowerCase();
         let cat = dbCategoryRaw;
-
         const isDiscount = pName.includes('descuento') || pName.includes('bonificaci');
 
         if (isDiscount) {
@@ -636,7 +714,6 @@ export default function AdminDashboard() {
         return cat;
       };
 
-      // Pass 1: Build map of primary category per order ID
       const orderPrimaryCatMap: Record<string, string> = {};
       items.forEach(item => {
         const pName = item.product_name || '';
@@ -652,7 +729,6 @@ export default function AdminDashboard() {
         }
       });
 
-      // Category Breakdown Aggregation
       const catSalesMap: Record<string, {
         category: string;
         totalBilling: number;
@@ -663,7 +739,6 @@ export default function AdminDashboard() {
       let totalCatBillingAcc = 0;
       let totalCatQtyAcc = 0;
 
-      // Pass 2: Aggregate product sales and category totals
       items.forEach(item => {
         const rawSku = (item as any).products?.sku || 'SIN SKU';
         const normName = (item.product_name || 'DESCONOCIDO').trim();
@@ -682,7 +757,6 @@ export default function AdminDashboard() {
             total: 0
           };
         } else if (productSales[key].sku.startsWith('AUTO-') && !rawSku.startsWith('AUTO-') && rawSku !== 'SIN SKU') {
-          // Prefer explicit human SKU over auto-generated SKU
           productSales[key].sku = rawSku;
         }
 
@@ -736,7 +810,6 @@ export default function AdminDashboard() {
       setCategorySales(categorySalesList);
       setTotalCategoryQty(totalCatQtyAcc);
 
-      // Generate Daily Cancelled Breakdown
       const generateDateRange = (startDateStr: string, endDateStr: string) => {
         const dates: string[] = [];
         try {
@@ -785,10 +858,39 @@ export default function AdminDashboard() {
 
       setDailyCancelledData(dailyCancelledList);
 
+      const dailyTrendList: DailyTrendPoint[] = dateRange.map(dStr => {
+        const parts = dStr.split("-");
+        const displayDate = parts.length === 3 ? `${parts[2]}/${parts[1]}` : dStr;
+
+        const ordersOnDate = ordersInRange.filter(o => {
+          const oDate = (o.order_date || o.created_at || "").slice(0, 10);
+          return oDate === dStr;
+        });
+
+        const activeOnDate = ordersOnDate.filter(o => o.status !== "Cancelado");
+        const salesOnDate = activeOnDate.reduce((acc, o) => acc + (Number(o.total_amount) || 0), 0);
+
+        const deliveredOnDate = ordersOnDate.filter(o => o.status === "Entregado");
+        const deliveredSalesOnDate = deliveredOnDate.reduce((acc, o) => acc + (Number(o.total_amount) || 0), 0);
+
+        return {
+          date: dStr,
+          displayDate,
+          sales: salesOnDate,
+          ordersCount: ordersOnDate.length,
+          deliveredCount: deliveredOnDate.length,
+          deliveredSales: deliveredSalesOnDate
+        };
+      });
+
+      setDailyTrendData(dailyTrendList);
+      setLastRefreshedAt(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+
     } catch (err) {
       console.error("Error loading admin dashboard stats:", err);
     } finally {
       setLoading(false);
+      setIsRefreshing(false);
     }
   };
 
@@ -798,15 +900,20 @@ export default function AdminDashboard() {
 
   if (loading) {
     return (
-      <div className="min-h-[60vh] flex flex-col items-center justify-center gap-4">
-        <Loader2 className="w-10 h-10 text-brand-600 animate-spin" />
-        <p className="text-slate-500 font-bold text-xs tracking-wider uppercase">Cargando Panel de Control General...</p>
+      <div className="min-h-[60vh] flex flex-col items-center justify-center gap-3">
+        <Loader2 className="w-8 h-8 text-brand-600 animate-spin" />
+        <p className="text-slate-500 font-medium text-xs">Cargando métricas consolidadas...</p>
       </div>
     );
   }
 
   const sortedProductsSold = [...productsSold]
     .filter((p) => selectedCatFilter === "all" || p.category === selectedCatFilter)
+    .filter((p) => {
+      if (!productSearchTerm.trim()) return true;
+      const term = productSearchTerm.toLowerCase();
+      return p.name.toLowerCase().includes(term) || (p.sku && p.sku.toLowerCase().includes(term));
+    })
     .sort((a, b) => {
       if (productSortKey === "qty") {
         return b.qty - a.qty;
@@ -825,20 +932,40 @@ export default function AdminDashboard() {
   const month2Days = renderCalendarMonth(month2Year, month2Month);
 
   return (
-    <div className="space-y-6">
-      {/* Title */}
+    <div className="space-y-6 pb-12">
+      {/* Title & Top Toolbar */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-black text-slate-900 tracking-tight">Dashboard General ERP</h1>
-          <p className="text-xs font-semibold text-slate-400 mt-1">
-            Panel de administración y estadísticas consolidadas del sistema de operaciones.
+          <h1 className="text-xl font-bold text-slate-900 tracking-tight">
+            Dashboard General ERP
+          </h1>
+          <p className="text-xs text-slate-500 font-normal mt-0.5">
+            Consola central de control y métricas consolidadas de venta y distribución.
+            {lastRefreshedAt && (
+              <span className="text-slate-400 ml-1">
+                (Actualizado: {lastRefreshedAt})
+              </span>
+            )}
           </p>
         </div>
-               {/* Filters */}
-        <div className="bg-white p-3 rounded-2xl border border-slate-200/60 shadow-sm flex flex-col md:flex-row items-stretch md:items-end gap-3 w-full md:w-auto">
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-            <div className="space-y-1 min-w-[140px]">
-              <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest leading-none">Vendedor</label>
+
+        {/* Global Filters & Manual Refresh */}
+        <div className="bg-white p-2 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col md:flex-row items-stretch md:items-center gap-2.5 w-full md:w-auto">
+          {/* Refresh Button */}
+          <button
+            type="button"
+            onClick={() => loadData(startDate, endDate, selectedSellerId)}
+            disabled={isRefreshing}
+            className="px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-semibold transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+            title="Refrescar datos"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-brand-600' : ''}`} />
+            <span>Refrescar</span>
+          </button>
+
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+            {/* Seller Filter */}
+            <div className="min-w-[150px]">
               <select
                 value={selectedSellerId}
                 onChange={(e) => {
@@ -846,7 +973,7 @@ export default function AdminDashboard() {
                   setSelectedSellerId(val);
                   loadData(startDate, endDate, val);
                 }}
-                className="w-full px-3 py-1.5 rounded-lg border border-slate-200 font-bold text-xs bg-slate-50 text-slate-700 focus:outline-none focus:ring-1 focus:ring-brand-500 cursor-pointer"
+                className="select-standard py-1.5"
               >
                 <option value="all">Todos los Vendedores</option>
                 {sellersList.map(s => (
@@ -855,27 +982,25 @@ export default function AdminDashboard() {
               </select>
             </div>
 
-            <div className="space-y-1 relative min-w-[240px]">
-              <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest leading-none">Período de Ventas</label>
+            {/* Custom Date Range Picker */}
+            <div className="relative min-w-[220px]">
               <button
                 type="button"
                 onClick={() => setIsPickerOpen(!isPickerOpen)}
-                className="w-full px-3 py-1.5 rounded-lg border border-slate-200 font-bold text-xs bg-slate-50 text-slate-700 hover:bg-slate-100/60 transition-all flex items-center justify-between gap-3 cursor-pointer"
+                className="w-full px-3 py-1.5 rounded-xl border border-slate-200 font-semibold text-xs bg-slate-50 text-slate-700 hover:bg-slate-100/70 transition-all flex items-center justify-between gap-2 cursor-pointer"
               >
-                <div className="flex items-center gap-2">
-                  <span className="text-slate-400 text-[11px]"><Calendar className="w-3.5 h-3.5" /></span>
-                  <span>{getRangeLabel()}</span>
+                <div className="flex items-center gap-1.5 truncate">
+                  <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  <span className="truncate">{getRangeLabel()}</span>
                 </div>
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
               </button>
 
               {isPickerOpen && (
                 <>
-                  {/* Backdrop overlay */}
                   <div className="fixed inset-0 z-40" onClick={() => setIsPickerOpen(false)} />
                   
-                  {/* Floating Panel */}
-                  <div className="absolute right-0 top-full mt-2 z-50 bg-white border border-slate-200/80 rounded-2xl shadow-2xl flex flex-col md:flex-row overflow-hidden w-full max-w-[95vw] md:max-w-none md:w-[650px] animate-in fade-in slide-in-from-top-2 duration-150">
+                  <div className="absolute right-0 top-full mt-2 z-50 bg-white border border-slate-200/80 rounded-2xl shadow-xl flex flex-col md:flex-row overflow-hidden w-full max-w-[95vw] md:max-w-none md:w-[650px] animate-in fade-in slide-in-from-top-2 duration-150">
                     {/* Left presets bar */}
                     <div className="w-full md:w-[160px] border-b md:border-b-0 md:border-r border-slate-100 p-3 flex flex-row md:flex-col overflow-x-auto md:overflow-x-visible gap-1 shrink-0 bg-slate-50/60">
                       {PRESETS.map((p) => {
@@ -885,9 +1010,9 @@ export default function AdminDashboard() {
                             key={p.id}
                             type="button"
                             onClick={() => handleTempPresetChange(p.id)}
-                            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg font-bold text-xs whitespace-nowrap text-left transition-all w-full ${
+                            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg font-medium text-xs whitespace-nowrap text-left transition-all w-full ${
                               active 
-                                ? "bg-brand-50 text-brand-700" 
+                                ? "bg-brand-50 text-brand-700 font-semibold" 
                                 : "text-slate-600 hover:bg-slate-100 hover:text-slate-800"
                             }`}
                           >
@@ -904,7 +1029,6 @@ export default function AdminDashboard() {
 
                     {/* Right calendars and inputs */}
                     <div className="flex-1 p-4 md:p-5 flex flex-col justify-between min-w-0 bg-white">
-                      {/* Calendars header navigation */}
                       <div className="flex items-center justify-between mb-3 border-b border-slate-50 pb-2">
                         <button
                           type="button"
@@ -913,8 +1037,8 @@ export default function AdminDashboard() {
                         >
                           <ChevronLeft className="w-4 h-4" />
                         </button>
-                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                          Seleccionar Período
+                        <span className="text-xs font-bold text-slate-600">
+                          Seleccionar Rango
                         </span>
                         <button
                           type="button"
@@ -927,14 +1051,13 @@ export default function AdminDashboard() {
 
                       {/* Month grids */}
                       <div className="flex flex-col sm:flex-row gap-6">
-                        {/* Month 1 */}
                         <div className="flex-1">
-                          <div className="text-center font-black text-xs text-slate-700 mb-3">
+                          <div className="text-center font-bold text-xs text-slate-700 mb-2">
                             {formatMonthHeader(viewDate)}
                           </div>
                           <div className="grid grid-cols-7 gap-y-1 gap-x-1 text-center">
                             {DAY_NAMES.map(d => (
-                              <span key={d} className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1">{d}</span>
+                              <span key={d} className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">{d}</span>
                             ))}
                             {month1Days.map((dayObj, idx) => {
                               if (!dayObj) return <div key={`empty-1-${idx}`} className="w-8 h-8" />;
@@ -955,14 +1078,13 @@ export default function AdminDashboard() {
                           </div>
                         </div>
 
-                        {/* Month 2 */}
                         <div className="flex-1 hidden md:block">
-                          <div className="text-center font-black text-xs text-slate-700 mb-3">
+                          <div className="text-center font-bold text-xs text-slate-700 mb-2">
                             {formatMonthHeader(nextMonthDate)}
                           </div>
                           <div className="grid grid-cols-7 gap-y-1 gap-x-1 text-center">
                             {DAY_NAMES.map(d => (
-                              <span key={d} className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1">{d}</span>
+                              <span key={d} className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">{d}</span>
                             ))}
                             {month2Days.map((dayObj, idx) => {
                               if (!dayObj) return <div key={`empty-2-${idx}`} className="w-8 h-8" />;
@@ -986,21 +1108,8 @@ export default function AdminDashboard() {
 
                       {/* Bottom display & actions */}
                       <div className="flex flex-wrap items-center justify-between border-t border-slate-100 pt-4 mt-4 gap-3">
-                        <div className="flex items-center gap-1.5">
-                          <input 
-                            type="checkbox" 
-                            id="compare-dates" 
-                            className="rounded border-slate-300 text-brand-600 focus:ring-brand-500 h-3.5 w-3.5 cursor-pointer"
-                          />
-                          <label htmlFor="compare-dates" className="text-[9px] font-black text-slate-400 uppercase tracking-widest cursor-pointer select-none">
-                            Comparar
-                          </label>
-                        </div>
-
                         <div className="flex items-center gap-2">
-                          {/* Date inputs overlay wrapper */}
                           <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-xl px-2 py-1 relative">
-                            {/* Desde */}
                             <div className="relative w-20">
                               <input 
                                 type="date" 
@@ -1011,14 +1120,13 @@ export default function AdminDashboard() {
                                   setTempPresetRange("personalizado");
                                 }}
                               />
-                              <div className="text-center font-bold text-[10px] text-slate-700 py-0.5 select-none">
+                              <div className="text-center font-semibold text-xs text-slate-700 py-0.5 select-none">
                                 {tempStartDate ? formatInputDisplay(tempStartDate) : "Desde"}
                               </div>
                             </div>
                             
                             <span className="text-slate-400 font-bold text-xs">-</span>
                             
-                            {/* Hasta */}
                             <div className="relative w-20">
                               <input 
                                 type="date" 
@@ -1029,7 +1137,7 @@ export default function AdminDashboard() {
                                   setTempPresetRange("personalizado");
                                 }}
                               />
-                              <div className="text-center font-bold text-[10px] text-slate-700 py-0.5 select-none">
+                              <div className="text-center font-semibold text-xs text-slate-700 py-0.5 select-none">
                                 {tempEndDate ? formatInputDisplay(tempEndDate) : "Hasta"}
                               </div>
                             </div>
@@ -1038,7 +1146,7 @@ export default function AdminDashboard() {
                           <button
                             type="button"
                             onClick={() => setIsPickerOpen(false)}
-                            className="px-2.5 py-1.5 text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
+                            className="px-3 py-1.5 text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
                           >
                             Cancelar
                           </button>
@@ -1052,9 +1160,9 @@ export default function AdminDashboard() {
                               loadData(tempStartDate, tempEndDate, selectedSellerId);
                               setIsPickerOpen(false);
                             }}
-                            className="px-3.5 py-1.5 text-xs font-black text-white bg-brand-600 hover:bg-brand-700 rounded-xl shadow-sm transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                            className="px-4 py-1.5 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl shadow-xs transition-all cursor-pointer disabled:opacity-50"
                           >
-                            Actualizar
+                            Aplicar
                           </button>
                         </div>
                       </div>
@@ -1067,101 +1175,252 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {/* Metrics Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm flex items-start justify-between min-h-[120px]">
-          <div className="space-y-1">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Facturación Total (Rango)</p>
-            <h3 className="text-xl font-black text-slate-900 leading-none">{formatPrice(stats.monthlySales)}</h3>
-            
-            <div className="flex flex-col gap-1 mt-2.5">
-              <div className="flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                <span className="text-[9px] font-bold text-slate-500 tracking-wide uppercase leading-none">
-                  {formatPrice(stats.deliveredBilling)} <span className="text-[8px] text-slate-400 font-extrabold ml-0.5">({formatPct(stats.deliveredBilling, stats.totalBillingCount)})</span> Entregados
-                </span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
-                <span className="text-[9px] font-bold text-slate-500 tracking-wide uppercase leading-none">
-                  {formatPrice(stats.pendingBilling)} <span className="text-[8px] text-slate-400 font-extrabold ml-0.5">({formatPct(stats.pendingBilling, stats.totalBillingCount)})</span> Pendientes
-                </span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />
-                <span className="text-[9px] font-bold text-slate-500 tracking-wide uppercase leading-none">
-                  {formatPrice(stats.cancelledBilling)} <span className="text-[8px] text-slate-400 font-extrabold ml-0.5">({formatPct(stats.cancelledBilling, stats.totalBillingCount)})</span> Anulados
-                </span>
-              </div>
+      {/* Quick Action Shortcuts Toolbar */}
+      <div className="bg-slate-900 p-4 rounded-2xl text-slate-200 shadow-xs border border-slate-800 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-slate-800 border border-slate-700/80 flex items-center justify-center text-brand-400 shrink-0">
+            <Target className="w-4.5 h-4.5" />
+          </div>
+          <div>
+            <h3 className="text-xs font-semibold text-white">Accesos Rápidos</h3>
+            <p className="text-[11px] text-slate-400 font-normal">Acceso directo a las herramientas operativas principales</p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+          <Link href="/vendedores/presupuestos">
+            <button type="button" className="px-3 py-1.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white font-medium text-xs transition-all flex items-center gap-1.5 shadow-xs cursor-pointer">
+              <PlusCircle className="w-3.5 h-3.5" />
+              Cotizador
+            </button>
+          </Link>
+
+          <Link href="/vendedores/pedidos">
+            <button type="button" className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium text-xs border border-slate-700 transition-all flex items-center gap-1.5 cursor-pointer">
+              <ShoppingCart className="w-3.5 h-3.5 text-brand-400" />
+              Pedidos
+            </button>
+          </Link>
+
+          <Link href="/vendedores/ruteo">
+            <button type="button" className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium text-xs border border-slate-700 transition-all flex items-center gap-1.5 cursor-pointer">
+              <Truck className="w-3.5 h-3.5 text-emerald-400" />
+              Ruteo
+            </button>
+          </Link>
+
+          <Link href="/admin/rentabilidad">
+            <button type="button" className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium text-xs border border-slate-700 transition-all flex items-center gap-1.5 cursor-pointer">
+              <TrendingUp className="w-3.5 h-3.5 text-amber-400" />
+              Rentabilidad
+            </button>
+          </Link>
+
+          <Link href="/admin/finanzas">
+            <button type="button" className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium text-xs border border-slate-700 transition-all flex items-center gap-1.5 cursor-pointer">
+              <Wallet className="w-3.5 h-3.5 text-purple-400" />
+              Finanzas
+            </button>
+          </Link>
+        </div>
+      </div>
+
+      {/* Expanded Metrics Grid (6 Executive KPI Cards with PoP comparison) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+        {/* KPI 1: Facturación Total */}
+        <div className="card-enterprise p-4 flex flex-col justify-between space-y-2.5">
+          <div className="flex items-start justify-between">
+            <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Facturación Total</p>
+            <div className="w-7 h-7 rounded-lg bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 shrink-0">
+              <TrendingUp className="w-3.5 h-3.5" />
             </div>
           </div>
-          <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600 shrink-0 self-start">
-            <TrendingUp className="w-5 h-5" />
-          </div>
-        </div>
-
-        <div className="bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm flex items-start justify-between min-h-[120px]">
-          <div className="space-y-1">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Pedidos en Rango</p>
-            <h3 className="text-xl font-black text-slate-900 leading-none">{stats.totalOrdersCount}</h3>
+          <div>
+            <h3 className="text-xl font-bold text-slate-900 leading-none tabular-nums">{formatPrice(stats.monthlySales)}</h3>
             
-            <div className="flex flex-col gap-1 mt-2.5">
-              <div className="flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                <span className="text-[9px] font-bold text-slate-500 tracking-wide uppercase leading-none">
-                  {stats.deliveredCount} <span className="text-[8px] text-slate-400 font-extrabold ml-0.5">({formatPct(stats.deliveredCount, stats.totalOrdersCount)})</span> Entregados
-                </span>
+            {prevStats.salesVarPct !== null && (
+              <div className="mt-1.5 flex items-center gap-1 text-[11px] font-semibold">
+                {prevStats.salesVarPct >= 0 ? (
+                  <span className="text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded-md flex items-center gap-0.5">
+                    <ArrowUp className="w-3 h-3" /> +{prevStats.salesVarPct.toFixed(1)}%
+                  </span>
+                ) : (
+                  <span className="text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded-md flex items-center gap-0.5">
+                    <ArrowDown className="w-3 h-3" /> {prevStats.salesVarPct.toFixed(1)}%
+                  </span>
+                )}
+                <span className="text-slate-400 text-[10px] font-normal">vs anterior</span>
               </div>
-              <div className="flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
-                <span className="text-[9px] font-bold text-slate-500 tracking-wide uppercase leading-none">
-                  {stats.pendingCount} <span className="text-[8px] text-slate-400 font-extrabold ml-0.5">({formatPct(stats.pendingCount, stats.totalOrdersCount)})</span> Pendientes
-                </span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />
-                <span className="text-[9px] font-bold text-slate-500 tracking-wide uppercase leading-none">
-                  {stats.cancelledCount} <span className="text-[8px] text-slate-400 font-extrabold ml-0.5">({formatPct(stats.cancelledCount, stats.totalOrdersCount)})</span> Anulados
-                </span>
-              </div>
+            )}
+          </div>
+
+          <div className="border-t border-slate-100 pt-2 space-y-1 text-[10px] font-medium text-slate-500">
+            <div className="flex justify-between">
+              <span>Entregado:</span>
+              <span className="text-emerald-700 font-semibold tabular-nums">{formatPrice(stats.deliveredBilling)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Pendiente:</span>
+              <span className="text-blue-700 font-semibold tabular-nums">{formatPrice(stats.pendingBilling)}</span>
             </div>
           </div>
-          <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600 shrink-0 self-start">
-            <Package className="w-5 h-5" />
+        </div>
+
+        {/* KPI 2: Pedidos en Rango */}
+        <div className="card-enterprise p-4 flex flex-col justify-between space-y-2.5">
+          <div className="flex items-start justify-between">
+            <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Pedidos Totales</p>
+            <div className="w-7 h-7 rounded-lg bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 shrink-0">
+              <Package className="w-3.5 h-3.5" />
+            </div>
+          </div>
+          <div>
+            <h3 className="text-xl font-bold text-slate-900 leading-none tabular-nums">{stats.totalOrdersCount}</h3>
+
+            {prevStats.ordersVarPct !== null && (
+              <div className="mt-1.5 flex items-center gap-1 text-[11px] font-semibold">
+                {prevStats.ordersVarPct >= 0 ? (
+                  <span className="text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded-md flex items-center gap-0.5">
+                    <ArrowUp className="w-3 h-3" /> +{prevStats.ordersVarPct.toFixed(1)}%
+                  </span>
+                ) : (
+                  <span className="text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded-md flex items-center gap-0.5">
+                    <ArrowDown className="w-3 h-3" /> {prevStats.ordersVarPct.toFixed(1)}%
+                  </span>
+                )}
+                <span className="text-slate-400 text-[10px] font-normal">vs anterior</span>
+              </div>
+            )}
+          </div>
+
+          <div className="border-t border-slate-100 pt-2 space-y-1 text-[10px] font-medium text-slate-500">
+            <div className="flex justify-between">
+              <span>Entregados:</span>
+              <span className="text-emerald-700 font-semibold tabular-nums">{stats.deliveredCount}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Pendientes:</span>
+              <span className="text-blue-700 font-semibold tabular-nums">{stats.pendingCount}</span>
+            </div>
           </div>
         </div>
 
-        <div className="bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm flex items-center justify-between">
-          <div className="space-y-1.5">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Clientes Registrados</p>
-            <h3 className="text-xl font-black text-slate-900">{stats.totalClients}</h3>
-            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Base de clientes única</p>
+        {/* KPI 3: Ticket Promedio por Pedido (AOV) */}
+        <div className="card-enterprise p-4 flex flex-col justify-between space-y-2.5">
+          <div className="flex items-start justify-between">
+            <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Ticket Promedio</p>
+            <div className="w-7 h-7 rounded-lg bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-600 shrink-0">
+              <DollarSign className="w-3.5 h-3.5" />
+            </div>
           </div>
-          <div className="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center text-purple-600 shrink-0">
-            <Users className="w-5 h-5" />
+          <div>
+            <h3 className="text-xl font-bold text-slate-900 leading-none tabular-nums">{formatPrice(stats.averageOrderValue)}</h3>
+
+            {prevStats.aovVarPct !== null && (
+              <div className="mt-1.5 flex items-center gap-1 text-[11px] font-semibold">
+                {prevStats.aovVarPct >= 0 ? (
+                  <span className="text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded-md flex items-center gap-0.5">
+                    <ArrowUp className="w-3 h-3" /> +{prevStats.aovVarPct.toFixed(1)}%
+                  </span>
+                ) : (
+                  <span className="text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded-md flex items-center gap-0.5">
+                    <ArrowDown className="w-3 h-3" /> {prevStats.aovVarPct.toFixed(1)}%
+                  </span>
+                )}
+                <span className="text-slate-400 text-[10px] font-normal">vs anterior</span>
+              </div>
+            )}
+          </div>
+
+          <div className="border-t border-slate-100 pt-2 text-[10px] text-slate-400 font-medium">
+            Valor medio por pedido activo
           </div>
         </div>
 
-        <div className="bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm flex items-center justify-between">
-          <div className="space-y-1.5">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Productos en Catálogo</p>
-            <h3 className="text-xl font-black text-slate-900">{stats.totalProducts}</h3>
-            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Artículos registrados</p>
+        {/* KPI 4: Cumplimiento Logístico */}
+        <div className="card-enterprise p-4 flex flex-col justify-between space-y-2.5">
+          <div className="flex items-start justify-between">
+            <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Cumplimiento %</p>
+            <div className="w-7 h-7 rounded-lg bg-teal-50 border border-teal-100 flex items-center justify-center text-teal-600 shrink-0">
+              <Truck className="w-3.5 h-3.5" />
+            </div>
           </div>
-          <div className="w-10 h-10 rounded-xl bg-orange-50 flex items-center justify-center text-orange-600 shrink-0">
-            <Database className="w-5 h-5" />
+          <div>
+            <h3 className="text-xl font-bold text-slate-900 leading-none tabular-nums">{stats.fulfillmentRate.toFixed(1)}%</h3>
+            
+            <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden mt-2">
+              <div 
+                className="bg-teal-500 h-full rounded-full transition-all duration-500" 
+                style={{ width: `${Math.min(100, stats.fulfillmentRate)}%` }}
+              />
+            </div>
+          </div>
+
+          <div className="border-t border-slate-100 pt-2 flex justify-between items-center text-[10px] font-medium text-slate-500">
+            <span>Entregados:</span>
+            <span className="text-teal-700 font-semibold tabular-nums">{stats.deliveredCount} / {stats.totalOrdersCount}</span>
+          </div>
+        </div>
+
+        {/* KPI 5: Tasa de Anulaciones */}
+        <div className="card-enterprise p-4 flex flex-col justify-between space-y-2.5">
+          <div className="flex items-start justify-between">
+            <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Cancelaciones %</p>
+            <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+              stats.cancellationRate > 10 ? 'bg-rose-100 text-rose-700' : 'bg-rose-50 text-rose-600'
+            }`}>
+              <ShieldAlert className="w-3.5 h-3.5" />
+            </div>
+          </div>
+          <div>
+            <h3 className="text-xl font-bold text-slate-900 leading-none tabular-nums">{stats.cancellationRate.toFixed(1)}%</h3>
+            <p className="text-[10px] font-semibold text-rose-600 mt-1 tabular-nums">
+              {formatPrice(stats.cancelledBilling)}
+            </p>
+          </div>
+
+          <div className="border-t border-slate-100 pt-2 flex justify-between items-center text-[10px] font-medium text-slate-500">
+            <span>Anulados:</span>
+            <span className="text-rose-700 font-semibold tabular-nums">{stats.cancelledCount} pedidos</span>
+          </div>
+        </div>
+
+        {/* KPI 6: Rendimiento Vendedores */}
+        <div className="card-enterprise p-4 flex flex-col justify-between space-y-2.5">
+          <div className="flex items-start justify-between">
+            <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Vendedores</p>
+            <div className="w-7 h-7 rounded-lg bg-purple-50 border border-purple-100 flex items-center justify-center text-purple-600 shrink-0">
+              <Users className="w-3.5 h-3.5" />
+            </div>
+          </div>
+          <div>
+            <h3 className="text-xl font-bold text-slate-900 leading-none tabular-nums">{stats.activeSellersCount}</h3>
+            <p className="text-[10px] font-semibold text-purple-700 mt-1 tabular-nums">
+              Media: {formatPrice(stats.avgSalesPerSeller)}
+            </p>
+          </div>
+
+          <div className="border-t border-slate-100 pt-2 text-[10px] text-slate-400 font-medium">
+            Facturación media / vendedor
           </div>
         </div>
       </div>
 
+      {/* Interactive Sales Trend Chart (Evolución Diaria) */}
+      <SalesTrendChart data={dailyTrendData} />
+
+      {/* Main Analysis Section: Recent Orders & Multi-Tab Leaderboard */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Recent Orders List */}
-        <div className="lg:col-span-2 bg-white p-6 rounded-3xl border border-slate-200/60 shadow-sm">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-sm font-black text-slate-800 uppercase tracking-wider">Últimos Pedidos Cargados</h2>
+        <div className="lg:col-span-2 card-enterprise p-6 space-y-4">
+          <div className="flex justify-between items-center">
+            <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+              <ShoppingCart className="w-4 h-4 text-brand-600" />
+              Últimos Pedidos Registrados
+            </h2>
             <Link href="/vendedores/pedidos">
-              <span className="text-[10px] font-black text-brand-600 hover:text-brand-800 uppercase tracking-widest flex items-center gap-0.5 cursor-pointer">
-                Ver Gestión Pedidos <ArrowUpRight className="w-3.5 h-3.5" />
+              <span className="text-xs font-semibold text-brand-600 hover:text-brand-700 flex items-center gap-0.5 cursor-pointer">
+                Ver Todos <ArrowUpRight className="w-3.5 h-3.5" />
               </span>
             </Link>
           </div>
@@ -1169,7 +1428,7 @@ export default function AdminDashboard() {
           <div className="overflow-x-auto">
             <table className="w-full text-left">
               <thead>
-                <tr className="border-b border-slate-100 text-[10px] font-black uppercase text-slate-400">
+                <tr className="border-b border-slate-100 text-[11px] font-semibold uppercase text-slate-400">
                   <th className="py-2.5">Código</th>
                   <th className="py-2.5">Cliente</th>
                   <th className="py-2.5">Vendedor</th>
@@ -1177,36 +1436,29 @@ export default function AdminDashboard() {
                   <th className="py-2.5 text-center">Estado</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 text-xs font-semibold text-slate-700">
+              <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
                 {recentOrders.map((order) => (
-                  <tr key={order.id} className="hover:bg-slate-50/40">
-                    <td className="py-3 font-bold text-brand-600 uppercase tracking-wider">
+                  <tr key={order.id} className="hover:bg-slate-50/60 transition-colors">
+                    <td className="py-3 font-semibold text-brand-600">
                       {order.legacy_code || "SIN REF"}
                     </td>
-                    <td className="py-3 font-bold text-slate-900 truncate max-w-[150px]" title={order.customer_name}>
+                    <td className="py-3 font-medium text-slate-900 truncate max-w-[160px]" title={order.customer_name}>
                       {order.customer_name}
                     </td>
-                    <td className="py-3 text-slate-500 font-medium truncate max-w-[100px]" title={order.sellerName}>
+                    <td className="py-3 text-slate-500 truncate max-w-[110px]" title={order.sellerName}>
                       {order.sellerName}
                     </td>
-                    <td className="py-3 text-right font-bold text-slate-900">
+                    <td className="py-3 text-right font-semibold text-slate-900 tabular-nums">
                       {formatPrice(order.total_amount)}
                     </td>
                     <td className="py-3 text-center">
-                      <span className={`inline-block px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${
-                        order.status === "Entregado" ? "bg-emerald-50 text-emerald-700 border border-emerald-200" :
-                        order.status === "Cancelado" ? "bg-red-50 text-red-700 border border-red-200" :
-                        order.status === "Entregando" ? "bg-amber-50 text-amber-700 border border-amber-200" :
-                        "bg-blue-50 text-blue-700 border border-blue-200"
-                      }`}>
-                        {order.status}
-                      </span>
+                      <OrderStatusBadge status={order.status} size="sm" />
                     </td>
                   </tr>
                 ))}
                 {recentOrders.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="py-8 text-center text-slate-400 font-bold">
+                    <td colSpan={5} className="py-8 text-center text-slate-400 font-medium text-xs">
                       No hay pedidos registrados en el sistema.
                     </td>
                   </tr>
@@ -1216,116 +1468,163 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        {/* Leaderboard Card: Clientes Principales & Vendedores Líderes */}
-        <div className="bg-white p-6 rounded-3xl border border-slate-200/60 shadow-sm flex flex-col justify-between">
+        {/* Leaderboard Card: Clientes / Vendedores / Localidades */}
+        <div className="card-enterprise p-6 flex flex-col justify-between">
           <div>
-            {/* Tab Selector Header */}
-            <div className="flex items-center justify-between gap-2 mb-4 border-b border-slate-100 pb-3">
+            <div className="flex items-center justify-between gap-1 mb-4 border-b border-slate-100 pb-3 overflow-x-auto scrollbar-none">
               <button
                 type="button"
                 onClick={() => setLeaderboardTab("customers")}
-                className={`flex items-center gap-1.5 text-xs font-black uppercase tracking-wider pb-1 transition-all cursor-pointer border-b-2 ${
+                className={`flex items-center gap-1.5 text-xs font-semibold pb-1 transition-all cursor-pointer border-b-2 whitespace-nowrap ${
                   leaderboardTab === "customers"
                     ? "text-brand-700 border-brand-600"
                     : "text-slate-400 border-transparent hover:text-slate-700"
                 }`}
               >
-                <Users className="w-4 h-4 text-brand-600" />
-                Clientes Principales
+                <Users className="w-3.5 h-3.5 text-brand-600" />
+                Clientes
               </button>
 
               <button
                 type="button"
                 onClick={() => setLeaderboardTab("sellers")}
-                className={`flex items-center gap-1.5 text-xs font-black uppercase tracking-wider pb-1 transition-all cursor-pointer border-b-2 ${
+                className={`flex items-center gap-1.5 text-xs font-semibold pb-1 transition-all cursor-pointer border-b-2 whitespace-nowrap ${
                   leaderboardTab === "sellers"
                     ? "text-brand-700 border-brand-600"
                     : "text-slate-400 border-transparent hover:text-slate-700"
                 }`}
               >
-                <Award className="w-4 h-4 text-amber-500" />
-                Vendedores Líderes
+                <Award className="w-3.5 h-3.5 text-amber-500" />
+                Vendedores
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setLeaderboardTab("localities")}
+                className={`flex items-center gap-1.5 text-xs font-semibold pb-1 transition-all cursor-pointer border-b-2 whitespace-nowrap ${
+                  leaderboardTab === "localities"
+                    ? "text-brand-700 border-brand-600"
+                    : "text-slate-400 border-transparent hover:text-slate-700"
+                }`}
+              >
+                <MapPin className="w-3.5 h-3.5 text-emerald-600" />
+                Localidades
               </button>
             </div>
 
-            {/* Content */}
-            {leaderboardTab === "customers" ? (
-              <div className="space-y-4">
+            {/* Tab 1: Clientes Principales */}
+            {leaderboardTab === "customers" && (
+              <div className="space-y-3">
                 {topCustomers.map((cust, idx) => (
-                  <div key={cust.name} className="flex items-center justify-between border-b border-slate-50 pb-3 last:border-b-0 last:pb-0">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className={`w-6 h-6 rounded-md font-black text-xs shrink-0 flex items-center justify-center ${
+                  <div key={cust.name} className="flex items-center justify-between border-b border-slate-50 pb-2.5 last:border-b-0 last:pb-0">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className={`w-5 h-5 rounded-md font-bold text-[10px] shrink-0 flex items-center justify-center ${
                         idx === 0 ? "bg-amber-100 text-amber-800" :
                         idx === 1 ? "bg-slate-200 text-slate-800" :
                         idx === 2 ? "bg-orange-100 text-orange-800" :
-                        "bg-slate-100 text-slate-500"
+                        "bg-slate-100 text-slate-600"
                       }`}>
                         {idx + 1}
                       </div>
                       <div className="min-w-0">
-                        <h3 className="font-bold text-xs text-slate-900 truncate max-w-[140px]" title={cust.name}>
+                        <h3 className="font-semibold text-xs text-slate-900 truncate max-w-[130px]" title={cust.name}>
                           {cust.name}
                         </h3>
-                        <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">
-                          {cust.ordersCount} {cust.ordersCount === 1 ? "Pedido" : "Pedidos"} en el periodo
+                        <p className="text-[10px] text-slate-400 font-medium">
+                          {cust.ordersCount} {cust.ordersCount === 1 ? "pedido" : "pedidos"}
                         </p>
                       </div>
                     </div>
-                    <span className="text-xs font-black text-slate-900 shrink-0">
+                    <span className="text-xs font-bold text-slate-900 shrink-0 tabular-nums">
                       {formatPrice(cust.totalSales)}
                     </span>
                   </div>
                 ))}
                 {topCustomers.length === 0 && (
-                  <p className="text-xs font-bold text-slate-400 text-center py-8">
+                  <p className="text-xs font-medium text-slate-400 text-center py-8">
                     No hay compras registradas en este periodo.
                   </p>
                 )}
               </div>
-            ) : (
-              <div className="space-y-4">
+            )}
+
+            {/* Tab 2: Vendedores Líderes */}
+            {leaderboardTab === "sellers" && (
+              <div className="space-y-3">
                 {topSellers.map((seller, idx) => (
-                  <div key={seller.id} className="flex items-center justify-between border-b border-slate-50 pb-3 last:border-b-0 last:pb-0">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className={`w-6 h-6 rounded-md font-black text-xs shrink-0 flex items-center justify-center ${
+                  <div key={seller.id} className="flex items-center justify-between border-b border-slate-50 pb-2.5 last:border-b-0 last:pb-0">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className={`w-5 h-5 rounded-md font-bold text-[10px] shrink-0 flex items-center justify-center ${
                         idx === 0 ? "bg-amber-100 text-amber-800" :
                         idx === 1 ? "bg-slate-200 text-slate-800" :
                         idx === 2 ? "bg-orange-100 text-orange-800" :
-                        "bg-slate-100 text-slate-500"
+                        "bg-slate-100 text-slate-600"
                       }`}>
                         {idx + 1}
                       </div>
                       <div className="min-w-0">
-                        <h3 className="font-bold text-xs text-slate-900 truncate max-w-[140px]" title={seller.name}>
+                        <h3 className="font-semibold text-xs text-slate-900 truncate max-w-[130px]" title={seller.name}>
                           {seller.name}
                         </h3>
-                        <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">
+                        <p className="text-[10px] text-slate-400 font-medium">
                           Ventas del Periodo
                         </p>
                       </div>
                     </div>
-                    <span className="text-xs font-black text-slate-900 shrink-0">
+                    <span className="text-xs font-bold text-slate-900 shrink-0 tabular-nums">
                       {formatPrice(seller.sales)}
                     </span>
                   </div>
                 ))}
                 {topSellers.length === 0 && (
-                  <p className="text-xs font-bold text-slate-400 text-center py-8">
+                  <p className="text-xs font-medium text-slate-400 text-center py-8">
                     No hay ventas registradas en este periodo.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Tab 3: Localidades Destacadas */}
+            {leaderboardTab === "localities" && (
+              <div className="space-y-3">
+                {topLocalities.map((loc, idx) => (
+                  <div key={loc.locality} className="flex items-center justify-between border-b border-slate-50 pb-2.5 last:border-b-0 last:pb-0">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className={`w-5 h-5 rounded-md font-bold text-[10px] shrink-0 flex items-center justify-center ${
+                        idx === 0 ? "bg-emerald-100 text-emerald-800" :
+                        idx === 1 ? "bg-teal-100 text-teal-800" :
+                        "bg-slate-100 text-slate-600"
+                      }`}>
+                        {idx + 1}
+                      </div>
+                      <div className="min-w-0">
+                        <h3 className="font-semibold text-xs text-slate-900 truncate max-w-[130px]" title={loc.locality}>
+                          {loc.locality}
+                        </h3>
+                        <p className="text-[10px] text-slate-400 font-medium">
+                          {loc.ordersCount} despachos
+                        </p>
+                      </div>
+                    </div>
+                    <span className="text-xs font-bold text-slate-900 shrink-0 tabular-nums">
+                      {formatPrice(loc.totalSales)}
+                    </span>
+                  </div>
+                ))}
+                {topLocalities.length === 0 && (
+                  <p className="text-xs font-medium text-slate-400 text-center py-8">
+                    No hay despachos registrados en este periodo.
                   </p>
                 )}
               </div>
             )}
           </div>
 
-          <div className="bg-slate-50 border border-slate-100 p-4 rounded-2xl flex items-start gap-2.5 mt-4">
-            <Clock className="w-4.5 h-4.5 text-slate-400 shrink-0 mt-0.5" />
-            <div>
-              <p className="font-bold text-[10px] text-slate-500 uppercase tracking-wider">Corte Estadístico</p>
-              <p className="text-[10px] font-semibold text-slate-400 leading-snug mt-0.5">
-                Las estadísticas computan pedidos registrados en el periodo, deduplicando códigos y excluyendo cancelados.
-              </p>
-            </div>
+          <div className="bg-slate-50 border border-slate-100 p-3 rounded-xl flex items-start gap-2 mt-4">
+            <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
+            <p className="text-[10px] text-slate-500 font-medium leading-snug">
+              Cómputo en tiempo real excluyendo pedidos anulados y deduplicando códigos.
+            </p>
           </div>
         </div>
       </div>
@@ -1337,21 +1636,35 @@ export default function AdminDashboard() {
         totalQtyAll={totalCategoryQty}
       />
 
-      {/* Products Sold Breakdown */}
-      <div className="bg-white p-6 rounded-3xl border border-slate-200/60 shadow-sm space-y-4">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+      {/* Products Sold Breakdown Table */}
+      <div className="card-enterprise p-6 space-y-4">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
-            <h2 className="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
-              <ShoppingCart className="w-4.5 h-4.5 text-brand-600" />
+            <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+              <ShoppingCart className="w-4 h-4 text-brand-600" />
               Productos más Vendidos en el Periodo
             </h2>
-            <p className="text-[11px] font-semibold text-slate-400 mt-0.5">
-              Desglose detallado por producto e integración de categorías
+            <p className="text-xs text-slate-500 font-normal">
+              Desglose detallado por producto e integración de familias
             </p>
           </div>
-          <span className="text-[10px] bg-brand-50 border border-brand-100 text-brand-700 px-2 py-0.5 rounded-full font-black uppercase tracking-wider">
-            {sortedProductsSold.length} Productos
-          </span>
+
+          <div className="flex items-center gap-3 w-full md:w-auto">
+            <div className="relative flex-1 md:w-60">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Buscar producto o SKU..."
+                value={productSearchTerm}
+                onChange={(e) => setProductSearchTerm(e.target.value)}
+                className="input-standard pl-8.5 py-1.5"
+              />
+            </div>
+
+            <span className="text-xs bg-slate-100 text-slate-700 px-3 py-1.5 rounded-xl font-semibold shrink-0">
+              {sortedProductsSold.length} Artículos
+            </span>
+          </div>
         </div>
 
         {/* Category Filter Pills */}
@@ -1359,7 +1672,7 @@ export default function AdminDashboard() {
           <button
             type="button"
             onClick={() => setSelectedCatFilter("all")}
-            className={`px-3 py-1 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all whitespace-nowrap cursor-pointer ${
+            className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all whitespace-nowrap cursor-pointer ${
               selectedCatFilter === "all"
                 ? "bg-brand-600 text-white shadow-xs"
                 : "bg-slate-100 text-slate-600 hover:bg-slate-200"
@@ -1372,7 +1685,7 @@ export default function AdminDashboard() {
               key={cat.category}
               type="button"
               onClick={() => setSelectedCatFilter(cat.category)}
-              className={`px-3 py-1 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all whitespace-nowrap cursor-pointer ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all whitespace-nowrap cursor-pointer ${
                 selectedCatFilter === cat.category
                   ? "bg-brand-600 text-white shadow-xs"
                   : "bg-slate-100 text-slate-600 hover:bg-slate-200"
@@ -1386,13 +1699,13 @@ export default function AdminDashboard() {
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead>
-              <tr className="border-b border-slate-100 text-[10px] font-black uppercase text-slate-400">
+              <tr className="border-b border-slate-100 text-[11px] font-semibold uppercase text-slate-400">
                 <th className="py-2.5">Producto</th>
                 <th className="py-2.5">SKU</th>
                 <th className="py-2.5">Categoría</th>
                 <th 
                   className={`py-2.5 text-center cursor-pointer select-none transition-colors hover:text-slate-800 ${
-                    productSortKey === 'qty' ? 'text-brand-600 font-extrabold' : ''
+                    productSortKey === 'qty' ? 'text-brand-600 font-bold' : ''
                   }`}
                   onClick={() => setProductSortKey('qty')}
                 >
@@ -1407,7 +1720,7 @@ export default function AdminDashboard() {
                 </th>
                 <th 
                   className={`py-2.5 text-right cursor-pointer select-none transition-colors hover:text-slate-800 ${
-                    productSortKey === 'billing' ? 'text-brand-600 font-extrabold' : ''
+                    productSortKey === 'billing' ? 'text-brand-600 font-bold' : ''
                   }`}
                   onClick={() => setProductSortKey('billing')}
                 >
@@ -1422,26 +1735,26 @@ export default function AdminDashboard() {
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 text-xs font-semibold text-slate-700">
+            <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
               {sortedProductsSold.map((prod, idx) => (
-                <tr key={idx} className="hover:bg-slate-50/40">
-                  <td className="py-3 font-bold text-slate-900">{prod.name}</td>
-                  <td className="py-3 font-mono text-[10px] text-slate-500 uppercase">{prod.sku}</td>
+                <tr key={idx} className="hover:bg-slate-50/60 transition-colors">
+                  <td className="py-3 font-semibold text-slate-900">{prod.name}</td>
+                  <td className="py-3 font-mono text-xs text-slate-500">{prod.sku}</td>
                   <td className="py-3">
-                    <span className="inline-block px-2.5 py-0.5 rounded-md text-[9px] font-extrabold uppercase tracking-wider bg-slate-100 text-slate-700 border border-slate-200">
+                    <span className="inline-block px-2 py-0.5 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
                       {prod.category}
                     </span>
                   </td>
                   <td className="py-3 text-center">
-                    <span className={`inline-block px-3 py-1 border font-extrabold rounded-lg transition-colors ${
+                    <span className={`inline-block px-2.5 py-0.5 border font-bold rounded-lg transition-colors tabular-nums ${
                       productSortKey === 'qty' 
                         ? 'bg-brand-50 border-brand-200 text-brand-700' 
-                        : 'bg-slate-50 border-slate-100 text-slate-800'
+                        : 'bg-slate-50 border-slate-200 text-slate-800'
                     }`}>
                       {prod.qty}
                     </span>
                   </td>
-                  <td className={`py-3 text-right font-black transition-colors ${
+                  <td className={`py-3 text-right font-bold transition-colors tabular-nums ${
                     productSortKey === 'billing' ? 'text-brand-700' : 'text-slate-900'
                   }`}>
                     {formatPrice(prod.total)}
@@ -1450,8 +1763,8 @@ export default function AdminDashboard() {
               ))}
               {sortedProductsSold.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="py-8 text-center text-slate-400 font-bold">
-                    No se registran ventas de productos para la categoría seleccionada en este periodo.
+                  <td colSpan={5} className="py-8 text-center text-slate-400 font-medium text-xs">
+                    No se registran productos que coincidan con los filtros seleccionados.
                   </td>
                 </tr>
               )}

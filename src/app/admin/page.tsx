@@ -683,6 +683,24 @@ export default function AdminPage() {
 
           if (suppName) {
             matchedSupplier = dbSuppliers.find(s => normalizeProductName(s.name) === normalizeProductName(suppName));
+            if (!matchedSupplier) {
+              // Auto-crear proveedor de BDProductos si no existe
+              const { data: newSup } = await supabase
+                .from('suppliers')
+                .insert({
+                  name: suppName,
+                  business_unit: 'Zono',
+                  is_active: true,
+                  base_discount_percentage: 0
+                })
+                .select('id, name')
+                .single();
+              if (newSup) {
+                dbSuppliers.push(newSup);
+                matchedSupplier = newSup;
+                log(`  🏢 Proveedor creado automáticamente: "${newSup.name}"`);
+              }
+            }
           }
 
           // Fallback to name prefix matching
@@ -690,6 +708,25 @@ export default function AdminPage() {
             const sheetParts = sheetProdName.split('-').map(p => p.trim());
             const prefix = sheetParts[0];
             matchedSupplier = dbSuppliers.find(s => normalizeProductName(s.name) === normalizeProductName(prefix));
+
+            if (!matchedSupplier && prefix && prefix.length >= 3 && !['combo', 'promo', 'kit', 'oferta'].includes(prefix.toLowerCase())) {
+              // Auto-crear proveedor por prefijo
+              const { data: newSup } = await supabase
+                .from('suppliers')
+                .insert({
+                  name: prefix,
+                  business_unit: 'Zono',
+                  is_active: true,
+                  base_discount_percentage: 0
+                })
+                .select('id, name')
+                .single();
+              if (newSup) {
+                dbSuppliers.push(newSup);
+                matchedSupplier = newSup;
+                log(`  🏢 Proveedor creado por prefijo: "${newSup.name}"`);
+              }
+            }
           }
 
           // Fallback to generic supplier
@@ -704,11 +741,14 @@ export default function AdminPage() {
             log(`  -> Vinculación dinámica: asociando "${matchedProduct.name}" con proveedor "${matchedSupplier.name}"`);
             const { error: relErr } = await supabase
               .from('product_supplier_relations')
-              .insert({
-                product_id: matchedProduct.id,
-                supplier_id: supplierId,
-                is_primary: true
-              });
+              .upsert(
+                {
+                  product_id: matchedProduct.id,
+                  supplier_id: supplierId,
+                  is_primary: true
+                },
+                { onConflict: 'product_id,supplier_id' }
+              );
             if (!relErr) {
               relationsMap.set(matchedProduct.id, [supplierId]);
             } else {
@@ -2005,15 +2045,23 @@ export default function AdminPage() {
 
               <div className="flex flex-wrap gap-3">
                 <button
+                  onClick={handleGoogleSheetsCostsSync}
+                  disabled={submittingCostsType !== null}
+                  className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black transition-all flex items-center gap-2 shadow-sm cursor-pointer"
+                >
+                  {submittingCostsType === 'sheets' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Coins className="w-3.5 h-3.5" />}
+                  Sincronizar Costos (Google Sheets)
+                </button>
+                <button
                   onClick={handleExportProfitabilityCSV}
-                  className="px-4 py-2.5 bg-brand-50 text-brand-600 hover:bg-brand-100 rounded-xl text-xs font-black transition-all flex items-center gap-2"
+                  className="px-4 py-2.5 bg-brand-50 text-brand-600 hover:bg-brand-100 rounded-xl text-xs font-black transition-all flex items-center gap-2 border border-brand-100/50 cursor-pointer"
                 >
                   <Download className="w-4 h-4" /> Exportar Informe CSV
                 </button>
                 <button
                   onClick={fetchProfitabilityData}
                   disabled={loadingProfitability}
-                  className="px-4 py-2.5 bg-slate-50 text-slate-600 hover:bg-slate-100 rounded-xl text-xs font-black transition-all flex items-center gap-2 border border-slate-100"
+                  className="px-4 py-2.5 bg-slate-50 text-slate-600 hover:bg-slate-100 rounded-xl text-xs font-black transition-all flex items-center gap-2 border border-slate-100 cursor-pointer"
                 >
                   {loadingProfitability ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
                   Actualizar Datos

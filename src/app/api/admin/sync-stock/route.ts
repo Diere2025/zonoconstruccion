@@ -19,7 +19,6 @@ const normalizeText = (text: string): string => {
     .replace(/[^a-z0-9]/g, ""); // remove spaces, quotes, and symbols for robust matching
 };
 
-
 async function fetchProductsAll() {
   let allProducts: any[] = [];
   let page = 0;
@@ -43,6 +42,33 @@ async function fetchProductsAll() {
     }
   }
   return allProducts;
+}
+
+async function fetchPendingOrderItems(dateLimitStr: string) {
+  let allItems: any[] = [];
+  let page = 0;
+  const pageSize = 1000;
+  let hasMore = true;
+  while (hasMore) {
+    const { data, error } = await supabaseAdmin
+      .from('order_items')
+      .select('product_id, product_name, quantity, orders!inner(id, legacy_code, status, order_date)')
+      .in('orders.status', ['Pendiente', 'Confirmado'])
+      .gte('orders.order_date', dateLimitStr)
+      .range(page * pageSize, (page + 1) * pageSize - 1);
+    if (error) throw error;
+    if (data && data.length > 0) {
+      allItems = [...allItems, ...data];
+      if (data.length < pageSize) {
+        hasMore = false;
+      } else {
+        page++;
+      }
+    } else {
+      hasMore = false;
+    }
+  }
+  return allItems;
 }
 
 function parseCSV(text: string): any[] {
@@ -92,23 +118,17 @@ export async function GET() {
     const csvText = await csvRes.text();
     const sheetRows = parseCSV(csvText);
 
+    // 30-day window (matching spreadsheet operational cutoff)
     const dateLimitStr = getArgentinaDaysAgoString(30);
 
-    // 2. Fetch products and active orders from database (active orders in Pendiente/Confirmado within GMT-3 30-day window)
-    const [dbProducts, pendingRes] = await Promise.all([
+    // 2. Fetch products and active orders from database within 30-day window
+    const [dbProducts, rawPendingItems] = await Promise.all([
       fetchProductsAll(),
-      supabaseAdmin
-        .from('order_items')
-        .select('product_id, product_name, quantity, orders!inner(id, legacy_code, status, order_date)')
-        .in('orders.status', ['Pendiente', 'Confirmado'])
-        .gte('orders.order_date', dateLimitStr)
+      fetchPendingOrderItems(dateLimitStr)
     ]);
-
-    if (pendingRes.error) throw pendingRes.error;
 
     // Deduplicate pending items by order legacy_code + product_id to prevent double counting
     const seenOrderKeys = new Set<string>();
-    const rawPendingItems = pendingRes.data || [];
     const pendingItems = rawPendingItems.filter((item: any) => {
       const code = (item.orders?.legacy_code || '').trim();
       if (code) {
@@ -129,7 +149,7 @@ export async function GET() {
       const qty = parseFloat(item.quantity || 0);
       let targetId = item.product_id;
       const prod = productByIdMap.get(item.product_id);
-      if (prod && prod.mapped_real_product_id) {
+      if (prod && prod.is_generic && prod.mapped_real_product_id) {
         targetId = prod.mapped_real_product_id;
       }
       if (targetId) {
@@ -260,23 +280,17 @@ export async function POST() {
     const csvText = await csvRes.text();
     const sheetRows = parseCSV(csvText);
 
+    // 30-day window (matching spreadsheet operational cutoff)
     const dateLimitStr = getArgentinaDaysAgoString(30);
 
-    // 2. Fetch products and active orders from database (active orders in Pendiente/Confirmado within GMT-3 30-day window)
-    const [dbProducts, pendingRes] = await Promise.all([
+    // 2. Fetch products and active orders from database within 30-day window
+    const [dbProducts, rawPostPendingItems] = await Promise.all([
       fetchProductsAll(),
-      supabaseAdmin
-        .from('order_items')
-        .select('product_id, product_name, quantity, orders!inner(id, legacy_code, status, order_date)')
-        .in('orders.status', ['Pendiente', 'Confirmado'])
-        .gte('orders.order_date', dateLimitStr)
+      fetchPendingOrderItems(dateLimitStr)
     ]);
-
-    if (pendingRes.error) throw pendingRes.error;
 
     // Deduplicate pending items by order legacy_code + product_id to prevent double counting
     const seenPostOrderKeys = new Set<string>();
-    const rawPostPendingItems = pendingRes.data || [];
     const pendingItems = rawPostPendingItems.filter((item: any) => {
       const code = (item.orders?.legacy_code || '').trim();
       if (code) {
@@ -297,7 +311,7 @@ export async function POST() {
       const qty = parseFloat(item.quantity || 0);
       let targetId = item.product_id;
       const prod = productByIdMap.get(item.product_id);
-      if (prod && prod.mapped_real_product_id) {
+      if (prod && prod.is_generic && prod.mapped_real_product_id) {
         targetId = prod.mapped_real_product_id;
       }
       if (targetId) {
@@ -356,6 +370,7 @@ export async function POST() {
 
       if (dbProd) {
         const sheetPhysical = parseFloat((row['Stock Actual'] || '0').replace(',', '.')) || 0;
+        const sheetReserved = parseFloat((row['Reservado'] || '0').replace(',', '.')) || 0;
         const dbCalculatedReserved = 
           dbCalculatedReservesMap.get(dbProd.id) ||
           dbCalculatedReservesMap.get(`norm_${normCleanProdName}`) ||
@@ -363,12 +378,13 @@ export async function POST() {
           dbCalculatedReservesMap.get(`norm_${normalizeText(dbProd.name)}`) ||
           dbCalculatedReservesMap.get(`norm_${normalizeText(dbProd.sku || '')}`) ||
           0;
-        const newAvailable = sheetPhysical - dbCalculatedReserved;
+        const effectiveReserved = Math.max(sheetReserved, dbCalculatedReserved);
+        const newAvailable = sheetPhysical - effectiveReserved;
 
         updatesToUpsertMap.set(dbProd.id, {
           ...dbProd,
           stock_physical: sheetPhysical,
-          stock_reserved: dbCalculatedReserved,
+          stock_reserved: effectiveReserved,
           stock_current: newAvailable
         });
       }
@@ -378,40 +394,47 @@ export async function POST() {
     // to match database order items (preventing reservations drift)
     for (const p of dbProducts) {
       const normName = normalizeText(p.name);
-      const normSku = normalizeText(p.sku);
-      
-      if (!sheetProductNames.has(normName) && !sheetProductNames.has(normSku)) {
-        const dbCalculatedReserved = dbCalculatedReservesMap.get(p.id) || 0;
-        const dbPhysical = parseFloat(p.stock_physical || '0') || 0;
-        const newAvailable = dbPhysical - dbCalculatedReserved;
+      const cleanName = normalizeText(p.name.replace(/^\[interno\]\s*/i, "").trim());
+      const isAlreadyInUpdate = updatesToUpsertMap.has(p.id);
 
-        const currentReserved = parseFloat(p.stock_reserved || '0') || 0;
-        if (currentReserved !== dbCalculatedReserved) {
-          updatesToUpsertMap.set(p.id, {
-            ...p,
-            stock_physical: dbPhysical,
-            stock_reserved: dbCalculatedReserved,
-            stock_current: newAvailable
-          });
-        }
+      if (!isAlreadyInUpdate && !sheetProductNames.has(normName) && (!cleanName || !sheetProductNames.has(cleanName))) {
+        const dbCalculatedReserved = dbCalculatedReservesMap.get(p.id) || 0;
+        const physical = parseFloat(p.stock_physical || '0') || 0;
+        const newAvailable = physical - dbCalculatedReserved;
+
+        updatesToUpsertMap.set(p.id, {
+          ...p,
+          stock_reserved: dbCalculatedReserved,
+          stock_current: newAvailable
+        });
       }
     }
 
     const updatesToUpsert = Array.from(updatesToUpsertMap.values());
 
-    if (updatesToUpsert.length > 0) {
+    // Batch upsert in chunks of 500
+    const chunkSize = 500;
+    for (let i = 0; i < updatesToUpsert.length; i += chunkSize) {
+      const chunk = updatesToUpsert.slice(i, i + chunkSize);
       const { error: upsertErr } = await supabaseAdmin
         .from('products')
-        .upsert(updatesToUpsert, { onConflict: 'id' });
+        .upsert(chunk);
 
-      if (upsertErr) throw upsertErr;
-      updatedCount = updatesToUpsert.length;
+      if (upsertErr) {
+        console.error("Error upserting synced products chunk:", upsertErr);
+        throw upsertErr;
+      }
+      updatedCount += chunk.length;
     }
 
-    return NextResponse.json({ success: true, updatedCount });
+    return NextResponse.json({
+      success: true,
+      updatedCount,
+      totalMatched: updatesToUpsert.length
+    });
 
   } catch (err: any) {
     console.error("Error in sync-stock POST:", err);
-    return NextResponse.json({ error: err.message || 'Error interno al sincronizar stock.' }, { status: 500 });
+    return NextResponse.json({ error: err.message || 'Error interno al sincronizar el stock.' }, { status: 500 });
   }
 }

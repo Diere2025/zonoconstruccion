@@ -39,7 +39,8 @@ import {
   Scale,
   TrendingUp,
   XCircle,
-  Edit
+  Edit,
+  RefreshCw
 } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
@@ -376,6 +377,8 @@ export default function ComprasAdminPage() {
   const [importing, setImporting] = useState(false);
   // --- Purchase Calculator States ---
   const [calcSupplierId, setCalcSupplierId] = useState("");
+  const [calcSupplierSearchText, setCalcSupplierSearchText] = useState("");
+  const [isCalcSupplierDropdownOpen, setIsCalcSupplierDropdownOpen] = useState(false);
   const [calcDaysToCover, setCalcDaysToCover] = useState("30");
   const [calcHistoryPeriod, setCalcHistoryPeriod] = useState("15");
   const [calcHistoryType, setCalcHistoryType] = useState<'days' | 'range'>('days');
@@ -383,10 +386,13 @@ export default function ComprasAdminPage() {
   const [calcEndDate, setCalcEndDate] = useState("");
   const [calcSeasonality, setCalcSeasonality] = useState("1.0");
   const [calcBudget, setCalcBudget] = useState("");
+  const [calcMinUnits, setCalcMinUnits] = useState("");
+  const [calcDeliveryGraceDays, setCalcDeliveryGraceDays] = useState("2");
   const [calcLoading, setCalcLoading] = useState(false);
   const [calcResults, setCalcResults] = useState<any[]>([]);
   const [calcAverageCoverage, setCalcAverageCoverage] = useState(0);
   const [calcTotalCost, setCalcTotalCost] = useState(0);
+  const [calcTargetDeliveryDate, setCalcTargetDeliveryDate] = useState("");
   const [showStaggeredModal, setShowStaggeredModal] = useState(false);
   const [staggeredInterval, setStaggeredInterval] = useState("15");
   const [staggeredDeliveriesCount, setStaggeredDeliveriesCount] = useState("4");
@@ -537,6 +543,7 @@ export default function ComprasAdminPage() {
   const [newSupplierDiscountCash, setNewSupplierDiscountCash] = useState("0");
   const [newSupplierBonusCoef, setNewSupplierBonusCoef] = useState("1.0");
   const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
+  const [syncingSuppliers, setSyncingSuppliers] = useState(false);
 
   // New PriceList form state
   const [newPlNumber, setNewPlNumber] = useState("");
@@ -2029,6 +2036,38 @@ export default function ComprasAdminPage() {
   };
 
   // --- REPLENISHMENT ASSISTANT & CALCULATOR HELPERS ---
+  const getValidReceptionDate = (baseDate: Date, coverageDays: number, graceDays: number = 2): { targetDate: Date; displayDays: number } => {
+    // Total working days to add:
+    // Coverage days from stock + transit, plus customer fulfillment window (1 a 3 días hábiles)
+    let workingDaysToAdd = Math.max(0, Math.floor(coverageDays)) + Math.max(0, graceDays);
+
+    let current = new Date(baseDate);
+
+    // If starting on Sunday, advance to Monday
+    if (current.getDay() === 0) {
+      current.setDate(current.getDate() + 1);
+    }
+
+    while (workingDaysToAdd > 0) {
+      current.setDate(current.getDate() + 1);
+      // Skip Sunday (day 0) as it is non-working
+      if (current.getDay() !== 0) {
+        workingDaysToAdd--;
+      }
+    }
+
+    // If result lands on Sunday, move back to Saturday
+    if (current.getDay() === 0) {
+      current.setDate(current.getDate() - 1);
+    }
+
+    const dMidnight = new Date(current.getFullYear(), current.getMonth(), current.getDate()).getTime();
+    const bMidnight = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate()).getTime();
+    const displayDays = Math.max(0, Math.round((dMidnight - bMidnight) / (1000 * 60 * 60 * 24)));
+
+    return { targetDate: current, displayDays };
+  };
+
   const handleCalculateReplenishment = async () => {
     if (!calcSupplierId) {
       alert("Por favor seleccioná un proveedor o la opción de Todos los Proveedores.");
@@ -2042,6 +2081,7 @@ export default function ComprasAdminPage() {
         .from('order_items')
         .select(`
           product_id,
+          product_name,
           quantity,
           orders!inner(status, order_date)
         `)
@@ -2069,19 +2109,39 @@ export default function ComprasAdminPage() {
       const { data: salesData, error: salesErr } = await salesDataQuery;
       if (salesErr) throw salesErr;
 
+      const normalizeText = (str: string) => {
+        if (!str) return '';
+        return str
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/[^a-z0-9]/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+      };
+
       const salesMap: Record<string, number> = {};
+      const salesNormalizedMap: Record<string, number> = {};
+
       salesData?.forEach(item => {
         const pId = item.product_id;
+        const pName = (item.product_name || '').trim();
         const qty = Number(item.quantity) || 0;
         if (pId) {
           salesMap[pId] = (salesMap[pId] || 0) + qty;
         }
+        if (pName) {
+          const norm = normalizeText(pName);
+          salesNormalizedMap[norm] = (salesNormalizedMap[norm] || 0) + qty;
+        }
       });
 
-      // 2. Fetch fresh stock levels from products
+      // 2. Fetch fresh stock levels from active, non-discontinued products
       const { data: latestProducts, error: prodErr } = await supabase
         .from('products')
-        .select('id, name, sku, stock_physical, stock_reserved, stock_current, price, category');
+        .select('id, name, sku, stock_physical, stock_reserved, stock_current, price, category, is_active, is_discontinued')
+        .eq('is_active', true)
+        .eq('is_discontinued', false);
       
       if (prodErr) throw prodErr;
 
@@ -2092,20 +2152,27 @@ export default function ComprasAdminPage() {
       // 4. Fetch pending quantities from purchase orders in transit
       const { data: transitData, error: transitErr } = await supabase
         .from('purchase_order_items')
-        .select('product_id, quantity_ordered, quantity_received, purchase_orders!inner(status)')
+        .select('product_id, raw_product_name, quantity_ordered, quantity_received, purchase_orders!inner(status)')
         .neq('purchase_orders.status', 'Cumplido')
         .neq('purchase_orders.status', 'Cancelado');
 
       if (transitErr) throw transitErr;
 
       const transitMap: Record<string, number> = {};
+      const transitNormMap: Record<string, number> = {};
+
       transitData?.forEach(item => {
         const pId = item.product_id;
+        const pName = (item.raw_product_name || '').trim();
         const qtyOrdered = Number(item.quantity_ordered) || 0;
         const qtyReceived = Number(item.quantity_received) || 0;
         const pending = Math.max(0, qtyOrdered - qtyReceived);
         if (pId) {
           transitMap[pId] = (transitMap[pId] || 0) + pending;
+        }
+        if (pName) {
+          const norm = normalizeText(pName);
+          transitNormMap[norm] = (transitNormMap[norm] || 0) + pending;
         }
       });
 
@@ -2122,8 +2189,27 @@ export default function ComprasAdminPage() {
       });
 
       latestProducts.forEach(p => {
+        // Skip outlet, internal, discontinued or legacy duplicate products
+        const lowerName = (p.name || '').toLowerCase();
+        if (lowerName.startsWith('[interno]') || lowerName.includes('(out') || lowerName.includes('outlet')) return;
+
         const hasRelation = filterAllSuppliers || (p.id in relationCostMap);
         if (!hasRelation) return;
+
+        // Find total sales by ID and normalized name matching
+        const normPName = normalizeText(p.name || '');
+        let totalQtySold = 0;
+        for (const [sNorm, sQty] of Object.entries(salesNormalizedMap)) {
+          if (sNorm === normPName || sNorm.includes(normPName) || normPName.includes(sNorm)) {
+            totalQtySold += sQty;
+          }
+        }
+        if ((salesMap[p.id] || 0) > totalQtySold) {
+          totalQtySold = salesMap[p.id];
+        }
+
+        // Do not include products with 0 sales in the analyzed period
+        if (totalQtySold <= 0) return;
 
         let purchaseCost = 0;
         if (filterAllSuppliers) {
@@ -2133,27 +2219,55 @@ export default function ComprasAdminPage() {
           purchaseCost = relationCostMap[p.id] || (Number(p.price) * 0.7);
         }
 
-        const totalQtySold = salesMap[p.id] || 0;
         const vpd = (totalQtySold / days) * seasonalityMult;
 
-        const stockPhys = Number(p.stock_physical) || 0;
-        const stockRes = Number(p.stock_reserved) || 0;
-        const stockDisp = typeof p.stock_current === 'number' ? p.stock_current : Math.max(0, stockPhys - stockRes);
-        const transit = transitMap[p.id] || 0;
+        const stockPhys = Math.max(0, Number(p.stock_physical) || 0);
+        const stockRes = Math.max(0, Number(p.stock_reserved) || 0);
+        const stockDisp = typeof p.stock_current === 'number' ? p.stock_current : (stockPhys - stockRes);
+
+        let transit = transitMap[p.id] || 0;
+        for (const [tNorm, tQty] of Object.entries(transitNormMap)) {
+          if (tNorm === normPName || tNorm.includes(normPName) || normPName.includes(tNorm)) {
+            if (tQty > transit) transit = tQty;
+          }
+        }
 
         const dca = vpd > 0 ? (stockDisp / vpd) : 999;
         const rop = vpd * (leadTime + safetyDays);
 
-        // Quantity suggested for target days of coverage
-        let quantitySuggested = (vpd * targetDays) - stockDisp - transit;
-        
-        // Add current missing stock to cover reservation gaps immediately
-        const backorder = Math.max(0, stockRes - stockPhys);
-        if (backorder > 0) {
-          quantitySuggested += backorder;
+        // Effective projected stock (available in warehouse + incoming OCs in transit)
+        const projectedStockWithTransit = stockDisp + transit;
+        const dcaWithTransit = vpd > 0 ? (projectedStockWithTransit / vpd) : 999;
+
+        // Calculate tentative delivery date for the NEW order to prevent running out of stock
+        let tentativeDateStr = 'Inmediato (Hoy)';
+        let tentativeDateObj: Date | null = new Date();
+        let daysUntilStockout = 0;
+
+        const graceDays = Number(calcDeliveryGraceDays) || 0;
+
+        if (projectedStockWithTransit <= 0 && graceDays === 0) {
+          tentativeDateStr = '¡Hoy! (Sin stock)';
+          daysUntilStockout = 0;
+          tentativeDateObj = new Date();
+          if (tentativeDateObj.getDay() === 0) {
+            tentativeDateObj.setDate(tentativeDateObj.getDate() + 1);
+          }
+        } else if (dcaWithTransit < 365) {
+          const rawCoverage = Math.max(0, Math.floor(dcaWithTransit));
+          const { targetDate, displayDays } = getValidReceptionDate(new Date(), rawCoverage, graceDays);
+          daysUntilStockout = displayDays;
+          tentativeDateObj = targetDate;
+          tentativeDateStr = formatDateDDMMYYYY(targetDate);
+        } else {
+          tentativeDateStr = '+1 año';
+          daysUntilStockout = 999;
+          tentativeDateObj = null;
         }
 
-        quantitySuggested = Math.max(0, Math.ceil(quantitySuggested));
+        // Quantity suggested for target days of coverage (taking into account available stock and transit)
+        let quantitySuggested = Math.max(0, Math.ceil((vpd * targetDays) - stockDisp - transit));
+        const backorder = Math.max(0, stockRes - stockPhys);
 
         let abcClass: 'A' | 'B' | 'C' = 'C';
         if (totalQtySold > 15) abcClass = 'A';
@@ -2170,6 +2284,9 @@ export default function ComprasAdminPage() {
           vpd: vpd,
           dca: dca,
           rop: rop,
+          daysUntilStockout: daysUntilStockout,
+          tentativeDateStr: tentativeDateStr,
+          tentativeDateObj: tentativeDateObj,
           quantitySuggested: quantitySuggested,
           quantityDefaultSuggested: quantitySuggested,
           unitCost: purchaseCost,
@@ -2181,45 +2298,114 @@ export default function ComprasAdminPage() {
         });
       });
 
-      // Apply budget constraint if defined
+      // 1. Apply target / minimum units constraint if defined
+      const targetUnits = Number(calcMinUnits) || 0;
+      if (targetUnits > 0) {
+        const totalIdealUnits = results.reduce((acc, item) => acc + item.quantityDefaultSuggested, 0);
+
+        if (targetUnits >= totalIdealUnits) {
+          // Keep ideal baseline and distribute extra units according to sales velocity (VPD)
+          const totalVpd = results.reduce((acc, item) => acc + item.vpd, 0);
+          const extraUnits = targetUnits - totalIdealUnits;
+          let assignedUnits = totalIdealUnits;
+
+          results.forEach(item => {
+            const vpdWeight = totalVpd > 0 ? (item.vpd / totalVpd) : (1 / Math.max(1, results.length));
+            const extraScaled = extraUnits * vpdWeight;
+            const extraFloored = Math.floor(extraScaled);
+            item.quantitySuggested = item.quantityDefaultSuggested + extraFloored;
+            item.remainder = extraScaled - extraFloored;
+            item.subtotal = item.quantitySuggested * item.unitCost;
+            assignedUnits += extraFloored;
+          });
+
+          let unitsDiff = targetUnits - assignedUnits;
+          const sortedByRemainder = [...results].sort((a, b) => {
+            const abcWeightA = a.abcClass === 'A' ? 2 : a.abcClass === 'B' ? 1 : 0;
+            const abcWeightB = b.abcClass === 'A' ? 2 : b.abcClass === 'B' ? 1 : 0;
+            if (abcWeightB !== abcWeightA) return abcWeightB - abcWeightA;
+            return (b.remainder || 0) - (a.remainder || 0);
+          });
+
+          let idx = 0;
+          while (unitsDiff > 0 && sortedByRemainder.length > 0) {
+            const item = sortedByRemainder[idx % sortedByRemainder.length];
+            item.quantitySuggested += 1;
+            item.subtotal = item.quantitySuggested * item.unitCost;
+            unitsDiff--;
+            idx++;
+          }
+        } else if (totalIdealUnits > 0) {
+          // Scale down proportionally from ideal suggestions
+          const ratio = targetUnits / totalIdealUnits;
+          let currentUnitsSum = 0;
+
+          results.forEach(item => {
+            const exactScaled = item.quantityDefaultSuggested * ratio;
+            const floored = Math.floor(exactScaled);
+            item.quantitySuggested = floored;
+            item.subtotal = floored * item.unitCost;
+            item.remainder = exactScaled - floored;
+            currentUnitsSum += floored;
+          });
+
+          let unitsDiff = targetUnits - currentUnitsSum;
+          const sortedByDeduct = [...results].sort((a, b) => {
+            const abcWeightA = a.abcClass === 'A' ? 2 : a.abcClass === 'B' ? 1 : 0;
+            const abcWeightB = b.abcClass === 'A' ? 2 : b.abcClass === 'B' ? 1 : 0;
+            if (abcWeightA !== abcWeightB) return abcWeightA - abcWeightB;
+            return (a.remainder || 0) - (b.remainder || 0);
+          });
+
+          let idx = 0;
+          while (unitsDiff < 0 && sortedByDeduct.length > 0) {
+            const item = sortedByDeduct[idx % sortedByDeduct.length];
+            if (item.quantitySuggested > 0) {
+              item.quantitySuggested -= 1;
+              item.subtotal = item.quantitySuggested * item.unitCost;
+              unitsDiff++;
+            }
+            idx++;
+            if (idx > sortedByDeduct.length * 10) break;
+          }
+        }
+      }
+
+      // 2. Apply budget constraint maintaining strict proportionality
       const budgetLimit = Number(calcBudget) || 0;
       if (budgetLimit > 0) {
-        results.forEach(item => {
-          const backorderFactor = item.backorder > 0 ? 10000 : 0;
-          const abcFactor = item.abcClass === 'A' ? 500 : item.abcClass === 'B' ? 100 : 0;
-          const runoutRisk = item.dca < (leadTime + safetyDays) ? 1000 : 0;
-          
-          item.priorityScore = (backorderFactor + runoutRisk + abcFactor + (item.vpd * 100)) / (item.unitCost || 1);
-          item.quantitySuggested = 0;
-          item.subtotal = 0;
-        });
+        const totalIdealCost = results.reduce((acc, item) => acc + (item.quantitySuggested * item.unitCost), 0);
 
-        const sortedItems = [...results].sort((a, b) => b.priorityScore - a.priorityScore);
-        let remainingBudget = budgetLimit;
+        if (totalIdealCost > budgetLimit && totalIdealCost > 0) {
+          const ratio = budgetLimit / totalIdealCost;
+          let remainingBudget = budgetLimit;
 
-        sortedItems.forEach(item => {
-          if (item.priorityScore <= 0 || item.quantityDefaultSuggested <= 0) return;
-          const needed = item.quantityDefaultSuggested;
-          const cost = needed * item.unitCost;
-          if (cost <= remainingBudget) {
-            item.quantitySuggested = needed;
-            remainingBudget -= cost;
-          } else {
-            const possible = Math.floor(remainingBudget / item.unitCost);
-            if (possible > 0) {
-              item.quantitySuggested = possible;
-              remainingBudget -= possible * item.unitCost;
+          results.forEach(item => {
+            const exactScaled = item.quantitySuggested * ratio;
+            const floored = Math.floor(exactScaled);
+            item.quantitySuggested = floored;
+            item.subtotal = floored * item.unitCost;
+            item.remainder = exactScaled - floored;
+            remainingBudget -= item.subtotal;
+          });
+
+          const sortedByRemainder = [...results]
+            .filter(item => item.unitCost > 0)
+            .sort((a, b) => {
+              const abcWeightA = a.abcClass === 'A' ? 2 : a.abcClass === 'B' ? 1 : 0;
+              const abcWeightB = b.abcClass === 'A' ? 2 : b.abcClass === 'B' ? 1 : 0;
+              if (abcWeightB !== abcWeightA) return abcWeightB - abcWeightA;
+              return (b.remainder || 0) - (a.remainder || 0);
+            });
+
+          for (const item of sortedByRemainder) {
+            if (remainingBudget >= item.unitCost) {
+              item.quantitySuggested += 1;
+              item.subtotal = item.quantitySuggested * item.unitCost;
+              remainingBudget -= item.unitCost;
             }
           }
-        });
-
-        results.forEach(item => {
-          const sorted = sortedItems.find(s => s.productId === item.productId);
-          if (sorted) {
-            item.quantitySuggested = sorted.quantitySuggested;
-            item.subtotal = item.quantitySuggested * item.unitCost;
-          }
-        });
+        }
       }
 
       // Calculate totals
@@ -2228,16 +2414,38 @@ export default function ComprasAdminPage() {
       let coverageCount = 0;
       results.forEach(item => {
         totalCost += item.subtotal;
-        const finalCoverage = item.vpd > 0 ? ((item.stockAvailable + item.quantitySuggested) / item.vpd) : 999;
+        const finalCoverage = item.vpd > 0 ? Math.max(0, ((item.stockAvailable + item.transit + item.quantitySuggested) / item.vpd)) : 999;
         if (finalCoverage < 999) {
           coverageSum += finalCoverage;
           coverageCount++;
         }
       });
 
+      // Calculate earliest tentative delivery date needed for items being ordered
+      const itemsBeingOrdered = results.filter(r => r.quantitySuggested > 0);
+      let earliestDeliveryDateDisplay = 'Sin urgencia';
+      let earliestDeliveryDays = 999;
+      let earliestTargetDate: Date | null = null;
+
+      if (itemsBeingOrdered.length > 0) {
+        itemsBeingOrdered.forEach(it => {
+          if (it.daysUntilStockout < earliestDeliveryDays) {
+            earliestDeliveryDays = it.daysUntilStockout;
+            earliestTargetDate = it.tentativeDateObj;
+          }
+        });
+
+        if (earliestDeliveryDays <= 0) {
+          earliestDeliveryDateDisplay = '¡Hoy! (Sin stock)';
+        } else if (earliestDeliveryDays < 365 && earliestTargetDate) {
+          earliestDeliveryDateDisplay = `${formatDateDDMMYYYY(earliestTargetDate)} (en ${earliestDeliveryDays}d)`;
+        }
+      }
+
       setCalcResults(results);
       setCalcTotalCost(totalCost);
       setCalcAverageCoverage(coverageCount > 0 ? (coverageSum / coverageCount) : targetDays);
+      setCalcTargetDeliveryDate(earliestDeliveryDateDisplay);
 
     } catch (err: any) {
       alert("Error en el cálculo: " + err.message);
@@ -2272,10 +2480,20 @@ export default function ComprasAdminPage() {
       }
 
       for (const [supId, items] of Object.entries(grouped)) {
-        const supplierObj = suppliers.find(s => s.id === supId);
         const nextNum = purchaseOrders.length + 1;
         const ocCode = `OP-AUTO-${String(nextNum).padStart(5, '0')}`;
         const total = items.reduce((acc, i) => acc + (i.quantitySuggested * i.unitCost), 0);
+
+        // Find earliest days until stockout for items in this PO
+        let minDaysToStockout = 999;
+        let earliestDateForPo: Date | null = null;
+        items.forEach(it => {
+          if (typeof it.daysUntilStockout === 'number' && it.daysUntilStockout < minDaysToStockout) {
+            minDaysToStockout = it.daysUntilStockout;
+            earliestDateForPo = it.tentativeDateObj;
+          }
+        });
+        const estDelivery = earliestDateForPo || getValidReceptionDate(new Date(), Math.max(0, minDaysToStockout), 0).targetDate;
 
         const { data: newPo, error: poErr } = await supabase
           .from('purchase_orders')
@@ -2283,11 +2501,11 @@ export default function ComprasAdminPage() {
             oc_code: ocCode,
             supplier_id: supId,
             order_date: new Date().toISOString(),
-            estimated_delivery_date: new Date(Date.now() + (Number(supplierObj?.delivery_time_days) || 5) * 86400000).toISOString(),
+            estimated_delivery_date: estDelivery.toISOString(),
             payment_condition: 'Cuenta Corriente',
             total_amount: total,
             status: 'Pendiente',
-            notes: `OC de reabastecimiento autogenerada por el asistente de compras`
+            notes: `OC de reabastecimiento (Recibir antes del ${formatDateDDMMYYYY(estDelivery)} para evitar quiebre de stock)`
           })
           .select()
           .single();
@@ -3204,6 +3422,23 @@ export default function ComprasAdminPage() {
     setNewSupplierBonusCoef("1.0");
 
     setIsSupplierFormOpen(false);
+  };
+
+  const handleSyncSuppliersAndCatalog = async () => {
+    try {
+      setSyncingSuppliers(true);
+      const res = await fetch("/api/admin/sync-products", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || "Error al sincronizar");
+      }
+      await loadAllData(true);
+      alert(`Sincronización completada con éxito:\n• ${data.suppliersCreatedCount || 0} proveedores nuevos registrados en la base de datos.\n• ${data.relationsLinkedCount || 0} vínculos producto-proveedor actualizados.\n• ${data.pricesUpdatedCount || 0} precios de productos actualizados.`);
+    } catch (err: any) {
+      alert("Error al sincronizar proveedores: " + err.message);
+    } finally {
+      setSyncingSuppliers(false);
+    }
   };
 
   // Create or Update Supplier
@@ -4661,7 +4896,7 @@ export default function ComprasAdminPage() {
                                         return (
                                           <tr key={item.id} className="hover:bg-slate-50/30 transition-colors">
                                             <td className="p-2.5 pl-4 text-slate-900 font-bold">
-                                              <div>{item.raw_product_name} {item.product?.sku ? `(${item.product.sku})` : ''}</div>
+                                              <div>{item.raw_product_name} {item.product?.sku && item.product.sku !== item.raw_product_name && !item.product.sku.endsWith('_OLD') && !item.product.sku.startsWith('AUTO-') ? `(${item.product.sku})` : ''}</div>
                                               {item.notes && <div className="text-[10px] text-slate-400 font-normal italic mt-0.5">Nota: {item.notes}</div>}
                                             </td>
                                             <td className="p-2.5 text-right font-normal">{item.quantity_ordered}</td>
@@ -4756,7 +4991,7 @@ export default function ComprasAdminPage() {
                           {poItemsDetail.map(item => (
                             <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
                               <td className="p-3 text-slate-900">
-                                <div>{item.raw_product_name} {item.product?.sku ? `(${item.product.sku})` : ''}</div>
+                                <div>{item.raw_product_name} {item.product?.sku && item.product.sku !== item.raw_product_name && !item.product.sku.endsWith('_OLD') && !item.product.sku.startsWith('AUTO-') ? `(${item.product.sku})` : ''}</div>
                                 {item.notes && <div className="text-[10px] text-slate-400 font-normal italic mt-0.5">Nota: {item.notes}</div>}
                               </td>
                               <td className="p-3 text-right">{item.quantity_ordered}</td>
@@ -5200,7 +5435,7 @@ export default function ComprasAdminPage() {
                         <tbody className="divide-y divide-slate-100 font-bold text-slate-700">
                           {receptionItemsDetail.map(item => (
                             <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
-                              <td className="p-3 text-slate-900">{item.product?.name} {item.product?.sku ? `(${item.product.sku})` : ''}</td>
+                              <td className="p-3 text-slate-900">{item.product?.name} {item.product?.sku && item.product.sku !== item.product?.name && !item.product.sku.endsWith('_OLD') && !item.product.sku.startsWith('AUTO-') ? `(${item.product.sku})` : ''}</td>
                               <td className="p-3 text-right text-green-600">{item.quantity_received}</td>
                               <td className="p-3 text-right">{formatPrice(item.unit_cost)}</td>
                               <td className="p-3 text-right text-slate-900">{formatPrice(item.quantity_received * item.unit_cost)}</td>
@@ -5702,20 +5937,91 @@ export default function ComprasAdminPage() {
             </div>
 
             <div className="flex flex-wrap gap-4 items-end">
-              <div className="flex-1 min-w-[200px] space-y-1">
+              <div className="flex-1 min-w-[220px] space-y-1 relative">
                 <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Proveedor *</label>
-                <select
-                  value={calcSupplierId}
-                  onChange={e => {
-                    setCalcSupplierId(e.target.value);
-                    setCalcResults([]);
-                  }}
-                  className="w-full px-4 py-2.5 rounded-xl border bg-slate-50 font-bold text-xs"
-                >
-                  <option value="">-- Seleccionar --</option>
-                  <option value="ALL">Todos los Proveedores</option>
-                  {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Buscar proveedor o seleccionar..."
+                    value={calcSupplierSearchText}
+                    onFocus={() => setIsCalcSupplierDropdownOpen(true)}
+                    onChange={e => {
+                      setCalcSupplierSearchText(e.target.value);
+                      setIsCalcSupplierDropdownOpen(true);
+                      if (e.target.value === "") {
+                        setCalcSupplierId("");
+                        setCalcResults([]);
+                      }
+                    }}
+                    className="w-full px-4 py-2.5 pr-8 rounded-xl border border-slate-200 bg-slate-50 font-bold text-xs outline-none focus:border-brand-500 focus:bg-white transition-all shadow-sm"
+                  />
+                  {calcSupplierSearchText && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCalcSupplierSearchText("");
+                        setCalcSupplierId("");
+                        setCalcResults([]);
+                        setIsCalcSupplierDropdownOpen(false);
+                      }}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {isCalcSupplierDropdownOpen && (
+                  <>
+                    <div 
+                      className="fixed inset-0 z-20" 
+                      onClick={() => setIsCalcSupplierDropdownOpen(false)} 
+                    />
+                    <div className="absolute left-0 right-0 mt-1 max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-xl z-30 py-1 divide-y divide-slate-50">
+                      {("todos los proveedores".includes(calcSupplierSearchText.toLowerCase()) || calcSupplierSearchText === "") && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCalcSupplierId("ALL");
+                            setCalcSupplierSearchText("Todos los Proveedores");
+                            setCalcResults([]);
+                            setIsCalcSupplierDropdownOpen(false);
+                          }}
+                          className={`w-full text-left px-3.5 py-2.5 text-xs font-black transition-colors ${
+                            calcSupplierId === "ALL" ? "bg-brand-50 text-brand-600" : "hover:bg-slate-50 text-slate-800"
+                          }`}
+                        >
+                          🌟 Todos los Proveedores
+                        </button>
+                      )}
+                      {suppliers
+                        .filter(s => s.name.toLowerCase().includes(calcSupplierSearchText.toLowerCase()))
+                        .map(s => (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onClick={() => {
+                              setCalcSupplierId(s.id);
+                              setCalcSupplierSearchText(s.name);
+                              setCalcResults([]);
+                              setIsCalcSupplierDropdownOpen(false);
+                            }}
+                            className={`w-full text-left px-3.5 py-2 text-xs font-semibold transition-colors ${
+                              calcSupplierId === s.id ? "bg-brand-50 text-brand-600 font-black" : "hover:bg-slate-50 text-slate-700 hover:text-brand-600"
+                            }`}
+                          >
+                            {s.name}
+                          </button>
+                        ))}
+                      {suppliers.filter(s => s.name.toLowerCase().includes(calcSupplierSearchText.toLowerCase())).length === 0 &&
+                        !("todos los proveedores".includes(calcSupplierSearchText.toLowerCase())) && (
+                          <div className="px-3.5 py-3 text-xs text-slate-400 italic text-center">
+                            No se encontraron proveedores
+                          </div>
+                        )}
+                    </div>
+                  </>
+                )}
               </div>
 
               <div className="w-36 space-y-1">
@@ -5801,13 +6107,41 @@ export default function ComprasAdminPage() {
                   className="w-full px-4 py-2.5 rounded-xl border bg-slate-50 font-bold text-xs"
                 />
               </div>
+
+              <div className="w-44 space-y-1">
+                <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Mínimo Unidades (Opcional)</label>
+                <input
+                  type="number"
+                  placeholder="Ej. 20"
+                  min="1"
+                  value={calcMinUnits}
+                  onChange={e => setCalcMinUnits(e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-xl border bg-slate-50 font-bold text-xs"
+                />
+              </div>
+
+              <div className="w-56 space-y-1">
+                <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">
+                  Margen Entrega al Cliente (Lun a Sáb)
+                </label>
+                <select
+                  value={calcDeliveryGraceDays}
+                  onChange={e => setCalcDeliveryGraceDays(e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-xl border bg-slate-50 font-bold text-xs"
+                >
+                  <option value="0">0 días (Entrega Inmediata)</option>
+                  <option value="1">1 día hábil</option>
+                  <option value="2">2 días hábiles (Recomendado 1-3d)</option>
+                  <option value="3">3 días hábiles (Máximo)</option>
+                </select>
+              </div>
             </div>
 
             <div className="flex justify-end gap-3 border-t pt-4">
               <Button
                 disabled={calcLoading}
                 onClick={handleCalculateReplenishment}
-                className="bg-brand-600 hover:bg-brand-700 py-2.5 px-6 rounded-xl text-white font-black text-xs"
+                className="bg-brand-600 hover:bg-brand-700 py-2.5 px-6 rounded-xl text-white font-black text-xs shadow-sm cursor-pointer"
               >
                 {calcLoading ? (
                   <>
@@ -5826,28 +6160,44 @@ export default function ComprasAdminPage() {
           {calcResults.length > 0 && (
             <div className="space-y-4">
               {/* Summary Stats Panel */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-900 text-white p-6 rounded-3xl border border-slate-800 shadow-md">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 bg-slate-900 text-white p-6 rounded-3xl border border-slate-800 shadow-md">
                 <div className="space-y-1 border-r border-slate-800 pr-4">
                   <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Costo Total Estimado</span>
                   <p className="text-2xl font-black text-emerald-400">{formatPrice(calcTotalCost)}</p>
                   <p className="text-[10px] text-slate-400">Basado en costos vigentes del proveedor</p>
                 </div>
                 <div className="space-y-1 border-r border-slate-800 px-4">
-                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Cobertura Promedio Obtenida</span>
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Total Unidades a Pedir</span>
+                  <p className="text-2xl font-black text-cyan-400">
+                    {calcResults.reduce((acc, it) => acc + (it.quantitySuggested || 0), 0)} u.
+                  </p>
+                  <p className="text-[10px] text-slate-400">
+                    {calcMinUnits ? `Mínimo configurado: ${calcMinUnits} u.` : 'Suma total calculada'}
+                  </p>
+                </div>
+                <div className="space-y-1 border-r border-slate-800 px-4">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Fecha Límite Recepción (Nueva OC)</span>
+                  <p className={`text-xl font-black ${calcTargetDeliveryDate.includes('Hoy') ? 'text-rose-400' : 'text-amber-400'}`}>
+                    {calcTargetDeliveryDate || 'Sin urgencia'}
+                  </p>
+                  <p className="text-[10px] text-slate-400">Para recibir antes de agotar stock actual + tránsito</p>
+                </div>
+                <div className="space-y-1 border-r border-slate-800 px-4">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Cobertura Promedio</span>
                   <p className="text-2xl font-black text-brand-400">{Math.round(calcAverageCoverage)} días</p>
                   <p className="text-[10px] text-slate-400">Meta configurada: {calcDaysToCover} días</p>
                 </div>
                 <div className="space-y-2 pl-4 flex flex-col justify-center">
-                  <div className="flex gap-2">
+                  <div className="flex flex-col gap-2">
                     <Button
                       onClick={handleGeneratePOFromCalc}
-                      className="bg-emerald-600 hover:bg-emerald-700 text-xs font-black text-white py-2 px-4 rounded-xl flex-1 justify-center gap-1.5"
+                      className="bg-emerald-600 hover:bg-emerald-700 text-xs font-black text-white py-2 px-4 rounded-xl flex-1 justify-center gap-1.5 shadow-sm cursor-pointer"
                     >
                       <Save className="w-3.5 h-3.5" /> Generar OCs
                     </Button>
                     <Button
                       onClick={() => setShowStaggeredModal(true)}
-                      className="bg-slate-800 hover:bg-slate-700 text-xs font-black text-white py-2 px-4 rounded-xl border border-slate-700 justify-center gap-1.5"
+                      className="bg-slate-800 hover:bg-slate-700 text-xs font-black text-white py-2 px-4 rounded-xl border border-slate-700 justify-center gap-1.5 cursor-pointer"
                     >
                       <Layers className="w-3.5 h-3.5" /> Escalonar
                     </Button>
@@ -5867,6 +6217,7 @@ export default function ComprasAdminPage() {
                         <th className="p-4 text-right">Stock Disp.</th>
                         <th className="p-4 text-right">En Tránsito</th>
                         <th className="p-4 text-right">Cobertura Act.</th>
+                        <th className="p-4 text-center">Fecha Límite Recibo (Nueva OC)</th>
                         <th className="p-4 text-right" style={{ width: '120px' }}>Cant. Sugerida</th>
                         <th className="p-4 text-right">Costo Unit.</th>
                         <th className="p-4 text-right">Subtotal</th>
@@ -5880,7 +6231,9 @@ export default function ComprasAdminPage() {
                           <tr key={item.productId} className="hover:bg-slate-50/50 transition-colors">
                             <td className="p-4">
                               <p className="text-slate-900">{item.name}</p>
-                              <span className="text-[10px] text-slate-400 font-mono">{item.sku || 'SIN-SKU'}</span>
+                              {item.sku && item.sku !== item.name && !item.sku.endsWith('_OLD') && !item.sku.startsWith('AUTO-') && (
+                                <span className="text-[10px] text-slate-400 font-mono">{item.sku}</span>
+                              )}
                             </td>
                             <td className="p-4 text-center">
                               <span className={`px-2 py-0.5 rounded-full text-[9px] font-black ${
@@ -5911,6 +6264,25 @@ export default function ComprasAdminPage() {
                                 </span>
                               )}
                             </td>
+                            <td className="p-4 text-center">
+                              {item.daysUntilStockout <= 0 ? (
+                                <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-rose-50 text-rose-700 border border-rose-200">
+                                  ¡Hoy! (Sin stock)
+                                </span>
+                              ) : item.daysUntilStockout < 7 ? (
+                                <div>
+                                  <span className="font-black text-amber-600 text-[11px]">{item.tentativeDateStr}</span>
+                                  <span className="text-[10px] font-normal text-slate-400 block">(en {item.daysUntilStockout}d con tránsito)</span>
+                                </div>
+                              ) : item.daysUntilStockout < 365 ? (
+                                <div>
+                                  <span className="font-bold text-slate-700 text-[11px]">{item.tentativeDateStr}</span>
+                                  <span className="text-[10px] font-normal text-slate-400 block">(en {item.daysUntilStockout}d con tránsito)</span>
+                                </div>
+                              ) : (
+                                <span className="text-slate-400 font-normal">+1 año</span>
+                              )}
+                            </td>
                             <td className="p-4 text-right">
                               <input
                                 type="number"
@@ -5929,7 +6301,7 @@ export default function ComprasAdminPage() {
                                   let coverageCount = 0;
                                   updated.forEach(it => {
                                     totalCost += it.subtotal;
-                                    const fc = it.vpd > 0 ? ((it.stockAvailable + it.quantitySuggested) / it.vpd) : 999;
+                                    const fc = it.vpd > 0 ? Math.max(0, ((it.stockAvailable + it.transit + it.quantitySuggested) / it.vpd)) : 999;
                                     if (fc < 999) {
                                       coverageSum += fc;
                                       coverageCount++;
@@ -6081,14 +6453,25 @@ export default function ComprasAdminPage() {
       {/* SUBTAB 1: PROVEEDORES */}
       {activeSubTab === 'suppliers' && (
         <div className="space-y-4">
-          <div className="flex justify-between items-center bg-white p-4 rounded-xl border border-slate-200/60 shadow-sm">
+          <div className="flex flex-wrap justify-between items-center bg-white p-4 rounded-xl border border-slate-200/60 shadow-sm gap-3">
             <div>
               <h3 className="font-black text-slate-900 text-sm">Directorio de Proveedores</h3>
-              <p className="text-xs text-slate-400">Registrá los proveedores con sus tasas de descuentos base.</p>
+              <p className="text-xs text-slate-400">Registrá los proveedores con sus tasas de descuentos base y vinculaciones automáticas de productos.</p>
             </div>
-            <Button onClick={() => setIsSupplierFormOpen(true)} className="rounded-xl gap-1.5 py-2 px-3 text-xs font-black">
-              <Plus className="w-3.5 h-3.5" /> Nuevo Proveedor
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                onClick={handleSyncSuppliersAndCatalog}
+                disabled={syncingSuppliers}
+                className="rounded-xl gap-1.5 py-2 px-3 text-xs font-black bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
+              >
+                {syncingSuppliers ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                Sincronizar Proveedores y Vínculos
+              </Button>
+              <Button onClick={() => setIsSupplierFormOpen(true)} className="rounded-xl gap-1.5 py-2 px-3 text-xs font-black">
+                <Plus className="w-3.5 h-3.5" /> Nuevo Proveedor
+              </Button>
+            </div>
           </div>
 
 

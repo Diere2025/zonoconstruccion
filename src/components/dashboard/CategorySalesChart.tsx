@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { formatPrice } from "@/lib/utils";
-import { PieChart, Award } from "lucide-react";
+import { PieChart, Award, Layers } from "lucide-react";
 
 export interface CategoryData {
   category: string;
@@ -118,27 +118,33 @@ export default function CategorySalesChart({
     hoveredIdx !== null && slices[hoveredIdx] ? slices[hoveredIdx] : null;
 
   return (
-    <div className="bg-white p-6 rounded-3xl border border-slate-200/60 shadow-sm space-y-6">
+    <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-6">
       {/* Header & Toggle */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h2 className="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
-            <PieChart className="w-4.5 h-4.5 text-brand-600" />
-            Ventas por Categoría de Producto
-          </h2>
-          <p className="text-[11px] font-semibold text-slate-400 mt-0.5">
-            Distribución porcentual e ingresos por familia de productos
-          </p>
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-brand-50 border border-brand-100 flex items-center justify-center text-brand-600">
+              <PieChart className="w-4 h-4" />
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-slate-900 tracking-tight">
+                Ventas por Categoría de Producto
+              </h2>
+              <p className="text-xs text-slate-500 font-normal">
+                Distribución porcentual e ingresos por familia de productos
+              </p>
+            </div>
+          </div>
         </div>
 
         {/* Metric Switch */}
-        <div className="bg-slate-100 p-1 rounded-xl flex items-center gap-1 self-stretch sm:self-auto">
+        <div className="bg-slate-100/80 p-1 rounded-xl border border-slate-200/60 flex items-center gap-1 self-stretch sm:self-auto">
           <button
             type="button"
             onClick={() => setMetric("billing")}
-            className={`flex-1 sm:flex-none px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+            className={`flex-1 sm:flex-none px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
               metric === "billing"
-                ? "bg-white text-brand-700 shadow-sm"
+                ? "bg-white text-brand-700 shadow-2xs border border-slate-200/80"
                 : "text-slate-500 hover:text-slate-800"
             }`}
           >
@@ -147,9 +153,9 @@ export default function CategorySalesChart({
           <button
             type="button"
             onClick={() => setMetric("qty")}
-            className={`flex-1 sm:flex-none px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+            className={`flex-1 sm:flex-none px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
               metric === "qty"
-                ? "bg-white text-brand-700 shadow-sm"
+                ? "bg-white text-brand-700 shadow-2xs border border-slate-200/80"
                 : "text-slate-500 hover:text-slate-800"
             }`}
           >
@@ -159,14 +165,14 @@ export default function CategorySalesChart({
       </div>
 
       {sortedCategories.length === 0 ? (
-        <div className="py-12 text-center text-slate-400 font-bold text-xs">
+        <div className="py-12 text-center text-slate-400 font-medium text-xs">
           No hay ventas registradas por categoría en este período.
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
           {/* Donut Chart SVG */}
           <div className="lg:col-span-5 flex flex-col items-center justify-center relative">
-            <div className="w-56 h-56 relative flex items-center justify-center">
+            <div className="w-60 h-60 relative flex items-center justify-center">
               <svg viewBox="0 0 200 200" className="w-full h-full">
                 {/* Background Donut Track */}
                 <circle
@@ -175,20 +181,17 @@ export default function CategorySalesChart({
                   r={73}
                   fill="transparent"
                   stroke="#f1f5f9"
-                  strokeWidth={28}
+                  strokeWidth={26}
                 />
 
                 {/* Slices */}
-                {slices.map((slice, i) => {
-                  const isHovered = hoveredIdx === i;
-                  const rInner = 58;
-                  const rOuter = isHovered ? 92 : 87;
-
-                  const pathD = getDonutSlicePath(
+                {slices.map((slice) => {
+                  const isHovered = hoveredIdx === slice.idx;
+                  const path = getDonutSlicePath(
                     100,
                     100,
-                    rInner,
-                    rOuter,
+                    60,
+                    isHovered ? 89 : 86,
                     slice.startAngle,
                     slice.endAngle
                   );
@@ -196,47 +199,56 @@ export default function CategorySalesChart({
                   return (
                     <path
                       key={slice.category}
-                      d={pathD}
+                      d={path}
                       fill={slice.color}
-                      className="transition-all duration-200 cursor-pointer hover:opacity-90 stroke-white stroke-2"
-                      onMouseEnter={() => setHoveredIdx(i)}
+                      className="transition-all duration-200 cursor-pointer"
+                      style={{
+                        opacity:
+                          hoveredIdx === null || hoveredIdx === slice.idx
+                            ? 1
+                            : 0.4,
+                      }}
+                      onMouseEnter={() => setHoveredIdx(slice.idx)}
                       onMouseLeave={() => setHoveredIdx(null)}
                     />
                   );
                 })}
               </svg>
 
-              {/* Central Text Overlay */}
-              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-center px-4">
+              {/* Center Tooltip Info */}
+              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none p-4 text-center">
                 {activeHovered ? (
                   <>
-                    <span
-                      className="text-[9px] font-black uppercase tracking-wider truncate max-w-[130px]"
-                      style={{ color: activeHovered.color }}
-                    >
+                    <span className="text-[11px] font-semibold text-slate-500 line-clamp-1 max-w-[130px]">
                       {activeHovered.category}
                     </span>
-                    <span className="text-sm font-black text-slate-900 leading-tight">
+                    <span className="text-lg font-bold text-slate-900 leading-tight tabular-nums">
                       {metric === "billing"
                         ? formatPrice(activeHovered.totalBilling)
                         : `${activeHovered.totalQty} u`}
                     </span>
-                    <span className="text-[10px] font-extrabold text-slate-400">
-                      {activeHovered.pctDisplay}% del total
+                    <span
+                      className="text-xs font-bold mt-0.5 px-2 py-0.5 rounded-full"
+                      style={{
+                        backgroundColor: `${activeHovered.color}15`,
+                        color: activeHovered.color,
+                      }}
+                    >
+                      {activeHovered.pctDisplay}%
                     </span>
                   </>
                 ) : (
                   <>
-                    <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">
-                      Total {metric === "billing" ? "Ventas" : "Unidades"}
+                    <span className="text-[11px] font-medium text-slate-400">
+                      Total del Período
                     </span>
-                    <span className="text-sm font-black text-slate-900 leading-tight">
+                    <span className="text-lg font-bold text-slate-900 leading-tight tabular-nums">
                       {metric === "billing"
                         ? formatPrice(totalValue)
                         : `${totalValue} u`}
                     </span>
-                    <span className="text-[9px] font-bold text-slate-400">
-                      {sortedCategories.length} Categorías
+                    <span className="text-[11px] font-medium text-slate-400 mt-0.5">
+                      {sortedCategories.length} categorías
                     </span>
                   </>
                 )}
@@ -244,60 +256,68 @@ export default function CategorySalesChart({
             </div>
           </div>
 
-          {/* Category List & Legends */}
-          <div className="lg:col-span-7 space-y-3">
-            <div className="max-h-[280px] overflow-y-auto pr-1 space-y-2.5">
-              {slices.map((cat, i) => {
-                const isHovered = hoveredIdx === i;
-                return (
-                  <div
-                    key={cat.category}
-                    onMouseEnter={() => setHoveredIdx(i)}
-                    onMouseLeave={() => setHoveredIdx(null)}
-                    className={`p-3 rounded-2xl border transition-all cursor-pointer flex items-center justify-between gap-3 ${
-                      isHovered
-                        ? "bg-slate-50 border-slate-300 shadow-sm"
-                        : "bg-white border-slate-100 hover:bg-slate-50/60"
-                    }`}
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <span
-                        className="w-3.5 h-3.5 rounded-md shrink-0 shadow-xs"
-                        style={{ backgroundColor: cat.color }}
-                      />
-                      <div className="min-w-0">
-                        <h4 className="font-bold text-xs text-slate-900 truncate">
-                          {cat.category}
-                        </h4>
-                        {cat.topProduct && (
-                          <p className="text-[9px] font-semibold text-slate-400 truncate flex items-center gap-1">
-                            <Award className="w-2.5 h-2.5 text-amber-500 shrink-0" />
-                            Top: {cat.topProduct}
-                          </p>
-                        )}
-                      </div>
-                    </div>
+          {/* Table Breakdown */}
+          <div className="lg:col-span-7 overflow-x-auto">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="border-b border-slate-100 text-[11px] font-semibold uppercase text-slate-400">
+                  <th className="py-2.5">Categoría</th>
+                  <th className="py-2.5 text-right">
+                    {metric === "billing" ? "Facturación" : "Unidades"}
+                  </th>
+                  <th className="py-2.5 text-right">% Distr.</th>
+                  <th className="py-2.5 pl-4">Producto Destacado</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
+                {slices.map((slice) => {
+                  const isHovered = hoveredIdx === slice.idx;
 
-                    <div className="text-right shrink-0">
-                      <div className="font-black text-xs text-slate-900">
+                  return (
+                    <tr
+                      key={slice.category}
+                      className={`transition-colors cursor-pointer ${
+                        isHovered ? "bg-slate-50 font-medium" : "hover:bg-slate-50/60"
+                      }`}
+                      onMouseEnter={() => setHoveredIdx(slice.idx)}
+                      onMouseLeave={() => setHoveredIdx(null)}
+                    >
+                      <td className="py-2.5">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className="w-2.5 h-2.5 rounded-full shrink-0"
+                            style={{ backgroundColor: slice.color }}
+                          />
+                          <span className="font-semibold text-slate-900">
+                            {slice.category}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="py-2.5 text-right font-semibold text-slate-900 tabular-nums">
                         {metric === "billing"
-                          ? formatPrice(cat.totalBilling)
-                          : `${cat.totalQty} u`}
-                      </div>
-                      <div className="text-[10px] font-extrabold text-slate-400 flex items-center justify-end gap-1">
-                        <span>{cat.pctDisplay}%</span>
-                        <span className="text-[9px] text-slate-300">•</span>
-                        <span>
-                          {metric === "billing"
-                            ? `${cat.totalQty} u`
-                            : formatPrice(cat.totalBilling)}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+                          ? formatPrice(slice.totalBilling)
+                          : `${slice.totalQty} u`}
+                      </td>
+                      <td className="py-2.5 text-right font-medium text-slate-600 tabular-nums">
+                        {slice.pctDisplay}%
+                      </td>
+                      <td className="py-2.5 pl-4">
+                        {slice.topProduct ? (
+                          <div className="flex items-center gap-1.5 text-slate-600">
+                            <Award className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                            <span className="truncate max-w-[170px]" title={slice.topProduct}>
+                              {slice.topProduct}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-slate-400 text-[11px]">-</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
       )}

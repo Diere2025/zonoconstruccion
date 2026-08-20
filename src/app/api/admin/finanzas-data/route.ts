@@ -79,7 +79,7 @@ export async function GET(request: Request) {
             financial_accounts(name, type),
             cost_centers(name, code),
             employees(full_name),
-            route_sheets(
+            route_sheets!cash_transactions_route_sheet_id_fkey(
               id,
               delivery_date,
               run_number,

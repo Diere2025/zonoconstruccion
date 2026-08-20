@@ -56,6 +56,20 @@ export function ProductFormModal({ product, isOpen, onClose, onSuccess, allProdu
   const [parentSearch, setParentSearch] = useState("");
   const [parentSearchResults, setParentSearchResults] = useState<Product[]>([]);
 
+  // Proveedores
+  const [suppliersList, setSuppliersList] = useState<Array<{ id: string; name: string }>>([]);
+  const [supplierInput, setSupplierInput] = useState("");
+  const [selectedSupplierId, setSelectedSupplierId] = useState<string | null>(null);
+  const [showSupplierDropdown, setShowSupplierDropdown] = useState(false);
+
+  useEffect(() => {
+    async function loadSuppliers() {
+      const { data } = await supabase.from('suppliers').select('id, name').order('name');
+      if (data) setSuppliersList(data);
+    }
+    loadSuppliers();
+  }, []);
+
   useEffect(() => {
     if (product) {
       setFormData({
@@ -84,6 +98,29 @@ export function ProductFormModal({ product, isOpen, onClose, onSuccess, allProdu
         mapped_real_product_id: product.mapped_real_product_id || null
       });
       setPriceInput(product.price ? product.price.toLocaleString('es-AR', { minimumFractionDigits: 0 }) : "");
+
+      // Cargar proveedor principal actual del producto
+      if (product.id) {
+        supabase
+          .from('product_supplier_relations')
+          .select('supplier_id, suppliers(id, name)')
+          .eq('product_id', product.id)
+          .eq('is_primary', true)
+          .maybeSingle()
+          .then(({ data }) => {
+            if (data && data.suppliers) {
+              const s = data.suppliers as any;
+              setSelectedSupplierId(s.id);
+              setSupplierInput(s.name || "");
+            } else {
+              setSelectedSupplierId(null);
+              setSupplierInput("");
+            }
+          });
+      } else {
+        setSelectedSupplierId(null);
+        setSupplierInput("");
+      }
     } else {
       setFormData({
         sku: "",
@@ -111,6 +148,8 @@ export function ProductFormModal({ product, isOpen, onClose, onSuccess, allProdu
         mapped_real_product_id: null
       });
       setPriceInput("");
+      setSelectedSupplierId(null);
+      setSupplierInput("");
     }
     setSelectedFile(null);
     setParentSearch("");
@@ -175,8 +214,7 @@ export function ProductFormModal({ product, isOpen, onClose, onSuccess, allProdu
       }
       setUploading(false);
     }
-
-    const payload = { 
+    const payload = { 
       ...formData, 
       price: isNaN(finalPriceVal) ? 0 : finalPriceVal, 
       image_url: finalImageUrl,
@@ -186,9 +224,59 @@ export function ProductFormModal({ product, isOpen, onClose, onSuccess, allProdu
       }
     };
 
+    // Resolver ID de proveedor
+    let targetSupplierId = selectedSupplierId;
+    const cleanSupplierName = supplierInput.trim();
+
+    if (cleanSupplierName) {
+      const existingMatch = suppliersList.find(
+        s => s.name.toLowerCase() === cleanSupplierName.toLowerCase()
+      );
+      if (existingMatch) {
+        targetSupplierId = existingMatch.id;
+      } else {
+        // Auto-crear nuevo proveedor
+        const { data: newSup, error: supErr } = await supabase
+          .from('suppliers')
+          .insert({
+            name: cleanSupplierName,
+            business_unit: 'Zono',
+            is_active: true,
+            base_discount_percentage: 0
+          })
+          .select('id, name')
+          .single();
+
+        if (!supErr && newSup) {
+          targetSupplierId = newSup.id;
+          setSuppliersList(prev => [...prev, newSup]);
+        }
+      }
+    } else {
+      targetSupplierId = null;
+    }
+
     if (product?.id) {
       const { error } = await supabase.from('products').update(payload).eq('id', product.id);
       if (!error) { 
+        if (targetSupplierId) {
+          // Desmarcar primario anterior y guardar nueva relación primaria
+          await supabase
+            .from('product_supplier_relations')
+            .update({ is_primary: false })
+            .eq('product_id', product.id);
+
+          await supabase
+            .from('product_supplier_relations')
+            .upsert(
+              {
+                product_id: product.id,
+                supplier_id: targetSupplierId,
+                is_primary: true
+              },
+              { onConflict: 'product_id,supplier_id' }
+            );
+        }
         onSuccess(); 
         onClose();
       } else { 
@@ -196,16 +284,33 @@ export function ProductFormModal({ product, isOpen, onClose, onSuccess, allProdu
         alert("Error al actualizar: " + error.message); 
       }
     } else {
-      const { error } = await supabase.from('products').insert([payload]);
-      if (!error) { 
+      const { data: insertedProduct, error } = await supabase
+        .from('products')
+        .insert([payload])
+        .select('id')
+        .single();
+
+      if (!error && insertedProduct) { 
+        if (targetSupplierId) {
+          await supabase
+            .from('product_supplier_relations')
+            .upsert(
+              {
+                product_id: insertedProduct.id,
+                supplier_id: targetSupplierId,
+                is_primary: true
+              },
+              { onConflict: 'product_id,supplier_id' }
+            );
+        }
         onSuccess(); 
         onClose();
       } else { 
         console.warn("Insert error:", error); 
-        if (error.message.includes("unique constraint") || error.code === "23505") {
+        if (error?.message?.includes("unique constraint") || error?.code === "23505") {
           alert("Error: Ya existe un producto con el mismo SKU en el catálogo. Si estás resolviendo un huérfano, vinculalo al producto existente o utilizá un SKU diferente.");
         } else {
-          alert("Error al crear: " + error.message);
+          alert("Error al crear: " + (error?.message || "Ocurrió un error desconocido.")); 
         }
       }
     }
@@ -398,6 +503,64 @@ export function ProductFormModal({ product, isOpen, onClose, onSuccess, allProdu
               value={formData.dimensions} 
               onChange={e => setFormData({...formData, dimensions: e.target.value})} 
             />
+          </div>
+
+          <div className="space-y-2 relative">
+            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Proveedor Principal</label>
+            <div className="relative group">
+              <input 
+                placeholder="Elegir o escribir nuevo proveedor..." 
+                className="w-full px-5 py-4 rounded-2xl border border-slate-100 focus:ring-4 focus:ring-brand-500/10 bg-slate-50 font-bold text-slate-800" 
+                value={supplierInput} 
+                onChange={e => {
+                  setSupplierInput(e.target.value);
+                  const match = suppliersList.find(s => s.name.toLowerCase() === e.target.value.toLowerCase());
+                  setSelectedSupplierId(match ? match.id : null);
+                  setShowSupplierDropdown(true);
+                }}
+                onFocus={() => setShowSupplierDropdown(true)}
+              />
+              <div className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-300">
+                <Search className="w-5 h-5" />
+              </div>
+            </div>
+            
+            {showSupplierDropdown && (
+              <div className="absolute top-full left-0 right-0 z-[110] mt-2 bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden max-h-48 overflow-y-auto divide-y divide-slate-50">
+                {supplierInput.trim() && !suppliersList.some(s => s.name.toLowerCase() === supplierInput.trim().toLowerCase()) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowSupplierDropdown(false);
+                    }}
+                    className="w-full px-5 py-3 text-left text-xs font-bold text-brand-600 bg-brand-50 hover:bg-brand-100 transition-colors flex items-center justify-between"
+                  >
+                    <span>➕ Crear nuevo proveedor: "{supplierInput.trim()}"</span>
+                  </button>
+                )}
+                {suppliersList
+                  .filter(s => s.name.toLowerCase().includes(supplierInput.toLowerCase()))
+                  .slice(0, 8)
+                  .map(s => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedSupplierId(s.id);
+                        setSupplierInput(s.name);
+                        setShowSupplierDropdown(false);
+                      }}
+                      className="w-full px-5 py-3 text-left text-xs font-bold text-slate-700 hover:bg-brand-50 hover:text-brand-600 transition-colors flex items-center justify-between"
+                    >
+                      {s.name}
+                      {selectedSupplierId === s.id && <CheckCircle2 className="w-4 h-4 text-brand-500" />}
+                    </button>
+                  ))}
+              </div>
+            )}
+            {showSupplierDropdown && (
+              <div className="fixed inset-0 z-[105]" onClick={() => setShowSupplierDropdown(false)} />
+            )}
           </div>
 
           {/* Configuración de Costos y Producción */}
