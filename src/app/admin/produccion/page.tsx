@@ -286,8 +286,11 @@ export default function ProduccionPage() {
       rotos: number;
       totalEnsamblado: number;
       diasActivo: Set<string>;
+      diasFabricacion: Set<string>;
+      diasEnsamblaje: Set<string>;
       promedioDiario: number;
       promedioFabricacionDiaria: number;
+      promedioEnsamblajeDiario: number;
       litrajes: Record<string, number>;
       totalLitrosEquivalentes: number;
       maquinas: { doble: number; simple: number };
@@ -309,8 +312,11 @@ export default function ProduccionPage() {
           rotos: 0,
           totalEnsamblado: 0,
           diasActivo: new Set(),
+          diasFabricacion: new Set(),
+          diasEnsamblaje: new Set(),
           promedioDiario: 0,
           promedioFabricacionDiaria: 0,
+          promedioEnsamblajeDiario: 0,
           litrajes: {},
           totalLitrosEquivalentes: 0,
           maquinas: { doble: 0, simple: 0 },
@@ -324,6 +330,7 @@ export default function ProduccionPage() {
       const op = map[item.operario];
       op.totalFabricado += item.cantidad;
       op.diasActivo.add(item.fecha);
+      op.diasFabricacion.add(item.fecha);
 
       // Litraje breakdown
       const lit = extractLitraje(item.producto);
@@ -365,8 +372,11 @@ export default function ProduccionPage() {
           rotos: 0,
           totalEnsamblado: 0,
           diasActivo: new Set(),
+          diasFabricacion: new Set(),
+          diasEnsamblaje: new Set(),
           promedioDiario: 0,
           promedioFabricacionDiaria: 0,
+          promedioEnsamblajeDiario: 0,
           litrajes: {},
           totalLitrosEquivalentes: 0,
           maquinas: { doble: 0, simple: 0 },
@@ -379,15 +389,20 @@ export default function ProduccionPage() {
       const op = map[item.operario];
       op.totalEnsamblado += item.cantidad;
       op.diasActivo.add(item.fecha);
+      op.diasEnsamblaje.add(item.fecha);
       op.productos[`[Ensamblaje] ${item.producto}`] = (op.productos[`[Ensamblaje] ${item.producto}`] || 0) + item.cantidad;
     });
 
     // Compute derived metrics
     return Object.values(map).map(op => {
       op.totalProducido = op.totalFabricado + op.totalEnsamblado;
-      const daysCount = op.diasActivo.size || 1;
-      op.promedioDiario = parseFloat((op.totalProducido / daysCount).toFixed(1));
-      op.promedioFabricacionDiaria = parseFloat((op.totalFabricado / daysCount).toFixed(1));
+      const totalDays = op.diasActivo.size || 1;
+      const fabDays = op.diasFabricacion.size || 1;
+      const ensDays = op.diasEnsamblaje.size || 1;
+
+      op.promedioDiario = parseFloat((op.totalProducido / totalDays).toFixed(1));
+      op.promedioFabricacionDiaria = parseFloat((op.totalFabricado / fabDays).toFixed(1));
+      op.promedioEnsamblajeDiario = parseFloat((op.totalEnsamblado / ensDays).toFixed(1));
       op.qualityRate = op.totalFabricado > 0 ? ((op.dePrimera / op.totalFabricado) * 100).toFixed(1) : "100";
 
       // Find top litraje
@@ -823,16 +838,19 @@ export default function ProduccionPage() {
 
                 <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-amber-200/60 text-center">
                   <div className="bg-white/80 p-2 rounded-xl border border-amber-200/50">
-                    <span className="text-[9px] font-black uppercase text-slate-400 block">Total Real</span>
-                    <span className="text-base font-black text-slate-900">{operatorMetrics[0].totalProducido} u.</span>
+                    <span className="text-[9px] font-black uppercase text-slate-400 block">Fabricación</span>
+                    <span className="text-base font-black text-blue-900">{operatorMetrics[0].totalFabricado} u.</span>
+                    <span className="text-[9px] text-blue-700 font-bold block">{operatorMetrics[0].promedioFabricacionDiaria} u/d</span>
                   </div>
                   <div className="bg-white/80 p-2 rounded-xl border border-amber-200/50">
-                    <span className="text-[9px] font-black uppercase text-slate-400 block">Prom. Diario</span>
+                    <span className="text-[9px] font-black uppercase text-slate-400 block">Ensamblaje</span>
+                    <span className="text-base font-black text-purple-900">{operatorMetrics[0].totalEnsamblado} u.</span>
+                    <span className="text-[9px] text-purple-700 font-bold block">{operatorMetrics[0].totalEnsamblado > 0 ? `${operatorMetrics[0].promedioEnsamblajeDiario} u/d` : '-'}</span>
+                  </div>
+                  <div className="bg-white/80 p-2 rounded-xl border border-amber-200/50">
+                    <span className="text-[9px] font-black uppercase text-slate-400 block">Prom. Global</span>
                     <span className="text-base font-black text-amber-700">{operatorMetrics[0].promedioDiario} <span className="text-[10px]">u/d</span></span>
-                  </div>
-                  <div className="bg-white/80 p-2 rounded-xl border border-amber-200/50">
-                    <span className="text-[9px] font-black uppercase text-slate-400 block">Capacidad</span>
-                    <span className="text-base font-black text-cyan-700">{(operatorMetrics[0].totalLitrosEquivalentes / 1000).toFixed(0)}k <span className="text-[10px]">L</span></span>
+                    <span className="text-[9px] text-amber-800 font-bold block">{operatorMetrics[0].totalProducido} u. tot</span>
                   </div>
                 </div>
               </div>
@@ -861,16 +879,19 @@ export default function ProduccionPage() {
 
                 <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-slate-100 text-center">
                   <div className="bg-slate-50 p-2 rounded-xl border border-slate-100">
-                    <span className="text-[9px] font-black uppercase text-slate-400 block">Total Real</span>
-                    <span className="text-sm font-black text-slate-900">{operatorMetrics[1].totalProducido} u.</span>
+                    <span className="text-[9px] font-black uppercase text-slate-400 block">Fabricación</span>
+                    <span className="text-sm font-black text-blue-900">{operatorMetrics[1].totalFabricado} u.</span>
+                    <span className="text-[9px] text-blue-700 font-bold block">{operatorMetrics[1].promedioFabricacionDiaria} u/d</span>
                   </div>
                   <div className="bg-slate-50 p-2 rounded-xl border border-slate-100">
-                    <span className="text-[9px] font-black uppercase text-slate-400 block">Prom. Diario</span>
-                    <span className="text-sm font-black text-slate-700">{operatorMetrics[1].promedioDiario} u/d</span>
+                    <span className="text-[9px] font-black uppercase text-slate-400 block">Ensamblaje</span>
+                    <span className="text-sm font-black text-purple-900">{operatorMetrics[1].totalEnsamblado} u.</span>
+                    <span className="text-[9px] text-purple-700 font-bold block">{operatorMetrics[1].totalEnsamblado > 0 ? `${operatorMetrics[1].promedioEnsamblajeDiario} u/d` : '-'}</span>
                   </div>
                   <div className="bg-slate-50 p-2 rounded-xl border border-slate-100">
-                    <span className="text-[9px] font-black uppercase text-slate-400 block">Capacidad</span>
-                    <span className="text-sm font-black text-cyan-700">{(operatorMetrics[1].totalLitrosEquivalentes / 1000).toFixed(0)}k L</span>
+                    <span className="text-[9px] font-black uppercase text-slate-400 block">Prom. Global</span>
+                    <span className="text-sm font-black text-slate-800">{operatorMetrics[1].promedioDiario} u/d</span>
+                    <span className="text-[9px] text-slate-500 font-bold block">{operatorMetrics[1].totalProducido} u. tot</span>
                   </div>
                 </div>
               </div>
@@ -899,16 +920,19 @@ export default function ProduccionPage() {
 
                 <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-slate-100 text-center">
                   <div className="bg-slate-50 p-2 rounded-xl border border-slate-100">
-                    <span className="text-[9px] font-black uppercase text-slate-400 block">Total Real</span>
-                    <span className="text-sm font-black text-slate-900">{operatorMetrics[2].totalProducido} u.</span>
+                    <span className="text-[9px] font-black uppercase text-slate-400 block">Fabricación</span>
+                    <span className="text-sm font-black text-blue-900">{operatorMetrics[2].totalFabricado} u.</span>
+                    <span className="text-[9px] text-blue-700 font-bold block">{operatorMetrics[2].promedioFabricacionDiaria} u/d</span>
                   </div>
                   <div className="bg-slate-50 p-2 rounded-xl border border-slate-100">
-                    <span className="text-[9px] font-black uppercase text-slate-400 block">Prom. Diario</span>
-                    <span className="text-sm font-black text-slate-700">{operatorMetrics[2].promedioDiario} u/d</span>
+                    <span className="text-[9px] font-black uppercase text-slate-400 block">Ensamblaje</span>
+                    <span className="text-sm font-black text-purple-900">{operatorMetrics[2].totalEnsamblado} u.</span>
+                    <span className="text-[9px] text-purple-700 font-bold block">{operatorMetrics[2].totalEnsamblado > 0 ? `${operatorMetrics[2].promedioEnsamblajeDiario} u/d` : '-'}</span>
                   </div>
                   <div className="bg-slate-50 p-2 rounded-xl border border-slate-100">
-                    <span className="text-[9px] font-black uppercase text-slate-400 block">Capacidad</span>
-                    <span className="text-sm font-black text-cyan-700">{(operatorMetrics[2].totalLitrosEquivalentes / 1000).toFixed(0)}k L</span>
+                    <span className="text-[9px] font-black uppercase text-slate-400 block">Prom. Global</span>
+                    <span className="text-sm font-black text-slate-800">{operatorMetrics[2].promedioDiario} u/d</span>
+                    <span className="text-[9px] text-slate-500 font-bold block">{operatorMetrics[2].totalProducido} u. tot</span>
                   </div>
                 </div>
               </div>
