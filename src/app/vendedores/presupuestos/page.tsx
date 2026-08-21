@@ -401,10 +401,16 @@ export default function PresupuestosPage() {
     return allProducts.filter(prod => prod.parent_id === p.id);
   };
 
-  const searchTerms = searchTerm.toLowerCase().split(/\s+/).filter(Boolean);
+  const normalizeSearchText = (text: string) => {
+    if (!text) return "";
+    return text.toString().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  };
+
+  const searchTerms = normalizeSearchText(searchTerm).split(/\s+/).filter(Boolean);
   const filteredProducts = products.filter(p => {
     if (p.is_active === false) return false; // Hide inactive products
     if (p.name?.toLowerCase().startsWith('[interno]')) return false; // Hide internal raw placeholders
+    if (p.category === 'Interno') return false;
     if (p.sku?.startsWith('AUTO-COMP-') && (!p.price || p.price === 0)) return false; // Hide legacy $0 auto-comp items
     if (p.parent_id) return false; // Hide child variants from main search results
     if (EXCLUDED_IDS.includes(p.id)) return false; // Hide dynamic variants from main results
@@ -422,9 +428,9 @@ export default function PresupuestosPage() {
     const childVariants = getDisplayVariants(p, products);
     const childrenText = childVariants.map(child => `${child.name} ${child.sku || ''}`).join(' ');
 
-    const searchableText = `${p.name} ${p.sku || ''} ${extraSearchable} ${childrenText}`.toLowerCase();
+    const searchableText = normalizeSearchText(`${p.name} ${p.sku || ''} ${p.brand || ''} ${extraSearchable} ${childrenText}`);
     return searchTerms.every(term => searchableText.includes(term));
-  }).slice(0, 10); // Limit search results
+  }).slice(0, 15); // Limit search results
 
   const addItem = (product: Product) => {
     const existing = quoteItems.find(i => i.id === product.id);
