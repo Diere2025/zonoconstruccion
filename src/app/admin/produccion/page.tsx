@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { 
   Factory, 
   Wrench, 
@@ -19,19 +19,131 @@ import {
   Loader2, 
   Sparkles, 
   Layers, 
-  Award,
-  BarChart3,
-  Flame,
-  AlertCircle,
-  Trophy,
-  ChevronRight,
-  Droplet,
-  PieChart,
-  SlidersHorizontal,
-  ChevronDown
+  Award, 
+  BarChart3, 
+  Flame, 
+  AlertCircle, 
+  Trophy, 
+  ChevronRight, 
+  Droplet, 
+  PieChart, 
+  SlidersHorizontal, 
+  ChevronDown,
+  Users
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ProductionItem, AssemblyItem } from "@/app/api/admin/produccion-data/route";
+
+// Custom Date Input formatted as DD/MM/AAAA
+function DateInput({
+  value,
+  onChange,
+  placeholder = "dd/mm/aaaa",
+  title
+}: {
+  value: string;
+  onChange: (val: string) => void;
+  placeholder?: string;
+  title?: string;
+}) {
+  const [typedValue, setTypedValue] = useState("");
+  const hiddenInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (value) {
+      const parts = value.split("-");
+      if (parts.length === 3) {
+        setTypedValue(`${parts[2]}/${parts[1]}/${parts[0]}`);
+      } else {
+        setTypedValue(value);
+      }
+    } else {
+      setTypedValue("");
+    }
+  }, [value]);
+
+  const handleTextChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let input = e.target.value;
+    input = input.replace(/[^0-9/]/g, "");
+
+    // Auto slashes
+    if (input.length === 2 && !input.includes("/")) {
+      input += "/";
+    } else if (input.length === 5 && input.split("/").length === 2) {
+      input += "/";
+    }
+
+    if (input.length > 10) {
+      input = input.substring(0, 10);
+    }
+
+    setTypedValue(input);
+
+    const parts = input.split("/");
+    if (parts.length === 3 && parts[0].length === 2 && parts[1].length === 2 && parts[2].length === 4) {
+      const yyyy = parts[2];
+      const mm = parts[1];
+      const dd = parts[0];
+      onChange(`${yyyy}-${mm}-${dd}`);
+    } else if (input === "") {
+      onChange("");
+    }
+  };
+
+  const handleBlur = () => {
+    const parts = typedValue.split("/");
+    if (parts.length !== 3 || parts[0].length !== 2 || parts[1].length !== 2 || parts[2].length !== 4) {
+      if (value) {
+        const vParts = value.split("-");
+        setTypedValue(`${vParts[2]}/${vParts[1]}/${vParts[0]}`);
+      } else {
+        setTypedValue("");
+      }
+    }
+  };
+
+  const handleCalendarClick = () => {
+    if (hiddenInputRef.current) {
+      try {
+        if (typeof hiddenInputRef.current.showPicker === "function") {
+          hiddenInputRef.current.showPicker();
+        } else {
+          hiddenInputRef.current.click();
+        }
+      } catch {
+        hiddenInputRef.current.click();
+      }
+    }
+  };
+
+  return (
+    <div className="relative w-full">
+      <input
+        type="text"
+        value={typedValue}
+        onChange={handleTextChange}
+        onBlur={handleBlur}
+        placeholder={placeholder}
+        title={title}
+        className="w-full pl-2.5 pr-6 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 font-mono"
+      />
+      <button
+        type="button"
+        onClick={handleCalendarClick}
+        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+      >
+        <Calendar className="w-3.5 h-3.5" />
+      </button>
+      <input
+        ref={hiddenInputRef}
+        type="date"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="absolute opacity-0 pointer-events-none w-0 h-0"
+      />
+    </div>
+  );
+}
 
 // Helper to extract litraje
 const extractLitraje = (productName: string): { label: string; litros: number } => {
@@ -60,10 +172,11 @@ export default function ProduccionPage() {
   const [operatorsList, setOperatorsList] = useState<string[]>([]);
 
   // Navigation tabs
-  const [activeTab, setActiveTab] = useState<'operarios' | 'fabricacion' | 'ensamblaje' | 'incidencias'>('operarios');
+  const [activeTab, setActiveTab] = useState<'operarios' | 'comparativa_mensual' | 'fabricacion' | 'ensamblaje' | 'incidencias'>('operarios');
 
   // Filters
-  const [datePreset, setDatePreset] = useState<'today' | 'yesterday' | 'last7' | 'thisMonth' | 'lastMonth' | 'all' | 'custom'>('thisMonth');
+  const [datePreset, setDatePreset] = useState<'today' | 'yesterday' | 'last7' | 'thisMonth' | 'lastMonth' | 'all' | 'custom' | string>('thisMonth');
+  const [selectedMonthFilter, setSelectedMonthFilter] = useState<string>("thisMonth");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [selectedOperator, setSelectedOperator] = useState("all");
@@ -74,6 +187,15 @@ export default function ProduccionPage() {
 
   // Modal / Selected operator detail
   const [selectedOperatorDetail, setSelectedOperatorDetail] = useState<string | null>(null);
+
+  const MONTH_NAMES_ES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+
+  const formatMonthName = (yearMonth: string) => {
+    if (!yearMonth || !yearMonth.includes('-')) return yearMonth;
+    const [y, m] = yearMonth.split('-').map(Number);
+    if (!y || !m) return yearMonth;
+    return `${MONTH_NAMES_ES[m - 1]} ${y}`;
+  };
 
   // Operator distinctive badges
   const getOperatorStyle = (name?: string | null) => {
@@ -91,6 +213,34 @@ export default function ProduccionPage() {
     return { bg: "bg-violet-50", text: "text-violet-700", border: "border-violet-200", dot: "bg-violet-500" };
   };
 
+  // List of all distinct months present in the dataset (sorted descending)
+  const availableMonths = useMemo(() => {
+    const set = new Set<string>();
+    fabricacionData.forEach(item => {
+      if (item.fecha && item.fecha.length >= 7) {
+        set.add(item.fecha.substring(0, 7));
+      }
+    });
+    ensamblajeData.forEach(item => {
+      if (item.fecha && item.fecha.length >= 7) {
+        set.add(item.fecha.substring(0, 7));
+      }
+    });
+    return Array.from(set).sort().reverse();
+  }, [fabricacionData, ensamblajeData]);
+
+  // Select a specific full month
+  const applyFullMonth = (yearMonth: string) => {
+    setSelectedMonthFilter(yearMonth);
+    setDatePreset(yearMonth);
+    const [y, m] = yearMonth.split('-').map(Number);
+    const lastDay = new Date(y, m, 0).getDate();
+    const fromStr = `${yearMonth}-01`;
+    const toStr = `${yearMonth}-${String(lastDay).padStart(2, '0')}`;
+    setDateFrom(fromStr);
+    setDateTo(toStr);
+  };
+
   // Initialize date range to This Month
   useEffect(() => {
     applyDatePreset('thisMonth');
@@ -98,6 +248,7 @@ export default function ProduccionPage() {
 
   const applyDatePreset = (preset: 'today' | 'yesterday' | 'last7' | 'thisMonth' | 'lastMonth' | 'all' | 'custom') => {
     setDatePreset(preset);
+    setSelectedMonthFilter(preset === 'thisMonth' || preset === 'lastMonth' ? preset : 'custom');
     const now = new Date();
     const todayStr = now.toISOString().split('T')[0];
 
@@ -442,6 +593,246 @@ export default function ProduccionPage() {
       .sort((a, b) => b.cantidad - a.cantidad);
   }, [filteredFabricacion]);
 
+  // Monthly Historical Comparison Data across all months
+  const monthlyComparisonData = useMemo(() => {
+    const map: Record<string, {
+      monthKey: string;
+      monthName: string;
+      timestamp: number;
+      fabricado: number;
+      ensamblado: number;
+      totalProducido: number;
+      dePrimera: number;
+      segunda: number;
+      roturas: number;
+      qualityRate: string;
+      diasTrabajados: Set<string>;
+      promedioDiario: number;
+      totalLitros: number;
+      operariosMap: Record<string, { fabricado: number; ensamblado: number; total: number }>;
+      topOperario: { name: string; total: number };
+      variacionVsPrev: number | null;
+    }> = {};
+
+    // Process all fabricacion data
+    fabricacionData.forEach(item => {
+      if (!item.fecha || item.estado !== "Fabricado") return;
+      const monthKey = item.fecha.substring(0, 7);
+      if (!map[monthKey]) {
+        map[monthKey] = {
+          monthKey,
+          monthName: formatMonthName(monthKey),
+          timestamp: item.timestamp,
+          fabricado: 0,
+          ensamblado: 0,
+          totalProducido: 0,
+          dePrimera: 0,
+          segunda: 0,
+          roturas: 0,
+          qualityRate: '100',
+          diasTrabajados: new Set(),
+          promedioDiario: 0,
+          totalLitros: 0,
+          operariosMap: {},
+          topOperario: { name: 'Sin datos', total: 0 },
+          variacionVsPrev: null
+        };
+      }
+
+      const m = map[monthKey];
+      m.fabricado += item.cantidad;
+      m.diasTrabajados.add(item.fecha);
+
+      const lit = extractLitraje(item.producto);
+      m.totalLitros += lit.litros * item.cantidad;
+
+      const q = item.calidad.toLowerCase();
+      if (q.includes("segunda")) m.segunda += item.cantidad;
+      else if (q.includes("roto") || q.includes("inutilizable") || q.includes("descarte")) m.roturas += item.cantidad;
+      else m.dePrimera += item.cantidad;
+
+      if (item.operario && item.operario !== "Sin Asignar") {
+        if (!m.operariosMap[item.operario]) m.operariosMap[item.operario] = { fabricado: 0, ensamblado: 0, total: 0 };
+        m.operariosMap[item.operario].fabricado += item.cantidad;
+        m.operariosMap[item.operario].total += item.cantidad;
+      }
+    });
+
+    // Process all ensamblaje data
+    ensamblajeData.forEach(item => {
+      if (!item.fecha || item.estado !== "Ensamblado") return;
+      const monthKey = item.fecha.substring(0, 7);
+      if (!map[monthKey]) {
+        map[monthKey] = {
+          monthKey,
+          monthName: formatMonthName(monthKey),
+          timestamp: item.timestamp,
+          fabricado: 0,
+          ensamblado: 0,
+          totalProducido: 0,
+          dePrimera: 0,
+          segunda: 0,
+          roturas: 0,
+          qualityRate: '100',
+          diasTrabajados: new Set(),
+          promedioDiario: 0,
+          totalLitros: 0,
+          operariosMap: {},
+          topOperario: { name: 'Sin datos', total: 0 },
+          variacionVsPrev: null
+        };
+      }
+
+      const m = map[monthKey];
+      m.ensamblado += item.cantidad;
+      m.diasTrabajados.add(item.fecha);
+
+      if (item.operario && item.operario !== "Sin Asignar") {
+        if (!m.operariosMap[item.operario]) m.operariosMap[item.operario] = { fabricado: 0, ensamblado: 0, total: 0 };
+        m.operariosMap[item.operario].ensamblado += item.cantidad;
+        m.operariosMap[item.operario].total += item.cantidad;
+      }
+    });
+
+    // Compute derived metrics and sort chronologically asc for variation diff, then desc for table
+    const sortedChronological = Object.values(map).sort((a, b) => a.monthKey.localeCompare(b.monthKey));
+
+    const enriched = sortedChronological.map((m, idx) => {
+      m.totalProducido = m.fabricado + m.ensamblado;
+      const daysCount = m.diasTrabajados.size || 1;
+      m.promedioDiario = parseFloat((m.totalProducido / daysCount).toFixed(1));
+      m.qualityRate = m.fabricado > 0 ? ((m.dePrimera / m.fabricado) * 100).toFixed(1) : '100';
+
+      // Find top operator
+      let topOpName = '-';
+      let topOpCount = 0;
+      Object.entries(m.operariosMap).forEach(([opName, data]) => {
+        if (data.total > topOpCount) {
+          topOpCount = data.total;
+          topOpName = opName;
+        }
+      });
+      m.topOperario = { name: topOpName, total: topOpCount };
+
+      // Calculate % variation vs previous chronological month
+      let variacionVsPrev: number | null = null;
+      if (idx > 0) {
+        const prevMonth = sortedChronological[idx - 1];
+        if (prevMonth.totalProducido > 0) {
+          variacionVsPrev = parseFloat((((m.totalProducido - prevMonth.totalProducido) / prevMonth.totalProducido) * 100).toFixed(1));
+        }
+      }
+
+      return {
+        ...m,
+        variacionVsPrev
+      };
+    });
+
+    return enriched.reverse(); // Most recent month first
+  }, [fabricacionData, ensamblajeData]);
+
+  // Daily Timeline of Production & Assembly
+  const dailyTimeline = useMemo(() => {
+    const map: Record<string, {
+      dateIso: string;
+      dateFormatted: string;
+      dayName: string;
+      timestamp: number;
+      fabricado: number;
+      ensamblado: number;
+      rotos: number;
+      operarios: Set<string>;
+      observaciones: string[];
+    }> = {};
+
+    const DAYS_ES = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+
+    filteredFabricacion.forEach(item => {
+      if (!item.fecha) return;
+      if (!map[item.fecha]) {
+        const dObj = new Date(item.timestamp);
+        const dayName = !isNaN(dObj.getDay()) ? DAYS_ES[dObj.getDay()] : '';
+
+        map[item.fecha] = {
+          dateIso: item.fecha,
+          dateFormatted: item.fechaFormatted,
+          dayName,
+          timestamp: item.timestamp,
+          fabricado: 0,
+          ensamblado: 0,
+          rotos: 0,
+          operarios: new Set(),
+          observaciones: []
+        };
+      }
+      if (item.estado === "Fabricado") {
+        map[item.fecha].fabricado += item.cantidad;
+        const q = item.calidad.toLowerCase();
+        if (q.includes("roto") || q.includes("inutilizable") || q.includes("descarte")) {
+          map[item.fecha].rotos += item.cantidad;
+        }
+      }
+      if (item.operario && item.operario !== "Sin Asignar") {
+        map[item.fecha].operarios.add(item.operario);
+      }
+      if (item.observaciones) {
+        map[item.fecha].observaciones.push(item.observaciones);
+      }
+    });
+
+    filteredEnsamblaje.forEach(item => {
+      if (!item.fecha) return;
+      if (!map[item.fecha]) {
+        const dObj = new Date(item.timestamp);
+        const dayName = !isNaN(dObj.getDay()) ? DAYS_ES[dObj.getDay()] : '';
+
+        map[item.fecha] = {
+          dateIso: item.fecha,
+          dateFormatted: item.fechaFormatted,
+          dayName,
+          timestamp: item.timestamp,
+          fabricado: 0,
+          ensamblado: 0,
+          rotos: 0,
+          operarios: new Set(),
+          observaciones: []
+        };
+      }
+      if (item.estado === "Ensamblado") {
+        map[item.fecha].ensamblado += item.cantidad;
+      }
+      if (item.operario && item.operario !== "Sin Asignar") {
+        map[item.fecha].operarios.add(item.operario);
+      }
+    });
+
+    return Object.values(map).sort((a, b) => a.timestamp - b.timestamp);
+  }, [filteredFabricacion, filteredEnsamblaje]);
+
+  // Machine breakdown (DOBLE vs SIMPLE)
+  const machineBreakdown = useMemo(() => {
+    let doble = 0;
+    let simple = 0;
+    filteredFabricacion.forEach(item => {
+      if (item.estado === "Fabricado") {
+        if (item.tipoMaquina?.toUpperCase() === 'DOBLE') doble += item.cantidad;
+        else simple += item.cantidad;
+      }
+    });
+    const total = doble + simple;
+    return {
+      doble,
+      simple,
+      total,
+      pctDoble: total > 0 ? ((doble / total) * 100).toFixed(0) : "0",
+      pctSimple: total > 0 ? ((simple / total) * 100).toFixed(0) : "0"
+    };
+  }, [filteredFabricacion]);
+
+  // State for chart hover tooltip
+  const [hoveredDay, setHoveredDay] = useState<any | null>(null);
+
   // Selected operator object for detailed modal
   const selectedOperatorObject = useMemo(() => {
     if (!selectedOperatorDetail) return null;
@@ -639,19 +1030,27 @@ export default function ProduccionPage() {
       {/* Main Filter & Navigation Panel */}
       <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-4 space-y-4">
         {/* Navigation Tabs */}
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-slate-100 pb-3">
+        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-3 border-b border-slate-100 pb-3">
           <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/60 overflow-x-auto max-w-full">
             <button
               onClick={() => setActiveTab('operarios')}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
                 activeTab === 'operarios' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-500 hover:text-slate-800'
               }`}
             >
-              <Trophy className="w-3.5 h-3.5 text-amber-500" /> Rendimiento de Operarios ({operatorMetrics.length})
+              <Trophy className="w-3.5 h-3.5 text-amber-500" /> Rendimiento ({operatorMetrics.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('comparativa_mensual')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                activeTab === 'comparativa_mensual' ? 'bg-white text-emerald-700 shadow-xs' : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <TrendingUp className="w-3.5 h-3.5 text-emerald-600" /> Comparativa Mes a Mes ({monthlyComparisonData.length}m)
             </button>
             <button
               onClick={() => setActiveTab('fabricacion')}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
                 activeTab === 'fabricacion' ? 'bg-white text-brand-600 shadow-xs' : 'text-slate-500 hover:text-slate-800'
               }`}
             >
@@ -659,7 +1058,7 @@ export default function ProduccionPage() {
             </button>
             <button
               onClick={() => setActiveTab('ensamblaje')}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
                 activeTab === 'ensamblaje' ? 'bg-white text-purple-700 shadow-xs' : 'text-slate-500 hover:text-slate-800'
               }`}
             >
@@ -667,52 +1066,75 @@ export default function ProduccionPage() {
             </button>
             <button
               onClick={() => setActiveTab('incidencias')}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
                 activeTab === 'incidencias' ? 'bg-white text-amber-700 shadow-xs' : 'text-slate-500 hover:text-slate-800'
               }`}
             >
-              <AlertCircle className="w-3.5 h-3.5" /> Incidencias / Observaciones ({filteredFabricacion.filter(f => f.observaciones).length})
+              <AlertCircle className="w-3.5 h-3.5" /> Incidencias ({filteredFabricacion.filter(f => f.observaciones).length})
             </button>
           </div>
 
-          {/* Quick Date Presets */}
-          <div className="flex bg-slate-100 p-0.5 rounded-xl text-[10px] font-bold text-slate-600 flex-wrap">
-            <button
-              onClick={() => applyDatePreset('today')}
-              className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${datePreset === 'today' ? 'bg-white text-slate-900 shadow-2xs' : 'hover:text-slate-900'}`}
-            >
-              Hoy
-            </button>
-            <button
-              onClick={() => applyDatePreset('yesterday')}
-              className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${datePreset === 'yesterday' ? 'bg-white text-slate-900 shadow-2xs' : 'hover:text-slate-900'}`}
-            >
-              Ayer
-            </button>
-            <button
-              onClick={() => applyDatePreset('last7')}
-              className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${datePreset === 'last7' ? 'bg-white text-slate-900 shadow-2xs' : 'hover:text-slate-900'}`}
-            >
-              Últimos 7d
-            </button>
-            <button
-              onClick={() => applyDatePreset('thisMonth')}
-              className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${datePreset === 'thisMonth' ? 'bg-white text-slate-900 shadow-2xs' : 'hover:text-slate-900'}`}
-            >
-              Este Mes
-            </button>
-            <button
-              onClick={() => applyDatePreset('lastMonth')}
-              className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${datePreset === 'lastMonth' ? 'bg-white text-slate-900 shadow-2xs' : 'hover:text-slate-900'}`}
-            >
-              Mes Anterior
-            </button>
-            <button
-              onClick={() => applyDatePreset('all')}
-              className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${datePreset === 'all' ? 'bg-white text-slate-900 shadow-2xs' : 'hover:text-slate-900'}`}
-            >
-              Histórico
-            </button>
+          {/* Quick Date Presets & Month Dropdown */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex bg-slate-100 p-0.5 rounded-xl text-[10px] font-bold text-slate-600">
+              <button
+                onClick={() => applyDatePreset('today')}
+                className={`px-2 py-1 rounded-lg transition-all cursor-pointer ${datePreset === 'today' ? 'bg-white text-slate-900 shadow-2xs font-extrabold' : 'hover:text-slate-900'}`}
+              >
+                Hoy
+              </button>
+              <button
+                onClick={() => applyDatePreset('yesterday')}
+                className={`px-2 py-1 rounded-lg transition-all cursor-pointer ${datePreset === 'yesterday' ? 'bg-white text-slate-900 shadow-2xs font-extrabold' : 'hover:text-slate-900'}`}
+              >
+                Ayer
+              </button>
+              <button
+                onClick={() => applyDatePreset('last7')}
+                className={`px-2 py-1 rounded-lg transition-all cursor-pointer ${datePreset === 'last7' ? 'bg-white text-slate-900 shadow-2xs font-extrabold' : 'hover:text-slate-900'}`}
+              >
+                7d
+              </button>
+              <button
+                onClick={() => applyDatePreset('thisMonth')}
+                className={`px-2 py-1 rounded-lg transition-all cursor-pointer ${datePreset === 'thisMonth' ? 'bg-white text-slate-900 shadow-2xs font-extrabold' : 'hover:text-slate-900'}`}
+              >
+                Este Mes
+              </button>
+              <button
+                onClick={() => applyDatePreset('all')}
+                className={`px-2 py-1 rounded-lg transition-all cursor-pointer ${datePreset === 'all' ? 'bg-white text-slate-900 shadow-2xs font-extrabold' : 'hover:text-slate-900'}`}
+              >
+                Histórico
+              </button>
+            </div>
+
+            {/* Direct Full Month Selector */}
+            <div className="flex items-center gap-1 bg-slate-100 px-2.5 py-1 rounded-xl border border-slate-200/80">
+              <Calendar className="w-3.5 h-3.5 text-brand-600 shrink-0" />
+              <select
+                value={selectedMonthFilter}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val === 'thisMonth' || val === 'lastMonth') {
+                    applyDatePreset(val as any);
+                  } else if (val.startsWith('20')) {
+                    applyFullMonth(val);
+                  }
+                }}
+                className="bg-transparent text-xs font-black text-slate-800 outline-none cursor-pointer pr-1"
+              >
+                <option value="thisMonth">📅 Mes Actual (Agosto 2026)</option>
+                <option value="lastMonth">📅 Mes Anterior (Julio 2026)</option>
+                <optgroup label="Histórico por Mes Completo">
+                  {availableMonths.map(ym => (
+                    <option key={ym} value={ym}>
+                      {formatMonthName(ym)}
+                    </option>
+                  ))}
+                </optgroup>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -780,21 +1202,19 @@ export default function ProduccionPage() {
             </select>
           </div>
 
-          {/* Custom Date Inputs */}
+          {/* Custom Date Inputs (DD/MM/AAAA) */}
           <div className="flex items-center gap-1.5">
-            <input
-              type="date"
+            <DateInput
               value={dateFrom}
-              onChange={e => { setDateFrom(e.target.value); setDatePreset('custom'); }}
-              className="w-1/2 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-[11px] font-bold text-slate-700 outline-none"
+              onChange={val => { setDateFrom(val); setDatePreset('custom'); }}
+              placeholder="dd/mm/aaaa"
               title="Fecha Desde"
             />
-            <span className="text-slate-400 font-bold text-xs">-</span>
-            <input
-              type="date"
+            <span className="text-slate-400 font-bold text-xs shrink-0">-</span>
+            <DateInput
               value={dateTo}
-              onChange={e => { setDateTo(e.target.value); setDatePreset('custom'); }}
-              className="w-1/2 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-[11px] font-bold text-slate-700 outline-none"
+              onChange={val => { setDateTo(val); setDatePreset('custom'); }}
+              placeholder="dd/mm/aaaa"
               title="Fecha Hasta"
             />
           </div>
@@ -937,6 +1357,192 @@ export default function ProduccionPage() {
                 </div>
               </div>
             )}
+          </div>
+
+          {/* DAILY TIMELINE HISTOGRAM & MACHINE DISTRIBUTION */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            {/* 📊 EVOLUCIÓN DIARIA DE FABRICACIÓN Y ENSAMBLAJE (2 cols) */}
+            <div className="lg:col-span-2 bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-4">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                <div>
+                  <h3 className="text-xs font-black uppercase tracking-wider text-slate-800 flex items-center gap-2">
+                    <BarChart3 className="w-4 h-4 text-brand-600" />
+                    Evolución Diaria de Producción
+                  </h3>
+                  <p className="text-[11px] text-slate-400 font-bold mt-0.5">
+                    Volumen diario de tanques rotomoldeados y unidades ensambladas
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-3 text-[10px] font-black uppercase">
+                  <span className="flex items-center gap-1.5 text-blue-700">
+                    <span className="w-2.5 h-2.5 rounded-sm bg-blue-600 inline-block" /> Fabricación
+                  </span>
+                  <span className="flex items-center gap-1.5 text-purple-700">
+                    <span className="w-2.5 h-2.5 rounded-sm bg-purple-600 inline-block" /> Ensamblaje
+                  </span>
+                </div>
+              </div>
+
+              {/* Interactive Bar Chart */}
+              {dailyTimeline.length > 0 ? (
+                (() => {
+                  const maxDayVal = Math.max(...dailyTimeline.map(d => d.fabricado + d.ensamblado), 1);
+                  const avgDaily = (dailyTimeline.reduce((acc, d) => acc + d.fabricado + d.ensamblado, 0) / dailyTimeline.length).toFixed(1);
+
+                  return (
+                    <div className="space-y-3">
+                      {/* Bars Container */}
+                      <div className="h-44 flex items-end gap-1.5 sm:gap-2 pt-4 px-1 border-b border-slate-100 overflow-x-auto custom-scrollbar">
+                        {dailyTimeline.map((day) => {
+                          const totalDay = day.fabricado + day.ensamblado;
+                          const heightPct = Math.max(8, (totalDay / maxDayVal) * 100);
+                          const fabPct = totalDay > 0 ? (day.fabricado / totalDay) * 100 : 0;
+                          const ensPct = totalDay > 0 ? (day.ensamblado / totalDay) * 100 : 0;
+                          const isHovered = hoveredDay?.dateIso === day.dateIso;
+
+                          return (
+                            <div
+                              key={day.dateIso}
+                              onMouseEnter={() => setHoveredDay(day)}
+                              onMouseLeave={() => setHoveredDay(null)}
+                              className="flex-1 min-w-[28px] max-w-[48px] h-full flex flex-col justify-end items-center group relative cursor-pointer"
+                            >
+                              {/* Value on top of bar on hover */}
+                              <span className={`text-[9px] font-black font-mono transition-opacity mb-1 ${isHovered ? 'text-slate-900 opacity-100' : 'text-slate-400 opacity-0 group-hover:opacity-100'}`}>
+                                {totalDay}
+                              </span>
+
+                              {/* Stacked Bar */}
+                              <div 
+                                className={`w-full rounded-t-lg overflow-hidden flex flex-col justify-end transition-all duration-200 ${
+                                  isHovered ? 'ring-2 ring-brand-500 scale-x-105 shadow-md' : 'opacity-90 group-hover:opacity-100'
+                                }`}
+                                style={{ height: `${heightPct}%` }}
+                              >
+                                {day.ensamblado > 0 && (
+                                  <div 
+                                    className="w-full bg-purple-600 transition-all" 
+                                    style={{ height: `${ensPct}%` }}
+                                    title={`Ensamblaje: ${day.ensamblado} u.`}
+                                  />
+                                )}
+                                {day.fabricado > 0 && (
+                                  <div 
+                                    className="w-full bg-blue-600 transition-all" 
+                                    style={{ height: `${fabPct}%` }}
+                                    title={`Fabricación: ${day.fabricado} u.`}
+                                  />
+                                )}
+                              </div>
+
+                              {/* Day Label */}
+                              <span className="text-[9px] font-bold text-slate-500 mt-1.5 whitespace-nowrap">
+                                {day.dateFormatted.split('/')[0]}/{day.dateFormatted.split('/')[1]}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Tooltip Card / Footer */}
+                      <div className="min-h-[44px] bg-slate-50 p-2.5 rounded-xl border border-slate-200/80 flex items-center justify-between text-xs transition-all">
+                        {hoveredDay ? (
+                          <div className="flex items-center justify-between w-full flex-wrap gap-2 animate-in fade-in duration-150">
+                            <div className="flex items-center gap-2">
+                              <span className="font-extrabold text-slate-900">{hoveredDay.dayName} {hoveredDay.dateFormatted}:</span>
+                              <span className="px-2 py-0.5 rounded-md bg-blue-100 text-blue-800 font-black text-[10px]">
+                                {hoveredDay.fabricado} u. Fabricadas
+                              </span>
+                              <span className="px-2 py-0.5 rounded-md bg-purple-100 text-purple-800 font-black text-[10px]">
+                                {hoveredDay.ensamblado} u. Ensambladas
+                              </span>
+                              {hoveredDay.rotos > 0 && (
+                                <span className="px-2 py-0.5 rounded-md bg-rose-100 text-rose-800 font-black text-[10px]">
+                                  {hoveredDay.rotos} u. Rotos
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="text-[10px] text-slate-500 font-bold">
+                              Operarios: {Array.from(hoveredDay.operarios).join(', ') || 'N/A'}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between w-full text-slate-500 text-[11px] font-bold">
+                            <span>💡 Pasa el cursor sobre cualquier barra para ver el detalle de producción y operarios.</span>
+                            <span className="font-mono text-slate-700">Promedio diario del período: <strong className="text-slate-900">{avgDaily} u/d</strong></span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()
+              ) : (
+                <div className="p-8 text-center text-slate-400 font-bold text-xs">
+                  No hay registros diarios para el período seleccionado.
+                </div>
+              )}
+            </div>
+
+            {/* ⚙️ DISTRIBUCIÓN DE MÁQUINAS Y EFECTIVIDAD (1 col) */}
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-4 flex flex-col justify-between">
+              <div>
+                <h3 className="text-xs font-black uppercase tracking-wider text-slate-800 flex items-center gap-2">
+                  <Factory className="w-4 h-4 text-amber-600" />
+                  Rendimiento por Máquina y Turno
+                </h3>
+                <p className="text-[11px] text-slate-400 font-bold mt-0.5">
+                  Uso de Máquina DOBLE vs SIMPLE en rotomoldeo
+                </p>
+              </div>
+
+              {/* Machine Proportion Bar */}
+              <div className="space-y-2">
+                <div className="flex justify-between text-xs font-extrabold text-slate-700">
+                  <span className="flex items-center gap-1 text-blue-700">
+                    <span className="w-2 h-2 rounded-full bg-blue-600" /> Máquina DOBLE ({machineBreakdown.pctDoble}%)
+                  </span>
+                  <span className="flex items-center gap-1 text-amber-700">
+                    Máquina SIMPLE ({machineBreakdown.pctSimple}%) <span className="w-2 h-2 rounded-full bg-amber-500" />
+                  </span>
+                </div>
+
+                <div className="w-full h-4 rounded-xl bg-slate-100 overflow-hidden flex shadow-inner">
+                  <div 
+                    className="h-full bg-blue-600 transition-all duration-500 flex items-center justify-center text-[9px] font-black text-white"
+                    style={{ width: `${machineBreakdown.pctDoble}%` }}
+                  >
+                    {machineBreakdown.doble > 0 ? `${machineBreakdown.doble}u` : ''}
+                  </div>
+                  <div 
+                    className="h-full bg-amber-500 transition-all duration-500 flex items-center justify-center text-[9px] font-black text-white"
+                    style={{ width: `${machineBreakdown.pctSimple}%` }}
+                  >
+                    {machineBreakdown.simple > 0 ? `${machineBreakdown.simple}u` : ''}
+                  </div>
+                </div>
+              </div>
+
+              {/* Quality Ratio Card */}
+              <div className="p-3.5 bg-emerald-50/60 border border-emerald-200/80 rounded-2xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-black uppercase text-emerald-800 tracking-wider">
+                    Efectividad de Calidad (Scrap Rate)
+                  </span>
+                  <span className="text-base font-black text-emerald-900">{stats.qualityRate}%</span>
+                </div>
+
+                <div className="w-full h-2 rounded-full bg-rose-200 overflow-hidden flex">
+                  <div className="h-full bg-emerald-500 rounded-full transition-all duration-500" style={{ width: `${stats.qualityRate}%` }} />
+                </div>
+
+                <div className="flex justify-between text-[10px] font-bold text-slate-500 pt-0.5">
+                  <span className="text-emerald-700 font-extrabold">✓ {stats.totalDePrimera} u. de primera</span>
+                  <span className="text-rose-600 font-extrabold">✗ {stats.totalRoturas + stats.totalSegunda} descartes</span>
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* GLOBAL LITRAJE BREAKDOWN CHIPS */}
@@ -1082,6 +1688,405 @@ export default function ProduccionPage() {
                           <button className="p-1 rounded-lg text-slate-400 group-hover:text-brand-600 group-hover:bg-brand-50 transition-colors">
                             <ChevronRight className="w-4 h-4" />
                           </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      ) : activeTab === 'comparativa_mensual' ? (
+        /* TAB: COMPARATIVA MES A MES */
+        <div className="space-y-6">
+          {/* MONTHLY KPI HIGHLIGHTS */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+            {/* Mes Récord */}
+            {(() => {
+              const recordMonth = monthlyComparisonData.reduce((prev, curr) => (curr.totalProducido > prev.totalProducido ? curr : prev), monthlyComparisonData[0] || { monthName: '-', totalProducido: 0 });
+              return (
+                <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col justify-between">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Mes Récord Histórico</span>
+                    <div className="p-1.5 bg-amber-50 text-amber-600 rounded-lg">
+                      <Trophy className="w-4 h-4" />
+                    </div>
+                  </div>
+                  <div className="mt-3">
+                    <div className="text-xl font-black text-slate-900 tracking-tight">
+                      {recordMonth.monthName}
+                    </div>
+                    <p className="text-[11px] text-amber-600 font-extrabold mt-0.5">
+                      {recordMonth.totalProducido.toLocaleString('es-AR')} unidades producidas
+                    </p>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Mes Actual vs Mes Anterior */}
+            {(() => {
+              const currMonth = monthlyComparisonData[0];
+              const prevMonth = monthlyComparisonData[1];
+              const varPct = currMonth?.variacionVsPrev;
+              return (
+                <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col justify-between">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Crecimiento vs Mes Anterior</span>
+                    <div className={`p-1.5 rounded-lg ${varPct !== null && varPct >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
+                      <TrendingUp className="w-4 h-4" />
+                    </div>
+                  </div>
+                  <div className="mt-3">
+                    <div className="text-xl font-black text-slate-900 tracking-tight flex items-baseline gap-2">
+                      {varPct !== null ? (
+                        <span className={varPct >= 0 ? 'text-emerald-600 font-mono' : 'text-rose-600 font-mono'}>
+                          {varPct >= 0 ? `+${varPct}%` : `${varPct}%`}
+                        </span>
+                      ) : (
+                        <span>-</span>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-slate-500 font-bold mt-0.5">
+                      {currMonth?.monthName || 'Actual'}: {currMonth?.totalProducido || 0}u vs {prevMonth?.monthName || 'Anterior'}: {prevMonth?.totalProducido || 0}u
+                    </p>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Litros Totales Históricos */}
+            {(() => {
+              const allLiters = monthlyComparisonData.reduce((acc, m) => acc + m.totalLitros, 0);
+              return (
+                <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col justify-between">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Volumen Acumulado Total</span>
+                    <div className="p-1.5 bg-cyan-50 text-cyan-600 rounded-lg">
+                      <Droplet className="w-4 h-4" />
+                    </div>
+                  </div>
+                  <div className="mt-3">
+                    <div className="text-xl font-black text-cyan-700 tracking-tight font-mono">
+                      {(allLiters / 1000000).toFixed(2)}M <span className="text-xs font-semibold text-slate-400">Litros</span>
+                    </div>
+                    <p className="text-[10px] text-cyan-600 font-bold mt-0.5">
+                      {allLiters.toLocaleString('es-AR')} L producidos en {monthlyComparisonData.length} meses
+                    </p>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Calidad Histórica */}
+            {(() => {
+              const totalFab = monthlyComparisonData.reduce((acc, m) => acc + m.fabricado, 0);
+              const totalPrim = monthlyComparisonData.reduce((acc, m) => acc + m.dePrimera, 0);
+              const qRate = totalFab > 0 ? ((totalPrim / totalFab) * 100).toFixed(1) : '100';
+              return (
+                <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col justify-between">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Calidad Promedio Histórica</span>
+                    <div className="p-1.5 bg-emerald-50 text-emerald-600 rounded-lg">
+                      <Award className="w-4 h-4" />
+                    </div>
+                  </div>
+                  <div className="mt-3">
+                    <div className="text-xl font-black text-emerald-700 tracking-tight font-mono">
+                      {qRate}%
+                    </div>
+                    <p className="text-[10px] text-emerald-600 font-bold mt-0.5">
+                      {totalPrim.toLocaleString('es-AR')} unidades de 1ra calidad
+                    </p>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+
+          {/* MONTHLY HISTOGRAM CHART */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-4">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+              <div>
+                <h3 className="text-xs font-black uppercase tracking-wider text-slate-800 flex items-center gap-2">
+                  <BarChart3 className="w-4 h-4 text-emerald-600" />
+                  Evolución Histórica de Producción Mes a Mes
+                </h3>
+                <p className="text-[11px] text-slate-400 font-bold mt-0.5">
+                  Volumen mensual de fabricación y ensamblaje con variación porcentual
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3 text-[10px] font-black uppercase">
+                <span className="flex items-center gap-1.5 text-blue-700">
+                  <span className="w-2.5 h-2.5 rounded-sm bg-blue-600 inline-block" /> Fabricación
+                </span>
+                <span className="flex items-center gap-1.5 text-purple-700">
+                  <span className="w-2.5 h-2.5 rounded-sm bg-purple-600 inline-block" /> Ensamblaje
+                </span>
+              </div>
+            </div>
+
+            {(() => {
+              const chronologicalMonths = monthlyComparisonData.slice().reverse();
+              const maxMonthVal = Math.max(...chronologicalMonths.map(m => m.totalProducido), 1);
+
+              return (
+                <div className="space-y-2">
+                  <div className="h-52 flex items-end gap-2 sm:gap-4 pt-6 px-2 border-b border-slate-100 overflow-x-auto custom-scrollbar">
+                    {chronologicalMonths.map((m) => {
+                      const heightPct = Math.max(10, (m.totalProducido / maxMonthVal) * 100);
+                      const fabPct = m.totalProducido > 0 ? (m.fabricado / m.totalProducido) * 100 : 0;
+                      const ensPct = m.totalProducido > 0 ? (m.ensamblado / m.totalProducido) * 100 : 0;
+
+                      return (
+                        <div
+                          key={m.monthKey}
+                          onClick={() => { applyFullMonth(m.monthKey); setActiveTab('operarios'); }}
+                          className="flex-1 min-w-[50px] max-w-[80px] h-full flex flex-col justify-end items-center group relative cursor-pointer"
+                          title={`Clic para ver ${m.monthName}`}
+                        >
+                          {/* Variación % badge on top */}
+                          {m.variacionVsPrev !== null && (
+                            <span className={`text-[8px] font-black px-1 py-0.5 rounded-md mb-1 transition-all ${
+                              m.variacionVsPrev >= 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                            }`}>
+                              {m.variacionVsPrev >= 0 ? `+${m.variacionVsPrev}%` : `${m.variacionVsPrev}%`}
+                            </span>
+                          )}
+
+                          {/* Value on bar */}
+                          <span className="text-[10px] font-black font-mono text-slate-800 mb-0.5">
+                            {m.totalProducido}
+                          </span>
+
+                          {/* Stacked Bar */}
+                          <div 
+                            className="w-full rounded-t-lg overflow-hidden flex flex-col justify-end transition-all duration-200 group-hover:ring-2 group-hover:ring-emerald-500 group-hover:scale-x-105 shadow-xs opacity-90 group-hover:opacity-100"
+                            style={{ height: `${heightPct}%` }}
+                          >
+                            {m.ensamblado > 0 && (
+                              <div 
+                                className="w-full bg-purple-600 transition-all" 
+                                style={{ height: `${ensPct}%` }}
+                              />
+                            )}
+                            {m.fabricado > 0 && (
+                              <div 
+                                className="w-full bg-blue-600 transition-all" 
+                                style={{ height: `${fabPct}%` }}
+                              />
+                            )}
+                          </div>
+
+                          {/* Month Label */}
+                          <span className="text-[10px] font-extrabold text-slate-600 mt-2 whitespace-nowrap group-hover:text-emerald-700">
+                            {m.monthName.split(' ')[0].substring(0, 3)} '{m.monthName.split(' ')[1]?.substring(2)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="text-[11px] text-slate-400 font-bold text-center pt-1">
+                    💡 Haz clic en cualquier mes para filtrar automáticamente el tablero y ver el rendimiento detallado de ese período.
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+
+          {/* MONTHLY COMPARISON FULL TABLE */}
+          <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+            <div className="p-3.5 bg-slate-50/70 border-b border-slate-200/80 flex items-center justify-between">
+              <div className="text-xs font-black text-slate-800 flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-brand-600" />
+                Tabla Comparativa Mensual de Fabricación ({monthlyComparisonData.length} meses)
+              </div>
+              <div className="text-[10px] font-extrabold text-slate-400 uppercase">
+                Historial completo consolidado
+              </div>
+            </div>
+
+            <div className="overflow-x-auto custom-scrollbar">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200 text-[9px] font-black uppercase text-slate-400 tracking-wider">
+                    <th className="px-3.5 py-2.5 min-w-[140px]">Mes / Año</th>
+                    <th className="px-3.5 py-2.5 w-28 text-center">Fabricación</th>
+                    <th className="px-3.5 py-2.5 w-24 text-center">Variación %</th>
+                    <th className="px-3.5 py-2.5 w-24 text-center">Ensamblaje</th>
+                    <th className="px-3.5 py-2.5 w-28 text-center">Total Prod</th>
+                    <th className="px-3.5 py-2.5 w-24 text-center">Días Activos</th>
+                    <th className="px-3.5 py-2.5 w-28 text-center">Prom. Diario</th>
+                    <th className="px-3.5 py-2.5 w-28 text-center">% Calidad 1ra</th>
+                    <th className="px-3.5 py-2.5 w-24 text-center">Descartes</th>
+                    <th className="px-3.5 py-2.5 w-28 text-center">Capacidad</th>
+                    <th className="px-3.5 py-2.5 min-w-[150px]">Operario #1</th>
+                    <th className="px-3.5 py-2.5 w-28 text-center">Acción</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-slate-700">
+                  {monthlyComparisonData.map((m) => {
+                    const opStyle = getOperatorStyle(m.topOperario.name);
+                    const isCurrentSelected = datePreset === m.monthKey || (datePreset === 'thisMonth' && m.monthKey === new Date().toISOString().substring(0, 7));
+
+                    return (
+                      <tr 
+                        key={m.monthKey} 
+                        className={`hover:bg-emerald-50/30 transition-colors ${isCurrentSelected ? 'bg-emerald-50/20 font-bold' : ''}`}
+                      >
+                        {/* Mes / Año */}
+                        <td className="px-3.5 py-2.5">
+                          <div className="flex items-center gap-2">
+                            <span className="font-black text-slate-900 text-xs">{m.monthName}</span>
+                            {isCurrentSelected && (
+                              <span className="px-1.5 py-0.2 rounded bg-emerald-500 text-white font-black text-[9px] uppercase">
+                                Activo
+                              </span>
+                            )}
+                          </div>
+                        </td>
+
+                        {/* Fabricado */}
+                        <td className="px-3.5 py-2.5 text-center font-bold text-blue-700 font-mono">
+                          {m.fabricado} u.
+                        </td>
+
+                        {/* Variación % */}
+                        <td className="px-3.5 py-2.5 text-center">
+                          {m.variacionVsPrev !== null ? (
+                            <span className={`inline-block px-1.5 py-0.5 rounded-md font-mono text-[10px] font-black ${
+                              m.variacionVsPrev >= 0 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'
+                            }`}>
+                              {m.variacionVsPrev >= 0 ? `+${m.variacionVsPrev}%` : `${m.variacionVsPrev}%`}
+                            </span>
+                          ) : (
+                            <span className="text-slate-300">-</span>
+                          )}
+                        </td>
+
+                        {/* Ensamblado */}
+                        <td className="px-3.5 py-2.5 text-center font-bold text-purple-700 font-mono">
+                          {m.ensamblado} u.
+                        </td>
+
+                        {/* Total Producido */}
+                        <td className="px-3.5 py-2.5 text-center font-mono font-black text-slate-900 text-sm">
+                          {m.totalProducido} u.
+                        </td>
+
+                        {/* Días Activos */}
+                        <td className="px-3.5 py-2.5 text-center text-slate-600 font-extrabold">
+                          {m.diasTrabajados.size} d.
+                        </td>
+
+                        {/* Promedio Diario */}
+                        <td className="px-3.5 py-2.5 text-center whitespace-nowrap font-mono font-bold text-amber-800">
+                          {m.promedioDiario} <span className="text-[9px]">u/d</span>
+                        </td>
+
+                        {/* Calidad 1ra */}
+                        <td className="px-3.5 py-2.5 text-center whitespace-nowrap">
+                          <span className="font-black text-emerald-700 text-xs">{m.qualityRate}%</span>
+                        </td>
+
+                        {/* Descartes / Rotos */}
+                        <td className="px-3.5 py-2.5 text-center font-bold text-rose-600 font-mono">
+                          {m.roturas + m.segunda > 0 ? `${m.roturas + m.segunda} u.` : <span className="text-slate-300">0</span>}
+                        </td>
+
+                        {/* Capacidad */}
+                        <td className="px-3.5 py-2.5 text-center font-mono font-bold text-cyan-700">
+                          {(m.totalLitros / 1000).toFixed(0)}k L
+                        </td>
+
+                        {/* Operario Líder */}
+                        <td className="px-3.5 py-2.5">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs">🥇</span>
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-black border ${opStyle.bg} ${opStyle.text} ${opStyle.border}`}>
+                              {m.topOperario.name} ({m.topOperario.total}u)
+                            </span>
+                          </div>
+                        </td>
+
+                        {/* Botón Filtrar Este Mes */}
+                        <td className="px-3.5 py-2.5 text-center">
+                          <button
+                            onClick={() => { applyFullMonth(m.monthKey); setActiveTab('operarios'); }}
+                            className="px-2 py-1 bg-slate-100 hover:bg-emerald-600 hover:text-white text-slate-700 rounded-lg text-[10px] font-black transition-all cursor-pointer shadow-2xs"
+                          >
+                            Filtrar 🔍
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* OPERATOR PROGRESSION MATRIX BY MONTH */}
+          <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+            <div className="p-3.5 bg-slate-50/70 border-b border-slate-200/80 flex items-center justify-between">
+              <div className="text-xs font-black text-slate-800 flex items-center gap-2">
+                <Users className="w-4 h-4 text-blue-600" />
+                Matriz de Operarios Mes a Mes (Evolución de Productividad)
+              </div>
+              <div className="text-[10px] font-extrabold text-slate-400 uppercase">
+                Unidades fabricadas y ensambladas por operario en cada mes
+              </div>
+            </div>
+
+            <div className="overflow-x-auto custom-scrollbar">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200 text-[9px] font-black uppercase text-slate-400 tracking-wider">
+                    <th className="px-3.5 py-2.5 min-w-[160px]">Operario</th>
+                    {monthlyComparisonData.slice(0, 8).map(m => (
+                      <th key={m.monthKey} className="px-3.5 py-2.5 text-center min-w-[90px]">
+                        {m.monthName.split(' ')[0].substring(0, 3)} '{m.monthName.split(' ')[1]?.substring(2)}
+                      </th>
+                    ))}
+                    <th className="px-3.5 py-2.5 text-center w-24">Total Histórico</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-slate-700">
+                  {operatorsList.map(opName => {
+                    const opStyle = getOperatorStyle(opName);
+                    let histTotal = 0;
+
+                    return (
+                      <tr key={opName} className="hover:bg-slate-50 transition-colors">
+                        <td className="px-3.5 py-2.5 font-bold">
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-black border ${opStyle.bg} ${opStyle.text} ${opStyle.border}`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${opStyle.dot}`} />
+                            {opName}
+                          </span>
+                        </td>
+
+                        {monthlyComparisonData.slice(0, 8).map(m => {
+                          const opData = m.operariosMap[opName];
+                          const totalMonth = opData ? opData.total : 0;
+                          histTotal += totalMonth;
+
+                          return (
+                            <td key={m.monthKey} className="px-3.5 py-2.5 text-center font-mono">
+                              {totalMonth > 0 ? (
+                                <span className="font-extrabold text-slate-900 bg-slate-100 px-2 py-0.5 rounded-md">
+                                  {totalMonth}
+                                </span>
+                              ) : (
+                                <span className="text-slate-300">-</span>
+                              )}
+                            </td>
+                          );
+                        })}
+
+                        <td className="px-3.5 py-2.5 text-center font-mono font-black text-slate-900 text-sm">
+                          {histTotal > 0 ? `${histTotal} u.` : '-'}
                         </td>
                       </tr>
                     );
