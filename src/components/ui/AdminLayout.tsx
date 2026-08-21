@@ -130,6 +130,12 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       ]
     },
     {
+      title: "Fábrica y Producción",
+      links: [
+        { name: "Control de Producción", href: "/admin/produccion", icon: Factory, adminOnly: true }
+      ]
+    },
+    {
       title: "Catálogo y Costos",
       links: [
         { name: "Catálogo General", href: "/admin", icon: Database, adminOnly: true },
