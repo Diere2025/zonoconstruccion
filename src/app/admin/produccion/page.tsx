@@ -22,10 +22,34 @@ import {
   Award,
   BarChart3,
   Flame,
-  AlertCircle
+  AlertCircle,
+  Trophy,
+  ChevronRight,
+  Droplet,
+  PieChart,
+  SlidersHorizontal,
+  ChevronDown
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ProductionItem, AssemblyItem } from "@/app/api/admin/produccion-data/route";
+
+// Helper to extract litraje
+const extractLitraje = (productName: string): { label: string; litros: number } => {
+  if (!productName) return { label: 'Otros', litros: 0 };
+  const lower = productName.toLowerCase();
+  const match = productName.match(/(\d+)\s*(L|litros|lts|l)\b/i);
+  if (match) {
+    const num = parseInt(match[1], 10);
+    return { label: `${num}L`, litros: num };
+  }
+  if (lower.includes('cono') || lower.includes('tapa') || lower.includes('accesorio') || lower.includes('brida')) {
+    return { label: 'Accesorios', litros: 0 };
+  }
+  if (lower.includes('camara') || lower.includes('cámara') || lower.includes('desengrasadora')) {
+    return { label: 'Cámaras', litros: 0 };
+  }
+  return { label: 'Otros', litros: 0 };
+};
 
 export default function ProduccionPage() {
   const [loading, setLoading] = useState(true);
@@ -36,7 +60,7 @@ export default function ProduccionPage() {
   const [operatorsList, setOperatorsList] = useState<string[]>([]);
 
   // Navigation tabs
-  const [activeTab, setActiveTab] = useState<'fabricacion' | 'ensamblaje' | 'operarios' | 'incidencias'>('fabricacion');
+  const [activeTab, setActiveTab] = useState<'operarios' | 'fabricacion' | 'ensamblaje' | 'incidencias'>('operarios');
 
   // Filters
   const [datePreset, setDatePreset] = useState<'today' | 'yesterday' | 'last7' | 'thisMonth' | 'lastMonth' | 'all' | 'custom'>('thisMonth');
@@ -47,6 +71,9 @@ export default function ProduccionPage() {
   const [selectedQuality, setSelectedQuality] = useState("all");
   const [selectedMachine, setSelectedMachine] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
+
+  // Modal / Selected operator detail
+  const [selectedOperatorDetail, setSelectedOperatorDetail] = useState<string | null>(null);
 
   // Operator distinctive badges
   const getOperatorStyle = (name?: string | null) => {
@@ -201,17 +228,21 @@ export default function ProduccionPage() {
     });
   }, [ensamblajeData, dateFrom, dateTo, selectedOperator, selectedStatus, searchQuery]);
 
-  // Combined KPIs
+  // Combined Global KPIs
   const stats = useMemo(() => {
     let totalFabricado = 0;
     let totalPlanificadoFab = 0;
     let totalDePrimera = 0;
     let totalSegunda = 0;
     let totalRoturas = 0;
+    let totalLitrosEquivalentes = 0;
 
     filteredFabricacion.forEach(item => {
       if (item.estado === "Fabricado") {
         totalFabricado += item.cantidad;
+        const lit = extractLitraje(item.producto);
+        totalLitrosEquivalentes += lit.litros * item.cantidad;
+
         const q = item.calidad.toLowerCase();
         if (q.includes("primera")) totalDePrimera += item.cantidad;
         else if (q.includes("segunda")) totalSegunda += item.cantidad;
@@ -239,20 +270,31 @@ export default function ProduccionPage() {
       totalDePrimera,
       totalSegunda,
       totalRoturas,
-      qualityRate
+      qualityRate,
+      totalLitrosEquivalentes
     };
   }, [filteredFabricacion, filteredEnsamblaje]);
 
-  // Operator Productivity Breakdown
+  // Enriched Operator Productivity Breakdown
   const operatorMetrics = useMemo(() => {
     const map: Record<string, {
       name: string;
+      totalProducido: number;
       totalFabricado: number;
       dePrimera: number;
-      segundaORoto: number;
+      segunda: number;
+      rotos: number;
       totalEnsamblado: number;
       diasActivo: Set<string>;
+      promedioDiario: number;
+      promedioFabricacionDiaria: number;
+      litrajes: Record<string, number>;
+      totalLitrosEquivalentes: number;
+      maquinas: { doble: number; simple: number };
       productos: Record<string, number>;
+      observaciones: string[];
+      topLitraje: string;
+      qualityRate: string;
     }> = {};
 
     filteredFabricacion.forEach(item => {
@@ -260,25 +302,55 @@ export default function ProduccionPage() {
       if (!map[item.operario]) {
         map[item.operario] = {
           name: item.operario,
+          totalProducido: 0,
           totalFabricado: 0,
           dePrimera: 0,
-          segundaORoto: 0,
+          segunda: 0,
+          rotos: 0,
           totalEnsamblado: 0,
           diasActivo: new Set(),
-          productos: {}
+          promedioDiario: 0,
+          promedioFabricacionDiaria: 0,
+          litrajes: {},
+          totalLitrosEquivalentes: 0,
+          maquinas: { doble: 0, simple: 0 },
+          productos: {},
+          observaciones: [],
+          topLitraje: '-',
+          qualityRate: '100'
         };
       }
-      map[item.operario].totalFabricado += item.cantidad;
-      map[item.operario].diasActivo.add(item.fecha);
 
+      const op = map[item.operario];
+      op.totalFabricado += item.cantidad;
+      op.diasActivo.add(item.fecha);
+
+      // Litraje breakdown
+      const lit = extractLitraje(item.producto);
+      op.litrajes[lit.label] = (op.litrajes[lit.label] || 0) + item.cantidad;
+      op.totalLitrosEquivalentes += lit.litros * item.cantidad;
+
+      // Quality
       const q = item.calidad.toLowerCase();
-      if (q.includes("segunda") || q.includes("roto") || q.includes("inutilizable")) {
-        map[item.operario].segundaORoto += item.cantidad;
+      if (q.includes("segunda")) {
+        op.segunda += item.cantidad;
+      } else if (q.includes("roto") || q.includes("inutilizable") || q.includes("descarte")) {
+        op.rotos += item.cantidad;
       } else {
-        map[item.operario].dePrimera += item.cantidad;
+        op.dePrimera += item.cantidad;
       }
 
-      map[item.operario].productos[item.producto] = (map[item.operario].productos[item.producto] || 0) + item.cantidad;
+      // Machine
+      if (item.tipoMaquina?.toUpperCase() === 'DOBLE') op.maquinas.doble += item.cantidad;
+      else op.maquinas.simple += item.cantidad;
+
+      // Product
+      op.productos[item.producto] = (op.productos[item.producto] || 0) + item.cantidad;
+
+      // Observations
+      if (item.observaciones) {
+        op.observaciones.push(`${item.fechaFormatted}: ${item.producto} (${item.cantidad}u) - ${item.observaciones}`);
+      }
     });
 
     filteredEnsamblaje.forEach(item => {
@@ -286,34 +358,80 @@ export default function ProduccionPage() {
       if (!map[item.operario]) {
         map[item.operario] = {
           name: item.operario,
+          totalProducido: 0,
           totalFabricado: 0,
           dePrimera: 0,
-          segundaORoto: 0,
+          segunda: 0,
+          rotos: 0,
           totalEnsamblado: 0,
           diasActivo: new Set(),
-          productos: {}
+          promedioDiario: 0,
+          promedioFabricacionDiaria: 0,
+          litrajes: {},
+          totalLitrosEquivalentes: 0,
+          maquinas: { doble: 0, simple: 0 },
+          productos: {},
+          observaciones: [],
+          topLitraje: '-',
+          qualityRate: '100'
         };
       }
-      map[item.operario].totalEnsamblado += item.cantidad;
-      map[item.operario].diasActivo.add(item.fecha);
+      const op = map[item.operario];
+      op.totalEnsamblado += item.cantidad;
+      op.diasActivo.add(item.fecha);
+      op.productos[`[Ensamblaje] ${item.producto}`] = (op.productos[`[Ensamblaje] ${item.producto}`] || 0) + item.cantidad;
     });
 
-    return Object.values(map).sort((a, b) => (b.totalFabricado + b.totalEnsamblado) - (a.totalFabricado + a.totalEnsamblado));
+    // Compute derived metrics
+    return Object.values(map).map(op => {
+      op.totalProducido = op.totalFabricado + op.totalEnsamblado;
+      const daysCount = op.diasActivo.size || 1;
+      op.promedioDiario = parseFloat((op.totalProducido / daysCount).toFixed(1));
+      op.promedioFabricacionDiaria = parseFloat((op.totalFabricado / daysCount).toFixed(1));
+      op.qualityRate = op.totalFabricado > 0 ? ((op.dePrimera / op.totalFabricado) * 100).toFixed(1) : "100";
+
+      // Find top litraje
+      let topLit = "-";
+      let maxLitCount = 0;
+      Object.entries(op.litrajes).forEach(([litName, count]) => {
+        if (count > maxLitCount && litName !== 'Accesorios' && litName !== 'Otros') {
+          maxLitCount = count;
+          topLit = litName;
+        }
+      });
+      op.topLitraje = topLit;
+
+      return op;
+    }).sort((a, b) => b.totalProducido - a.totalProducido);
   }, [filteredFabricacion, filteredEnsamblaje]);
 
-  // Top Products Breakdown
-  const topProducts = useMemo(() => {
-    const countMap: Record<string, number> = {};
+  // Global Litraje Breakdown across all factory
+  const factoryLitrajeBreakdown = useMemo(() => {
+    const map: Record<string, number> = {};
+    let totalTanks = 0;
+
     filteredFabricacion.forEach(item => {
       if (item.estado === "Fabricado") {
-        countMap[item.producto] = (countMap[item.producto] || 0) + item.cantidad;
+        const lit = extractLitraje(item.producto);
+        map[lit.label] = (map[lit.label] || 0) + item.cantidad;
+        totalTanks += item.cantidad;
       }
     });
-    return Object.entries(countMap)
-      .map(([producto, total]) => ({ producto, total }))
-      .sort((a, b) => b.total - a.total)
-      .slice(0, 10);
+
+    return Object.entries(map)
+      .map(([litraje, cantidad]) => ({
+        litraje,
+        cantidad,
+        pct: totalTanks > 0 ? ((cantidad / totalTanks) * 100).toFixed(1) : "0"
+      }))
+      .sort((a, b) => b.cantidad - a.cantidad);
   }, [filteredFabricacion]);
+
+  // Selected operator object for detailed modal
+  const selectedOperatorObject = useMemo(() => {
+    if (!selectedOperatorDetail) return null;
+    return operatorMetrics.find(op => op.name === selectedOperatorDetail) || null;
+  }, [selectedOperatorDetail, operatorMetrics]);
 
   // Export CSV
   const handleExportCSV = () => {
@@ -329,10 +447,9 @@ export default function ProduccionPage() {
         csvContent += `"${row.fechaFormatted}","${row.producto}",${row.cantidad},"${row.operario}","${row.turno}","${row.estado}"\n`;
       });
     } else {
-      csvContent += "Operario,Total Fabricado,De Primera,Segunda / Rotos,% Calidad,Total Ensamblado,Días Activos\n";
-      operatorMetrics.forEach(op => {
-        const rate = op.totalFabricado > 0 ? ((op.dePrimera / op.totalFabricado) * 100).toFixed(1) + "%" : "100%";
-        csvContent += `"${op.name}",${op.totalFabricado},${op.dePrimera},${op.segundaORoto},"${rate}",${op.totalEnsamblado},${op.diasActivo.size}\n`;
+      csvContent += "Ranking,Operario,Total Producido,Fabricado (Rotomoldeo),Ensamblado,Días Trabajados,Promedio Diario (u/día),Litraje Principal,% Calidad 1ra,Segunda,Rotos,Litros Transformados\n";
+      operatorMetrics.forEach((op, idx) => {
+        csvContent += `${idx + 1},"${op.name}",${op.totalProducido},${op.totalFabricado},${op.totalEnsamblado},${op.diasActivo.size},${op.promedioDiario},"${op.topLitraje}","${op.qualityRate}%",${op.segunda},${op.rotos},${op.totalLitrosEquivalentes}\n`;
       });
     }
 
@@ -364,7 +481,7 @@ export default function ProduccionPage() {
                 </span>
               </h1>
               <p className="text-xs text-slate-400 font-semibold mt-0.5">
-                Seguimiento integral de rotomoldeo, ensamblaje, calidad y métricas de operarios.
+                Métricas avanzadas por operario, litrajes fabricados, rotomoldeo, ensamblaje y calidad.
               </p>
             </div>
           </div>
@@ -406,7 +523,7 @@ export default function ProduccionPage() {
       </div>
 
       {/* KPI Cards Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
         {/* Total Fabricado */}
         <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
@@ -419,7 +536,7 @@ export default function ProduccionPage() {
             <div className="text-2xl font-black text-slate-900 tracking-tight">
               {stats.totalFabricado.toLocaleString('es-AR')} <span className="text-xs font-semibold text-slate-400">u.</span>
             </div>
-            <p className="text-[10px] text-blue-600 font-bold mt-0.5">Piezas rotomoldeadas</p>
+            <p className="text-[10px] text-blue-600 font-bold mt-0.5">Rotomoldeados</p>
           </div>
         </div>
 
@@ -435,14 +552,30 @@ export default function ProduccionPage() {
             <div className="text-2xl font-black text-slate-900 tracking-tight">
               {stats.totalEnsamblado.toLocaleString('es-AR')} <span className="text-xs font-semibold text-slate-400">u.</span>
             </div>
-            <p className="text-[10px] text-purple-600 font-bold mt-0.5">Productos armados</p>
+            <p className="text-[10px] text-purple-600 font-bold mt-0.5">Tanques armados</p>
+          </div>
+        </div>
+
+        {/* Litros Transformados */}
+        <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col justify-between">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Volumen Litros</span>
+            <div className="p-1.5 bg-cyan-50 text-cyan-600 rounded-lg">
+              <Droplet className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-3">
+            <div className="text-2xl font-black text-cyan-700 tracking-tight">
+              {(stats.totalLitrosEquivalentes / 1000).toLocaleString('es-AR', { maximumFractionDigits: 0 })}k <span className="text-xs font-semibold text-slate-400">L</span>
+            </div>
+            <p className="text-[10px] text-cyan-600 font-bold mt-0.5">{stats.totalLitrosEquivalentes.toLocaleString('es-AR')} L totales</p>
           </div>
         </div>
 
         {/* Total Planificado */}
         <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Planificado Futuro</span>
+            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Planificado</span>
             <div className="p-1.5 bg-amber-50 text-amber-600 rounded-lg">
               <Clock className="w-4 h-4" />
             </div>
@@ -451,14 +584,14 @@ export default function ProduccionPage() {
             <div className="text-2xl font-black text-slate-900 tracking-tight">
               {stats.totalPlanificado.toLocaleString('es-AR')} <span className="text-xs font-semibold text-slate-400">u.</span>
             </div>
-            <p className="text-[10px] text-amber-600 font-bold mt-0.5">En cola de trabajo</p>
+            <p className="text-[10px] text-amber-600 font-bold mt-0.5">En cola futura</p>
           </div>
         </div>
 
         {/* Tasa Calidad de Primera */}
         <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Calidad de Primera</span>
+            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Calidad de 1ra</span>
             <div className="p-1.5 bg-emerald-50 text-emerald-600 rounded-lg">
               <Award className="w-4 h-4" />
             </div>
@@ -474,7 +607,7 @@ export default function ProduccionPage() {
         {/* Roturas / Segunda */}
         <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Descartes / Segunda</span>
+            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Descartes / Rotos</span>
             <div className="p-1.5 bg-rose-50 text-rose-600 rounded-lg">
               <AlertTriangle className="w-4 h-4" />
             </div>
@@ -483,7 +616,7 @@ export default function ProduccionPage() {
             <div className="text-2xl font-black text-rose-600 tracking-tight">
               {stats.totalRoturas + stats.totalSegunda} <span className="text-xs font-semibold text-slate-400">u.</span>
             </div>
-            <p className="text-[10px] text-rose-500 font-bold mt-0.5">{stats.totalRoturas} rotos · {stats.totalSegunda} segunda</p>
+            <p className="text-[10px] text-rose-500 font-bold mt-0.5">{stats.totalRoturas} rotos · {stats.totalSegunda} 2da</p>
           </div>
         </div>
       </div>
@@ -493,6 +626,14 @@ export default function ProduccionPage() {
         {/* Navigation Tabs */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-slate-100 pb-3">
           <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/60 overflow-x-auto max-w-full">
+            <button
+              onClick={() => setActiveTab('operarios')}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                activeTab === 'operarios' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <Trophy className="w-3.5 h-3.5 text-amber-500" /> Rendimiento de Operarios ({operatorMetrics.length})
+            </button>
             <button
               onClick={() => setActiveTab('fabricacion')}
               className={`px-3.5 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
@@ -508,14 +649,6 @@ export default function ProduccionPage() {
               }`}
             >
               <Wrench className="w-3.5 h-3.5" /> Ensamblaje ({filteredEnsamblaje.length})
-            </button>
-            <button
-              onClick={() => setActiveTab('operarios')}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
-                activeTab === 'operarios' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              <BarChart3 className="w-3.5 h-3.5" /> Rendimiento de Operarios ({operatorMetrics.length})
             </button>
             <button
               onClick={() => setActiveTab('incidencias')}
@@ -659,8 +792,283 @@ export default function ProduccionPage() {
           <Loader2 className="w-8 h-8 text-brand-600 animate-spin" />
           <span className="text-xs font-bold text-slate-500">Cargando datos de producción desde Google Sheets...</span>
         </div>
+      ) : activeTab === 'operarios' ? (
+        /* TAB: RENDIMIENTO ENRIQUECIDO DE OPERARIOS & LITRAJES */
+        <div className="space-y-6">
+          {/* PODIUM & HIGHLIGHTS */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* 🥇 #1 OPERARIO LÍDER */}
+            {operatorMetrics[0] && (
+              <div className="relative overflow-hidden bg-gradient-to-br from-amber-500/10 via-amber-50 to-white p-5 rounded-2xl border-2 border-amber-300 shadow-sm flex flex-col justify-between">
+                <div className="absolute top-0 right-0 transform translate-x-3 -translate-y-3 opacity-10 pointer-events-none">
+                  <Trophy className="w-32 h-32 text-amber-600" />
+                </div>
+                <div>
+                  <div className="flex items-center justify-between">
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500 text-white font-black text-[10px] uppercase tracking-wider shadow-xs">
+                      🥇 Líder del Período
+                    </span>
+                    <span className="text-xs font-black text-amber-700">
+                      {operatorMetrics[0].diasActivo.size} días activos
+                    </span>
+                  </div>
+
+                  <div className="mt-3.5">
+                    <h3 className="text-lg font-black text-slate-900">{operatorMetrics[0].name}</h3>
+                    <p className="text-xs text-amber-800 font-bold mt-0.5">
+                      Especialidad: {operatorMetrics[0].topLitraje} · {operatorMetrics[0].qualityRate}% Calidad 1ra
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-amber-200/60 text-center">
+                  <div className="bg-white/80 p-2 rounded-xl border border-amber-200/50">
+                    <span className="text-[9px] font-black uppercase text-slate-400 block">Total Real</span>
+                    <span className="text-base font-black text-slate-900">{operatorMetrics[0].totalProducido} u.</span>
+                  </div>
+                  <div className="bg-white/80 p-2 rounded-xl border border-amber-200/50">
+                    <span className="text-[9px] font-black uppercase text-slate-400 block">Prom. Diario</span>
+                    <span className="text-base font-black text-amber-700">{operatorMetrics[0].promedioDiario} <span className="text-[10px]">u/d</span></span>
+                  </div>
+                  <div className="bg-white/80 p-2 rounded-xl border border-amber-200/50">
+                    <span className="text-[9px] font-black uppercase text-slate-400 block">Capacidad</span>
+                    <span className="text-base font-black text-cyan-700">{(operatorMetrics[0].totalLitrosEquivalentes / 1000).toFixed(0)}k <span className="text-[10px]">L</span></span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 🥈 #2 SEGUNDO PUESTO */}
+            {operatorMetrics[1] && (
+              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between">
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-200 text-slate-700 font-black text-[10px] uppercase tracking-wider">
+                      🥈 2° Puesto
+                    </span>
+                    <span className="text-xs font-bold text-slate-500">
+                      {operatorMetrics[1].diasActivo.size} días activos
+                    </span>
+                  </div>
+
+                  <div className="mt-3.5">
+                    <h3 className="text-base font-black text-slate-900">{operatorMetrics[1].name}</h3>
+                    <p className="text-xs text-slate-500 font-bold mt-0.5">
+                      Top Litraje: {operatorMetrics[1].topLitraje} · {operatorMetrics[1].qualityRate}% Calidad 1ra
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-slate-100 text-center">
+                  <div className="bg-slate-50 p-2 rounded-xl border border-slate-100">
+                    <span className="text-[9px] font-black uppercase text-slate-400 block">Total Real</span>
+                    <span className="text-sm font-black text-slate-900">{operatorMetrics[1].totalProducido} u.</span>
+                  </div>
+                  <div className="bg-slate-50 p-2 rounded-xl border border-slate-100">
+                    <span className="text-[9px] font-black uppercase text-slate-400 block">Prom. Diario</span>
+                    <span className="text-sm font-black text-slate-700">{operatorMetrics[1].promedioDiario} u/d</span>
+                  </div>
+                  <div className="bg-slate-50 p-2 rounded-xl border border-slate-100">
+                    <span className="text-[9px] font-black uppercase text-slate-400 block">Capacidad</span>
+                    <span className="text-sm font-black text-cyan-700">{(operatorMetrics[1].totalLitrosEquivalentes / 1000).toFixed(0)}k L</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 🥉 #3 TERCER PUESTO */}
+            {operatorMetrics[2] && (
+              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between">
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 font-black text-[10px] uppercase tracking-wider">
+                      🥉 3° Puesto
+                    </span>
+                    <span className="text-xs font-bold text-slate-500">
+                      {operatorMetrics[2].diasActivo.size} días activos
+                    </span>
+                  </div>
+
+                  <div className="mt-3.5">
+                    <h3 className="text-base font-black text-slate-900">{operatorMetrics[2].name}</h3>
+                    <p className="text-xs text-slate-500 font-bold mt-0.5">
+                      Top Litraje: {operatorMetrics[2].topLitraje} · {operatorMetrics[2].qualityRate}% Calidad 1ra
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-slate-100 text-center">
+                  <div className="bg-slate-50 p-2 rounded-xl border border-slate-100">
+                    <span className="text-[9px] font-black uppercase text-slate-400 block">Total Real</span>
+                    <span className="text-sm font-black text-slate-900">{operatorMetrics[2].totalProducido} u.</span>
+                  </div>
+                  <div className="bg-slate-50 p-2 rounded-xl border border-slate-100">
+                    <span className="text-[9px] font-black uppercase text-slate-400 block">Prom. Diario</span>
+                    <span className="text-sm font-black text-slate-700">{operatorMetrics[2].promedioDiario} u/d</span>
+                  </div>
+                  <div className="bg-slate-50 p-2 rounded-xl border border-slate-100">
+                    <span className="text-[9px] font-black uppercase text-slate-400 block">Capacidad</span>
+                    <span className="text-sm font-black text-cyan-700">{(operatorMetrics[2].totalLitrosEquivalentes / 1000).toFixed(0)}k L</span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* GLOBAL LITRAJE BREAKDOWN CHIPS */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-2">
+                <PieChart className="w-4 h-4 text-cyan-600" />
+                Desglose de Producción de Fábrica por Litraje / Capacidad
+              </h3>
+              <span className="text-[10px] font-bold text-slate-400">
+                {stats.totalFabricado} tanques rotomoldeados en el período
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 pt-1">
+              {factoryLitrajeBreakdown.map((item) => (
+                <div key={item.litraje} className="p-3 bg-slate-50 border border-slate-200/80 rounded-xl flex flex-col justify-between">
+                  <span className="text-[10px] font-black text-slate-500 uppercase">{item.litraje}</span>
+                  <div className="mt-1 flex items-baseline justify-between">
+                    <span className="text-lg font-black text-slate-900 font-mono">{item.cantidad} <span className="text-[10px] font-semibold text-slate-400">u.</span></span>
+                    <span className="text-[10px] font-extrabold text-cyan-600">{item.pct}%</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* FULL OPERATOR COMPARISON TABLE */}
+          <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+            <div className="p-3.5 bg-slate-50/70 border-b border-slate-200/80 flex items-center justify-between">
+              <div className="text-xs font-black text-slate-800">
+                Tabla Comparativa y Productividad Detallada por Operario ({operatorMetrics.length})
+              </div>
+              <div className="text-[10px] font-extrabold text-slate-400 uppercase">
+                Haz clic en cualquier fila para ver el detalle completo
+              </div>
+            </div>
+
+            <div className="overflow-x-auto custom-scrollbar">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200 text-[9px] font-black uppercase text-slate-400 tracking-wider">
+                    <th className="px-3.5 py-2.5 w-12 text-center">Pos</th>
+                    <th className="px-3.5 py-2.5 min-w-[160px]">Operario</th>
+                    <th className="px-3.5 py-2.5 w-24 text-center">Total Prod</th>
+                    <th className="px-3.5 py-2.5 w-24 text-center">Fabricado</th>
+                    <th className="px-3.5 py-2.5 w-24 text-center">Ensamblado</th>
+                    <th className="px-3.5 py-2.5 w-24 text-center">Días Activo</th>
+                    <th className="px-3.5 py-2.5 w-28 text-center">Prom. Diario</th>
+                    <th className="px-3.5 py-2.5 min-w-[200px]">Desglose por Litraje</th>
+                    <th className="px-3.5 py-2.5 w-28 text-center">Calidad 1ra</th>
+                    <th className="px-3.5 py-2.5 w-20 text-center">Fallas</th>
+                    <th className="px-3.5 py-2.5 w-16 text-center">Detalle</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-slate-700">
+                  {operatorMetrics.map((op, idx) => {
+                    const opStyle = getOperatorStyle(op.name);
+
+                    return (
+                      <tr 
+                        key={op.name} 
+                        onClick={() => setSelectedOperatorDetail(op.name)}
+                        className="hover:bg-blue-50/30 transition-colors cursor-pointer group"
+                      >
+                        {/* Posición */}
+                        <td className="px-3.5 py-2.5 text-center font-black">
+                          {idx === 0 ? "🥇" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : `#${idx + 1}`}
+                        </td>
+
+                        {/* Operario */}
+                        <td className="px-3.5 py-2.5 font-bold text-slate-900 whitespace-nowrap">
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border ${opStyle.bg} ${opStyle.text} ${opStyle.border}`}>
+                            <span className={`w-2 h-2 rounded-full ${opStyle.dot}`} />
+                            {op.name}
+                          </span>
+                        </td>
+
+                        {/* Total Producido */}
+                        <td className="px-3.5 py-2.5 text-center font-mono font-black text-slate-900 text-sm">
+                          {op.totalProducido} <span className="text-[10px] font-semibold text-slate-400">u.</span>
+                        </td>
+
+                        {/* Fabricado */}
+                        <td className="px-3.5 py-2.5 text-center font-bold text-blue-700">
+                          {op.totalFabricado} u.
+                        </td>
+
+                        {/* Ensamblado */}
+                        <td className="px-3.5 py-2.5 text-center font-bold text-purple-700">
+                          {op.totalEnsamblado} u.
+                        </td>
+
+                        {/* Días Activo */}
+                        <td className="px-3.5 py-2.5 text-center text-slate-600 font-extrabold">
+                          {op.diasActivo.size} d.
+                        </td>
+
+                        {/* Promedio Diario */}
+                        <td className="px-3.5 py-2.5 text-center whitespace-nowrap">
+                          <span className="inline-block px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200/60 font-black font-mono">
+                            {op.promedioDiario} <span className="text-[9px] font-bold">u/día</span>
+                          </span>
+                        </td>
+
+                        {/* Desglose por Litraje */}
+                        <td className="px-3.5 py-2.5">
+                          <div className="flex flex-wrap gap-1">
+                            {Object.entries(op.litrajes).map(([lit, count]) => (
+                              <span 
+                                key={lit} 
+                                className="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-100 text-[10px] font-extrabold text-slate-700"
+                              >
+                                {lit}: <strong className="ml-1 text-slate-900">{count}</strong>
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+
+                        {/* Calidad 1ra */}
+                        <td className="px-3.5 py-2.5 text-center whitespace-nowrap">
+                          <div className="flex flex-col items-center">
+                            <span className="font-black text-emerald-700 text-xs">{op.qualityRate}%</span>
+                            <div className="w-16 h-1.5 rounded-full bg-slate-100 overflow-hidden mt-0.5">
+                              <div className="h-full bg-emerald-500" style={{ width: `${op.qualityRate}%` }} />
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* Fallas / Roturas */}
+                        <td className="px-3.5 py-2.5 text-center font-bold text-rose-600 font-mono">
+                          {op.segunda + op.rotos > 0 ? (
+                            <span className="inline-block px-1.5 py-0.5 rounded bg-rose-50 border border-rose-200 text-rose-700 text-[10px]">
+                              {op.segunda + op.rotos}
+                            </span>
+                          ) : (
+                            <span className="text-slate-300">0</span>
+                          )}
+                        </td>
+
+                        {/* Botón Ver Detalle */}
+                        <td className="px-3.5 py-2.5 text-center">
+                          <button className="p-1 rounded-lg text-slate-400 group-hover:text-brand-600 group-hover:bg-brand-50 transition-colors">
+                            <ChevronRight className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
       ) : activeTab === 'fabricacion' ? (
-        /* TAB 1: FABRICACIÓN */
+        /* TAB: FABRICACIÓN */
         <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
           <div className="p-3.5 bg-slate-50/70 border-b border-slate-200/80 flex items-center justify-between">
             <div className="text-xs font-black text-slate-800">
@@ -780,7 +1188,7 @@ export default function ProduccionPage() {
           </div>
         </div>
       ) : activeTab === 'ensamblaje' ? (
-        /* TAB 2: ENSAMBLAJE */
+        /* TAB: ENSAMBLAJE */
         <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
           <div className="p-3.5 bg-slate-50/70 border-b border-slate-200/80 flex items-center justify-between">
             <div className="text-xs font-black text-slate-800">
@@ -864,103 +1272,8 @@ export default function ProduccionPage() {
             </table>
           </div>
         </div>
-      ) : activeTab === 'operarios' ? (
-        /* TAB 3: PRODUCTIVIDAD POR OPERARIO & ESTADÍSTICAS */
-        <div className="space-y-6">
-          {/* Operator Ranking Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {operatorMetrics.map((op, idx) => {
-              const opStyle = getOperatorStyle(op.name);
-              const totalProd = op.totalFabricado + op.totalEnsamblado;
-              const qualityRate = op.totalFabricado > 0 ? ((op.dePrimera / op.totalFabricado) * 100).toFixed(0) : "100";
-
-              return (
-                <div key={op.name} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3.5">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2.5">
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-xs ${opStyle.bg} ${opStyle.text} border ${opStyle.border}`}>
-                        #{idx + 1}
-                      </div>
-                      <div>
-                        <h3 className="font-extrabold text-slate-900 text-sm">{op.name}</h3>
-                        <p className="text-[10px] text-slate-400 font-bold">{op.diasActivo.size} días con actividad</p>
-                      </div>
-                    </div>
-
-                    <div className="text-right">
-                      <span className="text-lg font-black text-slate-900">{totalProd}</span>
-                      <span className="text-[10px] font-bold text-slate-400 block">u. producidas</span>
-                    </div>
-                  </div>
-
-                  {/* Progress / Volume Breakdown */}
-                  <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100 text-center">
-                    <div className="p-2 rounded-xl bg-blue-50/50 border border-blue-100/60">
-                      <span className="text-[9px] font-black uppercase text-blue-600 block">Fabricado</span>
-                      <span className="text-sm font-black text-blue-900">{op.totalFabricado} u.</span>
-                    </div>
-                    <div className="p-2 rounded-xl bg-purple-50/50 border border-purple-100/60">
-                      <span className="text-[9px] font-black uppercase text-purple-600 block">Ensamblado</span>
-                      <span className="text-sm font-black text-purple-900">{op.totalEnsamblado} u.</span>
-                    </div>
-                    <div className="p-2 rounded-xl bg-emerald-50/50 border border-emerald-100/60">
-                      <span className="text-[9px] font-black uppercase text-emerald-600 block">1ra Calidad</span>
-                      <span className="text-sm font-black text-emerald-900">{qualityRate}%</span>
-                    </div>
-                  </div>
-
-                  {/* Quality Bar */}
-                  {op.totalFabricado > 0 && (
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-[9px] font-extrabold text-slate-400 uppercase">
-                        <span>Calidad Efectiva</span>
-                        <span className="text-emerald-700">{op.dePrimera} de primera · {op.segundaORoto} defectos</span>
-                      </div>
-                      <div className="w-full h-2 rounded-full bg-rose-100 overflow-hidden flex">
-                        <div 
-                          className="h-full bg-emerald-500 rounded-full transition-all duration-500" 
-                          style={{ width: `${qualityRate}%` }} 
-                        />
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Top 10 Products Breakdown */}
-          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
-            <h3 className="text-sm font-black text-slate-900 mb-3 flex items-center gap-2">
-              <Layers className="w-4 h-4 text-brand-600" />
-              Top 10 Productos Más Fabricados en el Período
-            </h3>
-
-            <div className="space-y-2.5">
-              {topProducts.map((p, pIdx) => {
-                const maxVal = topProducts[0]?.total || 1;
-                const pct = ((p.total / maxVal) * 100).toFixed(0);
-
-                return (
-                  <div key={p.producto} className="space-y-1">
-                    <div className="flex justify-between text-xs font-bold text-slate-700">
-                      <span>{pIdx + 1}. {p.producto}</span>
-                      <span className="font-mono font-black text-slate-900">{p.total} u.</span>
-                    </div>
-                    <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden">
-                      <div 
-                        className="h-full bg-brand-600 rounded-full transition-all duration-500" 
-                        style={{ width: `${pct}%` }} 
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
       ) : (
-        /* TAB 4: INCIDENCIAS & OBSERVACIONES */
+        /* TAB: INCIDENCIAS & OBSERVACIONES */
         <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
           <div className="p-3.5 bg-slate-50/70 border-b border-slate-200/80 flex items-center justify-between">
             <div className="text-xs font-black text-slate-800">
@@ -1008,6 +1321,110 @@ export default function ProduccionPage() {
                 No se registraron incidencias u observaciones para el período y filtros seleccionados.
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DETALLE DE OPERARIO */}
+      {selectedOperatorObject && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto custom-scrollbar p-6 space-y-5 animate-in fade-in zoom-in duration-200">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center font-black text-sm border ${getOperatorStyle(selectedOperatorObject.name).bg} ${getOperatorStyle(selectedOperatorObject.name).text} ${getOperatorStyle(selectedOperatorObject.name).border}`}>
+                  <User className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-black text-slate-900">{selectedOperatorObject.name}</h2>
+                  <p className="text-xs text-slate-400 font-bold">Perfil de Producción y Rendimiento Individual</p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setSelectedOperatorDetail(null)}
+                className="p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Quick Metrics Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-center">
+              <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-2xl">
+                <span className="text-[9px] font-black uppercase text-slate-400 block">Total Producido</span>
+                <span className="text-xl font-black text-slate-900">{selectedOperatorObject.totalProducido} u.</span>
+              </div>
+              <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-2xl">
+                <span className="text-[9px] font-black uppercase text-slate-400 block">Días Activo</span>
+                <span className="text-xl font-black text-slate-900">{selectedOperatorObject.diasActivo.size} d.</span>
+              </div>
+              <div className="p-3 bg-amber-50 border border-amber-200/80 rounded-2xl">
+                <span className="text-[9px] font-black uppercase text-amber-700 block">Promedio Diario</span>
+                <span className="text-xl font-black text-amber-900">{selectedOperatorObject.promedioDiario} <span className="text-xs">u/d</span></span>
+              </div>
+              <div className="p-3 bg-emerald-50 border border-emerald-200/80 rounded-2xl">
+                <span className="text-[9px] font-black uppercase text-emerald-700 block">% Calidad 1ra</span>
+                <span className="text-xl font-black text-emerald-900">{selectedOperatorObject.qualityRate}%</span>
+              </div>
+            </div>
+
+            {/* Desglose de Litrajes del Operario */}
+            <div className="space-y-2">
+              <h4 className="text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                <Droplet className="w-3.5 h-3.5 text-cyan-600" /> Tanques por Capacidad / Litraje
+              </h4>
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(selectedOperatorObject.litrajes).map(([lit, count]) => (
+                  <div key={lit} className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl flex items-center gap-2">
+                    <span className="text-xs font-black text-slate-600">{lit}:</span>
+                    <span className="text-xs font-black text-slate-900">{count} u.</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Productos Fabricados Detallados */}
+            <div className="space-y-2">
+              <h4 className="text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                <Layers className="w-3.5 h-3.5 text-brand-600" /> Detalle de Productos Producidos
+              </h4>
+              <div className="space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar pr-1">
+                {Object.entries(selectedOperatorObject.productos)
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([prodName, cant]) => (
+                    <div key={prodName} className="flex justify-between items-center p-2 rounded-xl bg-slate-50 border border-slate-100 text-xs">
+                      <span className="font-bold text-slate-800">{prodName}</span>
+                      <span className="font-mono font-black text-slate-900">{cant} u.</span>
+                    </div>
+                  ))}
+              </div>
+            </div>
+
+            {/* Incidencias del Operario */}
+            {selectedOperatorObject.observaciones.length > 0 && (
+              <div className="space-y-2">
+                <h4 className="text-xs font-black uppercase tracking-wider text-amber-800 flex items-center gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-600" /> Novedades e Incidencias en Turno
+                </h4>
+                <div className="space-y-1.5 max-h-36 overflow-y-auto custom-scrollbar pr-1">
+                  {selectedOperatorObject.observaciones.map((obs, oIdx) => (
+                    <div key={oIdx} className="p-2 rounded-xl bg-amber-50 border border-amber-200/80 text-[11px] font-bold text-amber-950">
+                      {obs}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="pt-2 border-t border-slate-100 flex justify-end">
+              <Button
+                onClick={() => setSelectedOperatorDetail(null)}
+                className="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold"
+              >
+                Cerrar Detalle
+              </Button>
+            </div>
           </div>
         </div>
       )}
