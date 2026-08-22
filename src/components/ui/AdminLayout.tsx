@@ -31,7 +31,8 @@ import {
   AlertTriangle,
   ChevronRight,
   Home,
-  Shield
+  Shield,
+  Layers
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
@@ -132,7 +133,8 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     {
       title: "Fábrica y Producción",
       links: [
-        { name: "Control de Producción", href: "/admin/produccion", icon: Factory, adminOnly: true }
+        { name: "Control de Producción", href: "/admin/produccion", icon: Factory, adminOnly: true },
+        { name: "Stock de Fábrica", href: "/admin/stock-fabrica", icon: Layers, adminOnly: true }
       ]
     },
     {
