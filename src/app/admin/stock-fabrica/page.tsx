@@ -27,7 +27,6 @@ import {
   ShieldCheck,
   Building2
 } from "lucide-react";
-import { AdminLayout } from "@/components/ui/AdminLayout";
 import { Button } from "@/components/ui/Button";
 import { FactoryStockItem } from "@/app/api/admin/stock-fabrica-data/route";
 
@@ -199,9 +198,8 @@ export default function StockFabricaPage() {
   };
 
   return (
-    <AdminLayout>
-      <div className="space-y-6 max-w-7xl mx-auto pb-12">
-        {/* Header Bar */}
+    <div className="space-y-6 max-w-7xl mx-auto pb-12">
+      {/* Header Bar */}
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div className="flex items-center gap-3">
             <div className="p-3 bg-brand-50 text-brand-600 rounded-2xl border border-brand-100/80 shadow-xs">
@@ -728,7 +726,6 @@ export default function StockFabricaPage() {
             </div>
           </div>
         )}
-      </div>
-    </AdminLayout>
-  );
+  </div>
+);
 }
