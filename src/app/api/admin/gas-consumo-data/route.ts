@@ -215,7 +215,8 @@ export async function GET() {
             const iso = parsedDate.iso;
             const ym = iso.substring(0, 7);
 
-            // Extract litraje
+            // Extract litraje and normalize base mold (remove (CIEGO) variant tag)
+            const baseProdName = prod.replace(/\s*\(CIEGO\)/i, '').trim();
             const match = prod.match(/(\d+)\s*(L|litros|lts|l)\b/i);
             const litersCapacity = match ? parseInt(match[1], 10) : 0;
 
@@ -224,7 +225,7 @@ export async function GET() {
             }
             tanksByDate[iso].totalTanks += cant;
             tanksByDate[iso].litersVolume += litersCapacity * cant;
-            tanksByDate[iso].products[prod] = (tanksByDate[iso].products[prod] || 0) + cant;
+            tanksByDate[iso].products[baseProdName] = (tanksByDate[iso].products[baseProdName] || 0) + cant;
 
             if (!tanksByMonth[ym]) {
               tanksByMonth[ym] = { totalTanks: 0, litersVolume: 0 };
