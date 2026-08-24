@@ -923,7 +923,9 @@ export default function CostosFabricacionPage() {
                   <tr>
                     <th className="py-3.5 px-4">Mes</th>
                     <th className="py-3.5 px-3 text-right">Tanques</th>
-                    <th className="py-3.5 px-4 text-right">Gas ($)</th>
+                    <th className="py-3.5 px-4 text-right font-black text-orange-700">Gas Consumido (L)</th>
+                    <th className="py-3.5 px-3 text-right font-bold text-orange-600">Rendimiento (L/u)</th>
+                    <th className="py-3.5 px-4 text-right">Inversión Gas ($)</th>
                     <th className="py-3.5 px-4 text-right">MDO ($)</th>
                     <th className="py-3.5 px-4 text-right">Luz ($)</th>
                     <th className="py-3.5 px-4 text-right">Total Operativo ($)</th>
@@ -935,10 +937,24 @@ export default function CostosFabricacionPage() {
                     <tr key={idx} className="hover:bg-slate-50/80 transition">
                       <td className="py-3 px-4 font-black text-slate-900">{m.monthName}</td>
                       <td className="py-3 px-3 text-right font-mono text-slate-700 font-bold">{m.tanquesFabricados} u</td>
-                      <td className="py-3 px-4 text-right font-mono text-orange-600 font-bold">${m.gasInversion.toLocaleString("es-AR")}</td>
-                      <td className="py-3 px-4 text-right font-mono text-cyan-700 font-bold">${m.mdoTotal.toLocaleString("es-AR")}</td>
-                      <td className="py-3 px-4 text-right font-mono text-amber-700 font-bold">${m.luzTotal.toLocaleString("es-AR")}</td>
-                      <td className="py-3 px-4 text-right font-mono font-black text-slate-900">${m.costoTotalOperativo.toLocaleString("es-AR")}</td>
+                      <td className="py-3 px-4 text-right font-mono font-black text-orange-600">
+                        {m.gasLitros > 0 ? `${m.gasLitros.toLocaleString("es-AR")} L` : "-"}
+                      </td>
+                      <td className="py-3 px-3 text-right font-mono font-bold text-orange-500">
+                        {m.gasLitrosPorTanque > 0 ? `${m.gasLitrosPorTanque} L/u` : "-"}
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono text-slate-700 font-medium">
+                        {m.gasInversion > 0 ? `$${m.gasInversion.toLocaleString("es-AR")}` : "-"}
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono text-cyan-700 font-medium">
+                        {m.mdoTotal > 0 ? `$${m.mdoTotal.toLocaleString("es-AR")}` : "-"}
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono text-amber-700 font-medium">
+                        {m.luzTotal > 0 ? `$${m.luzTotal.toLocaleString("es-AR")}` : "-"}
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono font-black text-slate-900">
+                        ${m.costoTotalOperativo.toLocaleString("es-AR")}
+                      </td>
                       <td className="py-3 px-4 text-right font-mono font-black text-emerald-600 text-base">
                         ${m.costoUnitarioTotal.toLocaleString("es-AR")} / u
                       </td>

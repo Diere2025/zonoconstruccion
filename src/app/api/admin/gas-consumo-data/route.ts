@@ -56,6 +56,7 @@ export interface MonthlyCostBreakdown {
   tanquesFabricados: number;
   litrosTransformados: number;
   gasLitros: number;
+  gasLitrosPorTanque: number;
   gasInversion: number;
   gasCostoUnitario: number;
   mdoTotal: number;
@@ -586,7 +587,23 @@ export async function GET() {
 
     // 6. Monthly Gas Consumption & Total Operating Cost Correlation
     const monthlyGasMap: Record<string, { gasLitros: number; inversion: number; tanques: number; litrosTransformados: number; }> = {};
-    Object.entries(tanksByMonth).forEach(([ym, pData]) => { monthlyGasMap[ym] = { gasLitros: 0, inversion: 0, tanques: pData.totalTanks, litrosTransformados: pData.litersVolume }; });
+    
+    // Ensure all 2026 months are tracked
+    allSalaryMonths.forEach(ym => {
+      monthlyGasMap[ym] = {
+        gasLitros: 0,
+        inversion: 0,
+        tanques: tanksByMonth[ym]?.totalTanks || 0,
+        litrosTransformados: tanksByMonth[ym]?.litersVolume || 0
+      };
+    });
+
+    Object.entries(tanksByMonth).forEach(([ym, pData]) => {
+      if (!monthlyGasMap[ym]) {
+        monthlyGasMap[ym] = { gasLitros: 0, inversion: 0, tanques: pData.totalTanks, litrosTransformados: pData.litersVolume };
+      }
+    });
+
     const refills = gasEvents.filter(e => e.tipo === "Recarga" && e.cargaLitros > 0);
     refills.forEach(r => {
       const ym = r.fecha.substring(0, 7);
@@ -596,7 +613,7 @@ export async function GET() {
     });
 
     const monthlyBreakdown: MonthlyCostBreakdown[] = Object.entries(monthlyGasMap).map(([ym, data]) => {
-      const gasPerTank = data.tanques > 0 && data.gasLitros > 0 ? data.gasLitros / data.tanques : 0;
+      const gasPerTank = data.tanques > 0 && data.gasLitros > 0 ? parseFloat((data.gasLitros / data.tanques).toFixed(2)) : 0;
       const gasCostPerTank = data.tanques > 0 && data.inversion > 0 ? data.inversion / data.tanques : 0;
       
       let monthMdoSalary = 0;
@@ -617,6 +634,7 @@ export async function GET() {
         tanquesFabricados: data.tanques,
         litrosTransformados: data.litrosTransformados,
         gasLitros: parseFloat(data.gasLitros.toFixed(1)),
+        gasLitrosPorTanque: gasPerTank,
         gasInversion: parseFloat(data.inversion.toFixed(0)),
         gasCostoUnitario: parseFloat(gasCostPerTank.toFixed(0)),
         mdoTotal: monthMdoSalary,
