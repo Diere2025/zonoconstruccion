@@ -789,62 +789,73 @@ export async function GET() {
       };
     });
 
-    // 8. Fabricated Products Cross with DB (Products from Supabase crossed with Plant Costs)
+    // 8. Fabricated Products Cross with DB (Only products actually rotomolded / manufactured in our plant)
+    const isStrictlyOwnFabrication = (p: any): boolean => {
+      const name = (p.name || '').toLowerCase();
+      const sku = (p.sku || '').toLowerCase();
+
+      // STRICT EXCLUSIONS: Resale tanks (Powerlit), Water heaters, Pumps, Tools, Kits, Parts
+      if (name.includes('powerlit') || sku.includes('powerlit')) return false;
+      if (name.includes('termotanque') || name.includes('universal') || name.includes('sirena') || name.includes('daewoo')) return false;
+      if (name.includes('taladro') || name.includes('bomba') || name.includes('escalera') || name.includes('omaha') || name.includes('kld')) return false;
+      if (name.includes('turboflex') || name.includes('pvc - desengrasadora') || name.includes('pvc - camara')) return false;
+      if (name.includes('pack') || name.includes('kit instalacion') || name.includes('adicionales') || name.includes('buje') || name.includes('valvula') || name.includes('tapa')) return false;
+
+      // STRICT INCLUSIONS: AquaFort, BioFort, Tachos, Conos, Sépticas
+      if (name.includes('aquafort')) return true;
+      if (name.includes('biofort')) return true;
+      if (name.includes('tacho cámara') || name.includes('tacho camara') || name.includes('tacho cónico') || name.includes('tacho conico') || name.includes('cono biodigestor')) return true;
+      if (name.startsWith('septica ') || name.startsWith('séptica ') || name.includes('cámara séptica') || name.includes('camara septica')) return true;
+
+      return false;
+    };
+
     const fabricatedProducts: FabricatedProductCost[] = [];
     if (Array.isArray(dbProducts)) {
       dbProducts.forEach((p: any) => {
+        if (!isStrictlyOwnFabrication(p)) return;
+
         const name = p.name || '';
-        if (isExcludedFromFabricated(name)) return;
-
         const lower = name.toLowerCase();
-        const cat = (p.category || '').toLowerCase();
-        const isFab = p.production_type === 'fabricado' || p.production_type === 'ensamblado' ||
-                      cat.includes('tanque') || cat.includes('cámara') || cat.includes('camara') || 
-                      cat.includes('biodigestor') || cat.includes('cisterna') ||
-                      lower.includes('aquafort') || lower.includes('biofort') || lower.includes('powerlit') || 
-                      lower.includes('biodigestor') || lower.includes('séptica') || lower.includes('septica') || 
-                      lower.includes('desengrasadora') || lower.includes('cisterna') || lower.includes('tacho');
+        const score = getProductScore(name);
+        const costInsumos = p.cost_price || 0;
+        const price = p.price || 0;
 
-        if (isFab) {
-          const score = getProductScore(name);
-          const costInsumos = p.cost_price || 0;
-          const price = p.price || 0;
+        const gasLiters = parseFloat((score * baseGasLiters).toFixed(2));
+        const gasCost = Math.round(gasLiters * latestPrice);
+        const mdoCost = Math.round(score * baseLaborCostPerTank);
+        const luzCost = Math.round(score * baseElectricityCostPerTank);
+        const plantOpCost = gasCost + mdoCost + luzCost;
+        const totalIntegralCost = costInsumos + plantOpCost;
 
-          const gasLiters = parseFloat((score * baseGasLiters).toFixed(2));
-          const gasCost = Math.round(gasLiters * latestPrice);
-          const mdoCost = Math.round(score * baseLaborCostPerTank);
-          const luzCost = Math.round(score * baseElectricityCostPerTank);
-          const plantOpCost = gasCost + mdoCost + luzCost;
-          const totalIntegralCost = costInsumos + plantOpCost;
+        const marginValue = price > 0 ? price - totalIntegralCost : 0;
+        const marginPct = price > 0 ? parseFloat(((marginValue / price) * 100).toFixed(1)) : 0;
 
-          const marginValue = price > 0 ? price - totalIntegralCost : 0;
-          const marginPct = price > 0 ? parseFloat(((marginValue / price) * 100).toFixed(1)) : 0;
+        let family = 'AquaFort Tricapa (TRIC)';
+        if (lower.includes('bic')) family = 'AquaFort Bicapa (BIC)';
+        else if (lower.includes('cuatr')) family = 'AquaFort Cuatricapa (CUATR)';
+        else if (lower.includes('cisterna')) family = 'AquaFort Cisternas';
+        else if (lower.includes('biofort') || lower.includes('septica') || lower.includes('séptica') || lower.includes('biodigestor')) family = 'BioFort & Biodigestores';
+        else if (lower.includes('tacho') || lower.includes('cono')) family = 'Tachos y Conos de Horno';
 
-          let family = 'Tanques AquaFort';
-          if (lower.includes('biodigestor')) family = 'Biodigestores';
-          else if (lower.includes('séptica') || lower.includes('septica') || lower.includes('desengrasadora') || lower.includes('camara') || lower.includes('cámara')) family = 'Cámaras & Desengrasadoras';
-          else if (lower.includes('cisterna')) family = 'Cisternas';
-          else if (lower.includes('powerlit')) family = 'Línea Powerlit';
-
-          fabricatedProducts.push({
-            id: p.id,
-            sku: p.sku || 'SIN-SKU',
-            name: p.name,
-            category: p.category || 'Fabricados',
-            family,
-            score,
-            costInsumos,
-            gasLiters,
-            gasCost,
-            mdoCost,
-            luzCost,
-            plantOpCost,
-            totalIntegralCost,
-            price,
-            marginValue,
-            marginPct
-          });
-        }
+        fabricatedProducts.push({
+          id: p.id,
+          sku: p.sku || 'SIN-SKU',
+          name: p.name,
+          category: p.category || 'Fabricados',
+          family,
+          score,
+          costInsumos,
+          gasLiters,
+          gasCost,
+          mdoCost,
+          luzCost,
+          plantOpCost,
+          totalIntegralCost,
+          price,
+          marginValue,
+          marginPct
+        });
       });
     }
 
