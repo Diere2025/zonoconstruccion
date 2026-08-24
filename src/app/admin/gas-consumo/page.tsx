@@ -38,6 +38,7 @@ export default function GasConsumoPage() {
 
   // Data states
   const [tankStatus, setTankStatus] = useState<any>(null);
+  const [recent2Weeks, setRecent2Weeks] = useState<any>(null);
   const [summary2026, setSummary2026] = useState<any>(null);
   const [modelScores, setModelScores] = useState<GasModelScore[]>([]);
   const [intervals, setIntervals] = useState<GasIntervalMeasurement[]>([]);
@@ -59,6 +60,7 @@ export default function GasConsumoPage() {
       const json = await res.json();
       if (json.success) {
         setTankStatus(json.tankStatus);
+        setRecent2Weeks(json.recent2Weeks);
         setSummary2026(json.summary2026);
         setModelScores(json.modelScores);
         setIntervals(json.intervals);
@@ -228,35 +230,35 @@ export default function GasConsumoPage() {
             </div>
           </div>
 
-          {/* Consumo Medio por Tanque */}
+          {/* Consumo Medio por Tanque (Últimas 2 Semanas) */}
           <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col justify-between">
             <div className="flex items-center justify-between">
-              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Consumo Promedio</span>
+              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Consumo Últimas 2 Semanas</span>
               <div className="p-1.5 bg-blue-50 text-blue-600 rounded-lg">
                 <Flame className="w-4 h-4" />
               </div>
             </div>
             <div className="mt-3">
               <div className="text-2xl font-black text-blue-700 tracking-tight font-mono">
-                {summary2026.avgGasLitersPerTank} <span className="text-xs font-semibold text-slate-400">L / tanque</span>
+                {recent2Weeks ? recent2Weeks.avgGasLitersPerTank : summary2026.avgGasLitersPerTank} <span className="text-xs font-semibold text-slate-400">L / tanque</span>
               </div>
               <p className="text-[10px] text-blue-600 font-bold mt-0.5">
-                Basado en {summary2026.totalTanksRotomolded.toLocaleString('es-AR')} tanques (2026)
+                {recent2Weeks?.tanksRotomolded || 0} tanques medidos ({recent2Weeks?.daysMeasured || 14} días)
               </p>
             </div>
           </div>
 
-          {/* Costo Medio por Tanque */}
+          {/* Costo Medio por Tanque (Últimas 2 Semanas) */}
           <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col justify-between">
             <div className="flex items-center justify-between">
-              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Costo Gas por Tanque</span>
+              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Costo Gas Últimas 2 Semanas</span>
               <div className="p-1.5 bg-emerald-50 text-emerald-600 rounded-lg">
                 <DollarSign className="w-4 h-4" />
               </div>
             </div>
             <div className="mt-3">
               <div className="text-2xl font-black text-emerald-700 tracking-tight font-mono">
-                ${summary2026.avgCostPerTank.toLocaleString('es-AR')} <span className="text-xs font-semibold text-slate-400">promedio</span>
+                ${(recent2Weeks ? recent2Weeks.avgCostPerTank : summary2026.avgCostPerTank).toLocaleString('es-AR')} <span className="text-xs font-semibold text-slate-400">/ tanque</span>
               </div>
               <p className="text-[10px] text-emerald-600 font-bold mt-0.5">
                 Gas GLP a ${tankStatus.latestPricePerLiter.toFixed(2)}/L
@@ -295,7 +297,7 @@ export default function GasConsumoPage() {
                 ${(summary2026.totalGasCost / 1000000).toFixed(2)}M
               </div>
               <p className="text-[10px] text-amber-600 font-bold mt-0.5">
-                {summary2026.totalGasLitersRefilled.toLocaleString('es-AR')} L recargados
+                {summary2026.totalGasLitersRefilled.toLocaleString('es-AR')} L recargados (Histórico: {summary2026.avgGasLitersPerTank} L/u)
               </p>
             </div>
           </div>

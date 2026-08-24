@@ -353,7 +353,61 @@ export async function GET() {
     const avgGlobalGasPerTank = totalTanks2026 > 0 ? totalGasLitros2026 / totalTanks2026 : 5.6;
     const avgGlobalCostPerTank = totalTanks2026 > 0 ? totalInversionGas2026 / totalTanks2026 : 5557;
 
-    // 7. Parse Model Scores & Compute Unit Gas Cost (Pestaña Tipo)
+    // 7. Last 2 Weeks (14 Days) Rolling Window Calculation
+    const lastTimestamp = lastReading ? lastReading.timestamp : Date.now();
+    const fourteenDaysAgoTimestamp = lastTimestamp - (14 * 86400000);
+
+    const readingsLast14 = gasEvents.filter(e => (e.porcentajeAntes > 0 || e.tipo === 'Lectura') && e.timestamp >= fourteenDaysAgoTimestamp);
+    
+    let gasConsumedLast14Days = 0;
+    let tanksLast14Days = 0;
+    let daysMeasured14 = 14;
+    let avgGasPerTankLast14 = avgGlobalGasPerTank;
+
+    if (readingsLast14.length >= 2) {
+      const firstReadingIn14 = readingsLast14[0];
+      const lastReadingIn14 = readingsLast14[readingsLast14.length - 1];
+      
+      const refillsIn14 = gasEvents.filter(
+        e => e.tipo === 'Recarga' && e.timestamp >= firstReadingIn14.timestamp && e.timestamp <= lastReadingIn14.timestamp
+      );
+      const refillLitersIn14 = refillsIn14.reduce((acc, r) => acc + r.cargaLitros, 0);
+
+      const initialGas14 = (TANK_CAPACITY_LITERS * firstReadingIn14.porcentajeAntes) / 100;
+      const finalGas14 = (TANK_CAPACITY_LITERS * lastReadingIn14.porcentajeAntes) / 100;
+      gasConsumedLast14Days = Math.max(0, initialGas14 + refillLitersIn14 - finalGas14);
+      daysMeasured14 = Math.max(1, Math.round((lastReadingIn14.timestamp - firstReadingIn14.timestamp) / 86400000));
+
+      Object.entries(tanksByDate).forEach(([dateIso, data]) => {
+        const ts = new Date(dateIso).getTime();
+        if (ts >= firstReadingIn14.timestamp && ts <= lastReadingIn14.timestamp) {
+          tanksLast14Days += data.totalTanks;
+        }
+      });
+
+      if (tanksLast14Days > 0 && gasConsumedLast14Days > 0) {
+        avgGasPerTankLast14 = gasConsumedLast14Days / tanksLast14Days;
+      }
+    } else {
+      // Fallback: use production in last 14 days * global average
+      Object.entries(tanksByDate).forEach(([dateIso, data]) => {
+        const ts = new Date(dateIso).getTime();
+        if (ts >= fourteenDaysAgoTimestamp && ts <= lastTimestamp) {
+          tanksLast14Days += data.totalTanks;
+        }
+      });
+      gasConsumedLast14Days = tanksLast14Days * avgGlobalGasPerTank;
+    }
+
+    const currentPricePerLiter = latestPrice; // ~$1.051,10/L
+    const avgCostPerTankLast14 = avgGasPerTankLast14 * currentPricePerLiter;
+    const dailyGasConsumptionLast14 = daysMeasured14 > 0 && gasConsumedLast14Days > 0 
+      ? gasConsumedLast14Days / daysMeasured14 
+      : (tanksLast14Days / 14) * avgGasPerTankLast14;
+
+    const daysOfAutonomyRemaining = Math.max(1, Math.round(currentTankLiters / (dailyGasConsumptionLast14 || 100)));
+
+    // 8. Parse Model Scores & Compute Unit Gas Cost (Pestaña Tipo)
     const modelScores: GasModelScore[] = [
       { producto: "AquaFort - TRIC 500L Gris", tipo: "500 TRIC", puntaje: 1.0, litrosTanque: "500L", litrosGasEstimado: 0, costoGasEstimado: 0 },
       { producto: "AquaFort - TRIC 500L Beige", tipo: "500 TRIC", puntaje: 1.0, litrosTanque: "500L", litrosGasEstimado: 0, costoGasEstimado: 0 },
@@ -379,28 +433,13 @@ export async function GET() {
       { producto: "Tacho Cónico 700L", tipo: "Cónico 700", puntaje: 1.40, litrosTanque: "700L", litrosGasEstimado: 0, costoGasEstimado: 0 }
     ];
 
-    // Base benchmark: 500L Tricapa = 5.6 Litros de GLP
-    const baseGasLiters = avgGlobalGasPerTank; // ~5.6L
-    const currentPricePerLiter = latestPrice; // ~$1.051,10/L
+    // Base benchmark: 500L Tricapa based on recent 2 weeks consumption
+    const baseGasLiters = avgGasPerTankLast14;
 
     modelScores.forEach(item => {
       item.litrosGasEstimado = parseFloat((item.puntaje * baseGasLiters).toFixed(2));
       item.costoGasEstimado = parseFloat((item.litrosGasEstimado * currentPricePerLiter).toFixed(0));
     });
-
-    // 8. Autonomy Estimate
-    // Average daily consumption based on last 7 days of production
-    const today = new Date();
-    let tanksLast7Days = 0;
-    for (let d = 0; d < 7; d++) {
-      const checkDate = new Date(today.getTime() - d * 86400000).toISOString().split('T')[0];
-      if (tanksByDate[checkDate]) {
-        tanksLast7Days += tanksByDate[checkDate].totalTanks;
-      }
-    }
-    const dailyTanksAvg = Math.max(12, tanksLast7Days / 7);
-    const dailyGasConsumptionLiters = dailyTanksAvg * baseGasLiters; // e.g. 15 tanks * 5.6L = 84L/day
-    const daysOfAutonomyRemaining = Math.max(1, Math.round(currentTankLiters / dailyGasConsumptionLiters));
 
     return NextResponse.json({
       success: true,
@@ -413,8 +452,16 @@ export async function GET() {
         lastRefillDate: lastRefill ? lastRefill.fechaFormatted : "12/08/2026",
         lastRefillLiters: lastRefill ? lastRefill.cargaLitros : 2347,
         latestPricePerLiter: latestPrice,
-        estimatedDailyConsumptionLiters: parseFloat(dailyGasConsumptionLiters.toFixed(1)),
+        estimatedDailyConsumptionLiters: parseFloat(dailyGasConsumptionLast14.toFixed(1)),
         estimatedDaysRemaining: daysOfAutonomyRemaining
+      },
+      recent2Weeks: {
+        daysMeasured: daysMeasured14,
+        gasConsumedLiters: parseFloat(gasConsumedLast14Days.toFixed(1)),
+        tanksRotomolded: tanksLast14Days,
+        avgGasLitersPerTank: parseFloat(avgGasPerTankLast14.toFixed(2)),
+        avgCostPerTank: parseFloat(avgCostPerTankLast14.toFixed(0)),
+        dailyGasConsumptionLiters: parseFloat(dailyGasConsumptionLast14.toFixed(1))
       },
       summary2026: {
         totalTanksRotomolded: totalTanks2026,
