@@ -39,6 +39,7 @@ export default function GasConsumoPage() {
   // Data states
   const [tankStatus, setTankStatus] = useState<any>(null);
   const [recent2Weeks, setRecent2Weeks] = useState<any>(null);
+  const [currentMonthForecast, setCurrentMonthForecast] = useState<any>(null);
   const [summary2026, setSummary2026] = useState<any>(null);
   const [modelScores, setModelScores] = useState<GasModelScore[]>([]);
   const [intervals, setIntervals] = useState<GasIntervalMeasurement[]>([]);
@@ -61,6 +62,7 @@ export default function GasConsumoPage() {
       if (json.success) {
         setTankStatus(json.tankStatus);
         setRecent2Weeks(json.recent2Weeks);
+        setCurrentMonthForecast(json.currentMonthForecast);
         setSummary2026(json.summary2026);
         setModelScores(json.modelScores);
         setIntervals(json.intervals);
@@ -304,6 +306,89 @@ export default function GasConsumoPage() {
         </div>
       )}
 
+      {/* Current Month (Agosto 2026) Forecast & Remaining Gas Panel */}
+      {currentMonthForecast && (
+        <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 text-white rounded-3xl p-5 sm:p-6 shadow-xl border border-slate-800 space-y-4">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-amber-500/20 text-amber-400 rounded-2xl border border-amber-500/30">
+                <Calendar className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base font-black text-white">Balance y Proyección de {currentMonthForecast.monthName}</h3>
+                  <span className="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    Día {currentMonthForecast.currentDayOfMonth} de 31
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400 font-semibold mt-0.5">
+                  Consumo real acumulado MTD + proyección de días restantes hasta fin de mes.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {currentMonthForecast.isStockSufficientForMonth ? (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-black">
+                  <CheckCircle2 className="w-4 h-4" /> Stock Suficiente para terminar el mes
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-black">
+                  <AlertTriangle className="w-4 h-4" /> Recarga requerida antes de fin de mes
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Metric Grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
+            {/* Consumido a la fecha */}
+            <div className="bg-white/5 border border-white/10 p-3.5 rounded-2xl">
+              <span className="text-[10px] font-black uppercase text-amber-400 tracking-wider block">Consumido en el Mes (MTD)</span>
+              <div className="text-xl font-black text-white font-mono mt-1">
+                {currentMonthForecast.gasConsumedMtdLiters.toLocaleString('es-AR')} <span className="text-xs text-slate-400 font-normal">L GLP</span>
+              </div>
+              <p className="text-[10px] text-slate-400 font-semibold mt-0.5">
+                ${currentMonthForecast.gasConsumedMtdCost.toLocaleString('es-AR')} ({currentMonthForecast.tanksProducedMtd} tanques)
+              </p>
+            </div>
+
+            {/* Stock Actual Remanente */}
+            <div className="bg-white/5 border border-white/10 p-3.5 rounded-2xl">
+              <span className="text-[10px] font-black uppercase text-emerald-400 tracking-wider block">Stock Actual Disponible</span>
+              <div className="text-xl font-black text-emerald-400 font-mono mt-1">
+                {currentMonthForecast.currentTankStockLiters.toLocaleString('es-AR')} <span className="text-xs text-slate-400 font-normal">L ({currentMonthForecast.currentTankPercentage}%)</span>
+              </div>
+              <p className="text-[10px] text-slate-400 font-semibold mt-0.5">
+                Valor: ${currentMonthForecast.currentTankStockCost.toLocaleString('es-AR')}
+              </p>
+            </div>
+
+            {/* Proyección Restante hasta Fin de Mes */}
+            <div className="bg-white/5 border border-white/10 p-3.5 rounded-2xl">
+              <span className="text-[10px] font-black uppercase text-cyan-400 tracking-wider block">Por Consumir ({currentMonthForecast.daysRemainingInMonth} días)</span>
+              <div className="text-xl font-black text-cyan-300 font-mono mt-1">
+                ~{currentMonthForecast.projectedRemainingGasConsumptionLiters.toLocaleString('es-AR')} <span className="text-xs text-slate-400 font-normal">L GLP</span>
+              </div>
+              <p className="text-[10px] text-slate-400 font-semibold mt-0.5">
+                ~${currentMonthForecast.projectedRemainingGasCost.toLocaleString('es-AR')} (~{currentMonthForecast.projectedDailyConsumptionLiters} L/día)
+              </p>
+            </div>
+
+            {/* Proyección Cierre de Mes */}
+            <div className="bg-white/5 border border-white/10 p-3.5 rounded-2xl">
+              <span className="text-[10px] font-black uppercase text-purple-400 tracking-wider block">Total Proyectado Mes</span>
+              <div className="text-xl font-black text-purple-300 font-mono mt-1">
+                ~{currentMonthForecast.projectedTotalMonthGasLiters.toLocaleString('es-AR')} <span className="text-xs text-slate-400 font-normal">L</span>
+              </div>
+              <p className="text-[10px] text-slate-400 font-semibold mt-0.5">
+                Stock final al 31/08: ~{currentMonthForecast.projectedEndingTankStockLiters} L ({currentMonthForecast.projectedEndingTankPercentage}%)
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Navigation Tabs & Search */}
       <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-4 space-y-4">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-slate-100 pb-3">
@@ -381,6 +466,32 @@ export default function GasConsumoPage() {
       ) : activeTab === "modelos" ? (
         /* TAB 1: MODEL SCORES & UNIT COST MATRIX */
         <div className="space-y-4">
+          {summary2026 && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-200/80 text-xs">
+              <div className="flex items-center gap-2.5">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <div>
+                  <span className="font-extrabold text-slate-900 block">Producción de 1ra: {summary2026.totalPrimera?.toLocaleString('es-AR')} u. ({summary2026.pctPrimera}%)</span>
+                  <span className="text-[10px] text-slate-500 font-semibold">Absorbe el costo directo de rotomoldeo</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                <div>
+                  <span className="font-extrabold text-slate-900 block">Producción de 2da: {summary2026.totalSegunda || 0} u.</span>
+                  <span className="text-[10px] text-slate-500 font-semibold">Completó ciclo de fuego en máquina</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <Flame className="w-4 h-4 text-rose-600 shrink-0" />
+                <div>
+                  <span className="font-extrabold text-rose-900 block">Gas en Rotos (Scrap): ~{summary2026.litrosGasPerdidosRotos} L (${summary2026.costoGasPerdidoRotos?.toLocaleString('es-AR')})</span>
+                  <span className="text-[10px] text-rose-700 font-semibold">{summary2026.totalRotos || 0} unidades descartadas</span>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
             <div className="p-3.5 bg-slate-50/70 border-b border-slate-200/80 flex items-center justify-between">
               <div className="text-xs font-black text-slate-800 flex items-center gap-2">

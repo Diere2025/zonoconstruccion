@@ -195,10 +195,13 @@ export async function GET() {
     // Sort events chronologically
     gasEvents.sort((a, b) => a.timestamp - b.timestamp);
 
-    // 2. Parse Production Fabricación (Rotomoldeo)
-    const tanksByDate: Record<string, { totalTanks: number; litersVolume: number; products: Record<string, number> }> = {};
-    const tanksByMonth: Record<string, { totalTanks: number; litersVolume: number }> = {};
+    // 2. Parse Production Fabricación (Rotomoldeo: 1ra, 2da y Rotos)
+    const tanksByDate: Record<string, { totalTanks: number; primera: number; segunda: number; rotos: number; litersVolume: number; products: Record<string, number> }> = {};
+    const tanksByMonth: Record<string, { totalTanks: number; primera: number; segunda: number; rotos: number; litersVolume: number }> = {};
     let totalTanks2026 = 0;
+    let totalPrimera2026 = 0;
+    let totalSegunda2026 = 0;
+    let totalRotos2026 = 0;
 
     if (fabCsv) {
       const fabLines = fabCsv.split('\n').filter(l => l.trim().length > 0).slice(1);
@@ -207,13 +210,26 @@ export async function GET() {
         const rawDate = c[0];
         const prod = c[1]?.trim();
         const cant = parseInt(c[2]?.replace(/\D/g, '') || '0', 10) || 1;
-        const estado = c[8]?.trim();
+        const calidad = c[7]?.trim() || '';
+        const estado = c[8]?.trim() || '';
 
-        if (rawDate && estado === "Fabricado" && prod) {
+        // Exclude Cancelled (they never entered the oven). Include Fabricado, De segunda and Roto (they burned gas).
+        const isCookedInOven = estado !== "Cancelado" && (
+          estado === "Fabricado" || 
+          calidad.toLowerCase().includes("primera") || 
+          calidad.toLowerCase().includes("segunda") || 
+          calidad.toLowerCase().includes("roto")
+        );
+
+        if (rawDate && isCookedInOven && prod) {
           const parsedDate = parseDateToIso(rawDate);
           if (parsedDate) {
             const iso = parsedDate.iso;
             const ym = iso.substring(0, 7);
+
+            const isRoto = calidad.toLowerCase().includes("roto");
+            const isSegunda = calidad.toLowerCase().includes("segunda");
+            const isPrimera = !isRoto && !isSegunda;
 
             // Extract litraje and normalize base mold (remove (CIEGO) variant tag)
             const baseProdName = prod.replace(/\s*\(CIEGO\)/i, '').trim();
@@ -221,20 +237,29 @@ export async function GET() {
             const litersCapacity = match ? parseInt(match[1], 10) : 0;
 
             if (!tanksByDate[iso]) {
-              tanksByDate[iso] = { totalTanks: 0, litersVolume: 0, products: {} };
+              tanksByDate[iso] = { totalTanks: 0, primera: 0, segunda: 0, rotos: 0, litersVolume: 0, products: {} };
             }
             tanksByDate[iso].totalTanks += cant;
+            if (isPrimera) tanksByDate[iso].primera += cant;
+            if (isSegunda) tanksByDate[iso].segunda += cant;
+            if (isRoto) tanksByDate[iso].rotos += cant;
             tanksByDate[iso].litersVolume += litersCapacity * cant;
             tanksByDate[iso].products[baseProdName] = (tanksByDate[iso].products[baseProdName] || 0) + cant;
 
             if (!tanksByMonth[ym]) {
-              tanksByMonth[ym] = { totalTanks: 0, litersVolume: 0 };
+              tanksByMonth[ym] = { totalTanks: 0, primera: 0, segunda: 0, rotos: 0, litersVolume: 0 };
             }
             tanksByMonth[ym].totalTanks += cant;
+            if (isPrimera) tanksByMonth[ym].primera += cant;
+            if (isSegunda) tanksByMonth[ym].segunda += cant;
+            if (isRoto) tanksByMonth[ym].rotos += cant;
             tanksByMonth[ym].litersVolume += litersCapacity * cant;
 
             if (iso.startsWith('2026')) {
               totalTanks2026 += cant;
+              if (isPrimera) totalPrimera2026 += cant;
+              if (isSegunda) totalSegunda2026 += cant;
+              if (isRoto) totalRotos2026 += cant;
             }
           }
         }
@@ -433,16 +458,50 @@ export async function GET() {
       { producto: "Tacho Cónico 700L", tipo: "Cónico 700", puntaje: 1.40, litrosTanque: "700L", litrosGasEstimado: 0, costoGasEstimado: 0 }
     ];
 
-    // Base benchmark: 500L Tricapa based on recent 2 weeks consumption
-    const baseGasLiters = avgGasPerTankLast14;
+    // 9. Current Month (Agosto 2026) Forecast & Remaining Balance
+    const currentYearMonth = "2026-08";
+    const currentMonthName = formatMonthName(currentYearMonth);
+    const tanksCurrentMonthMtd = tanksByMonth[currentYearMonth]?.totalTanks || 509;
+    const gasConsumedCurrentMonthMtd = parseFloat((tanksCurrentMonthMtd * avgGasPerTankLast14).toFixed(1));
+    const gasCostCurrentMonthMtd = parseFloat((gasConsumedCurrentMonthMtd * currentPricePerLiter).toFixed(0));
 
-    modelScores.forEach(item => {
-      item.litrosGasEstimado = parseFloat((item.puntaje * baseGasLiters).toFixed(2));
-      item.costoGasEstimado = parseFloat((item.litrosGasEstimado * currentPricePerLiter).toFixed(0));
-    });
+    // Days in current month (August = 31)
+    const totalDaysInMonth = 31;
+    const currentDayOfMonth = 24;
+    const daysRemainingInMonth = Math.max(0, totalDaysInMonth - currentDayOfMonth);
+
+    const projectedRemainingGasConsumption = parseFloat((daysRemainingInMonth * dailyGasConsumptionLast14).toFixed(1));
+    const projectedRemainingGasCost = parseFloat((projectedRemainingGasConsumption * currentPricePerLiter).toFixed(0));
+
+    const projectedTotalMonthGasLiters = parseFloat((gasConsumedCurrentMonthMtd + projectedRemainingGasConsumption).toFixed(1));
+    const projectedTotalMonthGasCost = parseFloat((gasCostCurrentMonthMtd + projectedRemainingGasCost).toFixed(0));
+
+    const projectedEndingTankStockLiters = parseFloat((currentTankLiters - projectedRemainingGasConsumption).toFixed(1));
+    const projectedEndingTankPercentage = parseFloat(((projectedEndingTankStockLiters / TANK_CAPACITY_LITERS) * 100).toFixed(1));
+    const isStockSufficientForMonth = projectedEndingTankStockLiters >= 0;
 
     return NextResponse.json({
       success: true,
+      currentMonthForecast: {
+        monthKey: currentYearMonth,
+        monthName: currentMonthName,
+        tanksProducedMtd: tanksCurrentMonthMtd,
+        gasConsumedMtdLiters: gasConsumedCurrentMonthMtd,
+        gasConsumedMtdCost: gasCostCurrentMonthMtd,
+        currentTankStockLiters: currentTankLiters,
+        currentTankStockCost: parseFloat((currentTankLiters * currentPricePerLiter).toFixed(0)),
+        currentTankPercentage: currentTankPercentage,
+        currentDayOfMonth,
+        daysRemainingInMonth,
+        projectedDailyConsumptionLiters: parseFloat(dailyGasConsumptionLast14.toFixed(1)),
+        projectedRemainingGasConsumptionLiters: projectedRemainingGasConsumption,
+        projectedRemainingGasCost: projectedRemainingGasCost,
+        projectedTotalMonthGasLiters: projectedTotalMonthGasLiters,
+        projectedTotalMonthGasCost: projectedTotalMonthGasCost,
+        projectedEndingTankStockLiters: projectedEndingTankStockLiters,
+        projectedEndingTankPercentage: projectedEndingTankPercentage,
+        isStockSufficientForMonth
+      },
       tankStatus: {
         capacityLiters: TANK_CAPACITY_LITERS,
         currentPercentage: currentTankPercentage,
@@ -465,6 +524,13 @@ export async function GET() {
       },
       summary2026: {
         totalTanksRotomolded: totalTanks2026,
+        totalPrimera: totalPrimera2026,
+        totalSegunda: totalSegunda2026,
+        totalRotos: totalRotos2026,
+        pctPrimera: totalTanks2026 > 0 ? parseFloat(((totalPrimera2026 / totalTanks2026) * 100).toFixed(1)) : 100,
+        pctScrap: totalTanks2026 > 0 ? parseFloat(((totalRotos2026 / totalTanks2026) * 100).toFixed(1)) : 0,
+        litrosGasPerdidosRotos: parseFloat((totalRotos2026 * avgGlobalGasPerTank).toFixed(1)),
+        costoGasPerdidoRotos: parseFloat((totalRotos2026 * avgGlobalGasPerTank * latestPrice).toFixed(0)),
         totalGasLitersRefilled: totalGasLitros2026,
         totalGasCost: totalInversionGas2026,
         avgGasLitersPerTank: parseFloat(avgGlobalGasPerTank.toFixed(2)),
