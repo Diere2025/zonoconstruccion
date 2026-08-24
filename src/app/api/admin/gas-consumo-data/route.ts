@@ -73,7 +73,8 @@ export interface OperatorMonthlyMetric {
   tanksFabricated: number;
   tanksAssembled: number;
   tanksTotal: number;
-  costPerTank: number;
+  costPerFabricatedTank: number;
+  costPerAssembledTank: number;
   isAguinaldoMonth: boolean;
 }
 
@@ -89,8 +90,8 @@ export interface OperatorSummary {
   totalTanksFabricated: number;
   totalTanksAssembled: number;
   totalTanks: number;
-  avgCostPerTank: number;
-  avgCostPerTankWithoutAguinaldo: number;
+  avgCostPerFabricatedTank: number;
+  avgCostPerFabricatedTankWithoutAguinaldo: number;
   months: Record<string, OperatorMonthlyMetric>;
 }
 
@@ -298,7 +299,7 @@ export async function GET() {
 
     gasEvents.sort((a, b) => a.timestamp - b.timestamp);
 
-    // 2. Parse Production Fabricación
+    // 2. Parse Production Fabricación (Rotomoldeo en Hornos)
     const tanksByDate: Record<string, { totalTanks: number; primera: number; segunda: number; rotos: number; litersVolume: number; products: Record<string, number> }> = {};
     const tanksByMonth: Record<string, { totalTanks: number; primera: number; segunda: number; rotos: number; litersVolume: number }> = {};
     const fabByMonthAndOpKey: Record<string, Record<string, number>> = {};
@@ -377,7 +378,7 @@ export async function GET() {
       });
     }
 
-    // 4. Parse Sueldos & Build Operator Cost Intelligence
+    // 4. Parse Sueldos & Build Operator Cost Intelligence (Cost strictly on Fabricated)
     const salariesByMonthAndOpKey: Record<string, Record<string, number>> = {};
     if (sueldosCsv) {
       const sueldoLines = sueldosCsv.split('\n').filter(l => l.trim().length > 0).slice(1);
@@ -405,7 +406,7 @@ export async function GET() {
     const allSalaryMonths = ['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06', '2026-07'];
     const operatorsData: OperatorSummary[] = [];
     let totalPureRotomoldingSalariesWithoutSAC = 0;
-    let totalPureRotomoldingTanksWithoutSAC = 0;
+    let totalPureRotomoldingFabricatedWithoutSAC = 0;
 
     trackedOps.forEach(op => {
       const summary: OperatorSummary = {
@@ -420,8 +421,8 @@ export async function GET() {
         totalTanksFabricated: 0,
         totalTanksAssembled: 0,
         totalTanks: 0,
-        avgCostPerTank: 0,
-        avgCostPerTankWithoutAguinaldo: 0,
+        avgCostPerFabricatedTank: 0,
+        avgCostPerFabricatedTankWithoutAguinaldo: 0,
         months: {}
       };
       allSalaryMonths.forEach(ym => {
@@ -430,6 +431,11 @@ export async function GET() {
         const tanksFab = fabByMonthAndOpKey[ym]?.[op.key] || 0;
         const tanksEns = ensByMonthAndOpKey[ym]?.[op.key] || 0;
         const tanksTotal = tanksFab + tanksEns;
+        
+        // Strict cost per fabricated unit
+        const costPerFabricatedTank = tanksFab > 0 && salary > 0 ? Math.round(salary / tanksFab) : 0;
+        const costPerAssembledTank = tanksEns > 0 && salary > 0 ? Math.round(salary / tanksEns) : 0;
+
         summary.months[ym] = { 
           monthKey: ym, 
           monthName: formatMonthName(ym), 
@@ -437,7 +443,8 @@ export async function GET() {
           tanksFabricated: tanksFab, 
           tanksAssembled: tanksEns, 
           tanksTotal, 
-          costPerTank: tanksTotal > 0 && salary > 0 ? Math.round(salary / tanksTotal) : 0, 
+          costPerFabricatedTank,
+          costPerAssembledTank,
           isAguinaldoMonth 
         };
         summary.totalSalary += salary;
@@ -447,16 +454,27 @@ export async function GET() {
         summary.totalTanks += tanksTotal;
         if (!op.isMaintenance && (op.key === 'RAMIREZ_RODRIGO' || op.key === 'SANDOVAL_LEONARDO') && !isAguinaldoMonth) {
           totalPureRotomoldingSalariesWithoutSAC += salary;
-          totalPureRotomoldingTanksWithoutSAC += tanksTotal;
+          totalPureRotomoldingFabricatedWithoutSAC += tanksFab;
         }
       });
-      summary.avgCostPerTank = summary.totalTanks > 0 && summary.totalSalary > 0 ? Math.round(summary.totalSalary / summary.totalTanks) : 0;
-      const tanksWithoutSAC = summary.totalTanks - (summary.months['2026-06']?.tanksTotal || 0);
-      summary.avgCostPerTankWithoutAguinaldo = tanksWithoutSAC > 0 && summary.totalSalaryWithoutAguinaldo > 0 ? Math.round(summary.totalSalaryWithoutAguinaldo / tanksWithoutSAC) : summary.avgCostPerTank;
+
+      // Strict average on fabricated
+      summary.avgCostPerFabricatedTank = summary.totalTanksFabricated > 0 && summary.totalSalary > 0 
+        ? Math.round(summary.totalSalary / summary.totalTanksFabricated) 
+        : 0;
+
+      const tanksFabWithoutSAC = summary.totalTanksFabricated - (summary.months['2026-06']?.tanksFabricated || 0);
+      summary.avgCostPerFabricatedTankWithoutAguinaldo = tanksFabWithoutSAC > 0 && summary.totalSalaryWithoutAguinaldo > 0 
+        ? Math.round(summary.totalSalaryWithoutAguinaldo / tanksFabWithoutSAC) 
+        : summary.avgCostPerFabricatedTank;
+
       operatorsData.push(summary);
     });
 
-    const baseLaborCostPerTank = totalPureRotomoldingTanksWithoutSAC > 0 ? Math.round(totalPureRotomoldingSalariesWithoutSAC / totalPureRotomoldingTanksWithoutSAC) : 5500;
+    // Base benchmark: calculated strictly on tanks fabricated by Rodrigo & Leonardo in regular months
+    const baseLaborCostPerTank = totalPureRotomoldingFabricatedWithoutSAC > 0 
+      ? Math.round(totalPureRotomoldingSalariesWithoutSAC / totalPureRotomoldingFabricatedWithoutSAC) 
+      : 5500;
 
     // 5. Parse Edenor (Electricidad a mes vencido)
     const electricityRecords: ElectricityRecord[] = [];
@@ -473,7 +491,6 @@ export async function GET() {
         const amount = parseNum(c[2]);
 
         if (parsedDate && amount > 0) {
-          // A mes vencido: Paid in month M corresponds to electricity consumed in month M-1
           let consY = parsedDate.year;
           let consM = parsedDate.month - 1;
           if (consM === 0) {
@@ -504,7 +521,6 @@ export async function GET() {
       });
     }
 
-    // Benchmark Electricity Cost per Base Tank (Feb-Jul regular average)
     const regularElectricityAmount = electricityRecords
       .filter(r => r.consumedMonthKey >= '2026-02' && r.consumedMonthKey <= '2026-07')
       .reduce((acc, r) => acc + r.amount, 0);
@@ -530,14 +546,12 @@ export async function GET() {
       const gasPerTank = data.tanques > 0 && data.gasLitros > 0 ? data.gasLitros / data.tanques : 0;
       const gasCostPerTank = data.tanques > 0 && data.inversion > 0 ? data.inversion / data.tanques : 0;
       
-      // Sum labor salaries for this month
       let monthMdoSalary = 0;
       trackedOps.forEach(op => {
         monthMdoSalary += salariesByMonthAndOpKey[ym]?.[op.key] || 0;
       });
       const mdoCostPerTank = data.tanques > 0 && monthMdoSalary > 0 ? Math.round(monthMdoSalary / data.tanques) : 0;
 
-      // Electricity for this consumed month
       const luzAmount = electricityByConsumedMonth[ym] || 0;
       const luzCostPerTank = data.tanques > 0 && luzAmount > 0 ? Math.round(luzAmount / data.tanques) : 0;
 
@@ -764,7 +778,7 @@ export async function GET() {
         baseGasCostPerTank: parseFloat((baseGasLiters * latestPrice).toFixed(0)),
         baseTotalManufacturingCost: parseFloat((baseGasLiters * latestPrice + baseLaborCostPerTank + baseElectricityCostPerTank).toFixed(0)),
         pureRotomoldingSalariesWithoutSAC: totalPureRotomoldingSalariesWithoutSAC,
-        pureRotomoldingTanksWithoutSAC: totalPureRotomoldingTanksWithoutSAC
+        pureRotomoldingFabricatedWithoutSAC: totalPureRotomoldingFabricatedWithoutSAC
       },
       summary2026: {
         totalTanksRotomolded: totalTanks2026,

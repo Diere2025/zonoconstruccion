@@ -51,7 +51,7 @@ export default function CostosFabricacionPage() {
       baseGasCostPerTank: number;
       baseTotalManufacturingCost: number;
       pureRotomoldingSalariesWithoutSAC: number;
-      pureRotomoldingTanksWithoutSAC: number;
+      pureRotomoldingFabricatedWithoutSAC: number;
     };
     summary2026: any;
     operatorsData: OperatorSummary[];
@@ -151,7 +151,7 @@ export default function CostosFabricacionPage() {
               Control de Costos de Fabricación y Servicios
             </h1>
             <p className="text-slate-500 text-sm mt-1 font-medium">
-              Costeo real y estimativo por modelo cruzando consumo de Gas Propano, Sueldos de Operarios y Facturación Eléctrica a mes vencido.
+              Costeo real y estimativo por modelo cruzando consumo de Gas Propano, Sueldos de Operarios (sobre tanques fabricados) y Facturación Eléctrica a mes vencido.
             </p>
           </div>
         </div>
@@ -207,7 +207,7 @@ export default function CostosFabricacionPage() {
           {/* Card 3: Labor Cost */}
           <div className="bg-white rounded-2xl border border-cyan-200/90 p-5 shadow-xs relative overflow-hidden group hover:border-cyan-400 transition-all">
             <div className="flex justify-between items-start">
-              <span className="text-[11px] font-black uppercase tracking-wider text-cyan-700">Mano de Obra Directa</span>
+              <span className="text-[11px] font-black uppercase tracking-wider text-cyan-700">Mano de Obra (Fabricado)</span>
               <div className="p-2 bg-cyan-50 text-cyan-600 rounded-xl border border-cyan-100">
                 <Users className="w-4 h-4" />
               </div>
@@ -220,7 +220,7 @@ export default function CostosFabricacionPage() {
             </div>
             <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 font-medium">
               <span>Rodrigo & Leonardo</span>
-              <span className="text-cyan-700 font-bold">Base Normal</span>
+              <span className="text-cyan-700 font-bold">Rotomoldeo Puro</span>
             </div>
           </div>
 
@@ -462,7 +462,7 @@ export default function CostosFabricacionPage() {
         </div>
       )}
 
-      {/* TAB 2: Rendimiento y Sueldos Operarios */}
+      {/* TAB 2: Rendimiento y Sueldos Operarios (Calculado sobre Fabricados) */}
       {activeTab === "operarios" && data && (
         <div className="space-y-6">
           
@@ -471,9 +471,10 @@ export default function CostosFabricacionPage() {
             <Info className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" />
             <div className="text-xs text-indigo-950 space-y-1">
               <p className="font-bold">Criterios Operativos de Planta:</p>
+              <p>• <strong>Costo MDO directo:</strong> Se calcula estrictamente sobre las unidades <strong>Fabricadas en Rotomoldeo</strong> (el ensamblado es una tarea secundaria de armado que puede ser efectuada por otro personal).</p>
               <p>• <strong>Julio Verón:</strong> Realiza mantenimiento preventivo y correctivo de maquinaria y soporte técnico de planta, por lo que su costo no debe considerarse 100% de producción pura.</p>
               <p>• <strong>Samuel Contreras:</strong> Operario eventual sin sueldo mensual fijo, contratado según picos de demanda.</p>
-              <p>• <strong>Junio 2026:</strong> Incluye el pago del Sueldo Anual Complementario (SAC / Aguinaldo), lo que incrementa los costos de mano de obra de dicho mes.</p>
+              <p>• <strong>Junio 2026:</strong> Incluye el pago del Sueldo Anual Complementario (SAC / Aguinaldo).</p>
             </div>
           </div>
 
@@ -521,7 +522,7 @@ export default function CostosFabricacionPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {data.operatorsData.map((op, idx) => {
               const totalSal = includeAguinaldo ? op.totalSalary : op.totalSalaryWithoutAguinaldo;
-              const costPerTank = includeAguinaldo ? op.avgCostPerTank : op.avgCostPerTankWithoutAguinaldo;
+              const costPerFabricated = includeAguinaldo ? op.avgCostPerFabricatedTank : op.avgCostPerFabricatedTankWithoutAguinaldo;
 
               let monthData = null;
               if (selectedMonthFilter !== "all") {
@@ -559,20 +560,20 @@ export default function CostosFabricacionPage() {
                     <div className="space-y-3 pt-3 border-t border-slate-100">
                       <div className="grid grid-cols-2 gap-2 text-xs">
                         <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200/60">
-                          <span className="text-slate-500 block text-[10px] font-bold">Tanques Horneados</span>
+                          <span className="text-slate-500 block text-[10px] font-bold">Fabricados (Horno)</span>
                           <span className="font-black text-slate-900 text-base">{op.totalTanksFabricated} u</span>
                         </div>
                         <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200/60">
-                          <span className="text-slate-500 block text-[10px] font-bold">Tanques Ensamblados</span>
-                          <span className="font-black text-cyan-700 text-base">{op.totalTanksAssembled} u</span>
+                          <span className="text-slate-500 block text-[10px] font-bold">Ensamblados</span>
+                          <span className="font-semibold text-slate-600 text-base">{op.totalTanksAssembled} u</span>
                         </div>
                       </div>
 
                       <div className="bg-indigo-50/70 border border-indigo-100 p-3 rounded-xl flex items-center justify-between">
                         <div>
-                          <span className="text-[10px] text-indigo-700 font-black block uppercase tracking-wider">Costo MDO / Tanque</span>
+                          <span className="text-[10px] text-indigo-700 font-black block uppercase tracking-wider">Costo MDO / Fabricado</span>
                           <span className="text-xl font-black text-indigo-950">
-                            {costPerTank > 0 ? `$${costPerTank.toLocaleString("es-AR")}` : "-"}
+                            {costPerFabricated > 0 ? `$${costPerFabricated.toLocaleString("es-AR")}` : "-"}
                           </span>
                         </div>
                         <div className="text-right">
@@ -592,7 +593,7 @@ export default function CostosFabricacionPage() {
                             </div>
                             <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200/60">
                               <span className="text-slate-500 block text-[10px] font-bold">Ensamblados</span>
-                              <span className="font-black text-cyan-700 text-base">{monthData.tanksAssembled} u</span>
+                              <span className="font-semibold text-slate-600 text-base">{monthData.tanksAssembled} u</span>
                             </div>
                           </div>
 
@@ -600,7 +601,7 @@ export default function CostosFabricacionPage() {
                             <div>
                               <span className="text-[10px] text-indigo-700 font-black block uppercase tracking-wider">Costo MDO ({monthData.monthName})</span>
                               <span className="text-xl font-black text-indigo-950">
-                                {monthData.costPerTank > 0 ? `$${monthData.costPerTank.toLocaleString("es-AR")}` : "-"}
+                                {monthData.costPerFabricatedTank > 0 ? `$${monthData.costPerFabricatedTank.toLocaleString("es-AR")}` : "-"}
                               </span>
                             </div>
                             <div className="text-right">
