@@ -34,6 +34,7 @@ import {
 import { 
   GasEvent, 
   CombinedModelCost, 
+  FabricatedProductCost,
   MonthlyCostBreakdown, 
   OperatorSummary, 
   ElectricityRecord, 
@@ -59,15 +60,18 @@ export default function CostosFabricacionPage() {
     operatorsData: OperatorSummary[];
     electricityRecords: ElectricityRecord[];
     modelScores: CombinedModelCost[];
+    fabricatedProducts: FabricatedProductCost[];
     intervals: GasIntervalMeasurement[];
     monthlyBreakdown: MonthlyCostBreakdown[];
     gasEvents: GasEvent[];
   } | null>(null);
 
-  const [activeTab, setActiveTab] = useState<"matriz" | "operarios" | "electricidad" | "gas" | "eventos">("matriz");
+  const [activeTab, setActiveTab] = useState<"matriz" | "cruce" | "operarios" | "electricidad" | "gas" | "eventos">("cruce");
   const [selectedMonthFilter, setSelectedMonthFilter] = useState<string>("all");
   const [includeAguinaldo, setIncludeAguinaldo] = useState<boolean>(false);
   const [searchModel, setSearchModel] = useState<string>("");
+  const [searchFabricated, setSearchFabricated] = useState<string>("");
+  const [selectedFamily, setSelectedFamily] = useState<string>("all");
 
   // Cost simulator overrides
   const [customGasPrice, setCustomGasPrice] = useState<number | null>(null);
@@ -110,6 +114,56 @@ export default function CostosFabricacionPage() {
     );
   }, [data?.modelScores, searchModel]);
 
+  const filteredFabricatedProducts = useMemo(() => {
+    if (!data?.fabricatedProducts) return [];
+    let list = data.fabricatedProducts;
+
+    if (selectedFamily !== "all") {
+      list = list.filter(p => p.family === selectedFamily);
+    }
+
+    if (searchFabricated.trim()) {
+      const q = searchFabricated.toLowerCase();
+      list = list.filter(p => 
+        p.name.toLowerCase().includes(q) || 
+        p.sku.toLowerCase().includes(q) ||
+        p.family.toLowerCase().includes(q)
+      );
+    }
+
+    return list;
+  }, [data?.fabricatedProducts, selectedFamily, searchFabricated]);
+
+  const familiesList = useMemo(() => {
+    if (!data?.fabricatedProducts) return [];
+    const set = new Set<string>();
+    data.fabricatedProducts.forEach(p => set.add(p.family));
+    return Array.from(set);
+  }, [data?.fabricatedProducts]);
+
+  // KPIs for Fabricated Products
+  const kpisFabricated = useMemo(() => {
+    if (!filteredFabricatedProducts || filteredFabricatedProducts.length === 0) {
+      return { count: 0, avgMarginPct: 0, avgMarginVal: 0, avgInsumos: 0, avgPlant: 0, avgPrice: 0 };
+    }
+    const withPrice = filteredFabricatedProducts.filter(p => p.price > 0);
+    const count = filteredFabricatedProducts.length;
+    const sumMarginPct = withPrice.reduce((acc, p) => acc + p.marginPct, 0);
+    const sumMarginVal = withPrice.reduce((acc, p) => acc + p.marginValue, 0);
+    const sumInsumos = filteredFabricatedProducts.reduce((acc, p) => acc + p.costInsumos, 0);
+    const sumPlant = filteredFabricatedProducts.reduce((acc, p) => acc + p.plantOpCost, 0);
+    const sumPrice = withPrice.reduce((acc, p) => acc + p.price, 0);
+
+    return {
+      count,
+      avgMarginPct: withPrice.length > 0 ? parseFloat((sumMarginPct / withPrice.length).toFixed(1)) : 0,
+      avgMarginVal: withPrice.length > 0 ? Math.round(sumMarginVal / withPrice.length) : 0,
+      avgInsumos: Math.round(sumInsumos / count),
+      avgPlant: Math.round(sumPlant / count),
+      avgPrice: withPrice.length > 0 ? Math.round(sumPrice / withPrice.length) : 0
+    };
+  }, [filteredFabricatedProducts]);
+
   return (
     <div className="min-h-screen bg-slate-50/70 text-slate-900 p-4 sm:p-6 lg:p-8 space-y-6 font-sans antialiased">
       
@@ -146,14 +200,14 @@ export default function CostosFabricacionPage() {
                 <Factory className="w-3 h-3 text-indigo-600" /> Costos Industriales Consolidados
               </span>
               <span className="bg-emerald-50 text-emerald-700 border border-emerald-200/80 text-[11px] px-2.5 py-0.5 rounded-full font-black flex items-center gap-1">
-                <Zap className="w-3 h-3 text-emerald-600" /> Gas GLP + Sueldos MDO + Edenor
+                <Boxes className="w-3 h-3 text-emerald-600" /> Cruce Insumos BD + Gas GLP + MDO + Edenor
               </span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900">
               Control de Costos de Fabricación y Servicios
             </h1>
             <p className="text-slate-500 text-sm mt-1 font-medium">
-              Costeo real y estimativo por modelo cruzando consumo de Gas Propano, Sueldos de Operarios (sobre tanques fabricados) y Facturación Eléctrica a mes vencido.
+              Cruce de insumos y materia prima de la base de datos con costos operativos de planta para obtener el costo integral y margen real de los productos fabricados.
             </p>
           </div>
         </div>
@@ -166,7 +220,7 @@ export default function CostosFabricacionPage() {
           {/* Card 1: Total Cost per Base Tank */}
           <div className="bg-white rounded-2xl border border-indigo-200/90 p-5 shadow-xs relative overflow-hidden group hover:border-indigo-400 transition-all">
             <div className="flex justify-between items-start">
-              <span className="text-[11px] font-black uppercase tracking-wider text-indigo-600">Costo Total Fabricación</span>
+              <span className="text-[11px] font-black uppercase tracking-wider text-indigo-600">Costo Planta (500L TRIC)</span>
               <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl border border-indigo-100">
                 <DollarSign className="w-4 h-4" />
               </div>
@@ -175,7 +229,7 @@ export default function CostosFabricacionPage() {
               <span className="text-3xl font-black text-slate-900 tracking-tight">
                 ${Math.round(baseGasLiters * gasPrice + laborCost + electricCost).toLocaleString("es-AR")}
               </span>
-              <span className="text-xs text-slate-400 font-bold">/ 500L TRIC</span>
+              <span className="text-xs text-slate-400 font-bold">/ unidad</span>
             </div>
             <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 font-medium">
               <span>Gas ${(baseGasLiters * gasPrice).toFixed(0)}</span>
@@ -251,6 +305,20 @@ export default function CostosFabricacionPage() {
 
       {/* Navigation Tabs Bar */}
       <div className="bg-white rounded-2xl border border-slate-200/80 p-2 shadow-xs flex flex-wrap gap-1.5">
+        
+        {/* NEW TAB: Cruce Integral & Rentabilidad */}
+        <button
+          onClick={() => setActiveTab("cruce")}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs transition ${
+            activeTab === "cruce"
+              ? "bg-indigo-600 text-white shadow-xs"
+              : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+          }`}
+        >
+          <Boxes className="w-4 h-4 text-emerald-400" />
+          Cruce Integral & Rentabilidad (Fabricados)
+        </button>
+
         <button
           onClick={() => setActiveTab("matriz")}
           className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs transition ${
@@ -260,7 +328,7 @@ export default function CostosFabricacionPage() {
           }`}
         >
           <Layers className="w-4 h-4" />
-          Matriz de Costo por Modelo (22)
+          Matriz de Transformación por Modelo (22)
         </button>
 
         <button
@@ -311,6 +379,209 @@ export default function CostosFabricacionPage() {
           Registro de Cargas & Remitos
         </button>
       </div>
+
+      {/* TAB 0: CRUCE INTEGRAL & RENTABILIDAD REAL (PRODUCTOS FABRICADOS) */}
+      {activeTab === "cruce" && data && (
+        <div className="space-y-6">
+          
+          {/* Banner */}
+          <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-6 rounded-3xl shadow-xl border border-slate-800 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div>
+              <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full">
+                  Exclusivo Productos Fabricados Propia Planta
+                </span>
+                <span className="bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full">
+                  Insumos BD + Servicios de Planta
+                </span>
+              </div>
+              <h2 className="text-xl sm:text-2xl font-black text-white">
+                Cruce Integral de Costos y Margen Real de Fabricación
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-300 font-medium mt-1">
+                Fórmula: <strong className="text-emerald-300">Costo Total Integral</strong> = Insumos (BD) + Gas Propano GLP + Mano de Obra (Rotomoldeo) + Electricidad (Edenor).
+              </p>
+            </div>
+
+            <div className="bg-white/10 border border-white/15 p-4 rounded-2xl shrink-0 text-center sm:text-right">
+              <span className="text-[10px] uppercase font-black tracking-wider text-slate-400 block">Margen Bruto Promedio</span>
+              <span className="text-3xl font-black text-emerald-400 font-mono">{kpisFabricated.avgMarginPct}%</span>
+              <span className="text-[10px] text-slate-300 font-medium block mt-0.5">~${kpisFabricated.avgMarginVal.toLocaleString("es-AR")} / unidad</span>
+            </div>
+          </div>
+
+          {/* 4 Mini KPIs */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs">
+              <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider block">Modelos Fabricados</span>
+              <span className="text-2xl font-black text-slate-900 font-mono mt-1 block">{kpisFabricated.count} u</span>
+              <span className="text-[10px] text-indigo-600 font-semibold">Productos filtrados</span>
+            </div>
+
+            <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs">
+              <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider block">Costo Medio Insumos (BD)</span>
+              <span className="text-2xl font-black text-slate-900 font-mono mt-1 block">${kpisFabricated.avgInsumos.toLocaleString("es-AR")}</span>
+              <span className="text-[10px] text-slate-400 font-semibold">Materia prima y compras</span>
+            </div>
+
+            <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs">
+              <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider block">Costo Medio Planta</span>
+              <span className="text-2xl font-black text-slate-900 font-mono mt-1 block">${kpisFabricated.avgPlant.toLocaleString("es-AR")}</span>
+              <span className="text-[10px] text-orange-600 font-semibold">Gas + MDO + Luz</span>
+            </div>
+
+            <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs">
+              <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider block">Precio Medio Venta</span>
+              <span className="text-2xl font-black text-emerald-600 font-mono mt-1 block">${kpisFabricated.avgPrice.toLocaleString("es-AR")}</span>
+              <span className="text-[10px] text-emerald-700 font-semibold">Catálogo comercial</span>
+            </div>
+          </div>
+
+          {/* Filter Bar & Family Pills */}
+          <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-xs space-y-3">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-bold text-slate-500">Familia:</span>
+                <button
+                  onClick={() => setSelectedFamily("all")}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                    selectedFamily === "all"
+                      ? "bg-indigo-600 text-white shadow-xs"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  Todos ({data.fabricatedProducts.length})
+                </button>
+                {familiesList.map((fam, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => setSelectedFamily(fam)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                      selectedFamily === fam
+                        ? "bg-indigo-600 text-white shadow-xs"
+                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    }`}
+                  >
+                    {fam}
+                  </button>
+                ))}
+              </div>
+
+              <div className="relative w-full sm:w-64">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  value={searchFabricated}
+                  onChange={(e) => setSearchFabricated(e.target.value)}
+                  placeholder="Buscar modelo o SKU..."
+                  className="bg-white border border-slate-200 pl-8 pr-3 py-1.5 rounded-xl text-xs font-medium text-slate-800 placeholder-slate-400 focus:outline-none focus:border-indigo-500 w-full shadow-xs"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Table of Fabricated Products Cross */}
+          <div className="bg-white border border-slate-200/80 rounded-2xl overflow-hidden shadow-xs">
+            <div className="p-4 bg-slate-50/70 border-b border-slate-200/80 flex justify-between items-center flex-wrap gap-2">
+              <div>
+                <h3 className="font-black text-sm text-slate-900">Estructura Integral de Costos y Rentabilidad por Producto Fabricado</h3>
+                <p className="text-xs text-slate-500 font-medium">Cruzando insumos directos con costos relativos de gas, sueldos de operarios y electricidad</p>
+              </div>
+              <span className="text-xs font-bold text-slate-500 bg-white border border-slate-200 px-3 py-1 rounded-xl shadow-xs">
+                {filteredFabricatedProducts.length} productos listados
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-slate-50 text-slate-600 text-[11px] uppercase font-black tracking-wider border-b border-slate-200/80">
+                  <tr>
+                    <th className="py-3.5 px-4">Producto Fabricado</th>
+                    <th className="py-3.5 px-3">Familia</th>
+                    <th className="py-3.5 px-3 text-center">Score</th>
+                    <th className="py-3.5 px-4 text-right font-black text-slate-800">Insumos BD ($)</th>
+                    <th className="py-3.5 px-4 text-right text-orange-600">Gas ($)</th>
+                    <th className="py-3.5 px-4 text-right text-cyan-700">MDO ($)</th>
+                    <th className="py-3.5 px-4 text-right text-amber-700">Luz ($)</th>
+                    <th className="py-3.5 px-4 text-right font-bold text-slate-900">Costo Planta ($)</th>
+                    <th className="py-3.5 px-4 text-right font-black text-indigo-700">Costo Total ($)</th>
+                    <th className="py-3.5 px-4 text-right font-black text-slate-900">Precio Venta ($)</th>
+                    <th className="py-3.5 px-4 text-right font-black text-emerald-600">Margen ($)</th>
+                    <th className="py-3.5 px-4 text-center font-black text-emerald-700">Margen (%)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredFabricatedProducts.map((p, idx) => {
+                    const hasMargin = p.price > 0;
+                    const isHighMargin = p.marginPct >= 30;
+                    const isMidMargin = p.marginPct >= 15 && p.marginPct < 30;
+                    const isLowMargin = p.marginPct < 15;
+
+                    return (
+                      <tr key={idx} className="hover:bg-slate-50/80 transition">
+                        <td className="py-3 px-4">
+                          <div className="font-bold text-slate-900">{p.name}</div>
+                          {p.sku && p.sku !== 'SIN-SKU' && (
+                            <span className="text-[10px] text-slate-400 font-mono font-semibold block">{p.sku}</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-3 text-xs text-slate-500 font-semibold whitespace-nowrap">
+                          {p.family}
+                        </td>
+                        <td className="py-3 px-3 text-center">
+                          <span className="bg-slate-100 border border-slate-200 text-slate-700 text-[11px] px-2 py-0.5 rounded font-mono font-bold">
+                            {p.score.toFixed(2)}x
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono font-bold text-slate-800">
+                          {p.costInsumos > 0 ? `$${p.costInsumos.toLocaleString("es-AR")}` : "-"}
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono text-orange-600 font-medium">
+                          ${p.gasCost.toLocaleString("es-AR")}
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono text-cyan-700 font-medium">
+                          ${p.mdoCost.toLocaleString("es-AR")}
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono text-amber-700 font-medium">
+                          ${p.luzCost.toLocaleString("es-AR")}
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono font-bold text-slate-900 bg-slate-50/50">
+                          ${p.plantOpCost.toLocaleString("es-AR")}
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono font-black text-indigo-700 text-base">
+                          ${p.totalIntegralCost.toLocaleString("es-AR")}
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono font-bold text-slate-900">
+                          {hasMargin ? `$${p.price.toLocaleString("es-AR")}` : "-"}
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono font-black text-emerald-600">
+                          {hasMargin ? `$${p.marginValue.toLocaleString("es-AR")}` : "-"}
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          {hasMargin ? (
+                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-black font-mono ${
+                              isHighMargin 
+                                ? "bg-emerald-50 text-emerald-700 border border-emerald-200" 
+                                : isMidMargin 
+                                ? "bg-amber-50 text-amber-700 border border-amber-200" 
+                                : "bg-rose-50 text-rose-700 border border-rose-200"
+                            }`}>
+                              {p.marginPct}%
+                            </span>
+                          ) : (
+                            <span className="text-slate-300 font-mono">-</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+      )}
 
       {/* TAB 1: Matriz de Costo por Modelo */}
       {activeTab === "matriz" && data && (
@@ -378,7 +649,7 @@ export default function CostosFabricacionPage() {
           <div className="bg-white border border-slate-200/80 rounded-2xl overflow-hidden shadow-xs">
             <div className="p-4 bg-slate-50/70 border-b border-slate-200/80 flex justify-between items-center flex-wrap gap-3">
               <div>
-                <h3 className="font-black text-sm text-slate-900">Desglose de Costos de Fabricación por Modelo de Tanque</h3>
+                <h3 className="font-black text-sm text-slate-900">Desglose de Costos de Transformación en Planta por Modelo de Tanque</h3>
                 <p className="text-xs text-slate-500 font-medium">Calculado sobre factores relativos de cocción, mano de obra y consumo eléctrico</p>
               </div>
 
@@ -412,7 +683,7 @@ export default function CostosFabricacionPage() {
                     <th className="py-3.5 px-4 text-right">Costo Gas ($)</th>
                     <th className="py-3.5 px-4 text-right">MDO ($)</th>
                     <th className="py-3.5 px-4 text-right">Luz ($)</th>
-                    <th className="py-3.5 px-4 text-right font-black text-indigo-700">Costo Total ($)</th>
+                    <th className="py-3.5 px-4 text-right font-black text-indigo-700">Costo Planta ($)</th>
                     <th className="py-3.5 px-4 text-center">Composición</th>
                   </tr>
                 </thead>
@@ -563,7 +834,7 @@ export default function CostosFabricacionPage() {
                     )}
                   </div>
 
-                  {/* SPECIAL CARD: Julio Verón (Mantenimiento de Maquinaria con Método 1) */}
+                  {/* SPECIAL CARD: Julio Verón */}
                   {op.isMaintenanceSupport ? (
                     <div className="space-y-3 pt-3 border-t border-slate-100">
                       {selectedMonthFilter === "all" ? (
@@ -633,7 +904,7 @@ export default function CostosFabricacionPage() {
                       )}
                     </div>
                   ) : op.isWarehouse ? (
-                    /* SPECIAL CARD: Matías Olivera (Gestión de Depósito & Ensamblado) */
+                    /* SPECIAL CARD: Matías Olivera */
                     <div className="space-y-3 pt-3 border-t border-slate-100">
                       {selectedMonthFilter === "all" ? (
                         <>
@@ -701,7 +972,7 @@ export default function CostosFabricacionPage() {
                       )}
                     </div>
                   ) : (
-                    /* STANDARD CARD: Operarios de Rotomoldeo (Rodrigo, Leonardo, Samuel) */
+                    /* STANDARD CARD: Operarios de Rotomoldeo */
                     <div className="space-y-3 pt-3 border-t border-slate-100">
                       {selectedMonthFilter === "all" ? (
                         <>

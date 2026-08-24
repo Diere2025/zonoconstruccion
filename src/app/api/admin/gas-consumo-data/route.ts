@@ -7,6 +7,9 @@ const SPREADSHEET_GAS_ID = "1k112jRkUR6SqMtjHg0rWzFF3iyHNa-VBiVSs3GoEnko";
 const SPREADSHEET_PRODUCTION_ID = "1z_yqAdxYn0aESDIARhL_Y9KyYSidQ2tp7Ezkqde0IE0";
 const TANK_CAPACITY_LITERS = 4000; // Tanque Zeppelin de 4.000 Litros (4 m3)
 
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+
 export interface GasEvent {
   id: string;
   fecha: string;
@@ -50,6 +53,25 @@ export interface CombinedModelCost {
   porcentajeElectricidad: number;
 }
 
+export interface FabricatedProductCost {
+  id: string;
+  sku: string;
+  name: string;
+  category: string;
+  family: string;
+  score: number;
+  costInsumos: number;
+  gasLiters: number;
+  gasCost: number;
+  mdoCost: number;
+  luzCost: number;
+  plantOpCost: number;
+  totalIntegralCost: number;
+  price: number;
+  marginValue: number;
+  marginPct: number;
+}
+
 export interface MonthlyCostBreakdown {
   monthKey: string;
   monthName: string;
@@ -77,7 +99,6 @@ export interface OperatorMonthlyMetric {
   costPerFabricatedTank: number;
   costPerAssembledTank: number;
   isAguinaldoMonth: boolean;
-  // Method 1 for Maintenance (Julio Verón)
   productiveCredit?: number;
   pureMaintenanceCost?: number;
   maintenanceCostPerPlantTank?: number;
@@ -100,7 +121,6 @@ export interface OperatorSummary {
   avgCostPerFabricatedTank: number;
   avgCostPerFabricatedTankWithoutAguinaldo: number;
   avgCostPerAssembledTank: number;
-  // Method 1 for Maintenance (Julio Verón)
   totalProductiveCredit?: number;
   totalPureMaintenanceCost?: number;
   avgMaintenanceCostPerPlantTank?: number;
@@ -245,6 +265,74 @@ const getOperatorMeta = (rawName?: string) => {
   return null;
 };
 
+const scoreRules = [
+  { match: ['tric', '1000'], score: 2.0 },
+  { match: ['tric', '750'], score: 1.5 },
+  { match: ['tric', '600'], score: 1.2 },
+  { match: ['tric', '500'], score: 1.0 },
+  { match: ['tric', '470'], score: 0.94 },
+  { match: ['tric', '280'], score: 0.56 },
+  { match: ['tric', '300'], score: 0.60 },
+  { match: ['tric', '3000'], score: 6.0 },
+
+  { match: ['bic', '1000'], score: 1.80 },
+  { match: ['bic', '750'], score: 1.35 },
+  { match: ['bic', '600'], score: 1.08 },
+  { match: ['bic', '500'], score: 0.90 },
+  { match: ['bic', '400'], score: 0.72 },
+  { match: ['bic', '300'], score: 0.54 },
+  { match: ['bic', '280'], score: 0.50 },
+  { match: ['bic', '1200'], score: 2.16 },
+
+  { match: ['cuatr', '1000'], score: 2.20 },
+  { match: ['cuatr', '750'], score: 1.60 },
+  { match: ['cuatr', '600'], score: 1.30 },
+  { match: ['cuatr', '500'], score: 1.10 },
+  { match: ['cuatr', '470'], score: 1.00 },
+  { match: ['cuatr', '550'], score: 1.20 },
+
+  { match: ['cisterna', '1000'], score: 2.0 },
+  { match: ['cisterna', '750'], score: 1.5 },
+  { match: ['cisterna', '600'], score: 1.2 },
+  { match: ['cisterna', '500'], score: 1.0 },
+
+  { match: ['biodigestor', '1000'], score: 2.20 },
+  { match: ['biodigestor', '750'], score: 1.65 },
+  { match: ['biodigestor', '600'], score: 1.32 },
+  { match: ['biodigestor', '500'], score: 1.05 },
+  { match: ['septica', '1000'], score: 2.20 },
+  { match: ['septica', '750'], score: 1.65 },
+  { match: ['septica', '600'], score: 1.32 },
+  { match: ['septica', '500'], score: 1.05 },
+  { match: ['desengrasadora'], score: 0.80 },
+  { match: ['cono'], score: 0.40 },
+  { match: ['conico', '700'], score: 1.40 },
+  { match: ['conico', '600'], score: 1.20 }
+];
+
+const getProductScore = (name: string): number => {
+  const lower = name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  for (const rule of scoreRules) {
+    const matchAll = rule.match.every(m => lower.includes(m.normalize('NFD').replace(/[\u0300-\u036f]/g, '')));
+    if (matchAll) return rule.score;
+  }
+  if (lower.includes('1000')) return 2.0;
+  if (lower.includes('750')) return 1.5;
+  if (lower.includes('600')) return 1.2;
+  if (lower.includes('500')) return 1.0;
+  if (lower.includes('300') || lower.includes('280')) return 0.6;
+  return 1.0;
+};
+
+const isExcludedFromFabricated = (name: string): boolean => {
+  const lower = name.toLowerCase();
+  return lower.includes('termotanque') || lower.includes('taladro') || lower.includes('inflador') || 
+         lower.includes('escalera') || lower.includes('bomba') || lower.includes('recuperado') || 
+         lower.includes('latex') || lower.includes('maceta') || lower.includes('turboflex') || 
+         lower.includes('auto-comp') || lower.includes('pack') || lower.includes('kit instalacion') ||
+         lower.includes('valvula') || lower.includes('brida') || lower.includes('tapa');
+};
+
 export async function GET() {
   try {
     const gasCargaUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_GAS_ID}/gviz/tq?tqx=out:csv&sheet=Carga`;
@@ -253,27 +341,37 @@ export async function GET() {
     const gasEdenorUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_GAS_ID}/gviz/tq?tqx=out:csv&sheet=Edenor`;
     const prodFabUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_PRODUCTION_ID}/gviz/tq?tqx=out:csv&sheet=Fabricaci%C3%B3n`;
     const prodEnsUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_PRODUCTION_ID}/gviz/tq?tqx=out:csv&sheet=Ensamblaje`;
+    const supabaseProductsUrl = `${SUPABASE_URL}/rest/v1/products?is_active=eq.true&select=*&order=name.asc`;
 
-    const [gasRes, tipoRes, sueldosRes, edenorRes, fabRes, ensRes] = await Promise.all([
+    const [gasRes, tipoRes, sueldosRes, edenorRes, fabRes, ensRes, dbProductsRes] = await Promise.all([
       fetch(gasCargaUrl, { cache: "no-store" }),
       fetch(gasTipoUrl, { cache: "no-store" }),
       fetch(gasSueldosUrl, { cache: "no-store" }),
       fetch(gasEdenorUrl, { cache: "no-store" }),
       fetch(prodFabUrl, { cache: "no-store" }),
-      fetch(prodEnsUrl, { cache: "no-store" })
+      fetch(prodEnsUrl, { cache: "no-store" }),
+      fetch(supabaseProductsUrl, {
+        headers: {
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${SUPABASE_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        cache: "no-store"
+      })
     ]);
 
     if (!gasRes.ok) {
       throw new Error(`Error al leer la hoja de Cargas de Gas (${gasRes.status})`);
     }
 
-    const [gasCsv, tipoCsv, sueldosCsv, edenorCsv, fabCsv, ensCsv] = await Promise.all([
+    const [gasCsv, tipoCsv, sueldosCsv, edenorCsv, fabCsv, ensCsv, dbProducts] = await Promise.all([
       gasRes.text(),
       tipoRes.ok ? tipoRes.text() : Promise.resolve(""),
       sueldosRes.ok ? sueldosRes.text() : Promise.resolve(""),
       edenorRes.ok ? edenorRes.text() : Promise.resolve(""),
       fabRes.ok ? fabRes.text() : Promise.resolve(""),
-      ensRes.ok ? ensRes.text() : Promise.resolve("")
+      ensRes.ok ? ensRes.text() : Promise.resolve(""),
+      dbProductsRes.ok ? dbProductsRes.json() : Promise.resolve([])
     ]);
 
     // 1. Parse Gas Events (Cargas y Lecturas)
@@ -390,7 +488,7 @@ export async function GET() {
       });
     }
 
-    // 4. Parse Sueldos & Build Operator Cost Intelligence (Cost strictly on Fabricated + Method 1 Maintenance)
+    // 4. Parse Sueldos & Build Operator Cost Intelligence
     const salariesByMonthAndOpKey: Record<string, Record<string, number>> = {};
     if (sueldosCsv) {
       const sueldoLines = sueldosCsv.split('\n').filter(l => l.trim().length > 0).slice(1);
@@ -420,7 +518,6 @@ export async function GET() {
     let totalPureRotomoldingSalariesWithoutSAC = 0;
     let totalPureRotomoldingFabricatedWithoutSAC = 0;
 
-    // First pass to compute baseline rotomolding standard rate
     allSalaryMonths.forEach(ym => {
       const isAguinaldoMonth = ym === '2026-06';
       if (!isAguinaldoMonth) {
@@ -468,11 +565,9 @@ export async function GET() {
         const tanksTotal = tanksFab + tanksEns;
         const plantTanksInMonth = tanksByMonth[ym]?.totalTanks || 0;
         
-        // Strict cost per fabricated unit
         const costPerFabricatedTank = tanksFab > 0 && salary > 0 ? Math.round(salary / tanksFab) : 0;
         const costPerAssembledTank = tanksEns > 0 && salary > 0 ? Math.round(salary / tanksEns) : 0;
 
-        // Method 1 for Maintenance (Julio Verón):
         let productiveCredit = 0;
         let pureMaintenanceCost = 0;
         let maintenanceCostPerPlantTank = 0;
@@ -509,7 +604,6 @@ export async function GET() {
         sumPlantTanks += plantTanksInMonth;
       });
 
-      // Strict average on fabricated
       summary.avgCostPerFabricatedTank = summary.totalTanksFabricated > 0 && summary.totalSalary > 0 
         ? Math.round(summary.totalSalary / summary.totalTanksFabricated) 
         : 0;
@@ -588,7 +682,6 @@ export async function GET() {
     // 6. Monthly Gas Consumption & Total Operating Cost Correlation
     const monthlyGasMap: Record<string, { gasLitros: number; inversion: number; tanques: number; litrosTransformados: number; }> = {};
     
-    // Ensure all 2026 months are tracked
     allSalaryMonths.forEach(ym => {
       monthlyGasMap[ym] = {
         gasLitros: 0,
@@ -696,7 +789,66 @@ export async function GET() {
       };
     });
 
-    // 8. Tank Zeppelin Status & Intervals
+    // 8. Fabricated Products Cross with DB (Products from Supabase crossed with Plant Costs)
+    const fabricatedProducts: FabricatedProductCost[] = [];
+    if (Array.isArray(dbProducts)) {
+      dbProducts.forEach((p: any) => {
+        const name = p.name || '';
+        if (isExcludedFromFabricated(name)) return;
+
+        const lower = name.toLowerCase();
+        const cat = (p.category || '').toLowerCase();
+        const isFab = p.production_type === 'fabricado' || p.production_type === 'ensamblado' ||
+                      cat.includes('tanque') || cat.includes('cámara') || cat.includes('camara') || 
+                      cat.includes('biodigestor') || cat.includes('cisterna') ||
+                      lower.includes('aquafort') || lower.includes('biofort') || lower.includes('powerlit') || 
+                      lower.includes('biodigestor') || lower.includes('séptica') || lower.includes('septica') || 
+                      lower.includes('desengrasadora') || lower.includes('cisterna') || lower.includes('tacho');
+
+        if (isFab) {
+          const score = getProductScore(name);
+          const costInsumos = p.cost_price || 0;
+          const price = p.price || 0;
+
+          const gasLiters = parseFloat((score * baseGasLiters).toFixed(2));
+          const gasCost = Math.round(gasLiters * latestPrice);
+          const mdoCost = Math.round(score * baseLaborCostPerTank);
+          const luzCost = Math.round(score * baseElectricityCostPerTank);
+          const plantOpCost = gasCost + mdoCost + luzCost;
+          const totalIntegralCost = costInsumos + plantOpCost;
+
+          const marginValue = price > 0 ? price - totalIntegralCost : 0;
+          const marginPct = price > 0 ? parseFloat(((marginValue / price) * 100).toFixed(1)) : 0;
+
+          let family = 'Tanques AquaFort';
+          if (lower.includes('biodigestor')) family = 'Biodigestores';
+          else if (lower.includes('séptica') || lower.includes('septica') || lower.includes('desengrasadora') || lower.includes('camara') || lower.includes('cámara')) family = 'Cámaras & Desengrasadoras';
+          else if (lower.includes('cisterna')) family = 'Cisternas';
+          else if (lower.includes('powerlit')) family = 'Línea Powerlit';
+
+          fabricatedProducts.push({
+            id: p.id,
+            sku: p.sku || 'SIN-SKU',
+            name: p.name,
+            category: p.category || 'Fabricados',
+            family,
+            score,
+            costInsumos,
+            gasLiters,
+            gasCost,
+            mdoCost,
+            luzCost,
+            plantOpCost,
+            totalIntegralCost,
+            price,
+            marginValue,
+            marginPct
+          });
+        }
+      });
+    }
+
+    // 9. Tank Zeppelin Status & Intervals
     const readings = gasEvents.filter(e => e.porcentajeAntes > 0 || e.tipo === "Lectura");
     const lastReading = readings.length > 0 ? readings[readings.length - 1] : null;
     const lastRefill = refills.length > 0 ? refills[refills.length - 1] : null;
@@ -740,7 +892,7 @@ export async function GET() {
       });
     }
 
-    // 9. 14-Day Rolling Window
+    // 10. 14-Day Rolling Window
     const lastTimestamp = lastReading ? lastReading.timestamp : Date.now();
     const fourteenDaysAgoTimestamp = lastTimestamp - (14 * 86400000);
     const readingsLast14 = gasEvents.filter(e => (e.porcentajeAntes > 0 || e.tipo === 'Lectura') && e.timestamp >= fourteenDaysAgoTimestamp);
@@ -779,7 +931,7 @@ export async function GET() {
 
     const daysOfAutonomyRemaining = Math.max(1, Math.round(currentTankLiters / (dailyGasConsumptionLast14 || 100)));
 
-    // 10. Current Month (Agosto 2026) Forecast
+    // 11. Current Month (Agosto 2026) Forecast
     const currentYearMonth = "2026-08";
     const currentMonthName = formatMonthName(currentYearMonth);
     const tanksCurrentMonthMtd = tanksByMonth[currentYearMonth]?.totalTanks || 475;
@@ -869,6 +1021,7 @@ export async function GET() {
       operatorsData,
       electricityRecords,
       modelScores,
+      fabricatedProducts,
       intervals,
       monthlyBreakdown,
       gasEvents: gasEvents.reverse(),
