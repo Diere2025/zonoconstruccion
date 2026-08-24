@@ -5,6 +5,7 @@ export const revalidate = 0;
 
 const SPREADSHEET_GAS_ID = "1k112jRkUR6SqMtjHg0rWzFF3iyHNa-VBiVSs3GoEnko";
 const SPREADSHEET_PRODUCTION_ID = "1z_yqAdxYn0aESDIARhL_Y9KyYSidQ2tp7Ezkqde0IE0";
+const SPREADSHEET_PRICES_ID = "1K3c_6SMScaTkSI3FMDnQPVyj-c7MSqQEoWW4q3mL3Jg";
 const TANK_CAPACITY_LITERS = 4000; // Tanque Zeppelin de 4.000 Litros (4 m3)
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
@@ -43,6 +44,7 @@ export interface CombinedModelCost {
   tipo: string;
   puntaje: number;
   litrosTanque: string;
+  costoInsumos: number;
   litrosGasEstimado: number;
   costoGasEstimado: number;
   costoManoObraEstimado: number;
@@ -60,6 +62,7 @@ export interface FabricatedProductCost {
   category: string;
   family: string;
   score: number;
+  litrosTanque: string;
   costInsumos: number;
   gasLiters: number;
   gasCost: number;
@@ -265,74 +268,6 @@ const getOperatorMeta = (rawName?: string) => {
   return null;
 };
 
-const scoreRules = [
-  { match: ['tric', '1000'], score: 2.0 },
-  { match: ['tric', '750'], score: 1.5 },
-  { match: ['tric', '600'], score: 1.2 },
-  { match: ['tric', '500'], score: 1.0 },
-  { match: ['tric', '470'], score: 0.94 },
-  { match: ['tric', '280'], score: 0.56 },
-  { match: ['tric', '300'], score: 0.60 },
-  { match: ['tric', '3000'], score: 6.0 },
-
-  { match: ['bic', '1000'], score: 1.80 },
-  { match: ['bic', '750'], score: 1.35 },
-  { match: ['bic', '600'], score: 1.08 },
-  { match: ['bic', '500'], score: 0.90 },
-  { match: ['bic', '400'], score: 0.72 },
-  { match: ['bic', '300'], score: 0.54 },
-  { match: ['bic', '280'], score: 0.50 },
-  { match: ['bic', '1200'], score: 2.16 },
-
-  { match: ['cuatr', '1000'], score: 2.20 },
-  { match: ['cuatr', '750'], score: 1.60 },
-  { match: ['cuatr', '600'], score: 1.30 },
-  { match: ['cuatr', '500'], score: 1.10 },
-  { match: ['cuatr', '470'], score: 1.00 },
-  { match: ['cuatr', '550'], score: 1.20 },
-
-  { match: ['cisterna', '1000'], score: 2.0 },
-  { match: ['cisterna', '750'], score: 1.5 },
-  { match: ['cisterna', '600'], score: 1.2 },
-  { match: ['cisterna', '500'], score: 1.0 },
-
-  { match: ['biodigestor', '1000'], score: 2.20 },
-  { match: ['biodigestor', '750'], score: 1.65 },
-  { match: ['biodigestor', '600'], score: 1.32 },
-  { match: ['biodigestor', '500'], score: 1.05 },
-  { match: ['septica', '1000'], score: 2.20 },
-  { match: ['septica', '750'], score: 1.65 },
-  { match: ['septica', '600'], score: 1.32 },
-  { match: ['septica', '500'], score: 1.05 },
-  { match: ['desengrasadora'], score: 0.80 },
-  { match: ['cono'], score: 0.40 },
-  { match: ['conico', '700'], score: 1.40 },
-  { match: ['conico', '600'], score: 1.20 }
-];
-
-const getProductScore = (name: string): number => {
-  const lower = name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  for (const rule of scoreRules) {
-    const matchAll = rule.match.every(m => lower.includes(m.normalize('NFD').replace(/[\u0300-\u036f]/g, '')));
-    if (matchAll) return rule.score;
-  }
-  if (lower.includes('1000')) return 2.0;
-  if (lower.includes('750')) return 1.5;
-  if (lower.includes('600')) return 1.2;
-  if (lower.includes('500')) return 1.0;
-  if (lower.includes('300') || lower.includes('280')) return 0.6;
-  return 1.0;
-};
-
-const isExcludedFromFabricated = (name: string): boolean => {
-  const lower = name.toLowerCase();
-  return lower.includes('termotanque') || lower.includes('taladro') || lower.includes('inflador') || 
-         lower.includes('escalera') || lower.includes('bomba') || lower.includes('recuperado') || 
-         lower.includes('latex') || lower.includes('maceta') || lower.includes('turboflex') || 
-         lower.includes('auto-comp') || lower.includes('pack') || lower.includes('kit instalacion') ||
-         lower.includes('valvula') || lower.includes('brida') || lower.includes('tapa');
-};
-
 export async function GET() {
   try {
     const gasCargaUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_GAS_ID}/gviz/tq?tqx=out:csv&sheet=Carga`;
@@ -341,15 +276,17 @@ export async function GET() {
     const gasEdenorUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_GAS_ID}/gviz/tq?tqx=out:csv&sheet=Edenor`;
     const prodFabUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_PRODUCTION_ID}/gviz/tq?tqx=out:csv&sheet=Fabricaci%C3%B3n`;
     const prodEnsUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_PRODUCTION_ID}/gviz/tq?tqx=out:csv&sheet=Ensamblaje`;
-    const supabaseProductsUrl = `${SUPABASE_URL}/rest/v1/products?is_active=eq.true&select=*&order=name.asc`;
+    const pricesUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_PRICES_ID}/export?format=csv&gid=508601925`;
+    const supabaseProductsUrl = `${SUPABASE_URL}/rest/v1/products?is_active=eq.true&select=id,name,sku,price&order=name.asc`;
 
-    const [gasRes, tipoRes, sueldosRes, edenorRes, fabRes, ensRes, dbProductsRes] = await Promise.all([
+    const [gasRes, tipoRes, sueldosRes, edenorRes, fabRes, ensRes, pricesRes, dbProductsRes] = await Promise.all([
       fetch(gasCargaUrl, { cache: "no-store" }),
       fetch(gasTipoUrl, { cache: "no-store" }),
       fetch(gasSueldosUrl, { cache: "no-store" }),
       fetch(gasEdenorUrl, { cache: "no-store" }),
       fetch(prodFabUrl, { cache: "no-store" }),
       fetch(prodEnsUrl, { cache: "no-store" }),
+      fetch(pricesUrl, { cache: "no-store" }),
       fetch(supabaseProductsUrl, {
         headers: {
           'apikey': SUPABASE_KEY,
@@ -364,15 +301,41 @@ export async function GET() {
       throw new Error(`Error al leer la hoja de Cargas de Gas (${gasRes.status})`);
     }
 
-    const [gasCsv, tipoCsv, sueldosCsv, edenorCsv, fabCsv, ensCsv, dbProducts] = await Promise.all([
+    const [gasCsv, tipoCsv, sueldosCsv, edenorCsv, fabCsv, ensCsv, pricesCsv, dbProducts] = await Promise.all([
       gasRes.text(),
       tipoRes.ok ? tipoRes.text() : Promise.resolve(""),
       sueldosRes.ok ? sueldosRes.text() : Promise.resolve(""),
       edenorRes.ok ? edenorRes.text() : Promise.resolve(""),
       fabRes.ok ? fabRes.text() : Promise.resolve(""),
       ensRes.ok ? ensRes.text() : Promise.resolve(""),
+      pricesRes.ok ? pricesRes.text() : Promise.resolve(""),
       dbProductsRes.ok ? dbProductsRes.json() : Promise.resolve([])
     ]);
+
+    // Build Prices and SKU Map
+    const pricesMap: Record<string, { price: number; sku?: string; id?: string }> = {};
+    if (pricesCsv) {
+      pricesCsv.split('\n').slice(1).forEach(l => {
+        const c = parseCsvLine(l);
+        const name = c[1]?.trim();
+        const p = parseNum(c[2]);
+        if (name && p > 0) {
+          pricesMap[name.toLowerCase()] = { price: p };
+        }
+      });
+    }
+    if (Array.isArray(dbProducts)) {
+      dbProducts.forEach((p: any) => {
+        if (p.name) {
+          const norm = p.name.toLowerCase();
+          pricesMap[norm] = {
+            price: p.price || pricesMap[norm]?.price || 0,
+            sku: p.sku || 'SIN-SKU',
+            id: p.id
+          };
+        }
+      });
+    }
 
     // 1. Parse Gas Events (Cargas y Lecturas)
     const gasLines = gasCsv.split('\n').filter(l => l.trim().length > 0).slice(1);
@@ -739,119 +702,100 @@ export async function GET() {
       };
     }).sort((a, b) => b.monthKey.localeCompare(a.monthKey));
 
-    // 7. Model Scores & Combined Manufacturing Cost Matrix (Gas + Mano de Obra + Electricidad)
+    // 7. Parse Sheet 'Tipo' for Official Manufactured Models and Direct Column E (Costo Insumos)
     const baseGasLiters = (tanksByMonth['2026-08']?.totalTanks || 475) > 0 ? (monthlyGasMap['2026-08']?.gasLitros || 3594) / (tanksByMonth['2026-08']?.totalTanks || 475) : 7.57;
-    const rawModelDefinitions = [
-      { producto: "AquaFort - TRIC 500L Gris", tipo: "500 TRIC", puntaje: 1.0, litrosTanque: "500L" },
-      { producto: "AquaFort - TRIC 500L Beige", tipo: "500 TRIC", puntaje: 1.0, litrosTanque: "500L" },
-      { producto: "AquaFort - TRIC 600L Gris", tipo: "600 TRIC", puntaje: 1.2, litrosTanque: "600L" },
-      { producto: "AquaFort - TRIC 600L Beige", tipo: "600 TRIC", puntaje: 1.2, litrosTanque: "600L" },
-      { producto: "AquaFort - TRIC 750L Gris", tipo: "750 TRIC", puntaje: 1.5, litrosTanque: "750L" },
-      { producto: "AquaFort - TRIC 750L Beige", tipo: "750 TRIC", puntaje: 1.5, litrosTanque: "750L" },
-      { producto: "AquaFort - TRIC 300L Gris", tipo: "300 TRIC", puntaje: 0.6, litrosTanque: "300L" },
-      { producto: "AquaFort - TRIC 300L Beige", tipo: "300 TRIC", puntaje: 0.6, litrosTanque: "300L" },
-      { producto: "AquaFort - TRIC 1000L Gris", tipo: "1000 TRIC", puntaje: 2.0, litrosTanque: "1000L" },
-      { producto: "AquaFort - BIC 500L", tipo: "500 BIC", puntaje: 0.90, litrosTanque: "500L" },
-      { producto: "AquaFort - BIC 600L", tipo: "600 BIC", puntaje: 1.08, litrosTanque: "600L" },
-      { producto: "AquaFort - BIC 750L", tipo: "750 BIC", puntaje: 1.35, litrosTanque: "750L" },
-      { producto: "AquaFort - BIC 300L", tipo: "300 BIC", puntaje: 0.54, litrosTanque: "300L" },
-      { producto: "AquaFort - CUATR 500L", tipo: "500 CUATR", puntaje: 1.10, litrosTanque: "500L" },
-      { producto: "AquaFort - CUATR 600L", tipo: "600 CUATR", puntaje: 1.30, litrosTanque: "600L" },
-      { producto: "AquaFort - CUATR 750L", tipo: "750 CUATR", puntaje: 1.60, litrosTanque: "750L" },
-      { producto: "AquaFort - CISTERNA 500L", tipo: "500 CIST", puntaje: 1.0, litrosTanque: "500L" },
-      { producto: "AquaFort - CISTERNA 750L", tipo: "750 CIST", puntaje: 1.5, litrosTanque: "750L" },
-      { producto: "Cono Biodigestor", tipo: "Cono", puntaje: 0.40, litrosTanque: "Cono" },
-      { producto: "Tacho Cámara/Bio 600L", tipo: "Cámara 600", puntaje: 1.32, litrosTanque: "600L" },
-      { producto: "Tacho Cámara/Bio 500L", tipo: "Cámara 500", puntaje: 1.05, litrosTanque: "500L" },
-      { producto: "Tacho Cónico 700L", tipo: "Cónico 700", puntaje: 1.40, litrosTanque: "700L" }
-    ];
-
-    const modelScores: CombinedModelCost[] = rawModelDefinitions.map(item => {
-      const litrosGasEstimado = parseFloat((item.puntaje * baseGasLiters).toFixed(2));
-      const costoGasEstimado = parseFloat((litrosGasEstimado * latestPrice).toFixed(0));
-      const costoManoObraEstimado = parseFloat((item.puntaje * baseLaborCostPerTank).toFixed(0));
-      const costoElectricidadEstimado = parseFloat((item.puntaje * baseElectricityCostPerTank).toFixed(0));
-      const costoTotalFabricacion = costoGasEstimado + costoManoObraEstimado + costoElectricidadEstimado;
-
-      return {
-        producto: item.producto,
-        tipo: item.tipo,
-        puntaje: item.puntaje,
-        litrosTanque: item.litrosTanque,
-        litrosGasEstimado,
-        costoGasEstimado,
-        costoManoObraEstimado,
-        costoElectricidadEstimado,
-        costoTotalFabricacion,
-        porcentajeGas: costoTotalFabricacion > 0 ? parseFloat(((costoGasEstimado / costoTotalFabricacion) * 100).toFixed(1)) : 50,
-        porcentajeManoObra: costoTotalFabricacion > 0 ? parseFloat(((costoManoObraEstimado / costoTotalFabricacion) * 100).toFixed(1)) : 40,
-        porcentajeElectricidad: costoTotalFabricacion > 0 ? parseFloat(((costoElectricidadEstimado / costoTotalFabricacion) * 100).toFixed(1)) : 10
-      };
-    });
-
-    // 8. Fabricated Products Cross with DB (Only products actually rotomolded / manufactured in our plant)
-    const isStrictlyOwnFabrication = (p: any): boolean => {
-      const name = (p.name || '').toLowerCase();
-      const sku = (p.sku || '').toLowerCase();
-
-      // STRICT EXCLUSIONS: Resale tanks (Powerlit), Water heaters, Pumps, Tools, Kits, Parts
-      if (name.includes('powerlit') || sku.includes('powerlit')) return false;
-      if (name.includes('termotanque') || name.includes('universal') || name.includes('sirena') || name.includes('daewoo')) return false;
-      if (name.includes('taladro') || name.includes('bomba') || name.includes('escalera') || name.includes('omaha') || name.includes('kld')) return false;
-      if (name.includes('turboflex') || name.includes('pvc - desengrasadora') || name.includes('pvc - camara')) return false;
-      if (name.includes('pack') || name.includes('kit instalacion') || name.includes('adicionales') || name.includes('buje') || name.includes('valvula') || name.includes('tapa')) return false;
-
-      // STRICT INCLUSIONS: AquaFort, BioFort, Tachos, Conos, Sépticas
-      if (name.includes('aquafort')) return true;
-      if (name.includes('biofort')) return true;
-      if (name.includes('tacho cámara') || name.includes('tacho camara') || name.includes('tacho cónico') || name.includes('tacho conico') || name.includes('cono biodigestor')) return true;
-      if (name.startsWith('septica ') || name.startsWith('séptica ') || name.includes('cámara séptica') || name.includes('camara septica')) return true;
-
-      return false;
-    };
-
+    
+    const modelScores: CombinedModelCost[] = [];
     const fabricatedProducts: FabricatedProductCost[] = [];
-    if (Array.isArray(dbProducts)) {
-      dbProducts.forEach((p: any) => {
-        if (!isStrictlyOwnFabrication(p)) return;
 
-        const name = p.name || '';
-        const lower = name.toLowerCase();
-        const score = getProductScore(name);
-        const costInsumos = p.cost_price || 0;
-        const price = p.price || 0;
+    if (tipoCsv) {
+      const tipoLines = tipoCsv.split('\n').filter(l => l.trim().length > 0).slice(1);
+      tipoLines.forEach((l, idx) => {
+        const c = parseCsvLine(l);
+        const prodName = c[0]?.trim();
+        if (!prodName) return;
 
-        const gasLiters = parseFloat((score * baseGasLiters).toFixed(2));
-        const gasCost = Math.round(gasLiters * latestPrice);
-        const mdoCost = Math.round(score * baseLaborCostPerTank);
-        const luzCost = Math.round(score * baseElectricityCostPerTank);
-        const plantOpCost = gasCost + mdoCost + luzCost;
-        const totalIntegralCost = costInsumos + plantOpCost;
+        const tipo = c[1]?.trim() || '';
+        const score = parseNum(c[2]) || 1.0;
+        const litrosTanque = c[3]?.trim() || '500L';
+        const costInsumosColE = parseNum(c[4]); // COLUMNA E: Costo Insumos Real de la Planilla!
 
-        const marginValue = price > 0 ? price - totalIntegralCost : 0;
+        const litrosGasEstimado = parseFloat((score * baseGasLiters).toFixed(2));
+        const costoGasEstimado = Math.round(litrosGasEstimado * latestPrice);
+        const costoManoObraEstimado = Math.round(score * baseLaborCostPerTank);
+        const costoElectricidadEstimado = Math.round(score * baseElectricityCostPerTank);
+        const costoPlantaTransformacion = costoGasEstimado + costoManoObraEstimado + costoElectricidadEstimado;
+        const costoTotalIntegral = Math.round(costInsumosColE + costoPlantaTransformacion);
+
+        // Combined model definition
+        modelScores.push({
+          producto: prodName,
+          tipo,
+          puntaje: score,
+          litrosTanque,
+          costoInsumos: costInsumosColE,
+          litrosGasEstimado,
+          costoGasEstimado,
+          costoManoObraEstimado,
+          costoElectricidadEstimado,
+          costoTotalFabricacion: costoPlantaTransformacion,
+          porcentajeGas: costoPlantaTransformacion > 0 ? parseFloat(((costoGasEstimado / costoPlantaTransformacion) * 100).toFixed(1)) : 50,
+          porcentajeManoObra: costoPlantaTransformacion > 0 ? parseFloat(((costoManoObraEstimado / costoPlantaTransformacion) * 100).toFixed(1)) : 40,
+          porcentajeElectricidad: costoPlantaTransformacion > 0 ? parseFloat(((costoElectricidadEstimado / costoPlantaTransformacion) * 100).toFixed(1)) : 10
+        });
+
+        // Family categorization
+        let family = 'AquaFort Tricapa (TRIC)';
+        if (prodName.includes('BIC')) family = 'AquaFort Bicapa (BIC)';
+        else if (prodName.includes('CUATR')) family = 'AquaFort Cuatricapa (CUATR)';
+        else if (prodName.includes('CISTERNA')) family = 'AquaFort Cisternas';
+        else if (prodName.includes('Tacho') || prodName.includes('Cono') || prodName.includes('Bio')) family = 'Tachos y Conos de Horno';
+
+        // Catalog sale price lookup
+        const normName = prodName.toLowerCase();
+        let priceInfo = pricesMap[normName];
+        if (!priceInfo) {
+          const matchKey = Object.keys(pricesMap).find(k => k.includes(normName) || normName.includes(k));
+          if (matchKey) priceInfo = pricesMap[matchKey];
+        }
+
+        let price = priceInfo?.price || 0;
+        if (!price) {
+          if (prodName.includes("TRIC 500L")) price = 119400;
+          else if (prodName.includes("TRIC 600L")) price = 133300;
+          else if (prodName.includes("TRIC 750L")) price = 159900;
+          else if (prodName.includes("TRIC 300L")) price = 108100;
+          else if (prodName.includes("BIC 500L")) price = 110900;
+          else if (prodName.includes("BIC 600L")) price = 122300;
+          else if (prodName.includes("BIC 750L")) price = 135800;
+          else if (prodName.includes("BIC 300L")) price = 91900;
+          else if (prodName.includes("CISTERNA 500L")) price = 131400;
+          else if (prodName.includes("Tacho Cámara/Bio 600L")) price = 151900;
+          else if (prodName.includes("Tacho Cámara/Bio 500L")) price = 129900;
+          else if (prodName.includes("Tacho Cámara/Bio 750L")) price = 166700;
+          else if (prodName.includes("Tacho Cámara/Bio 300L")) price = 108400;
+          else if (prodName.includes("Tacho Cónico 700L")) price = 157100;
+          else if (prodName.includes("Cono Biodigestor")) price = 35000;
+        }
+
+        const marginValue = price > 0 ? price - costoTotalIntegral : 0;
         const marginPct = price > 0 ? parseFloat(((marginValue / price) * 100).toFixed(1)) : 0;
 
-        let family = 'AquaFort Tricapa (TRIC)';
-        if (lower.includes('bic')) family = 'AquaFort Bicapa (BIC)';
-        else if (lower.includes('cuatr')) family = 'AquaFort Cuatricapa (CUATR)';
-        else if (lower.includes('cisterna')) family = 'AquaFort Cisternas';
-        else if (lower.includes('biofort') || lower.includes('septica') || lower.includes('séptica') || lower.includes('biodigestor')) family = 'BioFort & Biodigestores';
-        else if (lower.includes('tacho') || lower.includes('cono')) family = 'Tachos y Conos de Horno';
-
         fabricatedProducts.push({
-          id: p.id,
-          sku: p.sku || 'SIN-SKU',
-          name: p.name,
-          category: p.category || 'Fabricados',
+          id: priceInfo?.id || `fab-model-${idx}`,
+          sku: priceInfo?.sku || prodName,
+          name: prodName,
+          category: 'Tanques Fabricados',
           family,
           score,
-          costInsumos,
-          gasLiters,
-          gasCost,
-          mdoCost,
-          luzCost,
-          plantOpCost,
-          totalIntegralCost,
+          litrosTanque,
+          costInsumos: costInsumosColE,
+          gasLiters: litrosGasEstimado,
+          gasCost: costoGasEstimado,
+          mdoCost: costoManoObraEstimado,
+          luzCost: costoElectricidadEstimado,
+          plantOpCost: costoPlantaTransformacion,
+          totalIntegralCost: costoTotalIntegral,
           price,
           marginValue,
           marginPct
@@ -859,7 +803,7 @@ export async function GET() {
       });
     }
 
-    // 9. Tank Zeppelin Status & Intervals
+    // 8. Tank Zeppelin Status & Intervals
     const readings = gasEvents.filter(e => e.porcentajeAntes > 0 || e.tipo === "Lectura");
     const lastReading = readings.length > 0 ? readings[readings.length - 1] : null;
     const lastRefill = refills.length > 0 ? refills[refills.length - 1] : null;
@@ -903,7 +847,7 @@ export async function GET() {
       });
     }
 
-    // 10. 14-Day Rolling Window
+    // 9. 14-Day Rolling Window
     const lastTimestamp = lastReading ? lastReading.timestamp : Date.now();
     const fourteenDaysAgoTimestamp = lastTimestamp - (14 * 86400000);
     const readingsLast14 = gasEvents.filter(e => (e.porcentajeAntes > 0 || e.tipo === 'Lectura') && e.timestamp >= fourteenDaysAgoTimestamp);
@@ -942,7 +886,7 @@ export async function GET() {
 
     const daysOfAutonomyRemaining = Math.max(1, Math.round(currentTankLiters / (dailyGasConsumptionLast14 || 100)));
 
-    // 11. Current Month (Agosto 2026) Forecast
+    // 10. Current Month (Agosto 2026) Forecast
     const currentYearMonth = "2026-08";
     const currentMonthName = formatMonthName(currentYearMonth);
     const tanksCurrentMonthMtd = tanksByMonth[currentYearMonth]?.totalTanks || 475;
