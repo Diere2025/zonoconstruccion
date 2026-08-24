@@ -506,7 +506,8 @@ export default function CostosFabricacionPage() {
                 onChange={(e) => setSelectedMonthFilter(e.target.value)}
                 className="bg-white border border-slate-200 text-slate-800 text-xs font-bold px-3 py-1.5 rounded-xl focus:outline-none focus:border-indigo-500 shadow-xs"
               >
-                <option value="all">Acumulado Anual (Ene - Jul 2026)</option>
+                <option value="all">Acumulado Anual (2026)</option>
+                <option value="2026-08">Agosto 2026 (En Curso)</option>
                 <option value="2026-07">Julio 2026</option>
                 <option value="2026-06">Junio 2026 (Aguinaldo)</option>
                 <option value="2026-05">Mayo 2026</option>

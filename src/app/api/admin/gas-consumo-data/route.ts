@@ -403,7 +403,7 @@ export async function GET() {
       { key: 'MANSILLA_ENZO', name: 'Enzo Mansilla', role: 'Ensamblaje (Enero)', isMaintenance: false, isEventual: true }
     ];
 
-    const allSalaryMonths = ['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06', '2026-07'];
+    const allSalaryMonths = ['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08'];
     const operatorsData: OperatorSummary[] = [];
     let totalPureRotomoldingSalariesWithoutSAC = 0;
     let totalPureRotomoldingFabricatedWithoutSAC = 0;
