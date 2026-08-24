@@ -213,13 +213,8 @@ export async function GET() {
         const calidad = c[7]?.trim() || '';
         const estado = c[8]?.trim() || '';
 
-        // Exclude Cancelled (they never entered the oven). Include Fabricado, De segunda and Roto (they burned gas).
-        const isCookedInOven = estado !== "Cancelado" && (
-          estado === "Fabricado" || 
-          calidad.toLowerCase().includes("primera") || 
-          calidad.toLowerCase().includes("segunda") || 
-          calidad.toLowerCase().includes("roto")
-        );
+        // Only count tanks actually cooked in the oven (estado === "Fabricado"). Exclude Planificado and Cancelado.
+        const isCookedInOven = estado === "Fabricado";
 
         if (rawDate && isCookedInOven && prod) {
           const parsedDate = parseDateToIso(rawDate);
@@ -457,6 +452,14 @@ export async function GET() {
       { producto: "Tacho Cámara/Bio 500L", tipo: "Cámara 500", puntaje: 1.05, litrosTanque: "500L", litrosGasEstimado: 0, costoGasEstimado: 0 },
       { producto: "Tacho Cónico 700L", tipo: "Cónico 700", puntaje: 1.40, litrosTanque: "700L", litrosGasEstimado: 0, costoGasEstimado: 0 }
     ];
+
+    // Base benchmark: 500L Tricapa based on recent 2 weeks consumption
+    const baseGasLiters = avgGasPerTankLast14 > 0 ? avgGasPerTankLast14 : (avgGlobalGasPerTank || 10.39);
+
+    modelScores.forEach(item => {
+      item.litrosGasEstimado = parseFloat((item.puntaje * baseGasLiters).toFixed(2));
+      item.costoGasEstimado = parseFloat((item.litrosGasEstimado * currentPricePerLiter).toFixed(0));
+    });
 
     // 9. Current Month (Agosto 2026) Forecast & Remaining Balance
     const currentYearMonth = "2026-08";
