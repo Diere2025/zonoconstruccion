@@ -453,19 +453,23 @@ export async function GET() {
       { producto: "Tacho Cónico 700L", tipo: "Cónico 700", puntaje: 1.40, litrosTanque: "700L", litrosGasEstimado: 0, costoGasEstimado: 0 }
     ];
 
-    // Base benchmark: 500L Tricapa based on recent 2 weeks consumption
-    const baseGasLiters = avgGasPerTankLast14 > 0 ? avgGasPerTankLast14 : (avgGlobalGasPerTank || 10.39);
+    // 9. Current Month (Agosto 2026) Forecast & Remaining Balance
+    const currentYearMonth = "2026-08";
+    const currentMonthName = formatMonthName(currentYearMonth);
+    const tanksCurrentMonthMtd = tanksByMonth[currentYearMonth]?.totalTanks || 475;
+    const augustGasLitros = monthlyGasMap[currentYearMonth]?.gasLitros || 3594;
+    const augustAvgGasPerTank = tanksCurrentMonthMtd > 0 ? parseFloat((augustGasLitros / tanksCurrentMonthMtd).toFixed(2)) : 7.57;
+    const augustAvgCostPerTank = parseFloat((augustAvgGasPerTank * currentPricePerLiter).toFixed(0));
+
+    // Base benchmark: 500L Tricapa based on monthly average (7.57 L / $7.953)
+    const baseGasLiters = augustAvgGasPerTank > 0 ? augustAvgGasPerTank : 7.57;
 
     modelScores.forEach(item => {
       item.litrosGasEstimado = parseFloat((item.puntaje * baseGasLiters).toFixed(2));
       item.costoGasEstimado = parseFloat((item.litrosGasEstimado * currentPricePerLiter).toFixed(0));
     });
 
-    // 9. Current Month (Agosto 2026) Forecast & Remaining Balance
-    const currentYearMonth = "2026-08";
-    const currentMonthName = formatMonthName(currentYearMonth);
-    const tanksCurrentMonthMtd = tanksByMonth[currentYearMonth]?.totalTanks || 509;
-    const gasConsumedCurrentMonthMtd = parseFloat((tanksCurrentMonthMtd * avgGasPerTankLast14).toFixed(1));
+    const gasConsumedCurrentMonthMtd = parseFloat((tanksCurrentMonthMtd * baseGasLiters).toFixed(1));
     const gasCostCurrentMonthMtd = parseFloat((gasConsumedCurrentMonthMtd * currentPricePerLiter).toFixed(0));
 
     // Days in current month (August = 31)
