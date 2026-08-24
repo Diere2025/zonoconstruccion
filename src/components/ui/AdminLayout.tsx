@@ -78,35 +78,51 @@ export function AdminLayout({ children }: AdminLayoutProps) {
 
   useEffect(() => {
     async function getUserDetails() {
+      // If currently inside /admin route, user is already validated as admin
+      if (pathname && pathname.startsWith('/admin')) {
+        setUserRole('admin');
+      }
+
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        setUserEmail(user.email || "");
-        
-        const { data: seller } = await supabase
-          .from('sellers')
-          .select('id, name, role')
-          .eq('id', user.id)
-          .maybeSingle();
+        const email = user.email || "";
+        setUserEmail(email);
+        const emailLower = email.toLowerCase();
 
-        if (seller?.role === 'admin') {
+        // Diego or admin emails are always admin
+        if (emailLower === 'diego.boveda@gmail.com' || emailLower.includes('admin') || emailLower.includes('diego')) {
           setUserRole('admin');
         }
 
-        const emailLower = (user.email || "").toLowerCase();
-        const nameLower = (seller?.name || "").toLowerCase();
-        const isJaz = emailLower.includes("jazmin") || 
-                      emailLower.includes("jazmín") || 
-                      nameLower.includes("jazmin") || 
-                      nameLower.includes("jazmín") || 
-                      user.id === "13430e05-b61a-4a3f-9fc3-152d377c4b0c";
-        
-        if (isJaz) {
-          setIsJazmin(true);
+        try {
+          const { data: seller } = await supabase
+            .from('sellers')
+            .select('id, name, role')
+            .eq('id', user.id)
+            .maybeSingle();
+
+          if (seller?.role === 'admin') {
+            setUserRole('admin');
+          }
+
+          const nameLower = (seller?.name || "").toLowerCase();
+          const isJaz = (emailLower.includes("jazmin") || 
+                        emailLower.includes("jazmín") || 
+                        nameLower.includes("jazmin") || 
+                        nameLower.includes("jazmín") || 
+                        user.id === "13430e05-b61a-4a3f-9fc3-152d377c4b0c") && 
+                        emailLower !== 'diego.boveda@gmail.com';
+          
+          if (isJaz) {
+            setIsJazmin(true);
+          }
+        } catch (e) {
+          console.warn("Error checking seller role in AdminLayout:", e);
         }
       }
     }
     getUserDetails();
-  }, []);
+  }, [pathname]);
 
   // Route guard: Jazmín is restricted strictly to /vendedores/presupuestos
   useEffect(() => {
