@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import { 
   BarChart3, 
@@ -56,6 +56,7 @@ interface SidebarSection {
 
 export function AdminLayout({ children }: AdminLayoutProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('sidebar_open');
@@ -65,6 +66,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   });
   const [userEmail, setUserEmail] = useState("");
   const [userRole, setUserRole] = useState<'seller' | 'admin'>('seller');
+  const [isJazmin, setIsJazmin] = useState(false);
 
   const toggleSidebar = () => {
     setIsSidebarOpen(prev => {
@@ -82,17 +84,36 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         
         const { data: seller } = await supabase
           .from('sellers')
-          .select('role')
+          .select('id, name, role')
           .eq('id', user.id)
-          .single();
+          .maybeSingle();
 
         if (seller?.role === 'admin') {
           setUserRole('admin');
+        }
+
+        const emailLower = (user.email || "").toLowerCase();
+        const nameLower = (seller?.name || "").toLowerCase();
+        const isJaz = emailLower.includes("jazmin") || 
+                      emailLower.includes("jazmín") || 
+                      nameLower.includes("jazmin") || 
+                      nameLower.includes("jazmín") || 
+                      user.id === "13430e05-b61a-4a3f-9fc3-152d377c4b0c";
+        
+        if (isJaz) {
+          setIsJazmin(true);
         }
       }
     }
     getUserDetails();
   }, []);
+
+  // Route guard: Jazmín is restricted strictly to /vendedores/presupuestos
+  useEffect(() => {
+    if (isJazmin && pathname && pathname !== '/vendedores/presupuestos') {
+      router.replace('/vendedores/presupuestos');
+    }
+  }, [isJazmin, pathname, router]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -252,6 +273,9 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         <div className="flex-1 overflow-y-auto custom-sidebar-scrollbar px-3 py-4 space-y-6">
           {linkSections.map((section, sIdx) => {
             const visibleLinks = section.links.filter(link => {
+              if (isJazmin) {
+                return link.href === "/vendedores/presupuestos";
+              }
               if (link.adminOnly && userRole !== 'admin') return false;
               if (link.sellerOnly && userRole === 'admin') return false;
               return true;
