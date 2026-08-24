@@ -27,7 +27,9 @@ import {
   ArrowLeft,
   Search,
   ChevronDown,
-  AlertTriangle
+  AlertTriangle,
+  Package,
+  Boxes
 } from "lucide-react";
 import { 
   GasEvent, 
@@ -93,7 +95,7 @@ export default function CostosFabricacionPage() {
   }, []);
 
   const gasPrice = customGasPrice ?? (data?.tankStatus?.latestPricePerLiter || 1051.10);
-  const laborCost = customLaborCost ?? (data?.costBenchmarks?.baseLaborCostPerTank || 5500);
+  const laborCost = customLaborCost ?? (data?.costBenchmarks?.baseLaborCostPerTank || 4800);
   const electricCost = customElectricCost ?? (data?.costBenchmarks?.baseElectricityCostPerTank || 815);
   const baseGasLiters = data?.summary2026?.avgGasLitersPerTank || 7.57;
 
@@ -207,7 +209,7 @@ export default function CostosFabricacionPage() {
           {/* Card 3: Labor Cost */}
           <div className="bg-white rounded-2xl border border-cyan-200/90 p-5 shadow-xs relative overflow-hidden group hover:border-cyan-400 transition-all">
             <div className="flex justify-between items-start">
-              <span className="text-[11px] font-black uppercase tracking-wider text-cyan-700">Mano de Obra (Fabricado)</span>
+              <span className="text-[11px] font-black uppercase tracking-wider text-cyan-700">Mano de Obra (Rotomoldeo)</span>
               <div className="p-2 bg-cyan-50 text-cyan-600 rounded-xl border border-cyan-100">
                 <Users className="w-4 h-4" />
               </div>
@@ -219,7 +221,7 @@ export default function CostosFabricacionPage() {
               <span className="text-xs text-slate-400 font-bold">/ tanque base</span>
             </div>
             <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 font-medium">
-              <span>Rodrigo & Leonardo</span>
+              <span>Rodrigo, Leo, Samuel</span>
               <span className="text-cyan-700 font-bold">Rotomoldeo Puro</span>
             </div>
           </div>
@@ -462,7 +464,7 @@ export default function CostosFabricacionPage() {
         </div>
       )}
 
-      {/* TAB 2: Rendimiento y Sueldos Operarios (Calculado sobre Fabricados) */}
+      {/* TAB 2: Rendimiento y Sueldos Operarios (Método 1 Mantenimiento + Gestión Depósito) */}
       {activeTab === "operarios" && data && (
         <div className="space-y-6">
           
@@ -470,11 +472,10 @@ export default function CostosFabricacionPage() {
           <div className="bg-indigo-50/70 border border-indigo-200/80 p-4 rounded-2xl flex items-start gap-3">
             <Info className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" />
             <div className="text-xs text-indigo-950 space-y-1">
-              <p className="font-bold">Criterios Operativos de Planta:</p>
-              <p>• <strong>Costo MDO directo:</strong> Se calcula estrictamente sobre las unidades <strong>Fabricadas en Rotomoldeo</strong> (el ensamblado es una tarea secundaria de armado que puede ser efectuada por otro personal).</p>
-              <p>• <strong>Julio Verón:</strong> Realiza mantenimiento preventivo y correctivo de maquinaria y soporte técnico de planta, por lo que su costo no debe considerarse 100% de producción pura.</p>
-              <p>• <strong>Samuel Contreras:</strong> Operario eventual sin sueldo mensual fijo, contratado según picos de demanda.</p>
-              <p>• <strong>Junio 2026:</strong> Incluye el pago del Sueldo Anual Complementario (SAC / Aguinaldo).</p>
+              <p className="font-bold">Estructura y Roles Operativos de Planta:</p>
+              <p>• <strong>Rotomoldeo Directo (Rodrigo, Leonardo, Samuel):</strong> El costo unitario se divide estrictamente sobre unidades <strong>Fabricadas en Horno</strong>.</p>
+              <p>• <strong>Julio Verón (Método 1):</strong> Se descuenta el valor de los tanques que hornea a tarifa estándar de rotomoldeo ($4.800/u) y el resto del sueldo se computa como <strong>Mantenimiento Puro de Planta</strong> prorrateado entre toda la producción global de la fábrica.</p>
+              <p>• <strong>Matías Olivera:</strong> Responsable principal de <strong>Gestión de Depósito, Logística de Stock y Armado/Ensamblado</strong> de Biodigestores y Cámaras Sépticas.</p>
             </div>
           </div>
 
@@ -539,12 +540,17 @@ export default function CostosFabricacionPage() {
                         <span className="text-xs text-indigo-600 font-bold">{op.role}</span>
                       </div>
                       {op.isMaintenanceSupport && (
-                        <span className="bg-purple-50 text-purple-700 border border-purple-200 text-[10px] px-2 py-0.5 rounded-full font-black flex items-center gap-1">
+                        <span className="bg-purple-50 text-purple-700 border border-purple-200 text-[10px] px-2.5 py-0.5 rounded-full font-black flex items-center gap-1">
                           <Wrench className="w-3 h-3" /> Mantenimiento
                         </span>
                       )}
+                      {op.isWarehouse && (
+                        <span className="bg-blue-50 text-blue-700 border border-blue-200 text-[10px] px-2.5 py-0.5 rounded-full font-black flex items-center gap-1">
+                          <Package className="w-3 h-3" /> Depósito & Ensamble
+                        </span>
+                      )}
                       {op.isEventual && (
-                        <span className="bg-amber-50 text-amber-700 border border-amber-200 text-[10px] px-2 py-0.5 rounded-full font-black">
+                        <span className="bg-amber-50 text-amber-700 border border-amber-200 text-[10px] px-2.5 py-0.5 rounded-full font-black">
                           Eventual
                         </span>
                       )}
@@ -557,62 +563,204 @@ export default function CostosFabricacionPage() {
                     )}
                   </div>
 
-                  {selectedMonthFilter === "all" ? (
+                  {/* SPECIAL CARD: Julio Verón (Mantenimiento de Maquinaria con Método 1) */}
+                  {op.isMaintenanceSupport ? (
                     <div className="space-y-3 pt-3 border-t border-slate-100">
-                      <div className="grid grid-cols-2 gap-2 text-xs">
-                        <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200/60">
-                          <span className="text-slate-500 block text-[10px] font-bold">Fabricados (Horno)</span>
-                          <span className="font-black text-slate-900 text-base">{op.totalTanksFabricated} u</span>
-                        </div>
-                        <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200/60">
-                          <span className="text-slate-500 block text-[10px] font-bold">Ensamblados</span>
-                          <span className="font-semibold text-slate-600 text-base">{op.totalTanksAssembled} u</span>
-                        </div>
-                      </div>
-
-                      <div className="bg-indigo-50/70 border border-indigo-100 p-3 rounded-xl flex items-center justify-between">
-                        <div>
-                          <span className="text-[10px] text-indigo-700 font-black block uppercase tracking-wider">Costo MDO / Fabricado</span>
-                          <span className="text-xl font-black text-indigo-950">
-                            {costPerFabricated > 0 ? `$${costPerFabricated.toLocaleString("es-AR")}` : "-"}
-                          </span>
-                        </div>
-                        <div className="text-right">
-                          <span className="text-[10px] text-slate-500 font-bold block">Sueldo Acumulado</span>
-                          <span className="text-xs font-black text-slate-800">${totalSal.toLocaleString("es-AR")}</span>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-3 pt-3 border-t border-slate-100">
-                      {monthData ? (
+                      {selectedMonthFilter === "all" ? (
                         <>
                           <div className="grid grid-cols-2 gap-2 text-xs">
                             <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200/60">
-                              <span className="text-slate-500 block text-[10px] font-bold">Fabricados ({monthData.monthName})</span>
-                              <span className="font-black text-slate-900 text-base">{monthData.tanksFabricated} u</span>
+                              <span className="text-slate-500 block text-[10px] font-bold">Horneados (Ocasional)</span>
+                              <span className="font-black text-slate-900 text-base">{op.totalTanksFabricated} u</span>
+                              <span className="text-[10px] text-slate-400 block mt-0.5">Aporte: ${op.totalProductiveCredit?.toLocaleString("es-AR")}</span>
+                            </div>
+                            <div className="bg-purple-50/50 p-2.5 rounded-xl border border-purple-200/60">
+                              <span className="text-purple-700 block text-[10px] font-bold">Gasto Mantenimiento Puro</span>
+                              <span className="font-black text-purple-950 text-base">${op.totalPureMaintenanceCost?.toLocaleString("es-AR")}</span>
+                              <span className="text-[10px] text-purple-600 block mt-0.5">Sueldo - Aporte</span>
+                            </div>
+                          </div>
+
+                          <div className="bg-purple-50 border border-purple-200 p-3 rounded-xl flex items-center justify-between">
+                            <div>
+                              <span className="text-[10px] text-purple-700 font-black block uppercase tracking-wider">Costo Mantenimiento / Tanque Global</span>
+                              <span className="text-xl font-black text-purple-950">
+                                ${op.avgMaintenanceCostPerPlantTank?.toLocaleString("es-AR")}
+                              </span>
+                              <span className="text-[10px] text-purple-600 font-medium block">Prorrateado en toda la fábrica</span>
+                            </div>
+                            <div className="text-right">
+                              <span className="text-[10px] text-slate-500 font-bold block">Sueldo Total</span>
+                              <span className="text-xs font-black text-slate-800">${totalSal.toLocaleString("es-AR")}</span>
+                            </div>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          {monthData ? (
+                            <>
+                              <div className="grid grid-cols-2 gap-2 text-xs">
+                                <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200/60">
+                                  <span className="text-slate-500 block text-[10px] font-bold">Horneados ({monthData.monthName})</span>
+                                  <span className="font-black text-slate-900 text-base">{monthData.tanksFabricated} u</span>
+                                  <span className="text-[10px] text-slate-400 block mt-0.5">Aporte: ${monthData.productiveCredit?.toLocaleString("es-AR")}</span>
+                                </div>
+                                <div className="bg-purple-50/50 p-2.5 rounded-xl border border-purple-200/60">
+                                  <span className="text-purple-700 block text-[10px] font-bold">Mantenimiento Puro ({monthData.monthName})</span>
+                                  <span className="font-black text-purple-950 text-base">${monthData.pureMaintenanceCost?.toLocaleString("es-AR")}</span>
+                                  <span className="text-[10px] text-purple-600 block mt-0.5">Fábrica: {monthData.plantTotalTanks} u</span>
+                                </div>
+                              </div>
+
+                              <div className="bg-purple-50 border border-purple-200 p-3 rounded-xl flex items-center justify-between">
+                                <div>
+                                  <span className="text-[10px] text-purple-700 font-black block uppercase tracking-wider">Costo Mantenimiento ({monthData.monthName})</span>
+                                  <span className="text-xl font-black text-purple-950">
+                                    {monthData.maintenanceCostPerPlantTank ? `$${monthData.maintenanceCostPerPlantTank.toLocaleString("es-AR")}` : "-"}
+                                  </span>
+                                  <span className="text-[10px] text-purple-600 font-medium block">/ tanque global de fábrica</span>
+                                </div>
+                                <div className="text-right">
+                                  <span className="text-[10px] text-slate-500 font-bold block">Sueldo del Mes</span>
+                                  <span className="text-xs font-black text-slate-800">${monthData.salary.toLocaleString("es-AR")}</span>
+                                </div>
+                              </div>
+                            </>
+                          ) : (
+                            <p className="text-xs text-slate-400 italic">Sin datos para este mes</p>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  ) : op.isWarehouse ? (
+                    /* SPECIAL CARD: Matías Olivera (Gestión de Depósito & Ensamblado) */
+                    <div className="space-y-3 pt-3 border-t border-slate-100">
+                      {selectedMonthFilter === "all" ? (
+                        <>
+                          <div className="grid grid-cols-2 gap-2 text-xs">
+                            <div className="bg-blue-50/60 p-2.5 rounded-xl border border-blue-200/60">
+                              <span className="text-blue-700 block text-[10px] font-bold">Ensamblados Realizados</span>
+                              <span className="font-black text-blue-950 text-base">{op.totalTanksAssembled} u</span>
+                              <span className="text-[10px] text-blue-600 block mt-0.5">Bio / Cámaras</span>
+                            </div>
+                            <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200/60">
+                              <span className="text-slate-500 block text-[10px] font-bold">Horneados (Ocasional)</span>
+                              <span className="font-black text-slate-900 text-base">{op.totalTanksFabricated} u</span>
+                              <span className="text-[10px] text-slate-400 block mt-0.5">Rotomoldeo</span>
+                            </div>
+                          </div>
+
+                          <div className="bg-blue-50 border border-blue-200 p-3 rounded-xl flex items-center justify-between">
+                            <div>
+                              <span className="text-[10px] text-blue-700 font-black block uppercase tracking-wider">Costo MDO / Ensamblado</span>
+                              <span className="text-xl font-black text-blue-950">
+                                {op.avgCostPerAssembledTank > 0 ? `$${op.avgCostPerAssembledTank.toLocaleString("es-AR")}` : "-"}
+                              </span>
+                              <span className="text-[10px] text-blue-600 font-medium block">Gestión Depósito + Armado</span>
+                            </div>
+                            <div className="text-right">
+                              <span className="text-[10px] text-slate-500 font-bold block">Sueldo Total</span>
+                              <span className="text-xs font-black text-slate-800">${totalSal.toLocaleString("es-AR")}</span>
+                            </div>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          {monthData ? (
+                            <>
+                              <div className="grid grid-cols-2 gap-2 text-xs">
+                                <div className="bg-blue-50/60 p-2.5 rounded-xl border border-blue-200/60">
+                                  <span className="text-blue-700 block text-[10px] font-bold">Ensamblados ({monthData.monthName})</span>
+                                  <span className="font-black text-blue-950 text-base">{monthData.tanksAssembled} u</span>
+                                  <span className="text-[10px] text-blue-600 block mt-0.5">Armado</span>
+                                </div>
+                                <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200/60">
+                                  <span className="text-slate-500 block text-[10px] font-bold">Horneados ({monthData.monthName})</span>
+                                  <span className="font-black text-slate-900 text-base">{monthData.tanksFabricated} u</span>
+                                  <span className="text-[10px] text-slate-400 block mt-0.5">Ocasional</span>
+                                </div>
+                              </div>
+
+                              <div className="bg-blue-50 border border-blue-200 p-3 rounded-xl flex items-center justify-between">
+                                <div>
+                                  <span className="text-[10px] text-blue-700 font-black block uppercase tracking-wider">Costo MDO / Ensamblado ({monthData.monthName})</span>
+                                  <span className="text-xl font-black text-blue-950">
+                                    {monthData.costPerAssembledTank > 0 ? `$${monthData.costPerAssembledTank.toLocaleString("es-AR")}` : "-"}
+                                  </span>
+                                </div>
+                                <div className="text-right">
+                                  <span className="text-[10px] text-slate-500 font-bold block">Sueldo del Mes</span>
+                                  <span className="text-xs font-black text-slate-800">${monthData.salary.toLocaleString("es-AR")}</span>
+                                </div>
+                              </div>
+                            </>
+                          ) : (
+                            <p className="text-xs text-slate-400 italic">Sin datos para este mes</p>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  ) : (
+                    /* STANDARD CARD: Operarios de Rotomoldeo (Rodrigo, Leonardo, Samuel) */
+                    <div className="space-y-3 pt-3 border-t border-slate-100">
+                      {selectedMonthFilter === "all" ? (
+                        <>
+                          <div className="grid grid-cols-2 gap-2 text-xs">
+                            <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200/60">
+                              <span className="text-slate-500 block text-[10px] font-bold">Fabricados (Horno)</span>
+                              <span className="font-black text-slate-900 text-base">{op.totalTanksFabricated} u</span>
                             </div>
                             <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200/60">
                               <span className="text-slate-500 block text-[10px] font-bold">Ensamblados</span>
-                              <span className="font-semibold text-slate-600 text-base">{monthData.tanksAssembled} u</span>
+                              <span className="font-semibold text-slate-600 text-base">{op.totalTanksAssembled} u</span>
                             </div>
                           </div>
 
                           <div className="bg-indigo-50/70 border border-indigo-100 p-3 rounded-xl flex items-center justify-between">
                             <div>
-                              <span className="text-[10px] text-indigo-700 font-black block uppercase tracking-wider">Costo MDO ({monthData.monthName})</span>
+                              <span className="text-[10px] text-indigo-700 font-black block uppercase tracking-wider">Costo MDO / Fabricado</span>
                               <span className="text-xl font-black text-indigo-950">
-                                {monthData.costPerFabricatedTank > 0 ? `$${monthData.costPerFabricatedTank.toLocaleString("es-AR")}` : "-"}
+                                {costPerFabricated > 0 ? `$${costPerFabricated.toLocaleString("es-AR")}` : "-"}
                               </span>
                             </div>
                             <div className="text-right">
-                              <span className="text-[10px] text-slate-500 font-bold block">Sueldo del Mes</span>
-                              <span className="text-xs font-black text-slate-800">${monthData.salary.toLocaleString("es-AR")}</span>
+                              <span className="text-[10px] text-slate-500 font-bold block">Sueldo Acumulado</span>
+                              <span className="text-xs font-black text-slate-800">${totalSal.toLocaleString("es-AR")}</span>
                             </div>
                           </div>
                         </>
                       ) : (
-                        <p className="text-xs text-slate-400 italic">Sin datos registrados para este mes</p>
+                        <>
+                          {monthData ? (
+                            <>
+                              <div className="grid grid-cols-2 gap-2 text-xs">
+                                <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200/60">
+                                  <span className="text-slate-500 block text-[10px] font-bold">Fabricados ({monthData.monthName})</span>
+                                  <span className="font-black text-slate-900 text-base">{monthData.tanksFabricated} u</span>
+                                </div>
+                                <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200/60">
+                                  <span className="text-slate-500 block text-[10px] font-bold">Ensamblados</span>
+                                  <span className="font-semibold text-slate-600 text-base">{monthData.tanksAssembled} u</span>
+                                </div>
+                              </div>
+
+                              <div className="bg-indigo-50/70 border border-indigo-100 p-3 rounded-xl flex items-center justify-between">
+                                <div>
+                                  <span className="text-[10px] text-indigo-700 font-black block uppercase tracking-wider">Costo MDO ({monthData.monthName})</span>
+                                  <span className="text-xl font-black text-indigo-950">
+                                    {monthData.costPerFabricatedTank > 0 ? `$${monthData.costPerFabricatedTank.toLocaleString("es-AR")}` : "-"}
+                                  </span>
+                                </div>
+                                <div className="text-right">
+                                  <span className="text-[10px] text-slate-500 font-bold block">Sueldo del Mes</span>
+                                  <span className="text-xs font-black text-slate-800">${monthData.salary.toLocaleString("es-AR")}</span>
+                                </div>
+                              </div>
+                            </>
+                          ) : (
+                            <p className="text-xs text-slate-400 italic">Sin datos registrados para este mes</p>
+                          )}
+                        </>
                       )}
                     </div>
                   )}

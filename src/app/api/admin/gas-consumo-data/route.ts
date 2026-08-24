@@ -76,6 +76,11 @@ export interface OperatorMonthlyMetric {
   costPerFabricatedTank: number;
   costPerAssembledTank: number;
   isAguinaldoMonth: boolean;
+  // Method 1 for Maintenance (Julio Verón)
+  productiveCredit?: number;
+  pureMaintenanceCost?: number;
+  maintenanceCostPerPlantTank?: number;
+  plantTotalTanks?: number;
 }
 
 export interface OperatorSummary {
@@ -83,6 +88,7 @@ export interface OperatorSummary {
   name: string;
   role: string;
   isMaintenanceSupport: boolean;
+  isWarehouse: boolean;
   isEventual: boolean;
   notes?: string;
   totalSalary: number;
@@ -92,6 +98,11 @@ export interface OperatorSummary {
   totalTanks: number;
   avgCostPerFabricatedTank: number;
   avgCostPerFabricatedTankWithoutAguinaldo: number;
+  avgCostPerAssembledTank: number;
+  // Method 1 for Maintenance (Julio Verón)
+  totalProductiveCredit?: number;
+  totalPureMaintenanceCost?: number;
+  avgMaintenanceCostPerPlantTank?: number;
   months: Record<string, OperatorMonthlyMetric>;
 }
 
@@ -195,30 +206,30 @@ const parseSueldoMonth = (mStr?: string) => {
   return null;
 };
 
-const canonicalOperatorMap: Record<string, { canonicalKey: string; displayName: string; role: string; isMaintenance: boolean; isEventual: boolean; notes?: string }> = {
-  'RODRIGO RAMIREZ': { canonicalKey: 'RAMIREZ_RODRIGO', displayName: 'Rodrigo Ramirez', role: 'Rotomoldeo Principal', isMaintenance: false, isEventual: false },
-  'RODRIGO RAMIREX': { canonicalKey: 'RAMIREZ_RODRIGO', displayName: 'Rodrigo Ramirez', role: 'Rotomoldeo Principal', isMaintenance: false, isEventual: false },
-  'RAMIREZ, RODRIGO MAXIMILIANO': { canonicalKey: 'RAMIREZ_RODRIGO', displayName: 'Rodrigo Ramirez', role: 'Rotomoldeo Principal', isMaintenance: false, isEventual: false },
+const canonicalOperatorMap: Record<string, { canonicalKey: string; displayName: string; role: string; isMaintenance: boolean; isWarehouse: boolean; isEventual: boolean; notes?: string }> = {
+  'RODRIGO RAMIREZ': { canonicalKey: 'RAMIREZ_RODRIGO', displayName: 'Rodrigo Ramirez', role: 'Rotomoldeo Principal', isMaintenance: false, isWarehouse: false, isEventual: false },
+  'RODRIGO RAMIREX': { canonicalKey: 'RAMIREZ_RODRIGO', displayName: 'Rodrigo Ramirez', role: 'Rotomoldeo Principal', isMaintenance: false, isWarehouse: false, isEventual: false },
+  'RAMIREZ, RODRIGO MAXIMILIANO': { canonicalKey: 'RAMIREZ_RODRIGO', displayName: 'Rodrigo Ramirez', role: 'Rotomoldeo Principal', isMaintenance: false, isWarehouse: false, isEventual: false },
   
-  'LEONARDO SANDOVAL': { canonicalKey: 'SANDOVAL_LEONARDO', displayName: 'Leonardo Sandoval', role: 'Rotomoldeo Principal', isMaintenance: false, isEventual: false },
-  'LEO SANDOVAL': { canonicalKey: 'SANDOVAL_LEONARDO', displayName: 'Leonardo Sandoval', role: 'Rotomoldeo Principal', isMaintenance: false, isEventual: false },
-  'SANDOVAL, LEONARDO JUAN CARLOS': { canonicalKey: 'SANDOVAL_LEONARDO', displayName: 'Leonardo Sandoval', role: 'Rotomoldeo Principal', isMaintenance: false, isEventual: false },
+  'LEONARDO SANDOVAL': { canonicalKey: 'SANDOVAL_LEONARDO', displayName: 'Leonardo Sandoval', role: 'Rotomoldeo Principal', isMaintenance: false, isWarehouse: false, isEventual: false },
+  'LEO SANDOVAL': { canonicalKey: 'SANDOVAL_LEONARDO', displayName: 'Leonardo Sandoval', role: 'Rotomoldeo Principal', isMaintenance: false, isWarehouse: false, isEventual: false },
+  'SANDOVAL, LEONARDO JUAN CARLOS': { canonicalKey: 'SANDOVAL_LEONARDO', displayName: 'Leonardo Sandoval', role: 'Rotomoldeo Principal', isMaintenance: false, isWarehouse: false, isEventual: false },
   
-  'JULIO VERÓN': { canonicalKey: 'VERON_JULIO', displayName: 'Julio Verón', role: 'Mantenimiento & Operario Mixto', isMaintenance: true, isEventual: false, notes: 'Realiza mantenimiento preventivo y correctivo de maquinaria y soporte técnico de planta (no 100% de producción directa).' },
-  'JULIO VERON': { canonicalKey: 'VERON_JULIO', displayName: 'Julio Verón', role: 'Mantenimiento & Operario Mixto', isMaintenance: true, isEventual: false, notes: 'Realiza mantenimiento preventivo y correctivo de maquinaria y soporte técnico de planta (no 100% de producción directa).' },
-  'VERON, JULIO CESAR': { canonicalKey: 'VERON_JULIO', displayName: 'Julio Verón', role: 'Mantenimiento & Operario Mixto', isMaintenance: true, isEventual: false, notes: 'Realiza mantenimiento preventivo y correctivo de maquinaria y soporte técnico de planta (no 100% de producción directa).' },
+  'SAMUEL CONTRERAS': { canonicalKey: 'CONTRERAS_SAMUEL', displayName: 'Samuel Contreras', role: 'Operario Rotomoldeo (Eventual)', isMaintenance: false, isWarehouse: false, isEventual: true, notes: 'Operario eventual de rotomoldeo contratado según picos de demanda.' },
+  'CONTRERAS, SAMUEL': { canonicalKey: 'CONTRERAS_SAMUEL', displayName: 'Samuel Contreras', role: 'Operario Rotomoldeo (Eventual)', isMaintenance: false, isWarehouse: false, isEventual: true, notes: 'Operario eventual de rotomoldeo contratado según picos de demanda.' },
+
+  'JULIO VERÓN': { canonicalKey: 'VERON_JULIO', displayName: 'Julio Verón', role: 'Mantenimiento de Maquinaria & Planta', isMaintenance: true, isWarehouse: false, isEventual: false, notes: 'Mantenimiento preventivo/correctivo de maquinaria y soporte técnico de planta. Su costo se descuenta del valor de horneado y se amortiza entre toda la producción.' },
+  'JULIO VERON': { canonicalKey: 'VERON_JULIO', displayName: 'Julio Verón', role: 'Mantenimiento de Maquinaria & Planta', isMaintenance: true, isWarehouse: false, isEventual: false, notes: 'Mantenimiento preventivo/correctivo de maquinaria y soporte técnico de planta. Su costo se descuenta del valor de horneado y se amortiza entre toda la producción.' },
+  'VERON, JULIO CESAR': { canonicalKey: 'VERON_JULIO', displayName: 'Julio Verón', role: 'Mantenimiento de Maquinaria & Planta', isMaintenance: true, isWarehouse: false, isEventual: false, notes: 'Mantenimiento preventivo/correctivo de maquinaria y soporte técnico de planta. Su costo se descuenta del valor de horneado y se amortiza entre toda la producción.' },
   
-  'MATIAS OLIVERA': { canonicalKey: 'OLIVERA_MATIAS', displayName: 'Matías Olivera', role: 'Ensamblaje Principal & Rotomoldeo', isMaintenance: false, isEventual: false, notes: 'Responsable principal del armado de Biodigestores, Cámaras Sépticas y Desengrasadoras.' },
-  'MATÍAS OLIVERA': { canonicalKey: 'OLIVERA_MATIAS', displayName: 'Matías Olivera', role: 'Ensamblaje Principal & Rotomoldeo', isMaintenance: false, isEventual: false, notes: 'Responsable principal del armado de Biodigestores, Cámaras Sépticas y Desengrasadoras.' },
-  'MATI OLIVERA': { canonicalKey: 'OLIVERA_MATIAS', displayName: 'Matías Olivera', role: 'Ensamblaje Principal & Rotomoldeo', isMaintenance: false, isEventual: false, notes: 'Responsable principal del armado de Biodigestores, Cámaras Sépticas y Desengrasadoras.' },
-  'OLIVERA, MATIAS NAHUEL': { canonicalKey: 'OLIVERA_MATIAS', displayName: 'Matías Olivera', role: 'Ensamblaje Principal & Rotomoldeo', isMaintenance: false, isEventual: false, notes: 'Responsable principal del armado de Biodigestores, Cámaras Sépticas y Desengrasadoras.' },
+  'MATIAS OLIVERA': { canonicalKey: 'OLIVERA_MATIAS', displayName: 'Matías Olivera', role: 'Gestión de Depósito & Ensamblado', isMaintenance: false, isWarehouse: true, isEventual: false, notes: 'Gestión operativa de depósito, control de stock y armado/ensamblaje de Biodigestores y Cámaras.' },
+  'MATÍAS OLIVERA': { canonicalKey: 'OLIVERA_MATIAS', displayName: 'Matías Olivera', role: 'Gestión de Depósito & Ensamblado', isMaintenance: false, isWarehouse: true, isEventual: false, notes: 'Gestión operativa de depósito, control de stock y armado/ensamblaje de Biodigestores y Cámaras.' },
+  'MATI OLIVERA': { canonicalKey: 'OLIVERA_MATIAS', displayName: 'Matías Olivera', role: 'Gestión de Depósito & Ensamblado', isMaintenance: false, isWarehouse: true, isEventual: false, notes: 'Gestión operativa de depósito, control de stock y armado/ensamblaje de Biodigestores y Cámaras.' },
+  'OLIVERA, MATIAS NAHUEL': { canonicalKey: 'OLIVERA_MATIAS', displayName: 'Matías Olivera', role: 'Gestión de Depósito & Ensamblado', isMaintenance: false, isWarehouse: true, isEventual: false, notes: 'Gestión operativa de depósito, control de stock y armado/ensamblaje de Biodigestores y Cámaras.' },
   
-  'SAMUEL CONTRERAS': { canonicalKey: 'CONTRERAS_SAMUEL', displayName: 'Samuel Contreras', role: 'Operario Eventual (Variable)', isMaintenance: false, isEventual: true, notes: 'Operario eventual contratado según demanda productiva sin sueldo fijo mensual.' },
-  'CONTRERAS, SAMUEL': { canonicalKey: 'CONTRERAS_SAMUEL', displayName: 'Samuel Contreras', role: 'Operario Eventual (Variable)', isMaintenance: false, isEventual: true, notes: 'Operario eventual contratado según demanda productiva sin sueldo fijo mensual.' },
-  
-  'GABRIEL MANSILLA': { canonicalKey: 'MANSILLA_ENZO', displayName: 'Enzo Mansilla', role: 'Ensamblaje (Enero)', isMaintenance: false, isEventual: true },
-  'ENZO MANSILLA': { canonicalKey: 'MANSILLA_ENZO', displayName: 'Enzo Mansilla', role: 'Ensamblaje (Enero)', isMaintenance: false, isEventual: true },
-  'MANSILLA, ENZO GABRIEL': { canonicalKey: 'MANSILLA_ENZO', displayName: 'Enzo Mansilla', role: 'Ensamblaje (Enero)', isMaintenance: false, isEventual: true }
+  'GABRIEL MANSILLA': { canonicalKey: 'MANSILLA_ENZO', displayName: 'Enzo Mansilla', role: 'Ensamblaje (Enero)', isMaintenance: false, isWarehouse: true, isEventual: true },
+  'ENZO MANSILLA': { canonicalKey: 'MANSILLA_ENZO', displayName: 'Enzo Mansilla', role: 'Ensamblaje (Enero)', isMaintenance: false, isWarehouse: true, isEventual: true },
+  'MANSILLA, ENZO GABRIEL': { canonicalKey: 'MANSILLA_ENZO', displayName: 'Enzo Mansilla', role: 'Ensamblaje (Enero)', isMaintenance: false, isWarehouse: true, isEventual: true }
 };
 
 const getOperatorMeta = (rawName?: string) => {
@@ -378,7 +389,7 @@ export async function GET() {
       });
     }
 
-    // 4. Parse Sueldos & Build Operator Cost Intelligence (Cost strictly on Fabricated)
+    // 4. Parse Sueldos & Build Operator Cost Intelligence (Cost strictly on Fabricated + Method 1 Maintenance)
     const salariesByMonthAndOpKey: Record<string, Record<string, number>> = {};
     if (sueldosCsv) {
       const sueldoLines = sueldosCsv.split('\n').filter(l => l.trim().length > 0).slice(1);
@@ -395,12 +406,12 @@ export async function GET() {
     }
 
     const trackedOps = [
-      { key: 'RAMIREZ_RODRIGO', name: 'Rodrigo Ramirez', role: 'Rotomoldeo Principal', isMaintenance: false, isEventual: false },
-      { key: 'SANDOVAL_LEONARDO', name: 'Leonardo Sandoval', role: 'Rotomoldeo Principal', isMaintenance: false, isEventual: false },
-      { key: 'VERON_JULIO', name: 'Julio Verón', role: 'Mantenimiento & Operario Mixto', isMaintenance: true, isEventual: false, notes: 'Realiza mantenimiento preventivo y correctivo de maquinaria y soporte técnico de planta (no 100% de producción directa).' },
-      { key: 'OLIVERA_MATIAS', name: 'Matías Olivera', role: 'Ensamblaje Principal & Rotomoldeo', isMaintenance: false, isEventual: false, notes: 'Responsable principal del armado de Biodigestores, Cámaras Sépticas y Desengrasadoras.' },
-      { key: 'CONTRERAS_SAMUEL', name: 'Samuel Contreras', role: 'Operario Eventual (Variable)', isMaintenance: false, isEventual: true, notes: 'Operario eventual contratado según demanda productiva sin sueldo fijo mensual.' },
-      { key: 'MANSILLA_ENZO', name: 'Enzo Mansilla', role: 'Ensamblaje (Enero)', isMaintenance: false, isEventual: true }
+      { key: 'RAMIREZ_RODRIGO', name: 'Rodrigo Ramirez', role: 'Rotomoldeo Principal', isMaintenance: false, isWarehouse: false, isEventual: false },
+      { key: 'SANDOVAL_LEONARDO', name: 'Leonardo Sandoval', role: 'Rotomoldeo Principal', isMaintenance: false, isWarehouse: false, isEventual: false },
+      { key: 'CONTRERAS_SAMUEL', name: 'Samuel Contreras', role: 'Operario Rotomoldeo (Eventual)', isMaintenance: false, isWarehouse: false, isEventual: true, notes: 'Operario eventual de rotomoldeo contratado según picos de demanda.' },
+      { key: 'VERON_JULIO', name: 'Julio Verón', role: 'Mantenimiento de Maquinaria & Planta', isMaintenance: true, isWarehouse: false, isEventual: false, notes: 'Mantenimiento preventivo/correctivo de maquinaria y soporte técnico de planta. Su costo se descuenta del valor de horneado y se amortiza entre toda la producción.' },
+      { key: 'OLIVERA_MATIAS', name: 'Matías Olivera', role: 'Gestión de Depósito & Ensamblado', isMaintenance: false, isWarehouse: true, isEventual: false, notes: 'Gestión operativa de depósito, control de stock y armado/ensamblaje de Biodigestores y Cámaras.' },
+      { key: 'MANSILLA_ENZO', name: 'Enzo Mansilla', role: 'Ensamblaje (Enero)', isMaintenance: false, isWarehouse: true, isEventual: true }
     ];
 
     const allSalaryMonths = ['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08'];
@@ -408,12 +419,28 @@ export async function GET() {
     let totalPureRotomoldingSalariesWithoutSAC = 0;
     let totalPureRotomoldingFabricatedWithoutSAC = 0;
 
+    // First pass to compute baseline rotomolding standard rate
+    allSalaryMonths.forEach(ym => {
+      const isAguinaldoMonth = ym === '2026-06';
+      if (!isAguinaldoMonth) {
+        ['RAMIREZ_RODRIGO', 'SANDOVAL_LEONARDO', 'CONTRERAS_SAMUEL'].forEach(k => {
+          totalPureRotomoldingSalariesWithoutSAC += (salariesByMonthAndOpKey[ym]?.[k] || 0);
+          totalPureRotomoldingFabricatedWithoutSAC += (fabByMonthAndOpKey[ym]?.[k] || 0);
+        });
+      }
+    });
+
+    const baseLaborCostPerTank = totalPureRotomoldingFabricatedWithoutSAC > 0 
+      ? Math.round(totalPureRotomoldingSalariesWithoutSAC / totalPureRotomoldingFabricatedWithoutSAC) 
+      : 4800;
+
     trackedOps.forEach(op => {
       const summary: OperatorSummary = {
         key: op.key,
         name: op.name,
         role: op.role,
         isMaintenanceSupport: op.isMaintenance,
+        isWarehouse: op.isWarehouse,
         isEventual: op.isEventual,
         notes: op.notes,
         totalSalary: 0,
@@ -423,18 +450,37 @@ export async function GET() {
         totalTanks: 0,
         avgCostPerFabricatedTank: 0,
         avgCostPerFabricatedTankWithoutAguinaldo: 0,
+        avgCostPerAssembledTank: 0,
+        totalProductiveCredit: 0,
+        totalPureMaintenanceCost: 0,
+        avgMaintenanceCostPerPlantTank: 0,
         months: {}
       };
+
+      let sumPlantTanks = 0;
+
       allSalaryMonths.forEach(ym => {
         const isAguinaldoMonth = ym === '2026-06';
         const salary = salariesByMonthAndOpKey[ym]?.[op.key] || 0;
         const tanksFab = fabByMonthAndOpKey[ym]?.[op.key] || 0;
         const tanksEns = ensByMonthAndOpKey[ym]?.[op.key] || 0;
         const tanksTotal = tanksFab + tanksEns;
+        const plantTanksInMonth = tanksByMonth[ym]?.totalTanks || 0;
         
         // Strict cost per fabricated unit
         const costPerFabricatedTank = tanksFab > 0 && salary > 0 ? Math.round(salary / tanksFab) : 0;
         const costPerAssembledTank = tanksEns > 0 && salary > 0 ? Math.round(salary / tanksEns) : 0;
+
+        // Method 1 for Maintenance (Julio Verón):
+        let productiveCredit = 0;
+        let pureMaintenanceCost = 0;
+        let maintenanceCostPerPlantTank = 0;
+
+        if (op.isMaintenance) {
+          productiveCredit = tanksFab * baseLaborCostPerTank;
+          pureMaintenanceCost = Math.max(0, salary - productiveCredit);
+          maintenanceCostPerPlantTank = plantTanksInMonth > 0 ? Math.round(pureMaintenanceCost / plantTanksInMonth) : 0;
+        }
 
         summary.months[ym] = { 
           monthKey: ym, 
@@ -445,17 +491,21 @@ export async function GET() {
           tanksTotal, 
           costPerFabricatedTank,
           costPerAssembledTank,
-          isAguinaldoMonth 
+          isAguinaldoMonth,
+          productiveCredit,
+          pureMaintenanceCost,
+          maintenanceCostPerPlantTank,
+          plantTotalTanks: plantTanksInMonth
         };
+
         summary.totalSalary += salary;
         if (!isAguinaldoMonth) summary.totalSalaryWithoutAguinaldo += salary;
         summary.totalTanksFabricated += tanksFab;
         summary.totalTanksAssembled += tanksEns;
         summary.totalTanks += tanksTotal;
-        if (!op.isMaintenance && (op.key === 'RAMIREZ_RODRIGO' || op.key === 'SANDOVAL_LEONARDO') && !isAguinaldoMonth) {
-          totalPureRotomoldingSalariesWithoutSAC += salary;
-          totalPureRotomoldingFabricatedWithoutSAC += tanksFab;
-        }
+        summary.totalProductiveCredit! += productiveCredit;
+        summary.totalPureMaintenanceCost! += pureMaintenanceCost;
+        sumPlantTanks += plantTanksInMonth;
       });
 
       // Strict average on fabricated
@@ -468,13 +518,16 @@ export async function GET() {
         ? Math.round(summary.totalSalaryWithoutAguinaldo / tanksFabWithoutSAC) 
         : summary.avgCostPerFabricatedTank;
 
+      summary.avgCostPerAssembledTank = summary.totalTanksAssembled > 0 && summary.totalSalary > 0 
+        ? Math.round(summary.totalSalary / summary.totalTanksAssembled) 
+        : 0;
+
+      summary.avgMaintenanceCostPerPlantTank = sumPlantTanks > 0 && summary.totalPureMaintenanceCost! > 0 
+        ? Math.round(summary.totalPureMaintenanceCost! / sumPlantTanks) 
+        : 0;
+
       operatorsData.push(summary);
     });
-
-    // Base benchmark: calculated strictly on tanks fabricated by Rodrigo & Leonardo in regular months
-    const baseLaborCostPerTank = totalPureRotomoldingFabricatedWithoutSAC > 0 
-      ? Math.round(totalPureRotomoldingSalariesWithoutSAC / totalPureRotomoldingFabricatedWithoutSAC) 
-      : 5500;
 
     // 5. Parse Edenor (Electricidad a mes vencido)
     const electricityRecords: ElectricityRecord[] = [];
