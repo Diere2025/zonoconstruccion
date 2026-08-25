@@ -571,7 +571,7 @@ export default function ImportarPedidosPage() {
           enabled: importCentral
         },
         {
-          name: "Pedidos Mayoristas (AQU/AQ-DB)",
+          name: "Pedidos Mayoristas (AQU/POW/AQ-)",
           url: "https://docs.google.com/spreadsheets/d/1nz545_xNUgdI2LMAGIDCjh6Qs8-vUDHdynzj7jU2wm0/gviz/tq?tqx=out:csv&gid=786380854",
           defaultSellerId: defaultDiegoSellerId,
           defaultChannel: "mayorista",
@@ -613,7 +613,7 @@ export default function ImportarPedidosPage() {
           if (!orderCode) return false;
 
           if (sheet.isCentralSheet) {
-            const isWholesaleCode = orderCode.toUpperCase().startsWith("AQU") || orderCode.toUpperCase().startsWith("POW") || orderCode.toUpperCase().startsWith("AQ-DB");
+            const isWholesaleCode = orderCode.toUpperCase().startsWith("AQU") || orderCode.toUpperCase().startsWith("POW") || orderCode.toUpperCase().startsWith("AQ-");
             let matchesWholesale = false;
             if (sheet.isAquafortSheet) {
               matchesWholesale = isWholesaleCode;
@@ -839,7 +839,7 @@ export default function ImportarPedidosPage() {
                   />
                   <div>
                     <span className="text-xs font-bold text-slate-800">Pedidos Mayoristas</span>
-                    <span className="ml-2 bg-emerald-50 text-emerald-600 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-md">AQU/AQ-DB</span>
+                    <span className="ml-2 bg-emerald-50 text-emerald-600 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-md">AQU/POW/AQ-</span>
                   </div>
                 </div>
                 <a

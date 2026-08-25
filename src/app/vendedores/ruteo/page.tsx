@@ -4524,7 +4524,7 @@ export default function RuteoPage() {
                                             </span>
                                           ) : (() => {
                                             const isWholesale = order?.channel === 'mayorista' || !!(
-                                              (order?.legacy_code && (order.legacy_code.toUpperCase().startsWith("AQU") || order.legacy_code.toUpperCase().startsWith("POW") || order.legacy_code.toUpperCase().startsWith("AQ-DB"))) ||
+                                              (order?.legacy_code && (order.legacy_code.toUpperCase().startsWith("AQU") || order.legacy_code.toUpperCase().startsWith("POW") || order.legacy_code.toUpperCase().startsWith("AQ-"))) ||
                                               (order?.clients && (Array.isArray(order.clients) ? order.clients[0]?.is_wholesale : order.clients?.is_wholesale))
                                             );
                                             return isWholesale ? (
@@ -7992,7 +7992,7 @@ export default function RuteoPage() {
           const total = order?.total_amount || order?.totals?.total || 0;
           const deposit = order?.totals?.deposit_amount || 0;
           const balance = order?.totals?.pending_balance !== undefined ? order.totals.pending_balance : total - deposit;
-          const isWholesale = order?.channel === 'mayorista' || !!((order?.legacy_code && (order.legacy_code.toUpperCase().startsWith("AQU") || order.legacy_code.toUpperCase().startsWith("POW") || order.legacy_code.toUpperCase().startsWith("AQ-DB"))) || (order?.clients && (Array.isArray(order.clients) ? order.clients[0]?.is_wholesale : order.clients?.is_wholesale)));
+          const isWholesale = order?.channel === 'mayorista' || !!((order?.legacy_code && (order.legacy_code.toUpperCase().startsWith("AQU") || order.legacy_code.toUpperCase().startsWith("POW") || order.legacy_code.toUpperCase().startsWith("AQ-"))) || (order?.clients && (Array.isArray(order.clients) ? order.clients[0]?.is_wholesale : order.clients?.is_wholesale)));
           const paymentMethodName = paymentMethods.find(m => m.id === order?.payment_method_id)?.name || 'No especificado';
 
           return (

@@ -482,7 +482,7 @@ export default function PedidosPage() {
     if (!order) return false;
     if (order.channel === 'mayorista') return true;
     const legacy = (order.legacy_code || '').toUpperCase().trim();
-    if (legacy.startsWith('AQU') || legacy.startsWith('POW') || legacy.startsWith('AQ-DB')) return true;
+    if (legacy.startsWith('AQU') || legacy.startsWith('POW') || legacy.startsWith('AQ-')) return true;
     if (order.clients) {
       if (Array.isArray(order.clients)) {
         return !!order.clients[0]?.is_wholesale;

@@ -391,7 +391,7 @@ export async function POST(request: Request) {
 
       if (existingClient) {
         clientId = existingClient.id;
-        const isWholesaleCode = orderCode.toUpperCase().startsWith("AQU") || orderCode.toUpperCase().startsWith("POW") || orderCode.toUpperCase().startsWith("AQ-DB");
+        const isWholesaleCode = orderCode.toUpperCase().startsWith("AQU") || orderCode.toUpperCase().startsWith("POW") || orderCode.toUpperCase().startsWith("AQ-");
         if (isWholesaleCode && !existingClient.is_wholesale) {
           await supabaseAdmin
             .from('clients')
@@ -439,7 +439,7 @@ export async function POST(request: Request) {
             email: rawEmail || null,
             tax_id: rawTaxId || null,
             credit_limit: 0,
-            is_wholesale: orderCode.toUpperCase().startsWith("AQU") || orderCode.toUpperCase().startsWith("POW") || orderCode.toUpperCase().startsWith("AQ-DB")
+            is_wholesale: orderCode.toUpperCase().startsWith("AQU") || orderCode.toUpperCase().startsWith("POW") || orderCode.toUpperCase().startsWith("AQ-")
           })
           .select('id')
           .single();
