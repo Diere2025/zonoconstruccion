@@ -1055,9 +1055,10 @@ export default function CostosFabricacionPage() {
                     <tr className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
                       <th className="py-3 px-4">Mes</th>
                       <th className="py-3 px-3 text-center">Tanques</th>
-                      <th className="py-3 px-3 text-right text-amber-700">Gas (L)</th>
+                      <th className="py-3 px-3 text-right text-amber-700">Gas Consumido (L)</th>
                       <th className="py-3 px-3 text-right text-amber-700">Rendimiento (L/u)</th>
-                      <th className="py-3 px-3 text-right text-amber-700">Gas ($)</th>
+                      <th className="py-3 px-3 text-right text-amber-700">Gas Consumido ($)</th>
+                      <th className="py-3 px-3 text-right text-slate-600 bg-slate-50/50">Recargas / Facturas ($)</th>
                       <th className="py-3 px-3 text-right text-blue-700">MDO ($)</th>
                       <th className="py-3 px-3 text-right text-amber-600">Luz Edenor ($)</th>
                       <th className="py-3 px-3 text-right text-purple-700">Gastos OPEX ($)</th>
@@ -1081,6 +1082,16 @@ export default function CostosFabricacionPage() {
                         <td className="py-3 px-3 text-right font-semibold text-amber-700">{m.gasLitrosPorTanque.toFixed(2)} L/u</td>
                         <td className="py-3 px-3 text-right font-semibold text-amber-700">{formatCurrency(m.gasInversion)}</td>
                         
+                        {/* Recargas / Facturas YPF Column */}
+                        <td className="py-3 px-3 text-right text-slate-600 bg-slate-50/30">
+                          <div>{m.gasInversionRecarga ? formatCurrency(m.gasInversionRecarga) : "—"}</div>
+                          {m.stockZeppelinPct !== undefined && (
+                            <span className="inline-block text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1 rounded-xs">
+                              Stock: {m.stockZeppelinPct}% en Zeppelin
+                            </span>
+                          )}
+                        </td>
+
                         <td className="py-3 px-3 text-right font-semibold text-blue-700">
                           <div>{formatCurrency(m.mdoTotal)}</div>
                           {m.isEstimatedMdo && (

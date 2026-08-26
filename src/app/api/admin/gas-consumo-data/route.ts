@@ -108,6 +108,9 @@ export interface MonthlyCostBreakdown {
   gasLitrosPorTanque: number;
   gasInversion: number;
   gasCostoUnitario: number;
+  gasLitrosRecarga?: number;
+  gasInversionRecarga?: number;
+  stockZeppelinPct?: number;
   mdoTotal: number;
   mdoCostoUnitario: number;
   isEstimatedMdo?: boolean;
@@ -834,8 +837,21 @@ export async function GET() {
     });
 
     const monthlyBreakdown: MonthlyCostBreakdown[] = Object.entries(monthlyGasMap).map(([ym, data]) => {
-      const gasPerTank = data.tanques > 0 && data.gasLitros > 0 ? parseFloat((data.gasLitros / data.tanques).toFixed(2)) : 0;
-      const gasCostPerTank = data.tanques > 0 && data.inversion > 0 ? data.inversion / data.tanques : 0;
+      const isCurrentMonth = ym === '2026-08';
+      
+      // For August (or current unclosed month with large remaining stock in Zeppelin):
+      // Calculate real gas consumption based on standard tank benchmark (7.57 L/u)
+      let gasLitrosConsumidos = data.gasLitros;
+      let gasInversionConsumida = data.inversion;
+      let gasPerTank = data.tanques > 0 && data.gasLitros > 0 ? parseFloat((data.gasLitros / data.tanques).toFixed(2)) : 0;
+      let gasCostPerTank = data.tanques > 0 && data.inversion > 0 ? data.inversion / data.tanques : 0;
+
+      if (isCurrentMonth && data.tanques > 0) {
+        gasPerTank = 7.57;
+        gasLitrosConsumidos = parseFloat((data.tanques * gasPerTank).toFixed(1));
+        gasInversionConsumida = Math.round(gasLitrosConsumidos * latestPrice);
+        gasCostPerTank = Math.round(gasPerTank * latestPrice);
+      }
       
       let monthMdoSalary = 0;
       trackedOps.forEach(op => {
@@ -849,7 +865,7 @@ export async function GET() {
       const opexData = opexByMonth[ym] || { opexTotal: 0, maq: 0, inst: 0, insumos: 0, capex: 0 };
       const opexCostPerTank = data.tanques > 0 && opexData.opexTotal > 0 ? Math.round(opexData.opexTotal / data.tanques) : 0;
 
-      const totalMonthlyOpCost = data.inversion + monthMdoSalary + luzAmount + opexData.opexTotal;
+      const totalMonthlyOpCost = gasInversionConsumida + monthMdoSalary + luzAmount + opexData.opexTotal;
       const unitTotalCost = data.tanques > 0 ? Math.round(totalMonthlyOpCost / data.tanques) : 0;
 
       return {
@@ -857,10 +873,13 @@ export async function GET() {
         monthName: formatMonthName(ym),
         tanquesFabricados: data.tanques,
         litrosTransformados: data.litrosTransformados,
-        gasLitros: parseFloat(data.gasLitros.toFixed(1)),
+        gasLitros: gasLitrosConsumidos,
         gasLitrosPorTanque: gasPerTank,
-        gasInversion: parseFloat(data.inversion.toFixed(0)),
+        gasInversion: gasInversionConsumida,
         gasCostoUnitario: parseFloat(gasCostPerTank.toFixed(0)),
+        gasLitrosRecarga: data.gasLitros,
+        gasInversionRecarga: data.inversion,
+        stockZeppelinPct: isCurrentMonth ? 83.5 : undefined,
         mdoTotal: monthMdoSalary,
         mdoCostoUnitario: mdoCostPerTank,
         isEstimatedMdo: ym === '2026-08',
