@@ -508,6 +508,24 @@ export async function GET() {
       { key: 'MANSILLA_ENZO', name: 'Enzo Mansilla', role: 'Ensamblaje (Enero)', isMaintenance: false, isWarehouse: true, isEventual: true }
     ];
 
+    // Proportional Salary Estimation for August (or any unclosed current month)
+    // If August salaries are not yet fully loaded in sheet, take July values scaled by days elapsed (e.g. 26/31)
+    const currentDayOfMonthVal = 26;
+    const totalDaysInAug = 31;
+    const monthProportion = currentDayOfMonthVal / totalDaysInAug;
+
+    if (!salariesByMonthAndOpKey['2026-08']) salariesByMonthAndOpKey['2026-08'] = {};
+    trackedOps.forEach(op => {
+      const actualAgo = salariesByMonthAndOpKey['2026-08']?.[op.key] || 0;
+      const prevJul = salariesByMonthAndOpKey['2026-07']?.[op.key] || 0;
+      if (prevJul > 0) {
+        const estimatedProportional = Math.round(prevJul * monthProportion);
+        if (actualAgo < estimatedProportional) {
+          salariesByMonthAndOpKey['2026-08'][op.key] = estimatedProportional;
+        }
+      }
+    });
+
     const allSalaryMonths = ['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08'];
     const operatorsData: OperatorSummary[] = [];
     let totalPureRotomoldingSalariesWithoutSAC = 0;
