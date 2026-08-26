@@ -813,9 +813,12 @@ export default function CostosFabricacionPage() {
                     <tr className="bg-slate-50/80 text-slate-600 font-bold border-b border-slate-200">
                       <th className="py-3 px-4">Producto Fabricado</th>
                       <th className="py-3 px-3">Familia</th>
+                      <th className="py-3 px-2 text-center">Score</th>
+                      <th className="py-3 px-3 text-right">Insumos (Col E)</th>
+                      <th className="py-3 px-3 text-right text-amber-700">Gas GLP</th>
                       <th className="py-3 px-3 text-right text-slate-600 bg-slate-50/50">Costo Puro Evitable</th>
                       <th className="py-3 px-3 text-right text-blue-700">MDO Horno</th>
-                      <th className="py-3 px-3 text-right font-black text-emerald-950 bg-emerald-100/80 border-x-2 border-emerald-400">
+                      <th className="py-3 px-3 text-right font-black text-emerald-950 bg-emerald-100/80 border-x-2 border-emerald-400 shadow-2xs">
                         ⭐ Costo Directo Planta
                       </th>
                       <th className="py-3 px-3 text-right text-purple-700 bg-purple-50/30">Estructura Fija</th>
