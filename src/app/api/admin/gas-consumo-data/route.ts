@@ -39,6 +39,26 @@ export interface ElectricityRecord {
   costPerTank: number;
 }
 
+export interface OperationalExpenseRecord {
+  id: string;
+  subCategory: string;
+  category: string;
+  date: string;
+  dateFormatted: string;
+  concept: string;
+  movementType: string;
+  type: string;
+  amount: number;
+  account: string;
+  monthKey: string;
+  monthName: string;
+  description: string;
+  isCapex: boolean;
+  isInsumoDiario: boolean;
+  isInstalaciones: boolean;
+  isMaquinaria: boolean;
+}
+
 export interface CombinedModelCost {
   producto: string;
   tipo: string;
@@ -49,10 +69,12 @@ export interface CombinedModelCost {
   costoGasEstimado: number;
   costoManoObraEstimado: number;
   costoElectricidadEstimado: number;
+  costoOpexEstimado: number;
   costoTotalFabricacion: number;
   porcentajeGas: number;
   porcentajeManoObra: number;
   porcentajeElectricidad: number;
+  porcentajeOpex: number;
 }
 
 export interface FabricatedProductCost {
@@ -68,6 +90,7 @@ export interface FabricatedProductCost {
   gasCost: number;
   mdoCost: number;
   luzCost: number;
+  opexCost: number;
   plantOpCost: number;
   totalIntegralCost: number;
   price: number;
@@ -88,6 +111,12 @@ export interface MonthlyCostBreakdown {
   mdoCostoUnitario: number;
   luzTotal: number;
   luzCostoUnitario: number;
+  opexTotal: number;
+  opexCostoUnitario: number;
+  opexMaquinaria: number;
+  opexInstalaciones: number;
+  opexInsumosDiarios: number;
+  capexTotal: number;
   costoTotalOperativo: number;
   costoUnitarioTotal: number;
 }
@@ -242,7 +271,7 @@ const canonicalOperatorMap: Record<string, { canonicalKey: string; displayName: 
   'SAMUEL CONTRERAS': { canonicalKey: 'CONTRERAS_SAMUEL', displayName: 'Samuel Contreras', role: 'Operario Rotomoldeo (Eventual)', isMaintenance: false, isWarehouse: false, isEventual: true, notes: 'Operario eventual de rotomoldeo contratado según picos de demanda.' },
   'CONTRERAS, SAMUEL': { canonicalKey: 'CONTRERAS_SAMUEL', displayName: 'Samuel Contreras', role: 'Operario Rotomoldeo (Eventual)', isMaintenance: false, isWarehouse: false, isEventual: true, notes: 'Operario eventual de rotomoldeo contratado según picos de demanda.' },
 
-  'JULIO VERÓN': { canonicalKey: 'VERON_JULIO', displayName: 'Julio Verón', role: 'Mantenimiento de Maquinaria & Planta', isMaintenance: true, isWarehouse: false, isEventual: false, notes: 'Mantenimiento preventivo/correctivo de maquinaria y soporte técnico de planta. Su costo se descuenta del valor de horneado y se amortiza entre toda la producción.' },
+  'JULIO VERÓN': { canonicalKey: 'VERON_JULIO', displayName: 'Julio VerÓN', role: 'Mantenimiento de Maquinaria & Planta', isMaintenance: true, isWarehouse: false, isEventual: false, notes: 'Mantenimiento preventivo/correctivo de maquinaria y soporte técnico de planta. Su costo se descuenta del valor de horneado y se amortiza entre toda la producción.' },
   'JULIO VERON': { canonicalKey: 'VERON_JULIO', displayName: 'Julio Verón', role: 'Mantenimiento de Maquinaria & Planta', isMaintenance: true, isWarehouse: false, isEventual: false, notes: 'Mantenimiento preventivo/correctivo de maquinaria y soporte técnico de planta. Su costo se descuenta del valor de horneado y se amortiza entre toda la producción.' },
   'VERON, JULIO CESAR': { canonicalKey: 'VERON_JULIO', displayName: 'Julio Verón', role: 'Mantenimiento de Maquinaria & Planta', isMaintenance: true, isWarehouse: false, isEventual: false, notes: 'Mantenimiento preventivo/correctivo de maquinaria y soporte técnico de planta. Su costo se descuenta del valor de horneado y se amortiza entre toda la producción.' },
   
@@ -274,16 +303,18 @@ export async function GET() {
     const gasTipoUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_GAS_ID}/gviz/tq?tqx=out:csv&sheet=Tipo`;
     const gasSueldosUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_GAS_ID}/gviz/tq?tqx=out:csv&sheet=Sueldos`;
     const gasEdenorUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_GAS_ID}/gviz/tq?tqx=out:csv&sheet=Edenor`;
+    const gasGastosUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_GAS_ID}/gviz/tq?tqx=out:csv&sheet=GASTOS_OPERATIVOS`;
     const prodFabUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_PRODUCTION_ID}/gviz/tq?tqx=out:csv&sheet=Fabricaci%C3%B3n`;
     const prodEnsUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_PRODUCTION_ID}/gviz/tq?tqx=out:csv&sheet=Ensamblaje`;
     const pricesUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_PRICES_ID}/export?format=csv&gid=508601925`;
     const supabaseProductsUrl = `${SUPABASE_URL}/rest/v1/products?is_active=eq.true&select=id,name,sku,price&order=name.asc`;
 
-    const [gasRes, tipoRes, sueldosRes, edenorRes, fabRes, ensRes, pricesRes, dbProductsRes] = await Promise.all([
+    const [gasRes, tipoRes, sueldosRes, edenorRes, gastosRes, fabRes, ensRes, pricesRes, dbProductsRes] = await Promise.all([
       fetch(gasCargaUrl, { cache: "no-store" }),
       fetch(gasTipoUrl, { cache: "no-store" }),
       fetch(gasSueldosUrl, { cache: "no-store" }),
       fetch(gasEdenorUrl, { cache: "no-store" }),
+      fetch(gasGastosUrl, { cache: "no-store" }),
       fetch(prodFabUrl, { cache: "no-store" }),
       fetch(prodEnsUrl, { cache: "no-store" }),
       fetch(pricesUrl, { cache: "no-store" }),
@@ -301,11 +332,12 @@ export async function GET() {
       throw new Error(`Error al leer la hoja de Cargas de Gas (${gasRes.status})`);
     }
 
-    const [gasCsv, tipoCsv, sueldosCsv, edenorCsv, fabCsv, ensCsv, pricesCsv, dbProducts] = await Promise.all([
+    const [gasCsv, tipoCsv, sueldosCsv, edenorCsv, gastosCsv, fabCsv, ensCsv, pricesCsv, dbProducts] = await Promise.all([
       gasRes.text(),
       tipoRes.ok ? tipoRes.text() : Promise.resolve(""),
       sueldosRes.ok ? sueldosRes.text() : Promise.resolve(""),
       edenorRes.ok ? edenorRes.text() : Promise.resolve(""),
+      gastosRes.ok ? gastosRes.text() : Promise.resolve(""),
       fabRes.ok ? fabRes.text() : Promise.resolve(""),
       ensRes.ok ? ensRes.text() : Promise.resolve(""),
       pricesRes.ok ? pricesRes.text() : Promise.resolve(""),
@@ -642,7 +674,90 @@ export async function GET() {
       ? Math.round(regularElectricityAmount / regularElectricityTanks) 
       : 815;
 
-    // 6. Monthly Gas Consumption & Total Operating Cost Correlation
+    // 6. Parse GASTOS_OPERATIVOS (Mantenimiento Maquinaria + Instalaciones + Insumos de Uso Diario)
+    const operationalExpenses: OperationalExpenseRecord[] = [];
+    const opexByMonth: Record<string, { opexTotal: number; maq: number; inst: number; insumos: number; capex: number }> = {};
+    let totalOpex2026 = 0;
+    let totalCapex2026 = 0;
+
+    allSalaryMonths.forEach(ym => {
+      opexByMonth[ym] = { opexTotal: 0, maq: 0, inst: 0, insumos: 0, capex: 0 };
+    });
+
+    if (gastosCsv) {
+      const gastosLines = gastosCsv.split('\n').filter(l => l.trim().length > 0).slice(1);
+      gastosLines.forEach((line, idx) => {
+        const c = parseCsvLine(line);
+        const subCategory = c[0]?.trim() || 'General';
+        const rawDate = c[1]?.trim() || '';
+        const parsedDate = parseDateToIso(rawDate);
+        const concept = c[2]?.trim() || '';
+        const category = c[3]?.trim() || 'Gastos Operativos';
+        const movementType = c[4]?.trim() || 'Egreso';
+        const type = c[5]?.trim() || 'Gasto';
+        const amount = parseNum(c[6]);
+        const account = c[7]?.trim() || 'Caja / MP';
+        const mesStr = c[9]?.trim() || '';
+        const description = c[10]?.trim() || '';
+
+        if (amount > 0) {
+          let ym = '2026-01';
+          if (mesStr.toLowerCase().includes('enero') || rawDate.includes('/1/2026') || rawDate.includes('/01/2026')) ym = '2026-01';
+          else if (mesStr.toLowerCase().includes('febrero') || rawDate.includes('/2/2026') || rawDate.includes('/02/2026')) ym = '2026-02';
+          else if (mesStr.toLowerCase().includes('marzo') || rawDate.includes('/3/2026') || rawDate.includes('/03/2026')) ym = '2026-03';
+          else if (mesStr.toLowerCase().includes('abril') || rawDate.includes('/4/2026') || rawDate.includes('/04/2026')) ym = '2026-04';
+          else if (mesStr.toLowerCase().includes('mayo') || rawDate.includes('/5/2026') || rawDate.includes('/05/2026')) ym = '2026-05';
+          else if (mesStr.toLowerCase().includes('junio') || rawDate.includes('/6/2026') || rawDate.includes('/06/2026')) ym = '2026-06';
+          else if (mesStr.toLowerCase().includes('julio') || rawDate.includes('/7/2026') || rawDate.includes('/07/2026')) ym = '2026-07';
+          else if (mesStr.toLowerCase().includes('agosto') || rawDate.includes('/8/2026') || rawDate.includes('/08/2026')) ym = '2026-08';
+          else if (parsedDate) ym = parsedDate.iso.substring(0, 7);
+
+          const isCapex = subCategory.toLowerCase().includes('compra de maquinaria') || category.toLowerCase().includes('compra de maquinaria') || concept.toLowerCase().includes('compra de maquinaria');
+          const isInsumoDiario = subCategory.toLowerCase().includes('insumo') || category.toLowerCase().includes('insumo');
+          const isInstalaciones = subCategory.toLowerCase().includes('instalaciones');
+          const isMaquinaria = !isCapex && !isInsumoDiario && !isInstalaciones;
+
+          if (!opexByMonth[ym]) opexByMonth[ym] = { opexTotal: 0, maq: 0, inst: 0, insumos: 0, capex: 0 };
+
+          if (isCapex) {
+            opexByMonth[ym].capex += amount;
+            totalCapex2026 += amount;
+          } else {
+            opexByMonth[ym].opexTotal += amount;
+            totalOpex2026 += amount;
+            if (isInsumoDiario) opexByMonth[ym].insumos += amount;
+            else if (isInstalaciones) opexByMonth[ym].inst += amount;
+            else opexByMonth[ym].maq += amount;
+          }
+
+          operationalExpenses.push({
+            id: `opex-${idx}-${ym}`,
+            subCategory,
+            category,
+            date: parsedDate ? parsedDate.iso : rawDate,
+            dateFormatted: parsedDate ? parsedDate.formatted : rawDate,
+            concept,
+            movementType,
+            type,
+            amount,
+            account,
+            monthKey: ym,
+            monthName: formatMonthName(ym),
+            description,
+            isCapex,
+            isInsumoDiario,
+            isInstalaciones,
+            isMaquinaria
+          });
+        }
+      });
+    }
+
+    const baseOpexCostPerTank = totalTanks2026 > 0 
+      ? Math.round(totalOpex2026 / totalTanks2026) 
+      : 2494;
+
+    // 7. Monthly Gas Consumption & Total Operating Cost Correlation
     const monthlyGasMap: Record<string, { gasLitros: number; inversion: number; tanques: number; litrosTransformados: number; }> = {};
     
     allSalaryMonths.forEach(ym => {
@@ -681,7 +796,10 @@ export async function GET() {
       const luzAmount = electricityByConsumedMonth[ym] || 0;
       const luzCostPerTank = data.tanques > 0 && luzAmount > 0 ? Math.round(luzAmount / data.tanques) : 0;
 
-      const totalMonthlyOpCost = data.inversion + monthMdoSalary + luzAmount;
+      const opexData = opexByMonth[ym] || { opexTotal: 0, maq: 0, inst: 0, insumos: 0, capex: 0 };
+      const opexCostPerTank = data.tanques > 0 && opexData.opexTotal > 0 ? Math.round(opexData.opexTotal / data.tanques) : 0;
+
+      const totalMonthlyOpCost = data.inversion + monthMdoSalary + luzAmount + opexData.opexTotal;
       const unitTotalCost = data.tanques > 0 ? Math.round(totalMonthlyOpCost / data.tanques) : 0;
 
       return {
@@ -697,12 +815,18 @@ export async function GET() {
         mdoCostoUnitario: mdoCostPerTank,
         luzTotal: luzAmount,
         luzCostoUnitario: luzCostPerTank,
+        opexTotal: opexData.opexTotal,
+        opexCostoUnitario: opexCostPerTank,
+        opexMaquinaria: opexData.maq,
+        opexInstalaciones: opexData.inst,
+        opexInsumosDiarios: opexData.insumos,
+        capexTotal: opexData.capex,
         costoTotalOperativo: totalMonthlyOpCost,
         costoUnitarioTotal: unitTotalCost
       };
     }).sort((a, b) => b.monthKey.localeCompare(a.monthKey));
 
-    // 7. Parse Sheet 'Tipo' for Official Manufactured Models and Direct Column E (Costo Insumos)
+    // 8. Parse Sheet 'Tipo' for Official Manufactured Models and Direct Column E (Costo Insumos)
     const baseGasLiters = (tanksByMonth['2026-08']?.totalTanks || 475) > 0 ? (monthlyGasMap['2026-08']?.gasLitros || 3594) / (tanksByMonth['2026-08']?.totalTanks || 475) : 7.57;
     
     const modelScores: CombinedModelCost[] = [];
@@ -718,13 +842,14 @@ export async function GET() {
         const tipo = c[1]?.trim() || '';
         const score = parseNum(c[2]) || 1.0;
         const litrosTanque = c[3]?.trim() || '500L';
-        const costInsumosColE = parseNum(c[4]); // COLUMNA E: Costo Insumos Real de la Planilla!
+        const costInsumosColE = parseNum(c[4]); // COLUMNA E: Costo Insumos Real de la Planilla
 
         const litrosGasEstimado = parseFloat((score * baseGasLiters).toFixed(2));
         const costoGasEstimado = Math.round(litrosGasEstimado * latestPrice);
         const costoManoObraEstimado = Math.round(score * baseLaborCostPerTank);
         const costoElectricidadEstimado = Math.round(score * baseElectricityCostPerTank);
-        const costoPlantaTransformacion = costoGasEstimado + costoManoObraEstimado + costoElectricidadEstimado;
+        const costoOpexEstimado = Math.round(score * baseOpexCostPerTank);
+        const costoPlantaTransformacion = costoGasEstimado + costoManoObraEstimado + costoElectricidadEstimado + costoOpexEstimado;
         const costoTotalIntegral = Math.round(costInsumosColE + costoPlantaTransformacion);
 
         // Combined model definition
@@ -738,10 +863,12 @@ export async function GET() {
           costoGasEstimado,
           costoManoObraEstimado,
           costoElectricidadEstimado,
+          costoOpexEstimado,
           costoTotalFabricacion: costoPlantaTransformacion,
-          porcentajeGas: costoPlantaTransformacion > 0 ? parseFloat(((costoGasEstimado / costoPlantaTransformacion) * 100).toFixed(1)) : 50,
-          porcentajeManoObra: costoPlantaTransformacion > 0 ? parseFloat(((costoManoObraEstimado / costoPlantaTransformacion) * 100).toFixed(1)) : 40,
-          porcentajeElectricidad: costoPlantaTransformacion > 0 ? parseFloat(((costoElectricidadEstimado / costoPlantaTransformacion) * 100).toFixed(1)) : 10
+          porcentajeGas: costoPlantaTransformacion > 0 ? parseFloat(((costoGasEstimado / costoPlantaTransformacion) * 100).toFixed(1)) : 45,
+          porcentajeManoObra: costoPlantaTransformacion > 0 ? parseFloat(((costoManoObraEstimado / costoPlantaTransformacion) * 100).toFixed(1)) : 30,
+          porcentajeElectricidad: costoPlantaTransformacion > 0 ? parseFloat(((costoElectricidadEstimado / costoPlantaTransformacion) * 100).toFixed(1)) : 5,
+          porcentajeOpex: costoPlantaTransformacion > 0 ? parseFloat(((costoOpexEstimado / costoPlantaTransformacion) * 100).toFixed(1)) : 20
         });
 
         // Family categorization
@@ -794,6 +921,7 @@ export async function GET() {
           gasCost: costoGasEstimado,
           mdoCost: costoManoObraEstimado,
           luzCost: costoElectricidadEstimado,
+          opexCost: costoOpexEstimado,
           plantOpCost: costoPlantaTransformacion,
           totalIntegralCost: costoTotalIntegral,
           price,
@@ -803,7 +931,7 @@ export async function GET() {
       });
     }
 
-    // 8. Tank Zeppelin Status & Intervals
+    // 9. Tank Zeppelin Status & Intervals
     const readings = gasEvents.filter(e => e.porcentajeAntes > 0 || e.tipo === "Lectura");
     const lastReading = readings.length > 0 ? readings[readings.length - 1] : null;
     const lastRefill = refills.length > 0 ? refills[refills.length - 1] : null;
@@ -847,7 +975,7 @@ export async function GET() {
       });
     }
 
-    // 9. 14-Day Rolling Window
+    // 10. 14-Day Rolling Window
     const lastTimestamp = lastReading ? lastReading.timestamp : Date.now();
     const fourteenDaysAgoTimestamp = lastTimestamp - (14 * 86400000);
     const readingsLast14 = gasEvents.filter(e => (e.porcentajeAntes > 0 || e.tipo === 'Lectura') && e.timestamp >= fourteenDaysAgoTimestamp);
@@ -886,15 +1014,15 @@ export async function GET() {
 
     const daysOfAutonomyRemaining = Math.max(1, Math.round(currentTankLiters / (dailyGasConsumptionLast14 || 100)));
 
-    // 10. Current Month (Agosto 2026) Forecast
+    // 11. Current Month (Agosto 2026) Forecast
     const currentYearMonth = "2026-08";
     const currentMonthName = formatMonthName(currentYearMonth);
-    const tanksCurrentMonthMtd = tanksByMonth[currentYearMonth]?.totalTanks || 475;
+    const tanksCurrentMonthMtd = tanksByMonth[currentYearMonth]?.totalTanks || 541;
     const gasConsumedCurrentMonthMtd = parseFloat((tanksCurrentMonthMtd * baseGasLiters).toFixed(1));
     const gasCostCurrentMonthMtd = parseFloat((gasConsumedCurrentMonthMtd * latestPrice).toFixed(0));
 
     const totalDaysInMonth = 31;
-    const currentDayOfMonth = 24;
+    const currentDayOfMonth = 26;
     const daysRemainingInMonth = Math.max(0, totalDaysInMonth - currentDayOfMonth);
     const projectedRemainingGasConsumption = parseFloat((daysRemainingInMonth * dailyGasConsumptionLast14).toFixed(1));
     const projectedRemainingGasCost = parseFloat((projectedRemainingGasConsumption * latestPrice).toFixed(0));
@@ -953,10 +1081,13 @@ export async function GET() {
       costBenchmarks: {
         baseLaborCostPerTank,
         baseElectricityCostPerTank,
+        baseOpexCostPerTank,
         baseGasCostPerTank: parseFloat((baseGasLiters * latestPrice).toFixed(0)),
-        baseTotalManufacturingCost: parseFloat((baseGasLiters * latestPrice + baseLaborCostPerTank + baseElectricityCostPerTank).toFixed(0)),
+        baseTotalManufacturingCost: parseFloat((baseGasLiters * latestPrice + baseLaborCostPerTank + baseElectricityCostPerTank + baseOpexCostPerTank).toFixed(0)),
         pureRotomoldingSalariesWithoutSAC: totalPureRotomoldingSalariesWithoutSAC,
-        pureRotomoldingFabricatedWithoutSAC: totalPureRotomoldingFabricatedWithoutSAC
+        pureRotomoldingFabricatedWithoutSAC: totalPureRotomoldingFabricatedWithoutSAC,
+        totalOpex2026,
+        totalCapex2026
       },
       summary2026: {
         totalTanksRotomolded: totalTanks2026,
@@ -975,6 +1106,7 @@ export async function GET() {
       },
       operatorsData,
       electricityRecords,
+      operationalExpenses,
       modelScores,
       fabricatedProducts,
       intervals,
