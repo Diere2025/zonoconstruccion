@@ -37,6 +37,7 @@ export interface ElectricityRecord {
   amount: number;
   tanksProducedInMonth: number;
   costPerTank: number;
+  isEstimated?: boolean;
 }
 
 export interface OperationalExpenseRecord {
@@ -109,8 +110,10 @@ export interface MonthlyCostBreakdown {
   gasCostoUnitario: number;
   mdoTotal: number;
   mdoCostoUnitario: number;
+  isEstimatedMdo?: boolean;
   luzTotal: number;
   luzCostoUnitario: number;
+  isEstimatedLuz?: boolean;
   opexTotal: number;
   opexCostoUnitario: number;
   opexMaquinaria: number;
@@ -682,6 +685,35 @@ export async function GET() {
       });
     }
 
+    // Proportional Electricity Estimation for August (or any unbilled current month)
+    // Edenor is billed in arrears (a mes vencido). If August is not yet billed, average recent 3 months and scale by 26/31 days
+    let isAugustEdenorEstimated = false;
+    if (!electricityByConsumedMonth['2026-08'] || electricityByConsumedMonth['2026-08'] === 0) {
+      const recentLuzMonths = ['2026-05', '2026-06', '2026-07'];
+      const recentLuzSums = recentLuzMonths.map(m => electricityByConsumedMonth[m] || 0).filter(v => v > 0);
+      const avgRecentLuz = recentLuzSums.length > 0 
+        ? recentLuzSums.reduce((a, b) => a + b, 0) / recentLuzSums.length 
+        : 546730;
+      
+      const estimatedAugLuz = Math.round(avgRecentLuz * monthProportion);
+      electricityByConsumedMonth['2026-08'] = estimatedAugLuz;
+      isAugustEdenorEstimated = true;
+
+      const tanksAug = tanksByMonth['2026-08']?.totalTanks || 541;
+      electricityRecords.unshift({
+        id: 'edenor-estimated-2026-08',
+        paymentDate: '2026-08-26',
+        paymentDateFormatted: 'Pendiente (Vence Septiembre)',
+        consumedMonthKey: '2026-08',
+        consumedMonthName: 'Agosto 2026',
+        concept: 'Edenor - Quilmes 4550 (Estimado Proporcional)',
+        amount: estimatedAugLuz,
+        tanksProducedInMonth: tanksAug,
+        costPerTank: Math.round(estimatedAugLuz / tanksAug),
+        isEstimated: true
+      });
+    }
+
     const regularElectricityAmount = electricityRecords
       .filter(r => r.consumedMonthKey >= '2026-02' && r.consumedMonthKey <= '2026-07')
       .reduce((acc, r) => acc + r.amount, 0);
@@ -831,8 +863,10 @@ export async function GET() {
         gasCostoUnitario: parseFloat(gasCostPerTank.toFixed(0)),
         mdoTotal: monthMdoSalary,
         mdoCostoUnitario: mdoCostPerTank,
+        isEstimatedMdo: ym === '2026-08',
         luzTotal: luzAmount,
         luzCostoUnitario: luzCostPerTank,
+        isEstimatedLuz: ym === '2026-08' && isAugustEdenorEstimated,
         opexTotal: opexData.opexTotal,
         opexCostoUnitario: opexCostPerTank,
         opexMaquinaria: opexData.maq,

@@ -35,7 +35,8 @@ import {
   CalendarDays,
   BarChart2,
   PieChart,
-  ArrowUpRight
+  ArrowUpRight,
+  Filter
 } from "lucide-react";
 import { 
   GasEvent, 
@@ -79,16 +80,16 @@ export default function CostosFabricacionPage() {
 
   const [activeTab, setActiveTab] = useState<"cruce" | "matriz" | "gastos_opex" | "operarios" | "electricidad" | "gas" | "eventos">("cruce");
   
-  // Selected calculation period: "current" (Agosto 2026), "annual" (Promedio Anual), or specific "2026-07", etc.
+  // Selected calculation period for Cruce Integral: "current" (Agosto 2026), "annual" (Promedio Anual), or specific "2026-07", etc.
   const [selectedPeriod, setSelectedPeriod] = useState<string>("current");
   
   const [searchFabricatedInput, setSearchFabricatedInput] = useState<string>("");
   const [selectedFamily, setSelectedFamily] = useState<string>("all");
 
-  // OPEX Tab Filters
+  // OPEX Tab Period & Filter State: "all" (Todo el Año) or specific "2026-08", "2026-07", etc.
+  const [selectedOpexPeriod, setSelectedOpexPeriod] = useState<string>("all");
   const [searchOpex, setSearchOpex] = useState<string>("");
   const [selectedOpexSubCat, setSelectedOpexSubCat] = useState<string>("all");
-  const [selectedOpexMonth, setSelectedOpexMonth] = useState<string>("all");
 
   const fetchData = async () => {
     try {
@@ -109,6 +110,15 @@ export default function CostosFabricacionPage() {
   useEffect(() => {
     fetchData();
   }, []);
+
+  const MONTH_NAMES_ES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+
+  const formatMonthName = (yearMonth: string) => {
+    if (!yearMonth || !yearMonth.includes('-')) return yearMonth;
+    const [y, m] = yearMonth.split('-').map(Number);
+    if (!y || !m) return yearMonth;
+    return `${MONTH_NAMES_ES[m - 1]} ${y}`;
+  };
 
   const formatCurrency = (val?: number) => {
     if (val === undefined || val === null) return "$0";
@@ -239,10 +249,18 @@ export default function CostosFabricacionPage() {
     return Array.from(setF);
   }, [data?.fabricatedProducts]);
 
-  // Filtered operational expenses (OPEX)
-  const filteredOpexExpenses = useMemo(() => {
+  // OPEX Data in Selected Period (Monthly vs Annual)
+  const opexInPeriod = useMemo(() => {
     if (!data?.operationalExpenses) return [];
     return data.operationalExpenses.filter(e => {
+      if (selectedOpexPeriod === "all") return true;
+      return e.monthKey === selectedOpexPeriod;
+    });
+  }, [data?.operationalExpenses, selectedOpexPeriod]);
+
+  // Filtered operational expenses (OPEX) in the table
+  const filteredOpexExpenses = useMemo(() => {
+    return opexInPeriod.filter(e => {
       const matchSearch = e.concept.toLowerCase().includes(searchOpex.toLowerCase()) ||
                           e.description.toLowerCase().includes(searchOpex.toLowerCase()) ||
                           e.subCategory.toLowerCase().includes(searchOpex.toLowerCase());
@@ -253,26 +271,23 @@ export default function CostosFabricacionPage() {
       else if (selectedOpexSubCat === "insumos") matchSubCat = e.isInsumoDiario;
       else if (selectedOpexSubCat === "capex") matchSubCat = e.isCapex;
 
-      const matchMonth = selectedOpexMonth === "all" || e.monthKey === selectedOpexMonth;
-
-      return matchSearch && matchSubCat && matchMonth;
+      return matchSearch && matchSubCat;
     });
-  }, [data?.operationalExpenses, searchOpex, selectedOpexSubCat, selectedOpexMonth]);
+  }, [opexInPeriod, searchOpex, selectedOpexSubCat]);
 
   const opexFilteredTotal = useMemo(() => {
     return filteredOpexExpenses.reduce((acc, e) => acc + e.amount, 0);
   }, [filteredOpexExpenses]);
 
-  // Global OPEX breakdown & Stats
+  // OPEX stats in selected period
   const opexStats = useMemo(() => {
-    if (!data?.operationalExpenses) return { totalOpex: 0, maq: 0, inst: 0, insumos: 0, capex: 0 };
     let totalOpex = 0;
     let maq = 0;
     let inst = 0;
     let insumos = 0;
     let capex = 0;
 
-    data.operationalExpenses.forEach(e => {
+    opexInPeriod.forEach(e => {
       if (e.isCapex) {
         capex += e.amount;
       } else {
@@ -283,15 +298,25 @@ export default function CostosFabricacionPage() {
       }
     });
 
-    return { totalOpex, maq, inst, insumos, capex };
-  }, [data?.operationalExpenses]);
+    let tanksInPeriod = data?.summary2026?.totalTanksRotomolded || 4472;
+    if (selectedOpexPeriod !== "all") {
+      const mData = data?.monthlyBreakdown.find(m => m.monthKey === selectedOpexPeriod);
+      if (mData) tanksInPeriod = mData.tanquesFabricados;
+    }
 
-  // Top Concept Ranking & Largest Invoices
+    const costPerTank = tanksInPeriod > 0 && totalOpex > 0 ? Math.round(totalOpex / tanksInPeriod) : 0;
+    const maqCostPerTank = tanksInPeriod > 0 && maq > 0 ? Math.round(maq / tanksInPeriod) : 0;
+    const instCostPerTank = tanksInPeriod > 0 && inst > 0 ? Math.round(inst / tanksInPeriod) : 0;
+    const insumosCostPerTank = tanksInPeriod > 0 && insumos > 0 ? Math.round(insumos / tanksInPeriod) : 0;
+
+    return { totalOpex, maq, inst, insumos, capex, costPerTank, maqCostPerTank, instCostPerTank, insumosCostPerTank, tanksInPeriod };
+  }, [opexInPeriod, selectedOpexPeriod, data]);
+
+  // Top Concept Ranking in Selected Period
   const topConceptsRank = useMemo(() => {
-    if (!data?.operationalExpenses) return [];
     const map: Record<string, { concept: string; subCat: string; totalAmount: number; count: number; sampleDesc: string }> = {};
 
-    data.operationalExpenses.forEach(e => {
+    opexInPeriod.forEach(e => {
       if (e.isCapex) return;
       const key = e.concept.trim();
       if (!map[key]) {
@@ -309,16 +334,15 @@ export default function CostosFabricacionPage() {
     });
 
     return Object.values(map).sort((a, b) => b.totalAmount - a.totalAmount);
-  }, [data?.operationalExpenses]);
+  }, [opexInPeriod]);
 
-  // Top 5 Largest Individual Expenses
+  // Top 5 Largest Individual Expenses in Selected Period
   const topSingleExpenses = useMemo(() => {
-    if (!data?.operationalExpenses) return [];
-    return [...data.operationalExpenses]
+    return [...opexInPeriod]
       .filter(e => !e.isCapex)
       .sort((a, b) => b.amount - a.amount)
       .slice(0, 5);
-  }, [data?.operationalExpenses]);
+  }, [opexInPeriod]);
 
   if (loading) {
     return (
@@ -669,16 +693,50 @@ export default function CostosFabricacionPage() {
           </div>
         )}
 
-        {/* TAB: GASTOS OPERATIVOS & MANTENIMIENTO (GRÁFICOS + TOP CONCEPTOS + COMPROBANTES) */}
+        {/* TAB: GASTOS OPERATIVOS & MANTENIMIENTO (CON SELECTOR MENSUAL / ANUAL) */}
         {activeTab === "gastos_opex" && (
           <div className="space-y-6">
-            {/* KPI Cards */}
+            {/* Period Selector Banner for OPEX */}
+            <div className="bg-white rounded-2xl p-4 border border-purple-200/80 shadow-xs flex flex-wrap items-center justify-between gap-4 bg-linear-to-r from-purple-50/40 via-white to-amber-50/20">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-purple-100 text-purple-800 flex items-center justify-center">
+                  <CalendarDays className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-purple-900">Período de Análisis de Gastos Operativos:</div>
+                  <div className="text-sm font-black text-slate-900">
+                    {selectedOpexPeriod === "all" ? "Todo el Año 2026 (Acumulado Consolidado)" : formatMonthName(selectedOpexPeriod)}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-500">Filtrar período:</span>
+                <select
+                  value={selectedOpexPeriod}
+                  onChange={(e) => setSelectedOpexPeriod(e.target.value)}
+                  className="py-2 px-3.5 text-xs font-bold bg-white border border-purple-300 rounded-xl shadow-2xs focus:border-purple-600 text-purple-950 cursor-pointer"
+                >
+                  <option value="all">📊 Todo el Año 2026 (Acumulado)</option>
+                  <option disabled>──────────</option>
+                  {data.monthlyBreakdown.map(m => (
+                    <option key={m.monthKey} value={m.monthKey}>
+                      📅 {m.monthName} ({formatCurrency(m.opexTotal)})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* KPI Cards (Dynamic based on selectedOpexPeriod) */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
               <div className="bg-white rounded-2xl p-4 border border-purple-200/80 shadow-xs bg-linear-to-br from-purple-50/40 to-white">
-                <span className="text-[11px] font-bold text-purple-700 uppercase tracking-wider">Total OPEX Planta 2026</span>
+                <span className="text-[11px] font-bold text-purple-700 uppercase tracking-wider">
+                  Total OPEX {selectedOpexPeriod === "all" ? "2026" : formatMonthName(selectedOpexPeriod)}
+                </span>
                 <div className="text-xl font-black text-purple-900 mt-1">{formatCurrency(opexStats.totalOpex)}</div>
                 <p className="text-[11px] text-purple-700 font-bold mt-0.5">
-                  Promedio: {formatCurrency(data.costBenchmarks.baseOpexCostPerTank)} / tanque
+                  {formatCurrency(opexStats.costPerTank)} / tanque ({opexStats.tanksInPeriod} u)
                 </p>
               </div>
 
@@ -686,7 +744,7 @@ export default function CostosFabricacionPage() {
                 <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Mantenimiento Maquinaria</span>
                 <div className="text-xl font-black text-slate-900 mt-1">{formatCurrency(opexStats.maq)}</div>
                 <p className="text-[11px] text-slate-500 font-medium mt-0.5">
-                  {((opexStats.maq / opexStats.totalOpex) * 100).toFixed(1)}% • $1.438 / tanque
+                  {opexStats.totalOpex > 0 ? ((opexStats.maq / opexStats.totalOpex) * 100).toFixed(1) : "0"}% • {formatCurrency(opexStats.maqCostPerTank)} / tanque
                 </p>
               </div>
 
@@ -694,7 +752,7 @@ export default function CostosFabricacionPage() {
                 <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Mantenimiento Instalaciones</span>
                 <div className="text-xl font-black text-slate-900 mt-1">{formatCurrency(opexStats.inst)}</div>
                 <p className="text-[11px] text-slate-500 font-medium mt-0.5">
-                  {((opexStats.inst / opexStats.totalOpex) * 100).toFixed(1)}% • $569 / tanque
+                  {opexStats.totalOpex > 0 ? ((opexStats.inst / opexStats.totalOpex) * 100).toFixed(1) : "0"}% • {formatCurrency(opexStats.instCostPerTank)} / tanque
                 </p>
               </div>
 
@@ -702,7 +760,7 @@ export default function CostosFabricacionPage() {
                 <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Insumos Diarios Taller</span>
                 <div className="text-xl font-black text-slate-900 mt-1">{formatCurrency(opexStats.insumos)}</div>
                 <p className="text-[11px] text-slate-500 font-medium mt-0.5">
-                  {((opexStats.insumos / opexStats.totalOpex) * 100).toFixed(1)}% • $487 / tanque
+                  {opexStats.totalOpex > 0 ? ((opexStats.insumos / opexStats.totalOpex) * 100).toFixed(1) : "0"}% • {formatCurrency(opexStats.insumosCostPerTank)} / tanque
                 </p>
               </div>
 
@@ -713,34 +771,34 @@ export default function CostosFabricacionPage() {
               </div>
             </div>
 
-            {/* Visual Analytics & Top Concepts Section */}
+            {/* Visual Analytics & Top Concepts Section for Selected Period */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               
-              {/* Left Column: Visual Category Distribution & Monthly Bars */}
+              {/* Left Column: Visual Category Distribution & Top Invoices */}
               <div className="lg:col-span-1 space-y-6">
                 {/* Visual Distribution Bar */}
                 <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-4">
                   <div className="flex items-center justify-between">
                     <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
                       <PieChart className="w-4 h-4 text-purple-600" />
-                      Distribución del Gasto OPEX
+                      Distribución ({selectedOpexPeriod === "all" ? "Anual" : formatMonthName(selectedOpexPeriod)})
                     </h3>
                   </div>
 
                   {/* Multi-segment visual progress bar */}
                   <div className="h-4 w-full bg-slate-100 rounded-full overflow-hidden flex shadow-inner">
                     <div 
-                      style={{ width: `${(opexStats.maq / opexStats.totalOpex) * 100}%` }} 
+                      style={{ width: `${opexStats.totalOpex > 0 ? (opexStats.maq / opexStats.totalOpex) * 100 : 0}%` }} 
                       className="bg-amber-500 hover:bg-amber-600 transition" 
                       title={`Maquinaria: ${formatCurrency(opexStats.maq)}`}
                     />
                     <div 
-                      style={{ width: `${(opexStats.inst / opexStats.totalOpex) * 100}%` }} 
+                      style={{ width: `${opexStats.totalOpex > 0 ? (opexStats.inst / opexStats.totalOpex) * 100 : 0}%` }} 
                       className="bg-purple-500 hover:bg-purple-600 transition" 
                       title={`Instalaciones: ${formatCurrency(opexStats.inst)}`}
                     />
                     <div 
-                      style={{ width: `${(opexStats.insumos / opexStats.totalOpex) * 100}%` }} 
+                      style={{ width: `${opexStats.totalOpex > 0 ? (opexStats.insumos / opexStats.totalOpex) * 100 : 0}%` }} 
                       className="bg-emerald-500 hover:bg-emerald-600 transition" 
                       title={`Insumos: ${formatCurrency(opexStats.insumos)}`}
                     />
@@ -752,7 +810,9 @@ export default function CostosFabricacionPage() {
                         <span className="w-3 h-3 rounded-full bg-amber-500 shrink-0"></span>
                         <span className="text-slate-600 font-medium">Mantenimiento Maquinaria:</span>
                       </div>
-                      <span className="font-bold text-slate-900">{formatCurrency(opexStats.maq)} <strong className="text-amber-700">({((opexStats.maq / opexStats.totalOpex) * 100).toFixed(1)}%)</strong></span>
+                      <span className="font-bold text-slate-900">
+                        {formatCurrency(opexStats.maq)} <strong className="text-amber-700">({opexStats.totalOpex > 0 ? ((opexStats.maq / opexStats.totalOpex) * 100).toFixed(1) : 0}%)</strong>
+                      </span>
                     </div>
 
                     <div className="flex items-center justify-between">
@@ -760,7 +820,9 @@ export default function CostosFabricacionPage() {
                         <span className="w-3 h-3 rounded-full bg-purple-500 shrink-0"></span>
                         <span className="text-slate-600 font-medium">Mantenimiento Instalaciones:</span>
                       </div>
-                      <span className="font-bold text-slate-900">{formatCurrency(opexStats.inst)} <strong className="text-purple-700">({((opexStats.inst / opexStats.totalOpex) * 100).toFixed(1)}%)</strong></span>
+                      <span className="font-bold text-slate-900">
+                        {formatCurrency(opexStats.inst)} <strong className="text-purple-700">({opexStats.totalOpex > 0 ? ((opexStats.inst / opexStats.totalOpex) * 100).toFixed(1) : 0}%)</strong>
+                      </span>
                     </div>
 
                     <div className="flex items-center justify-between">
@@ -768,32 +830,38 @@ export default function CostosFabricacionPage() {
                         <span className="w-3 h-3 rounded-full bg-emerald-500 shrink-0"></span>
                         <span className="text-slate-600 font-medium">Insumos Diarios Taller:</span>
                       </div>
-                      <span className="font-bold text-slate-900">{formatCurrency(opexStats.insumos)} <strong className="text-emerald-700">({((opexStats.insumos / opexStats.totalOpex) * 100).toFixed(1)}%)</strong></span>
+                      <span className="font-bold text-slate-900">
+                        {formatCurrency(opexStats.insumos)} <strong className="text-emerald-700">({opexStats.totalOpex > 0 ? ((opexStats.insumos / opexStats.totalOpex) * 100).toFixed(1) : 0}%)</strong>
+                      </span>
                     </div>
                   </div>
                 </div>
 
-                {/* Top 5 Single Invoices */}
+                {/* Top Single Invoices */}
                 <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-3">
                   <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
                     <ArrowUpRight className="w-4 h-4 text-amber-600" />
-                    Mayores Gastos Individuales
+                    Mayores Gastos ({selectedOpexPeriod === "all" ? "Anual" : formatMonthName(selectedOpexPeriod)})
                   </h3>
                   <div className="space-y-2.5">
-                    {topSingleExpenses.map((exp, idx) => (
-                      <div key={exp.id} className="flex items-start justify-between text-xs p-2.5 rounded-xl bg-slate-50 hover:bg-slate-100 transition border border-slate-100">
-                        <div>
-                          <div className="font-bold text-slate-900">{exp.concept}</div>
-                          <div className="text-[10px] text-slate-500 font-medium">{exp.dateFormatted} • {exp.subCategory}</div>
-                          {exp.description && (
-                            <div className="text-[10px] text-slate-600 italic mt-0.5 truncate max-w-[200px]">{exp.description}</div>
-                          )}
+                    {topSingleExpenses.length === 0 ? (
+                      <p className="text-xs text-slate-400 italic">No hay gastos en este período.</p>
+                    ) : (
+                      topSingleExpenses.map((exp) => (
+                        <div key={exp.id} className="flex items-start justify-between text-xs p-2.5 rounded-xl bg-slate-50 hover:bg-slate-100 transition border border-slate-100">
+                          <div>
+                            <div className="font-bold text-slate-900">{exp.concept}</div>
+                            <div className="text-[10px] text-slate-500 font-medium">{exp.dateFormatted} • {exp.subCategory}</div>
+                            {exp.description && (
+                              <div className="text-[10px] text-slate-600 italic mt-0.5 truncate max-w-[200px]">{exp.description}</div>
+                            )}
+                          </div>
+                          <div className="font-black text-slate-900 text-right shrink-0 ml-2">
+                            {formatCurrency(exp.amount)}
+                          </div>
                         </div>
-                        <div className="font-black text-slate-900 text-right shrink-0 ml-2">
-                          {formatCurrency(exp.amount)}
-                        </div>
-                      </div>
-                    ))}
+                      ))
+                    )}
                   </div>
                 </div>
               </div>
@@ -805,10 +873,10 @@ export default function CostosFabricacionPage() {
                     <div>
                       <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
                         <BarChart2 className="w-4 h-4 text-purple-600" />
-                        Ranking de Conceptos de Gastos Más Altos (Pareto OPEX)
+                        Ranking de Conceptos de Gastos Más Altos ({selectedOpexPeriod === "all" ? "Acumulado 2026" : formatMonthName(selectedOpexPeriod)})
                       </h3>
                       <p className="text-xs text-slate-500 font-medium mt-0.5">
-                        Rubros acumulados de mayor consumo durante todo 2026
+                        Rubros con mayor impacto en costos operativos para el período seleccionado
                       </p>
                     </div>
                     <span className="text-xs font-bold text-purple-700 bg-purple-50 px-2.5 py-1 rounded-lg border border-purple-200">
@@ -817,50 +885,54 @@ export default function CostosFabricacionPage() {
                   </div>
 
                   <div className="space-y-4">
-                    {topConceptsRank.slice(0, 7).map((c, idx) => {
-                      const pct = opexStats.totalOpex > 0 ? (c.totalAmount / opexStats.totalOpex) * 100 : 0;
-                      return (
-                        <div key={c.concept} className="space-y-1.5">
-                          <div className="flex items-center justify-between text-xs">
-                            <div className="flex items-center gap-2">
-                              <span className="w-5 h-5 rounded-md bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-[10px]">
-                                {idx + 1}
-                              </span>
-                              <span className="font-bold text-slate-900">{c.concept}</span>
-                              <span className="text-[10px] text-slate-400 font-medium hidden sm:inline">({c.count} compras)</span>
+                    {topConceptsRank.length === 0 ? (
+                      <p className="text-xs text-slate-400 italic py-6 text-center">No hay conceptos registrados en este período.</p>
+                    ) : (
+                      topConceptsRank.slice(0, 7).map((c, idx) => {
+                        const pct = opexStats.totalOpex > 0 ? (c.totalAmount / opexStats.totalOpex) * 100 : 0;
+                        return (
+                          <div key={c.concept} className="space-y-1.5">
+                            <div className="flex items-center justify-between text-xs">
+                              <div className="flex items-center gap-2">
+                                <span className="w-5 h-5 rounded-md bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-[10px]">
+                                  {idx + 1}
+                                </span>
+                                <span className="font-bold text-slate-900">{c.concept}</span>
+                                <span className="text-[10px] text-slate-400 font-medium hidden sm:inline">({c.count} compras)</span>
+                              </div>
+                              <div className="text-right">
+                                <strong className="text-slate-900">{formatCurrency(c.totalAmount)}</strong>
+                                <span className="text-[11px] text-purple-700 font-black ml-1.5">({pct.toFixed(1)}%)</span>
+                              </div>
                             </div>
-                            <div className="text-right">
-                              <strong className="text-slate-900">{formatCurrency(c.totalAmount)}</strong>
-                              <span className="text-[11px] text-purple-700 font-black ml-1.5">({pct.toFixed(1)}%)</span>
-                            </div>
-                          </div>
 
-                          {/* Progress bar */}
-                          <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
-                            <div 
-                              style={{ width: `${pct}%` }} 
-                              className={`h-full rounded-full transition ${
-                                idx === 0 ? "bg-amber-500" :
-                                idx === 1 ? "bg-purple-500" :
-                                idx === 2 ? "bg-blue-500" : "bg-emerald-500"
-                              }`}
-                            />
-                          </div>
-
-                          {c.sampleDesc && (
-                            <div className="text-[10px] text-slate-500 italic pl-7 truncate">
-                              Ejemplos: {c.sampleDesc}
+                            {/* Progress bar */}
+                            <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                              <div 
+                                style={{ width: `${pct}%` }} 
+                                className={`h-full rounded-full transition ${
+                                  idx === 0 ? "bg-amber-500" :
+                                  idx === 1 ? "bg-purple-500" :
+                                  idx === 2 ? "bg-blue-500" : "bg-emerald-500"
+                                }`}
+                              />
                             </div>
-                          )}
-                        </div>
-                      );
-                    })}
+
+                            {c.sampleDesc && (
+                              <div className="text-[10px] text-slate-500 italic pl-7 truncate">
+                                Ejemplos: {c.sampleDesc}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
                   </div>
                 </div>
 
                 <div className="mt-4 pt-3 border-t border-slate-100 text-xs text-slate-500 flex items-center justify-between">
-                  <span>Los 3 primeros conceptos representan el <strong>77.4%</strong> de todos los gastos de planta.</span>
-                  <span className="font-bold text-slate-700">Total Analizado: {formatCurrency(opexStats.totalOpex)}</span>
+                  <span>Total analizado en el período: <strong>{formatCurrency(opexStats.totalOpex)}</strong></span>
+                  <span className="font-bold text-purple-700">{formatCurrency(opexStats.costPerTank)} / tanque</span>
                 </div>
               </div>
             </div>
@@ -891,17 +963,6 @@ export default function CostosFabricacionPage() {
                     <option value="insumos">Insumos Diarios Taller</option>
                     <option value="capex">Compra Maquinaria (CAPEX)</option>
                   </select>
-
-                  <select
-                    value={selectedOpexMonth}
-                    onChange={(e) => setSelectedOpexMonth(e.target.value)}
-                    className="py-2 px-3 text-xs bg-slate-50 border border-slate-200 rounded-xl font-semibold text-slate-700 focus:bg-white focus:border-purple-500"
-                  >
-                    <option value="all">Todos los Meses 2026</option>
-                    {data.monthlyBreakdown.map(m => (
-                      <option key={m.monthKey} value={m.monthKey}>{m.monthName}</option>
-                    ))}
-                  </select>
                 </div>
               </div>
 
@@ -910,13 +971,15 @@ export default function CostosFabricacionPage() {
               </div>
             </div>
 
-            {/* Expenses History Table without Account and Imputed Month columns */}
+            {/* Expenses History Table */}
             <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
               <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
                 <div>
-                  <h3 className="text-sm font-bold text-slate-900">Histórico de Comprobantes de Gastos Operativos de Planta</h3>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    Histórico de Comprobantes ({selectedOpexPeriod === "all" ? "Todos los Meses" : formatMonthName(selectedOpexPeriod)})
+                  </h3>
                   <p className="text-xs text-slate-500 font-medium mt-0.5">
-                    157 comprobantes registrados en la hoja GASTOS_OPERATIVOS
+                    Comprobantes registrados en la hoja GASTOS_OPERATIVOS
                   </p>
                 </div>
                 <span className="text-xs font-semibold text-slate-500">
@@ -970,6 +1033,14 @@ export default function CostosFabricacionPage() {
         {/* TAB: EVOLUCIÓN MENSUAL CONSOLIDADA */}
         {activeTab === "matriz" && (
           <div className="space-y-6">
+            {/* Notice for Estimated August Data */}
+            <div className="bg-amber-50/70 border border-amber-200/90 rounded-2xl p-4 text-xs text-amber-900 flex items-start gap-3 shadow-2xs">
+              <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <strong className="font-bold">Aviso sobre Agosto 2026:</strong> Los valores de <strong>MDO</strong> y <strong>Luz Edenor</strong> para el mes en curso se computan como <em>estimados proporcionales (26/31 días)</em> basados en meses anteriores para reflejar costos realistas. Tan pronto cargues las facturas y recibos en la planilla oficial, se actualizarán automáticamente a valores definitivos.
+              </div>
+            </div>
+
             <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
               <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/50">
                 <h3 className="text-sm font-bold text-slate-900">Evolución Mensual Consolidada de Costos de Planta</h3>
@@ -997,13 +1068,37 @@ export default function CostosFabricacionPage() {
                   <tbody className="divide-y divide-slate-100">
                     {data.monthlyBreakdown.map((m) => (
                       <tr key={m.monthKey} className="hover:bg-slate-50/80 transition">
-                        <td className="py-3 px-4 font-bold text-slate-900">{m.monthName}</td>
+                        <td className="py-3 px-4 font-bold text-slate-900">
+                          {m.monthName}
+                          {m.monthKey === "2026-08" && (
+                            <span className="ml-1.5 inline-block text-[9px] font-black px-1.5 py-0.2 bg-amber-100 text-amber-900 rounded-sm">
+                              En Curso
+                            </span>
+                          )}
+                        </td>
                         <td className="py-3 px-3 text-center font-bold text-slate-700">{m.tanquesFabricados} u</td>
                         <td className="py-3 px-3 text-right font-semibold text-amber-700">{m.gasLitros.toLocaleString("es-AR")} L</td>
                         <td className="py-3 px-3 text-right font-semibold text-amber-700">{m.gasLitrosPorTanque.toFixed(2)} L/u</td>
                         <td className="py-3 px-3 text-right font-semibold text-amber-700">{formatCurrency(m.gasInversion)}</td>
-                        <td className="py-3 px-3 text-right font-semibold text-blue-700">{formatCurrency(m.mdoTotal)}</td>
-                        <td className="py-3 px-3 text-right font-semibold text-amber-600">{formatCurrency(m.luzTotal)}</td>
+                        
+                        <td className="py-3 px-3 text-right font-semibold text-blue-700">
+                          <div>{formatCurrency(m.mdoTotal)}</div>
+                          {m.isEstimatedMdo && (
+                            <span className="inline-block text-[9px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-1 rounded-xs">
+                              ⚠️ Est. Proporcional
+                            </span>
+                          )}
+                        </td>
+
+                        <td className="py-3 px-3 text-right font-semibold text-amber-600">
+                          <div>{formatCurrency(m.luzTotal)}</div>
+                          {m.isEstimatedLuz && (
+                            <span className="inline-block text-[9px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-1 rounded-xs">
+                              ⚠️ Est. Proporcional
+                            </span>
+                          )}
+                        </td>
+
                         <td className="py-3 px-3 text-right font-semibold text-purple-700">{formatCurrency(m.opexTotal)}</td>
                         <td className="py-3 px-4 text-right font-black text-slate-900 bg-slate-50/60">{formatCurrency(m.costoTotalOperativo)}</td>
                         <td className="py-3 px-4 text-right font-black text-emerald-800 bg-emerald-50/60">{formatCurrency(m.costoUnitarioTotal)} / u</td>
@@ -1019,6 +1114,14 @@ export default function CostosFabricacionPage() {
         {/* TAB: OPERARIOS & MANO DE OBRA */}
         {activeTab === "operarios" && (
           <div className="space-y-6">
+            {/* Notice for August salaries */}
+            <div className="bg-amber-50/70 border border-amber-200/90 rounded-2xl p-4 text-xs text-amber-900 flex items-start gap-3 shadow-2xs">
+              <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <strong className="font-bold">Sueldos de Agosto en Curso:</strong> Los haberes de Agosto aún no fueron liquidados definitivamente en la hoja <code>Sueldos</code>. El sistema proyecta proporcionalmente sobre la base de <strong>Julio 2026</strong> (factor 26/31 días) para mantener un costo unitario por tanque preciso.
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {data.operatorsData.map((op) => (
                 <div key={op.key} className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs flex flex-col justify-between">
@@ -1062,6 +1165,14 @@ export default function CostosFabricacionPage() {
         {/* TAB: ELECTRICIDAD EDENOR */}
         {activeTab === "electricidad" && (
           <div className="space-y-6">
+            {/* Notice for Pending August Bill */}
+            <div className="bg-amber-50/70 border border-amber-200/90 rounded-2xl p-4 text-xs text-amber-900 flex items-start gap-3 shadow-2xs">
+              <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <strong className="font-bold">Factura de Agosto Pendiente:</strong> La factura de Edenor correspondiente al consumo de Agosto se emite y abona a mes vencido durante Septiembre. Mientras tanto, el sistema computa un <strong>estimado proporcional de $458.741 ($848/u)</strong> basado en el promedio de los últimos 3 meses ($546.730/mes). Al registrar el pago en la planilla oficial, se actualizará automáticamente.
+              </div>
+            </div>
+
             <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
               <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/50">
                 <h3 className="text-sm font-bold text-slate-900">Historial de Facturas Edenor (Planta Quilmes 4550)</h3>
@@ -1080,10 +1191,24 @@ export default function CostosFabricacionPage() {
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {data.electricityRecords.map((el) => (
-                      <tr key={el.id} className="hover:bg-slate-50/80 transition">
-                        <td className="py-3 px-4 font-semibold text-slate-700">{el.paymentDateFormatted}</td>
+                      <tr key={el.id} className={`hover:bg-slate-50/80 transition ${el.isEstimated ? "bg-amber-50/40" : ""}`}>
+                        <td className="py-3 px-4 font-semibold text-slate-700">
+                          {el.paymentDateFormatted}
+                          {el.isEstimated && (
+                            <span className="ml-2 inline-block text-[9px] font-black px-1.5 py-0.2 bg-amber-200 text-amber-900 rounded-xs">
+                              PENDIENTE
+                            </span>
+                          )}
+                        </td>
                         <td className="py-3 px-4 font-bold text-slate-900">{el.consumedMonthName}</td>
-                        <td className="py-3 px-4 text-slate-600 font-medium">{el.concept}</td>
+                        <td className="py-3 px-4 text-slate-600 font-medium">
+                          {el.concept}
+                          {el.isEstimated && (
+                            <span className="text-[10px] text-amber-700 block font-bold mt-0.5">
+                              ⚠️ Estimación proporcional (promedio Mayo-Julio)
+                            </span>
+                          )}
+                        </td>
                         <td className="py-3 px-4 text-center font-bold text-slate-700">{el.tanksProducedInMonth} u</td>
                         <td className="py-3 px-4 text-right font-bold text-slate-900">{formatCurrency(el.amount)}</td>
                         <td className="py-3 px-4 text-right font-black text-amber-600">{formatCurrency(el.costPerTank)} / u</td>
