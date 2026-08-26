@@ -182,9 +182,9 @@ export default function CostosFabricacionPage() {
     if (monthData) {
       const gasLiters = monthData.gasLitrosPorTanque > 0 ? monthData.gasLitrosPorTanque : (data.summary2026?.avgGasLitersPerTank || 7.57);
       const gasCost = Math.round(gasLiters * latestPrice);
-      const laborCost = monthData.mdoCostoUnitario > 0 ? monthData.mdoCostoUnitario : (data.costBenchmarks.baseLaborCostPerTank || 4800);
+      const laborCost = (monthData as any).mdoDirectaCostoUnitario > 0 ? (monthData as any).mdoDirectaCostoUnitario : (data.costBenchmarks.baseLaborCostPerTank || 4800);
       const electricCost = monthData.luzCostoUnitario > 0 ? monthData.luzCostoUnitario : (data.costBenchmarks.baseElectricityCostPerTank || 815);
-      const opexCost = monthData.opexCostoUnitario > 0 ? monthData.opexCostoUnitario : (data.costBenchmarks.baseOpexCostPerTank || 2494);
+      const opexCost = monthData.opexCostoUnitario > 0 ? monthData.opexCostoUnitario : (data.costBenchmarks.baseOpexCostPerTank || 4811);
       const totalPlant = gasCost + laborCost + electricCost + opexCost;
 
       return {
@@ -656,33 +656,33 @@ export default function CostosFabricacionPage() {
                   {/* 3 Cost Layers Comparison Cards */}
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     {/* Layer 1: Pure Marginal Cost */}
-                    <div className="bg-white p-4 rounded-2xl border-2 border-emerald-500/80 shadow-xs bg-linear-to-b from-emerald-50/30 to-white relative">
-                      <span className="absolute -top-2.5 right-3 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 bg-emerald-600 text-white rounded-full">
-                        Piso Make vs Buy
-                      </span>
-                      <span className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider">
+                    <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
                         1. Costo Puro Evitable
                       </span>
-                      <div className="text-xl font-black text-emerald-950 mt-1">{formatCurrency(simMetrics.costoPuroEvitable)}</div>
+                      <div className="text-xl font-black text-slate-800 mt-1">{formatCurrency(simMetrics.costoPuroEvitable)}</div>
                       <p className="text-[11px] text-slate-600 mt-1">
                         Insumos ({formatCurrency(simMetrics.insumos)}) + Gas ({formatCurrency(simMetrics.gas)}).
                       </p>
-                      <p className="text-[10px] text-emerald-700 font-bold mt-1">
-                        💡 Lo único que dejás de gastar si apagás el horno.
+                      <p className="text-[10px] text-slate-500 font-medium mt-1">
+                        💡 Desembolso evitable si apagás el horno.
                       </p>
                     </div>
 
-                    {/* Layer 2: Direct Plant Cost */}
-                    <div className="bg-white p-4 rounded-2xl border border-blue-200 shadow-xs">
-                      <span className="text-[11px] font-bold text-blue-700 uppercase tracking-wider">
-                        2. Directo con MOD Horno
+                    {/* Layer 2: Direct Plant Cost (HIGHLIGHTED IN GREEN) */}
+                    <div className="bg-white p-4 rounded-2xl border-2 border-emerald-500 shadow-xs bg-linear-to-b from-emerald-50/40 to-white relative">
+                      <span className="absolute -top-2.5 right-3 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 bg-emerald-600 text-white rounded-full">
+                        ⭐ Costo Clave Directo
                       </span>
-                      <div className="text-xl font-black text-blue-950 mt-1">{formatCurrency(simMetrics.costoDirectoPlanta)}</div>
-                      <p className="text-[11px] text-slate-600 mt-1">
-                        Puro ({formatCurrency(simMetrics.costoPuroEvitable)}) + Operario ({formatCurrency(simMetrics.mdoHorno)}).
+                      <span className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider">
+                        2. Costo Directo de Planta
+                      </span>
+                      <div className="text-xl font-black text-emerald-950 mt-1">{formatCurrency(simMetrics.costoDirectoPlanta)}</div>
+                      <p className="text-[11px] text-emerald-900 mt-1">
+                        Insumos + Gas + Operario Horno ({formatCurrency(simMetrics.mdoHorno)}).
                       </p>
-                      <p className="text-[10px] text-blue-600 font-medium mt-1">
-                        Costo variable directo al pie de máquina.
+                      <p className="text-[10px] text-emerald-700 font-bold mt-1">
+                        🎯 Costo variable directo al pie de máquina.
                       </p>
                     </div>
 
@@ -813,14 +813,11 @@ export default function CostosFabricacionPage() {
                     <tr className="bg-slate-50/80 text-slate-600 font-bold border-b border-slate-200">
                       <th className="py-3 px-4">Producto Fabricado</th>
                       <th className="py-3 px-3">Familia</th>
-                      <th className="py-3 px-2 text-center">Score</th>
-                      <th className="py-3 px-3 text-right">Insumos (Col E)</th>
-                      <th className="py-3 px-3 text-right text-amber-700">Gas GLP</th>
-                      <th className="py-3 px-3 text-right font-black text-emerald-800 bg-emerald-50/70 border-x border-emerald-100">
-                        🎯 Costo Puro Evitable
-                      </th>
+                      <th className="py-3 px-3 text-right text-slate-600 bg-slate-50/50">Costo Puro Evitable</th>
                       <th className="py-3 px-3 text-right text-blue-700">MDO Horno</th>
-                      <th className="py-3 px-3 text-right font-bold text-blue-900 bg-blue-50/30">Costo Directo</th>
+                      <th className="py-3 px-3 text-right font-black text-emerald-950 bg-emerald-100/80 border-x-2 border-emerald-400">
+                        ⭐ Costo Directo Planta
+                      </th>
                       <th className="py-3 px-3 text-right text-purple-700 bg-purple-50/30">Estructura Fija</th>
                       <th className="py-3 px-4 text-right font-black text-slate-900 bg-amber-50/60">Costo Integral</th>
                       <th className="py-3 px-3 text-right font-bold text-slate-700">Precio Venta</th>
@@ -849,17 +846,19 @@ export default function CostosFabricacionPage() {
                         </td>
                         
                         {/* Costo Puro Evitable (Insumos + Gas) */}
-                        <td className="py-3 px-3 text-right font-black text-emerald-800 bg-emerald-50/50 border-x border-emerald-100 whitespace-nowrap">
+                        <td className="py-3 px-3 text-right text-slate-700 bg-slate-50/40 whitespace-nowrap">
                           <div>{formatCurrency((p as any).costoDirectoMarginal)}</div>
-                          <span className="text-[9px] font-medium text-emerald-700">Piso Proveedor</span>
+                          <span className="text-[9px] font-medium text-slate-500">Insumos + Gas</span>
                         </td>
 
                         <td className="py-3 px-3 text-right font-semibold text-blue-700">
                           {formatCurrency(p.mdoCost)}
                         </td>
 
-                        <td className="py-3 px-3 text-right font-bold text-blue-900 bg-blue-50/20 whitespace-nowrap">
-                          {formatCurrency((p as any).costoDirectoPlanta)}
+                        {/* Costo Directo Planta (HIGHLIGHTED IN GREEN) */}
+                        <td className="py-3 px-3 text-right font-black text-emerald-950 bg-emerald-50 border-x-2 border-emerald-400 whitespace-nowrap">
+                          <div className="text-sm">{formatCurrency((p as any).costoDirectoPlanta)}</div>
+                          <span className="text-[9px] font-bold text-emerald-800">Directo al Pie</span>
                         </td>
 
                         <td className="py-3 px-3 text-right font-semibold text-purple-700 bg-purple-50/20 whitespace-nowrap">

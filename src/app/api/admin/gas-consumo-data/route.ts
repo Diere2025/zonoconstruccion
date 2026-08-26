@@ -120,6 +120,8 @@ export interface MonthlyCostBreakdown {
   stockZeppelinPct?: number;
   mdoTotal: number;
   mdoCostoUnitario: number;
+  mdoDirectaTotal?: number;
+  mdoDirectaCostoUnitario?: number;
   isEstimatedMdo?: boolean;
   luzTotal: number;
   luzCostoUnitario: number;
@@ -893,11 +895,17 @@ export async function GET() {
         gasCostPerTank = Math.round(gasPerTank * latestPrice);
       }
       
+      let directRotomoldingSalary = 0;
       let monthMdoSalary = 0;
       trackedOps.forEach(op => {
-        monthMdoSalary += salariesByMonthAndOpKey[ym]?.[op.key] || 0;
+        const sal = salariesByMonthAndOpKey[ym]?.[op.key] || 0;
+        monthMdoSalary += sal;
+        if (!op.isMaintenance && !op.isWarehouse) {
+          directRotomoldingSalary += sal;
+        }
       });
       const mdoCostPerTank = data.tanques > 0 && monthMdoSalary > 0 ? Math.round(monthMdoSalary / data.tanques) : 0;
+      const mdoDirectaCostPerTank = data.tanques > 0 && directRotomoldingSalary > 0 ? Math.round(directRotomoldingSalary / data.tanques) : 0;
 
       const luzAmount = electricityByConsumedMonth[ym] || 0;
       const luzCostPerTank = data.tanques > 0 && luzAmount > 0 ? Math.round(luzAmount / data.tanques) : 0;
@@ -905,7 +913,10 @@ export async function GET() {
       const opexData = opexByMonth[ym] || { opexTotal: 0, maq: 0, inst: 0, insumos: 0, capex: 0 };
       const opexCostPerTank = data.tanques > 0 && opexData.opexTotal > 0 ? Math.round(opexData.opexTotal / data.tanques) : 0;
 
-      const totalMonthlyOpCost = gasInversionConsumida + monthMdoSalary + luzAmount + opexData.opexTotal;
+      // Note: opexData.opexTotal already includes Julio Verón. To avoid double counting in total monthly operating cost,
+      // we sum non-maintenance payroll + luz + opexData.opexTotal.
+      const veronSal = salariesByMonthAndOpKey[ym]?.['VERON_JULIO'] || 0;
+      const totalMonthlyOpCost = gasInversionConsumida + (monthMdoSalary - veronSal) + luzAmount + opexData.opexTotal;
       const unitTotalCost = data.tanques > 0 ? Math.round(totalMonthlyOpCost / data.tanques) : 0;
 
       return {
@@ -922,6 +933,8 @@ export async function GET() {
         stockZeppelinPct: isCurrentMonth ? 83.5 : undefined,
         mdoTotal: monthMdoSalary,
         mdoCostoUnitario: mdoCostPerTank,
+        mdoDirectaTotal: directRotomoldingSalary,
+        mdoDirectaCostoUnitario: mdoDirectaCostPerTank,
         isEstimatedMdo: ym === '2026-08',
         luzTotal: luzAmount,
         luzCostoUnitario: luzCostPerTank,
