@@ -266,7 +266,8 @@ export default function CostosFabricacionPage() {
                           e.subCategory.toLowerCase().includes(searchOpex.toLowerCase());
       
       let matchSubCat = true;
-      if (selectedOpexSubCat === "maquinaria") matchSubCat = e.isMaquinaria;
+      if (selectedOpexSubCat === "mo_mantenimiento") matchSubCat = (e as any).isMdoMantenimiento;
+      else if (selectedOpexSubCat === "maquinaria") matchSubCat = e.isMaquinaria;
       else if (selectedOpexSubCat === "instalaciones") matchSubCat = e.isInstalaciones;
       else if (selectedOpexSubCat === "insumos") matchSubCat = e.isInsumoDiario;
       else if (selectedOpexSubCat === "capex") matchSubCat = e.isCapex;
@@ -282,6 +283,7 @@ export default function CostosFabricacionPage() {
   // OPEX stats in selected period
   const opexStats = useMemo(() => {
     let totalOpex = 0;
+    let moMantenimiento = 0;
     let maq = 0;
     let inst = 0;
     let insumos = 0;
@@ -292,7 +294,8 @@ export default function CostosFabricacionPage() {
         capex += e.amount;
       } else {
         totalOpex += e.amount;
-        if (e.isMaquinaria) maq += e.amount;
+        if ((e as any).isMdoMantenimiento) moMantenimiento += e.amount;
+        else if (e.isMaquinaria) maq += e.amount;
         else if (e.isInstalaciones) inst += e.amount;
         else if (e.isInsumoDiario) insumos += e.amount;
       }
@@ -305,11 +308,12 @@ export default function CostosFabricacionPage() {
     }
 
     const costPerTank = tanksInPeriod > 0 && totalOpex > 0 ? Math.round(totalOpex / tanksInPeriod) : 0;
+    const moMantenimientoCostPerTank = tanksInPeriod > 0 && moMantenimiento > 0 ? Math.round(moMantenimiento / tanksInPeriod) : 0;
     const maqCostPerTank = tanksInPeriod > 0 && maq > 0 ? Math.round(maq / tanksInPeriod) : 0;
     const instCostPerTank = tanksInPeriod > 0 && inst > 0 ? Math.round(inst / tanksInPeriod) : 0;
     const insumosCostPerTank = tanksInPeriod > 0 && insumos > 0 ? Math.round(insumos / tanksInPeriod) : 0;
 
-    return { totalOpex, maq, inst, insumos, capex, costPerTank, maqCostPerTank, instCostPerTank, insumosCostPerTank, tanksInPeriod };
+    return { totalOpex, moMantenimiento, maq, inst, insumos, capex, costPerTank, moMantenimientoCostPerTank, maqCostPerTank, instCostPerTank, insumosCostPerTank, tanksInPeriod };
   }, [opexInPeriod, selectedOpexPeriod, data]);
 
   // Top Concept Ranking in Selected Period
@@ -729,45 +733,53 @@ export default function CostosFabricacionPage() {
             </div>
 
             {/* KPI Cards (Dynamic based on selectedOpexPeriod) */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3.5">
               <div className="bg-white rounded-2xl p-4 border border-purple-200/80 shadow-xs bg-linear-to-br from-purple-50/40 to-white">
-                <span className="text-[11px] font-bold text-purple-700 uppercase tracking-wider">
-                  Total OPEX {selectedOpexPeriod === "all" ? "2026" : formatMonthName(selectedOpexPeriod)}
+                <span className="text-[10px] font-bold text-purple-700 uppercase tracking-wider">
+                  Total Mantenimiento & OPEX
                 </span>
-                <div className="text-xl font-black text-purple-900 mt-1">{formatCurrency(opexStats.totalOpex)}</div>
+                <div className="text-lg font-black text-purple-900 mt-1">{formatCurrency(opexStats.totalOpex)}</div>
                 <p className="text-[11px] text-purple-700 font-bold mt-0.5">
                   {formatCurrency(opexStats.costPerTank)} / tanque ({opexStats.tanksInPeriod} u)
                 </p>
               </div>
 
-              <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs">
-                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Mantenimiento Maquinaria</span>
-                <div className="text-xl font-black text-slate-900 mt-1">{formatCurrency(opexStats.maq)}</div>
-                <p className="text-[11px] text-slate-500 font-medium mt-0.5">
-                  {opexStats.totalOpex > 0 ? ((opexStats.maq / opexStats.totalOpex) * 100).toFixed(1) : "0"}% • {formatCurrency(opexStats.maqCostPerTank)} / tanque
+              <div className="bg-white rounded-2xl p-4 border border-blue-200 shadow-xs bg-linear-to-br from-blue-50/30 to-white">
+                <span className="text-[10px] font-bold text-blue-800 uppercase tracking-wider">MO Mantenimiento (Julio Verón)</span>
+                <div className="text-lg font-black text-blue-900 mt-1">{formatCurrency(opexStats.moMantenimiento)}</div>
+                <p className="text-[11px] text-blue-700 font-medium mt-0.5">
+                  {opexStats.totalOpex > 0 ? ((opexStats.moMantenimiento / opexStats.totalOpex) * 100).toFixed(1) : "0"}% • {formatCurrency(opexStats.moMantenimientoCostPerTank)} / u
                 </p>
               </div>
 
               <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs">
-                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Mantenimiento Instalaciones</span>
-                <div className="text-xl font-black text-slate-900 mt-1">{formatCurrency(opexStats.inst)}</div>
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Repuestos Maquinaria</span>
+                <div className="text-lg font-black text-slate-900 mt-1">{formatCurrency(opexStats.maq)}</div>
                 <p className="text-[11px] text-slate-500 font-medium mt-0.5">
-                  {opexStats.totalOpex > 0 ? ((opexStats.inst / opexStats.totalOpex) * 100).toFixed(1) : "0"}% • {formatCurrency(opexStats.instCostPerTank)} / tanque
+                  {opexStats.totalOpex > 0 ? ((opexStats.maq / opexStats.totalOpex) * 100).toFixed(1) : "0"}% • {formatCurrency(opexStats.maqCostPerTank)} / u
                 </p>
               </div>
 
               <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs">
-                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Insumos Diarios Taller</span>
-                <div className="text-xl font-black text-slate-900 mt-1">{formatCurrency(opexStats.insumos)}</div>
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Instalaciones</span>
+                <div className="text-lg font-black text-slate-900 mt-1">{formatCurrency(opexStats.inst)}</div>
                 <p className="text-[11px] text-slate-500 font-medium mt-0.5">
-                  {opexStats.totalOpex > 0 ? ((opexStats.insumos / opexStats.totalOpex) * 100).toFixed(1) : "0"}% • {formatCurrency(opexStats.insumosCostPerTank)} / tanque
+                  {opexStats.totalOpex > 0 ? ((opexStats.inst / opexStats.totalOpex) * 100).toFixed(1) : "0"}% • {formatCurrency(opexStats.instCostPerTank)} / u
                 </p>
               </div>
 
-              <div className="bg-white rounded-2xl p-4 border border-blue-200/80 shadow-xs bg-linear-to-br from-blue-50/40 to-white">
-                <span className="text-[11px] font-bold text-blue-700 uppercase tracking-wider">💎 Inversión Maquinaria (CAPEX)</span>
-                <div className="text-xl font-black text-blue-900 mt-1">{formatCurrency(opexStats.capex)}</div>
-                <p className="text-[11px] text-blue-600 font-medium mt-0.5">Excluido de OPEX (Bienes de uso)</p>
+              <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Insumos Diarios</span>
+                <div className="text-lg font-black text-slate-900 mt-1">{formatCurrency(opexStats.insumos)}</div>
+                <p className="text-[11px] text-slate-500 font-medium mt-0.5">
+                  {opexStats.totalOpex > 0 ? ((opexStats.insumos / opexStats.totalOpex) * 100).toFixed(1) : "0"}% • {formatCurrency(opexStats.insumosCostPerTank)} / u
+                </p>
+              </div>
+
+              <div className="bg-white rounded-2xl p-4 border border-blue-200/80 shadow-xs bg-linear-to-br from-slate-50 to-white">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">💎 Bienes de Uso (CAPEX)</span>
+                <div className="text-lg font-black text-slate-800 mt-1">{formatCurrency(opexStats.capex)}</div>
+                <p className="text-[10px] text-slate-400 font-medium mt-0.5">Amortizable (No OPEX)</p>
               </div>
             </div>
 
@@ -788,9 +800,14 @@ export default function CostosFabricacionPage() {
                   {/* Multi-segment visual progress bar */}
                   <div className="h-4 w-full bg-slate-100 rounded-full overflow-hidden flex shadow-inner">
                     <div 
+                      style={{ width: `${opexStats.totalOpex > 0 ? (opexStats.moMantenimiento / opexStats.totalOpex) * 100 : 0}%` }} 
+                      className="bg-blue-600 hover:bg-blue-700 transition" 
+                      title={`MO Mantenimiento (Julio Verón): ${formatCurrency(opexStats.moMantenimiento)}`}
+                    />
+                    <div 
                       style={{ width: `${opexStats.totalOpex > 0 ? (opexStats.maq / opexStats.totalOpex) * 100 : 0}%` }} 
                       className="bg-amber-500 hover:bg-amber-600 transition" 
-                      title={`Maquinaria: ${formatCurrency(opexStats.maq)}`}
+                      title={`Repuestos Maquinaria: ${formatCurrency(opexStats.maq)}`}
                     />
                     <div 
                       style={{ width: `${opexStats.totalOpex > 0 ? (opexStats.inst / opexStats.totalOpex) * 100 : 0}%` }} 
@@ -807,8 +824,18 @@ export default function CostosFabricacionPage() {
                   <div className="space-y-2.5 text-xs">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
+                        <span className="w-3 h-3 rounded-full bg-blue-600 shrink-0"></span>
+                        <span className="text-slate-600 font-medium">MO Mantenimiento (Julio Verón):</span>
+                      </div>
+                      <span className="font-bold text-slate-900">
+                        {formatCurrency(opexStats.moMantenimiento)} <strong className="text-blue-700">({opexStats.totalOpex > 0 ? ((opexStats.moMantenimiento / opexStats.totalOpex) * 100).toFixed(1) : 0}%)</strong>
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
                         <span className="w-3 h-3 rounded-full bg-amber-500 shrink-0"></span>
-                        <span className="text-slate-600 font-medium">Mantenimiento Maquinaria:</span>
+                        <span className="text-slate-600 font-medium">Repuestos Maquinaria:</span>
                       </div>
                       <span className="font-bold text-slate-900">
                         {formatCurrency(opexStats.maq)} <strong className="text-amber-700">({opexStats.totalOpex > 0 ? ((opexStats.maq / opexStats.totalOpex) * 100).toFixed(1) : 0}%)</strong>
@@ -958,7 +985,8 @@ export default function CostosFabricacionPage() {
                     className="py-2 px-3 text-xs bg-slate-50 border border-slate-200 rounded-xl font-semibold text-slate-700 focus:bg-white focus:border-purple-500"
                   >
                     <option value="all">Todas las Categorías</option>
-                    <option value="maquinaria">Mantenimiento Maquinaria</option>
+                    <option value="mo_mantenimiento">MO Mantenimiento (Julio Verón)</option>
+                    <option value="maquinaria">Repuestos Maquinaria</option>
                     <option value="instalaciones">Mantenimiento Instalaciones</option>
                     <option value="insumos">Insumos Diarios Taller</option>
                     <option value="capex">Compra Maquinaria (CAPEX)</option>
@@ -976,10 +1004,10 @@ export default function CostosFabricacionPage() {
               <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
                 <div>
                   <h3 className="text-sm font-bold text-slate-900">
-                    Histórico de Comprobantes ({selectedOpexPeriod === "all" ? "Todos los Meses" : formatMonthName(selectedOpexPeriod)})
+                    Histórico de Comprobantes & Sueldos ({selectedOpexPeriod === "all" ? "Todos los Meses" : formatMonthName(selectedOpexPeriod)})
                   </h3>
                   <p className="text-xs text-slate-500 font-medium mt-0.5">
-                    Comprobantes registrados en la hoja GASTOS_OPERATIVOS
+                    Comprobantes registrados en GASTOS_OPERATIVOS y Mano de Obra Mantenimiento
                   </p>
                 </div>
                 <span className="text-xs font-semibold text-slate-500">
@@ -999,13 +1027,14 @@ export default function CostosFabricacionPage() {
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {filteredOpexExpenses.map((exp) => (
-                      <tr key={exp.id} className={`hover:bg-slate-50/80 transition ${exp.isCapex ? "bg-blue-50/30" : ""}`}>
+                      <tr key={exp.id} className={`hover:bg-slate-50/80 transition ${exp.isCapex ? "bg-blue-50/30" : (exp as any).isMdoMantenimiento ? "bg-blue-50/20" : ""}`}>
                         <td className="py-3 px-4 font-semibold text-slate-700 whitespace-nowrap">
                           {exp.dateFormatted}
                         </td>
                         <td className="py-3 px-3 whitespace-nowrap">
                           <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold ${
-                            exp.isCapex ? "bg-blue-100 text-blue-800" :
+                            exp.isCapex ? "bg-slate-100 text-slate-800" :
+                            (exp as any).isMdoMantenimiento ? "bg-blue-100 text-blue-900" :
                             exp.isMaquinaria ? "bg-amber-100 text-amber-800" :
                             exp.isInstalaciones ? "bg-purple-100 text-purple-800" : "bg-emerald-100 text-emerald-800"
                           }`}>

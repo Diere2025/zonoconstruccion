@@ -58,6 +58,7 @@ export interface OperationalExpenseRecord {
   isInsumoDiario: boolean;
   isInstalaciones: boolean;
   isMaquinaria: boolean;
+  isMdoMantenimiento?: boolean;
 }
 
 export interface CombinedModelCost {
@@ -806,9 +807,42 @@ export async function GET() {
       });
     }
 
+    // Add Julio Verón (Mano de Obra Mantenimiento) to OPEX
+    let totalVeronSalaries2026 = 0;
+    allSalaryMonths.forEach(ym => {
+      const veronSal = salariesByMonthAndOpKey[ym]?.['VERON_JULIO'] || 0;
+      if (veronSal > 0) {
+        totalVeronSalaries2026 += veronSal;
+        totalOpex2026 += veronSal;
+        if (!opexByMonth[ym]) opexByMonth[ym] = { opexTotal: 0, maq: 0, inst: 0, insumos: 0, capex: 0 };
+        opexByMonth[ym].opexTotal += veronSal;
+
+        operationalExpenses.unshift({
+          id: `mdo-mantenimiento-veron-${ym}`,
+          subCategory: "Mano de Obra Mantenimiento",
+          category: "Mantenimiento",
+          date: `${ym}-01`,
+          dateFormatted: `01/${ym.split('-')[1]}/${ym.split('-')[0]}`,
+          concept: "Julio Verón - Sueldo Mantenimiento Planta",
+          movementType: "Egreso",
+          type: "Transferencia",
+          amount: veronSal,
+          account: "Cuenta.MP1",
+          monthKey: ym,
+          monthName: formatMonthName(ym),
+          description: "Mantenimiento preventivo, correctivo y soporte técnico electromecánico de maquinaria",
+          isCapex: false,
+          isInsumoDiario: false,
+          isInstalaciones: false,
+          isMaquinaria: false,
+          isMdoMantenimiento: true
+        });
+      }
+    });
+
     const baseOpexCostPerTank = totalTanks2026 > 0 
       ? Math.round(totalOpex2026 / totalTanks2026) 
-      : 2494;
+      : 4811;
 
     // 7. Monthly Gas Consumption & Total Operating Cost Correlation
     const monthlyGasMap: Record<string, { gasLitros: number; inversion: number; tanques: number; litrosTransformados: number; }> = {};
@@ -897,6 +931,34 @@ export async function GET() {
       };
     }).sort((a, b) => b.monthKey.localeCompare(a.monthKey));
 
+    // Operational Score Matrix based on real factory cycle times:
+    // 500L: 12 u/8hs (1.00) | 600L: 11 u/8hs (1.09) | 750L: 10 u/8hs (1.20) | 300L: 10 u/8hs (1.20)
+    // Cono: 0.40 | Cónico 700L: 7 u/8hs (1.71) | Bicapas: -10% tiempo de cocción
+    const getOperationalScore = (prodName: string, originalScore: number): number => {
+      const lower = prodName.toLowerCase();
+      const isBic = lower.includes('bic');
+      const isCono = lower.includes('cono') && !lower.includes('conico') && !lower.includes('cónico');
+      const isConico = lower.includes('conico') || lower.includes('cónico');
+
+      if (isCono) return 0.40;
+      if (isConico) return 1.71; // 7 tanques en 8hs (12 / 7 = 1.71)
+
+      if (lower.includes('750')) {
+        return isBic ? 1.08 : 1.20;
+      }
+      if (lower.includes('600')) {
+        return isBic ? 0.98 : 1.09;
+      }
+      if (lower.includes('500')) {
+        return isBic ? 0.90 : 1.00;
+      }
+      if (lower.includes('300')) {
+        return isBic ? 1.08 : 1.20;
+      }
+
+      return originalScore;
+    };
+
     // 8. Parse Sheet 'Tipo' for Official Manufactured Models and Direct Column E (Costo Insumos)
     const baseGasLiters = (tanksByMonth['2026-08']?.totalTanks || 475) > 0 ? (monthlyGasMap['2026-08']?.gasLitros || 3594) / (tanksByMonth['2026-08']?.totalTanks || 475) : 7.57;
     
@@ -911,7 +973,8 @@ export async function GET() {
         if (!prodName) return;
 
         const tipo = c[1]?.trim() || '';
-        const score = parseNum(c[2]) || 1.0;
+        const rawScore = parseNum(c[2]) || 1.0;
+        const score = getOperationalScore(prodName, rawScore);
         const litrosTanque = c[3]?.trim() || '500L';
         const costInsumosColE = parseNum(c[4]); // COLUMNA E: Costo Insumos Real de la Planilla
 
