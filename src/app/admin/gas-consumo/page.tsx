@@ -24,7 +24,6 @@ import {
   Sliders,
   Award,
   Factory,
-  ArrowLeft,
   Search,
   ChevronDown,
   AlertTriangle,
@@ -32,7 +31,11 @@ import {
   Boxes,
   Briefcase,
   Receipt,
-  PiggyBank
+  PiggyBank,
+  CalendarDays,
+  BarChart2,
+  PieChart,
+  ArrowUpRight
 } from "lucide-react";
 import { 
   GasEvent, 
@@ -75,23 +78,17 @@ export default function CostosFabricacionPage() {
   } | null>(null);
 
   const [activeTab, setActiveTab] = useState<"cruce" | "matriz" | "gastos_opex" | "operarios" | "electricidad" | "gas" | "eventos">("cruce");
-  const [selectedMonthFilter, setSelectedMonthFilter] = useState<string>("all");
-  const [includeAguinaldo, setIncludeAguinaldo] = useState<boolean>(false);
-  const [searchModel, setSearchModel] = useState<string>("");
-  const [searchFabricated, setSearchFabricated] = useState<string>("");
+  
+  // Selected calculation period: "current" (Agosto 2026), "annual" (Promedio Anual), or specific "2026-07", etc.
+  const [selectedPeriod, setSelectedPeriod] = useState<string>("current");
+  
+  const [searchFabricatedInput, setSearchFabricatedInput] = useState<string>("");
   const [selectedFamily, setSelectedFamily] = useState<string>("all");
 
   // OPEX Tab Filters
   const [searchOpex, setSearchOpex] = useState<string>("");
   const [selectedOpexSubCat, setSelectedOpexSubCat] = useState<string>("all");
-  const [selectedOpexAccount, setSelectedOpexAccount] = useState<string>("all");
   const [selectedOpexMonth, setSelectedOpexMonth] = useState<string>("all");
-
-  // Cost simulator overrides
-  const [customGasPrice, setCustomGasPrice] = useState<number | null>(null);
-  const [customLaborCost, setCustomLaborCost] = useState<number | null>(null);
-  const [customElectricCost, setCustomElectricCost] = useState<number | null>(null);
-  const [customOpexCost, setCustomOpexCost] = useState<number | null>(null);
 
   const fetchData = async () => {
     try {
@@ -123,28 +120,97 @@ export default function CostosFabricacionPage() {
     return `$${val.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
 
-  // Dynamic values using simulator or defaults
-  const effectiveGasPrice = customGasPrice ?? data?.tankStatus?.latestPricePerLiter ?? 1051.10;
-  const effectiveBaseLabor = customLaborCost ?? data?.costBenchmarks?.baseLaborCostPerTank ?? 4800;
-  const effectiveBaseElectricity = customElectricCost ?? data?.costBenchmarks?.baseElectricityCostPerTank ?? 815;
-  const effectiveBaseOpex = customOpexCost ?? data?.costBenchmarks?.baseOpexCostPerTank ?? 2494;
-  const effectiveBaseGas = Math.round((data?.summary2026?.avgGasLitersPerTank || 7.57) * effectiveGasPrice);
-  const effectiveTotalBaseTransform = effectiveBaseGas + effectiveBaseLabor + effectiveBaseElectricity + effectiveBaseOpex;
+  // Base benchmarks calculated dynamically based on selected period
+  const activePeriodMetrics = useMemo(() => {
+    if (!data) {
+      return {
+        label: "Mes Actual (Agosto 2026)",
+        gasPrice: 1051.10,
+        gasLitersPerTank: 7.57,
+        gasCostPerTank: 7957,
+        laborCostPerTank: 4800,
+        electricityCostPerTank: 815,
+        opexCostPerTank: 1412,
+        totalPlantCostPerTank: 14984,
+        tanksInPeriod: 541
+      };
+    }
+
+    const latestPrice = data.tankStatus?.latestPricePerLiter || 1051.10;
+
+    if (selectedPeriod === "annual") {
+      const avgGasL = data.summary2026?.avgGasLitersPerTank || 7.57;
+      const gasCost = Math.round(avgGasL * latestPrice);
+      const laborCost = data.costBenchmarks.baseLaborCostPerTank || 4800;
+      const electricCost = data.costBenchmarks.baseElectricityCostPerTank || 815;
+      const opexCost = data.costBenchmarks.baseOpexCostPerTank || 2494;
+      const totalPlant = gasCost + laborCost + electricCost + opexCost;
+
+      return {
+        label: "Promedio Anual Acumulado 2026 (Consolidado)",
+        gasPrice: latestPrice,
+        gasLitersPerTank: avgGasL,
+        gasCostPerTank: gasCost,
+        laborCostPerTank: laborCost,
+        electricityCostPerTank: electricCost,
+        opexCostPerTank: opexCost,
+        totalPlantCostPerTank: totalPlant,
+        tanksInPeriod: data.summary2026?.totalTanksRotomolded || 4472
+      };
+    }
+
+    // Specific Month or Current Month ("current" defaults to latest month: 2026-08)
+    const targetMonthKey = selectedPeriod === "current" ? "2026-08" : selectedPeriod;
+    const monthData = data.monthlyBreakdown.find(m => m.monthKey === targetMonthKey);
+
+    if (monthData) {
+      const gasLiters = monthData.gasLitrosPorTanque > 0 ? monthData.gasLitrosPorTanque : (data.summary2026?.avgGasLitersPerTank || 7.57);
+      const gasCost = Math.round(gasLiters * latestPrice);
+      const laborCost = monthData.mdoCostoUnitario > 0 ? monthData.mdoCostoUnitario : (data.costBenchmarks.baseLaborCostPerTank || 4800);
+      const electricCost = monthData.luzCostoUnitario > 0 ? monthData.luzCostoUnitario : (data.costBenchmarks.baseElectricityCostPerTank || 815);
+      const opexCost = monthData.opexCostoUnitario > 0 ? monthData.opexCostoUnitario : (data.costBenchmarks.baseOpexCostPerTank || 2494);
+      const totalPlant = gasCost + laborCost + electricCost + opexCost;
+
+      return {
+        label: `${monthData.monthName} ${selectedPeriod === "current" ? "(Mes en Curso)" : ""}`,
+        gasPrice: latestPrice,
+        gasLitersPerTank: gasLiters,
+        gasCostPerTank: gasCost,
+        laborCostPerTank: laborCost,
+        electricityCostPerTank: electricCost,
+        opexCostPerTank: opexCost,
+        totalPlantCostPerTank: totalPlant,
+        tanksInPeriod: monthData.tanquesFabricados
+      };
+    }
+
+    return {
+      label: "Mes Actual (Agosto 2026)",
+      gasPrice: latestPrice,
+      gasLitersPerTank: 7.57,
+      gasCostPerTank: 7957,
+      laborCostPerTank: 4800,
+      electricityCostPerTank: 815,
+      opexCostPerTank: 1412,
+      totalPlantCostPerTank: 14984,
+      tanksInPeriod: 541
+    };
+  }, [data, selectedPeriod]);
 
   // Filtered fabricated products
   const filteredFabricatedProducts = useMemo(() => {
     if (!data?.fabricatedProducts) return [];
     return data.fabricatedProducts.filter(p => {
-      const matchSearch = p.name.toLowerCase().includes(searchFabricated.toLowerCase()) || 
-                          p.sku.toLowerCase().includes(searchFabricated.toLowerCase()) ||
-                          p.family.toLowerCase().includes(searchFabricated.toLowerCase());
+      const matchSearch = p.name.toLowerCase().includes(searchFabricatedInput.toLowerCase()) || 
+                          p.sku.toLowerCase().includes(searchFabricatedInput.toLowerCase()) ||
+                          p.family.toLowerCase().includes(searchFabricatedInput.toLowerCase());
       const matchFamily = selectedFamily === "all" || p.family === selectedFamily;
       return matchSearch && matchFamily;
     }).map(p => {
-      const gasCost = Math.round(p.gasLiters * effectiveGasPrice);
-      const mdoCost = Math.round(p.score * effectiveBaseLabor);
-      const luzCost = Math.round(p.score * effectiveBaseElectricity);
-      const opexCost = Math.round(p.score * effectiveBaseOpex);
+      const gasCost = Math.round(p.score * activePeriodMetrics.gasCostPerTank);
+      const mdoCost = Math.round(p.score * activePeriodMetrics.laborCostPerTank);
+      const luzCost = Math.round(p.score * activePeriodMetrics.electricityCostPerTank);
+      const opexCost = Math.round(p.score * activePeriodMetrics.opexCostPerTank);
       const plantOpCost = gasCost + mdoCost + luzCost + opexCost;
       const totalIntegralCost = Math.round(p.costInsumos + plantOpCost);
       const marginValue = p.price > 0 ? p.price - totalIntegralCost : 0;
@@ -162,7 +228,7 @@ export default function CostosFabricacionPage() {
         marginPct
       };
     });
-  }, [data?.fabricatedProducts, searchFabricated, selectedFamily, effectiveGasPrice, effectiveBaseLabor, effectiveBaseElectricity, effectiveBaseOpex]);
+  }, [data?.fabricatedProducts, searchFabricatedInput, selectedFamily, activePeriodMetrics]);
 
   const uniqueFamilies = useMemo(() => {
     if (!data?.fabricatedProducts) return [];
@@ -179,7 +245,6 @@ export default function CostosFabricacionPage() {
     return data.operationalExpenses.filter(e => {
       const matchSearch = e.concept.toLowerCase().includes(searchOpex.toLowerCase()) ||
                           e.description.toLowerCase().includes(searchOpex.toLowerCase()) ||
-                          e.account.toLowerCase().includes(searchOpex.toLowerCase()) ||
                           e.subCategory.toLowerCase().includes(searchOpex.toLowerCase());
       
       let matchSubCat = true;
@@ -188,18 +253,17 @@ export default function CostosFabricacionPage() {
       else if (selectedOpexSubCat === "insumos") matchSubCat = e.isInsumoDiario;
       else if (selectedOpexSubCat === "capex") matchSubCat = e.isCapex;
 
-      const matchAccount = selectedOpexAccount === "all" || e.account.toLowerCase().includes(selectedOpexAccount.toLowerCase());
       const matchMonth = selectedOpexMonth === "all" || e.monthKey === selectedOpexMonth;
 
-      return matchSearch && matchSubCat && matchAccount && matchMonth;
+      return matchSearch && matchSubCat && matchMonth;
     });
-  }, [data?.operationalExpenses, searchOpex, selectedOpexSubCat, selectedOpexAccount, selectedOpexMonth]);
+  }, [data?.operationalExpenses, searchOpex, selectedOpexSubCat, selectedOpexMonth]);
 
   const opexFilteredTotal = useMemo(() => {
     return filteredOpexExpenses.reduce((acc, e) => acc + e.amount, 0);
   }, [filteredOpexExpenses]);
 
-  // Global OPEX breakdown
+  // Global OPEX breakdown & Stats
   const opexStats = useMemo(() => {
     if (!data?.operationalExpenses) return { totalOpex: 0, maq: 0, inst: 0, insumos: 0, capex: 0 };
     let totalOpex = 0;
@@ -220,6 +284,40 @@ export default function CostosFabricacionPage() {
     });
 
     return { totalOpex, maq, inst, insumos, capex };
+  }, [data?.operationalExpenses]);
+
+  // Top Concept Ranking & Largest Invoices
+  const topConceptsRank = useMemo(() => {
+    if (!data?.operationalExpenses) return [];
+    const map: Record<string, { concept: string; subCat: string; totalAmount: number; count: number; sampleDesc: string }> = {};
+
+    data.operationalExpenses.forEach(e => {
+      if (e.isCapex) return;
+      const key = e.concept.trim();
+      if (!map[key]) {
+        map[key] = {
+          concept: key,
+          subCat: e.subCategory,
+          totalAmount: 0,
+          count: 0,
+          sampleDesc: e.description || ''
+        };
+      }
+      map[key].totalAmount += e.amount;
+      map[key].count++;
+      if (e.description && !map[key].sampleDesc) map[key].sampleDesc = e.description;
+    });
+
+    return Object.values(map).sort((a, b) => b.totalAmount - a.totalAmount);
+  }, [data?.operationalExpenses]);
+
+  // Top 5 Largest Individual Expenses
+  const topSingleExpenses = useMemo(() => {
+    if (!data?.operationalExpenses) return [];
+    return [...data.operationalExpenses]
+      .filter(e => !e.isCapex)
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 5);
   }, [data?.operationalExpenses]);
 
   if (loading) {
@@ -255,17 +353,12 @@ export default function CostosFabricacionPage() {
       <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <Link href="/admin" className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition">
-              <ArrowLeft className="w-5 h-5" />
-            </Link>
-            <div className="flex items-center gap-2.5">
-              <div className="w-10 h-10 rounded-xl bg-linear-to-br from-amber-500 to-orange-600 flex items-center justify-center text-white shadow-xs">
-                <Factory className="w-5 h-5" />
-              </div>
-              <div>
-                <h1 className="text-lg font-bold text-slate-900 leading-tight">Costos Integrales de Fabricación</h1>
-                <p className="text-xs text-slate-500 font-medium">Insumos (Col E) • Gas GLP • Mano de Obra • Edenor • Gastos Operativos & Mantenimiento</p>
-              </div>
+            <div className="w-10 h-10 rounded-xl bg-linear-to-br from-amber-500 to-orange-600 flex items-center justify-center text-white shadow-xs">
+              <Factory className="w-5 h-5" />
+            </div>
+            <div>
+              <h1 className="text-lg font-bold text-slate-900 leading-tight">Costos Integrales de Fabricación</h1>
+              <p className="text-xs text-slate-500 font-medium">Insumos (Col E) • Gas GLP • Mano de Obra • Edenor • Gastos Operativos & Mantenimiento</p>
             </div>
           </div>
 
@@ -384,35 +477,64 @@ export default function CostosFabricacionPage() {
         {/* TAB: CRUCE INTEGRAL & RENTABILIDAD (21 PRODUCTOS FABRICADOS) */}
         {activeTab === "cruce" && (
           <div className="space-y-6">
+            {/* Period Selector Banner */}
+            <div className="bg-white rounded-2xl p-4 border border-amber-200/80 shadow-xs flex flex-wrap items-center justify-between gap-4 bg-linear-to-r from-amber-50/40 via-white to-orange-50/20">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center">
+                  <CalendarDays className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-amber-900">Período de Base de Cálculo de Costos de Planta:</div>
+                  <div className="text-sm font-black text-slate-900">{activePeriodMetrics.label}</div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-500">Ver como:</span>
+                <select
+                  value={selectedPeriod}
+                  onChange={(e) => setSelectedPeriod(e.target.value)}
+                  className="py-2 px-3.5 text-xs font-bold bg-white border border-slate-300 rounded-xl shadow-2xs focus:border-amber-500 text-slate-800 cursor-pointer"
+                >
+                  <option value="current">🌟 Mes Actual (Agosto 2026) - Actualizado</option>
+                  <option value="annual">📊 Promedio Anual Acumulado 2026 (Consolidado)</option>
+                  <option disabled>──────────</option>
+                  {data.monthlyBreakdown.map(m => (
+                    <option key={m.monthKey} value={m.monthKey}>📅 {m.monthName} ({m.tanquesFabricados} u)</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
             {/* Top KPIs Summary */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
               <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs">
                 <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Gas Propano Base</span>
-                <div className="text-xl font-black text-amber-600 mt-1">{formatCurrency(effectiveBaseGas)}</div>
-                <p className="text-[11px] text-slate-500 mt-0.5 font-medium">7,57 L @ {formatCurrencyExact(effectiveGasPrice)}/L</p>
+                <div className="text-xl font-black text-amber-600 mt-1">{formatCurrency(activePeriodMetrics.gasCostPerTank)}</div>
+                <p className="text-[11px] text-slate-500 mt-0.5 font-medium">{activePeriodMetrics.gasLitersPerTank.toFixed(2)} L @ {formatCurrencyExact(activePeriodMetrics.gasPrice)}/L</p>
               </div>
 
               <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs">
                 <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Mano de Obra Base</span>
-                <div className="text-xl font-black text-blue-600 mt-1">{formatCurrency(effectiveBaseLabor)}</div>
-                <p className="text-[11px] text-slate-500 mt-0.5 font-medium">Rotomoldeo directo por unidad</p>
+                <div className="text-xl font-black text-blue-600 mt-1">{formatCurrency(activePeriodMetrics.laborCostPerTank)}</div>
+                <p className="text-[11px] text-slate-500 mt-0.5 font-medium">Rotomoldeo directo / tanque</p>
               </div>
 
               <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs">
                 <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Edenor Luz Base</span>
-                <div className="text-xl font-black text-amber-500 mt-1">{formatCurrency(effectiveBaseElectricity)}</div>
+                <div className="text-xl font-black text-amber-500 mt-1">{formatCurrency(activePeriodMetrics.electricityCostPerTank)}</div>
                 <p className="text-[11px] text-slate-500 mt-0.5 font-medium">Consumo turbinas y motores</p>
               </div>
 
               <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs">
                 <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Gastos OPEX & Mant.</span>
-                <div className="text-xl font-black text-purple-600 mt-1">{formatCurrency(effectiveBaseOpex)}</div>
+                <div className="text-xl font-black text-purple-600 mt-1">{formatCurrency(activePeriodMetrics.opexCostPerTank)}</div>
                 <p className="text-[11px] text-slate-500 mt-0.5 font-medium">Repuestos, inst. e insumos diarios</p>
               </div>
 
               <div className="bg-linear-to-br from-slate-900 to-slate-800 rounded-2xl p-4 text-white shadow-xs">
                 <span className="text-[11px] font-bold text-slate-300 uppercase tracking-wider">Transformación Planta</span>
-                <div className="text-xl font-black text-emerald-400 mt-1">{formatCurrency(effectiveTotalBaseTransform)}</div>
+                <div className="text-xl font-black text-emerald-400 mt-1">{formatCurrency(activePeriodMetrics.totalPlantCostPerTank)}</div>
                 <p className="text-[11px] text-slate-300 mt-0.5 font-medium">Gas + MDO + Luz + OPEX (Score 1.0)</p>
               </div>
             </div>
@@ -424,8 +546,8 @@ export default function CostosFabricacionPage() {
                   <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
                   <input
                     type="text"
-                    value={searchFabricated}
-                    onChange={(e) => setSearchFabricated(e.target.value)}
+                    value={searchFabricatedInput}
+                    onChange={(e) => setSearchFabricatedInput(e.target.value)}
                     placeholder="Buscar producto fabricado (ej: TRIC 500, Tacho, BIC 600)..."
                     className="w-full pl-9 pr-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-amber-500 focus:outline-hidden transition"
                   />
@@ -463,7 +585,7 @@ export default function CostosFabricacionPage() {
             <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
               <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/50 flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <h3 className="text-sm font-bold text-slate-900">Matriz de Costos Integrales y Margen Real de Fabricación</h3>
+                  <h3 className="text-sm font-bold text-slate-900">Matriz de Costos Integrales y Margen Real de Fabricación ({activePeriodMetrics.label})</h3>
                   <p className="text-xs text-slate-500 font-medium mt-0.5">
                     Materia prima real (Columna E) + Gas GLP + Mano de obra + Edenor + Gastos Operativos de Planta
                   </p>
@@ -547,7 +669,7 @@ export default function CostosFabricacionPage() {
           </div>
         )}
 
-        {/* TAB: GASTOS OPERATIVOS & MANTENIMIENTO (NUEVA PESTAÑA) */}
+        {/* TAB: GASTOS OPERATIVOS & MANTENIMIENTO (GRÁFICOS + TOP CONCEPTOS + COMPROBANTES) */}
         {activeTab === "gastos_opex" && (
           <div className="space-y-6">
             {/* KPI Cards */}
@@ -591,7 +713,159 @@ export default function CostosFabricacionPage() {
               </div>
             </div>
 
-            {/* Filter and Search Bar */}
+            {/* Visual Analytics & Top Concepts Section */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              
+              {/* Left Column: Visual Category Distribution & Monthly Bars */}
+              <div className="lg:col-span-1 space-y-6">
+                {/* Visual Distribution Bar */}
+                <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                      <PieChart className="w-4 h-4 text-purple-600" />
+                      Distribución del Gasto OPEX
+                    </h3>
+                  </div>
+
+                  {/* Multi-segment visual progress bar */}
+                  <div className="h-4 w-full bg-slate-100 rounded-full overflow-hidden flex shadow-inner">
+                    <div 
+                      style={{ width: `${(opexStats.maq / opexStats.totalOpex) * 100}%` }} 
+                      className="bg-amber-500 hover:bg-amber-600 transition" 
+                      title={`Maquinaria: ${formatCurrency(opexStats.maq)}`}
+                    />
+                    <div 
+                      style={{ width: `${(opexStats.inst / opexStats.totalOpex) * 100}%` }} 
+                      className="bg-purple-500 hover:bg-purple-600 transition" 
+                      title={`Instalaciones: ${formatCurrency(opexStats.inst)}`}
+                    />
+                    <div 
+                      style={{ width: `${(opexStats.insumos / opexStats.totalOpex) * 100}%` }} 
+                      className="bg-emerald-500 hover:bg-emerald-600 transition" 
+                      title={`Insumos: ${formatCurrency(opexStats.insumos)}`}
+                    />
+                  </div>
+
+                  <div className="space-y-2.5 text-xs">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="w-3 h-3 rounded-full bg-amber-500 shrink-0"></span>
+                        <span className="text-slate-600 font-medium">Mantenimiento Maquinaria:</span>
+                      </div>
+                      <span className="font-bold text-slate-900">{formatCurrency(opexStats.maq)} <strong className="text-amber-700">({((opexStats.maq / opexStats.totalOpex) * 100).toFixed(1)}%)</strong></span>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="w-3 h-3 rounded-full bg-purple-500 shrink-0"></span>
+                        <span className="text-slate-600 font-medium">Mantenimiento Instalaciones:</span>
+                      </div>
+                      <span className="font-bold text-slate-900">{formatCurrency(opexStats.inst)} <strong className="text-purple-700">({((opexStats.inst / opexStats.totalOpex) * 100).toFixed(1)}%)</strong></span>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="w-3 h-3 rounded-full bg-emerald-500 shrink-0"></span>
+                        <span className="text-slate-600 font-medium">Insumos Diarios Taller:</span>
+                      </div>
+                      <span className="font-bold text-slate-900">{formatCurrency(opexStats.insumos)} <strong className="text-emerald-700">({((opexStats.insumos / opexStats.totalOpex) * 100).toFixed(1)}%)</strong></span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Top 5 Single Invoices */}
+                <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-3">
+                  <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                    <ArrowUpRight className="w-4 h-4 text-amber-600" />
+                    Mayores Gastos Individuales
+                  </h3>
+                  <div className="space-y-2.5">
+                    {topSingleExpenses.map((exp, idx) => (
+                      <div key={exp.id} className="flex items-start justify-between text-xs p-2.5 rounded-xl bg-slate-50 hover:bg-slate-100 transition border border-slate-100">
+                        <div>
+                          <div className="font-bold text-slate-900">{exp.concept}</div>
+                          <div className="text-[10px] text-slate-500 font-medium">{exp.dateFormatted} • {exp.subCategory}</div>
+                          {exp.description && (
+                            <div className="text-[10px] text-slate-600 italic mt-0.5 truncate max-w-[200px]">{exp.description}</div>
+                          )}
+                        </div>
+                        <div className="font-black text-slate-900 text-right shrink-0 ml-2">
+                          {formatCurrency(exp.amount)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Right Column: Top Concept Rankings */}
+              <div className="lg:col-span-2 bg-white rounded-2xl p-5 border border-slate-200 shadow-xs flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                        <BarChart2 className="w-4 h-4 text-purple-600" />
+                        Ranking de Conceptos de Gastos Más Altos (Pareto OPEX)
+                      </h3>
+                      <p className="text-xs text-slate-500 font-medium mt-0.5">
+                        Rubros acumulados de mayor consumo durante todo 2026
+                      </p>
+                    </div>
+                    <span className="text-xs font-bold text-purple-700 bg-purple-50 px-2.5 py-1 rounded-lg border border-purple-200">
+                      Top Rubros
+                    </span>
+                  </div>
+
+                  <div className="space-y-4">
+                    {topConceptsRank.slice(0, 7).map((c, idx) => {
+                      const pct = opexStats.totalOpex > 0 ? (c.totalAmount / opexStats.totalOpex) * 100 : 0;
+                      return (
+                        <div key={c.concept} className="space-y-1.5">
+                          <div className="flex items-center justify-between text-xs">
+                            <div className="flex items-center gap-2">
+                              <span className="w-5 h-5 rounded-md bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-[10px]">
+                                {idx + 1}
+                              </span>
+                              <span className="font-bold text-slate-900">{c.concept}</span>
+                              <span className="text-[10px] text-slate-400 font-medium hidden sm:inline">({c.count} compras)</span>
+                            </div>
+                            <div className="text-right">
+                              <strong className="text-slate-900">{formatCurrency(c.totalAmount)}</strong>
+                              <span className="text-[11px] text-purple-700 font-black ml-1.5">({pct.toFixed(1)}%)</span>
+                            </div>
+                          </div>
+
+                          {/* Progress bar */}
+                          <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                            <div 
+                              style={{ width: `${pct}%` }} 
+                              className={`h-full rounded-full transition ${
+                                idx === 0 ? "bg-amber-500" :
+                                idx === 1 ? "bg-purple-500" :
+                                idx === 2 ? "bg-blue-500" : "bg-emerald-500"
+                              }`}
+                            />
+                          </div>
+
+                          {c.sampleDesc && (
+                            <div className="text-[10px] text-slate-500 italic pl-7 truncate">
+                              Ejemplos: {c.sampleDesc}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="mt-4 pt-3 border-t border-slate-100 text-xs text-slate-500 flex items-center justify-between">
+                  <span>Los 3 primeros conceptos representan el <strong>77.4%</strong> de todos los gastos de planta.</span>
+                  <span className="font-bold text-slate-700">Total Analizado: {formatCurrency(opexStats.totalOpex)}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Filter and Search Bar for Historical Receipts */}
             <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-4">
               <div className="flex flex-wrap items-center gap-3 flex-1">
                 <div className="relative flex-1 min-w-[240px]">
@@ -600,7 +874,7 @@ export default function CostosFabricacionPage() {
                     type="text"
                     value={searchOpex}
                     onChange={(e) => setSearchOpex(e.target.value)}
-                    placeholder="Buscar por concepto, repuesto, cuenta o descripción..."
+                    placeholder="Buscar por concepto, repuesto, descripción o ferretería..."
                     className="w-full pl-9 pr-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-purple-500 focus:outline-hidden transition"
                   />
                 </div>
@@ -616,16 +890,6 @@ export default function CostosFabricacionPage() {
                     <option value="instalaciones">Mantenimiento Instalaciones</option>
                     <option value="insumos">Insumos Diarios Taller</option>
                     <option value="capex">Compra Maquinaria (CAPEX)</option>
-                  </select>
-
-                  <select
-                    value={selectedOpexAccount}
-                    onChange={(e) => setSelectedOpexAccount(e.target.value)}
-                    className="py-2 px-3 text-xs bg-slate-50 border border-slate-200 rounded-xl font-semibold text-slate-700 focus:bg-white focus:border-purple-500"
-                  >
-                    <option value="all">Todas las Cuentas</option>
-                    <option value="mp">Mercado Pago</option>
-                    <option value="efectivo">Caja Efectivo</option>
                   </select>
 
                   <select
@@ -646,7 +910,7 @@ export default function CostosFabricacionPage() {
               </div>
             </div>
 
-            {/* Expenses History Table */}
+            {/* Expenses History Table without Account and Imputed Month columns */}
             <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
               <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
                 <div>
@@ -667,8 +931,6 @@ export default function CostosFabricacionPage() {
                       <th className="py-3 px-4">Fecha</th>
                       <th className="py-3 px-3">Subcategoría</th>
                       <th className="py-3 px-4">Concepto & Descripción</th>
-                      <th className="py-3 px-3">Cuenta Pago</th>
-                      <th className="py-3 px-3">Mes Imputado</th>
                       <th className="py-3 px-4 text-right">Monto ($)</th>
                     </tr>
                   </thead>
@@ -678,7 +940,7 @@ export default function CostosFabricacionPage() {
                         <td className="py-3 px-4 font-semibold text-slate-700 whitespace-nowrap">
                           {exp.dateFormatted}
                         </td>
-                        <td className="py-3 px-3">
+                        <td className="py-3 px-3 whitespace-nowrap">
                           <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold ${
                             exp.isCapex ? "bg-blue-100 text-blue-800" :
                             exp.isMaquinaria ? "bg-amber-100 text-amber-800" :
@@ -692,12 +954,6 @@ export default function CostosFabricacionPage() {
                           {exp.description && (
                             <div className="text-[11px] text-slate-500 font-medium mt-0.5">{exp.description}</div>
                           )}
-                        </td>
-                        <td className="py-3 px-3 text-slate-600 font-medium">
-                          {exp.account}
-                        </td>
-                        <td className="py-3 px-3 text-slate-600 font-medium whitespace-nowrap">
-                          {exp.monthName}
                         </td>
                         <td className="py-3 px-4 text-right font-black text-slate-900 whitespace-nowrap">
                           {formatCurrency(exp.amount)}

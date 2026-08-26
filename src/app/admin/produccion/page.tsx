@@ -905,8 +905,8 @@ export default function ProduccionPage() {
             href="/admin/gas-consumo"
             className="px-3.5 py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200/80 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 shadow-2xs cursor-pointer"
           >
-            <Flame className="w-3.5 h-3.5 text-amber-600" />
-            Consumo Gas GLP
+            <Factory className="w-3.5 h-3.5 text-amber-600" />
+            Costos de Fabricación
           </Link>
 
           <Button
