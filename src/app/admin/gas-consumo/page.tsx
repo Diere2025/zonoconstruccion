@@ -36,7 +36,8 @@ import {
   BarChart2,
   PieChart,
   ArrowUpRight,
-  Filter
+  Filter,
+  Scale
 } from "lucide-react";
 import { 
   GasEvent, 
@@ -90,6 +91,11 @@ export default function CostosFabricacionPage() {
   const [selectedOpexPeriod, setSelectedOpexPeriod] = useState<string>("all");
   const [searchOpex, setSearchOpex] = useState<string>("");
   const [selectedOpexSubCat, setSelectedOpexSubCat] = useState<string>("all");
+
+  // Make vs Buy Simulator State
+  const [simulatorModelSku, setSimulatorModelSku] = useState<string>("AquaFort - TRIC 500L Gris");
+  const [simulatorOfferPrice, setSimulatorOfferPrice] = useState<number>(65000);
+  const [showSimulator, setShowSimulator] = useState<boolean>(true);
 
   const fetchData = async () => {
     try {
@@ -222,6 +228,9 @@ export default function CostosFabricacionPage() {
       const luzCost = Math.round(p.score * activePeriodMetrics.electricityCostPerTank);
       const opexCost = Math.round(p.score * activePeriodMetrics.opexCostPerTank);
       const plantOpCost = gasCost + mdoCost + luzCost + opexCost;
+      const costoDirectoMarginal = Math.round(p.costInsumos + gasCost);
+      const costoDirectoPlanta = Math.round(costoDirectoMarginal + mdoCost);
+      const costoEstructuraFija = Math.round(luzCost + opexCost);
       const totalIntegralCost = Math.round(p.costInsumos + plantOpCost);
       const marginValue = p.price > 0 ? p.price - totalIntegralCost : 0;
       const marginPct = p.price > 0 ? parseFloat(((marginValue / p.price) * 100).toFixed(1)) : 0;
@@ -232,6 +241,9 @@ export default function CostosFabricacionPage() {
         mdoCost,
         luzCost,
         opexCost,
+        costoDirectoMarginal,
+        costoDirectoPlanta,
+        costoEstructuraFija,
         plantOpCost,
         totalIntegralCost,
         marginValue,
@@ -248,6 +260,47 @@ export default function CostosFabricacionPage() {
     });
     return Array.from(setF);
   }, [data?.fabricatedProducts]);
+
+  const selectedSimProduct = useMemo(() => {
+    if (!data?.fabricatedProducts) return null;
+    return data.fabricatedProducts.find(p => p.name === simulatorModelSku) || data.fabricatedProducts[0];
+  }, [data?.fabricatedProducts, simulatorModelSku]);
+
+  const simMetrics = useMemo(() => {
+    if (!selectedSimProduct) return null;
+    const score = selectedSimProduct.score || 1.0;
+    const insumos = selectedSimProduct.costInsumos || 0;
+    const gas = Math.round(score * activePeriodMetrics.gasCostPerTank);
+    const mdoHorno = Math.round(score * activePeriodMetrics.laborCostPerTank);
+    const luz = Math.round(score * activePeriodMetrics.electricityCostPerTank);
+    const opex = Math.round(score * activePeriodMetrics.opexCostPerTank);
+
+    const costoPuroEvitable = insumos + gas;
+    const costoDirectoPlanta = costoPuroEvitable + mdoHorno;
+    const costoEstructuraFija = luz + opex;
+    const costoIntegralTotal = costoDirectoPlanta + costoEstructuraFija;
+
+    const difVsPuro = simulatorOfferPrice - costoPuroEvitable;
+    const convieneComprar = simulatorOfferPrice < costoPuroEvitable;
+    const sobrecostoReal = simulatorOfferPrice + costoEstructuraFija - costoIntegralTotal;
+
+    return {
+      name: selectedSimProduct.name,
+      score,
+      insumos,
+      gas,
+      mdoHorno,
+      luz,
+      opex,
+      costoPuroEvitable,
+      costoDirectoPlanta,
+      costoEstructuraFija,
+      costoIntegralTotal,
+      difVsPuro,
+      convieneComprar,
+      sobrecostoReal
+    };
+  }, [selectedSimProduct, activePeriodMetrics, simulatorOfferPrice]);
 
   // OPEX Data in Selected Period (Monthly vs Annual)
   const opexInPeriod = useMemo(() => {
@@ -534,37 +587,168 @@ export default function CostosFabricacionPage() {
               </div>
             </div>
 
-            {/* Top KPIs Summary */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-              <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs">
-                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Gas Propano Base</span>
-                <div className="text-xl font-black text-amber-600 mt-1">{formatCurrency(activePeriodMetrics.gasCostPerTank)}</div>
-                <p className="text-[11px] text-slate-500 mt-0.5 font-medium">{activePeriodMetrics.gasLitersPerTank.toFixed(2)} L @ {formatCurrencyExact(activePeriodMetrics.gasPrice)}/L</p>
+            {/* MAKE VS BUY DECISION SIMULATOR (FABRICAR VS COMPRAR A TERCEROS) */}
+            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
+              <div className="px-5 py-4 bg-linear-to-r from-slate-900 via-slate-800 to-slate-900 text-white flex flex-wrap items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-400/30 flex items-center justify-center">
+                    <Scale className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      Simulador & Análisis Make vs. Buy: ¿Fabricar Internamente o Comprar a un Proveedor?
+                      <span className="text-[10px] font-black px-2 py-0.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-full">
+                        Decisión Estratégica
+                      </span>
+                    </h3>
+                    <p className="text-xs text-slate-300 font-normal mt-0.5">
+                      Evalúa ofertas de proveedores terceros separando los <strong>costos variables puros</strong> de la <strong>estructura fija no evitable de planta</strong>.
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setShowSimulator(!showSimulator)}
+                  className="text-xs font-bold text-amber-400 hover:text-amber-300 transition py-1 px-3 bg-white/10 hover:bg-white/15 rounded-lg"
+                >
+                  {showSimulator ? "Ocultar Simulador ▲" : "Abrir Simulador ▼"}
+                </button>
               </div>
 
-              <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs">
-                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Mano de Obra Base</span>
-                <div className="text-xl font-black text-blue-600 mt-1">{formatCurrency(activePeriodMetrics.laborCostPerTank)}</div>
-                <p className="text-[11px] text-slate-500 mt-0.5 font-medium">Rotomoldeo directo / tanque</p>
-              </div>
+              {showSimulator && simMetrics && (
+                <div className="p-5 space-y-5 bg-slate-50/40">
+                  {/* Selector Controls */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-white p-4 rounded-xl border border-slate-200">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        1. Seleccionar Producto Fabricado:
+                      </label>
+                      <select
+                        value={simulatorModelSku}
+                        onChange={(e) => setSimulatorModelSku(e.target.value)}
+                        className="w-full py-2 px-3 text-xs font-bold bg-slate-50 border border-slate-300 rounded-xl text-slate-900 focus:bg-white focus:border-amber-500"
+                      >
+                        {data.fabricatedProducts.map((p) => (
+                          <option key={p.id} value={p.name}>
+                            {p.name} (Score: {p.score.toFixed(2)} • Venta: {formatCurrency(p.price)})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
 
-              <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs">
-                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Edenor Luz Base</span>
-                <div className="text-xl font-black text-amber-500 mt-1">{formatCurrency(activePeriodMetrics.electricityCostPerTank)}</div>
-                <p className="text-[11px] text-slate-500 mt-0.5 font-medium">Consumo turbinas y motores</p>
-              </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        2. Precio Unitario que te ofrece el Proveedor Externo ($):
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-2 text-xs font-bold text-slate-400">$</span>
+                        <input
+                          type="number"
+                          value={simulatorOfferPrice}
+                          onChange={(e) => setSimulatorOfferPrice(parseFloat(e.target.value) || 0)}
+                          placeholder="65000"
+                          className="w-full pl-7 pr-3 py-2 text-xs font-black text-slate-900 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:border-amber-500"
+                        />
+                      </div>
+                    </div>
+                  </div>
 
-              <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs">
-                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Gastos OPEX & Mant.</span>
-                <div className="text-xl font-black text-purple-600 mt-1">{formatCurrency(activePeriodMetrics.opexCostPerTank)}</div>
-                <p className="text-[11px] text-slate-500 mt-0.5 font-medium">Repuestos, inst. e insumos diarios</p>
-              </div>
+                  {/* 3 Cost Layers Comparison Cards */}
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    {/* Layer 1: Pure Marginal Cost */}
+                    <div className="bg-white p-4 rounded-2xl border-2 border-emerald-500/80 shadow-xs bg-linear-to-b from-emerald-50/30 to-white relative">
+                      <span className="absolute -top-2.5 right-3 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 bg-emerald-600 text-white rounded-full">
+                        Piso Make vs Buy
+                      </span>
+                      <span className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider">
+                        1. Costo Puro Evitable
+                      </span>
+                      <div className="text-xl font-black text-emerald-950 mt-1">{formatCurrency(simMetrics.costoPuroEvitable)}</div>
+                      <p className="text-[11px] text-slate-600 mt-1">
+                        Insumos ({formatCurrency(simMetrics.insumos)}) + Gas ({formatCurrency(simMetrics.gas)}).
+                      </p>
+                      <p className="text-[10px] text-emerald-700 font-bold mt-1">
+                        💡 Lo único que dejás de gastar si apagás el horno.
+                      </p>
+                    </div>
 
-              <div className="bg-linear-to-br from-slate-900 to-slate-800 rounded-2xl p-4 text-white shadow-xs">
-                <span className="text-[11px] font-bold text-slate-300 uppercase tracking-wider">Transformación Planta</span>
-                <div className="text-xl font-black text-emerald-400 mt-1">{formatCurrency(activePeriodMetrics.totalPlantCostPerTank)}</div>
-                <p className="text-[11px] text-slate-300 mt-0.5 font-medium">Gas + MDO + Luz + OPEX (Score 1.0)</p>
-              </div>
+                    {/* Layer 2: Direct Plant Cost */}
+                    <div className="bg-white p-4 rounded-2xl border border-blue-200 shadow-xs">
+                      <span className="text-[11px] font-bold text-blue-700 uppercase tracking-wider">
+                        2. Directo con MOD Horno
+                      </span>
+                      <div className="text-xl font-black text-blue-950 mt-1">{formatCurrency(simMetrics.costoDirectoPlanta)}</div>
+                      <p className="text-[11px] text-slate-600 mt-1">
+                        Puro ({formatCurrency(simMetrics.costoPuroEvitable)}) + Operario ({formatCurrency(simMetrics.mdoHorno)}).
+                      </p>
+                      <p className="text-[10px] text-blue-600 font-medium mt-1">
+                        Costo variable directo al pie de máquina.
+                      </p>
+                    </div>
+
+                    {/* Layer 3: Fixed Structure (Not Avoidable) */}
+                    <div className="bg-white p-4 rounded-2xl border border-purple-200 shadow-xs bg-linear-to-b from-purple-50/20 to-white">
+                      <span className="text-[11px] font-bold text-purple-700 uppercase tracking-wider">
+                        3. Estructura Fija de Planta
+                      </span>
+                      <div className="text-xl font-black text-purple-950 mt-1">{formatCurrency(simMetrics.costoEstructuraFija)}</div>
+                      <p className="text-[11px] text-slate-600 mt-1">
+                        Luz ({formatCurrency(simMetrics.luz)}) + Mant. & OPEX ({formatCurrency(simMetrics.opex)}).
+                      </p>
+                      <p className="text-[10px] text-purple-700 font-bold mt-1">
+                        ⚠️ Se sigue pagando igual aunque compres afuera.
+                      </p>
+                    </div>
+
+                    {/* Layer 4: Total Absorbed Integral Cost */}
+                    <div className="bg-white p-4 rounded-2xl border border-slate-300 shadow-xs bg-linear-to-b from-slate-100/50 to-white">
+                      <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                        4. Costo Integral Total
+                      </span>
+                      <div className="text-xl font-black text-slate-900 mt-1">{formatCurrency(simMetrics.costoIntegralTotal)}</div>
+                      <p className="text-[11px] text-slate-600 mt-1">
+                        Suma de las 3 capas anteriores.
+                      </p>
+                      <p className="text-[10px] text-slate-500 font-medium mt-1">
+                        Para fijación de precios y rentabilidad.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Real-time Verdict Banner */}
+                  <div className={`p-4 rounded-2xl border text-xs flex items-start gap-3.5 shadow-2xs ${
+                    simMetrics.convieneComprar
+                      ? "bg-emerald-50 border-emerald-300 text-emerald-950"
+                      : "bg-rose-50 border-rose-300 text-rose-950"
+                  }`}>
+                    {simMetrics.convieneComprar ? (
+                      <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                    ) : (
+                      <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                    )}
+                    <div className="space-y-1">
+                      <div className="font-black text-sm">
+                        {simMetrics.convieneComprar
+                          ? `🟢 CONVIENE COMPRAR AL PROVEEDOR (${formatCurrency(simulatorOfferPrice)} vs ${formatCurrency(simMetrics.costoPuroEvitable)} costo puro)`
+                          : `🔴 NO CONVIENE COMPRAR AL PROVEEDOR (Perdés ${formatCurrency(simMetrics.difVsPuro)} por tanque)`
+                        }
+                      </div>
+                      <div className="text-xs leading-relaxed">
+                        {simMetrics.convieneComprar ? (
+                          <>
+                            El precio del proveedor (<strong>{formatCurrency(simulatorOfferPrice)}</strong>) es menor a tu costo variable evitable de insumos y gas (<strong>{formatCurrency(simMetrics.costoPuroEvitable)}</strong>). Te ahorrás <strong>{formatCurrency(Math.abs(simMetrics.difVsPuro))}</strong> por tanque ({formatCurrency(Math.abs(simMetrics.difVsPuro) * 100)} en un lote de 100u).
+                          </>
+                        ) : (
+                          <>
+                            Aunque el proveedor cobre <strong>{formatCurrency(simulatorOfferPrice)}</strong> (que parece menor al costo integral de <strong>{formatCurrency(simMetrics.costoIntegralTotal)}</strong>), tu costo directo evitable es de solo <strong>{formatCurrency(simMetrics.costoPuroEvitable)}</strong>. 
+                            Como los costos de estructura fija (<strong>{formatCurrency(simMetrics.costoEstructuraFija)}</strong> de luz y mantenimiento) <strong>los vas a seguir pagando igual en la planta</strong>, comprarle al proveedor te dejaría un costo real absorbido de <strong>{formatCurrency(simulatorOfferPrice + simMetrics.costoEstructuraFija)}</strong> (un sobrecosto de <strong>{formatCurrency(simMetrics.difVsPuro)}</strong> por unidad).
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Filters Bar */}
@@ -613,9 +797,9 @@ export default function CostosFabricacionPage() {
             <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
               <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/50 flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <h3 className="text-sm font-bold text-slate-900">Matriz de Costos Integrales y Margen Real de Fabricación ({activePeriodMetrics.label})</h3>
+                  <h3 className="text-sm font-bold text-slate-900">Matriz de Costos por Capas (Puro vs Directo vs Integral) ({activePeriodMetrics.label})</h3>
                   <p className="text-xs text-slate-500 font-medium mt-0.5">
-                    Materia prima real (Columna E) + Gas GLP + Mano de obra + Edenor + Gastos Operativos de Planta
+                    Diferenciación de <strong>Costo Puro Evitable</strong> (Decisión Proveedor), <strong>Mano de Obra</strong>, <strong>Estructura Fija</strong> y <strong>Costo Integral Total</strong>
                   </p>
                 </div>
                 <div className="text-xs font-semibold text-slate-500">
@@ -632,11 +816,13 @@ export default function CostosFabricacionPage() {
                       <th className="py-3 px-2 text-center">Score</th>
                       <th className="py-3 px-3 text-right">Insumos (Col E)</th>
                       <th className="py-3 px-3 text-right text-amber-700">Gas GLP</th>
-                      <th className="py-3 px-3 text-right text-blue-700">Mano Obra</th>
-                      <th className="py-3 px-3 text-right text-amber-600">Edenor</th>
-                      <th className="py-3 px-3 text-right text-purple-700">Gastos OPEX</th>
-                      <th className="py-3 px-3 text-right font-black text-slate-900 bg-slate-100/50">Costo Planta</th>
-                      <th className="py-3 px-4 text-right font-black text-slate-900 bg-amber-50/50">Costo Integral</th>
+                      <th className="py-3 px-3 text-right font-black text-emerald-800 bg-emerald-50/70 border-x border-emerald-100">
+                        🎯 Costo Puro Evitable
+                      </th>
+                      <th className="py-3 px-3 text-right text-blue-700">MDO Horno</th>
+                      <th className="py-3 px-3 text-right font-bold text-blue-900 bg-blue-50/30">Costo Directo</th>
+                      <th className="py-3 px-3 text-right text-purple-700 bg-purple-50/30">Estructura Fija</th>
+                      <th className="py-3 px-4 text-right font-black text-slate-900 bg-amber-50/60">Costo Integral</th>
                       <th className="py-3 px-3 text-right font-bold text-slate-700">Precio Venta</th>
                       <th className="py-3 px-4 text-right font-black text-emerald-700">Margen Bruto</th>
                     </tr>
@@ -661,25 +847,33 @@ export default function CostosFabricacionPage() {
                         <td className="py-3 px-3 text-right font-semibold text-amber-700">
                           {formatCurrency(p.gasCost)}
                         </td>
+                        
+                        {/* Costo Puro Evitable (Insumos + Gas) */}
+                        <td className="py-3 px-3 text-right font-black text-emerald-800 bg-emerald-50/50 border-x border-emerald-100 whitespace-nowrap">
+                          <div>{formatCurrency((p as any).costoDirectoMarginal)}</div>
+                          <span className="text-[9px] font-medium text-emerald-700">Piso Proveedor</span>
+                        </td>
+
                         <td className="py-3 px-3 text-right font-semibold text-blue-700">
                           {formatCurrency(p.mdoCost)}
                         </td>
-                        <td className="py-3 px-3 text-right font-semibold text-amber-600">
-                          {formatCurrency(p.luzCost)}
+
+                        <td className="py-3 px-3 text-right font-bold text-blue-900 bg-blue-50/20 whitespace-nowrap">
+                          {formatCurrency((p as any).costoDirectoPlanta)}
                         </td>
-                        <td className="py-3 px-3 text-right font-semibold text-purple-700">
-                          {formatCurrency(p.opexCost)}
+
+                        <td className="py-3 px-3 text-right font-semibold text-purple-700 bg-purple-50/20 whitespace-nowrap">
+                          <div>{formatCurrency((p as any).costoEstructuraFija)}</div>
+                          <span className="text-[9px] font-medium text-purple-600">Luz + Mant.</span>
                         </td>
-                        <td className="py-3 px-3 text-right font-black text-slate-900 bg-slate-50/60">
-                          {formatCurrency(p.plantOpCost)}
-                        </td>
-                        <td className="py-3 px-4 text-right font-black text-slate-900 bg-amber-50/60">
+
+                        <td className="py-3 px-4 text-right font-black text-slate-900 bg-amber-50/60 whitespace-nowrap">
                           {formatCurrency(p.totalIntegralCost)}
                         </td>
-                        <td className="py-3 px-3 text-right font-bold text-slate-700">
+                        <td className="py-3 px-3 text-right font-bold text-slate-700 whitespace-nowrap">
                           {formatCurrency(p.price)}
                         </td>
-                        <td className="py-3 px-4 text-right">
+                        <td className="py-3 px-4 text-right whitespace-nowrap">
                           <div className="font-black text-emerald-700">{formatCurrency(p.marginValue)}</div>
                           <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded-sm ${
                             p.marginPct >= 50 ? "bg-emerald-100 text-emerald-800" :

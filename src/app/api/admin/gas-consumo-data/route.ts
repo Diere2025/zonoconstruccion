@@ -72,6 +72,9 @@ export interface CombinedModelCost {
   costoManoObraEstimado: number;
   costoElectricidadEstimado: number;
   costoOpexEstimado: number;
+  costoDirectoMarginal: number;
+  costoDirectoPlanta: number;
+  costoEstructuraFija: number;
   costoTotalFabricacion: number;
   porcentajeGas: number;
   porcentajeManoObra: number;
@@ -93,6 +96,9 @@ export interface FabricatedProductCost {
   mdoCost: number;
   luzCost: number;
   opexCost: number;
+  costoDirectoMarginal: number;
+  costoDirectoPlanta: number;
+  costoEstructuraFija: number;
   plantOpCost: number;
   totalIntegralCost: number;
   price: number;
@@ -986,6 +992,10 @@ export async function GET() {
         const costoPlantaTransformacion = costoGasEstimado + costoManoObraEstimado + costoElectricidadEstimado + costoOpexEstimado;
         const costoTotalIntegral = Math.round(costInsumosColE + costoPlantaTransformacion);
 
+        const costoDirectoMarginal = Math.round(costInsumosColE + costoGasEstimado);
+        const costoDirectoPlanta = Math.round(costInsumosColE + costoGasEstimado + costoManoObraEstimado);
+        const costoEstructuraFija = Math.round(costoElectricidadEstimado + costoOpexEstimado);
+
         // Combined model definition
         modelScores.push({
           producto: prodName,
@@ -998,6 +1008,9 @@ export async function GET() {
           costoManoObraEstimado,
           costoElectricidadEstimado,
           costoOpexEstimado,
+          costoDirectoMarginal,
+          costoDirectoPlanta,
+          costoEstructuraFija,
           costoTotalFabricacion: costoPlantaTransformacion,
           porcentajeGas: costoPlantaTransformacion > 0 ? parseFloat(((costoGasEstimado / costoPlantaTransformacion) * 100).toFixed(1)) : 45,
           porcentajeManoObra: costoPlantaTransformacion > 0 ? parseFloat(((costoManoObraEstimado / costoPlantaTransformacion) * 100).toFixed(1)) : 30,
@@ -1056,6 +1069,9 @@ export async function GET() {
           mdoCost: costoManoObraEstimado,
           luzCost: costoElectricidadEstimado,
           opexCost: costoOpexEstimado,
+          costoDirectoMarginal,
+          costoDirectoPlanta,
+          costoEstructuraFija,
           plantOpCost: costoPlantaTransformacion,
           totalIntegralCost: costoTotalIntegral,
           price,
