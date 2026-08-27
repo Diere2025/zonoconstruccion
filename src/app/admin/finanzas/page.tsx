@@ -588,16 +588,19 @@ export default function AdminFinanzasPage() {
           
           const headers = rows[headerIdx];
           const saldoIdx = headers.indexOf(t.colName);
-          
+          const fechaIdx = headers.findIndex(h => h.toLowerCase().includes('fecha'));
+          const conceptoIdx = headers.findIndex(h => h.toLowerCase().includes('concepto') || h.toLowerCase().includes('detalle'));
+
           let lastBalance = 0;
           for (let i = rows.length - 1; i > headerIdx; i--) {
             const row = rows[i];
-            if (row.length > saldoIdx && row[saldoIdx]) {
-              const val = parseSpanishFloat(row[saldoIdx]);
-              if (val !== 0) {
-                lastBalance = val;
-                break;
-              }
+            const hasDate = fechaIdx !== -1 && row[fechaIdx] && row[fechaIdx].trim().length > 0;
+            const hasConcept = conceptoIdx !== -1 && row[conceptoIdx] && row[conceptoIdx].trim().length > 0;
+            const hasSaldo = saldoIdx !== -1 && row[saldoIdx] && row[saldoIdx].trim().length > 0;
+
+            if ((hasDate || hasConcept) && hasSaldo) {
+              lastBalance = parseSpanishFloat(row[saldoIdx]);
+              break;
             }
           }
           expectedBalances[t.name] = lastBalance;
