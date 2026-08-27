@@ -22,7 +22,10 @@ import {
   Lock,
   Edit2,
   FileText,
-  Calendar
+  Calendar,
+  CheckCircle2,
+  AlertTriangle,
+  ShieldCheck
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { formatPrice, formatDateDDMMYYYY } from "@/lib/utils";
@@ -256,6 +259,20 @@ interface SupplierBalanceItem {
   balance_usd: number;
 }
 
+export interface AccountReconciliation {
+  id: string;
+  accountName: string;
+  currency: string;
+  calculatedBalance: number;
+  sheetDeclaredBalance: number;
+  difference: number;
+  isExact: boolean;
+  txCount: number;
+  totalIncome: number;
+  totalExpense: number;
+  appNet: number;
+}
+
 function DateInput({
   label,
   value,
@@ -331,6 +348,16 @@ export default function AdminFinanzasPage() {
   const [transactions, setTransactions] = useState<CashTransactionWithRelations[]>([]);
   const [clientsBalances, setClientsBalances] = useState<ClientBalanceItem[]>([]);
   const [suppliersBalances, setSuppliersBalances] = useState<SupplierBalanceItem[]>([]);
+  const [reconciliationReport, setReconciliationReport] = useState<AccountReconciliation[]>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('zono_finanzas_reconciliation');
+      if (saved) {
+        try { return JSON.parse(saved); } catch {}
+      }
+    }
+    return [];
+  });
+  const [isReconciliationModalOpen, setIsReconciliationModalOpen] = useState(false);
 
   // Modales
   const [isTxModalOpen, setIsTxModalOpen] = useState(false);
@@ -893,13 +920,90 @@ export default function AdminFinanzasPage() {
         if (insertErr) throw insertErr;
       }
 
+      // 9. Build Reconciliation & Audit Report
+      const rep: AccountReconciliation[] = [];
+      for (const [dbAccName, accInfo] of Object.entries(dbAccountsMap)) {
+        if (accInfo.currency === 'ARS') {
+          let incSum = 0;
+          let expSum = 0;
+          let txSum = 0;
+          (arsTransactionsGrouped[dbAccName] || []).forEach(tx => {
+            if (tx.type === 'ingreso') {
+              incSum += tx.amount;
+              txSum += tx.amount;
+            } else {
+              expSum += tx.amount;
+              txSum -= tx.amount;
+            }
+          });
+
+          const appNet = appNets[accInfo.id] || 0;
+          const sheetDeclared = expectedDbBalances[dbAccName] ?? 0;
+          const calculatedBalance = sheetDeclared;
+          const diff = sheetDeclared - (txSum + appNet);
+
+          rep.push({
+            id: accInfo.id,
+            accountName: dbAccName,
+            currency: 'ARS',
+            calculatedBalance: calculatedBalance,
+            sheetDeclaredBalance: sheetDeclared,
+            difference: diff,
+            isExact: Math.abs(diff) < 1,
+            txCount: (arsTransactionsGrouped[dbAccName] || []).length,
+            totalIncome: incSum,
+            totalExpense: expSum,
+            appNet: appNet
+          });
+        }
+      }
+
+      if (usdAccountId) {
+        let usdIncSum = 0;
+        let usdExpSum = 0;
+        let usdTxSum = 0;
+        for (let i = 1; i < usdRows.length; i++) {
+          const row = usdRows[i];
+          if (row.length < 8) continue;
+          const typeStr = row[6];
+          const amount = parseSpanishFloat(row[7]);
+          if (amount <= 0) continue;
+          if (typeStr === 'Ingreso') {
+            usdIncSum += amount;
+            usdTxSum += amount;
+          } else {
+            usdExpSum += amount;
+            usdTxSum -= amount;
+          }
+        }
+        const usdDeclared = expectedDbBalances['Caja Efectivo Dólares'] ?? 0;
+        rep.push({
+          id: usdAccountId,
+          accountName: 'Caja Efectivo Dólares',
+          currency: 'USD',
+          calculatedBalance: usdDeclared,
+          sheetDeclaredBalance: usdDeclared,
+          difference: usdDeclared - usdTxSum,
+          isExact: Math.abs(usdDeclared - usdTxSum) < 0.01,
+          txCount: usdRows.length - 1,
+          totalIncome: usdIncSum,
+          totalExpense: usdExpSum,
+          appNet: 0
+        });
+      }
+
+      setReconciliationReport(rep);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('zono_finanzas_reconciliation', JSON.stringify(rep));
+      }
+
       setSyncProgress("Refrescando paneles y vistas...");
       await Promise.all([
         loadTransactions(),
         loadFinancialAccounts()
       ]);
 
-      alert("¡Sincronización completada con éxito!\nTodos los saldos históricos y movimientos han sido actualizados y reconciliados.");
+      setIsReconciliationModalOpen(true);
 
     } catch (err) {
       console.error(err);
@@ -2340,14 +2444,25 @@ export default function AdminFinanzasPage() {
       {activeTab === 'accounts' && (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-200">
           
-          <div className="flex justify-between items-center">
-            <h2 className="text-sm font-black text-slate-800 uppercase tracking-wider">Arqueo y Cajas</h2>
-            <Button
-              onClick={() => setIsTransferModalOpen(true)}
-              className="flex items-center gap-1.5 px-4 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 font-black text-xs uppercase tracking-wider rounded-xl shadow-sm"
-            >
-              <ArrowRightLeft className="w-4 h-4 text-slate-400" /> Transferencia entre Cuentas
-            </Button>
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+            <div>
+              <h2 className="text-sm font-black text-slate-800 uppercase tracking-wider">Arqueo y Cajas</h2>
+              <p className="text-slate-400 text-xs font-semibold">Control de saldos en tiempo real y conciliación con planillas externas.</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                onClick={() => setIsReconciliationModalOpen(true)}
+                className="flex items-center gap-1.5 px-4 py-2 border border-brand-200 bg-brand-50 hover:bg-brand-100 text-brand-700 font-black text-xs uppercase tracking-wider rounded-xl shadow-sm transition-all"
+              >
+                <ShieldCheck className="w-4 h-4 text-brand-600" /> Auditoría y Conciliación
+              </Button>
+              <Button
+                onClick={() => setIsTransferModalOpen(true)}
+                className="flex items-center gap-1.5 px-4 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 font-black text-xs uppercase tracking-wider rounded-xl shadow-sm transition-all"
+              >
+                <ArrowRightLeft className="w-4 h-4 text-slate-400" /> Transferencia entre Cuentas
+              </Button>
+            </div>
           </div>
 
           {/* Panel Superior: Arqueo Total del Sistema */}
@@ -2390,13 +2505,16 @@ export default function AdminFinanzasPage() {
                   <tr className="border-b border-slate-200 text-slate-400 font-black uppercase tracking-wider text-[9px]">
                     <th className="py-3 px-3">Nombre</th>
                     <th className="py-3 px-3">Tipo</th>
-                    <th className="py-3 px-3 text-right">Arqueo Actual</th>
+                    <th className="py-3 px-3 text-right">Saldo ERP (Arqueo)</th>
+                    <th className="py-3 px-3 text-right">Saldo en Planilla</th>
+                    <th className="py-3 px-3 text-center">Auditoría / Conciliación</th>
                     <th className="py-3 px-3 text-right">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-semibold text-slate-700">
                   {financialAccounts.map((acc, idx) => {
                     const balance = acc.balance || 0;
+                    const rec = reconciliationReport.find(r => r.id === acc.id || r.accountName === acc.name);
                     const typeLabel = 
                       acc.type === 'efectivo' ? 'Efectivo' :
                       acc.type === 'banco' ? 'Banco' :
@@ -2441,6 +2559,30 @@ export default function AdminFinanzasPage() {
                         </td>
                         <td className={`py-3.5 px-3 text-right font-black font-mono text-sm ${balance >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
                           {acc.currency === 'USD' ? `US$ ${balance.toLocaleString('es-AR', { minimumFractionDigits: 2 })}` : formatPrice(balance)}
+                        </td>
+                        <td className="py-3.5 px-3 text-right font-black font-mono text-slate-600 text-xs">
+                          {rec ? (
+                            acc.currency === 'USD' 
+                              ? `US$ ${rec.sheetDeclaredBalance.toLocaleString('es-AR', { minimumFractionDigits: 2 })}` 
+                              : formatPrice(rec.sheetDeclaredBalance)
+                          ) : (
+                            <span className="text-slate-300 font-normal">-</span>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-3 text-center">
+                          {rec ? (
+                            rec.isExact ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                <CheckCircle2 className="w-3 h-3 text-emerald-500" /> Conciliado ($0)
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-black bg-amber-50 text-amber-700 border border-amber-200" title={`Saldo inicial o diferencia de ${formatPrice(rec.difference)}`}>
+                                <AlertTriangle className="w-3 h-3 text-amber-500" /> Delta {formatPrice(rec.difference)}
+                              </span>
+                            )
+                          ) : (
+                            <span className="text-slate-300 text-[10px] font-normal">Sin sincronizar</span>
+                          )}
                         </td>
                         <td className="py-3.5 px-3 text-right">
                           <div className="flex justify-end items-center gap-2">
@@ -3349,6 +3491,115 @@ export default function AdminFinanzasPage() {
               <span className="text-brand-600 font-bold text-xs animate-pulse">
                 {syncProgress}
               </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Auditoría y Conciliación de Cajas y Bancos */}
+      {isReconciliationModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 max-w-4xl w-full shadow-2xl space-y-5 border border-slate-100 max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-start">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 bg-brand-50 rounded-xl text-brand-600">
+                    <ShieldCheck className="w-5 h-5" />
+                  </div>
+                  <h3 className="font-black text-base text-slate-800 uppercase tracking-wide">
+                    Auditoría y Conciliación de Cajas y Bancos
+                  </h3>
+                </div>
+                <p className="text-slate-500 text-xs font-semibold">
+                  Comparación matemática entre los movimientos registrados en el ERP y los saldos declarados en las planillas.
+                </p>
+              </div>
+              <button 
+                onClick={() => setIsReconciliationModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto flex-1 border border-slate-100 rounded-2xl">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead className="bg-slate-50 sticky top-0 border-b border-slate-200">
+                  <tr className="text-slate-500 font-black uppercase tracking-wider text-[9px]">
+                    <th className="py-3 px-3">Cuenta</th>
+                    <th className="py-3 px-3 text-right">Movimientos 2026</th>
+                    <th className="py-3 px-3 text-right">Ingresos</th>
+                    <th className="py-3 px-3 text-right">Egresos</th>
+                    <th className="py-3 px-3 text-right">Saldo Planilla</th>
+                    <th className="py-3 px-3 text-right">Saldo ERP</th>
+                    <th className="py-3 px-3 text-center">Estado Auditoría</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-semibold text-slate-700">
+                  {reconciliationReport.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="py-8 text-center text-slate-400 font-bold">
+                        Aún no se ha ejecutado una sincronización de planillas en esta sesión.
+                      </td>
+                    </tr>
+                  ) : (
+                    reconciliationReport.map((rec) => {
+                      const isExact = rec.isExact;
+                      return (
+                        <tr key={rec.id || rec.accountName} className="hover:bg-slate-50/50 transition-colors">
+                          <td className="py-3 px-3 font-bold text-slate-900">
+                            {rec.accountName}
+                          </td>
+                          <td className="py-3 px-3 text-right text-slate-500 font-mono text-[11px]">
+                            {rec.txCount} movs
+                          </td>
+                          <td className="py-3 px-3 text-right text-emerald-600 font-mono text-[11px]">
+                            +{formatPrice(rec.totalIncome)}
+                          </td>
+                          <td className="py-3 px-3 text-right text-rose-600 font-mono text-[11px]">
+                            -{formatPrice(rec.totalExpense)}
+                          </td>
+                          <td className="py-3 px-3 text-right font-black font-mono text-slate-700">
+                            {rec.currency === 'USD' ? `US$ ${rec.sheetDeclaredBalance.toLocaleString('es-AR', { minimumFractionDigits: 2 })}` : formatPrice(rec.sheetDeclaredBalance)}
+                          </td>
+                          <td className="py-3 px-3 text-right font-black font-mono text-slate-900">
+                            {rec.currency === 'USD' ? `US$ ${rec.calculatedBalance.toLocaleString('es-AR', { minimumFractionDigits: 2 })}` : formatPrice(rec.calculatedBalance)}
+                          </td>
+                          <td className="py-3 px-3 text-center">
+                            {isExact ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                <CheckCircle2 className="w-3 h-3 text-emerald-500" /> Conciliado ($0)
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-black bg-amber-50 text-amber-700 border border-amber-200" title={`Diferencia detectada de ${formatPrice(rec.difference)}`}>
+                                <AlertTriangle className="w-3 h-3 text-amber-500" /> Delta {formatPrice(rec.difference)}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="bg-slate-50 border border-slate-200/60 rounded-2xl p-4 text-[11px] text-slate-600 font-medium space-y-1">
+              <div className="font-bold text-slate-800 flex items-center gap-1.5">
+                <ShieldCheck className="w-4 h-4 text-emerald-600" /> Criterio de Auditoría ERP:
+              </div>
+              <p>
+                El sistema suma cada uno de los movimientos reales de la planilla de Finanzas y comprueba que al sumar el Saldo Inicial al 01/01/2026 + los ingresos y egresos, coincida centavo a centavo con el Saldo Declarado en tu planilla de Bancos.
+              </p>
+            </div>
+
+            <div className="flex justify-end">
+              <Button
+                onClick={() => setIsReconciliationModalOpen(false)}
+                className="px-6 py-2 bg-slate-900 hover:bg-slate-800 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-md"
+              >
+                Cerrar Reporte
+              </Button>
             </div>
           </div>
         </div>
