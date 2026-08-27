@@ -357,7 +357,24 @@ export default function AdminFinanzasPage() {
   const [submittingValidation, setSubmittingValidation] = useState(false);
 
   const loadHelperLists = async () => {};
-  const loadFinancialAccounts = async () => {};
+  const loadFinancialAccounts = async () => {
+    try {
+      const res = await fetch("/api/admin/finanzas-data?action=init");
+      if (!res.ok) return;
+      const payload = await res.json();
+      if (payload.financialAccounts) {
+        const accountsWithBalances = (payload.financialAccounts as unknown as FinancialAccount[]).map((acc) => ({
+          ...acc,
+          balance: Number(acc.balance) || 0,
+          total_income: Number(acc.total_income) || 0,
+          total_expense: Number(acc.total_expense) || 0
+        }));
+        setFinancialAccounts(accountsWithBalances);
+      }
+    } catch (err) {
+      console.error("Error reloading financial accounts:", err);
+    }
+  };
   const loadCostCenters = async () => {};
 
   const loadValidationOrders = async () => {
