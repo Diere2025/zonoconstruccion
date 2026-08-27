@@ -171,7 +171,7 @@ export async function GET(request: Request) {
         supplierPaymentsRes
       ] = await Promise.all([
         supabaseAdmin.from('clients').select('id, business_name'),
-        supabaseAdmin.from('orders').select('client_id, total_amount, status, currency'),
+        supabaseAdmin.from('orders').select('client_id, total_amount, status'),
         supabaseAdmin.from('client_payments').select('client_id, amount, currency'),
         supabaseAdmin.from('suppliers').select('id, name'),
         supabaseAdmin.from('supplier_purchases').select('supplier_id, total_amount, status, currency, document_type'),
@@ -204,11 +204,7 @@ export async function GET(request: Request) {
       (ordersRes.data || []).forEach(o => {
         if (o.client_id && o.status !== 'Cancelado' && clsMap[o.client_id]) {
           const amt = Number(o.total_amount) || 0;
-          if (o.currency === 'USD') {
-            clsMap[o.client_id].total_orders_usd += amt;
-          } else {
-            clsMap[o.client_id].total_orders_ars += amt;
-          }
+          clsMap[o.client_id].total_orders_ars += amt;
         }
       });
 
