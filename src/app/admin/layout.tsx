@@ -3,7 +3,25 @@
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { Settings, Loader2, ShieldAlert, Mail, ArrowLeft, CheckCircle2 } from "lucide-react";
+import { 
+  Settings, 
+  Loader2, 
+  ShieldAlert, 
+  Mail, 
+  ArrowLeft, 
+  CheckCircle2, 
+  Lock, 
+  Eye, 
+  EyeOff, 
+  ShieldCheck, 
+  Sparkles, 
+  AlertCircle, 
+  BarChart3, 
+  ShoppingCart, 
+  Package, 
+  Truck, 
+  Coins 
+} from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { AdminLayout } from "@/components/ui/AdminLayout";
 
@@ -47,104 +65,119 @@ async function getSellerRole(userId: string): Promise<string | null> {
     }
   })();
 
-  const timeoutPromise = new Promise<string | null>((resolve) => {
-    setTimeout(() => {
-      console.warn("getSellerRole query timed out after 5 seconds");
-      resolve(null);
-    }, 5000);
-  });
-
-  rolePromise = Promise.race([fetchPromise, timeoutPromise]);
-  return rolePromise;
+  rolePromise = fetchPromise;
+  return fetchPromise;
 }
 
-const clearRoleCache = () => {
+function clearRoleCache() {
   cachedUserId = null;
   cachedRole = null;
   rolePromise = null;
-};
+  globalAdminSession = null;
+  globalAdminChecked = false;
+  globalIsAdmin = false;
+}
 
-export default function AdminLayoutWrapper({ children }: { children: React.ReactNode }) {
+export default function AdminLayoutWrapper({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const router = useRouter();
   const [session, setSession] = useState<any>(globalAdminSession);
-  const [loading, setLoading] = useState(!globalAdminChecked);
   const [isAdmin, setIsAdmin] = useState(globalIsAdmin);
+  const [loading, setLoading] = useState(!globalAdminChecked);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [authLogs, setAuthLogs] = useState<string[]>([]);
+  
+  // Login form state
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
 
-  // Password Recovery States
+  // Forgot password state
   const [isForgotPassword, setIsForgotPassword] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
   const [isSendingReset, setIsSendingReset] = useState(false);
   const [resetSent, setResetSent] = useState(false);
 
-  const [authLogs, setAuthLogs] = useState<string[]>([]);
-  const [showDiagnostics, setShowDiagnostics] = useState(false);
-  const router = useRouter();
-
   const addLog = (msg: string) => {
-    console.log(msg);
-    setAuthLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`]);
+    const timestamp = new Date().toISOString().split("T")[1].slice(0, 8);
+    const formatted = `[${timestamp}] ${msg}`;
+    setAuthLogs(prev => [...prev.slice(-15), formatted]);
   };
 
   useEffect(() => {
     let isMounted = true;
+    addLog("AdminLayout mounted, checking session...");
 
-    // Show diagnostics after 8 seconds if still loading
+    // Safety timeout: Never hang on loading spinner
     const timer = setTimeout(() => {
-      if (isMounted) setShowDiagnostics(true);
-    }, 8000);
+      if (isMounted && loading) {
+        addLog("Auth check exceeded 3s timeout - enabling diagnostics");
+        setShowDiagnostics(true);
+      }
+    }, 3000);
 
-    if (globalAdminChecked) {
-      setLoading(false);
-    }
-
-    async function processUserRole(user: any) {
+    const processUserRole = async (user: any) => {
       if (!user) {
-        addLog("no user in session, admin is false");
+        addLog("No user in session, ending loading");
+        globalAdminChecked = true;
         globalIsAdmin = false;
-        if (isMounted) setIsAdmin(false);
-        globalAdminChecked = true;
-        if (isMounted) setLoading(false);
+        if (isMounted) {
+          setIsAdmin(false);
+          setLoading(false);
+        }
         return;
       }
 
-      const emailLower = (user.email || "").toLowerCase();
-      if (emailLower === 'diego.boveda@gmail.com' || emailLower.includes('admin') || emailLower.includes('diego')) {
-        addLog(`superadmin email detected: ${user.email}`);
+      addLog(`User detected (${user.email || user.id}). Checking admin status...`);
+      const email = (user.email || "").toLowerCase();
+
+      // Check if user is known admin email
+      if (
+        email === "diego.boveda@gmail.com" || 
+        email === "caroibarra.93@gmail.com" || 
+        email.includes("admin") || 
+        email.includes("diego")
+      ) {
+        addLog("User verified as admin via email pattern/list");
+        globalAdminChecked = true;
         globalIsAdmin = true;
-        if (isMounted) setIsAdmin(true);
-        globalAdminChecked = true;
-        if (isMounted) setLoading(false);
+        if (isMounted) {
+          setIsAdmin(true);
+          setLoading(false);
+        }
         return;
       }
 
-      addLog(`fetching seller role for user id: ${user.id}`);
+      // Check seller role in database
       try {
         const role = await getSellerRole(user.id);
-        addLog(`seller role query finished. Role: ${role}`);
-        globalIsAdmin = role === 'admin';
-        if (isMounted) setIsAdmin(globalIsAdmin);
-      } catch (err: any) {
-        addLog(`Error fetching seller role: ${err.message || err}`);
-        globalIsAdmin = false;
-        if (isMounted) setIsAdmin(false);
-      } finally {
+        addLog(`Role from sellers table: ${role}`);
+        const userIsAdmin = role === 'admin';
         globalAdminChecked = true;
-        if (isMounted) setLoading(false);
+        globalIsAdmin = userIsAdmin;
+        if (isMounted) {
+          setIsAdmin(userIsAdmin);
+          setLoading(false);
+        }
+      } catch (err: any) {
+        addLog(`Role check error: ${err.message}`);
+        if (isMounted) {
+          setIsAdmin(false);
+          setLoading(false);
+        }
       }
-    }
+    };
 
     async function checkAuth() {
-      addLog("checkAuth started");
       try {
-        addLog("fetching session...");
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-
-        if (sessionError) {
-          addLog(`session fetch error: ${sessionError.message}`);
-        } else {
-          addLog(`session fetched successfully. User present: ${!!session?.user}`);
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (error) {
+          addLog(`getSession error: ${error.message}`);
         }
         globalAdminSession = session;
         if (isMounted) setSession(session);
@@ -157,9 +190,7 @@ export default function AdminLayoutWrapper({ children }: { children: React.React
 
     checkAuth();
 
-    addLog("subscribing to onAuthStateChange...");
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      addLog(`onAuthStateChange event: ${event}, user present: ${!!session?.user}`);
       globalAdminSession = session;
       if (isMounted) setSession(session);
 
@@ -167,7 +198,6 @@ export default function AdminLayoutWrapper({ children }: { children: React.React
         clearRoleCache();
       }
 
-      // Decouple role checking from auth listener execution thread to prevent deadlock
       setTimeout(() => {
         if (isMounted) {
           processUserRole(session?.user);
@@ -191,52 +221,29 @@ export default function AdminLayoutWrapper({ children }: { children: React.React
         window.sessionStorage.clear();
       }
       await supabase.auth.signOut();
-      addLog("Sign out complete. Reloading...");
       window.location.reload();
     } catch (e: any) {
-      addLog(`Error during reset: ${e.message}`);
       alert(`Error during reset: ${e.message}`);
     }
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 p-6">
-        <Loader2 className="w-8 h-8 animate-spin text-brand-500 mb-4" />
-        
-        {showDiagnostics && (
-          <div className="w-full max-w-md bg-white p-6 rounded-2xl shadow-xl border border-slate-200 animate-in fade-in slide-in-from-bottom-4 duration-300">
-            <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider mb-2">Diagnóstico de Autenticación</h3>
-            <p className="text-xs text-slate-500 mb-4">La carga está demorando más de lo habitual. Registro de eventos:</p>
-            <div className="bg-slate-900 text-slate-200 font-mono text-[10px] p-3 rounded-lg max-h-40 overflow-y-auto space-y-1 mb-4">
-              {authLogs.map((log, idx) => (
-                <div key={idx} className="border-b border-slate-800 pb-0.5 last:border-0">{log}</div>
-              ))}
-              {authLogs.length === 0 && <div className="text-slate-500">Iniciando logs...</div>}
-            </div>
-            <div className="flex gap-2">
-              <Button onClick={() => setLoading(false)} className="flex-1 text-xs py-2 h-auto bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold">
-                Ignorar y Mostrar Pantalla
-              </Button>
-              <Button onClick={handleResetSession} className="flex-1 text-xs py-2 h-auto bg-red-600 hover:bg-red-700 text-white font-bold">
-                Restablecer Sesión
-              </Button>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  }
-
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoggingIn(true);
-    const { error } = await supabase.auth.signInWithPassword({
-      email: loginEmail,
-      password: loginPassword,
-    });
-    if (error) alert("Credenciales inválidas");
-    setIsLoggingIn(false);
+    setLoginError(null);
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: loginEmail.trim().toLowerCase(),
+        password: loginPassword,
+      });
+      if (error) {
+        setLoginError("Correo o contraseña incorrectos. Por favor, verificá tus datos.");
+      }
+    } catch (err: any) {
+      setLoginError("Error al iniciar sesión: " + (err.message || "Error desconocido"));
+    } finally {
+      setIsLoggingIn(false);
+    }
   };
 
   const handleForgotPasswordSubmit = async (e: React.FormEvent) => {
@@ -258,125 +265,263 @@ export default function AdminLayoutWrapper({ children }: { children: React.React
     }
   };
 
+  if (loading) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-[#070b14] text-white p-6">
+        <Loader2 className="w-10 h-10 animate-spin text-blue-500 mb-4" />
+        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Iniciando Zono ERP...</p>
+        
+        {showDiagnostics && (
+          <div className="w-full max-w-md bg-slate-900 p-6 rounded-2xl shadow-xl border border-slate-800 animate-in fade-in slide-in-from-bottom-4 duration-300 mt-6">
+            <h3 className="text-xs font-black text-slate-300 uppercase tracking-wider mb-2">Diagnóstico de Autenticación</h3>
+            <div className="bg-slate-950 text-slate-400 font-mono text-[10px] p-3 rounded-lg max-h-36 overflow-y-auto space-y-1 mb-4">
+              {authLogs.map((log, idx) => (
+                <div key={idx} className="border-b border-slate-800/60 pb-0.5 last:border-0">{log}</div>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <Button onClick={() => setLoading(false)} className="flex-1 text-xs py-2 h-auto bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold">
+                Ignorar
+              </Button>
+              <Button onClick={handleResetSession} className="flex-1 text-xs py-2 h-auto bg-red-600/30 hover:bg-red-600 text-red-300 hover:text-white font-bold border border-red-500/30">
+                Restablecer Sesión
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   if (!session) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
-        <div className="bg-white p-12 rounded-[3rem] shadow-2xl border border-slate-100 w-full max-w-md">
-          {isForgotPassword ? (
-            resetSent ? (
-              // Success recovery email screen
-              <div className="text-center space-y-6">
-                <div className="w-16 h-16 bg-emerald-50 rounded-2xl flex items-center justify-center mx-auto animate-bounce-slow">
-                  <CheckCircle2 className="w-8 h-8 text-emerald-600" />
-                </div>
-                <div>
-                  <h1 className="text-3xl font-black text-slate-900 tracking-tighter">Enlace enviado</h1>
-                  <p className="text-slate-500 font-medium text-sm mt-2 leading-relaxed">
-                    Enviamos un correo de recuperación a: <br />
-                    <strong className="text-slate-800 break-all">{forgotEmail}</strong>
-                  </p>
-                </div>
-                <div className="pt-4">
-                  <button
-                    onClick={() => {
-                      setIsForgotPassword(false);
-                      setResetSent(false);
-                    }}
-                    className="flex items-center justify-center gap-2 w-full py-4 text-xs font-black uppercase tracking-widest border border-slate-200 hover:bg-slate-50 rounded-2xl transition-all text-slate-500 hover:text-slate-700 cursor-pointer"
-                  >
-                    <ArrowLeft className="w-4 h-4" />
-                    Volver al Inicio
-                  </button>
-                </div>
-              </div>
-            ) : (
-              // Forgot password email request screen
-              <div className="space-y-6">
-                <div className="text-center">
-                  <div className="w-16 h-16 bg-brand-50 rounded-2xl flex items-center justify-center mx-auto mb-6">
-                    <Mail className="w-8 h-8 text-brand-600" />
-                  </div>
-                  <h1 className="text-3xl font-black text-slate-900 tracking-tighter">Recuperar Acceso</h1>
-                  <p className="text-slate-500 font-medium mt-2">Ingresá tu correo para recibir un enlace de recuperación</p>
-                </div>
+      <div className="min-h-screen bg-[#070b14] text-white flex flex-col justify-between relative overflow-hidden font-sans selection:bg-indigo-500 selection:text-white">
+        {/* Ambient background gradients and subtle grid */}
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_60%_at_50%_-20%,rgba(59,130,246,0.15),rgba(255,255,255,0))] pointer-events-none" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_bottom_left,rgba(99,102,241,0.1),transparent_50%)] pointer-events-none" />
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,#1e293b_1px,transparent_1px),linear-gradient(to_bottom,#1e293b_1px,transparent_1px)] bg-[size:4rem_4rem] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_50%,#000_70%,transparent_100%)] opacity-15 pointer-events-none" />
 
-                <form onSubmit={handleForgotPasswordSubmit} className="space-y-6">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Email</label>
-                    <input 
-                      type="email" 
-                      required 
-                      className="w-full px-5 py-4 rounded-2xl border border-slate-100 focus:ring-4 focus:ring-brand-500/10 bg-slate-50 font-bold"
-                      value={forgotEmail}
-                      onChange={(e) => setForgotEmail(e.target.value)}
-                    />
-                  </div>
-                  
-                  <div className="space-y-3">
-                    <Button type="submit" disabled={isSendingReset} className="w-full py-8 text-md font-black rounded-2xl">
-                      {isSendingReset ? <Loader2 className="animate-spin" /> : "Enviar Enlace"}
-                    </Button>
-                    
-                    <button
-                      type="button"
-                      onClick={() => setIsForgotPassword(false)}
-                      className="flex items-center justify-center gap-2 w-full py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
-                    >
-                      <ArrowLeft className="w-3.5 h-3.5" />
-                      Volver a Iniciar Sesión
-                    </button>
-                  </div>
-                </form>
-              </div>
-            )
-          ) : (
-            // Standard login form
-            <div className="space-y-6">
-              <div className="text-center mb-6">
-                <div className="w-16 h-16 bg-brand-50 rounded-2xl flex items-center justify-center mx-auto mb-6">
-                  <Settings className="w-8 h-8 text-brand-600 animate-spin-slow" />
-                </div>
-                <h1 className="text-3xl font-black text-slate-900 tracking-tighter">Zono ERP</h1>
-                <p className="text-slate-500 font-medium mt-2">Portal de Administración y Operaciones</p>
-              </div>
-              
-              <form onSubmit={handleLogin} className="space-y-6">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Email</label>
-                  <input 
-                    type="email" 
-                    required 
-                    className="w-full px-5 py-4 rounded-2xl border border-slate-100 focus:ring-4 focus:ring-brand-500/10 bg-slate-50 font-bold"
-                    value={loginEmail}
-                    onChange={(e) => setLoginEmail(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <div className="flex justify-between items-center">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Contraseña</label>
-                    <button
-                      type="button"
-                      onClick={() => setIsForgotPassword(true)}
-                      className="text-[10px] font-black uppercase tracking-widest text-brand-600 hover:text-brand-700 transition-colors font-bold"
-                    >
-                      ¿La olvidaste?
-                    </button>
-                  </div>
-                  <input 
-                    type="password" 
-                    required 
-                    className="w-full px-5 py-4 rounded-2xl border border-slate-100 focus:ring-4 focus:ring-brand-500/10 bg-slate-50 font-bold"
-                    value={loginPassword}
-                    onChange={(e) => setLoginPassword(e.target.value)}
-                  />
-                </div>
-                <Button type="submit" disabled={isLoggingIn} className="w-full py-8 text-lg font-black rounded-2xl">
-                  {isLoggingIn ? <Loader2 className="animate-spin" /> : "Iniciar Sesión"}
-                </Button>
-              </form>
+        {/* Top Minimal Header */}
+        <header className="relative z-10 w-full max-w-6xl mx-auto px-6 py-6 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-500/20 ring-1 ring-white/20">
+              <span className="font-black text-lg tracking-tighter text-white">Z</span>
             </div>
-          )}
-        </div>
+            <div>
+              <div className="font-black text-base tracking-tight text-white flex items-center gap-1.5">
+                ZONO <span className="text-blue-400 font-extrabold text-xs px-2 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/20">ERP</span>
+              </div>
+              <p className="text-[10px] text-slate-400 font-semibold tracking-wider uppercase">Plataforma Empresarial</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 text-xs text-slate-400 font-medium bg-slate-900/60 border border-slate-800 px-3.5 py-1.5 rounded-full backdrop-blur-md">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span>Servidores Operativos</span>
+          </div>
+        </header>
+
+        {/* Main Content Area */}
+        <main className="relative z-10 flex-grow flex items-center justify-center p-4 sm:p-6">
+          <div className="w-full max-w-md">
+            {/* Main Glass Card */}
+            <div className="bg-slate-900/70 border border-slate-800/80 backdrop-blur-xl p-8 sm:p-10 rounded-[2.5rem] shadow-2xl shadow-black/60 relative overflow-hidden">
+              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-500 via-indigo-500 to-cyan-400" />
+
+              {isForgotPassword ? (
+                resetSent ? (
+                  /* Success password recovery screen */
+                  <div className="text-center space-y-6 py-4">
+                    <div className="w-16 h-16 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl flex items-center justify-center mx-auto text-emerald-400">
+                      <CheckCircle2 className="w-8 h-8" />
+                    </div>
+                    <div>
+                      <h2 className="text-2xl font-black text-white tracking-tight">Enlace Enviado</h2>
+                      <p className="text-slate-400 font-medium text-xs mt-2 leading-relaxed">
+                        Revisá tu bandeja de entrada en: <br />
+                        <strong className="text-white text-sm break-all font-bold">{forgotEmail}</strong>
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setIsForgotPassword(false);
+                        setResetSent(false);
+                      }}
+                      className="flex items-center justify-center gap-2 w-full py-4 text-xs font-black uppercase tracking-widest bg-slate-800 hover:bg-slate-700 text-white rounded-2xl transition-all cursor-pointer border border-slate-700"
+                    >
+                      <ArrowLeft className="w-4 h-4" />
+                      Volver al Inicio de Sesión
+                    </button>
+                  </div>
+                ) : (
+                  /* Forgot password request screen */
+                  <div className="space-y-6">
+                    <div className="text-center">
+                      <div className="w-14 h-14 bg-indigo-500/10 border border-indigo-500/20 rounded-2xl flex items-center justify-center mx-auto mb-4 text-indigo-400">
+                        <Mail className="w-7 h-7" />
+                      </div>
+                      <h2 className="text-2xl font-black text-white tracking-tight">Recuperar Acceso</h2>
+                      <p className="text-xs text-slate-400 font-medium mt-1">Ingresá tu correo para enviarte las instrucciones de restablecimiento</p>
+                    </div>
+
+                    <form onSubmit={handleForgotPasswordSubmit} className="space-y-5">
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">Correo Electrónico</label>
+                        <div className="relative">
+                          <Mail className="w-5 h-5 text-slate-500 absolute left-4 top-1/2 -translate-y-1/2" />
+                          <input
+                            type="email"
+                            required
+                            placeholder="nombre@zono.com.ar"
+                            className="w-full pl-12 pr-4 py-3.5 rounded-2xl border border-slate-800 bg-slate-950/60 focus:bg-slate-950 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 text-white placeholder-slate-500 text-sm font-medium transition-all"
+                            value={forgotEmail}
+                            onChange={(e) => setForgotEmail(e.target.value)}
+                          />
+                        </div>
+                      </div>
+
+                      <Button
+                        type="submit"
+                        disabled={isSendingReset}
+                        className="w-full py-4 text-sm font-black bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-2xl shadow-lg shadow-indigo-600/30 transition-all active:scale-[0.98]"
+                      >
+                        {isSendingReset ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : "Enviar Enlace de Recuperación"}
+                      </Button>
+
+                      <button
+                        type="button"
+                        onClick={() => setIsForgotPassword(false)}
+                        className="flex items-center justify-center gap-2 w-full py-3 text-xs font-black uppercase tracking-wider text-slate-400 hover:text-white transition-colors cursor-pointer"
+                      >
+                        <ArrowLeft className="w-3.5 h-3.5" />
+                        Cancelar y Volver
+                      </button>
+                    </form>
+                  </div>
+                )
+              ) : (
+                /* Standard Login Form */
+                <div className="space-y-6">
+                  <div className="text-center">
+                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[11px] font-bold tracking-wide mb-4">
+                      <Sparkles className="w-3 h-3" /> ZONO ENTERPRISE ERP
+                    </div>
+                    <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">Iniciar Sesión</h1>
+                    <p className="text-xs text-slate-400 font-medium mt-1">Portal Central de Administración y Operaciones</p>
+                  </div>
+
+                  {loginError && (
+                    <div className="p-3.5 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-semibold flex items-start gap-2.5 animate-in fade-in slide-in-from-top-2">
+                      <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5 text-red-400" />
+                      <span>{loginError}</span>
+                    </div>
+                  )}
+
+                  <form onSubmit={handleLogin} className="space-y-4">
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">Usuario / Correo</label>
+                      <div className="relative">
+                        <Mail className="w-5 h-5 text-slate-500 absolute left-4 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="email"
+                          required
+                          placeholder="usuario@zono.com.ar"
+                          className="w-full pl-12 pr-4 py-3.5 rounded-2xl border border-slate-800 bg-slate-950/60 focus:bg-slate-950 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 text-white placeholder-slate-600 text-sm font-medium transition-all"
+                          value={loginEmail}
+                          onChange={(e) => setLoginEmail(e.target.value)}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between items-center">
+                        <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">Contraseña</label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setForgotEmail(loginEmail);
+                            setIsForgotPassword(true);
+                          }}
+                          className="text-[10px] font-black uppercase tracking-wider text-indigo-400 hover:text-indigo-300 transition-colors"
+                        >
+                          ¿La olvidaste?
+                        </button>
+                      </div>
+                      <div className="relative">
+                        <Lock className="w-5 h-5 text-slate-500 absolute left-4 top-1/2 -translate-y-1/2" />
+                        <input
+                          type={showPassword ? "text" : "password"}
+                          required
+                          placeholder="••••••••••••"
+                          className="w-full pl-12 pr-12 py-3.5 rounded-2xl border border-slate-800 bg-slate-950/60 focus:bg-slate-950 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 text-white placeholder-slate-600 text-sm font-medium transition-all"
+                          value={loginPassword}
+                          onChange={(e) => setLoginPassword(e.target.value)}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors focus:outline-none cursor-pointer"
+                        >
+                          {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    <Button
+                      type="submit"
+                      disabled={isLoggingIn}
+                      className="w-full py-4 text-sm font-black bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-500 hover:to-indigo-500 text-white rounded-2xl shadow-xl shadow-indigo-600/25 transition-all active:scale-[0.98] mt-2 cursor-pointer"
+                    >
+                      {isLoggingIn ? (
+                        <div className="flex items-center justify-center gap-2">
+                          <Loader2 className="w-5 h-5 animate-spin" />
+                          <span>Autenticando...</span>
+                        </div>
+                      ) : (
+                        "Ingresar al Sistema"
+                      )}
+                    </Button>
+                  </form>
+
+                  {/* Modules Pills */}
+                  <div className="pt-4 border-t border-slate-800/80">
+                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-500 text-center mb-2.5">Módulos Integrados</p>
+                    <div className="flex flex-wrap items-center justify-center gap-1.5">
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-400 bg-slate-800/50 border border-slate-700/50 px-2 py-0.5 rounded-lg">
+                        <BarChart3 className="w-3 h-3 text-blue-400" /> Dashboard
+                      </span>
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-400 bg-slate-800/50 border border-slate-700/50 px-2 py-0.5 rounded-lg">
+                        <Coins className="w-3 h-3 text-emerald-400" /> Finanzas
+                      </span>
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-400 bg-slate-800/50 border border-slate-700/50 px-2 py-0.5 rounded-lg">
+                        <ShoppingCart className="w-3 h-3 text-orange-400" /> Compras
+                      </span>
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-400 bg-slate-800/50 border border-slate-700/50 px-2 py-0.5 rounded-lg">
+                        <Package className="w-3 h-3 text-indigo-400" /> Stock
+                      </span>
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-400 bg-slate-800/50 border border-slate-700/50 px-2 py-0.5 rounded-lg">
+                        <Truck className="w-3 h-3 text-cyan-400" /> Logística
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Security Guarantee Footnote */}
+            <div className="mt-6 text-center">
+              <p className="text-[11px] text-slate-400 font-medium flex items-center justify-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                Acceso restringido • Autenticación segura SSL
+              </p>
+            </div>
+          </div>
+        </main>
+
+        {/* Bottom Footer */}
+        <footer className="relative z-10 w-full max-w-6xl mx-auto px-6 py-4 text-center text-xs text-slate-400 font-medium">
+          &copy; {new Date().getFullYear()} ZONO Construcción y Hogar. Todos los derechos reservados.
+        </footer>
       </div>
     );
   }
@@ -384,14 +529,19 @@ export default function AdminLayoutWrapper({ children }: { children: React.React
   // Admin access validation
   if (!isAdmin) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
-        <div className="bg-white p-12 rounded-[3rem] shadow-2xl border border-slate-100 w-full max-w-md text-center">
-          <div className="w-16 h-16 bg-red-50 rounded-2xl flex items-center justify-center mx-auto mb-6">
-            <ShieldAlert className="w-8 h-8 text-red-600 animate-pulse" />
+      <div className="min-h-screen bg-[#070b14] text-white flex items-center justify-center p-6 relative overflow-hidden font-sans">
+        <div className="bg-slate-900/80 border border-red-500/20 backdrop-blur-xl p-10 rounded-[2.5rem] shadow-2xl w-full max-w-md text-center">
+          <div className="w-16 h-16 bg-red-500/10 border border-red-500/20 rounded-2xl flex items-center justify-center mx-auto mb-6 text-red-400">
+            <ShieldAlert className="w-8 h-8 animate-pulse" />
           </div>
-          <h1 className="text-3xl font-black text-slate-900 tracking-tighter">Acceso Denegado</h1>
-          <p className="text-slate-500 font-medium mt-2">No tienes permisos de administrador para ingresar a esta sección.</p>
-          <Button onClick={() => supabase.auth.signOut()} className="w-full mt-6 py-6 font-bold rounded-2xl bg-red-100 hover:bg-red-600 text-red-700 hover:text-white transition-all">
+          <h2 className="text-2xl font-black text-white tracking-tight">Acceso Denegado</h2>
+          <p className="text-slate-400 font-medium text-xs mt-2 leading-relaxed">
+            Tu cuenta no posee permisos de Administrador para acceder a este módulo central.
+          </p>
+          <Button
+            onClick={() => supabase.auth.signOut()}
+            className="w-full mt-6 py-4 font-black rounded-2xl bg-red-600/20 hover:bg-red-600 text-red-300 hover:text-white border border-red-500/30 transition-all cursor-pointer"
+          >
             Cerrar Sesión
           </Button>
         </div>
