@@ -179,7 +179,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     {
       title: "Catálogo y Costos",
       links: [
-        { name: "Catálogo General", href: "/admin", icon: Database, adminOnly: true },
+        { name: "Catálogo General", href: "/admin/catalogo", icon: Database, adminOnly: true },
         { name: "Control de Stock", href: "/admin/stock", icon: Package, adminOnly: true },
         { name: "Capital Estancado", href: "/admin/capital-estancado", icon: AlertTriangle, adminOnly: true },
         { name: "Proveedores (ERP)", href: "/admin/compras?tab=suppliers", icon: Users, adminOnly: true },
@@ -212,7 +212,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       }
     }
     
-    if (pathOnly === "/admin" || pathOnly === "/vendedores") {
+    if (pathOnly === "/admin/catalogo" || pathOnly === "/vendedores") {
       return cleanPathname === pathOnly;
     }
     
@@ -232,7 +232,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       }
     }
 
-    if (pathname === "/admin") return { section: "Catálogo y Costos", page: "Catálogo General" };
+    if (pathname === "/admin/catalogo") return { section: "Catálogo y Costos", page: "Catálogo General" };
     if (pathname === "/vendedores") return { section: "Consola de Control", page: "Dashboard Vendedor" };
     return { section: "Panel ERP", page: "Inicio" };
   };
