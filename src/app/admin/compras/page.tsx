@@ -1075,18 +1075,59 @@ export default function ComprasAdminPage() {
     if (error) {
       alert("Error al cargar ítems de la OC: " + error.message);
     } else if (data) {
-      const items = data.map(item => ({
-        poItemId: item.id,
-        productId: item.product_id,
-        productName: item.raw_product_name,
-        sku: item.product?.sku,
-        quantityOrdered: Number(item.quantity_ordered),
-        quantityReceivedPrior: Number(item.quantity_received),
-        quantityReceivedNew: 0,
-        unitCost: Number(item.unit_cost)
-      }));
+      const items = data.map(item => {
+        const pending = Math.max(0, Number(item.quantity_ordered) - Number(item.quantity_received));
+        return {
+          poItemId: item.id,
+          productId: item.product_id,
+          productName: item.raw_product_name,
+          sku: item.product?.sku,
+          quantityOrdered: Number(item.quantity_ordered),
+          quantityReceivedPrior: Number(item.quantity_received),
+          quantityReceivedNew: pending,
+          unitCost: Number(item.unit_cost)
+        };
+      });
       setReceptionItems(items);
     }
+  };
+
+  const handleOpenReceptionForPO = async (po: any) => {
+    setReceptionSupplierId(po.supplier_id);
+    setModalSupplierSearchText(po.supplier?.name || "");
+    setReceptionSlipNumber("");
+    setReceptionNotes(`Recepción de ${po.oc_code}`);
+    setReceptionPOId(po.id);
+    setModalOCSearchText(po.oc_code);
+    
+    const { data, error } = await supabase
+      .from('purchase_order_items')
+      .select(`
+        *,
+        product:products(id, name, sku)
+      `)
+      .eq('purchase_order_id', po.id);
+    
+    if (error) {
+      alert("Error al cargar ítems de la OC: " + error.message);
+    } else if (data) {
+      const items = data.map(item => {
+        const pending = Math.max(0, Number(item.quantity_ordered) - Number(item.quantity_received));
+        return {
+          poItemId: item.id,
+          productId: item.product_id,
+          productName: item.raw_product_name,
+          sku: item.product?.sku,
+          quantityOrdered: Number(item.quantity_ordered),
+          quantityReceivedPrior: Number(item.quantity_received),
+          quantityReceivedNew: pending,
+          unitCost: Number(item.unit_cost)
+        };
+      });
+      setReceptionItems(items);
+    }
+    
+    setShowNewReceptionModal(true);
   };
 
   const handleSaveReception = async (e: React.FormEvent) => {
@@ -4850,12 +4891,22 @@ export default function ComprasAdminPage() {
                           </td>
                           <td className="p-4 text-center" onClick={e => e.stopPropagation()}>
                             <div className="flex items-center justify-center gap-1.5">
+                              {po.status !== 'Cumplido' && po.status !== 'Cancelado' && (
+                                <button
+                                  onClick={() => handleOpenReceptionForPO(po)}
+                                  className="p-1.5 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 rounded-lg transition-all flex items-center gap-1 border border-emerald-200 shadow-sm"
+                                  title="Recibir Mercadería / Ingresar a Stock"
+                                >
+                                  <Truck className="w-3.5 h-3.5" />
+                                  <span className="text-[10px] font-black uppercase">Recibir</span>
+                                </button>
+                              )}
                               <button
                                 onClick={() => {
                                   setSelectedPO(po);
                                   fetchPoDetails(po.id);
                                 }}
-                                className="p-1 text-slate-400 hover:text-brand-600 hover:bg-slate-100 rounded-lg transition-all"
+                                className="p-1.5 text-slate-400 hover:text-brand-600 hover:bg-slate-100 rounded-lg transition-all"
                                 title="Ver Detalle Completo"
                               >
                                 <Eye className="w-4 h-4" />
@@ -4863,7 +4914,7 @@ export default function ComprasAdminPage() {
                               {po.status !== 'Cumplido' && po.status !== 'Cancelado' && (
                                 <button
                                   onClick={() => handleCancelWholePO(po.id)}
-                                  className="p-1 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-all"
+                                  className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-all"
                                   title="Cancelar Orden Completa"
                                 >
                                   <XCircle className="w-4 h-4" />
@@ -5024,14 +5075,25 @@ export default function ComprasAdminPage() {
                     </div>
 
                     {selectedPO.status !== 'Cumplido' && selectedPO.status !== 'Cancelado' && (
-                      <div className="flex justify-end pt-4 border-t border-slate-100">
+                      <div className="flex flex-col sm:flex-row justify-between items-center gap-3 pt-4 border-t border-slate-100">
+                        <Button
+                          type="button"
+                          onClick={() => {
+                            const po = selectedPO;
+                            setSelectedPO(null);
+                            handleOpenReceptionForPO(po);
+                          }}
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-xs px-5 py-2.5 flex items-center gap-1.5 shadow-md shadow-emerald-600/20"
+                        >
+                          <Truck className="w-4 h-4" /> Recibir Mercadería en Stock
+                        </Button>
                         <Button
                           type="button"
                           onClick={() => {
                             handleCancelWholePO(selectedPO.id);
                             setSelectedPO(null);
                           }}
-                          className="bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-black text-xs px-4 py-2.5"
+                          className="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl font-black text-xs px-4 py-2.5"
                         >
                           Cancelar Orden de Compra Completa
                         </Button>
