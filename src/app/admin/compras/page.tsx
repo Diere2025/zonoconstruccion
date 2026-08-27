@@ -349,6 +349,8 @@ export default function ComprasAdminPage() {
 
   // New PO Form states
   const [poSupplierId, setPoSupplierId] = useState("");
+  const [poSupplierSearchText, setPoSupplierSearchText] = useState("");
+  const [isPoSupplierDropdownOpen, setIsPoSupplierDropdownOpen] = useState(false);
   const [poCode, setPoCode] = useState("");
   const [poPaymentCondition, setPoPaymentCondition] = useState("Efectivo");
   const [poPaymentTermDays, setPoPaymentTermDays] = useState("0");
@@ -5164,8 +5166,55 @@ export default function ComprasAdminPage() {
                             </tr>
                           ))}
                         </tbody>
+                        <tfoot className="bg-slate-50 border-t-2 border-slate-200 font-black text-slate-900 text-xs">
+                          {(() => {
+                            const totOrd = poItemsDetail.reduce((acc, it) => acc + (Number(it.quantity_ordered) || 0), 0);
+                            const totRec = poItemsDetail.reduce((acc, it) => acc + (Number(it.quantity_received) || 0), 0);
+                            const totAmt = poItemsDetail.reduce((acc, it) => acc + (Number(it.subtotal) || (Number(it.quantity_ordered) * Number(it.unit_cost)) || 0), 0);
+                            return (
+                              <tr>
+                                <td className="p-3 uppercase text-slate-500">TOTALES ORDEN</td>
+                                <td className="p-3 text-right">{totOrd}</td>
+                                <td className="p-3 text-right text-brand-600">{totRec}</td>
+                                <td className="p-3 text-right text-slate-400">-</td>
+                                <td className="p-3 text-right text-slate-900 text-sm font-black">{formatPrice(totAmt)}</td>
+                                <td className="p-3 text-center text-[10px] text-slate-500">
+                                  {totRec >= totOrd && totOrd > 0 ? '100% Recibido' : `${Math.round((totRec / (totOrd || 1)) * 100)}% Recibido`}
+                                </td>
+                              </tr>
+                            );
+                          })()}
+                        </tfoot>
                       </table>
                     </div>
+
+                    {/* Resumen Valorizado de la Orden */}
+                    {(() => {
+                      const totOrd = poItemsDetail.reduce((acc, it) => acc + (Number(it.quantity_ordered) || 0), 0);
+                      const totRec = poItemsDetail.reduce((acc, it) => acc + (Number(it.quantity_received) || 0), 0);
+                      const totAmt = poItemsDetail.reduce((acc, it) => acc + (Number(it.subtotal) || (Number(it.quantity_ordered) * Number(it.unit_cost)) || 0), 0);
+                      const totRecAmt = poItemsDetail.reduce((acc, it) => acc + ((Number(it.quantity_received) || 0) * (Number(it.unit_cost) || 0)), 0);
+                      const totPendAmt = Math.max(0, totAmt - totRecAmt);
+                      return (
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 bg-slate-900 text-white rounded-2xl shadow-sm">
+                          <div>
+                            <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Valorizado Total Pedido</span>
+                            <span className="text-lg font-black text-white">{formatPrice(totAmt)}</span>
+                            <span className="text-[10px] text-slate-400 block mt-0.5">{totOrd} unidades solicitadas</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] uppercase font-bold text-emerald-400 block tracking-wider">Valorizado Recibido</span>
+                            <span className="text-lg font-black text-emerald-400">{formatPrice(totRecAmt)}</span>
+                            <span className="text-[10px] text-emerald-300/80 block mt-0.5">{totRec} unidades ingresadas</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] uppercase font-bold text-amber-400 block tracking-wider">Saldo Pendiente Valorizado</span>
+                            <span className="text-lg font-black text-amber-400">{formatPrice(totPendAmt)}</span>
+                            <span className="text-[10px] text-amber-300/80 block mt-0.5">{Math.max(0, totOrd - totRec)} unidades pendientes</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {selectedPO.status !== 'Cumplido' && selectedPO.status !== 'Cancelado' && (
                       <div className="flex flex-col sm:flex-row justify-between items-center gap-3 pt-4 border-t border-slate-100">
@@ -5227,17 +5276,62 @@ export default function ComprasAdminPage() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="space-y-1">
+                  <div className="space-y-1 relative">
                     <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Proveedor *</label>
-                    <select
-                      required
-                      value={poSupplierId}
-                      onChange={e => setPoSupplierId(e.target.value)}
-                      className="w-full px-4 py-2.5 rounded-xl border bg-slate-50 font-bold text-xs"
-                    >
-                      <option value="">-- Seleccionar --</option>
-                      {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                    </select>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        placeholder="Buscar proveedor..."
+                        value={poSupplierSearchText || (suppliers.find(s => s.id === poSupplierId)?.name || "")}
+                        onFocus={() => setIsPoSupplierDropdownOpen(true)}
+                        onChange={e => {
+                          setPoSupplierSearchText(e.target.value);
+                          setIsPoSupplierDropdownOpen(true);
+                        }}
+                        className="w-full px-3 py-2 pr-8 rounded-xl border bg-slate-50 font-bold text-xs outline-none focus:border-brand-500 focus:bg-white"
+                      />
+                      {(poSupplierId || poSupplierSearchText) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPoSupplierId("");
+                            setPoSupplierSearchText("");
+                            setIsPoSupplierDropdownOpen(false);
+                          }}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+
+                    {isPoSupplierDropdownOpen && (
+                      <>
+                        <div 
+                          className="fixed inset-0 z-20" 
+                          onClick={() => setIsPoSupplierDropdownOpen(false)} 
+                        />
+                        <div className="absolute left-0 right-0 mt-1 max-h-56 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-xl z-30 py-1 divide-y divide-slate-50">
+                          {suppliers
+                            .filter(s => !poSupplierSearchText || s.name.toLowerCase().includes(poSupplierSearchText.toLowerCase()))
+                            .map(s => (
+                              <button
+                                key={s.id}
+                                type="button"
+                                onClick={() => {
+                                  setPoSupplierId(s.id);
+                                  setPoSupplierSearchText(s.name);
+                                  setIsPoSupplierDropdownOpen(false);
+                                }}
+                                className="w-full text-left px-3 py-2 text-xs font-bold hover:bg-brand-50 hover:text-brand-700 text-slate-700 transition-colors flex items-center justify-between cursor-pointer"
+                              >
+                                <span>{s.name}</span>
+                                {poSupplierId === s.id && <span className="text-brand-600 font-bold">✓</span>}
+                              </button>
+                            ))}
+                        </div>
+                      </>
+                    )}
                   </div>
 
                   <div className="space-y-1">
@@ -5343,12 +5437,19 @@ export default function ComprasAdminPage() {
                               
                               const filtered = products
                                 .filter(p => {
-                                  // First filter by supplier products
-                                  if (!supplierProductIds.includes(p.id)) return false;
+                                  const pName = p.name || '';
+                                  const pSku = p.sku || '';
+                                  // Exclude deprecated, internal or inactive items
+                                  const anyP = p as any;
+                                  if (pName.includes('_OLD') || pSku.includes('_OLD') || pName.startsWith('[Interno]') || anyP.is_discontinued || anyP.is_active === false) {
+                                    return false;
+                                  }
+                                  // Filter by supplier products if relations exist
+                                  if (supplierProductIds.length > 0 && !supplierProductIds.includes(p.id)) return false;
                                   // Then filter by text search query
                                   if (poProductSearchText) {
                                     const search = poProductSearchText.toLowerCase();
-                                    return p.name.toLowerCase().includes(search) || (p.sku && p.sku.toLowerCase().includes(search));
+                                    return pName.toLowerCase().includes(search) || pSku.toLowerCase().includes(search);
                                   }
                                   return true;
                                 });
