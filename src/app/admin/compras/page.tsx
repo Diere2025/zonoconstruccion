@@ -370,6 +370,7 @@ export default function ComprasAdminPage() {
   const [receptionPOId, setReceptionPOId] = useState("");
   const [receptionNotes, setReceptionNotes] = useState("");
   const [receptionItems, setReceptionItems] = useState<any[]>([]); // { poItemId, productId, productName, quantityOrdered, quantityReceivedPrior, quantityReceivedNew, unitCost }
+  const [receptionUpdateStock, setReceptionUpdateStock] = useState(false);
 
   // Importer States
   const [importType, setImportType] = useState<'ocs' | 'detalle_ocs' | 'recepciones' | 'conciliacion_unificada'>('conciliacion_unificada');
@@ -1130,6 +1131,47 @@ export default function ComprasAdminPage() {
     setShowNewReceptionModal(true);
   };
 
+  const handleFulfillPOWithoutStock = async (poId: string, ocCode: string) => {
+    if (!confirm(`¿Marcar la orden ${ocCode} como cumplida/recibida SIN modificar el stock físico (ya que fue impactado externamente o en planilla)?`)) {
+      return;
+    }
+
+    try {
+      // 1. Fetch items of the PO
+      const { data: items, error: itemsErr } = await supabase
+        .from('purchase_order_items')
+        .select('id, quantity_ordered')
+        .eq('purchase_order_id', poId);
+
+      if (itemsErr) throw itemsErr;
+
+      // 2. Update each item to quantity_received = quantity_ordered, status = 'Cumplido'
+      for (const it of (items || [])) {
+        await supabase
+          .from('purchase_order_items')
+          .update({
+            quantity_received: it.quantity_ordered,
+            status: 'Cumplido'
+          })
+          .eq('id', it.id);
+      }
+
+      // 3. Update PO status to 'Cumplido'
+      const { error: poErr } = await supabase
+        .from('purchase_orders')
+        .update({ status: 'Cumplido' })
+        .eq('id', poId);
+
+      if (poErr) throw poErr;
+
+      alert(`Orden de Compra ${ocCode} marcada como cumplida con éxito (sin alterar stock físico).`);
+      loadAllData(true);
+    } catch (err: any) {
+      console.error("Error fulfilling PO:", err);
+      alert("Error al marcar la orden como cumplida: " + err.message);
+    }
+  };
+
   const handleSaveReception = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!receptionSupplierId) {
@@ -1145,8 +1187,13 @@ export default function ComprasAdminPage() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       const currentUserId = user?.id;
+      const activeItems = receptionItems.filter(i => i.quantityReceivedNew > 0);
 
       // 1. Create Purchase Reception
+      const receptionNoteFinal = receptionUpdateStock 
+        ? (receptionNotes || null)
+        : ((receptionNotes ? receptionNotes + ' - ' : '') + '[Recepción administrativa sin impacto en stock]');
+
       const { data: newRec, error: recErr } = await supabase
         .from('purchase_receptions')
         .insert({
@@ -1154,7 +1201,7 @@ export default function ComprasAdminPage() {
           supplier_id: receptionSupplierId,
           delivery_slip_number: receptionSlipNumber || null,
           purchase_order_id: receptionPOId || null,
-          notes: receptionNotes || null,
+          notes: receptionNoteFinal,
           created_by: currentUserId
         })
         .select()
@@ -1162,21 +1209,54 @@ export default function ComprasAdminPage() {
 
       if (recErr) throw recErr;
 
-      // 2. Insert Reception Items
-      const activeItems = receptionItems.filter(i => i.quantityReceivedNew > 0);
-      const itemsPayload = activeItems.map(item => ({
-        purchase_reception_id: newRec.id,
-        purchase_order_item_id: item.poItemId || null,
-        product_id: item.productId,
-        quantity_received: item.quantityReceivedNew,
-        unit_cost: item.unitCost
-      }));
+      if (receptionUpdateStock) {
+        // Option A: Normal stock update via reception items trigger
+        const itemsPayload = activeItems.map(item => ({
+          purchase_reception_id: newRec.id,
+          purchase_order_item_id: item.poItemId || null,
+          product_id: item.productId,
+          quantity_received: item.quantityReceivedNew,
+          unit_cost: item.unitCost
+        }));
 
-      const { error: itemsErr } = await supabase
-        .from('purchase_reception_items')
-        .insert(itemsPayload);
+        const { error: itemsErr } = await supabase
+          .from('purchase_reception_items')
+          .insert(itemsPayload);
 
-      if (itemsErr) throw itemsErr;
+        if (itemsErr) throw itemsErr;
+      } else {
+        // Option B: Direct PO items and PO status update without altering stock_physical
+        for (const item of activeItems) {
+          if (item.poItemId) {
+            const newRecTotal = (item.quantityReceivedPrior || 0) + item.quantityReceivedNew;
+            const isComplete = newRecTotal >= item.quantityOrdered;
+            await supabase
+              .from('purchase_order_items')
+              .update({
+                quantity_received: newRecTotal,
+                status: isComplete ? 'Cumplido' : 'Parcial'
+              })
+              .eq('id', item.poItemId);
+          }
+        }
+
+        if (receptionPOId) {
+          const { data: allPoItems } = await supabase
+            .from('purchase_order_items')
+            .select('quantity_ordered, quantity_received')
+            .eq('purchase_order_id', receptionPOId);
+
+          const allDone = allPoItems && allPoItems.every(i => Number(i.quantity_received) >= Number(i.quantity_ordered));
+          const hasAny = allPoItems && allPoItems.some(i => Number(i.quantity_received) > 0);
+
+          await supabase
+            .from('purchase_orders')
+            .update({
+              status: allDone ? 'Cumplido' : (hasAny ? 'Parcial' : 'Pendiente')
+            })
+            .eq('id', receptionPOId);
+        }
+      }
 
       // 3. Create Account Payable (supplier_purchases) to integrate with Cash/Finance
       const totalAmount = activeItems.reduce((acc, i) => acc + (i.quantityReceivedNew * i.unitCost), 0);
@@ -1196,7 +1276,10 @@ export default function ComprasAdminPage() {
 
       if (invoiceErr) console.error("Error creating financial accounts payable record:", invoiceErr);
 
-      alert("Documento de Recepción registrado con éxito! El stock ha sido actualizado.");
+      alert(receptionUpdateStock 
+        ? "Documento de Recepción registrado con éxito! El stock físico ha sido incrementado."
+        : "Documento de Recepción registrado con éxito (sin alterar el stock físico ya que fue impactado externamente)."
+      );
       setShowNewReceptionModal(false);
       setReceptionSupplierId("");
       setReceptionSlipNumber("");
@@ -4892,14 +4975,24 @@ export default function ComprasAdminPage() {
                           <td className="p-4 text-center" onClick={e => e.stopPropagation()}>
                             <div className="flex items-center justify-center gap-1.5">
                               {po.status !== 'Cumplido' && po.status !== 'Cancelado' && (
-                                <button
-                                  onClick={() => handleOpenReceptionForPO(po)}
-                                  className="p-1.5 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 rounded-lg transition-all flex items-center gap-1 border border-emerald-200 shadow-sm"
-                                  title="Recibir Mercadería / Ingresar a Stock"
-                                >
-                                  <Truck className="w-3.5 h-3.5" />
-                                  <span className="text-[10px] font-black uppercase">Recibir</span>
-                                </button>
+                                <>
+                                  <button
+                                    onClick={() => handleFulfillPOWithoutStock(po.id, po.oc_code)}
+                                    className="p-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition-all flex items-center gap-1 border border-blue-200 shadow-sm"
+                                    title="Marcar como Cumplida / Ya recibida por fuera (Sin tocar stock)"
+                                  >
+                                    <CheckCircle2 className="w-3.5 h-3.5" />
+                                    <span className="text-[10px] font-black uppercase">Cumplir (Sin Stock)</span>
+                                  </button>
+                                  <button
+                                    onClick={() => handleOpenReceptionForPO(po)}
+                                    className="p-1.5 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 rounded-lg transition-all flex items-center gap-1 border border-emerald-200 shadow-sm"
+                                    title="Recibir Mercadería con Remito"
+                                  >
+                                    <Truck className="w-3.5 h-3.5" />
+                                    <span className="text-[10px] font-black uppercase">Recibir</span>
+                                  </button>
+                                </>
                               )}
                               <button
                                 onClick={() => {
@@ -5076,17 +5169,31 @@ export default function ComprasAdminPage() {
 
                     {selectedPO.status !== 'Cumplido' && selectedPO.status !== 'Cancelado' && (
                       <div className="flex flex-col sm:flex-row justify-between items-center gap-3 pt-4 border-t border-slate-100">
-                        <Button
-                          type="button"
-                          onClick={() => {
-                            const po = selectedPO;
-                            setSelectedPO(null);
-                            handleOpenReceptionForPO(po);
-                          }}
-                          className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-xs px-5 py-2.5 flex items-center gap-1.5 shadow-md shadow-emerald-600/20"
-                        >
-                          <Truck className="w-4 h-4" /> Recibir Mercadería en Stock
-                        </Button>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Button
+                            type="button"
+                            onClick={() => {
+                              const poId = selectedPO.id;
+                              const ocCode = selectedPO.oc_code;
+                              setSelectedPO(null);
+                              handleFulfillPOWithoutStock(poId, ocCode);
+                            }}
+                            className="bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl font-black text-xs px-4 py-2.5 flex items-center gap-1.5"
+                          >
+                            <CheckCircle2 className="w-4 h-4" /> Cumplir (Sin Stock)
+                          </Button>
+                          <Button
+                            type="button"
+                            onClick={() => {
+                              const po = selectedPO;
+                              setSelectedPO(null);
+                              handleOpenReceptionForPO(po);
+                            }}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-xs px-4 py-2.5 flex items-center gap-1.5 shadow-md shadow-emerald-600/20"
+                          >
+                            <Truck className="w-4 h-4" /> Recibir con Remito
+                          </Button>
+                        </div>
                         <Button
                           type="button"
                           onClick={() => {
@@ -5095,7 +5202,7 @@ export default function ComprasAdminPage() {
                           }}
                           className="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl font-black text-xs px-4 py-2.5"
                         >
-                          Cancelar Orden de Compra Completa
+                          Cancelar Orden
                         </Button>
                       </div>
                     )}
@@ -5830,6 +5937,32 @@ export default function ComprasAdminPage() {
                       className="w-full px-4 py-2.5 rounded-xl border bg-slate-50 font-bold text-xs"
                     />
                   </div>
+                </div>
+
+                {/* Switch / Checkbox de Impacto en Stock */}
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-3.5 bg-slate-50 border border-slate-200/80 rounded-2xl gap-3">
+                  <div className="flex items-start sm:items-center gap-3">
+                    <input
+                      type="checkbox"
+                      id="updateStockCheck"
+                      checked={receptionUpdateStock}
+                      onChange={(e) => setReceptionUpdateStock(e.target.checked)}
+                      className="w-4 h-4 mt-0.5 sm:mt-0 rounded text-brand-600 focus:ring-brand-500 border-slate-300 cursor-pointer"
+                    />
+                    <label htmlFor="updateStockCheck" className="text-xs font-bold text-slate-800 cursor-pointer select-none">
+                      Impactar incremento en Stock Físico del Depósito
+                      <span className="block text-[11px] text-slate-500 font-normal mt-0.5">
+                        {receptionUpdateStock 
+                          ? "✅ Se sumará la cantidad recibida al stock físico de cada producto." 
+                          : "⚠️ Desmarcado: La mercadería ya fue impactada en planillas o externamente. No se sumará al stock físico para evitar duplicaciones."}
+                      </span>
+                    </label>
+                  </div>
+                  <span className={`text-[10px] font-black px-2.5 py-1 rounded-full border shrink-0 ${
+                    receptionUpdateStock ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'
+                  }`}>
+                    {receptionUpdateStock ? 'Afecta Stock' : 'Sin Tocar Stock'}
+                  </span>
                 </div>
 
                 <div className="border-t pt-4 space-y-4">
