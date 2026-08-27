@@ -21,7 +21,8 @@ import {
   X,
   Lock,
   Edit2,
-  FileText
+  FileText,
+  Calendar
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { formatPrice, formatDateDDMMYYYY } from "@/lib/utils";
@@ -253,6 +254,68 @@ interface SupplierBalanceItem {
   total_purchases_usd: number;
   total_payments_usd: number;
   balance_usd: number;
+}
+
+function DateInput({
+  label,
+  value,
+  onChange,
+  required,
+  className
+}: {
+  label?: string;
+  value: string;
+  onChange: (val: string) => void;
+  required?: boolean;
+  className?: string;
+}) {
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  const displayValue = React.useMemo(() => {
+    if (!value) return "DD/MM/AAAA";
+    const parts = value.split("-");
+    if (parts.length === 3) {
+      return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    }
+    return value;
+  }, [value]);
+
+  return (
+    <div className="space-y-1">
+      {label && (
+        <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none">
+          {label}
+        </label>
+      )}
+      <div 
+        onClick={() => {
+          if (inputRef.current) {
+            try {
+              if (typeof (inputRef.current as any).showPicker === 'function') {
+                (inputRef.current as any).showPicker();
+              } else {
+                inputRef.current.focus();
+              }
+            } catch {
+              inputRef.current.focus();
+            }
+          }
+        }}
+        className={className || "relative flex items-center justify-between px-3 py-1.5 rounded-xl border border-slate-200 font-bold text-xs bg-slate-50 text-slate-700 cursor-pointer hover:bg-white hover:border-slate-300 transition-colors"}
+      >
+        <span className="tabular-nums select-none">{displayValue}</span>
+        <Calendar className="w-3.5 h-3.5 text-slate-400 ml-2 pointer-events-none shrink-0" />
+        <input
+          ref={inputRef}
+          type="date"
+          required={required}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+        />
+      </div>
+    </div>
+  );
 }
 
 export default function AdminFinanzasPage() {
@@ -1828,25 +1891,17 @@ export default function AdminFinanzasPage() {
                   </div>
                 </div>
 
-                <div className="space-y-1">
-                  <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none">Desde</label>
-                  <input 
-                    type="date"
-                    value={startDate}
-                    onChange={e => { setStartDate(e.target.value); setPresetRange("personalizado"); setCurrentPage(1); }}
-                    className="px-3 py-1.5 rounded-xl border border-slate-200 font-bold text-xs bg-slate-50 text-slate-700 focus:outline-none"
-                  />
-                </div>
+                <DateInput
+                  label="Desde"
+                  value={startDate}
+                  onChange={val => { setStartDate(val); setPresetRange("personalizado"); setCurrentPage(1); }}
+                />
 
-                <div className="space-y-1">
-                  <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none">Hasta</label>
-                  <input 
-                    type="date"
-                    value={endDate}
-                    onChange={e => { setEndDate(e.target.value); setPresetRange("personalizado"); setCurrentPage(1); }}
-                    className="px-3 py-1.5 rounded-xl border border-slate-200 font-bold text-xs bg-slate-50 text-slate-700 focus:outline-none"
-                  />
-                </div>
+                <DateInput
+                  label="Hasta"
+                  value={endDate}
+                  onChange={val => { setEndDate(val); setPresetRange("personalizado"); setCurrentPage(1); }}
+                />
 
                 <button
                   onClick={loadTransactions}
@@ -2806,16 +2861,13 @@ export default function AdminFinanzasPage() {
                 />
               </div>
 
-              <div className="space-y-1">
-                <label className="text-[9px] font-black uppercase text-slate-400">Fecha del Movimiento *</label>
-                <input
-                  type="date"
-                  required
-                  value={txCreatedAt}
-                  onChange={e => setTxCreatedAt(e.target.value)}
-                  className="w-full px-3 py-1.5 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
-                />
-              </div>
+              <DateInput
+                label="Fecha del Movimiento *"
+                required
+                value={txCreatedAt}
+                onChange={val => setTxCreatedAt(val)}
+                className="w-full px-3 py-1.5 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
+              />
 
               <div className="space-y-1">
                 <label className="text-[9px] font-black uppercase text-slate-400">Observaciones</label>

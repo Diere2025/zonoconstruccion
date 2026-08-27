@@ -68,7 +68,7 @@ export async function GET(request: Request) {
 
       let allData: any[] = [];
       let page = 0;
-      const pageSize = 2000;
+      const pageSize = 1000;
       let hasMore = true;
 
       while (hasMore) {
