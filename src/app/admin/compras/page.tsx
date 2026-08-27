@@ -2208,6 +2208,15 @@ export default function ComprasAdminPage() {
           totalQtySold = salesMap[p.id];
         }
 
+        // Demanda derivada: los tachos y cisternas de 1000L absorben la demanda de los Biodigestores y Cámaras de 1000L fabricados
+        if ((normPName.includes('tacho') || normPName.includes('cisterna')) && normPName.includes('1000')) {
+          for (const [sNorm, sQty] of Object.entries(salesNormalizedMap)) {
+            if ((sNorm.includes('biodigestor') || sNorm.includes('septica') || sNorm.includes('camara')) && sNorm.includes('1000')) {
+              totalQtySold += sQty;
+            }
+          }
+        }
+
         // Do not include products with 0 sales in the analyzed period
         if (totalQtySold <= 0) return;
 
