@@ -8,8 +8,8 @@ import Script from "next/script";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Zono Construcción y Hogar | Catálogo Premium",
-  description: "Especialistas en tanques de agua, impermeabilización y soluciones integrales para el hogar.",
+  title: "ZONO ERP | Sistema Integral de Gestión",
+  description: "Plataforma Integral de Gestión y Administración Zono.",
 };
 
 export default function RootLayout({
