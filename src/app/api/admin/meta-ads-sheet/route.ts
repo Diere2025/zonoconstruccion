@@ -74,6 +74,32 @@ function parseDDMMYYYY(dateStr: string): Date | null {
   return null;
 }
 
+function categorizeCampaign(campaign: string): string {
+  const lower = campaign.toLowerCase();
+  if (lower.includes('termo') || lower.includes('cooper') || lower.includes('universal')) {
+    return 'Termotanques';
+  }
+  if (lower.includes('tanque') || lower.includes('aquafort') || lower.includes('rotoplas') || lower.includes('tricapa')) {
+    return 'Tanques';
+  }
+  if (lower.includes('biofort') || lower.includes('biodigestor') || lower.includes('bio auto') || lower.includes('bios')) {
+    return 'Biodigestores';
+  }
+  if (lower.includes('meps') || lower.includes('equilibrio')) {
+    return 'MEPS';
+  }
+  if (lower.includes('ingletadora') || lower.includes('daewoo') || lower.includes('herramienta') || lower.includes('escalera') || lower.includes('omaha') || lower.includes('gl16') || lower.includes('cargador') || lower.includes('cat')) {
+    return 'Herramientas';
+  }
+  if (lower.includes('calefactor') || lower.includes('sirena') || lower.includes('flowater') || lower.includes('sillón') || lower.includes('sillon') || lower.includes('colombraro')) {
+    return 'Hogar';
+  }
+  if (lower.includes('latex') || lower.includes('látex')) {
+    return 'Pinturas';
+  }
+  return 'Otros';
+}
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -228,14 +254,8 @@ export async function GET(request: Request) {
         const lineMatch = campaign.match(/\[(\d+)\]/);
         const phoneLine = lineMatch ? lineMatch[1] : '';
 
-        // Extract category
-        let category = 'Otros';
-        const lowerCamp = campaign.toLowerCase();
-        if (lowerCamp.includes('tanque')) category = 'Tanques';
-        else if (lowerCamp.includes('termo')) category = 'Termotanques';
-        else if (lowerCamp.includes('biofort') || lowerCamp.includes('biodigestor')) category = 'Biodigestores';
-        else if (lowerCamp.includes('meps')) category = 'MEPS';
-        else if (lowerCamp.includes('ingletadora') || lowerCamp.includes('daewoo')) category = 'Herramientas';
+        // Extract category using accurate categorization logic
+        const category = categorizeCampaign(campaign);
 
         parsedHistory.push({
           date: dateStr,
@@ -266,27 +286,46 @@ export async function GET(request: Request) {
       // Sort chronological descending
       parsedHistory.sort((a, b) => new Date(b.dateObj).getTime() - new Date(a.dateObj).getTime());
 
-      // Query ERP Orders for the same period to calculate real ROAS and CAC
-      let erpRevenueArs = 0;
-      let erpOrdersCount = 0;
+      // Query ERP Orders for the same period with full pagination (no 1000 limit)
+      let erpOrders: any[] = [];
+      let page = 0;
+      const pageSize = 1000;
+      let hasMore = true;
 
       try {
-        let ordersQuery = supabaseAdmin
-          .from('orders')
-          .select('total_amount, status, order_date')
-          .neq('status', 'Cancelado');
+        while (hasMore) {
+          let ordersQuery = supabaseAdmin
+            .from('orders')
+            .select('total_amount, status, order_date')
+            .neq('status', 'Cancelado');
 
-        if (dateFrom) ordersQuery = ordersQuery.gte('order_date', dateFrom);
-        if (dateTo) ordersQuery = ordersQuery.lte('order_date', dateTo);
+          if (dateFrom) ordersQuery = ordersQuery.gte('order_date', dateFrom);
+          if (dateTo) ordersQuery = ordersQuery.lte('order_date', dateTo);
 
-        const { data: erpOrders } = await ordersQuery;
-        if (erpOrders) {
-          erpOrdersCount = erpOrders.length;
-          erpRevenueArs = erpOrders.reduce((acc, o) => acc + (Number(o.total_amount) || 0), 0);
+          const { data, error } = await ordersQuery.range(page * pageSize, (page + 1) * pageSize - 1);
+
+          if (error) {
+            console.error('Error fetching ERP orders for ROAS:', error);
+            break;
+          }
+
+          if (data && data.length > 0) {
+            erpOrders = [...erpOrders, ...data];
+            if (data.length < pageSize) {
+              hasMore = false;
+            } else {
+              page++;
+            }
+          } else {
+            hasMore = false;
+          }
         }
       } catch (err) {
         console.error('Error fetching ERP orders for ROAS:', err);
       }
+
+      const erpOrdersCount = erpOrders.length;
+      const erpRevenueArs = erpOrders.reduce((acc, o) => acc + (Number(o.total_amount) || 0), 0);
 
       const totalInvestmentArs = totalSpendArs + totalFeeArs;
       const roas = totalInvestmentArs > 0 ? (erpRevenueArs / totalInvestmentArs) : 0;

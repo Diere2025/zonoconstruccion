@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { 
   Megaphone, 
   RefreshCw, 
@@ -72,6 +72,98 @@ interface HistoryRecord {
   cprArs: number;
 }
 
+function DateInput({
+  value,
+  onChange,
+  className
+}: {
+  value: string;
+  onChange: (val: string) => void;
+  className?: string;
+}) {
+  const [typedValue, setTypedValue] = useState("");
+  const nativePickerRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (value) {
+      const parts = value.split("-");
+      if (parts.length === 3) {
+        setTypedValue(`${parts[2]}/${parts[1]}/${parts[0]}`);
+      } else {
+        setTypedValue(value);
+      }
+    } else {
+      setTypedValue("");
+    }
+  }, [value]);
+
+  const handleTextChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let input = e.target.value;
+    input = input.replace(/[^0-9/]/g, "");
+
+    if (input.length === 2 && !input.includes("/")) {
+      input += "/";
+    } else if (input.length === 5 && input.split("/").length === 2) {
+      input += "/";
+    }
+
+    if (input.length > 10) {
+      input = input.substring(0, 10);
+    }
+
+    setTypedValue(input);
+
+    const parts = input.split("/");
+    if (parts.length === 3 && parts[0].length === 2 && parts[1].length === 2 && parts[2].length === 4) {
+      const yyyy = parts[2];
+      const mm = parts[1];
+      const dd = parts[0];
+      onChange(`${yyyy}-${mm}-${dd}`);
+    }
+  };
+
+  const handleBlur = () => {
+    const parts = typedValue.split("/");
+    if (parts.length !== 3 || parts[0].length !== 2 || parts[1].length !== 2 || parts[2].length !== 4) {
+      if (value) {
+        const vParts = value.split("-");
+        setTypedValue(`${vParts[2]}/${vParts[1]}/${vParts[0]}`);
+      } else {
+        setTypedValue("");
+      }
+    }
+  };
+
+  return (
+    <div className="relative flex items-center">
+      <input
+        type="text"
+        placeholder="DD/MM/AAAA"
+        value={typedValue}
+        onChange={handleTextChange}
+        onBlur={handleBlur}
+        className={`w-32 py-1.5 pl-3 pr-8 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 text-center focus:outline-none focus:ring-2 focus:ring-indigo-500 ${className || ''}`}
+      />
+      <button
+        type="button"
+        onClick={() => nativePickerRef.current?.showPicker?.()}
+        className="absolute right-2 text-slate-400 hover:text-slate-600 cursor-pointer"
+        tabIndex={-1}
+      >
+        <Calendar className="w-3.5 h-3.5" />
+      </button>
+      <input
+        type="date"
+        ref={nativePickerRef}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="sr-only"
+        tabIndex={-1}
+      />
+    </div>
+  );
+}
+
 export default function MetaAdsPage() {
   const [activeTab, setActiveTab] = useState<'live' | 'history'>('live');
   const [loading, setLoading] = useState(true);
@@ -87,7 +179,7 @@ export default function MetaAdsPage() {
   // History Data State
   const [historySummary, setHistorySummary] = useState<any>(null);
   const [historyRecords, setHistoryRecords] = useState<HistoryRecord[]>([]);
-  const [presetPeriod, setPresetPeriod] = useState<string>("30d");
+  const [presetPeriod, setPresetPeriod] = useState<string>("this_month");
   const [dateFrom, setDateFrom] = useState<string>("");
   const [dateTo, setDateTo] = useState<string>("");
   const [historySearchQuery, setHistorySearchQuery] = useState("");
@@ -113,8 +205,9 @@ export default function MetaAdsPage() {
       setDateFrom(d.toISOString().split('T')[0]);
       setDateTo(endStr);
     } else if (preset === 'this_month') {
-      const d = new Date(today.getFullYear(), today.getMonth(), 1);
-      setDateFrom(d.toISOString().split('T')[0]);
+      const yyyy = today.getFullYear();
+      const mm = String(today.getMonth() + 1).padStart(2, '0');
+      setDateFrom(`${yyyy}-${mm}-01`);
       setDateTo(endStr);
     } else if (preset === 'last_month') {
       const d1 = new Date(today.getFullYear(), today.getMonth() - 1, 1);
@@ -124,9 +217,9 @@ export default function MetaAdsPage() {
     }
   };
 
-  // Initialize dates
+  // Initialize dates with "Este Mes"
   useEffect(() => {
-    handlePresetChange('30d');
+    handlePresetChange('this_month');
   }, []);
 
   // Fetch Live Data
@@ -559,11 +652,11 @@ export default function MetaAdsPage() {
               <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="flex flex-wrap items-center gap-2">
                   {[
-                    { id: 'today', label: 'Hoy' },
-                    { id: '7d', label: 'Últimos 7 días' },
-                    { id: '30d', label: 'Últimos 30 días' },
                     { id: 'this_month', label: 'Este Mes' },
-                    { id: 'last_month', label: 'Mes Anterior' }
+                    { id: 'last_month', label: 'Mes Anterior' },
+                    { id: '30d', label: 'Últimos 30 días' },
+                    { id: '7d', label: 'Últimos 7 días' },
+                    { id: 'today', label: 'Hoy' }
                   ].map(p => (
                     <button
                       key={p.id}
@@ -580,25 +673,20 @@ export default function MetaAdsPage() {
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <Calendar className="w-4 h-4 text-slate-400" />
-                  <input
-                    type="date"
+                  <DateInput
                     value={dateFrom}
-                    onChange={e => {
+                    onChange={val => {
                       setPresetPeriod('custom');
-                      setDateFrom(e.target.value);
+                      setDateFrom(val);
                     }}
-                    className="py-1.5 px-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold"
                   />
                   <span className="text-slate-400 font-bold text-xs">a</span>
-                  <input
-                    type="date"
+                  <DateInput
                     value={dateTo}
-                    onChange={e => {
+                    onChange={val => {
                       setPresetPeriod('custom');
-                      setDateTo(e.target.value);
+                      setDateTo(val);
                     }}
-                    className="py-1.5 px-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold"
                   />
                 </div>
               </div>
