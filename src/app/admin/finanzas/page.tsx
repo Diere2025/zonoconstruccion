@@ -552,41 +552,58 @@ export default function AdminFinanzasPage() {
         { id: bancosSpreadsheetId, sheet: 'Inversiones', name: 'Inversiones', colName: 'Saldo' }
       ];
 
+      // Helper to fetch Google Sheets CSV via Next.js server-side proxy (bypasses browser CORS / network restrictions)
+      const fetchSheetCsv = async (url: string): Promise<string> => {
+        const proxyUrl = `/api/admin/finanzas-data?action=fetch-sheet&url=${encodeURIComponent(url)}`;
+        const res = await fetch(proxyUrl);
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || `Error al conectar con la planilla (${res.status})`);
+        }
+        const json = await res.json();
+        if (!json.success || typeof json.csv !== 'string') {
+          throw new Error(json.error || "No se recibieron datos de la planilla");
+        }
+        return json.csv;
+      };
+
       // 2. Fetch expected balances
       setSyncProgress("Obteniendo saldos finales esperados desde las cuentas...");
       const expectedBalances: Record<string, number> = {};
       
       for (const t of balanceTargets) {
-        const url = `https://docs.google.com/spreadsheets/d/${t.id}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(t.sheet)}`;
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`Error al conectar con la planilla [${t.sheet}]`);
-        const csvText = await response.text();
-        const rows = parseCSV(csvText);
-        
-        let headerIdx = -1;
-        for (let i = 0; i < Math.min(10, rows.length); i++) {
-          if (rows[i].includes(t.colName)) {
-            headerIdx = i;
-            break;
-          }
-        }
-        if (headerIdx === -1) continue;
-        
-        const headers = rows[headerIdx];
-        const saldoIdx = headers.indexOf(t.colName);
-        
-        let lastBalance = 0;
-        for (let i = rows.length - 1; i > headerIdx; i--) {
-          const row = rows[i];
-          if (row.length > saldoIdx && row[saldoIdx]) {
-            const val = parseSpanishFloat(row[saldoIdx]);
-            if (val !== 0) {
-              lastBalance = val;
+        try {
+          const url = `https://docs.google.com/spreadsheets/d/${t.id}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(t.sheet)}`;
+          const csvText = await fetchSheetCsv(url);
+          const rows = parseCSV(csvText);
+          
+          let headerIdx = -1;
+          for (let i = 0; i < Math.min(10, rows.length); i++) {
+            if (rows[i].includes(t.colName)) {
+              headerIdx = i;
               break;
             }
           }
+          if (headerIdx === -1) continue;
+          
+          const headers = rows[headerIdx];
+          const saldoIdx = headers.indexOf(t.colName);
+          
+          let lastBalance = 0;
+          for (let i = rows.length - 1; i > headerIdx; i--) {
+            const row = rows[i];
+            if (row.length > saldoIdx && row[saldoIdx]) {
+              const val = parseSpanishFloat(row[saldoIdx]);
+              if (val !== 0) {
+                lastBalance = val;
+                break;
+              }
+            }
+          }
+          expectedBalances[t.name] = lastBalance;
+        } catch (errBal: any) {
+          console.warn(`[Finanzas Sync] No se pudo leer saldo de [${t.sheet}]: ${errBal.message}`);
         }
-        expectedBalances[t.name] = lastBalance;
       }
 
       const expectedDbBalances: Record<string, number> = {
@@ -635,9 +652,7 @@ export default function AdminFinanzasPage() {
       // 5. Download and Parse Finanzas tab (ARS Transactions)
       setSyncProgress("Descargando movimientos en Pesos (ARS)...");
       const finanzasUrl = `https://docs.google.com/spreadsheets/d/${finanzasSpreadsheetId}/gviz/tq?tqx=out:csv&sheet=Finanzas`;
-      const finanzasResponse = await fetch(finanzasUrl);
-      if (!finanzasResponse.ok) throw new Error("No se pudo descargar la pestaña de Finanzas ARS.");
-      const finanzasCSV = await finanzasResponse.text();
+      const finanzasCSV = await fetchSheetCsv(finanzasUrl);
       const finanzasRows = parseCSV(finanzasCSV);
 
       // Group ARS transactions by DB Account Name
@@ -729,9 +744,7 @@ export default function AdminFinanzasPage() {
       // 7. Download and Parse Caja USD
       setSyncProgress("Descargando movimientos en Dólares (USD)...");
       const usdUrl = `https://docs.google.com/spreadsheets/d/${movimientosSpreadsheetId}/gviz/tq?tqx=out:csv&sheet=Caja%20USD`;
-      const usdResponse = await fetch(usdUrl);
-      if (!usdResponse.ok) throw new Error("No se pudo descargar la pestaña de Caja USD.");
-      const usdCSV = await usdResponse.text();
+      const usdCSV = await fetchSheetCsv(usdUrl);
       const usdRows = parseCSV(usdCSV);
 
       const usdAccountId = dbAccountsMap['Caja Efectivo Dólares']?.id;

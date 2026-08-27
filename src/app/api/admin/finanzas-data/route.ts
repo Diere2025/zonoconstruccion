@@ -299,6 +299,27 @@ export async function GET(request: Request) {
       return NextResponse.json({ validationOrders: filtered });
     }
 
+    if (action === 'fetch-sheet') {
+      const sheetUrl = searchParams.get('url');
+      if (!sheetUrl) {
+        return NextResponse.json({ error: 'URL requerida' }, { status: 400 });
+      }
+
+      const res = await fetch(sheetUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        },
+        cache: 'no-store'
+      });
+
+      if (!res.ok) {
+        return NextResponse.json({ error: `Error ${res.status} al conectar con Google Sheets` }, { status: res.status });
+      }
+
+      const csv = await res.text();
+      return NextResponse.json({ success: true, csv });
+    }
+
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
 
   } catch (error: any) {
