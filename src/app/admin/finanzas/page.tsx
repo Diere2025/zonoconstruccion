@@ -166,9 +166,9 @@ interface CashTransactionWithRelations {
   }>;
 }
 
-const finanzasSpreadsheetId = '1cTl_aRmR1Hk9YOuzxl8CU0fMxJnaE6wACv7gqa_6GV0';
-const movimientosSpreadsheetId = '12OEQtYGyjFLTgnr0I4b8oXnH2qymv6rrQuby9_-ssRY';
-const bancosSpreadsheetId = '1a9K_QfRzFNlbcmMdyPgPQE7ExG-6nBtNvRx-K6JSnMg';
+const finanzasSpreadsheetId = '18oydLaQldev9pY7fA_jvN9YQONfDRVjrMD-ps7F6izc';
+const movimientosSpreadsheetId = '18oydLaQldev9pY7fA_jvN9YQONfDRVjrMD-ps7F6izc';
+const bancosSpreadsheetId = '18oydLaQldev9pY7fA_jvN9YQONfDRVjrMD-ps7F6izc';
 
 function parseCSV(content: string): string[][] {
   const rows: string[][] = [];
@@ -539,17 +539,17 @@ export default function AdminFinanzasPage() {
       };
 
       const balanceTargets = [
-        { id: movimientosSpreadsheetId, sheet: 'Caja', name: 'Caja.EfectivoPesos', colName: 'Saldo' },
-        { id: movimientosSpreadsheetId, sheet: 'Caja USD', name: 'Caja.USD', colName: 'Saldo' },
-        { id: bancosSpreadsheetId, sheet: 'MercadoPago1', name: 'Cuenta.MP1', colName: 'Saldo' },
-        { id: bancosSpreadsheetId, sheet: 'MercadoPago2', name: 'Cuenta.MP2', colName: 'Saldo' },
-        { id: bancosSpreadsheetId, sheet: 'MercadoPago 3 Y 4', name: 'Cuenta.MP3', colName: 'Saldo' },
-        { id: bancosSpreadsheetId, sheet: 'Galicia', name: 'Cuenta.Galicia', colName: 'Saldo' },
-        { id: bancosSpreadsheetId, sheet: 'Galicia.Mas', name: 'Cuenta.GaliciaMas', colName: 'Saldo' },
-        { id: bancosSpreadsheetId, sheet: 'Visa.Galicia', name: 'Cuenta.VisaGalicia', colName: 'Saldo' },
-        { id: bancosSpreadsheetId, sheet: 'Santander', name: 'Cuenta.Santander', colName: 'Saldo' },
-        { id: bancosSpreadsheetId, sheet: 'ICBC', name: 'Cuenta.ICBC', colName: 'Saldo' },
-        { id: bancosSpreadsheetId, sheet: 'Inversiones', name: 'Inversiones', colName: 'Saldo' }
+        { id: movimientosSpreadsheetId, sheet: 'Movimientos - Caja', name: 'Caja.EfectivoPesos', colName: 'Saldo' },
+        { id: movimientosSpreadsheetId, sheet: 'Movimientos - Caja USD', name: 'Caja.USD', colName: 'Saldo' },
+        { id: bancosSpreadsheetId, sheet: 'Bancos - MercadoPago1', name: 'Cuenta.MP1', colName: 'Saldo' },
+        { id: bancosSpreadsheetId, sheet: 'Bancos - MercadoPago2', name: 'Cuenta.MP2', colName: 'Saldo' },
+        { id: bancosSpreadsheetId, sheet: 'Bancos - MercadoPago 3 Y 4', name: 'Cuenta.MP3', colName: 'Saldo' },
+        { id: bancosSpreadsheetId, sheet: 'Bancos - Galicia', name: 'Cuenta.Galicia', colName: 'Saldo' },
+        { id: bancosSpreadsheetId, sheet: 'Bancos - Galicia.Mas', name: 'Cuenta.GaliciaMas', colName: 'Saldo' },
+        { id: bancosSpreadsheetId, sheet: 'Bancos - Visa.Galicia', name: 'Cuenta.VisaGalicia', colName: 'Saldo' },
+        { id: bancosSpreadsheetId, sheet: 'Bancos - Santander', name: 'Cuenta.Santander', colName: 'Saldo' },
+        { id: bancosSpreadsheetId, sheet: 'Bancos - ICBC', name: 'Cuenta.ICBC', colName: 'Saldo' },
+        { id: bancosSpreadsheetId, sheet: 'Bancos - Inversiones', name: 'Inversiones', colName: 'Saldo' }
       ];
 
       // Helper to fetch Google Sheets CSV via Next.js server-side proxy (bypasses browser CORS / network restrictions)
@@ -651,7 +651,7 @@ export default function AdminFinanzasPage() {
 
       // 5. Download and Parse Finanzas tab (ARS Transactions)
       setSyncProgress("Descargando movimientos en Pesos (ARS)...");
-      const finanzasUrl = `https://docs.google.com/spreadsheets/d/${finanzasSpreadsheetId}/gviz/tq?tqx=out:csv&sheet=Finanzas`;
+      const finanzasUrl = `https://docs.google.com/spreadsheets/d/${finanzasSpreadsheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent('Finanzas - Finanzas')}`;
       const finanzasCSV = await fetchSheetCsv(finanzasUrl);
       const finanzasRows = parseCSV(finanzasCSV);
 
@@ -743,7 +743,7 @@ export default function AdminFinanzasPage() {
 
       // 7. Download and Parse Caja USD
       setSyncProgress("Descargando movimientos en Dólares (USD)...");
-      const usdUrl = `https://docs.google.com/spreadsheets/d/${movimientosSpreadsheetId}/gviz/tq?tqx=out:csv&sheet=Caja%20USD`;
+      const usdUrl = `https://docs.google.com/spreadsheets/d/${movimientosSpreadsheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent('Movimientos - Caja USD')}`;
       const usdCSV = await fetchSheetCsv(usdUrl);
       const usdRows = parseCSV(usdCSV);
 
