@@ -990,6 +990,8 @@ export async function GET() {
         const c = parseCsvLine(l);
         const prodName = c[0]?.trim();
         if (!prodName) return;
+        // Ignore "CIEGO" variants as requested by user
+        if (prodName.toLowerCase().includes('ciego')) return;
 
         const tipo = c[1]?.trim() || '';
         const rawScore = parseNum(c[2]) || 1.0;
@@ -1091,6 +1093,60 @@ export async function GET() {
           marginValue,
           marginPct
         });
+      });
+
+      // Product Ordering: 1. Tricapa Gris, 2. Tricapa Beige, 3. Bicapa, 4. Cuatricapa, 5. Resto
+      const getProductSortRank = (name: string): { groupRank: number; liters: number } => {
+        const lower = name.toLowerCase();
+        const match = lower.match(/(\d+)\s*l/);
+        const liters = match ? parseInt(match[1], 10) : 9999;
+
+        // 1. Tricapa Gris
+        if ((lower.includes('tric') || lower.includes('tricapa')) && lower.includes('gris')) {
+          return { groupRank: 1, liters };
+        }
+        // 2. Tricapa Beige
+        if ((lower.includes('tric') || lower.includes('tricapa')) && lower.includes('beige')) {
+          return { groupRank: 2, liters };
+        }
+        // 1b. Tricapa general
+        if (lower.includes('tric') || lower.includes('tricapa')) {
+          return { groupRank: 2.5, liters };
+        }
+        // 3. Bicapa
+        if (lower.includes('bic') || lower.includes('bicapa')) {
+          return { groupRank: 3, liters };
+        }
+        // 4. Cuatricapa
+        if (lower.includes('cuatr') || lower.includes('cuatricapa')) {
+          return { groupRank: 4, liters };
+        }
+        // 5. Resto (Cisternas, Tachos, Conos, etc.)
+        return { groupRank: 5, liters };
+      };
+
+      fabricatedProducts.sort((a, b) => {
+        const rankA = getProductSortRank(a.name);
+        const rankB = getProductSortRank(b.name);
+        if (rankA.groupRank !== rankB.groupRank) {
+          return rankA.groupRank - rankB.groupRank;
+        }
+        if (rankA.liters !== rankB.liters) {
+          return rankA.liters - rankB.liters;
+        }
+        return a.name.localeCompare(b.name);
+      });
+
+      modelScores.sort((a, b) => {
+        const rankA = getProductSortRank(a.producto);
+        const rankB = getProductSortRank(b.producto);
+        if (rankA.groupRank !== rankB.groupRank) {
+          return rankA.groupRank - rankB.groupRank;
+        }
+        if (rankA.liters !== rankB.liters) {
+          return rankA.liters - rankB.liters;
+        }
+        return a.producto.localeCompare(b.producto);
       });
     }
 

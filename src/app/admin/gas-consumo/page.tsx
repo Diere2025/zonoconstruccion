@@ -213,10 +213,43 @@ export default function CostosFabricacionPage() {
     };
   }, [data, selectedPeriod]);
 
+  // Product Ordering Helper: 1. Tricapa Gris, 2. Tricapa Beige, 3. Bicapa, 4. Cuatricapa, 5. Resto
+  const getProductSortRank = (name: string): { groupRank: number; liters: number } => {
+    const lower = name.toLowerCase();
+    const match = lower.match(/(\d+)\s*l/);
+    const liters = match ? parseInt(match[1], 10) : 9999;
+
+    // 1. Tricapa Gris
+    if ((lower.includes('tric') || lower.includes('tricapa')) && lower.includes('gris')) {
+      return { groupRank: 1, liters };
+    }
+    // 2. Tricapa Beige
+    if ((lower.includes('tric') || lower.includes('tricapa')) && lower.includes('beige')) {
+      return { groupRank: 2, liters };
+    }
+    // 1b. Tricapa general
+    if (lower.includes('tric') || lower.includes('tricapa')) {
+      return { groupRank: 2.5, liters };
+    }
+    // 3. Bicapa
+    if (lower.includes('bic') || lower.includes('bicapa')) {
+      return { groupRank: 3, liters };
+    }
+    // 4. Cuatricapa
+    if (lower.includes('cuatr') || lower.includes('cuatricapa')) {
+      return { groupRank: 4, liters };
+    }
+    // 5. Resto (Cisternas, Tachos, Conos, etc.)
+    return { groupRank: 5, liters };
+  };
+
   // Filtered fabricated products
   const filteredFabricatedProducts = useMemo(() => {
     if (!data?.fabricatedProducts) return [];
     return data.fabricatedProducts.filter(p => {
+      // Exclude CIEGO variants
+      if (p.name.toLowerCase().includes('ciego')) return false;
+
       const matchSearch = p.name.toLowerCase().includes(searchFabricatedInput.toLowerCase()) || 
                           p.sku.toLowerCase().includes(searchFabricatedInput.toLowerCase()) ||
                           p.family.toLowerCase().includes(searchFabricatedInput.toLowerCase());
@@ -249,6 +282,16 @@ export default function CostosFabricacionPage() {
         marginValue,
         marginPct
       };
+    }).sort((a, b) => {
+      const rankA = getProductSortRank(a.name);
+      const rankB = getProductSortRank(b.name);
+      if (rankA.groupRank !== rankB.groupRank) {
+        return rankA.groupRank - rankB.groupRank;
+      }
+      if (rankA.liters !== rankB.liters) {
+        return rankA.liters - rankB.liters;
+      }
+      return a.name.localeCompare(b.name);
     });
   }, [data?.fabricatedProducts, searchFabricatedInput, selectedFamily, activePeriodMetrics]);
 
@@ -256,7 +299,7 @@ export default function CostosFabricacionPage() {
     if (!data?.fabricatedProducts) return [];
     const setF = new Set<string>();
     data.fabricatedProducts.forEach(p => {
-      if (p.family) setF.add(p.family);
+      if (p.family && !p.name.toLowerCase().includes('ciego')) setF.add(p.family);
     });
     return Array.from(setF);
   }, [data?.fabricatedProducts]);
