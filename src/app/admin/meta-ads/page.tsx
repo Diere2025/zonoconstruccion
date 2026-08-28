@@ -783,11 +783,11 @@ export default function MetaAdsPage() {
                                 {chartMetric === 'messages' ? barValue : chartMetric === 'roas' ? `${barValue}x` : ''}
                               </span>
                             </div>
-                            <div className={`w-full rounded-xl flex items-end h-36 overflow-hidden relative my-1 ${
+                            <div className={`w-full rounded-t-xl rounded-b-none flex items-end h-36 overflow-hidden relative my-1 ${
                               isSunday ? 'bg-rose-100/50' : isSaturday ? 'bg-sky-100/50' : 'bg-slate-100'
                             }`}>
                               <div
-                                className={`w-full rounded-xl transition-all duration-300 ${barColor}`}
+                                className={`w-full rounded-t-xl rounded-b-none transition-all duration-300 ${barColor}`}
                                 style={{ height: `${heightPercent}%` }}
                               />
                             </div>
