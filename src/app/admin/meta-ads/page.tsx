@@ -22,7 +22,12 @@ import {
   PieChart, 
   Sparkles,
   ExternalLink,
-  Loader2
+  Loader2,
+  LineChart,
+  SlidersHorizontal,
+  ArrowDownRight,
+  Zap,
+  Award
 } from "lucide-react";
 import { formatPrice } from "@/lib/utils";
 
@@ -70,6 +75,29 @@ interface HistoryRecord {
   spendArs: number;
   feeArs: number;
   totalInvestmentArs: number;
+  cprArs: number;
+}
+
+interface DailyTimelineItem {
+  isoDate: string;
+  dateStr: string;
+  totalInvestmentArs: number;
+  spendUsd: number;
+  messages: number;
+  cprArs: number;
+  impressions: number;
+  reach: number;
+  erpRevenue: number;
+  erpOrdersCount: number;
+  roas: number;
+  categories: Record<string, { totalInvestmentArs: number; messages: number }>;
+}
+
+interface CategorySummaryItem {
+  name: string;
+  totalInvestment: number;
+  messages: number;
+  spendUsd: number;
   cprArs: number;
 }
 
@@ -166,7 +194,7 @@ function DateInput({
 }
 
 export default function MetaAdsPage() {
-  const [activeTab, setActiveTab] = useState<'live' | 'history'>('live');
+  const [activeTab, setActiveTab] = useState<'live' | 'charts' | 'history'>('charts');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<string>("");
@@ -177,7 +205,7 @@ export default function MetaAdsPage() {
   const [liveSearchQuery, setLiveSearchQuery] = useState("");
   const [liveLineFilter, setLiveLineFilter] = useState("all");
 
-  // History Data State - Synchronously initialized to current month
+  // History & Charts Data State - Synchronously initialized to current month
   const [presetPeriod, setPresetPeriod] = useState<string>("this_month");
   const [dateFrom, setDateFrom] = useState<string>(() => {
     const today = new Date();
@@ -191,8 +219,14 @@ export default function MetaAdsPage() {
   });
   const [historySummary, setHistorySummary] = useState<any>(null);
   const [historyRecords, setHistoryRecords] = useState<HistoryRecord[]>([]);
+  const [dailyTimeline, setDailyTimeline] = useState<DailyTimelineItem[]>([]);
+  const [categoriesSummary, setCategoriesSummary] = useState<CategorySummaryItem[]>([]);
   const [historySearchQuery, setHistorySearchQuery] = useState("");
   const [historyCategoryFilter, setHistoryCategoryFilter] = useState("all");
+
+  // Chart Interactive Metric Selector
+  const [chartMetric, setChartMetric] = useState<'messages' | 'investment' | 'cpr' | 'revenue' | 'roas'>('messages');
+  const [hoveredDay, setHoveredDay] = useState<DailyTimelineItem | null>(null);
 
   // Fetch History Data with explicit parameters
   const loadHistoryData = useCallback(async (from?: string, to?: string) => {
@@ -209,6 +243,8 @@ export default function MetaAdsPage() {
       const data = await res.json();
       setHistorySummary(data.summary || null);
       setHistoryRecords(data.records || []);
+      setDailyTimeline(data.dailyTimeline || []);
+      setCategoriesSummary(data.categories || []);
     } catch (err: any) {
       console.error(err);
     }
@@ -314,18 +350,37 @@ export default function MetaAdsPage() {
     });
   }, [historyRecords, historySearchQuery, historyCategoryFilter]);
 
-  // Category breakdown for history
-  const categoryBreakdown = useMemo(() => {
-    const map: Record<string, { name: string; investment: number; messages: number; spendUsd: number }> = {};
-    historyRecords.forEach(r => {
-      const cat = r.category || 'Otros';
-      if (!map[cat]) map[cat] = { name: cat, investment: 0, messages: 0, spendUsd: 0 };
-      map[cat].investment += r.totalInvestmentArs;
-      map[cat].messages += r.messages;
-      map[cat].spendUsd += r.spendUsd;
+  // Filtered Daily Timeline according to Category filter
+  const filteredTimeline = useMemo(() => {
+    if (historyCategoryFilter === 'all') return dailyTimeline;
+
+    return dailyTimeline.map(d => {
+      const catData = d.categories[historyCategoryFilter] || { totalInvestmentArs: 0, messages: 0 };
+      const cpr = catData.messages > 0 ? Math.round(catData.totalInvestmentArs / catData.messages) : 0;
+
+      return {
+        ...d,
+        totalInvestmentArs: catData.totalInvestmentArs,
+        messages: catData.messages,
+        cprArs: cpr
+      };
     });
-    return Object.values(map).sort((a, b) => b.investment - a.investment);
-  }, [historyRecords]);
+  }, [dailyTimeline, historyCategoryFilter]);
+
+  // Chart max value for scaling
+  const chartMaxVal = useMemo(() => {
+    if (filteredTimeline.length === 0) return 100;
+    const values = filteredTimeline.map(d => {
+      if (chartMetric === 'messages') return d.messages;
+      if (chartMetric === 'investment') return d.totalInvestmentArs;
+      if (chartMetric === 'cpr') return d.cprArs;
+      if (chartMetric === 'revenue') return d.erpRevenue;
+      if (chartMetric === 'roas') return d.roas;
+      return 0;
+    });
+    const max = Math.max(...values);
+    return max > 0 ? max : 100;
+  }, [filteredTimeline, chartMetric]);
 
   // Distinct phone lines for filter
   const distinctLiveLines = useMemo(() => {
@@ -389,7 +444,18 @@ export default function MetaAdsPage() {
       </div>
 
       {/* Tabs Navigation */}
-      <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
+      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 pb-2">
+        <button
+          onClick={() => setActiveTab('charts')}
+          className={`px-5 py-2.5 rounded-2xl font-black text-xs transition-all flex items-center gap-2 cursor-pointer ${
+            activeTab === 'charts'
+              ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
+              : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <BarChart3 className="w-4 h-4" />
+          📊 Gráficos & Evolución Diaria
+        </button>
         <button
           onClick={() => setActiveTab('live')}
           className={`px-5 py-2.5 rounded-2xl font-black text-xs transition-all flex items-center gap-2 cursor-pointer ${
@@ -409,8 +475,8 @@ export default function MetaAdsPage() {
               : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
-          <BarChart3 className="w-4 h-4" />
-          📈 Histórico & Rentabilidad (CálculoParaEERR)
+          <Layers className="w-4 h-4" />
+          📋 Histórico & Rentabilidad (CálculoParaEERR)
         </button>
       </div>
 
@@ -422,7 +488,425 @@ export default function MetaAdsPage() {
       ) : (
         <>
           {/* ========================================================================= */}
-          {/* TAB 1: EN VIVO HOY */}
+          {/* TAB 1: GRÁFICOS & EVOLUCIÓN DIARIA */}
+          {/* ========================================================================= */}
+          {activeTab === 'charts' && (
+            <div className="space-y-6">
+              {/* Range Filters Bar */}
+              <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  {[
+                    { id: 'this_month', label: 'Este Mes' },
+                    { id: 'last_month', label: 'Mes Anterior' },
+                    { id: '30d', label: 'Últimos 30 días' },
+                    { id: '7d', label: 'Últimos 7 días' },
+                    { id: 'today', label: 'Hoy' }
+                  ].map(p => (
+                    <button
+                      key={p.id}
+                      onClick={() => handlePresetChange(p.id)}
+                      className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        presetPeriod === p.id 
+                          ? 'bg-slate-900 text-white shadow-sm' 
+                          : 'bg-slate-50 text-slate-600 hover:bg-slate-100'
+                      }`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  {/* Category Filter */}
+                  {distinctCategories.length > 0 && (
+                    <div className="flex items-center gap-1.5">
+                      <SlidersHorizontal className="w-4 h-4 text-slate-400" />
+                      <select
+                        value={historyCategoryFilter}
+                        onChange={e => setHistoryCategoryFilter(e.target.value)}
+                        className="py-1.5 px-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none"
+                      >
+                        <option value="all">Todos los Productos</option>
+                        {distinctCategories.map(cat => (
+                          <option key={cat} value={cat}>{cat}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {/* Date Pickers */}
+                  <div className="flex items-center gap-2">
+                    <DateInput
+                      value={dateFrom}
+                      onChange={val => {
+                        setPresetPeriod('custom');
+                        setDateFrom(val);
+                        loadHistoryData(val, dateTo);
+                      }}
+                    />
+                    <span className="text-slate-400 font-bold text-xs">a</span>
+                    <DateInput
+                      value={dateTo}
+                      onChange={val => {
+                        setPresetPeriod('custom');
+                        setDateTo(val);
+                        loadHistoryData(dateFrom, val);
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* KPI Executive Highlights */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {/* 1. Leads en el Período */}
+                <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                      💬 Leads Generados
+                    </span>
+                    <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl">
+                      <MessageSquare className="w-4 h-4" />
+                    </div>
+                  </div>
+                  <div className="text-2xl font-black text-slate-900 tracking-tight">
+                    {historySummary?.totalMessages?.toLocaleString('es-AR') || 0}
+                  </div>
+                  <p className="text-[11px] text-slate-500 font-semibold">
+                    Conversaciones ingresadas a Whaticket
+                  </p>
+                </div>
+
+                {/* 2. Inversión Publicitaria Total */}
+                <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                      💰 Inversión Publicitaria
+                    </span>
+                    <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
+                      <DollarSign className="w-4 h-4" />
+                    </div>
+                  </div>
+                  <div className="text-2xl font-black text-slate-900 tracking-tight">
+                    {formatPrice(historySummary?.totalInvestmentArs || 0)}
+                  </div>
+                  <p className="text-[11px] text-slate-500 font-semibold font-mono">
+                    US$ {(historySummary?.totalSpendUsd || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                  </p>
+                </div>
+
+                {/* 3. CPR Promedio Ponderado */}
+                <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                      🎯 CPR Promedio Total
+                    </span>
+                    <div className="p-2 bg-amber-50 text-amber-600 rounded-xl">
+                      <Target className="w-4 h-4" />
+                    </div>
+                  </div>
+                  <div className="text-2xl font-black text-amber-600 tracking-tight">
+                    {formatPrice(historySummary?.avgCprArs || 0)} <span className="text-xs font-bold text-slate-400">/ lead</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 font-semibold">
+                    Costo promedio por conversación
+                  </p>
+                </div>
+
+                {/* 4. ROAS Comercial Real */}
+                <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                      🚀 Retorno ROAS (Ventas ERP)
+                    </span>
+                    <div className="p-2 bg-purple-50 text-purple-600 rounded-xl">
+                      <Sparkles className="w-4 h-4" />
+                    </div>
+                  </div>
+                  <div className="text-2xl font-black text-indigo-600 tracking-tight">
+                    {historySummary?.roas || 0}x
+                  </div>
+                  <p className="text-[11px] text-slate-500 font-semibold">
+                    Facturación: {formatPrice(historySummary?.erpRevenueArs || 0)} ({historySummary?.erpOrdersCount || 0} pedidos)
+                  </p>
+                </div>
+              </div>
+
+              {/* Interactive Daily Timeline Chart */}
+              <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b pb-4">
+                  <div className="space-y-0.5">
+                    <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
+                      <LineChart className="w-5 h-5 text-indigo-600" />
+                      Evolución y Progreso Diario
+                    </h3>
+                    <p className="text-xs text-slate-500 font-semibold">
+                      Comportamiento diario de la pauta y generación de resultados en el período seleccionado.
+                    </p>
+                  </div>
+
+                  {/* Metric Toggle Tabs */}
+                  <div className="flex flex-wrap items-center gap-1.5 bg-slate-100 p-1 rounded-2xl">
+                    {[
+                      { id: 'messages', label: '💬 Leads / Mensajes' },
+                      { id: 'investment', label: '💰 Inversión ($)' },
+                      { id: 'cpr', label: '🎯 CPR ($/lead)' },
+                      { id: 'revenue', label: '🏷️ Facturación ERP' },
+                      { id: 'roas', label: '🚀 ROAS Diario' }
+                    ].map(m => (
+                      <button
+                        key={m.id}
+                        onClick={() => setChartMetric(m.id as any)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                          chartMetric === m.id
+                            ? 'bg-white text-indigo-600 shadow-sm'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        {m.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* SVG Visual Bar Chart */}
+                {filteredTimeline.length === 0 ? (
+                  <div className="p-12 text-center text-slate-400 font-bold text-xs">
+                    No hay datos registrados en el rango de fechas seleccionado.
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {/* Hover Inspector Card */}
+                    <div className="h-14 bg-slate-50 rounded-2xl p-3 border border-slate-100 flex items-center justify-between">
+                      {hoveredDay ? (
+                        <div className="flex flex-wrap items-center gap-6 text-xs w-full animate-in fade-in duration-100">
+                          <div>
+                            <span className="text-[10px] uppercase font-bold text-slate-400">Fecha:</span>{' '}
+                            <span className="font-black text-slate-900">{hoveredDay.dateStr}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] uppercase font-bold text-slate-400">Leads:</span>{' '}
+                            <span className="font-black text-emerald-600">{hoveredDay.messages}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] uppercase font-bold text-slate-400">Inversión:</span>{' '}
+                            <span className="font-black text-slate-900">{formatPrice(hoveredDay.totalInvestmentArs)}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] uppercase font-bold text-slate-400">CPR:</span>{' '}
+                            <span className="font-black text-amber-600">{formatPrice(hoveredDay.cprArs)}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] uppercase font-bold text-slate-400">Ventas ERP:</span>{' '}
+                            <span className="font-black text-indigo-600">{formatPrice(hoveredDay.erpRevenue)} ({hoveredDay.erpOrdersCount} pedidos)</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] uppercase font-bold text-slate-400">ROAS:</span>{' '}
+                            <span className="font-black text-purple-600">{hoveredDay.roas}x</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-xs font-semibold text-slate-400 flex items-center gap-2">
+                          <Activity className="w-4 h-4 text-slate-400" />
+                          Pasá el cursor sobre cualquier barra para ver el detalle completo de ese día
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Bars Container */}
+                    <div className="flex items-end gap-2 h-56 pt-6 px-2 overflow-x-auto">
+                      {filteredTimeline.map((d, idx) => {
+                        let barValue = 0;
+                        let barLabel = '';
+                        let barColor = 'bg-indigo-600';
+
+                        if (chartMetric === 'messages') {
+                          barValue = d.messages;
+                          barLabel = `${d.messages}`;
+                          barColor = 'bg-emerald-500 hover:bg-emerald-600';
+                        } else if (chartMetric === 'investment') {
+                          barValue = d.totalInvestmentArs;
+                          barLabel = formatPrice(d.totalInvestmentArs);
+                          barColor = 'bg-indigo-600 hover:bg-indigo-700';
+                        } else if (chartMetric === 'cpr') {
+                          barValue = d.cprArs;
+                          barLabel = formatPrice(d.cprArs);
+                          barColor = d.cprArs > 4500 ? 'bg-rose-500 hover:bg-rose-600' : d.cprArs > 2500 ? 'bg-amber-500 hover:bg-amber-600' : 'bg-emerald-500 hover:bg-emerald-600';
+                        } else if (chartMetric === 'revenue') {
+                          barValue = d.erpRevenue;
+                          barLabel = formatPrice(d.erpRevenue);
+                          barColor = 'bg-blue-600 hover:bg-blue-700';
+                        } else if (chartMetric === 'roas') {
+                          barValue = d.roas;
+                          barLabel = `${d.roas}x`;
+                          barColor = 'bg-purple-600 hover:bg-purple-700';
+                        }
+
+                        const heightPercent = chartMaxVal > 0 ? Math.max(8, Math.round((barValue / chartMaxVal) * 100)) : 8;
+
+                        return (
+                          <div
+                            key={idx}
+                            onMouseEnter={() => setHoveredDay(d)}
+                            onMouseLeave={() => setHoveredDay(null)}
+                            className="flex-1 min-w-[28px] max-w-[48px] flex flex-col items-center gap-1.5 group cursor-pointer"
+                          >
+                            <span className="text-[9px] font-black text-slate-400 group-hover:text-slate-900 transition-colors">
+                              {chartMetric === 'messages' ? barValue : chartMetric === 'roas' ? `${barValue}x` : ''}
+                            </span>
+                            <div className="w-full bg-slate-100 rounded-t-xl flex items-end h-40 overflow-hidden relative">
+                              <div
+                                className={`w-full rounded-t-xl transition-all duration-300 ${barColor}`}
+                                style={{ height: `${heightPercent}%` }}
+                              />
+                            </div>
+                            <span className="text-[9px] font-bold text-slate-500 group-hover:text-indigo-600 whitespace-nowrap">
+                              {d.dateStr.slice(0, 5)}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* CPR & Performance Comparison by Product Category */}
+              <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b pb-4">
+                  <div className="space-y-0.5">
+                    <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
+                      <Target className="w-5 h-5 text-indigo-600" />
+                      CPR Promedio & Rendimiento por Tipo de Producto
+                    </h3>
+                    <p className="text-xs text-slate-500 font-semibold">
+                      Comparativa de costo por lead y volumen de mensajes generados por cada línea de producto.
+                    </p>
+                  </div>
+                  <span className="text-xs font-bold text-slate-400">
+                    {categoriesSummary.length} categorías activas
+                  </span>
+                </div>
+
+                {/* Category Cards Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                  {categoriesSummary.map(cat => {
+                    const isLowCpr = cat.cprArs > 0 && cat.cprArs <= 2500;
+                    const isHighCpr = cat.cprArs > 4500;
+                    const messageShare = historySummary?.totalMessages > 0 
+                      ? Math.round((cat.messages / historySummary.totalMessages) * 100) 
+                      : 0;
+
+                    return (
+                      <div
+                        key={cat.name}
+                        onClick={() => setHistoryCategoryFilter(historyCategoryFilter === cat.name ? 'all' : cat.name)}
+                        className={`p-5 rounded-3xl border transition-all cursor-pointer space-y-3 ${
+                          historyCategoryFilter === cat.name
+                            ? 'bg-indigo-50/70 border-indigo-300 shadow-md ring-2 ring-indigo-500/20'
+                            : 'bg-white border-slate-100 hover:border-slate-300 shadow-sm'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="font-black text-slate-900 text-sm">{cat.name}</div>
+                          <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black ${
+                            isLowCpr ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
+                            isHighCpr ? 'bg-rose-50 text-rose-700 border border-rose-200' :
+                            'bg-amber-50 text-amber-700 border border-amber-200'
+                          }`}>
+                            CPR {formatPrice(cat.cprArs)}
+                          </span>
+                        </div>
+
+                        <div className="space-y-1">
+                          <div className="text-xl font-black text-indigo-600">
+                            {formatPrice(cat.totalInvestment)}
+                          </div>
+                          <div className="flex items-center justify-between text-xs font-bold text-slate-500">
+                            <span>{cat.messages.toLocaleString('es-AR')} leads</span>
+                            <span className="font-mono">US$ {Math.round(cat.spendUsd)}</span>
+                          </div>
+                        </div>
+
+                        {/* Share Bar */}
+                        <div className="space-y-1 pt-1 border-t border-slate-100">
+                          <div className="flex justify-between text-[10px] font-bold text-slate-400">
+                            <span>Participación de Leads</span>
+                            <span className="text-slate-700">{messageShare}%</span>
+                          </div>
+                          <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                            <div
+                              className="bg-indigo-600 h-full rounded-full"
+                              style={{ width: `${messageShare}%` }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Efficiency Ranking Table */}
+                <div className="border border-slate-100 rounded-2xl overflow-hidden mt-6">
+                  <div className="bg-slate-50 p-3.5 border-b border-slate-100 flex items-center justify-between">
+                    <span className="text-xs font-black text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                      <Award className="w-4 h-4 text-amber-500" />
+                      Ranking de Eficiencia Publicitaria (Menor Costo por Lead)
+                    </span>
+                  </div>
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="bg-white border-b text-slate-400 font-bold uppercase text-[9px]">
+                        <th className="p-3">#</th>
+                        <th className="p-3">Producto / Categoría</th>
+                        <th className="p-3 text-right">CPR Promedio</th>
+                        <th className="p-3 text-right">Inversión Pauta</th>
+                        <th className="p-3 text-right">Leads Totales</th>
+                        <th className="p-3 text-center">Estado Eficiencia</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-bold text-slate-700">
+                      {[...categoriesSummary]
+                        .filter(c => c.messages > 0)
+                        .sort((a, b) => a.cprArs - b.cprArs)
+                        .map((cat, rank) => {
+                          const isLowCpr = cat.cprArs <= 2500;
+                          const isHighCpr = cat.cprArs > 4500;
+
+                          return (
+                            <tr key={cat.name} className="hover:bg-slate-50/50">
+                              <td className="p-3 font-mono text-slate-400">#{rank + 1}</td>
+                              <td className="p-3 font-black text-slate-900">{cat.name}</td>
+                              <td className="p-3 text-right font-mono font-black text-indigo-600">
+                                {formatPrice(cat.cprArs)}
+                              </td>
+                              <td className="p-3 text-right font-mono text-slate-700">
+                                {formatPrice(cat.totalInvestment)}
+                              </td>
+                              <td className="p-3 text-right font-black text-emerald-600">
+                                {cat.messages.toLocaleString('es-AR')}
+                              </td>
+                              <td className="p-3 text-center">
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black ${
+                                  isLowCpr ? 'bg-emerald-50 text-emerald-700' :
+                                  isHighCpr ? 'bg-rose-50 text-rose-700' :
+                                  'bg-amber-50 text-amber-700'
+                                }`}>
+                                  {isLowCpr ? '🔥 Muy Eficiente' : isHighCpr ? '⚠️ Alto Costo' : '⚖️ Moderado'}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================================= */}
+          {/* TAB 2: EN VIVO HOY */}
           {/* ========================================================================= */}
           {activeTab === 'live' && (
             <div className="space-y-6">
@@ -651,7 +1135,7 @@ export default function MetaAdsPage() {
           )}
 
           {/* ========================================================================= */}
-          {/* TAB 2: HISTÓRICO Y RENTABILIDAD */}
+          {/* TAB 3: HISTÓRICO & TABLA REGISTROS */}
           {/* ========================================================================= */}
           {activeTab === 'history' && (
             <div className="space-y-6">
@@ -772,26 +1256,6 @@ export default function MetaAdsPage() {
                   <p className="text-[11px] text-slate-500 font-semibold">
                     Conversión: {historySummary?.conversionRate || 0}% de leads cerrados
                   </p>
-                </div>
-              </div>
-
-              {/* Category Breakdown Cards */}
-              <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-4">
-                <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
-                  <PieChart className="w-4 h-4 text-indigo-600" />
-                  Distribución de Inversión por Línea de Producto
-                </h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-                  {categoryBreakdown.map(cat => (
-                    <div key={cat.name} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
-                      <div className="text-xs font-black text-slate-800">{cat.name}</div>
-                      <div className="text-base font-black text-indigo-600">{formatPrice(cat.investment)}</div>
-                      <div className="text-[11px] text-slate-500 font-semibold flex justify-between pt-1 border-t border-slate-200">
-                        <span>{cat.messages} mensajes</span>
-                        <span>US$ {Math.round(cat.spendUsd)}</span>
-                      </div>
-                    </div>
-                  ))}
                 </div>
               </div>
 

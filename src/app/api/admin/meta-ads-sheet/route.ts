@@ -204,6 +204,9 @@ export async function GET(request: Request) {
       const rows = parseCSV(csvText);
 
       const parsedHistory: any[] = [];
+      const dailyMap: Record<string, any> = {};
+      const categoryMap: Record<string, { name: string; totalInvestment: number; messages: number; spendUsd: number }> = {};
+
       let totalMessages = 0;
       let totalSpendUsd = 0;
       let totalSpendArs = 0;
@@ -254,6 +257,44 @@ export async function GET(request: Request) {
         // Extract category using accurate categorization logic
         const category = categorizeCampaign(campaign);
 
+        // Daily grouping
+        if (!dailyMap[isoDate]) {
+          dailyMap[isoDate] = {
+            isoDate,
+            dateStr,
+            spendArs: 0,
+            feeArs: 0,
+            totalInvestmentArs: 0,
+            spendUsd: 0,
+            messages: 0,
+            impressions: 0,
+            reach: 0,
+            categories: {}
+          };
+        }
+        const day = dailyMap[isoDate];
+        day.spendArs += spendArs;
+        day.feeArs += feeArs;
+        day.totalInvestmentArs += totalInvestmentArs;
+        day.spendUsd += spendUsd;
+        day.messages += messages;
+        day.impressions += impressions;
+        day.reach += reach;
+
+        if (!day.categories[category]) {
+          day.categories[category] = { totalInvestmentArs: 0, messages: 0 };
+        }
+        day.categories[category].totalInvestmentArs += totalInvestmentArs;
+        day.categories[category].messages += messages;
+
+        // Category summary
+        if (!categoryMap[category]) {
+          categoryMap[category] = { name: category, totalInvestment: 0, messages: 0, spendUsd: 0 };
+        }
+        categoryMap[category].totalInvestment += totalInvestmentArs;
+        categoryMap[category].messages += messages;
+        categoryMap[category].spendUsd += spendUsd;
+
         parsedHistory.push({
           date: dateStr,
           dateObj: `${isoDate}T12:00:00.000Z`,
@@ -294,7 +335,7 @@ export async function GET(request: Request) {
         while (hasMore) {
           const { data, error } = await supabaseAdmin
             .from('orders')
-            .select('total_amount, status, order_date')
+            .select('order_date, total_amount, status')
             .gte('order_date', dateFrom)
             .lte('order_date', dateTo)
             .neq('status', 'Cancelado')
@@ -320,6 +361,39 @@ export async function GET(request: Request) {
         console.error('Error fetching ERP orders for ROAS:', err);
       }
 
+      // Group ERP orders by day
+      const erpDayMap: Record<string, { revenue: number; count: number }> = {};
+      erpOrders.forEach(o => {
+        if (!erpDayMap[o.order_date]) {
+          erpDayMap[o.order_date] = { revenue: 0, count: 0 };
+        }
+        erpDayMap[o.order_date].revenue += (Number(o.total_amount) || 0);
+        erpDayMap[o.order_date].count++;
+      });
+
+      // Build daily timeline list
+      const dailyTimeline = Object.keys(dailyMap).sort().map(isoDate => {
+        const d = dailyMap[isoDate];
+        const erp = erpDayMap[isoDate] || { revenue: 0, count: 0 };
+        const cpr = d.messages > 0 ? Math.round(d.totalInvestmentArs / d.messages) : 0;
+        const roas = d.totalInvestmentArs > 0 ? Number((erp.revenue / d.totalInvestmentArs).toFixed(2)) : 0;
+
+        return {
+          isoDate,
+          dateStr: d.dateStr,
+          totalInvestmentArs: d.totalInvestmentArs,
+          spendUsd: d.spendUsd,
+          messages: d.messages,
+          cprArs: cpr,
+          impressions: d.impressions,
+          reach: d.reach,
+          erpRevenue: erp.revenue,
+          erpOrdersCount: erp.count,
+          roas,
+          categories: d.categories
+        };
+      });
+
       const erpOrdersCount = erpOrders.length;
       const erpRevenueArs = erpOrders.reduce((acc, o) => acc + (Number(o.total_amount) || 0), 0);
 
@@ -328,6 +402,11 @@ export async function GET(request: Request) {
       const cac = erpOrdersCount > 0 ? Math.round(totalInvestmentArs / erpOrdersCount) : 0;
       const avgCprArs = totalMessages > 0 ? Math.round(totalInvestmentArs / totalMessages) : 0;
       const conversionRate = totalMessages > 0 ? ((erpOrdersCount / totalMessages) * 100).toFixed(1) : '0';
+
+      const categoriesList = Object.values(categoryMap).map(c => ({
+        ...c,
+        cprArs: c.messages > 0 ? Math.round(c.totalInvestment / c.messages) : 0
+      })).sort((a, b) => b.totalInvestment - a.totalInvestment);
 
       return NextResponse.json({
         tab: 'history',
@@ -348,6 +427,8 @@ export async function GET(request: Request) {
           cac,
           conversionRate
         },
+        categories: categoriesList,
+        dailyTimeline,
         records: parsedHistory
       });
     }
