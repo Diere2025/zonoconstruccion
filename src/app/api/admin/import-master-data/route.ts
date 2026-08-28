@@ -26,7 +26,7 @@ async function withRetry<T>(fn: () => Promise<T>, retries = 3, delayMs = 1500): 
 
 export async function GET() {
   try {
-    // Helper function to fetch all products with retries
+    // Helper function to fetch all products with pagination
     async function fetchProductsAll() {
       let allProducts: any[] = [];
       let page = 0;
@@ -54,6 +54,36 @@ export async function GET() {
         }
       }
       return allProducts;
+    }
+
+    // Helper function to fetch ALL orders (ALL statuses) with pagination to prevent duplicates
+    async function fetchOrdersAll() {
+      let allOrders: any[] = [];
+      let page = 0;
+      const pageSize = 1000;
+      let hasMore = true;
+      while (hasMore) {
+        const data = await withRetry(async () => {
+          const { data, error } = await supabaseAdmin
+            .from('orders')
+            .select('id, legacy_code, status, delivery_detail, whaticket_link, order_medium_id')
+            .range(page * pageSize, (page + 1) * pageSize - 1);
+          if (error) throw error;
+          return data;
+        });
+
+        if (data && data.length > 0) {
+          allOrders = [...allOrders, ...data];
+          if (data.length < pageSize) {
+            hasMore = false;
+          } else {
+            page++;
+          }
+        } else {
+          hasMore = false;
+        }
+      }
+      return allOrders;
     }
 
     const [
@@ -97,13 +127,7 @@ export async function GET() {
         if (res.error) throw res.error;
         return res.data;
       }),
-      withRetry(async () => {
-        const res = await supabaseAdmin.from('orders')
-          .select('id, legacy_code, status, delivery_detail, whaticket_link, order_medium_id')
-          .in('status', ['Pendiente', 'Confirmado', 'Entregando']);
-        if (res.error) throw res.error;
-        return res.data;
-      })
+      fetchOrdersAll()
     ]);
 
     return NextResponse.json({

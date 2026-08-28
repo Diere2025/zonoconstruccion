@@ -135,6 +135,32 @@ export async function POST(request: Request) {
       return allProducts;
     }
 
+    // Helper function to fetch all orders (ALL statuses) with pagination to prevent duplicates
+    async function fetchOrdersAll() {
+      let allOrders: any[] = [];
+      let page = 0;
+      const pageSize = 1000;
+      let hasMore = true;
+      while (hasMore) {
+        const { data, error } = await supabaseAdmin
+          .from('orders')
+          .select('id, legacy_code, status, delivery_detail, whaticket_link, order_medium_id')
+          .range(page * pageSize, (page + 1) * pageSize - 1);
+        if (error) throw error;
+        if (data && data.length > 0) {
+          allOrders = [...allOrders, ...data];
+          if (data.length < pageSize) {
+            hasMore = false;
+          } else {
+            page++;
+          }
+        } else {
+          hasMore = false;
+        }
+      }
+      return allOrders;
+    }
+
     const [
       products,
       sellersRes,
@@ -143,7 +169,7 @@ export async function POST(request: Request) {
       orderMediumsRes,
       paymentMethodsRes,
       phoneLinesRes,
-      ordersRes
+      dbOrders
     ] = await Promise.all([
       fetchProductsAll(),
       supabaseAdmin.from('sellers').select('id, full_name, is_organic'),
@@ -152,20 +178,15 @@ export async function POST(request: Request) {
       supabaseAdmin.from('order_mediums').select('id, name'),
       supabaseAdmin.from('payment_methods').select('id, name, surcharge_percentage, installments'),
       supabaseAdmin.from('phone_lines').select('id, phone_number'),
-      // Fetch only active orders to prevent 1000 cap from omitting them
-      supabaseAdmin.from('orders')
-        .select('id, legacy_code, status, delivery_detail, whaticket_link, order_medium_id')
-        .in('status', ['Pendiente', 'Confirmado', 'Entregando'])
+      fetchOrdersAll()
     ]);
 
-    
     if (sellersRes.error) throw sellersRes.error;
     if (localitiesRes.error) throw localitiesRes.error;
     if (advSourcesRes.error) throw advSourcesRes.error;
     if (orderMediumsRes.error) throw orderMediumsRes.error;
     if (paymentMethodsRes.error) throw paymentMethodsRes.error;
     if (phoneLinesRes.error) throw phoneLinesRes.error;
-    if (ordersRes.error) throw ordersRes.error;
 
     const dbProducts = products || [];
     const dbSellers = sellersRes.data || [];
@@ -174,7 +195,6 @@ export async function POST(request: Request) {
     const dbOrderMediums = orderMediumsRes.data || [];
     const dbPaymentMethods = paymentMethodsRes.data || [];
     const dbPhoneLines = phoneLinesRes.data || [];
-    const dbOrders = ordersRes.data || [];
 
     // 2. Build Maps
     const sellersMap = new Map();
@@ -926,6 +946,20 @@ export async function POST(request: Request) {
         if (errOrder) throw errOrder;
         const orderId = newOrder.id;
         totalImported++;
+
+        // Cache in existingOrdersMap immediately to prevent duplicates in subsequent rows
+        const parts = orderCode.split(/[\/,]/).map((c: string) => c.trim().toUpperCase());
+        parts.forEach((code: string) => {
+          if (code) {
+            existingOrdersMap.set(code, { 
+              id: orderId, 
+              status: dbOrderStatus, 
+              delivery_detail: rawDeliveryDetail,
+              whaticket_link: rawWhaticketLink,
+              order_medium_id: orderMediumId
+            });
+          }
+        });
 
         if (!orderCode.toUpperCase().startsWith("CAMB") && !orderCode.toUpperCase().startsWith("REC")) {
           const potentialDummyCode = `ORIG-${orderCode}`;
