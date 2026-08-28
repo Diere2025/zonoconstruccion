@@ -50,6 +50,7 @@ interface LiveCampaign {
 interface HistoryRecord {
   date: string;
   dateObj: string;
+  isoDate: string;
   account: string;
   campaign: string;
   category: string;
@@ -176,14 +177,42 @@ export default function MetaAdsPage() {
   const [liveSearchQuery, setLiveSearchQuery] = useState("");
   const [liveLineFilter, setLiveLineFilter] = useState("all");
 
-  // History Data State
+  // History Data State - Synchronously initialized to current month
+  const [presetPeriod, setPresetPeriod] = useState<string>("this_month");
+  const [dateFrom, setDateFrom] = useState<string>(() => {
+    const today = new Date();
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    return `${yyyy}-${mm}-01`;
+  });
+  const [dateTo, setDateTo] = useState<string>(() => {
+    const today = new Date();
+    return today.toISOString().split('T')[0];
+  });
   const [historySummary, setHistorySummary] = useState<any>(null);
   const [historyRecords, setHistoryRecords] = useState<HistoryRecord[]>([]);
-  const [presetPeriod, setPresetPeriod] = useState<string>("this_month");
-  const [dateFrom, setDateFrom] = useState<string>("");
-  const [dateTo, setDateTo] = useState<string>("");
   const [historySearchQuery, setHistorySearchQuery] = useState("");
   const [historyCategoryFilter, setHistoryCategoryFilter] = useState("all");
+
+  // Fetch History Data with explicit parameters
+  const loadHistoryData = useCallback(async (from?: string, to?: string) => {
+    try {
+      const activeFrom = from !== undefined ? from : dateFrom;
+      const activeTo = to !== undefined ? to : dateTo;
+
+      let url = '/api/admin/meta-ads-sheet?tab=history';
+      if (activeFrom) url += `&dateFrom=${activeFrom}`;
+      if (activeTo) url += `&dateTo=${activeTo}`;
+
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('Error al cargar histórico');
+      const data = await res.json();
+      setHistorySummary(data.summary || null);
+      setHistoryRecords(data.records || []);
+    } catch (err: any) {
+      console.error(err);
+    }
+  }, [dateFrom, dateTo]);
 
   // Helper date preset updater
   const handlePresetChange = (preset: string) => {
@@ -191,36 +220,38 @@ export default function MetaAdsPage() {
     const today = new Date();
     const endStr = today.toISOString().split('T')[0];
 
+    let start = '';
+    let end = endStr;
+
     if (preset === 'today') {
-      setDateFrom(endStr);
-      setDateTo(endStr);
+      start = endStr;
+      end = endStr;
     } else if (preset === '7d') {
       const d = new Date();
       d.setDate(d.getDate() - 7);
-      setDateFrom(d.toISOString().split('T')[0]);
-      setDateTo(endStr);
+      start = d.toISOString().split('T')[0];
     } else if (preset === '30d') {
       const d = new Date();
       d.setDate(d.getDate() - 30);
-      setDateFrom(d.toISOString().split('T')[0]);
-      setDateTo(endStr);
+      start = d.toISOString().split('T')[0];
     } else if (preset === 'this_month') {
       const yyyy = today.getFullYear();
       const mm = String(today.getMonth() + 1).padStart(2, '0');
-      setDateFrom(`${yyyy}-${mm}-01`);
-      setDateTo(endStr);
+      start = `${yyyy}-${mm}-01`;
     } else if (preset === 'last_month') {
       const d1 = new Date(today.getFullYear(), today.getMonth() - 1, 1);
       const d2 = new Date(today.getFullYear(), today.getMonth(), 0);
-      setDateFrom(d1.toISOString().split('T')[0]);
-      setDateTo(d2.toISOString().split('T')[0]);
+      const yyyy = d1.getFullYear();
+      const mm = String(d1.getMonth() + 1).padStart(2, '0');
+      const lastDay = String(d2.getDate()).padStart(2, '0');
+      start = `${yyyy}-${mm}-01`;
+      end = `${yyyy}-${mm}-${lastDay}`;
     }
-  };
 
-  // Initialize dates with "Este Mes"
-  useEffect(() => {
-    handlePresetChange('this_month');
-  }, []);
+    setDateFrom(start);
+    setDateTo(end);
+    loadHistoryData(start, end);
+  };
 
   // Fetch Live Data
   const loadLiveData = async () => {
@@ -236,49 +267,25 @@ export default function MetaAdsPage() {
     }
   };
 
-  // Fetch History Data
-  const loadHistoryData = useCallback(async () => {
-    try {
-      let url = '/api/admin/meta-ads-sheet?tab=history';
-      if (dateFrom) url += `&dateFrom=${dateFrom}`;
-      if (dateTo) url += `&dateTo=${dateTo}`;
-
-      const res = await fetch(url);
-      if (!res.ok) throw new Error('Error al cargar histórico');
-      const data = await res.json();
-      setHistorySummary(data.summary || null);
-      setHistoryRecords(data.records || []);
-    } catch (err: any) {
-      console.error(err);
-    }
-  }, [dateFrom, dateTo]);
-
-  // Initial and refresh load
-  const loadAll = async () => {
-    setLoading(true);
-    await Promise.all([loadLiveData(), loadHistoryData()]);
-    setLoading(false);
-  };
+  // Initial load
+  useEffect(() => {
+    const loadAll = async () => {
+      setLoading(true);
+      await Promise.all([loadLiveData(), loadHistoryData(dateFrom, dateTo)]);
+      setLoading(false);
+    };
+    loadAll();
+  }, [loadHistoryData, dateFrom, dateTo]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
     if (activeTab === 'live') {
       await loadLiveData();
     } else {
-      await loadHistoryData();
+      await loadHistoryData(dateFrom, dateTo);
     }
     setRefreshing(false);
   };
-
-  useEffect(() => {
-    loadAll();
-  }, []);
-
-  useEffect(() => {
-    if (dateFrom || dateTo) {
-      loadHistoryData();
-    }
-  }, [dateFrom, dateTo, loadHistoryData]);
 
   // Filtered Live Campaigns
   const filteredLiveCampaigns = useMemo(() => {
@@ -678,6 +685,7 @@ export default function MetaAdsPage() {
                     onChange={val => {
                       setPresetPeriod('custom');
                       setDateFrom(val);
+                      loadHistoryData(val, dateTo);
                     }}
                   />
                   <span className="text-slate-400 font-bold text-xs">a</span>
@@ -686,6 +694,7 @@ export default function MetaAdsPage() {
                     onChange={val => {
                       setPresetPeriod('custom');
                       setDateTo(val);
+                      loadHistoryData(dateFrom, val);
                     }}
                   />
                 </div>

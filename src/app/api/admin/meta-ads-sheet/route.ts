@@ -60,16 +60,14 @@ function parseSpanishNumber(str: any): number {
   return isNaN(num) ? 0 : num;
 }
 
-function parseDDMMYYYY(dateStr: string): Date | null {
+function formatToISO(dateStr: string): string | null {
   if (!dateStr) return null;
   const parts = dateStr.trim().split('/');
   if (parts.length === 3) {
-    const day = parseInt(parts[0], 10);
-    const month = parseInt(parts[1], 10) - 1;
-    const year = parseInt(parts[2], 10);
-    if (!isNaN(day) && !isNaN(month) && !isNaN(year)) {
-      return new Date(year, month, day);
-    }
+    const dd = parts[0].padStart(2, '0');
+    const mm = parts[1].padStart(2, '0');
+    const yyyy = parts[2];
+    return `${yyyy}-${mm}-${dd}`;
   }
   return null;
 }
@@ -104,8 +102,14 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const tab = searchParams.get('tab') || 'live';
-    const dateFrom = searchParams.get('dateFrom') || '';
-    const dateTo = searchParams.get('dateTo') || '';
+    
+    // Default to current month if not provided
+    const now = new Date();
+    const defaultFrom = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+    const defaultTo = now.toISOString().split('T')[0];
+
+    const dateFrom = searchParams.get('dateFrom') || defaultFrom;
+    const dateTo = searchParams.get('dateTo') || defaultTo;
 
     if (tab === 'live') {
       // 1. Fetch live today metrics from 'MSG-Hoy'
@@ -207,9 +211,6 @@ export async function GET(request: Request) {
       let totalImpressions = 0;
       let totalReach = 0;
 
-      const fromDateObj = dateFrom ? new Date(dateFrom) : null;
-      const toDateObj = dateTo ? new Date(dateTo) : null;
-
       rows.forEach((r, idx) => {
         if (idx < 1) return;
         const dateStr = r[0] || '';
@@ -217,15 +218,11 @@ export async function GET(request: Request) {
         const campaign = r[2] || '';
         if (!dateStr || !campaign || dateStr.includes('date_start')) return;
 
-        const dateObj = parseDDMMYYYY(dateStr);
-        if (!dateObj) return;
+        const isoDate = formatToISO(dateStr);
+        if (!isoDate) return;
 
-        // Apply date range filter if provided
-        if (fromDateObj && dateObj < fromDateObj) return;
-        if (toDateObj) {
-          const toWithEndOfDay = new Date(toDateObj.getTime() + 86400000);
-          if (dateObj >= toWithEndOfDay) return;
-        }
+        // Apply strict date range filter
+        if (isoDate < dateFrom || isoDate > dateTo) return;
 
         const messages = parseSpanishNumber(r[3]);
         const comments = parseSpanishNumber(r[4]);
@@ -259,7 +256,8 @@ export async function GET(request: Request) {
 
         parsedHistory.push({
           date: dateStr,
-          dateObj: dateObj.toISOString(),
+          dateObj: `${isoDate}T12:00:00.000Z`,
+          isoDate,
           account,
           campaign,
           category,
@@ -284,9 +282,9 @@ export async function GET(request: Request) {
       });
 
       // Sort chronological descending
-      parsedHistory.sort((a, b) => new Date(b.dateObj).getTime() - new Date(a.dateObj).getTime());
+      parsedHistory.sort((a, b) => (b.isoDate || '').localeCompare(a.isoDate || ''));
 
-      // Query ERP Orders for the same period with full pagination (no 1000 limit)
+      // Query ERP Orders for the EXACT date range with full pagination
       let erpOrders: any[] = [];
       let page = 0;
       const pageSize = 1000;
@@ -294,15 +292,13 @@ export async function GET(request: Request) {
 
       try {
         while (hasMore) {
-          let ordersQuery = supabaseAdmin
+          const { data, error } = await supabaseAdmin
             .from('orders')
             .select('total_amount, status, order_date')
-            .neq('status', 'Cancelado');
-
-          if (dateFrom) ordersQuery = ordersQuery.gte('order_date', dateFrom);
-          if (dateTo) ordersQuery = ordersQuery.lte('order_date', dateTo);
-
-          const { data, error } = await ordersQuery.range(page * pageSize, (page + 1) * pageSize - 1);
+            .gte('order_date', dateFrom)
+            .lte('order_date', dateTo)
+            .neq('status', 'Cancelado')
+            .range(page * pageSize, (page + 1) * pageSize - 1);
 
           if (error) {
             console.error('Error fetching ERP orders for ROAS:', error);
@@ -335,6 +331,8 @@ export async function GET(request: Request) {
 
       return NextResponse.json({
         tab: 'history',
+        dateFrom,
+        dateTo,
         summary: {
           totalMessages,
           totalSpendUsd,
