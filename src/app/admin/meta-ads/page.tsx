@@ -679,10 +679,12 @@ export default function MetaAdsPage() {
                     {/* Hover Inspector Card */}
                     <div className="h-14 bg-slate-50 rounded-2xl p-3 border border-slate-100 flex items-center justify-between">
                       {hoveredDay ? (
-                        <div className="flex flex-wrap items-center gap-6 text-xs w-full animate-in fade-in duration-100">
+                        <div className="flex flex-wrap items-center gap-5 text-xs w-full animate-in fade-in duration-100">
                           <div>
                             <span className="text-[10px] uppercase font-bold text-slate-400">Fecha:</span>{' '}
-                            <span className="font-black text-slate-900">{hoveredDay.dateStr}</span>
+                            <span className="font-black text-slate-900">
+                              {['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'][new Date(`${hoveredDay.isoDate}T12:00:00`).getDay()]} {hoveredDay.dateStr}
+                            </span>
                           </div>
                           <div>
                             <span className="text-[10px] uppercase font-bold text-slate-400">Leads:</span>{' '}
@@ -706,15 +708,27 @@ export default function MetaAdsPage() {
                           </div>
                         </div>
                       ) : (
-                        <span className="text-xs font-semibold text-slate-400 flex items-center gap-2">
-                          <Activity className="w-4 h-4 text-slate-400" />
-                          Pasá el cursor sobre cualquier barra para ver el detalle completo de ese día
-                        </span>
+                        <div className="flex items-center justify-between w-full">
+                          <span className="text-xs font-semibold text-slate-400 flex items-center gap-2">
+                            <Activity className="w-4 h-4 text-slate-400" />
+                            Pasá el cursor sobre cualquier barra para ver el detalle completo de ese día
+                          </span>
+                          <div className="hidden sm:flex items-center gap-4 text-[11px] font-bold text-slate-500">
+                            <div className="flex items-center gap-1.5">
+                              <span className="w-3 h-3 rounded-md bg-sky-100 border border-sky-300"></span>
+                              <span>Sábados</span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="w-3 h-3 rounded-md bg-rose-100 border border-rose-300"></span>
+                              <span>Domingos</span>
+                            </div>
+                          </div>
+                        </div>
                       )}
                     </div>
 
                     {/* Bars Container */}
-                    <div className="flex items-end gap-2 h-56 pt-6 px-2 overflow-x-auto">
+                    <div className="flex items-end gap-1.5 h-56 pt-4 px-2 overflow-x-auto">
                       {filteredTimeline.map((d, idx) => {
                         let barValue = 0;
                         let barLabel = '';
@@ -742,27 +756,48 @@ export default function MetaAdsPage() {
                           barColor = 'bg-purple-600 hover:bg-purple-700';
                         }
 
-                        const heightPercent = chartMaxVal > 0 ? Math.max(8, Math.round((barValue / chartMaxVal) * 100)) : 8;
+                        const heightPercent = chartMaxVal > 0 ? Math.max(6, Math.round((barValue / chartMaxVal) * 100)) : 6;
+                        
+                        const dateObj = new Date(`${d.isoDate}T12:00:00`);
+                        const dayOfWeek = dateObj.getDay(); // 0 = Sunday, 6 = Saturday
+                        const isSunday = dayOfWeek === 0;
+                        const isSaturday = dayOfWeek === 6;
 
                         return (
                           <div
                             key={idx}
                             onMouseEnter={() => setHoveredDay(d)}
                             onMouseLeave={() => setHoveredDay(null)}
-                            className="flex-1 min-w-[28px] max-w-[48px] flex flex-col items-center gap-1.5 group cursor-pointer"
+                            className={`flex-1 min-w-[30px] max-w-[48px] p-1 rounded-2xl flex flex-col items-center justify-end group cursor-pointer transition-all ${
+                              isSunday
+                                ? 'bg-rose-50/90 border border-rose-200/70'
+                                : isSaturday
+                                ? 'bg-sky-50/90 border border-sky-200/70'
+                                : 'hover:bg-slate-50 border border-transparent'
+                            }`}
                           >
-                            <span className="text-[9px] font-black text-slate-400 group-hover:text-slate-900 transition-colors">
-                              {chartMetric === 'messages' ? barValue : chartMetric === 'roas' ? `${barValue}x` : ''}
-                            </span>
-                            <div className="w-full bg-slate-100 rounded-t-xl flex items-end h-40 overflow-hidden relative">
+                            <div className="h-4 flex items-center justify-center">
+                              <span className={`text-[9px] font-black transition-colors ${
+                                isSunday ? 'text-rose-600' : isSaturday ? 'text-sky-600' : 'text-slate-400 group-hover:text-slate-900'
+                              }`}>
+                                {chartMetric === 'messages' ? barValue : chartMetric === 'roas' ? `${barValue}x` : ''}
+                              </span>
+                            </div>
+                            <div className={`w-full rounded-xl flex items-end h-36 overflow-hidden relative my-1 ${
+                              isSunday ? 'bg-rose-100/50' : isSaturday ? 'bg-sky-100/50' : 'bg-slate-100'
+                            }`}>
                               <div
-                                className={`w-full rounded-t-xl transition-all duration-300 ${barColor}`}
+                                className={`w-full rounded-xl transition-all duration-300 ${barColor}`}
                                 style={{ height: `${heightPercent}%` }}
                               />
                             </div>
-                            <span className="text-[9px] font-bold text-slate-500 group-hover:text-indigo-600 whitespace-nowrap">
-                              {d.dateStr.slice(0, 5)}
-                            </span>
+                            <div className="h-4 flex items-center justify-center">
+                              <span className={`text-[9px] font-bold whitespace-nowrap ${
+                                isSunday ? 'text-rose-600 font-black' : isSaturday ? 'text-sky-600 font-black' : 'text-slate-500 group-hover:text-indigo-600'
+                              }`}>
+                                {d.dateStr.slice(0, 5)}
+                              </span>
+                            </div>
                           </div>
                         );
                       })}
