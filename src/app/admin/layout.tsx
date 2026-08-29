@@ -110,6 +110,15 @@ export default function AdminLayoutWrapper({
   };
 
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const host = window.location.hostname.toLowerCase();
+      if (host === 'zono.com.ar' || host === 'www.zono.com.ar') {
+        const targetUrl = `https://zono-erp.pages.dev${window.location.pathname}${window.location.search}`;
+        window.location.replace(targetUrl);
+        return;
+      }
+    }
+
     let isMounted = true;
     addLog("AdminLayout mounted, checking session...");
 
