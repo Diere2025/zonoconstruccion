@@ -454,34 +454,67 @@ export default function ImportarPedidosPage() {
         });
 
         if (targetRows.length > 0) {
-          const startProc = Date.now();
-          const importRes = await fetch("/api/admin/import-sheet", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              sheetName: sheet.name,
-              rows: targetRows,
-              skipENC,
-              skipCAMB,
-              syncPaymentMethods,
-              defaultSellerId: sheet.defaultSellerId,
-              defaultChannel: sheet.defaultChannel,
-              isCentralSheet: sheet.isCentralSheet
-            })
-          });
+          const CHUNK_SIZE = 25;
+          const totalChunks = Math.ceil(targetRows.length / CHUNK_SIZE);
+          addLog(`📄 ${sheet.name}: Procesando ${targetRows.length} pedidos en ${totalChunks} lote(s) seguro(s)...`);
 
-          if (!importRes.ok) {
-            const errText = await importRes.text().catch(() => "");
-            throw new Error(sanitizeErrorMessage(errText));
+          for (let chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++) {
+            if (cancelImportRef.current) break;
+
+            const chunkRows = targetRows.slice(chunkIdx * CHUNK_SIZE, (chunkIdx + 1) * CHUNK_SIZE);
+            const startProc = Date.now();
+
+            let importRes: any = null;
+            for (let retry = 1; retry <= 3; retry++) {
+              try {
+                importRes = await fetch("/api/admin/import-sheet", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    sheetName: `${sheet.name} (Lote ${chunkIdx + 1}/${totalChunks})`,
+                    rows: chunkRows,
+                    skipENC,
+                    skipCAMB,
+                    syncPaymentMethods,
+                    defaultSellerId: sheet.defaultSellerId,
+                    defaultChannel: sheet.defaultChannel,
+                    isCentralSheet: sheet.isCentralSheet
+                  })
+                });
+                if (importRes.ok) break;
+              } catch (e: any) {
+                if (retry < 3) {
+                  addLog(`⏳ Reintentando lote ${chunkIdx + 1} de ${sheet.name} por microcorte...`);
+                  await new Promise(r => setTimeout(r, 1500));
+                }
+              }
+            }
+
+            if (!importRes || !importRes.ok) {
+              const errText = await importRes?.text().catch(() => "") || "Error de red";
+              throw new Error(sanitizeErrorMessage(errText));
+            }
+
+            const importData = await importRes.json();
+            totalImported += importData.totalImported || 0;
+            totalUpdated += importData.totalUpdated || 0;
+            totalItemsImported += importData.totalItemsImported || 0;
+
+            const duration = ((Date.now() - startProc) / 1000).toFixed(1);
+            if (totalChunks > 1) {
+              addLog(`  ↳ Lote ${chunkIdx + 1}/${totalChunks}: ${importData.totalImported || 0} nuevos, ${importData.totalUpdated || 0} actualizados (${duration}s).`);
+            } else {
+              addLog(`✅ ${sheet.name}: ${importData.totalImported || 0} nuevos creados, ${importData.totalUpdated || 0} actualizados (${duration}s).`);
+            }
+
+            setStats({
+              imported: totalImported,
+              updated: totalUpdated,
+              items: totalItemsImported,
+              sheetsCompleted: sheetsDone,
+              totalSheets: sheets.length
+            });
           }
-
-          const importData = await importRes.json();
-          totalImported += importData.totalImported || 0;
-          totalUpdated += importData.totalUpdated || 0;
-          totalItemsImported += importData.totalItemsImported || 0;
-
-          const duration = ((Date.now() - startProc) / 1000).toFixed(1);
-          addLog(`✅ ${sheet.name}: ${importData.totalImported || 0} nuevos creados, ${importData.totalUpdated || 0} actualizados (${duration}s).`);
         } else {
           addLog(`ℹ️ ${sheet.name}: Sin pedidos nuevos para procesar.`);
         }
