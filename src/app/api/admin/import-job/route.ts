@@ -1,6 +1,6 @@
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
-import { NextResponse } from 'next/server';
+import { NextResponse, after } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
@@ -773,7 +773,20 @@ export async function GET() {
       .order('started_at', { ascending: false })
       .limit(1);
 
-    const currentJob = runningJobs && runningJobs.length > 0 ? runningJobs[0] : null;
+    let currentJob = runningJobs && runningJobs.length > 0 ? runningJobs[0] : null;
+
+    if (currentJob) {
+      const lastActive = new Date(currentJob.updated_at || currentJob.started_at).getTime();
+      const diffSec = (Date.now() - lastActive) / 1000;
+      if (diffSec > 180) { // Older than 3 minutes without update
+        await supabaseAdmin.from('import_jobs').update({
+          status: 'failed',
+          error_message: 'El servidor tardó más de lo esperado o el proceso fue interrumpido.',
+          completed_at: new Date().toISOString()
+        }).eq('id', currentJob.id);
+        currentJob.status = 'failed';
+      }
+    }
 
     const { data: recentJobs, error } = await supabaseAdmin
       .from('import_jobs')
@@ -912,12 +925,14 @@ export async function POST(req: Request) {
 
     if (errCreate) throw errCreate;
 
-    // Launch Background Execution without blocking HTTP Response
-    runBackgroundImportJob(newJob.id, {
-      skipENC,
-      skipCAMB,
-      syncPaymentMethods,
-      sheets: targetSheets
+    // Launch Background Execution with Next.js after() to ensure background promise is not killed
+    after(async () => {
+      await runBackgroundImportJob(newJob.id, {
+        skipENC,
+        skipCAMB,
+        syncPaymentMethods,
+        sheets: targetSheets
+      });
     });
 
     return NextResponse.json({
