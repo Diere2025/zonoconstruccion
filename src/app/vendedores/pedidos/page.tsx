@@ -572,10 +572,11 @@ export default function PedidosPage() {
   }, [orderItems]);
 
   const [usageCounts, setUsageCounts] = useState<Record<string, number>>({});
-  
   const [role, setRole] = useState<'seller' | 'admin'>('seller');
   const [sellerType, setSellerType] = useState<'minorista' | 'mayorista'>('minorista');
   const [listType, setListType] = useState<'mis_pedidos' | 'todos'>('mis_pedidos');
+  const [sellerFilter, setSellerFilter] = useState<string>('todos');
+  const [sellersList, setSellersList] = useState<{ id: string; full_name: string; email: string }[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [orderSearchQuery, setOrderSearchQuery] = useState("");
@@ -4694,6 +4695,28 @@ export default function PedidosPage() {
                   </button>
                 ))}
               </div>
+
+              {/* Filtro de Vendedor */}
+              {(role === 'admin' || sellersList.length > 0) && (
+                <div className="relative shrink-0 w-full sm:w-48">
+                  <select
+                    value={sellerFilter}
+                    onChange={(e) => setSellerFilter(e.target.value)}
+                    className={`w-full px-3 py-1 rounded-xl border font-bold text-[10px] uppercase tracking-wider outline-none cursor-pointer transition-all h-[28px] ${
+                      sellerFilter !== 'todos'
+                        ? "bg-indigo-50 border-indigo-200 text-indigo-700 shadow-sm"
+                        : "bg-white border-slate-200 text-slate-600 hover:text-slate-800"
+                    }`}
+                  >
+                    <option value="todos">👤 Todos los Vendedores</option>
+                    {sellersList.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        👤 {s.full_name || s.email}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               {/* Filtro de Producto (Buscador Multi-selección) */}
               <div className="relative shrink-0 w-full sm:w-60">

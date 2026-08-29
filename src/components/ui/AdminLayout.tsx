@@ -183,7 +183,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         { name: "Control de Stock", href: "/admin/stock", icon: Package, adminOnly: true },
         { name: "Capital Estancado", href: "/admin/capital-estancado", icon: AlertTriangle, adminOnly: true },
         { name: "Proveedores (ERP)", href: "/admin/compras?tab=suppliers", icon: Users, adminOnly: true },
-        { name: "Compras y Costos (ERP)", href: "/admin/compras?tab=new_purchase", icon: Factory, adminOnly: true },
+        { name: "Lista de Precios Mayorista", href: "/admin/lista-mayorista", icon: Calculator, adminOnly: true },
         { name: "Rentabilidad y Margen", href: "/admin/rentabilidad", icon: BarChart3, adminOnly: true }
       ]
     },

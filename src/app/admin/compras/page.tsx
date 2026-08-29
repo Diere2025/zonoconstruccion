@@ -317,6 +317,15 @@ export default function ComprasAdminPage() {
   const [poItemsDetail, setPoItemsDetail] = useState<any[]>([]);
   const [loadingPoDetail, setLoadingPoDetail] = useState(false);
   const [showNewPOModal, setShowNewPOModal] = useState(false);
+  const [selectedPoIdsForMerge, setSelectedPoIdsForMerge] = useState<string[]>([]);
+  const [showMergePOModal, setShowMergePOModal] = useState(false);
+  const [mergePreview, setMergePreview] = useState<{
+    targetPo: any;
+    absorbedPos: any[];
+    combinedItems: any[];
+    totalAmount: number;
+  } | null>(null);
+  const [isMerging, setIsMerging] = useState(false);
 
   const [filterPoStatus, setFilterPoStatus] = useState<string>("activas");
   const [filterPoSupplierIds, setFilterPoSupplierIds] = useState<string[]>([]);
@@ -349,6 +358,8 @@ export default function ComprasAdminPage() {
 
   // New PO Form states
   const [poSupplierId, setPoSupplierId] = useState("");
+  const [poSupplierSearchText, setPoSupplierSearchText] = useState("");
+  const [isPoSupplierDropdownOpen, setIsPoSupplierDropdownOpen] = useState(false);
   const [poCode, setPoCode] = useState("");
   const [poPaymentCondition, setPoPaymentCondition] = useState("Efectivo");
   const [poPaymentTermDays, setPoPaymentTermDays] = useState("0");
@@ -951,6 +962,150 @@ export default function ComprasAdminPage() {
     } catch (err: any) {
       console.error("Error al cancelar la orden completa:", err);
       alert("Error al cancelar la orden: " + err.message);
+    }
+  };
+
+  const handleOpenMergeModal = async () => {
+    if (selectedPoIdsForMerge.length < 2) {
+      alert("Seleccioná al menos 2 Órdenes de Compra para unificar.");
+      return;
+    }
+
+    const selectedPOs = purchaseOrders.filter(p => selectedPoIdsForMerge.includes(p.id));
+    
+    // Validate same supplier
+    const firstSupplierId = selectedPOs[0]?.supplier_id;
+    const differentSupplier = selectedPOs.some((p: any) => p.supplier_id !== firstSupplierId);
+    if (differentSupplier) {
+      alert("Todas las Órdenes de Compra a unificar deben ser del MISMO proveedor.");
+      return;
+    }
+
+    // Validate non-completed
+    const hasCompleted = selectedPOs.some((p: any) => p.status === 'Cumplido' || p.status === 'Cancelado');
+    if (hasCompleted) {
+      alert("No podés unificar órdenes que ya estén cumplidas o canceladas.");
+      return;
+    }
+
+    // Sort by oc_code or order_date to pick target
+    selectedPOs.sort((a: any, b: any) => (a.oc_code || '').localeCompare(b.oc_code || ''));
+    const targetPo = selectedPOs[0];
+    const absorbedPos = selectedPOs.slice(1);
+
+    // Fetch items for all selected POs
+    const { data: allItems, error } = await supabase
+      .from('purchase_order_items')
+      .select('*')
+      .in('purchase_order_id', selectedPoIdsForMerge);
+
+    if (error) {
+      alert("Error al cargar artículos de las órdenes: " + error.message);
+      return;
+    }
+
+    // Combine items by product_id (or raw_product_name)
+    const combinedMap: Record<string, {
+      productId: string | null;
+      rawProductName: string;
+      quantityOrdered: number;
+      unitCost: number;
+      subtotal: number;
+    }> = {};
+
+    (allItems || []).forEach((item: any) => {
+      const key = item.product_id || item.raw_product_name;
+      const qty = Number(item.quantity_ordered) || 0;
+      const cost = Number(item.unit_cost) || 0;
+      if (!combinedMap[key]) {
+        combinedMap[key] = {
+          productId: item.product_id,
+          rawProductName: item.raw_product_name,
+          quantityOrdered: 0,
+          unitCost: cost,
+          subtotal: 0
+        };
+      }
+      combinedMap[key].quantityOrdered += qty;
+      combinedMap[key].subtotal += (qty * cost);
+    });
+
+    const combinedItems = Object.values(combinedMap);
+    const totalAmount = combinedItems.reduce((acc, it) => acc + it.subtotal, 0);
+
+    setMergePreview({
+      targetPo,
+      absorbedPos,
+      combinedItems,
+      totalAmount
+    });
+    setShowMergePOModal(true);
+  };
+
+  const handleConfirmMerge = async () => {
+    if (!mergePreview) return;
+    setIsMerging(true);
+    try {
+      const { targetPo, absorbedPos, combinedItems, totalAmount } = mergePreview;
+      const absorbedIds = absorbedPos.map((p: any) => p.id);
+      const absorbedCodes = absorbedPos.map((p: any) => p.oc_code).join(', ');
+
+      // 1. Delete existing items of target PO and absorbed POs
+      const { error: delErr } = await supabase
+        .from('purchase_order_items')
+        .delete()
+        .in('purchase_order_id', [targetPo.id, ...absorbedIds]);
+
+      if (delErr) throw delErr;
+
+      // 2. Insert consolidated items into target PO
+      const itemsToInsert = combinedItems.map(item => ({
+        purchase_order_id: targetPo.id,
+        product_id: item.productId,
+        raw_product_name: item.rawProductName,
+        quantity_ordered: item.quantityOrdered,
+        unit_cost: item.unitCost,
+        subtotal: item.subtotal,
+        quantity_received: 0,
+        status: 'Pendiente'
+      }));
+
+      const { error: insErr } = await supabase
+        .from('purchase_order_items')
+        .insert(itemsToInsert);
+
+      if (insErr) throw insErr;
+
+      // 3. Update target PO header
+      const combinedNotes = [targetPo.notes, `Unificada con: ${absorbedCodes}`].filter(Boolean).join(' | ');
+      const { error: updErr } = await supabase
+        .from('purchase_orders')
+        .update({
+          total_amount: totalAmount,
+          notes: combinedNotes
+        })
+        .eq('id', targetPo.id);
+
+      if (updErr) throw updErr;
+
+      // 4. Delete absorbed POs
+      const { error: delPoErr } = await supabase
+        .from('purchase_orders')
+        .delete()
+        .in('id', absorbedIds);
+
+      if (delPoErr) throw delPoErr;
+
+      alert(`¡Órdenes unificadas con éxito en ${targetPo.oc_code} por un total de ${formatPrice(totalAmount)}!`);
+      setShowMergePOModal(false);
+      setSelectedPoIdsForMerge([]);
+      setMergePreview(null);
+      await loadAllData(true);
+    } catch (err: any) {
+      console.error("Error unificando órdenes:", err);
+      alert("Error al unificar órdenes: " + err.message);
+    } finally {
+      setIsMerging(false);
     }
   };
 
@@ -4943,7 +5098,7 @@ export default function ComprasAdminPage() {
                 <tbody className="divide-y divide-slate-100 font-bold text-slate-700">
                   {filteredPurchaseOrders.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="p-8 text-center text-slate-400">No hay Órdenes de Compra que coincidan con los filtros.</td>
+                      <td colSpan={8} className="p-8 text-center text-slate-400">No hay Órdenes de Compra que coincidan con los filtros.</td>
                     </tr>
                   ) : (
                     filteredPurchaseOrders.map(po => (
@@ -5018,7 +5173,7 @@ export default function ComprasAdminPage() {
                         </tr>
                         {expandedPoIds[po.id] && (
                           <tr>
-                            <td colSpan={7} className="bg-slate-50/50 p-4 border-t border-b border-slate-100">
+                            <td colSpan={8} className="bg-slate-50/50 p-4 border-t border-b border-slate-100">
                               {loadingPoItemsMap[po.id] ? (
                                 <div className="flex items-center justify-center p-4">
                                   <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
@@ -5164,8 +5319,55 @@ export default function ComprasAdminPage() {
                             </tr>
                           ))}
                         </tbody>
+                        <tfoot className="bg-slate-50 border-t-2 border-slate-200 font-black text-slate-900 text-xs">
+                          {(() => {
+                            const totOrd = poItemsDetail.reduce((acc, it) => acc + (Number(it.quantity_ordered) || 0), 0);
+                            const totRec = poItemsDetail.reduce((acc, it) => acc + (Number(it.quantity_received) || 0), 0);
+                            const totAmt = poItemsDetail.reduce((acc, it) => acc + (Number(it.subtotal) || (Number(it.quantity_ordered) * Number(it.unit_cost)) || 0), 0);
+                            return (
+                              <tr>
+                                <td className="p-3 uppercase text-slate-500">TOTALES ORDEN</td>
+                                <td className="p-3 text-right">{totOrd}</td>
+                                <td className="p-3 text-right text-brand-600">{totRec}</td>
+                                <td className="p-3 text-right text-slate-400">-</td>
+                                <td className="p-3 text-right text-slate-900 text-sm font-black">{formatPrice(totAmt)}</td>
+                                <td className="p-3 text-center text-[10px] text-slate-500">
+                                  {totRec >= totOrd && totOrd > 0 ? '100% Recibido' : `${Math.round((totRec / (totOrd || 1)) * 100)}% Recibido`}
+                                </td>
+                              </tr>
+                            );
+                          })()}
+                        </tfoot>
                       </table>
                     </div>
+
+                    {/* Resumen Valorizado de la Orden */}
+                    {(() => {
+                      const totOrd = poItemsDetail.reduce((acc, it) => acc + (Number(it.quantity_ordered) || 0), 0);
+                      const totRec = poItemsDetail.reduce((acc, it) => acc + (Number(it.quantity_received) || 0), 0);
+                      const totAmt = poItemsDetail.reduce((acc, it) => acc + (Number(it.subtotal) || (Number(it.quantity_ordered) * Number(it.unit_cost)) || 0), 0);
+                      const totRecAmt = poItemsDetail.reduce((acc, it) => acc + ((Number(it.quantity_received) || 0) * (Number(it.unit_cost) || 0)), 0);
+                      const totPendAmt = Math.max(0, totAmt - totRecAmt);
+                      return (
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 bg-slate-900 text-white rounded-2xl shadow-sm">
+                          <div>
+                            <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Valorizado Total Pedido</span>
+                            <span className="text-lg font-black text-white">{formatPrice(totAmt)}</span>
+                            <span className="text-[10px] text-slate-400 block mt-0.5">{totOrd} unidades solicitadas</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] uppercase font-bold text-emerald-400 block tracking-wider">Valorizado Recibido</span>
+                            <span className="text-lg font-black text-emerald-400">{formatPrice(totRecAmt)}</span>
+                            <span className="text-[10px] text-emerald-300/80 block mt-0.5">{totRec} unidades ingresadas</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] uppercase font-bold text-amber-400 block tracking-wider">Saldo Pendiente Valorizado</span>
+                            <span className="text-lg font-black text-amber-400">{formatPrice(totPendAmt)}</span>
+                            <span className="text-[10px] text-amber-300/80 block mt-0.5">{Math.max(0, totOrd - totRec)} unidades pendientes</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {selectedPO.status !== 'Cumplido' && selectedPO.status !== 'Cancelado' && (
                       <div className="flex flex-col sm:flex-row justify-between items-center gap-3 pt-4 border-t border-slate-100">
@@ -5212,6 +5414,104 @@ export default function ComprasAdminPage() {
             </div>
           )}
 
+          {/* Modal Unificar Ordenes de Compra */}
+          {showMergePOModal && mergePreview && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm overflow-y-auto">
+              <div className="bg-white rounded-3xl w-full max-w-3xl shadow-2xl p-6 space-y-6 animate-in zoom-in-95 duration-150">
+                <div className="flex justify-between items-start border-b pb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 bg-brand-50 rounded-2xl text-brand-600">
+                      <Link2 className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-black text-slate-900">
+                        Unificar Órdenes de Compra
+                      </h3>
+                      <p className="text-xs text-slate-500 font-medium">
+                        Proveedor: <span className="font-bold text-slate-900">{mergePreview.targetPo.supplier?.name}</span>
+                      </p>
+                    </div>
+                  </div>
+                  <button 
+                    type="button" 
+                    onClick={() => setShowMergePOModal(false)}
+                    className="p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-colors"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-xs text-amber-900 space-y-1">
+                  <p className="font-bold">
+                    Se unificarán las órdenes <span className="font-black text-amber-950">{mergePreview.targetPo.oc_code}</span> y <span className="font-black text-amber-950">{mergePreview.absorbedPos.map((p: any) => p.oc_code).join(', ')}</span> en una sola orden principal:
+                  </p>
+                  <p className="text-[11px] text-amber-700">
+                    Los productos idénticos sumarán sus cantidades automáticamente y las órdenes secundarias serán canceladas/absorbidas.
+                  </p>
+                </div>
+
+                {/* Combined Items Table */}
+                <div className="border rounded-2xl overflow-hidden max-h-64 overflow-y-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-50 border-b text-slate-400 font-bold uppercase tracking-wider sticky top-0">
+                      <tr>
+                        <th className="p-3">Artículo Consolidado</th>
+                        <th className="p-3 text-right">Cant. Total</th>
+                        <th className="p-3 text-right">Costo Unit.</th>
+                        <th className="p-3 text-right">Subtotal</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-bold text-slate-700">
+                      {mergePreview.combinedItems.map((item: any, idx: number) => (
+                        <tr key={idx} className="hover:bg-slate-50/50">
+                          <td className="p-3 text-slate-900">{item.rawProductName}</td>
+                          <td className="p-3 text-right text-brand-600">{item.quantityOrdered}</td>
+                          <td className="p-3 text-right">{formatPrice(item.unitCost)}</td>
+                          <td className="p-3 text-right text-slate-900">{formatPrice(item.subtotal)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="bg-slate-50 border-t font-black text-slate-900">
+                      <tr>
+                        <td className="p-3 uppercase">Total Consolidado</td>
+                        <td className="p-3 text-right">{mergePreview.combinedItems.reduce((acc: number, it: any) => acc + (it.quantityOrdered || 0), 0)} u.</td>
+                        <td className="p-3 text-right">-</td>
+                        <td className="p-3 text-right text-brand-600 text-sm">{formatPrice(mergePreview.totalAmount)}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+
+                {/* Actions */}
+                <div className="flex justify-end items-center gap-3 pt-4 border-t">
+                  <button
+                    type="button"
+                    onClick={() => setShowMergePOModal(false)}
+                    className="px-4 py-2.5 rounded-xl border text-xs font-bold text-slate-600 hover:bg-slate-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isMerging}
+                    onClick={handleConfirmMerge}
+                    className="px-5 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white font-black text-xs shadow-md shadow-brand-600/20 flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                  >
+                    {isMerging ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" /> Unificando...
+                      </>
+                    ) : (
+                      <>
+                        <Link2 className="w-4 h-4" /> Confirmar y Unificar en {mergePreview.targetPo.oc_code}
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Modal New PO */}
           {showNewPOModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm overflow-y-auto">
@@ -5227,17 +5527,62 @@ export default function ComprasAdminPage() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="space-y-1">
+                  <div className="space-y-1 relative">
                     <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Proveedor *</label>
-                    <select
-                      required
-                      value={poSupplierId}
-                      onChange={e => setPoSupplierId(e.target.value)}
-                      className="w-full px-4 py-2.5 rounded-xl border bg-slate-50 font-bold text-xs"
-                    >
-                      <option value="">-- Seleccionar --</option>
-                      {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                    </select>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        placeholder="Buscar proveedor..."
+                        value={poSupplierSearchText || (suppliers.find(s => s.id === poSupplierId)?.name || "")}
+                        onFocus={() => setIsPoSupplierDropdownOpen(true)}
+                        onChange={e => {
+                          setPoSupplierSearchText(e.target.value);
+                          setIsPoSupplierDropdownOpen(true);
+                        }}
+                        className="w-full px-3 py-2 pr-8 rounded-xl border bg-slate-50 font-bold text-xs outline-none focus:border-brand-500 focus:bg-white"
+                      />
+                      {(poSupplierId || poSupplierSearchText) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPoSupplierId("");
+                            setPoSupplierSearchText("");
+                            setIsPoSupplierDropdownOpen(false);
+                          }}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+
+                    {isPoSupplierDropdownOpen && (
+                      <>
+                        <div 
+                          className="fixed inset-0 z-20" 
+                          onClick={() => setIsPoSupplierDropdownOpen(false)} 
+                        />
+                        <div className="absolute left-0 right-0 mt-1 max-h-56 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-xl z-30 py-1 divide-y divide-slate-50">
+                          {suppliers
+                            .filter(s => !poSupplierSearchText || s.name.toLowerCase().includes(poSupplierSearchText.toLowerCase()))
+                            .map(s => (
+                              <button
+                                key={s.id}
+                                type="button"
+                                onClick={() => {
+                                  setPoSupplierId(s.id);
+                                  setPoSupplierSearchText(s.name);
+                                  setIsPoSupplierDropdownOpen(false);
+                                }}
+                                className="w-full text-left px-3 py-2 text-xs font-bold hover:bg-brand-50 hover:text-brand-700 text-slate-700 transition-colors flex items-center justify-between cursor-pointer"
+                              >
+                                <span>{s.name}</span>
+                                {poSupplierId === s.id && <span className="text-brand-600 font-bold">✓</span>}
+                              </button>
+                            ))}
+                        </div>
+                      </>
+                    )}
                   </div>
 
                   <div className="space-y-1">
@@ -5343,12 +5688,19 @@ export default function ComprasAdminPage() {
                               
                               const filtered = products
                                 .filter(p => {
-                                  // First filter by supplier products
-                                  if (!supplierProductIds.includes(p.id)) return false;
+                                  const pName = p.name || '';
+                                  const pSku = p.sku || '';
+                                  // Exclude deprecated, internal or inactive items
+                                  const anyP = p as any;
+                                  if (pName.includes('_OLD') || pSku.includes('_OLD') || pName.startsWith('[Interno]') || anyP.is_discontinued || anyP.is_active === false) {
+                                    return false;
+                                  }
+                                  // Filter by supplier products if relations exist
+                                  if (supplierProductIds.length > 0 && !supplierProductIds.includes(p.id)) return false;
                                   // Then filter by text search query
                                   if (poProductSearchText) {
                                     const search = poProductSearchText.toLowerCase();
-                                    return p.name.toLowerCase().includes(search) || (p.sku && p.sku.toLowerCase().includes(search));
+                                    return pName.toLowerCase().includes(search) || pSku.toLowerCase().includes(search);
                                   }
                                   return true;
                                 });
@@ -6051,7 +6403,7 @@ export default function ComprasAdminPage() {
                       <tbody className="divide-y divide-slate-100 font-bold text-slate-700">
                         {receptionItems.length === 0 ? (
                           <tr>
-                            <td colSpan={7} className="p-6 text-center text-slate-400 font-normal">
+                            <td colSpan={8} className="p-6 text-center text-slate-400 font-normal">
                               {!receptionSupplierId ? "Seleccioná un proveedor arriba." : "No hay ítems cargados. Podés vincular una OC o agregar un ítem no pedido."}
                             </td>
                           </tr>
@@ -8102,7 +8454,7 @@ export default function ComprasAdminPage() {
                 })}
                 {uniqueAlerts.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-6 py-8 text-center text-slate-500 font-medium">
+                    <td colSpan={8} className="px-6 py-8 text-center text-slate-500 font-medium">
                       No hay discrepancias de costos pendientes. ¡Catálogo al día!
                     </td>
                   </tr>
@@ -9451,7 +9803,7 @@ export default function ComprasAdminPage() {
                           })}
                           {bomComponents.length === 0 && (
                             <tr>
-                              <td colSpan={7} className="py-8 text-center text-slate-400 text-xs">
+                              <td colSpan={8} className="py-8 text-center text-slate-400 text-xs">
                                 Esta receta está vacía. Sumá componentes arriba para comenzar.
                               </td>
                             </tr>
@@ -9760,7 +10112,7 @@ export default function ComprasAdminPage() {
                     ))}
                   {products.filter(p => p.is_insumo || p.category === 'Insumos' || p.category === 'Materia Prima').length === 0 && (
                     <tr>
-                      <td colSpan={7} className="py-12 px-6 text-center text-slate-400 text-xs">
+                      <td colSpan={8} className="py-12 px-6 text-center text-slate-400 text-xs">
                         No se encontraron insumos o materias primas. Marca productos como "Es Insumo" desde el Catálogo.
                       </td>
                     </tr>

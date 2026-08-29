@@ -263,6 +263,7 @@ export interface AccountReconciliation {
   id: string;
   accountName: string;
   currency: string;
+  initialBalance: number;
   calculatedBalance: number;
   sheetDeclaredBalance: number;
   difference: number;
@@ -272,6 +273,21 @@ export interface AccountReconciliation {
   totalExpense: number;
   appNet: number;
 }
+
+export const INITIAL_BALANCES_2026: Record<string, number> = {
+  'Caja Efectivo Pesos': 6917524,
+  'Cuenta MP1': 894163,
+  'Cuenta MP2': 673945,
+  'Cuenta Galicia': -3895172,
+  'Galicia.Mas': 1764,
+  'Cuenta Santander': -11260,
+  'Cuenta ICBC': 5000,
+  'Caja Efectivo Dólares': 0,
+  'Visa.Galicia': 0,
+  'Inversiones': 0,
+  'Cuenta MP3': 0,
+  'Cuenta MP4': 0
+};
 
 function DateInput({
   label,
@@ -939,13 +955,15 @@ export default function AdminFinanzasPage() {
 
           const appNet = appNets[accInfo.id] || 0;
           const sheetDeclared = expectedDbBalances[dbAccName] ?? 0;
-          const calculatedBalance = sheetDeclared;
-          const diff = sheetDeclared - (txSum + appNet);
+          const initialBal = INITIAL_BALANCES_2026[dbAccName] ?? 0;
+          const calculatedBalance = initialBal + txSum + appNet;
+          const diff = sheetDeclared - calculatedBalance;
 
           rep.push({
             id: accInfo.id,
             accountName: dbAccName,
             currency: 'ARS',
+            initialBalance: initialBal,
             calculatedBalance: calculatedBalance,
             sheetDeclaredBalance: sheetDeclared,
             difference: diff,
@@ -981,6 +999,7 @@ export default function AdminFinanzasPage() {
           id: usdAccountId,
           accountName: 'Caja Efectivo Dólares',
           currency: 'USD',
+          initialBalance: 0,
           calculatedBalance: usdDeclared,
           sheetDeclaredBalance: usdDeclared,
           difference: usdDeclared - usdTxSum,
@@ -3527,7 +3546,8 @@ export default function AdminFinanzasPage() {
                 <thead className="bg-slate-50 sticky top-0 border-b border-slate-200">
                   <tr className="text-slate-500 font-black uppercase tracking-wider text-[9px]">
                     <th className="py-3 px-3">Cuenta</th>
-                    <th className="py-3 px-3 text-right">Movimientos 2026</th>
+                    <th className="py-3 px-3 text-right">Saldo Inicial (01/01/26)</th>
+                    <th className="py-3 px-3 text-right">Movs 2026</th>
                     <th className="py-3 px-3 text-right">Ingresos</th>
                     <th className="py-3 px-3 text-right">Egresos</th>
                     <th className="py-3 px-3 text-right">Saldo Planilla</th>
@@ -3538,7 +3558,7 @@ export default function AdminFinanzasPage() {
                 <tbody className="divide-y divide-slate-100 font-semibold text-slate-700">
                   {reconciliationReport.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="py-8 text-center text-slate-400 font-bold">
+                      <td colSpan={8} className="py-8 text-center text-slate-400 font-bold">
                         Aún no se ha ejecutado una sincronización de planillas en esta sesión.
                       </td>
                     </tr>
@@ -3549,6 +3569,9 @@ export default function AdminFinanzasPage() {
                         <tr key={rec.id || rec.accountName} className="hover:bg-slate-50/50 transition-colors">
                           <td className="py-3 px-3 font-bold text-slate-900">
                             {rec.accountName}
+                          </td>
+                          <td className="py-3 px-3 text-right text-slate-700 font-mono text-[11px] font-bold">
+                            {rec.currency === 'USD' ? `US$ ${(rec.initialBalance || 0).toLocaleString('es-AR')}` : formatPrice(rec.initialBalance || 0)}
                           </td>
                           <td className="py-3 px-3 text-right text-slate-500 font-mono text-[11px]">
                             {rec.txCount} movs
