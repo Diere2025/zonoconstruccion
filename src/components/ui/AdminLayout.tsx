@@ -77,6 +77,16 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   };
 
   useEffect(() => {
+    // Redirigir cualquier acceso de gestión en zono.com.ar hacia el dominio oficial del ERP
+    if (typeof window !== 'undefined') {
+      const host = window.location.hostname.toLowerCase();
+      if (host === 'zono.com.ar' || host === 'www.zono.com.ar') {
+        const targetUrl = `https://zono-erp.pages.dev${window.location.pathname}${window.location.search}`;
+        window.location.replace(targetUrl);
+        return;
+      }
+    }
+
     async function getUserDetails() {
       // If currently inside /admin route, user is already validated as admin
       if (pathname && pathname.startsWith('/admin')) {
