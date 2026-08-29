@@ -306,112 +306,6 @@ export default function ImportarPedidosPage() {
         </div>
       </div>
 
-      {/* Live Server Progress Card (Visible when running or latest finished) */}
-      {currentJob && (
-        <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-5 animate-in fade-in">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-4">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                {isJobRunning ? (
-                  <Loader2 className="w-4 h-4 text-brand-600 animate-spin" />
-                ) : currentJob.status === "completed" ? (
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                ) : currentJob.status === "cancelled" ? (
-                  <AlertCircle className="w-4 h-4 text-amber-500" />
-                ) : (
-                  <AlertCircle className="w-4 h-4 text-red-500" />
-                )}
-                <span className="text-xs font-black text-slate-900 uppercase tracking-wider">
-                  {isJobRunning
-                    ? (currentJob.current_step || "Procesando en Servidor...")
-                    : currentJob.status === "completed"
-                    ? "Última Sincronización Completada con Éxito"
-                    : currentJob.status === "cancelled"
-                    ? "Última Sincronización Cancelada"
-                    : "Última Sincronización con Error"}
-                </span>
-              </div>
-              <span className="text-[11px] font-bold text-slate-400">
-                Iniciado: {formatDateTime(currentJob.started_at)} {currentJob.created_by && `(por ${currentJob.created_by})`}
-              </span>
-            </div>
-
-            {/* Status / Duration Badge */}
-            <div className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-2xl text-xs font-mono font-black shadow-sm self-start sm:self-auto">
-              <Clock className="w-3.5 h-3.5 text-brand-400" />
-              <span>
-                {isJobRunning
-                  ? "En ejecución..."
-                  : `Duración: ${currentJob.duration_seconds || 0}s`}
-              </span>
-            </div>
-          </div>
-
-          {/* Progress Bar (When running or recently finished) */}
-          <div className="space-y-1.5">
-            <div className="flex justify-between text-[11px] font-black text-slate-500">
-              <span>{isJobRunning ? "Progreso en Servidor" : "Resultado"}</span>
-              <span className="text-brand-600 font-mono">{progressPercent}%</span>
-            </div>
-            <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden p-0.5 border border-slate-200/50">
-              <div
-                className={cn(
-                  "h-full rounded-full transition-all duration-500 shadow-sm",
-                  currentJob.status === "failed"
-                    ? "bg-red-500"
-                    : "bg-gradient-to-r from-brand-600 to-indigo-600"
-                )}
-                style={{ width: `${progressPercent}%` }}
-              />
-            </div>
-          </div>
-
-          {/* Metrics Stats Cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
-            <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
-              <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">📥 Nuevos Creados</span>
-              <div className="text-xl font-black text-emerald-600 font-mono">{stats.imported || 0}</div>
-            </div>
-            <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
-              <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">🔄 Actualizados</span>
-              <div className="text-xl font-black text-indigo-600 font-mono">{stats.updated || 0}</div>
-            </div>
-            <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
-              <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">📄 Planillas</span>
-              <div className="text-xl font-black text-slate-900 font-mono">
-                {stats.sheetsCompleted || 0}/{stats.totalSheets || 0}
-              </div>
-            </div>
-            <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
-              <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">⏱️ Tiempo Total</span>
-              <div className="text-xl font-black text-slate-700 font-mono">{currentJob.duration_seconds || 0}s</div>
-            </div>
-          </div>
-
-          {/* Error Message if Failed */}
-          {currentJob.error_message && (
-            <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-2xl text-xs font-bold flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
-              <span>{currentJob.error_message}</span>
-            </div>
-          )}
-
-          {/* Logs Terminal */}
-          {currentJob.logs && currentJob.logs.length > 0 && (
-            <div className="space-y-2 pt-2">
-              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">
-                Registro del Servidor ({currentJob.logs.length} eventos):
-              </span>
-              <div className="bg-slate-950 text-emerald-400 font-mono text-[11px] p-4 rounded-2xl max-h-56 overflow-y-auto space-y-1.5 shadow-inner leading-relaxed border border-slate-800">
-                {currentJob.logs.map((log, lIdx) => (
-                  <div key={lIdx}>{log}</div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
       {/* Sheets & Configuration Selection Card */}
       <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-6">
         <div className="flex items-center justify-between border-b pb-4">
@@ -587,6 +481,112 @@ export default function ImportarPedidosPage() {
           </div>
         </div>
       </div>
+
+      {/* Live Server Progress Card (Visible when running or latest finished) */}
+      {currentJob && (
+        <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-5 animate-in fade-in">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                {isJobRunning ? (
+                  <Loader2 className="w-4 h-4 text-brand-600 animate-spin" />
+                ) : currentJob.status === "completed" ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                ) : currentJob.status === "cancelled" ? (
+                  <AlertCircle className="w-4 h-4 text-amber-500" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 text-red-500" />
+                )}
+                <span className="text-xs font-black text-slate-900 uppercase tracking-wider">
+                  {isJobRunning
+                    ? (currentJob.current_step || "Procesando en Servidor...")
+                    : currentJob.status === "completed"
+                    ? "Última Sincronización Completada con Éxito"
+                    : currentJob.status === "cancelled"
+                    ? "Última Sincronización Cancelada"
+                    : "Última Sincronización con Error"}
+                </span>
+              </div>
+              <span className="text-[11px] font-bold text-slate-400">
+                Iniciado: {formatDateTime(currentJob.started_at)} {currentJob.created_by && `(por ${currentJob.created_by})`}
+              </span>
+            </div>
+
+            {/* Status / Duration Badge */}
+            <div className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-2xl text-xs font-mono font-black shadow-sm self-start sm:self-auto">
+              <Clock className="w-3.5 h-3.5 text-brand-400" />
+              <span>
+                {isJobRunning
+                  ? "En ejecución..."
+                  : `Duración: ${currentJob.duration_seconds || 0}s`}
+              </span>
+            </div>
+          </div>
+
+          {/* Progress Bar (When running or recently finished) */}
+          <div className="space-y-1.5">
+            <div className="flex justify-between text-[11px] font-black text-slate-500">
+              <span>{isJobRunning ? "Progreso en Servidor" : "Resultado"}</span>
+              <span className="text-brand-600 font-mono">{progressPercent}%</span>
+            </div>
+            <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden p-0.5 border border-slate-200/50">
+              <div
+                className={cn(
+                  "h-full rounded-full transition-all duration-500 shadow-sm",
+                  currentJob.status === "failed"
+                    ? "bg-red-500"
+                    : "bg-gradient-to-r from-brand-600 to-indigo-600"
+                )}
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
+          </div>
+
+          {/* Metrics Stats Cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
+            <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
+              <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">📥 Nuevos Creados</span>
+              <div className="text-xl font-black text-emerald-600 font-mono">{stats.imported || 0}</div>
+            </div>
+            <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
+              <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">🔄 Actualizados</span>
+              <div className="text-xl font-black text-indigo-600 font-mono">{stats.updated || 0}</div>
+            </div>
+            <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
+              <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">📄 Planillas</span>
+              <div className="text-xl font-black text-slate-900 font-mono">
+                {stats.sheetsCompleted || 0}/{stats.totalSheets || 0}
+              </div>
+            </div>
+            <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
+              <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">⏱️ Tiempo Total</span>
+              <div className="text-xl font-black text-slate-700 font-mono">{currentJob.duration_seconds || 0}s</div>
+            </div>
+          </div>
+
+          {/* Error Message if Failed */}
+          {currentJob.error_message && (
+            <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-2xl text-xs font-bold flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
+              <span>{currentJob.error_message}</span>
+            </div>
+          )}
+
+          {/* Logs Terminal */}
+          {currentJob.logs && currentJob.logs.length > 0 && (
+            <div className="space-y-2 pt-2">
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">
+                Registro del Servidor ({currentJob.logs.length} eventos):
+              </span>
+              <div className="bg-slate-950 text-emerald-400 font-mono text-[11px] p-4 rounded-2xl max-h-56 overflow-y-auto space-y-1.5 shadow-inner leading-relaxed border border-slate-800">
+                {currentJob.logs.map((log, lIdx) => (
+                  <div key={lIdx}>{log}</div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* History of Past Sync Jobs */}
       {recentJobs.length > 0 && (
