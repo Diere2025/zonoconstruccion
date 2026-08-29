@@ -66,7 +66,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   });
   const [userEmail, setUserEmail] = useState("");
   const [userRole, setUserRole] = useState<'seller' | 'admin'>('seller');
-  const [isJazmin, setIsJazmin] = useState(false);
+  const [isRestrictedSeller, setIsRestrictedSeller] = useState(false);
 
   const toggleSidebar = () => {
     setIsSidebarOpen(prev => {
@@ -106,15 +106,20 @@ export function AdminLayout({ children }: AdminLayoutProps) {
           }
 
           const nameLower = (seller?.name || "").toLowerCase();
-          const isJaz = (emailLower.includes("jazmin") || 
-                        emailLower.includes("jazmín") || 
-                        nameLower.includes("jazmin") || 
-                        nameLower.includes("jazmín") || 
-                        user.id === "13430e05-b61a-4a3f-9fc3-152d377c4b0c") && 
-                        emailLower !== 'diego.boveda@gmail.com';
+          const isRestricted = (
+            emailLower.includes("jazmin") || 
+            emailLower.includes("jazmín") || 
+            nameLower.includes("jazmin") || 
+            nameLower.includes("jazmín") || 
+            emailLower.includes("ludmila") ||
+            emailLower.includes("ludmilakrenz") ||
+            nameLower.includes("ludmila") ||
+            user.id === "13430e05-b61a-4a3f-9fc3-152d377c4b0c" || // Jazmin
+            user.id === "8207801b-b6cb-48cc-af0f-d2f9f2c98032"    // Ludmila
+          ) && emailLower !== 'diego.boveda@gmail.com' && !emailLower.includes('admin') && !emailLower.includes('diego');
           
-          if (isJaz) {
-            setIsJazmin(true);
+          if (isRestricted) {
+            setIsRestrictedSeller(true);
           }
         } catch (e) {
           console.warn("Error checking seller role in AdminLayout:", e);
@@ -124,12 +129,12 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     getUserDetails();
   }, [pathname]);
 
-  // Route guard: Jazmín is restricted strictly to /vendedores/presupuestos
+  // Route guard: Restricted sellers (Jazmín & Ludmila) are restricted strictly to /vendedores/presupuestos
   useEffect(() => {
-    if (isJazmin && pathname && pathname !== '/vendedores/presupuestos') {
+    if (isRestrictedSeller && pathname && pathname !== '/vendedores/presupuestos') {
       router.replace('/vendedores/presupuestos');
     }
-  }, [isJazmin, pathname, router]);
+  }, [isRestrictedSeller, pathname, router]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -261,7 +266,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         {/* Sidebar Header / Brand */}
         <div className="h-16 flex items-center justify-between px-5 border-b border-slate-800/80 shrink-0 bg-slate-950/40">
           <Link 
-            href={userRole === 'admin' ? "/admin/dashboard" : "/vendedores"} 
+            href={userRole === 'admin' ? "/admin/dashboard" : isRestrictedSeller ? "/vendedores/presupuestos" : "/vendedores"} 
             className="flex items-center gap-3 group"
           >
             <div className="w-8 h-8 rounded-xl bg-brand-600 flex items-center justify-center font-black text-white text-base shadow-xs shadow-brand-600/30 group-hover:scale-105 transition-transform">
@@ -289,7 +294,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         <div className="flex-1 overflow-y-auto custom-sidebar-scrollbar px-3 py-4 space-y-6">
           {linkSections.map((section, sIdx) => {
             const visibleLinks = section.links.filter(link => {
-              if (isJazmin) {
+              if (isRestrictedSeller) {
                 return link.href === "/vendedores/presupuestos";
               }
               if (link.adminOnly && userRole !== 'admin') return false;
