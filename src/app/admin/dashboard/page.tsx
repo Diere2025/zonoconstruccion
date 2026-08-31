@@ -34,6 +34,7 @@ import { supabase } from "@/lib/supabase";
 import CategorySalesChart, { CategoryData } from "@/components/dashboard/CategorySalesChart";
 import CancelledOrdersChart, { DailyCancelledData } from "@/components/dashboard/CancelledOrdersChart";
 import SalesTrendChart, { DailyTrendPoint } from "@/components/dashboard/SalesTrendChart";
+import WeeklyComparisonChart from "@/components/dashboard/WeeklyComparisonChart";
 import { OrderStatusBadge } from "@/components/ui/Badge";
 
 export interface TopCustomer {
@@ -53,6 +54,9 @@ export default function AdminDashboard() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [productSortKey, setProductSortKey] = useState<'billing' | 'qty'>('billing');
   const [productSearchTerm, setProductSearchTerm] = useState('');
+  const [productPage, setProductPage] = useState(1);
+  const [productPageSize, setProductPageSize] = useState(10);
+  const [allPeriodOrders, setAllPeriodOrders] = useState<any[]>([]);
 
   // Date Helpers
   const getTodayDate = () => {
@@ -607,6 +611,8 @@ export default function AdminDashboard() {
         activeSellersCount
       });
 
+      setAllPeriodOrders(ordersInRange);
+
       const formattedRecent = (recentOrdersRes.data || []).map(o => {
         const seller = sellers.find(s => s.id === o.seller_id);
         return {
@@ -921,6 +927,16 @@ export default function AdminDashboard() {
         return b.total - a.total;
       }
     });
+
+  const totalProductPages = Math.max(1, Math.ceil(sortedProductsSold.length / productPageSize));
+  const paginatedProducts = sortedProductsSold.slice(
+    (productPage - 1) * productPageSize,
+    productPage * productPageSize
+  );
+
+  useEffect(() => {
+    setProductPage(1);
+  }, [selectedCatFilter, productSearchTerm, productSortKey, productPageSize]);
 
   const month1Year = viewDate.getFullYear();
   const month1Month = viewDate.getMonth();
@@ -1409,223 +1425,191 @@ export default function AdminDashboard() {
       {/* Interactive Sales Trend Chart (Evolución Diaria) */}
       <SalesTrendChart data={dailyTrendData} />
 
-      {/* Main Analysis Section: Recent Orders & Multi-Tab Leaderboard */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Recent Orders List */}
-        <div className="lg:col-span-2 card-enterprise p-6 space-y-4">
-          <div className="flex justify-between items-center">
-            <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-              <ShoppingCart className="w-4 h-4 text-brand-600" />
-              Últimos Pedidos Registrados
-            </h2>
-            <Link href="/vendedores/pedidos">
-              <span className="text-xs font-semibold text-brand-600 hover:text-brand-700 flex items-center gap-0.5 cursor-pointer">
-                Ver Todos <ArrowUpRight className="w-3.5 h-3.5" />
-              </span>
-            </Link>
+      {/* Weekly Evolution & WoW Performance Comparison */}
+      <WeeklyComparisonChart orders={allPeriodOrders} />
+
+      {/* Multi-Category Leaderboard Rankings (Vendedores / Clientes / Localidades) */}
+      <div className="card-enterprise p-6 space-y-5">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-slate-100 pb-4">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-2xl bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-600 shadow-2xs">
+              <Award className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-slate-900 tracking-tight">
+                Rankings y Líderes del Período
+              </h2>
+              <p className="text-xs text-slate-500 font-normal">
+                Consolidado de desempeño comercial por vendedores, clientes destacados y destinos de entrega
+              </p>
+            </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead>
-                <tr className="border-b border-slate-100 text-[11px] font-semibold uppercase text-slate-400">
-                  <th className="py-2.5">Código</th>
-                  <th className="py-2.5">Cliente</th>
-                  <th className="py-2.5">Vendedor</th>
-                  <th className="py-2.5 text-right">Monto</th>
-                  <th className="py-2.5 text-center">Estado</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
-                {recentOrders.map((order) => (
-                  <tr key={order.id} className="hover:bg-slate-50/60 transition-colors">
-                    <td className="py-3 font-semibold text-brand-600">
-                      {order.legacy_code || "SIN REF"}
-                    </td>
-                    <td className="py-3 font-medium text-slate-900 truncate max-w-[160px]" title={order.customer_name}>
-                      {order.customer_name}
-                    </td>
-                    <td className="py-3 text-slate-500 truncate max-w-[110px]" title={order.sellerName}>
-                      {order.sellerName}
-                    </td>
-                    <td className="py-3 text-right font-semibold text-slate-900 tabular-nums">
-                      {formatPrice(order.total_amount)}
-                    </td>
-                    <td className="py-3 text-center">
-                      <OrderStatusBadge status={order.status} size="sm" />
-                    </td>
-                  </tr>
-                ))}
-                {recentOrders.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="py-8 text-center text-slate-400 font-medium text-xs">
-                      No hay pedidos registrados en el sistema.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+          {/* Mobile Tab Switcher */}
+          <div className="flex sm:hidden items-center gap-1 bg-slate-100 p-1 rounded-2xl border border-slate-200 text-xs font-bold w-full">
+            <button
+              type="button"
+              onClick={() => setLeaderboardTab("sellers")}
+              className={`flex-1 py-1.5 rounded-xl transition-all cursor-pointer text-center ${
+                leaderboardTab === "sellers" ? "bg-white text-slate-900 shadow-xs" : "text-slate-500"
+              }`}
+            >
+              Vendedores
+            </button>
+            <button
+              type="button"
+              onClick={() => setLeaderboardTab("customers")}
+              className={`flex-1 py-1.5 rounded-xl transition-all cursor-pointer text-center ${
+                leaderboardTab === "customers" ? "bg-white text-slate-900 shadow-xs" : "text-slate-500"
+              }`}
+            >
+              Clientes
+            </button>
+            <button
+              type="button"
+              onClick={() => setLeaderboardTab("localities")}
+              className={`flex-1 py-1.5 rounded-xl transition-all cursor-pointer text-center ${
+                leaderboardTab === "localities" ? "bg-white text-slate-900 shadow-xs" : "text-slate-500"
+              }`}
+            >
+              Localidades
+            </button>
           </div>
         </div>
 
-        {/* Leaderboard Card: Clientes / Vendedores / Localidades */}
-        <div className="card-enterprise p-6 flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between gap-1 mb-4 border-b border-slate-100 pb-3 overflow-x-auto scrollbar-none">
-              <button
-                type="button"
-                onClick={() => setLeaderboardTab("customers")}
-                className={`flex items-center gap-1.5 text-xs font-semibold pb-1 transition-all cursor-pointer border-b-2 whitespace-nowrap ${
-                  leaderboardTab === "customers"
-                    ? "text-brand-700 border-brand-600"
-                    : "text-slate-400 border-transparent hover:text-slate-700"
-                }`}
-              >
-                <Users className="w-3.5 h-3.5 text-brand-600" />
-                Clientes
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setLeaderboardTab("sellers")}
-                className={`flex items-center gap-1.5 text-xs font-semibold pb-1 transition-all cursor-pointer border-b-2 whitespace-nowrap ${
-                  leaderboardTab === "sellers"
-                    ? "text-brand-700 border-brand-600"
-                    : "text-slate-400 border-transparent hover:text-slate-700"
-                }`}
-              >
-                <Award className="w-3.5 h-3.5 text-amber-500" />
-                Vendedores
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setLeaderboardTab("localities")}
-                className={`flex items-center gap-1.5 text-xs font-semibold pb-1 transition-all cursor-pointer border-b-2 whitespace-nowrap ${
-                  leaderboardTab === "localities"
-                    ? "text-brand-700 border-brand-600"
-                    : "text-slate-400 border-transparent hover:text-slate-700"
-                }`}
-              >
-                <MapPin className="w-3.5 h-3.5 text-emerald-600" />
-                Localidades
-              </button>
+        {/* 3-Column Grid for Desktop / Tabbed for Mobile */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* Column 1: Top Vendedores */}
+          <div className={`space-y-3 p-4 bg-slate-50/70 rounded-2xl border border-slate-100 ${leaderboardTab !== "sellers" ? "hidden md:block" : ""}`}>
+            <div className="flex items-center gap-2 border-b border-slate-200/60 pb-2.5">
+              <Award className="w-4 h-4 text-amber-500" />
+              <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                Vendedores Líderes
+              </h3>
             </div>
-
-            {/* Tab 1: Clientes Principales */}
-            {leaderboardTab === "customers" && (
-              <div className="space-y-3">
-                {topCustomers.map((cust, idx) => (
-                  <div key={cust.name} className="flex items-center justify-between border-b border-slate-50 pb-2.5 last:border-b-0 last:pb-0">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className={`w-5 h-5 rounded-md font-bold text-[10px] shrink-0 flex items-center justify-center ${
-                        idx === 0 ? "bg-amber-100 text-amber-800" :
-                        idx === 1 ? "bg-slate-200 text-slate-800" :
-                        idx === 2 ? "bg-orange-100 text-orange-800" :
-                        "bg-slate-100 text-slate-600"
-                      }`}>
-                        {idx + 1}
-                      </div>
-                      <div className="min-w-0">
-                        <h3 className="font-semibold text-xs text-slate-900 truncate max-w-[130px]" title={cust.name}>
-                          {cust.name}
-                        </h3>
-                        <p className="text-[10px] text-slate-400 font-medium">
-                          {cust.ordersCount} {cust.ordersCount === 1 ? "pedido" : "pedidos"}
-                        </p>
-                      </div>
+            <div className="space-y-2.5">
+              {topSellers.map((seller, idx) => (
+                <div key={seller.id} className="flex items-center justify-between bg-white p-3 rounded-xl border border-slate-200/80 shadow-2xs">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className={`w-5 h-5 rounded-md font-bold text-[10px] shrink-0 flex items-center justify-center ${
+                      idx === 0 ? "bg-amber-100 text-amber-800 font-black" :
+                      idx === 1 ? "bg-slate-200 text-slate-800" :
+                      idx === 2 ? "bg-orange-100 text-orange-800" :
+                      "bg-slate-100 text-slate-600"
+                    }`}>
+                      {idx + 1}
                     </div>
-                    <span className="text-xs font-bold text-slate-900 shrink-0 tabular-nums">
-                      {formatPrice(cust.totalSales)}
-                    </span>
-                  </div>
-                ))}
-                {topCustomers.length === 0 && (
-                  <p className="text-xs font-medium text-slate-400 text-center py-8">
-                    No hay compras registradas en este periodo.
-                  </p>
-                )}
-              </div>
-            )}
-
-            {/* Tab 2: Vendedores Líderes */}
-            {leaderboardTab === "sellers" && (
-              <div className="space-y-3">
-                {topSellers.map((seller, idx) => (
-                  <div key={seller.id} className="flex items-center justify-between border-b border-slate-50 pb-2.5 last:border-b-0 last:pb-0">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className={`w-5 h-5 rounded-md font-bold text-[10px] shrink-0 flex items-center justify-center ${
-                        idx === 0 ? "bg-amber-100 text-amber-800" :
-                        idx === 1 ? "bg-slate-200 text-slate-800" :
-                        idx === 2 ? "bg-orange-100 text-orange-800" :
-                        "bg-slate-100 text-slate-600"
-                      }`}>
-                        {idx + 1}
-                      </div>
-                      <div className="min-w-0">
-                        <h3 className="font-semibold text-xs text-slate-900 truncate max-w-[130px]" title={seller.name}>
-                          {seller.name}
-                        </h3>
-                        <p className="text-[10px] text-slate-400 font-medium">
-                          Ventas del Periodo
-                        </p>
-                      </div>
+                    <div className="min-w-0">
+                      <h4 className="font-bold text-xs text-slate-900 truncate max-w-[120px]" title={seller.name}>
+                        {seller.name}
+                      </h4>
+                      <p className="text-[10px] text-slate-400 font-medium">
+                        Vendedor #{idx + 1}
+                      </p>
                     </div>
-                    <span className="text-xs font-bold text-slate-900 shrink-0 tabular-nums">
-                      {formatPrice(seller.sales)}
-                    </span>
                   </div>
-                ))}
-                {topSellers.length === 0 && (
-                  <p className="text-xs font-medium text-slate-400 text-center py-8">
-                    No hay ventas registradas en este periodo.
-                  </p>
-                )}
-              </div>
-            )}
-
-            {/* Tab 3: Localidades Destacadas */}
-            {leaderboardTab === "localities" && (
-              <div className="space-y-3">
-                {topLocalities.map((loc, idx) => (
-                  <div key={loc.locality} className="flex items-center justify-between border-b border-slate-50 pb-2.5 last:border-b-0 last:pb-0">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className={`w-5 h-5 rounded-md font-bold text-[10px] shrink-0 flex items-center justify-center ${
-                        idx === 0 ? "bg-emerald-100 text-emerald-800" :
-                        idx === 1 ? "bg-teal-100 text-teal-800" :
-                        "bg-slate-100 text-slate-600"
-                      }`}>
-                        {idx + 1}
-                      </div>
-                      <div className="min-w-0">
-                        <h3 className="font-semibold text-xs text-slate-900 truncate max-w-[130px]" title={loc.locality}>
-                          {loc.locality}
-                        </h3>
-                        <p className="text-[10px] text-slate-400 font-medium">
-                          {loc.ordersCount} despachos
-                        </p>
-                      </div>
-                    </div>
-                    <span className="text-xs font-bold text-slate-900 shrink-0 tabular-nums">
-                      {formatPrice(loc.totalSales)}
-                    </span>
-                  </div>
-                ))}
-                {topLocalities.length === 0 && (
-                  <p className="text-xs font-medium text-slate-400 text-center py-8">
-                    No hay despachos registrados en este periodo.
-                  </p>
-                )}
-              </div>
-            )}
+                  <span className="text-xs font-bold text-slate-900 shrink-0 tabular-nums font-mono">
+                    {formatPrice(seller.sales)}
+                  </span>
+                </div>
+              ))}
+              {topSellers.length === 0 && (
+                <p className="text-xs font-medium text-slate-400 text-center py-6">
+                  No hay ventas en este período.
+                </p>
+              )}
+            </div>
           </div>
 
-          <div className="bg-slate-50 border border-slate-100 p-3 rounded-xl flex items-start gap-2 mt-4">
-            <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
-            <p className="text-[10px] text-slate-500 font-medium leading-snug">
-              Cómputo en tiempo real excluyendo pedidos anulados y deduplicando códigos.
-            </p>
+          {/* Column 2: Top Clientes */}
+          <div className={`space-y-3 p-4 bg-slate-50/70 rounded-2xl border border-slate-100 ${leaderboardTab !== "customers" ? "hidden md:block" : ""}`}>
+            <div className="flex items-center gap-2 border-b border-slate-200/60 pb-2.5">
+              <Users className="w-4 h-4 text-brand-600" />
+              <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                Clientes Principales
+              </h3>
+            </div>
+            <div className="space-y-2.5">
+              {topCustomers.map((cust, idx) => (
+                <div key={cust.name} className="flex items-center justify-between bg-white p-3 rounded-xl border border-slate-200/80 shadow-2xs">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className={`w-5 h-5 rounded-md font-bold text-[10px] shrink-0 flex items-center justify-center ${
+                      idx === 0 ? "bg-amber-100 text-amber-800 font-black" :
+                      idx === 1 ? "bg-slate-200 text-slate-800" :
+                      idx === 2 ? "bg-orange-100 text-orange-800" :
+                      "bg-slate-100 text-slate-600"
+                    }`}>
+                      {idx + 1}
+                    </div>
+                    <div className="min-w-0">
+                      <h4 className="font-bold text-xs text-slate-900 truncate max-w-[120px]" title={cust.name}>
+                        {cust.name}
+                      </h4>
+                      <p className="text-[10px] text-slate-400 font-medium">
+                        {cust.ordersCount} {cust.ordersCount === 1 ? "pedido" : "pedidos"}
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-xs font-bold text-slate-900 shrink-0 tabular-nums font-mono">
+                    {formatPrice(cust.totalSales)}
+                  </span>
+                </div>
+              ))}
+              {topCustomers.length === 0 && (
+                <p className="text-xs font-medium text-slate-400 text-center py-6">
+                  No hay compras en este período.
+                </p>
+              )}
+            </div>
           </div>
+
+          {/* Column 3: Top Localidades */}
+          <div className={`space-y-3 p-4 bg-slate-50/70 rounded-2xl border border-slate-100 ${leaderboardTab !== "localities" ? "hidden md:block" : ""}`}>
+            <div className="flex items-center gap-2 border-b border-slate-200/60 pb-2.5">
+              <MapPin className="w-4 h-4 text-emerald-600" />
+              <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                Localidades Destacadas
+              </h3>
+            </div>
+            <div className="space-y-2.5">
+              {topLocalities.map((loc, idx) => (
+                <div key={loc.locality} className="flex items-center justify-between bg-white p-3 rounded-xl border border-slate-200/80 shadow-2xs">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className={`w-5 h-5 rounded-md font-bold text-[10px] shrink-0 flex items-center justify-center ${
+                      idx === 0 ? "bg-emerald-100 text-emerald-800 font-black" :
+                      idx === 1 ? "bg-teal-100 text-teal-800" :
+                      "bg-slate-100 text-slate-600"
+                    }`}>
+                      {idx + 1}
+                    </div>
+                    <div className="min-w-0">
+                      <h4 className="font-bold text-xs text-slate-900 truncate max-w-[120px]" title={loc.locality}>
+                        {loc.locality}
+                      </h4>
+                      <p className="text-[10px] text-slate-400 font-medium">
+                        {loc.ordersCount} despachos
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-xs font-bold text-slate-900 shrink-0 tabular-nums font-mono">
+                    {formatPrice(loc.totalSales)}
+                  </span>
+                </div>
+              ))}
+              {topLocalities.length === 0 && (
+                <p className="text-xs font-medium text-slate-400 text-center py-6">
+                  No hay despachos en este período.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-slate-50 border border-slate-100 p-3 rounded-xl flex items-center gap-2">
+          <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+          <p className="text-[10px] text-slate-500 font-medium">
+            Cómputo consolidado en tiempo real deduplicando órdenes y excluyendo cancelaciones.
+          </p>
         </div>
       </div>
 
@@ -1636,7 +1620,7 @@ export default function AdminDashboard() {
         totalQtyAll={totalCategoryQty}
       />
 
-      {/* Products Sold Breakdown Table */}
+      {/* Products Sold Breakdown Table with PAGINATION */}
       <div className="card-enterprise p-6 space-y-4">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
@@ -1736,7 +1720,7 @@ export default function AdminDashboard() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
-              {sortedProductsSold.map((prod, idx) => (
+              {paginatedProducts.map((prod, idx) => (
                 <tr key={idx} className="hover:bg-slate-50/60 transition-colors">
                   <td className="py-3 font-semibold text-slate-900">{prod.name}</td>
                   <td className="py-3 font-mono text-xs text-slate-500">{prod.sku}</td>
@@ -1761,7 +1745,7 @@ export default function AdminDashboard() {
                   </td>
                 </tr>
               ))}
-              {sortedProductsSold.length === 0 && (
+              {paginatedProducts.length === 0 && (
                 <tr>
                   <td colSpan={5} className="py-8 text-center text-slate-400 font-medium text-xs">
                     No se registran productos que coincidan con los filtros seleccionados.
@@ -1771,6 +1755,96 @@ export default function AdminDashboard() {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination Bar */}
+        {sortedProductsSold.length > 0 && (
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-100 text-xs font-semibold text-slate-600">
+            <div className="flex items-center gap-3">
+              <span>
+                Mostrando{" "}
+                <strong className="text-slate-900">
+                  {(productPage - 1) * productPageSize + 1}
+                </strong>{" "}
+                a{" "}
+                <strong className="text-slate-900">
+                  {Math.min(productPage * productPageSize, sortedProductsSold.length)}
+                </strong>{" "}
+                de <strong className="text-slate-900">{sortedProductsSold.length}</strong> artículos
+              </span>
+
+              {/* Page Size Selector */}
+              <div className="hidden sm:flex items-center gap-1.5 pl-3 border-l border-slate-200">
+                <span className="text-slate-400 font-normal">Por pág:</span>
+                {[10, 25, 50].map((size) => (
+                  <button
+                    key={size}
+                    type="button"
+                    onClick={() => {
+                      setProductPageSize(size);
+                      setProductPage(1);
+                    }}
+                    className={`px-2 py-0.5 rounded-lg text-xs transition-all cursor-pointer ${
+                      productPageSize === size
+                        ? "bg-brand-600 text-white font-bold"
+                        : "text-slate-600 hover:bg-slate-100"
+                    }`}
+                  >
+                    {size}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Navigation Buttons */}
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setProductPage((p) => Math.max(1, p - 1))}
+                disabled={productPage === 1}
+                className="px-2.5 py-1 rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-1 shadow-2xs"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Anterior</span>
+              </button>
+
+              {/* Page Numbers */}
+              <div className="flex items-center gap-1 px-1">
+                {Array.from({ length: totalProductPages }, (_, i) => i + 1)
+                  .filter((p) => p === 1 || p === totalProductPages || Math.abs(p - productPage) <= 1)
+                  .map((p, pIdx, arr) => {
+                    const prevP = arr[pIdx - 1];
+                    const hasGap = prevP && p - prevP > 1;
+                    return (
+                      <React.Fragment key={p}>
+                        {hasGap && <span className="px-1 text-slate-400">...</span>}
+                        <button
+                          type="button"
+                          onClick={() => setProductPage(p)}
+                          className={`w-7 h-7 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center ${
+                            productPage === p
+                              ? "bg-brand-600 text-white shadow-xs"
+                              : "text-slate-600 hover:bg-slate-100"
+                          }`}
+                        >
+                          {p}
+                        </button>
+                      </React.Fragment>
+                    );
+                  })}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setProductPage((p) => Math.min(totalProductPages, p + 1))}
+                disabled={productPage === totalProductPages}
+                className="px-2.5 py-1 rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-1 shadow-2xs"
+              >
+                <span className="hidden sm:inline">Siguiente</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Cancelled Orders Percentage & Daily Chart at the very bottom */}

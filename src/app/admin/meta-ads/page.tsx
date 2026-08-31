@@ -204,6 +204,7 @@ export default function MetaAdsPage() {
   const [liveCampaigns, setLiveCampaigns] = useState<LiveCampaign[]>([]);
   const [liveSearchQuery, setLiveSearchQuery] = useState("");
   const [liveLineFilter, setLiveLineFilter] = useState("all");
+  const [liveStatusFilter, setLiveStatusFilter] = useState<string>("all");
 
   // History & Charts Data State - Synchronously initialized to current month
   const [presetPeriod, setPresetPeriod] = useState<string>("this_month");
@@ -333,9 +334,16 @@ export default function MetaAdsPage() {
       
       const matchesLine = liveLineFilter === 'all' || c.phoneLine === liveLineFilter;
 
-      return matchesSearch && matchesLine;
+      const isActiva = c.status.toUpperCase() === 'ACTIVE' || c.status.toUpperCase() === 'ACTIVA' || c.status.toUpperCase() === 'ON';
+      const isPausada = c.status.toUpperCase() === 'PAUSED' || c.status.toUpperCase() === 'PAUSADA' || c.status.toUpperCase() === 'OFF';
+
+      const matchesStatus = liveStatusFilter === 'all' || 
+        (liveStatusFilter === 'active' && isActiva) ||
+        (liveStatusFilter === 'paused' && isPausada);
+
+      return matchesSearch && matchesLine && matchesStatus;
     });
-  }, [liveCampaigns, liveSearchQuery, liveLineFilter]);
+  }, [liveCampaigns, liveSearchQuery, liveLineFilter, liveStatusFilter]);
 
   // Filtered History Records
   const filteredHistoryRecords = useMemo(() => {
@@ -1055,10 +1063,49 @@ export default function MetaAdsPage() {
                       </select>
                     </div>
                   )}
+
+                  {/* Status Filter */}
+                  <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-2xl border border-slate-200 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setLiveStatusFilter('all')}
+                      className={`px-3 py-1 rounded-xl font-bold transition-all cursor-pointer ${
+                        liveStatusFilter === 'all'
+                          ? 'bg-white text-slate-900 shadow-xs'
+                          : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                    >
+                      Todas ({liveCampaigns.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLiveStatusFilter('active')}
+                      className={`px-3 py-1 rounded-xl font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                        liveStatusFilter === 'active'
+                          ? 'bg-emerald-600 text-white shadow-xs'
+                          : 'text-emerald-700 hover:bg-emerald-50'
+                      }`}
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
+                      Activas ({liveSummary?.activeCampaignsCount || liveCampaigns.filter(c => c.status === 'ACTIVE').length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLiveStatusFilter('paused')}
+                      className={`px-3 py-1 rounded-xl font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                        liveStatusFilter === 'paused'
+                          ? 'bg-amber-600 text-white shadow-xs'
+                          : 'text-amber-700 hover:bg-amber-50'
+                      }`}
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
+                      Pausadas ({liveSummary?.pausedCampaignsCount || liveCampaigns.filter(c => c.status === 'PAUSED').length})
+                    </button>
+                  </div>
                 </div>
 
                 <span className="text-xs font-bold text-slate-500">
-                  {filteredLiveCampaigns.length} campañas activas
+                  Mostrando {filteredLiveCampaigns.length} de {liveCampaigns.length} campañas
                 </span>
               </div>
 
@@ -1083,21 +1130,29 @@ export default function MetaAdsPage() {
                       {filteredLiveCampaigns.length === 0 ? (
                         <tr>
                           <td colSpan={9} className="p-8 text-center text-slate-400">
-                            No se encontraron campañas activas para los filtros seleccionados.
+                            No se encontraron campañas para los filtros seleccionados.
                           </td>
                         </tr>
                       ) : (
                         filteredLiveCampaigns.map((c, idx) => {
                           const isHighCpr = c.cprArs > 4500;
                           const isLowCpr = c.cprArs > 0 && c.cprArs <= 2500;
+                          const isActiva = c.status.toUpperCase() === 'ACTIVE' || c.status.toUpperCase() === 'ACTIVA' || c.status.toUpperCase() === 'ON';
 
                           return (
                             <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
                               <td className="p-4">
-                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                                  ACTIVA
-                                </span>
+                                {isActiva ? (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                    ACTIVA
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-50 text-amber-700 border border-amber-200">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                                    PAUSADA
+                                  </span>
+                                )}
                               </td>
                               <td className="p-4">
                                 <div className="space-y-0.5 max-w-md">

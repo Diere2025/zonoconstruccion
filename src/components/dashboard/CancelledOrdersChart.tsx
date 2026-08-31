@@ -196,44 +196,54 @@ export default function CancelledOrdersChart({
           </div>
 
           {/* Daily Bar Chart Visualization */}
-          <div className="relative pt-4 pb-2">
-            <div className="h-44 flex items-end gap-1 sm:gap-1.5 w-full">
-              {dailyData.map((day, idx) => {
-                const val = metricView === "count" ? day.cancelledCount : day.cancelledBilling;
-                const heightPct = maxDailyVal > 0 ? (val / maxDailyVal) * 100 : 0;
-                const isHovered = hoveredDayIdx === idx;
-                const hasCancelled = val > 0;
+          <div className="relative pt-4 pb-2 w-full overflow-hidden">
+            <div className="overflow-x-auto pb-2 -mx-1 px-1 custom-scrollbar touch-pan-x">
+              <div className="h-44 flex items-end gap-1 sm:gap-1.5 min-w-[520px] sm:min-w-full">
+                {dailyData.map((day, idx) => {
+                  const val = metricView === "count" ? day.cancelledCount : day.cancelledBilling;
+                  const heightPct = maxDailyVal > 0 ? (val / maxDailyVal) * 100 : 0;
+                  const isHovered = hoveredDayIdx === idx;
+                  const hasCancelled = val > 0;
 
-                return (
-                  <div
-                    key={day.date}
-                    className="flex-1 flex flex-col items-center h-full justify-end group cursor-pointer relative"
-                    onMouseEnter={() => setHoveredDayIdx(idx)}
-                    onMouseLeave={() => setHoveredDayIdx(null)}
-                  >
-                    {/* Bar Container */}
-                    <div className="w-full max-w-[18px] bg-slate-200/50 rounded-t-md h-full flex items-end overflow-hidden">
-                      <div
-                        style={{ height: `${Math.max(hasCancelled ? 6 : 0, heightPct)}%` }}
-                        className={`w-full rounded-t-md transition-all duration-150 ${
-                          hasCancelled
-                            ? isHovered
-                              ? "bg-rose-600"
-                              : "bg-rose-500/80 group-hover:bg-rose-500"
-                            : "bg-transparent"
-                        }`}
-                      />
+                  return (
+                    <div
+                      key={day.date}
+                      className="flex-1 flex flex-col items-center h-full justify-end group cursor-pointer relative select-none"
+                      onMouseEnter={() => setHoveredDayIdx(idx)}
+                      onMouseLeave={() => setHoveredDayIdx(null)}
+                      onClick={() => setHoveredDayIdx(hoveredDayIdx === idx ? null : idx)}
+                    >
+                      {/* Bar Container */}
+                      <div className="w-full max-w-[18px] bg-slate-200/50 rounded-t-md h-full flex items-end overflow-hidden">
+                        <div
+                          style={{ height: `${Math.max(hasCancelled ? 6 : 0, heightPct)}%` }}
+                          className={`w-full rounded-t-md transition-all duration-150 ${
+                            hasCancelled
+                              ? isHovered
+                                ? "bg-rose-600"
+                                : "bg-rose-500/80 group-hover:bg-rose-500"
+                              : "bg-transparent"
+                          }`}
+                        />
+                      </div>
+
+                      {/* Date Label */}
+                      <span className={`text-[9px] mt-1 transition-colors tabular-nums ${
+                        isHovered ? "font-bold text-slate-900" : "font-medium text-slate-400"
+                      }`}>
+                        {idx % Math.ceil(dailyData.length / 14) === 0 ? day.displayDate : ""}
+                      </span>
                     </div>
+                  );
+                })}
+              </div>
+            </div>
 
-                    {/* Date Label */}
-                    <span className={`text-[9px] mt-1 transition-colors tabular-nums ${
-                      isHovered ? "font-bold text-slate-900" : "font-medium text-slate-400"
-                    }`}>
-                      {idx % Math.ceil(dailyData.length / 10) === 0 ? day.displayDate : ""}
-                    </span>
-                  </div>
-                );
-              })}
+            {/* Mobile Scroll Helper Hint */}
+            <div className="flex sm:hidden justify-end">
+              <span className="text-[9px] font-semibold text-slate-400">
+                ↔ Deslizá para explorar todos los días
+              </span>
             </div>
 
             {/* Hover Tooltip Card */}
