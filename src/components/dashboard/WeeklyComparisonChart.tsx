@@ -22,6 +22,7 @@ export interface WeeklyMetricData {
   shortLabel: string;        // e.g. "18/08"
   startDate: string;
   endDate: string;
+  isCurrentWeek: boolean;
   totalBilling: number;
   ordersCount: number;
   deliveredCount: number;
@@ -112,6 +113,7 @@ export default function WeeklyComparisonChart({ orders }: WeeklyComparisonChartP
     const sortedKeys = Object.keys(weekMap).sort();
 
     const result: WeeklyMetricData[] = [];
+    const todayStr = new Date().toISOString().slice(0, 10);
 
     sortedKeys.forEach((key, idx) => {
       const bucket = weekMap[key];
@@ -130,6 +132,10 @@ export default function WeeklyComparisonChart({ orders }: WeeklyComparisonChartP
       const formatD = (dt: Date) => `${String(dt.getDate()).padStart(2, '0')}/${String(dt.getMonth() + 1).padStart(2, '0')}`;
       const label = `${formatD(bucket.minDate)} al ${formatD(bucket.maxDate)}`;
       const shortLabel = formatD(bucket.minDate);
+
+      const startIso = bucket.minDate.toISOString().slice(0, 10);
+      const endIso = bucket.maxDate.toISOString().slice(0, 10);
+      const isCurrentWeek = todayStr >= startIso && todayStr <= endIso;
 
       let deltaBillingPct: number | null = null;
       let deltaOrdersPct: number | null = null;
@@ -152,8 +158,9 @@ export default function WeeklyComparisonChart({ orders }: WeeklyComparisonChartP
         weekKey: `Semana ${bucket.weekNum}`,
         label,
         shortLabel,
-        startDate: bucket.minDate.toISOString().slice(0, 10),
-        endDate: bucket.maxDate.toISOString().slice(0, 10),
+        startDate: startIso,
+        endDate: endIso,
+        isCurrentWeek,
         totalBilling,
         ordersCount,
         deliveredCount,
@@ -317,10 +324,15 @@ export default function WeeklyComparisonChart({ orders }: WeeklyComparisonChartP
                     </div>
 
                     {/* Week Label */}
-                    <span className={`text-[10px] mt-2 transition-colors font-bold tabular-nums whitespace-nowrap ${
+                    <span className={`text-[10px] mt-2 transition-colors font-bold tabular-nums whitespace-nowrap flex items-center gap-1 ${
                       isSelected ? "text-indigo-700 font-black" : "text-slate-500 group-hover:text-slate-800"
                     }`}>
                       {week.weekKey}
+                      {week.isCurrentWeek && (
+                        <span className="text-[7px] font-black uppercase tracking-wider text-indigo-600 bg-indigo-50 px-1 py-0.2 rounded border border-indigo-200">
+                          Hoy
+                        </span>
+                      )}
                     </span>
                     <span className="text-[9px] text-slate-400 font-medium tabular-nums">
                       {week.shortLabel}
@@ -513,6 +525,14 @@ export default function WeeklyComparisonChart({ orders }: WeeklyComparisonChartP
             ))}
           </tbody>
         </table>
+      </div>
+
+      {/* Methodological footnote note */}
+      <div className="bg-indigo-50/50 border border-indigo-100/80 p-3.5 rounded-2xl flex items-start gap-2.5 text-xs text-indigo-950">
+        <Layers className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
+        <p className="text-[11px] leading-relaxed">
+          <strong className="text-indigo-900">Semanas de 7 días completos (Lun a Dom):</strong> La comparativa semanal consolida los 7 días íntegros de cada semana (incorporando los días límite del mes colindante cuando un mes inicia o culmina a mitad de semana) para que las variaciones porcentuales (% WoW) sean estadísticamente homogéneas y no se distorsionen por semanas truncas.
+        </p>
       </div>
     </div>
   );

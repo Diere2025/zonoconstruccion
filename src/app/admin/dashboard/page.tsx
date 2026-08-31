@@ -105,6 +105,30 @@ export default function AdminDashboard() {
     return { start: startStr, end: endStr };
   };
 
+  const getMondayOfWeek = (dateStr: string) => {
+    const [y, m, d] = dateStr.split("-").map(Number);
+    const dateObj = new Date(y, m - 1, d);
+    const day = dateObj.getDay();
+    const diff = dateObj.getDate() - day + (day === 0 ? -6 : 1);
+    const monday = new Date(dateObj.getFullYear(), dateObj.getMonth(), diff);
+    const yyyy = monday.getFullYear();
+    const mm = String(monday.getMonth() + 1).padStart(2, '0');
+    const dd = String(monday.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  };
+
+  const getSundayOfWeek = (dateStr: string) => {
+    const [y, m, d] = dateStr.split("-").map(Number);
+    const dateObj = new Date(y, m - 1, d);
+    const day = dateObj.getDay();
+    const diff = dateObj.getDate() - day + (day === 0 ? 0 : 7);
+    const sunday = new Date(dateObj.getFullYear(), dateObj.getMonth(), diff);
+    const yyyy = sunday.getFullYear();
+    const mm = String(sunday.getMonth() + 1).padStart(2, '0');
+    const dd = String(sunday.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  };
+
   const formatInputDisplay = (dateStr: string) => {
     if (!dateStr) return "";
     const parts = dateStr.split("-");
@@ -397,6 +421,8 @@ export default function AdminDashboard() {
       setIsRefreshing(true);
 
       const { prevStartStr, prevEndStr } = calculatePreviousPeriod(start, end);
+      const weeklyStart = getMondayOfWeek(start);
+      const weeklyEnd = getSundayOfWeek(end);
 
       let recentQuery = supabase.from("orders")
         .select("id, legacy_code, customer_name, total_amount, status, created_at, order_date, seller_id")
@@ -426,11 +452,17 @@ export default function AdminDashboard() {
         .gte("orders.order_date", start)
         .lte("orders.order_date", end);
 
+      let weeklyOrdersQuery = supabase.from("orders")
+        .select("id, legacy_code, customer_name, locality, total_amount, status, seller_id, order_date, created_at")
+        .gte("order_date", weeklyStart)
+        .lte("order_date", weeklyEnd);
+
       if (sellerId !== "all") {
         recentQuery = recentQuery.eq("seller_id", sellerId);
         rangeQuery = rangeQuery.eq("seller_id", sellerId);
         prevRangeQuery = prevRangeQuery.eq("seller_id", sellerId);
         itemsQuery = itemsQuery.eq("orders.seller_id", sellerId);
+        weeklyOrdersQuery = weeklyOrdersQuery.eq("seller_id", sellerId);
       }
 
       const [
@@ -440,7 +472,8 @@ export default function AdminDashboard() {
         recentOrdersRes,
         ordersInRangeRes,
         prevOrdersRes,
-        itemsRes
+        itemsRes,
+        weeklyOrdersRes
       ] = await Promise.all([
         supabase.from("clients").select("id", { count: "exact", head: true }),
         supabase.from("products").select("id", { count: "exact", head: true }),
@@ -448,7 +481,8 @@ export default function AdminDashboard() {
         recentQuery,
         rangeQuery,
         prevRangeQuery,
-        itemsQuery
+        itemsQuery,
+        weeklyOrdersQuery
       ]);
 
       if (ordersInRangeRes.error) throw ordersInRangeRes.error;
@@ -611,7 +645,17 @@ export default function AdminDashboard() {
         activeSellersCount
       });
 
-      setAllPeriodOrders(ordersInRange);
+      // Deduplicate weekly orders (covers full weeks including boundary days)
+      const seenWeeklyCodes = new Set<string>();
+      const deduplicatedWeeklyOrders = (weeklyOrdersRes.data || []).filter(o => {
+        if (o.legacy_code && String(o.legacy_code).trim() !== '') {
+          const code = String(o.legacy_code).trim();
+          if (seenWeeklyCodes.has(code)) return false;
+          seenWeeklyCodes.add(code);
+        }
+        return true;
+      });
+      setAllPeriodOrders(deduplicatedWeeklyOrders);
 
       const formattedRecent = (recentOrdersRes.data || []).map(o => {
         const seller = sellers.find(s => s.id === o.seller_id);
