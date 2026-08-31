@@ -904,6 +904,10 @@ export default function AdminDashboard() {
     loadData(startDate, endDate);
   }, []);
 
+  useEffect(() => {
+    setProductPage(1);
+  }, [selectedCatFilter, productSearchTerm, productSortKey, productPageSize]);
+
   if (loading) {
     return (
       <div className="min-h-[60vh] flex flex-col items-center justify-center gap-3">
@@ -933,10 +937,6 @@ export default function AdminDashboard() {
     (productPage - 1) * productPageSize,
     productPage * productPageSize
   );
-
-  useEffect(() => {
-    setProductPage(1);
-  }, [selectedCatFilter, productSearchTerm, productSortKey, productPageSize]);
 
   const month1Year = viewDate.getFullYear();
   const month1Month = viewDate.getMonth();
