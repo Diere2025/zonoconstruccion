@@ -24,6 +24,15 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: true, data: data || [] });
     }
 
+    if (action === 'internal-payers') {
+      const { data, error } = await supabaseAdmin
+        .from('mp_internal_payers')
+        .select('*')
+        .order('name');
+      if (error) throw error;
+      return NextResponse.json({ success: true, data: data || [] });
+    }
+
     if (action === 'search-orders') {
       const queryText = (searchParams.get('q') || '').trim();
       let q = supabaseAdmin
@@ -88,6 +97,11 @@ export async function GET(request: Request) {
         .select('*')
         .order('received_at', { ascending: false });
 
+      // Non-admin / non-administracion users NEVER see internal user payments
+      if (!isAdminOrAdminStaff) {
+        query = query.or('is_internal.is.null,is_internal.eq.false');
+      }
+
       // Hidden filter: only admin can view hidden items
       if (isAdminOrAdminStaff && showHidden) {
         query = query.eq('is_hidden', true);
@@ -130,7 +144,7 @@ export async function GET(request: Request) {
       if (isAdminOrAdminStaff) {
         const { data: todayRecords } = await supabaseAdmin
           .from('mp_payments')
-          .select('amount')
+          .select('amount, is_internal')
           .gte('received_at', `${todayStr}T00:00:00.000Z`)
           .lte('received_at', `${todayStr}T23:59:59.999Z`)
           .or('is_hidden.is.null,is_hidden.eq.false');
@@ -161,6 +175,76 @@ export async function POST(request: Request) {
     const { searchParams } = new URL(request.url);
     const action = searchParams.get('action');
     const body = await request.json().catch(() => ({}));
+
+    if (action === 'toggle-internal-payer') {
+      const { paymentId, payerName, isInternal } = body;
+      if (!payerName) return NextResponse.json({ error: 'payerName requerido' }, { status: 400 });
+      const normName = payerName.toLowerCase().trim();
+
+      if (isInternal) {
+        await supabaseAdmin.from('mp_internal_payers').upsert({
+          name: payerName.trim(),
+          normalized_name: normName,
+          notes: 'Marcado desde transacción'
+        }, { onConflict: 'name' });
+
+        await supabaseAdmin
+          .from('mp_payments')
+          .update({ is_internal: true })
+          .or(`id.eq.${paymentId},payer_name.ilike.%${normName}%`);
+      } else {
+        await supabaseAdmin.from('mp_internal_payers').delete().eq('normalized_name', normName);
+
+        await supabaseAdmin
+          .from('mp_payments')
+          .update({ is_internal: false })
+          .or(`id.eq.${paymentId},payer_name.ilike.%${normName}%`);
+      }
+
+      return NextResponse.json({ success: true, isInternal });
+    }
+
+    if (action === 'add-internal-payer') {
+      const { name, notes } = body;
+      if (!name) return NextResponse.json({ error: 'Nombre requerido' }, { status: 400 });
+      const normName = name.toLowerCase().trim();
+
+      const { data, error } = await supabaseAdmin.from('mp_internal_payers').upsert({
+        name: name.trim(),
+        normalized_name: normName,
+        notes: notes || 'Usuario propio'
+      }, { onConflict: 'name' }).select().single();
+
+      if (error) throw error;
+
+      await supabaseAdmin
+        .from('mp_payments')
+        .update({ is_internal: true })
+        .ilike('payer_name', `%${normName}%`);
+
+      return NextResponse.json({ success: true, data });
+    }
+
+    if (action === 'remove-internal-payer') {
+      const { id, name } = body;
+      if (!id && !name) return NextResponse.json({ error: 'id o name requerido' }, { status: 400 });
+
+      let q = supabaseAdmin.from('mp_internal_payers').delete();
+      if (id) q = q.eq('id', id);
+      else if (name) q = q.eq('name', name);
+
+      const { error } = await q;
+      if (error) throw error;
+
+      if (name) {
+        await supabaseAdmin
+          .from('mp_payments')
+          .update({ is_internal: false })
+          .ilike('payer_name', `%${name.toLowerCase().trim()}%`);
+      }
+
+      return NextResponse.json({ success: true });
+    }
 
     if (action === 'link-order') {
       const { paymentId, orderId, orderCode, linkedBy } = body;
@@ -250,6 +334,14 @@ export async function POST(request: Request) {
       const deMatch = testText.match(/(?:de|recibiste de)\s+([^.]+)/i);
       if (deMatch && deMatch[1]) payerName = deMatch[1].trim();
 
+      // Check if internal payer
+      let isInternal = false;
+      const { data: internalPayers } = await supabaseAdmin.from('mp_internal_payers').select('normalized_name');
+      const normPayer = payerName.toLowerCase().trim();
+      if (internalPayers && internalPayers.some(ip => normPayer.includes(ip.normalized_name) || ip.normalized_name.includes(normPayer))) {
+        isInternal = true;
+      }
+
       const paymentRecord = {
         id: `mp_sim_${Date.now()}`,
         account_id: testAccount.toLowerCase().replace(/\s+/g, '_'),
@@ -263,7 +355,8 @@ export async function POST(request: Request) {
         raw_title: testTitle,
         raw_body: testText,
         is_verified: true,
-        is_hidden: false
+        is_hidden: false,
+        is_internal: isInternal
       };
 
       const { data, error } = await supabaseAdmin.from('mp_payments').insert(paymentRecord).select().single();
@@ -276,7 +369,7 @@ export async function POST(request: Request) {
       const { data, error } = await supabaseAdmin
         .from('mp_payments')
         .delete()
-        .or('source.eq.SIMULATION,payer_name.ilike.%prueba%,payer_name.ilike.%test%,payer_name.ilike.%boveda%,payer_name.ilike.%ibarra%')
+        .or('source.eq.SIMULATION,payer_name.ilike.%prueba%,payer_name.ilike.%test%')
         .select('id');
 
       if (error) throw error;

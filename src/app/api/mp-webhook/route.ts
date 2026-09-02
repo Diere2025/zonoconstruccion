@@ -123,6 +123,18 @@ async function handleProcessNotification(
   const paymentId = `mp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
   const accountId = account.toLowerCase().replace(/\s+/g, '_');
 
+  // Check if payer is an internal user
+  let isInternal = false;
+  try {
+    const { data: internalPayers } = await supabaseAdmin.from('mp_internal_payers').select('name, normalized_name');
+    const normPayer = (parsed.payerName || '').toLowerCase().trim();
+    if (normPayer && internalPayers && internalPayers.some(ip => normPayer.includes(ip.normalized_name) || ip.normalized_name.includes(normPayer))) {
+      isInternal = true;
+    }
+  } catch (e) {
+    console.warn('[MP Webhook] Error checking internal payers:', e);
+  }
+
   const paymentRecord = {
     id: paymentId,
     account_id: accountId,
@@ -135,7 +147,8 @@ async function handleProcessNotification(
     received_at: new Date().toISOString(),
     raw_title: title,
     raw_body: `${text} ${bigText}`.trim(),
-    is_verified: true
+    is_verified: true,
+    is_internal: isInternal
   };
 
   const { data, error } = await supabaseAdmin

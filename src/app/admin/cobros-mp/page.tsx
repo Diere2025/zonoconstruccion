@@ -35,7 +35,11 @@ import {
   ShoppingBag,
   UserCheck,
   ChevronRight,
-  Filter
+  Filter,
+  UserX,
+  Users2,
+  Lock,
+  Unlock
 } from 'lucide-react';
 import { formatPrice } from '@/lib/utils';
 
@@ -53,6 +57,7 @@ interface MPPayment {
   raw_body?: string;
   is_verified?: boolean;
   is_hidden?: boolean;
+  is_internal?: boolean;
   order_id?: string;
   order_code?: string;
   linked_by?: string;
@@ -66,6 +71,14 @@ interface MPAccount {
   alias?: string;
   color?: string;
   is_active?: boolean;
+}
+
+interface MPInternalPayer {
+  id: string;
+  name: string;
+  normalized_name: string;
+  notes?: string;
+  created_at?: string;
 }
 
 interface OrderSearchResult {
@@ -82,6 +95,7 @@ type UserRole = 'admin' | 'administracion' | 'logistica' | 'seller' | 'fletero';
 export default function CobrosMercadoPagoPage() {
   const [payments, setPayments] = useState<MPPayment[]>([]);
   const [accounts, setAccounts] = useState<MPAccount[]>([]);
+  const [internalPayers, setInternalPayers] = useState<MPInternalPayer[]>([]);
   const [stats, setStats] = useState<{ totalCount: number; totalAmount: number } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRealtimeActive, setIsRealtimeActive] = useState(false);
@@ -103,9 +117,13 @@ export default function CobrosMercadoPagoPage() {
   // Modals
   const [showTaskerGuide, setShowTaskerGuide] = useState(false);
   const [showSimulator, setShowSimulator] = useState(false);
-  const [showAccountsModal, setShowAccountsModal] = useState(false);
   const [showMaintenanceModal, setShowMaintenanceModal] = useState(false);
-  const [selectedPayment, setSelectedPayment] = useState<MPPayment | null>(null);
+  const [showInternalPayersModal, setShowInternalPayersModal] = useState(false);
+
+  // Internal Payers Management State
+  const [newInternalName, setNewInternalName] = useState('');
+  const [newInternalNotes, setNewInternalNotes] = useState('');
+  const [isSavingInternal, setIsSavingInternal] = useState(false);
 
   // Order Linking Modal State
   const [linkingPayment, setLinkingPayment] = useState<MPPayment | null>(null);
@@ -115,17 +133,12 @@ export default function CobrosMercadoPagoPage() {
   const [manualOrderCode, setManualOrderCode] = useState('');
   const [isSavingLink, setIsSavingLink] = useState(false);
 
-  // Form states for modals
+  // Form states for simulator
   const [simName, setSimName] = useState('Mariana Gómez');
   const [simAmount, setSimAmount] = useState('18500');
   const [simType, setSimType] = useState('TRANSFERENCIA');
   const [simAccount, setSimAccount] = useState('Cuenta MP3');
   const [simLoading, setSimLoading] = useState(false);
-
-  const [newAccName, setNewAccName] = useState('');
-  const [newAccAlias, setNewAccAlias] = useState('');
-  const [newAccColor, setNewAccColor] = useState('#0069ff');
-  const [accLoading, setAccLoading] = useState(false);
 
   const [purgeLoading, setPurgeLoading] = useState(false);
   const [maintenanceMsg, setMaintenanceMsg] = useState<string | null>(null);
@@ -233,6 +246,19 @@ export default function CobrosMercadoPagoPage() {
     }
   }, []);
 
+  // Load Internal Payers
+  const loadInternalPayers = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/cobros-mp-data?action=internal-payers');
+      const data = await res.json();
+      if (data.success && data.data) {
+        setInternalPayers(data.data);
+      }
+    } catch (e) {
+      console.error('Error loading internal payers:', e);
+    }
+  }, []);
+
   // Load Payments
   const loadPayments = useCallback(async () => {
     if (!isRoleLoaded) return;
@@ -262,7 +288,8 @@ export default function CobrosMercadoPagoPage() {
 
   useEffect(() => {
     loadAccounts();
-  }, [loadAccounts]);
+    loadInternalPayers();
+  }, [loadAccounts, loadInternalPayers]);
 
   useEffect(() => {
     loadPayments();
@@ -285,6 +312,10 @@ export default function CobrosMercadoPagoPage() {
         { event: 'INSERT', schema: 'public', table: 'mp_payments' },
         (payload) => {
           const newPayment = payload.new as MPPayment;
+          // If user is seller/logistica/fletero and payment is internal, ignore
+          const isStaff = currentUserRole === 'admin' || currentUserRole === 'administracion';
+          if (!isStaff && newPayment.is_internal) return;
+
           setPayments((prev) => {
             if (prev.some((p) => p.id === newPayment.id)) return prev;
             return [newPayment, ...prev];
@@ -303,6 +334,11 @@ export default function CobrosMercadoPagoPage() {
         { event: 'UPDATE', schema: 'public', table: 'mp_payments' },
         (payload) => {
           const updated = payload.new as MPPayment;
+          const isStaff = currentUserRole === 'admin' || currentUserRole === 'administracion';
+          if (!isStaff && updated.is_internal) {
+            setPayments((prev) => prev.filter((p) => p.id !== updated.id));
+            return;
+          }
           setPayments((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
         }
       )
@@ -323,7 +359,7 @@ export default function CobrosMercadoPagoPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [playChime, stats]);
+  }, [playChime, stats, currentUserRole]);
 
   const handleCopy = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
@@ -353,7 +389,7 @@ export default function CobrosMercadoPagoPage() {
     setManualOrderCode(payment.order_code || '');
     setOrderSearchQuery('');
     setOrderSearchResults([]);
-    searchOrders(''); // Load initial recent orders
+    searchOrders('');
   };
 
   // Link Order to Payment
@@ -410,6 +446,88 @@ export default function CobrosMercadoPagoPage() {
       }
     } catch (err: any) {
       alert('Error al desvincular: ' + err.message);
+    }
+  };
+
+  // Toggle Internal Payer directly from Transaction
+  const handleToggleInternalFromPayment = async (payment: MPPayment) => {
+    const willBeInternal = !payment.is_internal;
+    const confirmMsg = willBeInternal
+      ? `¿Marcar a "${payment.payer_name}" como Usuario Propio?\n\nEsta y todas sus transacciones quedarán ocultas para vendedoras y logística, y se resaltarán en color violeta para Administración/Admin.`
+      : `¿Desmarcar a "${payment.payer_name}" como Usuario Propio?\n\nSus transacciones volverán a ser visibles según el rol del usuario.`;
+
+    if (!confirm(confirmMsg)) return;
+
+    try {
+      const res = await fetch('/api/admin/cobros-mp-data?action=toggle-internal-payer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          paymentId: payment.id,
+          payerName: payment.payer_name,
+          isInternal: willBeInternal
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        // Update local state for all payments from this payer
+        const norm = payment.payer_name.toLowerCase().trim();
+        setPayments(prev => prev.map(p => {
+          if (p.id === payment.id || p.payer_name.toLowerCase().trim() === norm) {
+            return { ...p, is_internal: willBeInternal };
+          }
+          return p;
+        }));
+        loadInternalPayers();
+      }
+    } catch (err: any) {
+      alert('Error al modificar usuario propio: ' + err.message);
+    }
+  };
+
+  // Add Internal Payer from Modal
+  const handleAddInternalPayer = async () => {
+    if (!newInternalName.trim()) return;
+    setIsSavingInternal(true);
+    try {
+      const res = await fetch('/api/admin/cobros-mp-data?action=add-internal-payer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newInternalName.trim(),
+          notes: newInternalNotes.trim()
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setNewInternalName('');
+        setNewInternalNotes('');
+        loadInternalPayers();
+        loadPayments();
+      }
+    } catch (err: any) {
+      alert('Error agregando persona oculta: ' + err.message);
+    } finally {
+      setIsSavingInternal(false);
+    }
+  };
+
+  // Remove Internal Payer from Modal
+  const handleRemoveInternalPayer = async (payer: MPInternalPayer) => {
+    if (!confirm(`¿Eliminar a "${payer.name}" de la lista de personas ocultas/propias?`)) return;
+    try {
+      const res = await fetch('/api/admin/cobros-mp-data?action=remove-internal-payer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: payer.id, name: payer.name })
+      });
+      const data = await res.json();
+      if (data.success) {
+        loadInternalPayers();
+        loadPayments();
+      }
+    } catch (err: any) {
+      alert('Error eliminando persona: ' + err.message);
     }
   };
 
@@ -516,6 +634,17 @@ export default function CobrosMercadoPagoPage() {
 
           {/* Top Actions */}
           <div className="flex items-center gap-2">
+            {isAdminOrStaff && (
+              <button
+                onClick={() => setShowInternalPayersModal(true)}
+                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-50 border border-purple-200 text-purple-700 text-xs font-bold hover:bg-purple-100 shadow-xs transition-all"
+                title="Lista de Personas Ocultas / Usuarios Propios"
+              >
+                <Users2 className="w-4 h-4 text-purple-600" />
+                <span>Personas Ocultas ({internalPayers.length})</span>
+              </button>
+            )}
+
             <button
               onClick={() => setSoundEnabled(!soundEnabled)}
               className={`p-2 rounded-xl border transition-all ${
@@ -541,7 +670,7 @@ export default function CobrosMercadoPagoPage() {
               <>
                 <button
                   onClick={() => setShowTaskerGuide(true)}
-                  className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-slate-700 text-xs font-bold hover:bg-slate-50 shadow-xs"
+                  className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-slate-700 text-xs font-bold hover:bg-slate-50 shadow-xs"
                 >
                   <Smartphone className="w-4 h-4 text-[#0069ff]" /> Conectar Tasker
                 </button>
@@ -755,10 +884,10 @@ export default function CobrosMercadoPagoPage() {
                       ? 'bg-amber-100 text-amber-900 border-amber-300' 
                       : 'bg-slate-50 text-slate-500 border-slate-200 hover:text-slate-700'
                   }`}
-                  title="Alternar entre transacciones normales y transacciones ocultas/archivadas"
+                  title="Alternar entre transacciones normales y transacciones archivadas"
                 >
                   {showHidden ? <EyeOff className="w-3.5 h-3.5 text-amber-700" /> : <Eye className="w-3.5 h-3.5" />}
-                  <span>{showHidden ? 'Viendo Ocultas' : 'Ver Ocultas'}</span>
+                  <span>{showHidden ? 'Viendo Archivadas' : 'Ver Archivadas'}</span>
                 </button>
               )}
             </div>
@@ -769,7 +898,7 @@ export default function CobrosMercadoPagoPage() {
                 onClick={() => setShowMaintenanceModal(true)}
                 className="text-slate-400 hover:text-slate-700 font-medium flex items-center gap-1 text-[11px]"
               >
-                <SlidersHorizontal className="w-3.5 h-3.5" /> Mantenimiento & Cuentas
+                <SlidersHorizontal className="w-3.5 h-3.5" /> Mantenimiento
               </button>
             )}
           </div>
@@ -791,7 +920,7 @@ export default function CobrosMercadoPagoPage() {
                 <h4 className="text-sm font-black text-slate-800">No se encontraron cobros</h4>
                 <p className="text-xs text-slate-500 max-w-sm mx-auto mt-1 font-medium">
                   {showHidden 
-                    ? 'No hay transacciones marcadas como ocultas.' 
+                    ? 'No hay transacciones marcadas como archivadas/ocultas.' 
                     : 'Cuando ingrese una transferencia o cobro de Mercado Pago, aparecerá aquí automáticamente en tiempo real.'}
                 </p>
               </div>
@@ -800,26 +929,31 @@ export default function CobrosMercadoPagoPage() {
             payments.map((payment) => {
               const badgeColor = getAccountBadgeColor(payment.account_name);
               const isHiddenItem = Boolean(payment.is_hidden);
+              const isInternalItem = Boolean(payment.is_internal);
 
               return (
                 <div
                   key={payment.id}
-                  className={`p-4 sm:p-5 rounded-3xl bg-white border transition-all duration-150 hover:shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
-                    isHiddenItem 
-                      ? 'border-dashed border-amber-300 bg-amber-50/20 opacity-75' 
-                      : 'border-slate-200/80 hover:border-slate-300'
+                  className={`p-4 sm:p-5 rounded-3xl border transition-all duration-150 hover:shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
+                    isInternalItem
+                      ? 'border-purple-200 bg-purple-50/50 hover:bg-purple-50/70 shadow-xs ring-1 ring-purple-400/20'
+                      : isHiddenItem 
+                        ? 'border-dashed border-amber-300 bg-amber-50/20 opacity-75' 
+                        : 'bg-white border-slate-200/80 hover:border-slate-300'
                   }`}
                 >
                   {/* Left Column: Icon & Payer & Badges */}
                   <div className="flex items-start sm:items-center gap-3.5">
                     <div 
                       className={`w-11 h-11 rounded-2xl flex items-center justify-center font-bold shrink-0 shadow-xs ${
+                        isInternalItem ? 'bg-purple-100 text-purple-700 border border-purple-300' :
                         payment.payment_type === 'QR' ? 'bg-amber-50 text-amber-600 border border-amber-200' :
-                        payment.payment_type === 'POINT' ? 'bg-purple-50 text-purple-600 border border-purple-200' :
+                        payment.payment_type === 'POINT' ? 'bg-indigo-50 text-indigo-600 border border-indigo-200' :
                         'bg-emerald-50 text-emerald-600 border border-emerald-200'
                       }`}
                     >
-                      {payment.payment_type === 'QR' ? <QrCode className="w-5 h-5" /> :
+                      {isInternalItem ? <UserCheck className="w-5 h-5 text-purple-700" /> :
+                       payment.payment_type === 'QR' ? <QrCode className="w-5 h-5" /> :
                        payment.payment_type === 'POINT' ? <CreditCard className="w-5 h-5" /> :
                        <Send className="w-5 h-5" />}
                     </div>
@@ -827,7 +961,7 @@ export default function CobrosMercadoPagoPage() {
                     <div className="space-y-1">
                       {/* Payer Name and Badges */}
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-black text-slate-900 text-sm sm:text-base tracking-tight">
+                        <span className={`font-black text-sm sm:text-base tracking-tight ${isInternalItem ? 'text-purple-950' : 'text-slate-900'}`}>
                           {payment.payer_name}
                         </span>
 
@@ -838,6 +972,13 @@ export default function CobrosMercadoPagoPage() {
                         >
                           {payment.account_name || 'Cuenta MP3'}
                         </span>
+
+                        {/* Internal User Distinct Badge (Visible for Admin & Administracion) */}
+                        {isInternalItem && (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-purple-200/80 text-purple-900 border border-purple-300 flex items-center gap-1 shadow-xs">
+                            <Lock className="w-3 h-3 text-purple-700" /> Usuario Propio (Oculto a Ventas)
+                          </span>
+                        )}
 
                         {/* Type Badge */}
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-slate-100 text-slate-600 border border-slate-200">
@@ -878,7 +1019,7 @@ export default function CobrosMercadoPagoPage() {
                         {/* Hidden Badge if archived */}
                         {isHiddenItem && (
                           <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-amber-100 text-amber-800 border border-amber-200">
-                            Oculto
+                            Archivado
                           </span>
                         )}
                       </div>
@@ -908,11 +1049,11 @@ export default function CobrosMercadoPagoPage() {
                   {/* Right Column: Amount & Admin Actions */}
                   <div className="flex items-center justify-between sm:justify-end gap-3 pl-14 sm:pl-0 border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-100">
                     <div className="text-right">
-                      <div className="text-base sm:text-lg font-black text-emerald-600 tracking-tight">
+                      <div className={`text-base sm:text-lg font-black tracking-tight ${isInternalItem ? 'text-purple-700' : 'text-emerald-600'}`}>
                         + {payment.formatted_amount || formatPrice(payment.amount)}
                       </div>
-                      <div className="text-[10px] uppercase font-bold text-emerald-600 tracking-wider flex items-center justify-end gap-1">
-                        <Check className="w-3 h-3" /> Acreditado
+                      <div className={`text-[10px] uppercase font-bold tracking-wider flex items-center justify-end gap-1 ${isInternalItem ? 'text-purple-600' : 'text-emerald-600'}`}>
+                        <Check className="w-3 h-3" /> {isInternalItem ? 'Movimiento Interno' : 'Acreditado'}
                       </div>
                     </div>
 
@@ -926,6 +1067,21 @@ export default function CobrosMercadoPagoPage() {
                         {copiedId === payment.id ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
                       </button>
 
+                      {/* Admin & Administracion: Toggle Internal Payer directly from row */}
+                      {isAdminOrStaff && (
+                        <button
+                          onClick={() => handleToggleInternalFromPayment(payment)}
+                          className={`p-1.5 rounded-xl transition-all ${
+                            isInternalItem 
+                              ? 'text-purple-700 hover:bg-purple-200 bg-purple-100' 
+                              : 'text-slate-400 hover:text-purple-600 hover:bg-purple-50'
+                          }`}
+                          title={isInternalItem ? 'Quitar de lista de Usuarios Propios' : 'Marcar como Usuario Propio (Ocultar a Ventas)'}
+                        >
+                          <UserX className="w-4 h-4" />
+                        </button>
+                      )}
+
                       {/* Admin Only: Hide / Unhide */}
                       {isFullAdmin && (
                         <button
@@ -935,7 +1091,7 @@ export default function CobrosMercadoPagoPage() {
                               ? 'text-amber-600 hover:bg-amber-100 bg-amber-50' 
                               : 'text-slate-400 hover:text-amber-600 hover:bg-amber-50'
                           }`}
-                          title={isHiddenItem ? 'Desocultar Transacción' : 'Ocultar Transacción'}
+                          title={isHiddenItem ? 'Desarchivar Transacción' : 'Archivar Transacción'}
                         >
                           {isHiddenItem ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
                         </button>
@@ -959,6 +1115,100 @@ export default function CobrosMercadoPagoPage() {
           )}
         </div>
       </main>
+
+      {/* MODAL: Gestionar Personas Ocultas / Usuarios Propios */}
+      {showInternalPayersModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white border border-slate-200 rounded-3xl max-w-lg w-full p-6 sm:p-7 shadow-2xl relative max-h-[90vh] overflow-y-auto space-y-5">
+            <button
+              onClick={() => setShowInternalPayersModal(false)}
+              className="absolute top-5 right-5 p-1.5 text-slate-400 hover:text-slate-700 rounded-lg"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            {/* Modal Header */}
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-purple-50 border border-purple-200 text-purple-700 flex items-center justify-center font-bold shadow-xs">
+                <Users2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-[#001538]">Personas Ocultas y Usuarios Propios</h3>
+                <p className="text-xs text-slate-500 font-medium">Cobros y transferencias internas invisibles para el equipo de ventas</p>
+              </div>
+            </div>
+
+            {/* Explanatory Box */}
+            <div className="p-3.5 bg-purple-50/70 border border-purple-200 rounded-2xl text-xs text-purple-900 space-y-1">
+              <div className="font-bold flex items-center gap-1.5">
+                <Lock className="w-4 h-4 text-purple-700 shrink-0" />
+                <span>Regla de Privacidad Automática</span>
+              </div>
+              <p className="text-purple-800 text-[11px] leading-relaxed">
+                Las transacciones de las personas en esta lista <strong>sólo serán visibles para Administración y Administradores</strong> (resaltadas en violeta). El personal de Ventas, Logística y Fleteros <strong>no podrá verlas</strong> ni sumarlas.
+              </p>
+            </div>
+
+            {/* Add New Person Input */}
+            <div className="space-y-3 p-4 bg-slate-50 border border-slate-200 rounded-2xl">
+              <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Agregar Nueva Persona Oculta</h4>
+              <div className="space-y-2">
+                <input
+                  type="text"
+                  value={newInternalName}
+                  onChange={(e) => setNewInternalName(e.target.value)}
+                  placeholder="Nombre exacto o aproximado (ej: Diego Alejandro Boveda)"
+                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
+                />
+                <input
+                  type="text"
+                  value={newInternalNotes}
+                  onChange={(e) => setNewInternalNotes(e.target.value)}
+                  placeholder="Nota u observación (ej: Transferencias personales socio)"
+                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
+                />
+                <button
+                  disabled={isSavingInternal || !newInternalName.trim()}
+                  onClick={handleAddInternalPayer}
+                  className="w-full py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-1.5 shadow-sm shadow-purple-600/20"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>{isSavingInternal ? 'Guardando...' : 'Agregar Persona a la Lista'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Current List */}
+            <div className="space-y-2">
+              <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">Personas Configuradas ({internalPayers.length})</h4>
+              <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
+                {internalPayers.length === 0 ? (
+                  <p className="text-xs text-slate-400 p-3 text-center border border-dashed rounded-xl">No hay personas agregadas aún.</p>
+                ) : (
+                  internalPayers.map((payer) => (
+                    <div
+                      key={payer.id}
+                      className="p-3 bg-white border border-slate-200 rounded-2xl flex items-center justify-between gap-3 shadow-2xs hover:border-slate-300 transition-all"
+                    >
+                      <div>
+                        <span className="font-bold text-xs text-slate-900 block">{payer.name}</span>
+                        {payer.notes && <span className="text-[11px] text-slate-500 block">{payer.notes}</span>}
+                      </div>
+                      <button
+                        onClick={() => handleRemoveInternalPayer(payer)}
+                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"
+                        title="Eliminar de la lista"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MODAL: Vincular Pedido a Pago */}
       {linkingPayment && (

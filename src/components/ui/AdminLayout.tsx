@@ -140,9 +140,9 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     getUserDetails();
   }, [pathname]);
 
-  // Route guard: Restricted sellers (Jazmín & Ludmila) are restricted strictly to /vendedores/presupuestos
+  // Route guard: Restricted sellers (Jazmín & Ludmila) can access /vendedores/presupuestos and /admin/cobros-mp
   useEffect(() => {
-    if (isRestrictedSeller && pathname && pathname !== '/vendedores/presupuestos') {
+    if (isRestrictedSeller && pathname && pathname !== '/vendedores/presupuestos' && pathname !== '/admin/cobros-mp') {
       router.replace('/vendedores/presupuestos');
     }
   }, [isRestrictedSeller, pathname, router]);
