@@ -1707,6 +1707,17 @@ x-webhook-token: mpchecker_secret_key_123`}
                     {copiedId === 'tasker_body' ? 'Copiado' : 'Copiar JSON'}
                   </button>
                 </div>
+
+                <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl space-y-1.5 mt-3">
+                  <div className="font-black text-emerald-900 flex items-center gap-1.5 text-[11px]">
+                    <span>🛡️</span> Regla de Reintentos Automáticos (Garantía Cero Pérdidas):
+                  </div>
+                  <ol className="list-decimal pl-5 space-y-1 text-emerald-800 text-[11px] font-medium leading-relaxed">
+                    <li>En la acción <strong>HTTP Request</strong>, marcar la casilla <strong>Continuar Tarea tras Error (Continue Task After Error)</strong>.</li>
+                    <li>Agregar después una acción <strong>Tarea ➔ Esperar (Wait)</strong> de <strong>20 segundos</strong> con la condición: <code>Si %http_response_code !~ 200</code>.</li>
+                    <li>Agregar una acción <strong>Tarea ➔ Ir a Acción (Goto)</strong> apuntando de nuevo al <strong>HTTP Request</strong> con la condición: <code>Si %http_response_code !~ 200</code>.</li>
+                  </ol>
+                </div>
               </div>
             </div>
           </div>
