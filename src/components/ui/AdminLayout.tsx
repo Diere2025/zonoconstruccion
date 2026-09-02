@@ -164,6 +164,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         { name: "Importar Pedidos", href: "/admin/importar-pedidos", icon: Upload, adminOnly: true },
         { name: "Clientes y Direcciones", href: "/vendedores/clientes", icon: Users },
         { name: "Cotizador / Presupuestos", href: "/vendedores/presupuestos", icon: Calculator },
+        { name: "Chequeo de Pagos", href: "/admin/cobros-mp", icon: ShieldCheck },
         { name: "Postventa y Reclamos", href: "/vendedores/postventa", icon: RefreshCw },
         { name: "Meta Ads Performance", href: "/admin/meta-ads", icon: Target, adminOnly: true }
       ]
@@ -172,7 +173,6 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       title: "Tesorería y Finanzas",
       links: [
         { name: "Caja Diaria", href: "/vendedores/caja", icon: Wallet },
-        { name: "Cobros Mercado Pago", href: "/admin/cobros-mp", icon: ShieldCheck },
         { name: "Administración y Finanzas", href: "/admin/finanzas", icon: Coins, adminOnly: true },
         { name: "Comisiones de Vendedores", href: "/admin/comisiones", icon: Coins, adminOnly: true }
       ]
@@ -351,21 +351,23 @@ export function AdminLayout({ children }: AdminLayoutProps) {
             );
           })}
 
-          {/* Atajos Rápidos / Tienda */}
-          <div className="space-y-1.5 pt-2 border-t border-slate-800/80">
-            <h4 className="px-3 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Acceso Público</h4>
-            <Link 
-              href="/" 
-              target="_blank"
-              className="flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800/60 transition-all group"
-            >
-              <span className="flex items-center gap-2.5">
-                <ShoppingBag className="w-4 h-4 text-slate-400 group-hover:text-slate-200" />
-                Catálogo Web
-              </span>
-              <ExternalLink className="w-3.5 h-3.5 text-slate-500 group-hover:text-slate-300" />
-            </Link>
-          </div>
+          {/* Atajos Rápidos / Tienda - Solo para Admin */}
+          {userRole === 'admin' && (
+            <div className="space-y-1.5 pt-2 border-t border-slate-800/80">
+              <h4 className="px-3 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Acceso Público</h4>
+              <Link 
+                href="/" 
+                target="_blank"
+                className="flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800/60 transition-all group"
+              >
+                <span className="flex items-center gap-2.5">
+                  <ShoppingBag className="w-4 h-4 text-slate-400 group-hover:text-slate-200" />
+                  Catálogo Web
+                </span>
+                <ExternalLink className="w-3.5 h-3.5 text-slate-500 group-hover:text-slate-300" />
+              </Link>
+            </div>
+          )}
         </div>
 
         {/* User Info & Logout Footer */}
