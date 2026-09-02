@@ -60,7 +60,11 @@ function parseMpNotification(title: string, text: string, bigText?: string) {
     };
   }
 
-  const formattedAmount = `$ ${amount.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
+  const hasDecimals = amount % 1 !== 0;
+  const formattedAmount = `$ ${amount.toLocaleString('es-AR', {
+    minimumFractionDigits: hasDecimals ? 2 : 0,
+    maximumFractionDigits: 2
+  })}`;
 
   // 2. Payment Type detection
   let paymentType = 'TRANSFERENCIA';

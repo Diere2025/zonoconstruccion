@@ -39,9 +39,9 @@ import {
   UserX,
   Users2,
   Lock,
-  Unlock
+  Unlock,
+  Settings
 } from 'lucide-react';
-import { formatPrice } from '@/lib/utils';
 
 interface MPPayment {
   id: string;
@@ -119,11 +119,19 @@ export default function CobrosMercadoPagoPage() {
   const [showSimulator, setShowSimulator] = useState(false);
   const [showMaintenanceModal, setShowMaintenanceModal] = useState(false);
   const [showInternalPayersModal, setShowInternalPayersModal] = useState(false);
+  const [showAccountsModal, setShowAccountsModal] = useState(false);
 
   // Internal Payers Management State
   const [newInternalName, setNewInternalName] = useState('');
   const [newInternalNotes, setNewInternalNotes] = useState('');
   const [isSavingInternal, setIsSavingInternal] = useState(false);
+
+  // Accounts Management State
+  const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
+  const [accName, setAccName] = useState('');
+  const [accAlias, setAccAlias] = useState('');
+  const [accColor, setAccColor] = useState('#0069ff');
+  const [isSavingAccount, setIsSavingAccount] = useState(false);
 
   // Order Linking Modal State
   const [linkingPayment, setLinkingPayment] = useState<MPPayment | null>(null);
@@ -142,6 +150,32 @@ export default function CobrosMercadoPagoPage() {
 
   const [purgeLoading, setPurgeLoading] = useState(false);
   const [maintenanceMsg, setMaintenanceMsg] = useState<string | null>(null);
+
+  // Unified Amount Formatter (No decimals if integer, with decimals if has cents)
+  const formatMPAmount = useCallback((amount: number | string) => {
+    const num = typeof amount === 'number' ? amount : parseFloat(String(amount).replace(/[^0-9.-]+/g, '')) || 0;
+    const hasDecimals = num % 1 !== 0;
+    return `$ ${num.toLocaleString('es-AR', {
+      minimumFractionDigits: hasDecimals ? 2 : 0,
+      maximumFractionDigits: 2
+    })}`;
+  }, []);
+
+  // Account Display Resolver (Resolves Alias, Name, Color)
+  const getAccountDisplay = useCallback((accountNameOrId: string) => {
+    const clean = (accountNameOrId || '').toLowerCase().trim();
+    const acc = accounts.find(a => 
+      a.id.toLowerCase() === clean || 
+      a.name.toLowerCase() === clean || 
+      (a.alias && a.alias.toLowerCase() === clean)
+    );
+    return {
+      displayName: acc?.alias || acc?.name || accountNameOrId || 'diegozono.mp',
+      fullName: acc?.name || accountNameOrId || 'Cuenta MP3',
+      alias: acc?.alias || 'diegozono.mp',
+      color: acc?.color || '#0069ff'
+    };
+  }, [accounts]);
 
   // 1. Detect User and Role
   useEffect(() => {
@@ -172,7 +206,7 @@ export default function CobrosMercadoPagoPage() {
         const { data: seller } = await supabase
           .from('sellers')
           .select('id, full_name, role')
-          .eq('id', user.id)
+          .or(`id.eq.${user.id},email.ilike.${emailLower}`)
           .maybeSingle();
 
         if (seller) {
@@ -312,7 +346,6 @@ export default function CobrosMercadoPagoPage() {
         { event: 'INSERT', schema: 'public', table: 'mp_payments' },
         (payload) => {
           const newPayment = payload.new as MPPayment;
-          // If user is seller/logistica/fletero and payment is internal, ignore
           const isStaff = currentUserRole === 'admin' || currentUserRole === 'administracion';
           if (!isStaff && newPayment.is_internal) return;
 
@@ -470,7 +503,6 @@ export default function CobrosMercadoPagoPage() {
       });
       const data = await res.json();
       if (data.success) {
-        // Update local state for all payments from this payer
         const norm = payment.payer_name.toLowerCase().trim();
         setPayments(prev => prev.map(p => {
           if (p.id === payment.id || p.payer_name.toLowerCase().trim() === norm) {
@@ -531,6 +563,37 @@ export default function CobrosMercadoPagoPage() {
     }
   };
 
+  // Save / Update Account (Name, Alias, Color)
+  const handleSaveAccount = async () => {
+    if (!accName.trim()) return;
+    setIsSavingAccount(true);
+    try {
+      const res = await fetch('/api/admin/cobros-mp-data?action=save-account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: editingAccountId || undefined,
+          name: accName.trim(),
+          alias: accAlias.trim() || accName.trim(),
+          color: accColor
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setEditingAccountId(null);
+        setAccName('');
+        setAccAlias('');
+        setAccColor('#0069ff');
+        loadAccounts();
+        loadPayments();
+      }
+    } catch (err: any) {
+      alert('Error guardando cuenta: ' + err.message);
+    } finally {
+      setIsSavingAccount(false);
+    }
+  };
+
   // Admin: Toggle Hide
   const handleToggleHide = async (payment: MPPayment) => {
     const newHide = !payment.is_hidden;
@@ -554,8 +617,8 @@ export default function CobrosMercadoPagoPage() {
   };
 
   // Admin: Delete Payment
-  const handleDeletePayment = async (paymentId: string, payer: string, amount: string) => {
-    if (!confirm(`¿Está seguro de eliminar definitivamente la transacción de ${payer} por ${amount}?`)) return;
+  const handleDeletePayment = async (paymentId: string, payer: string, amountFormatted: string) => {
+    if (!confirm(`¿Está seguro de eliminar definitivamente la transacción de ${payer} por ${amountFormatted}?`)) return;
     try {
       const res = await fetch('/api/admin/cobros-mp-data?action=delete-payment', {
         method: 'POST',
@@ -587,11 +650,6 @@ export default function CobrosMercadoPagoPage() {
     } catch {
       return dateString;
     }
-  };
-
-  const getAccountBadgeColor = (accountName: string) => {
-    const acc = accounts.find(a => a.name.toLowerCase() === accountName.toLowerCase() || a.id.toLowerCase() === accountName.toLowerCase());
-    return acc?.color || '#0069ff';
   };
 
   const isSellerRole = currentUserRole === 'seller';
@@ -635,14 +693,25 @@ export default function CobrosMercadoPagoPage() {
           {/* Top Actions */}
           <div className="flex items-center gap-2">
             {isAdminOrStaff && (
-              <button
-                onClick={() => setShowInternalPayersModal(true)}
-                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-50 border border-purple-200 text-purple-700 text-xs font-bold hover:bg-purple-100 shadow-xs transition-all"
-                title="Lista de Personas Ocultas / Usuarios Propios"
-              >
-                <Users2 className="w-4 h-4 text-purple-600" />
-                <span>Personas Ocultas ({internalPayers.length})</span>
-              </button>
+              <>
+                <button
+                  onClick={() => setShowAccountsModal(true)}
+                  className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 border border-blue-200 text-[#0069ff] text-xs font-bold hover:bg-blue-100 shadow-xs transition-all"
+                  title="Configurar Cuentas y Alias"
+                >
+                  <Settings className="w-4 h-4" />
+                  <span>Cuentas y Alias</span>
+                </button>
+
+                <button
+                  onClick={() => setShowInternalPayersModal(true)}
+                  className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-50 border border-purple-200 text-purple-700 text-xs font-bold hover:bg-purple-100 shadow-xs transition-all"
+                  title="Lista de Personas Ocultas / Usuarios Propios"
+                >
+                  <Users2 className="w-4 h-4 text-purple-600" />
+                  <span>Personas Ocultas ({internalPayers.length})</span>
+                </button>
+              </>
             )}
 
             <button
@@ -697,9 +766,9 @@ export default function CobrosMercadoPagoPage() {
               <div>
                 <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Recaudado Hoy</span>
                 <div className="text-2xl sm:text-3xl font-black text-[#001538] mt-0.5">
-                  {formatPrice(stats.totalAmount)}
+                  {formatMPAmount(stats.totalAmount)}
                 </div>
-                <span className="text-[11px] text-slate-500 font-medium">Ingresos de hoy en Cuenta MP3</span>
+                <span className="text-[11px] text-slate-500 font-medium">Ingresos de hoy en cuentas vinculadas</span>
               </div>
               <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 font-bold shadow-xs">
                 <Wallet className="w-6 h-6" />
@@ -927,7 +996,7 @@ export default function CobrosMercadoPagoPage() {
             </div>
           ) : (
             payments.map((payment) => {
-              const badgeColor = getAccountBadgeColor(payment.account_name);
+              const accountInfo = getAccountDisplay(payment.account_name);
               const isHiddenItem = Boolean(payment.is_hidden);
               const isInternalItem = Boolean(payment.is_internal);
 
@@ -965,12 +1034,13 @@ export default function CobrosMercadoPagoPage() {
                           {payment.payer_name}
                         </span>
 
-                        {/* Account Badge (Cuenta MP3) */}
+                        {/* Account Badge with Configurable Alias (e.g. diegozono.mp) */}
                         <span 
-                          className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider text-white"
-                          style={{ backgroundColor: badgeColor }}
+                          className="px-2.5 py-0.5 rounded-full text-[10px] font-black tracking-wider text-white shadow-2xs cursor-default"
+                          style={{ backgroundColor: accountInfo.color }}
+                          title={`Cuenta Interna: ${accountInfo.fullName} (Alias: ${accountInfo.alias})`}
                         >
-                          {payment.account_name || 'Cuenta MP3'}
+                          {accountInfo.displayName}
                         </span>
 
                         {/* Internal User Distinct Badge (Visible for Admin & Administracion) */}
@@ -1050,7 +1120,7 @@ export default function CobrosMercadoPagoPage() {
                   <div className="flex items-center justify-between sm:justify-end gap-3 pl-14 sm:pl-0 border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-100">
                     <div className="text-right">
                       <div className={`text-base sm:text-lg font-black tracking-tight ${isInternalItem ? 'text-purple-700' : 'text-emerald-600'}`}>
-                        + {payment.formatted_amount || formatPrice(payment.amount)}
+                        + {formatMPAmount(payment.amount)}
                       </div>
                       <div className={`text-[10px] uppercase font-bold tracking-wider flex items-center justify-end gap-1 ${isInternalItem ? 'text-purple-600' : 'text-emerald-600'}`}>
                         <Check className="w-3 h-3" /> {isInternalItem ? 'Movimiento Interno' : 'Acreditado'}
@@ -1060,7 +1130,7 @@ export default function CobrosMercadoPagoPage() {
                     <div className="flex items-center gap-1">
                       {/* Copy summary button */}
                       <button
-                        onClick={() => handleCopy(`${payment.payer_name} - ${payment.formatted_amount || formatPrice(payment.amount)} - ${payment.account_name} - ${payment.order_code ? 'Pedido ' + payment.order_code : ''}`, payment.id)}
+                        onClick={() => handleCopy(`${payment.payer_name} - ${formatMPAmount(payment.amount)} - ${accountInfo.displayName} - ${payment.order_code ? 'Pedido ' + payment.order_code : ''}`, payment.id)}
                         className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-all"
                         title="Copiar Resumen"
                       >
@@ -1100,7 +1170,7 @@ export default function CobrosMercadoPagoPage() {
                       {/* Admin Only: Delete */}
                       {isFullAdmin && (
                         <button
-                          onClick={() => handleDeletePayment(payment.id, payment.payer_name, payment.formatted_amount || formatPrice(payment.amount))}
+                          onClick={() => handleDeletePayment(payment.id, payment.payer_name, formatMPAmount(payment.amount))}
                           className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"
                           title="Eliminar Transacción Permanentemente"
                         >
@@ -1115,6 +1185,93 @@ export default function CobrosMercadoPagoPage() {
           )}
         </div>
       </main>
+
+      {/* MODAL: Gestionar Cuentas y Alias */}
+      {showAccountsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white border border-slate-200 rounded-3xl max-w-lg w-full p-6 sm:p-7 shadow-2xl relative max-h-[90vh] overflow-y-auto space-y-5">
+            <button
+              onClick={() => setShowAccountsModal(false)}
+              className="absolute top-5 right-5 p-1.5 text-slate-400 hover:text-slate-700 rounded-lg"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            {/* Modal Header */}
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-blue-50 border border-blue-200 text-[#0069ff] flex items-center justify-center font-bold shadow-xs">
+                <Settings className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-[#001538]">Configuración de Cuentas y Alias</h3>
+                <p className="text-xs text-slate-500 font-medium">Asignar el Alias público (ej: diegozono.mp) a las cuentas de Mercado Pago</p>
+              </div>
+            </div>
+
+            {/* Account List */}
+            <div className="space-y-3">
+              {accounts.map((acc) => (
+                <div key={acc.id} className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-black text-slate-900 block">{acc.name}</span>
+                      <span className="text-[11px] text-slate-500 font-medium">ID Interno: {acc.id}</span>
+                    </div>
+                    <span 
+                      className="px-2.5 py-0.5 rounded-full text-[10px] font-black text-white"
+                      style={{ backgroundColor: acc.color || '#0069ff' }}
+                    >
+                      {acc.alias || acc.name}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                    <div>
+                      <label className="font-bold text-slate-700 block text-[11px] mb-1">Nombre Administrativo</label>
+                      <input
+                        type="text"
+                        defaultValue={acc.name}
+                        onBlur={(e) => {
+                          if (e.target.value !== acc.name) {
+                            fetch('/api/admin/cobros-mp-data?action=save-account', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ id: acc.id, name: e.target.value, alias: acc.alias, color: acc.color })
+                            }).then(() => loadAccounts());
+                          }
+                        }}
+                        className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-xl font-medium"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="font-bold text-slate-700 block text-[11px] mb-1">Alias (Visible en cobros)</label>
+                      <input
+                        type="text"
+                        defaultValue={acc.alias || ''}
+                        placeholder="Ej: diegozono.mp"
+                        onBlur={(e) => {
+                          if (e.target.value !== acc.alias) {
+                            fetch('/api/admin/cobros-mp-data?action=save-account', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ id: acc.id, name: acc.name, alias: e.target.value, color: acc.color })
+                            }).then(() => {
+                              loadAccounts();
+                              loadPayments();
+                            });
+                          }
+                        }}
+                        className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-xl font-bold text-[#0069ff]"
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MODAL: Gestionar Personas Ocultas / Usuarios Propios */}
       {showInternalPayersModal && (
@@ -1241,7 +1398,7 @@ export default function CobrosMercadoPagoPage() {
               <div className="text-right">
                 <span className="text-slate-500 font-medium block">Monto Cobrado</span>
                 <span className="font-black text-emerald-600 text-sm">
-                  {linkingPayment.formatted_amount || formatPrice(linkingPayment.amount)}
+                  {formatMPAmount(linkingPayment.amount)}
                 </span>
               </div>
             </div>
@@ -1307,7 +1464,7 @@ export default function CobrosMercadoPagoPage() {
                       </div>
 
                       <div className="text-right shrink-0">
-                        <span className="font-bold text-xs text-slate-900 block">{formatPrice(order.total_amount)}</span>
+                        <span className="font-bold text-xs text-slate-900 block">{formatMPAmount(order.total_amount)}</span>
                         <span className="text-[10px] text-blue-600 font-bold hover:underline">Vincular ➔</span>
                       </div>
                     </div>

@@ -320,6 +320,27 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, message: 'Pago eliminado con éxito', id: data?.id });
     }
 
+    if (action === 'save-account') {
+      const { id, name, alias, color } = body;
+      if (!name) return NextResponse.json({ error: 'Nombre de cuenta requerido' }, { status: 400 });
+
+      const accountId = id || `acc_${name.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+      const { data, error } = await supabaseAdmin
+        .from('mp_accounts')
+        .upsert({
+          id: accountId,
+          name: name.trim(),
+          alias: (alias || name).trim(),
+          color: color || '#0069ff',
+          is_active: true
+        }, { onConflict: 'id' })
+        .select()
+        .single();
+
+      if (error) throw error;
+      return NextResponse.json({ success: true, data });
+    }
+
     if (action === 'simulate') {
       const { title, text, account } = body;
       const testTitle = title || 'Mercado Pago';
@@ -328,7 +349,11 @@ export async function POST(request: Request) {
 
       const amountMatch = testText.match(/\$\s*([\d\.,]+)/);
       const rawAmount = amountMatch ? parseFloat(amountMatch[1].replace(/\./g, '').replace(',', '.')) : 15000;
-      const formattedAmount = `$ ${rawAmount.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
+      const hasDecimals = rawAmount % 1 !== 0;
+      const formattedAmount = `$ ${rawAmount.toLocaleString('es-AR', {
+        minimumFractionDigits: hasDecimals ? 2 : 0,
+        maximumFractionDigits: 2
+      })}`;
 
       let payerName = 'Juan Carlos Pérez';
       const deMatch = testText.match(/(?:de|recibiste de)\s+([^.]+)/i);
