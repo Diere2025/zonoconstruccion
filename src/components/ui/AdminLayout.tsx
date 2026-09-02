@@ -89,35 +89,38 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     }
 
     async function getUserDetails() {
-      // If currently inside /admin route, user is already validated as admin
-      if (pathname && pathname.startsWith('/admin')) {
-        setUserRole('admin');
-      }
-
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         const email = user.email || "";
         setUserEmail(email);
         const emailLower = email.toLowerCase();
 
-        // Diego or admin emails are always admin
-        if (emailLower === 'diego.boveda@gmail.com' || emailLower.includes('admin') || emailLower.includes('diego')) {
+        // Check if Admin by email
+        let isAdminUser = emailLower === 'diego.boveda@gmail.com' || 
+                           emailLower.includes('admin') || 
+                           emailLower.includes('diego') || 
+                           emailLower === 'caroibarra.93@gmail.com';
+
+        if (isAdminUser) {
           setUserRole('admin');
+        } else {
+          setUserRole('seller');
         }
 
         try {
           const { data: seller } = await supabase
             .from('sellers')
-            .select('id, name, role')
-            .eq('id', user.id)
+            .select('id, name, full_name, role')
+            .or(`id.eq.${user.id},email.ilike.${emailLower}`)
             .maybeSingle();
 
           if (seller?.role === 'admin') {
             setUserRole('admin');
+            isAdminUser = true;
           }
 
-          const nameLower = (seller?.name || "").toLowerCase();
-          const isRestricted = (
+          const nameLower = (seller?.full_name || seller?.name || "").toLowerCase();
+          const isRestricted = !isAdminUser && (
             emailLower.includes("jazmin") || 
             emailLower.includes("jazmín") || 
             nameLower.includes("jazmin") || 
@@ -126,12 +129,11 @@ export function AdminLayout({ children }: AdminLayoutProps) {
             emailLower.includes("ludmilakrenz") ||
             nameLower.includes("ludmila") ||
             user.id === "13430e05-b61a-4a3f-9fc3-152d377c4b0c" || // Jazmin
-            user.id === "8207801b-b6cb-48cc-af0f-d2f9f2c98032"    // Ludmila
-          ) && emailLower !== 'diego.boveda@gmail.com' && !emailLower.includes('admin') && !emailLower.includes('diego');
+            user.id === "8207801b-b6cb-48cc-af0f-d2f9f2c98032" ||   // Ludmila
+            user.id === "4c9b5ed0-3946-4df6-b4d5-3bdc9b1a6c7f"    // Ludmila Auth
+          );
           
-          if (isRestricted) {
-            setIsRestrictedSeller(true);
-          }
+          setIsRestrictedSeller(Boolean(isRestricted));
         } catch (e) {
           console.warn("Error checking seller role in AdminLayout:", e);
         }
@@ -307,7 +309,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
           {linkSections.map((section, sIdx) => {
             const visibleLinks = section.links.filter(link => {
               if (isRestrictedSeller) {
-                return link.href === "/vendedores/presupuestos";
+                return link.href === "/vendedores/presupuestos" || link.href === "/admin/cobros-mp";
               }
               if (link.adminOnly && userRole !== 'admin') return false;
               if (link.sellerOnly && userRole === 'admin') return false;
