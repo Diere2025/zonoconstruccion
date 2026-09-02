@@ -15,21 +15,31 @@ function parseMpNotification(title: string, text: string, bigText?: string) {
   const lowerContent = content.toLowerCase();
   const lowerTitle = (title || '').toLowerCase();
 
-  // Safety filter: Discard non-payment notifications
-  if (
-    lowerContent.includes('te prestamos') ||
-    lowerContent.includes('pedí tu préstamo') ||
-    lowerContent.includes('está rindiendo') ||
-    lowerContent.includes('generando rendimientos') ||
-    lowerContent.includes('pagaste') ||
-    lowerContent.includes('tu compra de') ||
-    lowerContent.includes('pago de servicios') ||
-    lowerContent.includes('recarga de')
-  ) {
-    return {
-      isIncomingPayment: false,
-      reason: 'Notificación descartada (no corresponde a un cobro entrante)'
-    };
+  // Safety filter: Discard non-payment notifications ONLY if NOT an incoming payment
+  const isExplicitIncoming = 
+    lowerContent.includes('recibiste') || 
+    lowerContent.includes('te transfirió') || 
+    lowerContent.includes('te envió dinero') || 
+    lowerContent.includes('ingresó') ||
+    lowerContent.includes('cobro') ||
+    lowerTitle.includes('recibiste') ||
+    lowerTitle.includes('cobro');
+
+  if (!isExplicitIncoming) {
+    if (
+      lowerContent.includes('te prestamos') ||
+      lowerContent.includes('pedí tu préstamo') ||
+      lowerContent.includes('pagaste') ||
+      lowerContent.includes('tu compra de') ||
+      lowerContent.includes('pago de servicios') ||
+      lowerContent.includes('recarga de') ||
+      (!lowerContent.includes('$') && !lowerTitle.includes('$'))
+    ) {
+      return {
+        isIncomingPayment: false,
+        reason: 'Notificación descartada (no corresponde a un cobro entrante)'
+      };
+    }
   }
 
   // 1. Amount extraction
@@ -62,16 +72,32 @@ function parseMpNotification(title: string, text: string, bigText?: string) {
 
   // 3. Payer Name extraction
   let payerName = 'Cliente';
-  const deMatch = content.match(/(?:de|recibiste de|te transfirió|envió dinero de)\s+([^.]+)/i);
-  if (deMatch && deMatch[1]) {
-    payerName = deMatch[1].trim().replace(/\s+(a|con|por|en)\s+.*$/i, '');
+
+  // Pattern 1: "Recibiste $ 100 [Nombre] te envió dinero..."
+  const matchEnvio = content.match(/Recibiste\s+\$[\s\d\.,]+\s*(?:de\s+)?(.+?)\s+te envió dinero/i);
+  // Pattern 2: "Recibiste $ 100 De [Nombre] desde su cuenta..."
+  const matchDe = content.match(/Recibiste\s+\$[\s\d\.,]+\s+De\s+([^.]+?)(?:\s+desde su cuenta|\s+y ya está|\.|$)/i);
+  // Pattern 3: generic "de [Nombre]" or "te transfirió [Nombre]"
+  const matchGen = content.match(/(?:de|recibiste de|te transfirió)\s+([^.]+?)(?:\s+desde su cuenta|\s+y ya está|\s+por transferencia|\.|$)/i);
+
+  if (matchEnvio && matchEnvio[1]) {
+    payerName = matchEnvio[1].replace(/,/g, ' ').replace(/\s+/g, ' ').trim();
+  } else if (matchDe && matchDe[1]) {
+    payerName = matchDe[1].replace(/,/g, ' ').replace(/\s+/g, ' ').trim();
+  } else if (matchGen && matchGen[1]) {
+    payerName = matchGen[1].replace(/,/g, ' ').replace(/\s+/g, ' ').trim();
   }
+
+  // Clean up any trailing text
+  payerName = payerName
+    .replace(/\s+(desde su cuenta|y ya está|te envió dinero|en tu cuenta|por transferencia|con mercado pago).*$/i, '')
+    .trim();
 
   return {
     isIncomingPayment: true,
     amount,
     formattedAmount,
-    payerName,
+    payerName: payerName || 'Cliente',
     paymentType
   };
 }
