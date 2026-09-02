@@ -11,10 +11,10 @@ const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 
 // Comprehensive Mercado Pago Parser
 function parseMpNotification(title: string, text: string, bigText?: string) {
-  let content = `${text || ''} ${bigText || ''}`.trim();
+  let content = `${text || ''} ${bigText || ''}`.replace(/%an[a-z]+/gi, '').trim();
 
-  // If invoked with empty or unexpanded test values from Tasker Play button
-  if (!content || content.startsWith('%an') || (title.startsWith('%an') && text.startsWith('%an'))) {
+  // Only if 100% empty
+  if (!content) {
     return {
       isIncomingPayment: true,
       amount: 100,
@@ -242,15 +242,14 @@ export async function POST(request: Request) {
       text = rawBody;
     }
 
-    // Clean unexpanded Tasker variable names
-    const isTaskerTest = (typeof text === 'string' && text.startsWith('%an')) || (typeof title === 'string' && title.startsWith('%an'));
-    if (typeof title === 'string' && title.startsWith('%an')) title = '';
-    if (typeof text === 'string' && text.startsWith('%an')) text = '';
-    if (typeof bigText === 'string' && bigText.startsWith('%an')) bigText = '';
+    // Clean any unexpanded Tasker variable tags (%antitle, %antext, %anbigtext, etc.)
+    title = (title || '').replace(/%an[a-z]+/gi, '').trim();
+    text = (text || '').replace(/%an[a-z]+/gi, '').trim();
+    bigText = (bigText || '').replace(/%an[a-z]+/gi, '').trim();
 
     if (!text && !title) {
-      text = url.searchParams.get('text') || url.searchParams.get('antext') || '';
-      title = url.searchParams.get('title') || url.searchParams.get('antitle') || '';
+      text = (url.searchParams.get('text') || url.searchParams.get('antext') || '').replace(/%an[a-z]+/gi, '').trim();
+      title = (url.searchParams.get('title') || url.searchParams.get('antitle') || '').replace(/%an[a-z]+/gi, '').trim();
     }
 
     const hasValidToken = 
@@ -258,8 +257,8 @@ export async function POST(request: Request) {
       tokenQuery === expectedSecret || 
       (tokenHeader && tokenHeader.includes(expectedSecret));
 
-    // If it's a manual Play button test from Tasker or has valid token but empty text, generate a friendly test payment
-    if ((isTaskerTest || (!text && !title)) && (hasValidToken || tokenQuery || tokenHeader)) {
+    // Only if completely empty and valid token, provide a dummy test response
+    if (!text && !title && hasValidToken) {
       title = 'Mercado Pago';
       text = 'Recibiste $ 100 de Prueba de Conexión Tasker';
       bigText = 'Recibiste $ 100 de Prueba de Conexión Tasker desde su cuenta de Mercado Pago.';
