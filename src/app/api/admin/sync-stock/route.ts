@@ -380,7 +380,7 @@ export async function POST() {
           dbCalculatedReservesMap.get(`norm_${normalizeText(dbProd.name)}`) ||
           dbCalculatedReservesMap.get(`norm_${normalizeText(dbProd.sku || '')}`) ||
           0;
-        const effectiveReserved = Math.max(sheetReserved, dbCalculatedReserved);
+        const effectiveReserved = dbCalculatedReserved;
         const newAvailable = sheetPhysical - effectiveReserved;
 
         updatesToUpsertMap.set(dbProd.id, {

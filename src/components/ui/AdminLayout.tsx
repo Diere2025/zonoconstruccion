@@ -32,6 +32,7 @@ import {
   ChevronRight,
   Home,
   Shield,
+  ShieldCheck,
   Layers,
   Flame
 } from "lucide-react";
@@ -88,35 +89,38 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     }
 
     async function getUserDetails() {
-      // If currently inside /admin route, user is already validated as admin
-      if (pathname && pathname.startsWith('/admin')) {
-        setUserRole('admin');
-      }
-
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         const email = user.email || "";
         setUserEmail(email);
         const emailLower = email.toLowerCase();
 
-        // Diego or admin emails are always admin
-        if (emailLower === 'diego.boveda@gmail.com' || emailLower.includes('admin') || emailLower.includes('diego')) {
+        // Check if Admin by email
+        let isAdminUser = emailLower === 'diego.boveda@gmail.com' || 
+                           emailLower.includes('admin') || 
+                           emailLower.includes('diego') || 
+                           emailLower === 'caroibarra.93@gmail.com';
+
+        if (isAdminUser) {
           setUserRole('admin');
+        } else {
+          setUserRole('seller');
         }
 
         try {
           const { data: seller } = await supabase
             .from('sellers')
-            .select('id, name, role')
-            .eq('id', user.id)
+            .select('id, name, full_name, role')
+            .or(`id.eq.${user.id},email.ilike.${emailLower}`)
             .maybeSingle();
 
           if (seller?.role === 'admin') {
             setUserRole('admin');
+            isAdminUser = true;
           }
 
-          const nameLower = (seller?.name || "").toLowerCase();
-          const isRestricted = (
+          const nameLower = (seller?.full_name || seller?.name || "").toLowerCase();
+          const isRestricted = !isAdminUser && (
             emailLower.includes("jazmin") || 
             emailLower.includes("jazmín") || 
             nameLower.includes("jazmin") || 
@@ -125,12 +129,11 @@ export function AdminLayout({ children }: AdminLayoutProps) {
             emailLower.includes("ludmilakrenz") ||
             nameLower.includes("ludmila") ||
             user.id === "13430e05-b61a-4a3f-9fc3-152d377c4b0c" || // Jazmin
-            user.id === "8207801b-b6cb-48cc-af0f-d2f9f2c98032"    // Ludmila
-          ) && emailLower !== 'diego.boveda@gmail.com' && !emailLower.includes('admin') && !emailLower.includes('diego');
+            user.id === "8207801b-b6cb-48cc-af0f-d2f9f2c98032" ||   // Ludmila
+            user.id === "4c9b5ed0-3946-4df6-b4d5-3bdc9b1a6c7f"    // Ludmila Auth
+          );
           
-          if (isRestricted) {
-            setIsRestrictedSeller(true);
-          }
+          setIsRestrictedSeller(Boolean(isRestricted));
         } catch (e) {
           console.warn("Error checking seller role in AdminLayout:", e);
         }
@@ -139,9 +142,9 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     getUserDetails();
   }, [pathname]);
 
-  // Route guard: Restricted sellers (Jazmín & Ludmila) are restricted strictly to /vendedores/presupuestos
+  // Route guard: Restricted sellers (Jazmín & Ludmila) can access /vendedores/presupuestos and /admin/cobros-mp
   useEffect(() => {
-    if (isRestrictedSeller && pathname && pathname !== '/vendedores/presupuestos') {
+    if (isRestrictedSeller && pathname && pathname !== '/vendedores/presupuestos' && pathname !== '/admin/cobros-mp') {
       router.replace('/vendedores/presupuestos');
     }
   }, [isRestrictedSeller, pathname, router]);
@@ -161,6 +164,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         { name: "Importar Pedidos", href: "/admin/importar-pedidos", icon: Upload, adminOnly: true },
         { name: "Clientes y Direcciones", href: "/vendedores/clientes", icon: Users },
         { name: "Cotizador / Presupuestos", href: "/vendedores/presupuestos", icon: Calculator },
+        { name: "Chequeo de Pagos", href: "/admin/cobros-mp", icon: ShieldCheck },
         { name: "Postventa y Reclamos", href: "/vendedores/postventa", icon: RefreshCw },
         { name: "Meta Ads Performance", href: "/admin/meta-ads", icon: Target, adminOnly: true }
       ]
@@ -305,7 +309,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
           {linkSections.map((section, sIdx) => {
             const visibleLinks = section.links.filter(link => {
               if (isRestrictedSeller) {
-                return link.href === "/vendedores/presupuestos";
+                return link.href === "/vendedores/presupuestos" || link.href === "/admin/cobros-mp";
               }
               if (link.adminOnly && userRole !== 'admin') return false;
               if (link.sellerOnly && userRole === 'admin') return false;
@@ -347,21 +351,23 @@ export function AdminLayout({ children }: AdminLayoutProps) {
             );
           })}
 
-          {/* Atajos Rápidos / Tienda */}
-          <div className="space-y-1.5 pt-2 border-t border-slate-800/80">
-            <h4 className="px-3 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Acceso Público</h4>
-            <Link 
-              href="/" 
-              target="_blank"
-              className="flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800/60 transition-all group"
-            >
-              <span className="flex items-center gap-2.5">
-                <ShoppingBag className="w-4 h-4 text-slate-400 group-hover:text-slate-200" />
-                Catálogo Web
-              </span>
-              <ExternalLink className="w-3.5 h-3.5 text-slate-500 group-hover:text-slate-300" />
-            </Link>
-          </div>
+          {/* Atajos Rápidos / Tienda - Solo para Admin */}
+          {userRole === 'admin' && (
+            <div className="space-y-1.5 pt-2 border-t border-slate-800/80">
+              <h4 className="px-3 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Acceso Público</h4>
+              <Link 
+                href="/" 
+                target="_blank"
+                className="flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800/60 transition-all group"
+              >
+                <span className="flex items-center gap-2.5">
+                  <ShoppingBag className="w-4 h-4 text-slate-400 group-hover:text-slate-200" />
+                  Catálogo Web
+                </span>
+                <ExternalLink className="w-3.5 h-3.5 text-slate-500 group-hover:text-slate-300" />
+              </Link>
+            </div>
+          )}
         </div>
 
         {/* User Info & Logout Footer */}

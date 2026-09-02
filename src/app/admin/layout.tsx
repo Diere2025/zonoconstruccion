@@ -34,7 +34,7 @@ let cachedUserId: string | null = null;
 let cachedRole: string | null = null;
 let rolePromise: Promise<string | null> | null = null;
 
-async function getSellerRole(userId: string): Promise<string | null> {
+async function getSellerRole(userId: string, email?: string): Promise<string | null> {
   if (cachedUserId === userId && cachedRole !== null) {
     return cachedRole;
   }
@@ -45,21 +45,37 @@ async function getSellerRole(userId: string): Promise<string | null> {
 
   const fetchPromise = (async () => {
     try {
-      const { data, error } = await supabase
-        .from('sellers')
-        .select('role')
-        .eq('id', userId)
-        .maybeSingle();
+      if (userId) {
+        const { data, error } = await supabase
+          .from('sellers')
+          .select('role')
+          .eq('id', userId)
+          .maybeSingle();
 
-      if (error) {
-        console.warn("Error fetching seller role:", error.message);
-        return null;
+        if (data?.role) {
+          cachedRole = data.role;
+          return data.role;
+        }
       }
-      cachedRole = data?.role || null;
-      return cachedRole;
+
+      if (email) {
+        const { data: byEmail } = await supabase
+          .from('sellers')
+          .select('role')
+          .ilike('email', email)
+          .maybeSingle();
+
+        if (byEmail?.role) {
+          cachedRole = byEmail.role;
+          return byEmail.role;
+        }
+      }
+
+      // Default role for authenticated user
+      return 'seller';
     } catch (err) {
       console.warn("Exception fetching seller role:", err);
-      return null;
+      return 'seller';
     } finally {
       rolePromise = null;
     }
@@ -164,13 +180,13 @@ export default function AdminLayoutWrapper({
 
       // Check seller role in database
       try {
-        const role = await getSellerRole(user.id);
+        const role = await getSellerRole(user.id, email);
         addLog(`Role from sellers table: ${role}`);
-        const userIsAdmin = role === 'admin';
+        const userIsAuthorized = role === 'admin' || role === 'seller' || role === 'logistica' || role === 'administracion' || role === 'fletero' || Boolean(role);
         globalAdminChecked = true;
-        globalIsAdmin = userIsAdmin;
+        globalIsAdmin = userIsAuthorized;
         if (isMounted) {
-          setIsAdmin(userIsAdmin);
+          setIsAdmin(userIsAuthorized);
           setLoading(false);
         }
       } catch (err: any) {

@@ -128,10 +128,26 @@ export async function GET(request: Request) {
 
       rows.forEach((r, idx) => {
         if (idx < 2) return;
-        const status = r[0] || '';
+        const rawStatus = (r[0] || '').trim().toUpperCase();
         const accountName = r[1] || '';
         const campaignName = r[2] || '';
-        if (!campaignName || !status) return;
+        if (!campaignName) return;
+
+        let status = 'ACTIVE';
+        if (rawStatus === 'PAUSED' || rawStatus === 'PAUSADA' || rawStatus === 'OFF' || rawStatus === 'INACTIVE' || rawStatus === 'DESACTIVADA') {
+          status = 'PAUSED';
+        } else if (rawStatus === 'ARCHIVED' || rawStatus === 'DELETED') {
+          status = 'ARCHIVED';
+        } else if (rawStatus === 'ACTIVE' || rawStatus === 'ACTIVA' || rawStatus === 'ON') {
+          status = 'ACTIVE';
+        } else {
+          status = rawStatus || 'ACTIVE';
+        }
+
+        // Secondary check from campaign title naming tags
+        if (campaignName.toLowerCase().includes('estado:off') || campaignName.toLowerCase().includes('[pausada]')) {
+          status = 'PAUSED';
+        }
 
         const messages = parseSpanishNumber(r[3]);
         const costPerActionUsd = parseSpanishNumber(r[4]);
@@ -177,6 +193,8 @@ export async function GET(request: Request) {
 
       const avgCprArs = totalMessages > 0 ? (totalSpendArs / totalMessages) : 0;
       const pacingPercent = totalBudgetArs > 0 ? Math.round((totalSpendArs / totalBudgetArs) * 100) : 0;
+      const activeCampaignsCount = liveCampaigns.filter(c => c.status === 'ACTIVE').length;
+      const pausedCampaignsCount = liveCampaigns.filter(c => c.status === 'PAUSED').length;
 
       return NextResponse.json({
         tab: 'live',
@@ -188,7 +206,9 @@ export async function GET(request: Request) {
           totalBudgetArs,
           avgCprArs,
           pacingPercent,
-          activeCampaignsCount: liveCampaigns.length
+          activeCampaignsCount,
+          pausedCampaignsCount,
+          totalCampaignsCount: liveCampaigns.length
         },
         campaigns: liveCampaigns
       });

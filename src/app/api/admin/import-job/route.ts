@@ -1,6 +1,6 @@
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
-import { NextResponse } from 'next/server';
+import { NextResponse, after } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
@@ -30,6 +30,23 @@ const normalizeLocalityFuzzy = (text: any): string => {
     .toLowerCase();
 };
 
+const cleanPhone = (phone: any): string => {
+  if (!phone) return "";
+  return phone.toString().replace(/\D/g, "");
+};
+
+const cleanProductName = (name: any): string => {
+  if (!name) return "";
+  let clean = name.toString().toLowerCase().trim();
+  clean = clean.replace(/^\[interno\]\s*(-\s*)?/, "");
+  clean = clean.replace(/\s*-\s*aquafort/g, "");
+  clean = clean.replace(/\s*-\s*biofort/g, "");
+  clean = clean.replace(/\s*-\s*rotoplas/g, "");
+  clean = clean.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  clean = clean.replace(/[^a-z0-9]/g, "");
+  return clean;
+};
+
 const parseSpanishNumber = (val: any): number => {
   if (!val) return 0;
   let clean = val.toString().trim().replace(/[^0-9.,-]/g, '');
@@ -45,18 +62,6 @@ const parseSpanishNumber = (val: any): number => {
   }
   const parsed = parseFloat(clean);
   return isNaN(parsed) ? 0 : parsed;
-};
-
-const cleanProductName = (name: any): string => {
-  if (!name) return "";
-  let clean = name.toString().toLowerCase().trim();
-  clean = clean.replace(/^\[interno\]\s*(-\s*)?/, "");
-  clean = clean.replace(/\s*-\s*aquafort/g, "");
-  clean = clean.replace(/\s*-\s*biofort/g, "");
-  clean = clean.replace(/\s*-\s*rotoplas/g, "");
-  clean = clean.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-  clean = clean.replace(/[^a-z0-9]/g, "");
-  return clean;
 };
 
 const parseDate = (dateStr: string): Date => {
@@ -217,7 +222,6 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
     logs.push(logLine);
     console.log(`[Import Job ${jobId}] ${logLine}`);
     
-    // Periodically persist logs to job record
     await supabaseAdmin
       .from('import_jobs')
       .update({ logs, updated_at: new Date().toISOString() })
@@ -225,7 +229,7 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
   };
 
   try {
-    await addLog("🚀 Iniciando tarea autónoma de importación en servidor...");
+    await addLog("🚀 Iniciando sincronización en servidor...");
 
     const {
       skipENC = true,
@@ -234,7 +238,7 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
       sheets = []
     } = payload;
 
-    // Helper function to fetch all orders (ALL statuses) with pagination to prevent duplicates
+    // Fetch all existing orders (with pagination)
     async function fetchOrdersAll() {
       let allOrders: any[] = [];
       let page = 0;
@@ -243,7 +247,7 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
       while (hasMore) {
         const { data, error } = await supabaseAdmin
           .from('orders')
-          .select('id, legacy_code, status, delivery_detail, whaticket_link, order_medium_id')
+          .select('id, legacy_code, status, payment_status, delivery_detail, whaticket_link, order_medium_id, client_id, total_amount')
           .range(page * pageSize, (page + 1) * pageSize - 1);
         if (error) throw error;
         if (data && data.length > 0) {
@@ -260,7 +264,7 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
       return allOrders;
     }
 
-    // Helper function to fetch all products
+    // Fetch all products (with pagination)
     async function fetchProductsAll() {
       let allProducts: any[] = [];
       let page = 0;
@@ -284,6 +288,32 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
         }
       }
       return allProducts;
+    }
+
+    // Fetch all clients (with pagination)
+    async function fetchClientsAll() {
+      let allClients: any[] = [];
+      let page = 0;
+      const pageSize = 1000;
+      let hasMore = true;
+      while (hasMore) {
+        const { data, error } = await supabaseAdmin
+          .from('clients')
+          .select('id, business_name, phone_primary, phone_secondary, is_wholesale')
+          .range(page * pageSize, (page + 1) * pageSize - 1);
+        if (error) throw error;
+        if (data && data.length > 0) {
+          allClients = [...allClients, ...data];
+          if (data.length < pageSize) {
+            hasMore = false;
+          } else {
+            page++;
+          }
+        } else {
+          hasMore = false;
+        }
+      }
+      return allClients;
     }
 
     // 1. Sync Payment Methods if requested
@@ -329,7 +359,7 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
 
     // 2. Load Master Data
     await supabaseAdmin.from('import_jobs').update({
-      current_step: "Cargando catálogo y pedidos existentes de la DB...",
+      current_step: "Cargando catálogo y pedidos existentes...",
       progress_percent: 18
     }).eq('id', jobId);
 
@@ -341,7 +371,8 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
       orderMediumsRes,
       paymentMethodsRes,
       phoneLinesRes,
-      dbOrders
+      dbOrders,
+      dbClients
     ] = await Promise.all([
       fetchProductsAll(),
       supabaseAdmin.from('sellers').select('id, full_name, is_organic'),
@@ -350,7 +381,8 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
       supabaseAdmin.from('order_mediums').select('id, name'),
       supabaseAdmin.from('payment_methods').select('id, name, surcharge_percentage, installments'),
       supabaseAdmin.from('phone_lines').select('id, phone_number'),
-      fetchOrdersAll()
+      fetchOrdersAll(),
+      fetchClientsAll()
     ]);
 
     if (sellersRes.error) throw sellersRes.error;
@@ -360,7 +392,7 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
     if (paymentMethodsRes.error) throw paymentMethodsRes.error;
     if (phoneLinesRes.error) throw phoneLinesRes.error;
 
-    await addLog(`📥 Datos maestros cargados: ${products.length} productos y ${dbOrders.length} pedidos existentes.`);
+    await addLog(`📥 Datos maestros cargados: ${products.length} productos, ${dbOrders.length} pedidos y ${dbClients.length} clientes existentes.`);
 
     // Build Maps
     const sellersMap = new Map();
@@ -376,25 +408,31 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
     (orderMediumsRes.data || []).forEach(r => orderMediumsMap.set(normalizeText(r.name), r.id));
 
     const payMethodsMap = new Map();
-    (paymentMethodsRes.data || []).forEach(r => payMethodsMap.set(normalizeText(r.name), r));
+    (paymentMethodsRes.data || []).forEach(r => payMethodsMap.set(normalizeText(r.name), r.id));
 
-    const phoneLinesMap = new Map();
-    (phoneLinesRes.data || []).forEach(r => phoneLinesMap.set(r.phone_number, r.id));
+    const productMap = new Map();
+    products.forEach(p => {
+      productMap.set(cleanProductName(p.name), p);
+      if (p.sku) productMap.set(cleanProductName(p.sku), p);
+    });
 
-    const existingOrdersMap = new Map<string, { id: string; status: string; delivery_detail?: string; whaticket_link?: string; order_medium_id?: string }>();
+    const clientsMap = new Map();
+    dbClients.forEach(c => {
+      const p1 = cleanPhone(c.phone_primary);
+      if (p1) clientsMap.set(p1, c);
+      const p2 = cleanPhone(c.phone_secondary);
+      if (p2) clientsMap.set(p2, c);
+      if (c.business_name) clientsMap.set(normalizeText(c.business_name), c);
+    });
+
+    const existingOrdersMap = new Map<string, any>();
     dbOrders.forEach((o: any) => {
       const rawCode = (o.legacy_code || "").trim();
       if (rawCode) {
         const parts = rawCode.split(/[\/,]/).map((c: string) => c.trim().toUpperCase());
         parts.forEach((code: string) => {
           if (code) {
-            existingOrdersMap.set(code, { 
-              id: o.id, 
-              status: o.status || "", 
-              delivery_detail: o.delivery_detail || "",
-              whaticket_link: o.whaticket_link || "",
-              order_medium_id: o.order_medium_id || ""
-            });
+            existingOrdersMap.set(code, o);
           }
         });
       }
@@ -453,32 +491,17 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
         const orderCode = (row[1] || "").trim();
         if (!orderCode) return false;
 
+        // Skip ENC or CAMB if requested
+        if (skipENC && orderCode.toUpperCase().startsWith("ENC")) return false;
+        if (skipCAMB && orderCode.toUpperCase().startsWith("CAMB")) return false;
+
         if (sheet.isCentralSheet) {
           const isWholesaleCode = orderCode.toUpperCase().startsWith("AQU") || orderCode.toUpperCase().startsWith("POW") || orderCode.toUpperCase().startsWith("AQ-");
           let matchesWholesale = sheet.isAquafortSheet ? isWholesaleCode : !isWholesaleCode;
           if (!matchesWholesale) return false;
-
-          const status = (row[0] || "").trim().toLowerCase();
-          const isCompleted = status === "entregado" || status === "cancelado" || status === "anulado" || status === "pasado";
-          if (isCompleted) {
-            const parts = orderCode.split(/[/,]/).map(c => c.trim().toUpperCase());
-            const hasActiveDbOrder = parts.some(part => {
-              const dbOrd = findExistingOrder(part);
-              return dbOrd && ['Pendiente', 'Confirmado', 'Entregando'].includes(dbOrd.status);
-            });
-            if (!hasActiveDbOrder) return false;
-          }
-          return true;
-        } else {
-          const estado = (row[0] || "").trim().toLowerCase();
-          if (estado === "no esta" || estado === "no está") return true;
-          const parts = orderCode.split(/[\/,]/).map(c => c.trim().toUpperCase());
-          const hasActiveDbOrder = parts.some(part => {
-            const dbOrd = findExistingOrder(part);
-            return dbOrd && ['Pendiente', 'Confirmado', 'Entregando'].includes(dbOrd.status);
-          });
-          return hasActiveDbOrder;
         }
+
+        return true;
       });
 
       if (targetRows.length > 0) {
@@ -491,18 +514,21 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
           const orderCode = (row[1] || "").trim().toUpperCase();
           if (!orderCode) continue;
 
-          if (skipENC && orderCode.startsWith("ENC")) continue;
-          if (skipCAMB && orderCode.startsWith("CAMB")) continue;
-
           const rawOrderDate = (row[3] || "").trim();
           const rawClientName = (row[5] || "").trim();
-          const rawClientPhone = (row[6] || "").trim();
+          const rawPhone1 = (row[6] || "").trim();
+          const rawPhone2 = (row[7] || "").trim();
+          const rawWhaticket = (row[8] || "").trim();
+          const rawAdvSource = (row[9] || "").trim();
+          const rawMedium = (row[11] || "").trim();
+          const rawSellerName = (row[12] || "").trim();
+          const rawLocality = (row[17] || "").trim();
           const rawAddress = (row[18] || "").trim();
-          const rawLocality = (row[19] || "").trim();
-          const rawMapsLink = (row[20] || "").trim();
-          const rawPaymentMethod = (row[22] || "").trim();
-          const rawDeliveryDetail = (row[30] || "").trim();
-          const rawWhaticketLink = (row[31] || "").trim();
+          const rawMapsLink = (row[19] || "").trim();
+          const rawPaymentMethod = (row[21] || "").trim();
+          const rawPaymentStatus = (row[23] || "").trim();
+          const rawTotalAmount = parseSpanishNumber(row[28]) || 0;
+          const rawDeliveryDetail = (row[89] || "").trim();
 
           const orderDate = parseDate(rawOrderDate);
           const initDelDate = new Date(orderDate);
@@ -510,27 +536,66 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
           const maxDelDate = new Date(orderDate);
           maxDelDate.setDate(maxDelDate.getDate() + 10);
 
-          let dbOrderStatus = 'Confirmado';
-          let paymentStatus = 'pending';
+          let dbOrderStatus = 'Pendiente';
           const lowerEstado = rawEstado.toLowerCase();
           if (lowerEstado === 'entregado' || lowerEstado === 'pasado') {
             dbOrderStatus = 'Entregado';
-            paymentStatus = 'paid';
           } else if (lowerEstado === 'cancelado' || lowerEstado === 'anulado') {
             dbOrderStatus = 'Cancelado';
           } else if (lowerEstado === 'entregando' || lowerEstado === 'en reparto') {
             dbOrderStatus = 'Entregando';
           } else {
-            dbOrderStatus = 'Confirmado';
+            dbOrderStatus = 'Pendiente';
           }
 
-          // Lookup seller, locality, payment method
+          // Strict check constraint compliance: 'Pendiente' | 'Seniado' | 'Abonado'
+          let dbPaymentStatus = 'Pendiente';
+          const lowerPay = rawPaymentStatus.toLowerCase();
+          if (lowerPay.includes('abonado') || dbOrderStatus === 'Entregado') {
+            dbPaymentStatus = 'Abonado';
+          } else if (lowerPay.includes('seniado') || lowerPay.includes('seña') || lowerPay.includes('señado')) {
+            dbPaymentStatus = 'Seniado';
+          }
+
+          // Lookup seller, locality, payment method, adv source, order medium
           let sellerId = sheet.defaultSellerId;
-          const matchedSeller = sellersMap.get(normalizeText(sheet.name));
+          const matchedSeller = sellersMap.get(normalizeText(rawSellerName)) || sellersMap.get(normalizeText(sheet.name));
           if (matchedSeller) sellerId = matchedSeller.id;
 
           let localityId = localitiesMap.get(normalizeLocalityFuzzy(rawLocality)) || null;
-          let paymentMethodId = payMethodsMap.get(normalizeText(rawPaymentMethod))?.id || null;
+          let paymentMethodId = payMethodsMap.get(normalizeText(rawPaymentMethod)) || null;
+          let advSourceId = advSourcesMap.get(normalizeText(rawAdvSource)) || null;
+          let orderMediumId = orderMediumsMap.get(normalizeText(rawMedium)) || null;
+
+          // Deduce Channel
+          let channel = sheet.defaultChannel || 'mostrador_minorista';
+          if (orderCode.startsWith("AQU") || orderCode.startsWith("POW") || orderCode.startsWith("AQ-") || rawDeliveryDetail.toUpperCase().includes("MAYORISTA")) {
+            channel = 'mayorista';
+          }
+
+          // Client handling
+          let clientId: string | null = null;
+          const cleanP1 = cleanPhone(rawPhone1);
+          const cleanP2 = cleanPhone(rawPhone2);
+          const existingClient = (cleanP1 && clientsMap.get(cleanP1)) || (cleanP2 && clientsMap.get(cleanP2)) || (rawClientName && clientsMap.get(normalizeText(rawClientName)));
+
+          if (existingClient) {
+            clientId = existingClient.id;
+          } else if (rawClientName) {
+            const { data: newClient } = await supabaseAdmin.from('clients').insert({
+              business_name: rawClientName,
+              phone_primary: rawPhone1 || rawPhone2 || "Sin teléfono",
+              phone_secondary: rawPhone2 || null,
+              is_wholesale: channel === 'mayorista'
+            }).select('id').single();
+
+            if (newClient) {
+              clientId = newClient.id;
+              if (cleanP1) clientsMap.set(cleanP1, newClient);
+              if (cleanP2) clientsMap.set(cleanP2, newClient);
+              clientsMap.set(normalizeText(rawClientName), newClient);
+            }
+          }
 
           // Check Existing Order
           const dbOrder = findExistingOrder(orderCode);
@@ -540,13 +605,16 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
             const updatePayload: any = {};
             if (dbOrder.status !== 'Entregado' && dbOrderStatus === 'Entregado') {
               updatePayload.status = 'Entregado';
-              updatePayload.payment_status = 'paid';
+              updatePayload.payment_status = 'Abonado';
             }
             if (rawDeliveryDetail && rawDeliveryDetail !== dbOrder.delivery_detail) {
               updatePayload.delivery_detail = rawDeliveryDetail;
             }
-            if (rawWhaticketLink && rawWhaticketLink !== dbOrder.whaticket_link) {
-              updatePayload.whaticket_link = rawWhaticketLink;
+            if (rawWhaticket && rawWhaticket !== dbOrder.whaticket_link) {
+              updatePayload.whaticket_link = rawWhaticket;
+            }
+            if (rawTotalAmount > 0 && dbOrder.total_amount !== rawTotalAmount) {
+              updatePayload.total_amount = rawTotalAmount;
             }
 
             if (Object.keys(updatePayload).length > 0) {
@@ -558,27 +626,60 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
             // INSERT NEW ORDER
             const { data: newOrder, error: errIns } = await supabaseAdmin.from('orders').insert({
               seller_id: sellerId,
+              client_id: clientId,
               customer_name: rawClientName,
               locality: rawLocality,
               address: rawAddress,
               google_maps_link: rawMapsLink || null,
               payment_method_id: paymentMethodId,
+              advertising_source_id: advSourceId,
+              order_medium_id: orderMediumId,
               freight_type: 'Regular',
               status: dbOrderStatus,
-              total_amount: parseSpanishNumber(row[28]) || 0,
+              total_amount: rawTotalAmount,
               order_date: orderDate.toISOString(),
               initial_delivery_date: initDelDate.toISOString(),
               max_delivery_date: maxDelDate.toISOString(),
-              payment_status: paymentStatus,
-              channel: sheet.defaultChannel || 'mostrador_minorista',
+              payment_status: dbPaymentStatus,
+              channel,
               delivery_detail: rawDeliveryDetail || null,
               legacy_code: orderCode,
-              whaticket_link: rawWhaticketLink || null
+              whaticket_link: rawWhaticket || null
             }).select('id').single();
 
             if (!errIns && newOrder) {
               sheetNew++;
               totalImported++;
+
+              // Extract and Insert Order Items
+              const itemsToInsert: any[] = [];
+              for (let pIdx = 30; pIdx < row.length; pIdx += 4) {
+                const prodName = (row[pIdx] || "").trim();
+                const prodQtyRaw = (row[pIdx + 1] || "").trim();
+                const prodPriceRaw = (row[pIdx + 2] || "").trim();
+                const prodSubtRaw = (row[pIdx + 3] || "").trim();
+
+                if (!prodName || prodName === "0" || prodName.toLowerCase() === "descuento") continue;
+                const qty = parseInt(prodQtyRaw.replace(/[^0-9.-]/g, ''), 10) || 1;
+                const unitPrice = parseSpanishNumber(prodPriceRaw) || 0;
+                const subtotal = parseSpanishNumber(prodSubtRaw) || (qty * unitPrice);
+
+                const matchedProd = productMap.get(cleanProductName(prodName));
+
+                itemsToInsert.push({
+                  order_id: newOrder.id,
+                  product_id: matchedProd ? matchedProd.id : null,
+                  product_name: prodName,
+                  quantity: qty,
+                  unit_price: unitPrice,
+                  subtotal: subtotal
+                });
+              }
+
+              if (itemsToInsert.length > 0) {
+                await supabaseAdmin.from('order_items').insert(itemsToInsert);
+                totalItemsImported += itemsToInsert.length;
+              }
 
               // Cache immediately in memory
               const parts = orderCode.split(/[\/,]/).map(c => c.trim().toUpperCase());
@@ -588,7 +689,7 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
                     id: newOrder.id,
                     status: dbOrderStatus,
                     delivery_detail: rawDeliveryDetail,
-                    whaticket_link: rawWhaticketLink
+                    whaticket_link: rawWhaticket
                   });
                 }
               });
@@ -665,7 +766,6 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
 // GET: Returns Current Running Job and Recent History
 export async function GET() {
   try {
-    // 1. Fetch latest running job if any
     const { data: runningJobs } = await supabaseAdmin
       .from('import_jobs')
       .select('*')
@@ -673,9 +773,21 @@ export async function GET() {
       .order('started_at', { ascending: false })
       .limit(1);
 
-    const currentJob = runningJobs && runningJobs.length > 0 ? runningJobs[0] : null;
+    let currentJob = runningJobs && runningJobs.length > 0 ? runningJobs[0] : null;
 
-    // 2. Fetch last 15 jobs history
+    if (currentJob) {
+      const lastActive = new Date(currentJob.updated_at || currentJob.started_at).getTime();
+      const diffSec = (Date.now() - lastActive) / 1000;
+      if (diffSec > 180) { // Older than 3 minutes without update
+        await supabaseAdmin.from('import_jobs').update({
+          status: 'failed',
+          error_message: 'El servidor tardó más de lo esperado o el proceso fue interrumpido.',
+          completed_at: new Date().toISOString()
+        }).eq('id', currentJob.id);
+        currentJob.status = 'failed';
+      }
+    }
+
     const { data: recentJobs, error } = await supabaseAdmin
       .from('import_jobs')
       .select('*')
@@ -723,7 +835,6 @@ export async function POST(req: Request) {
     if (activeJobs && activeJobs.length > 0) {
       const active = activeJobs[0];
       const diffSec = (Date.now() - new Date(active.started_at).getTime()) / 1000;
-      // If job is older than 5 minutes, consider it stale and mark as failed
       if (diffSec < 300) {
         return NextResponse.json({
           success: false,
@@ -814,16 +925,16 @@ export async function POST(req: Request) {
 
     if (errCreate) throw errCreate;
 
-    // Launch Background Execution without blocking HTTP Response
-    const jobPromise = runBackgroundImportJob(newJob.id, {
-      skipENC,
-      skipCAMB,
-      syncPaymentMethods,
-      sheets: targetSheets
+    // Launch Background Execution with Next.js after() to ensure background promise is not killed
+    after(async () => {
+      await runBackgroundImportJob(newJob.id, {
+        skipENC,
+        skipCAMB,
+        syncPaymentMethods,
+        sheets: targetSheets
+      });
     });
 
-    // In Edge runtime / Cloudflare, we return immediately
-    // and let the promise execute
     return NextResponse.json({
       success: true,
       message: "Sincronización iniciada en segundo plano en el servidor con éxito.",

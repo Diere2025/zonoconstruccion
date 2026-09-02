@@ -40,7 +40,8 @@ import {
   TrendingUp,
   XCircle,
   Edit,
-  RefreshCw
+  RefreshCw,
+  RotateCcw
 } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
@@ -1324,6 +1325,39 @@ export default function ComprasAdminPage() {
     } catch (err: any) {
       console.error("Error fulfilling PO:", err);
       alert("Error al marcar la orden como cumplida: " + err.message);
+    }
+  };
+
+  const handleRevertPOStatus = async (poId: string, ocCode: string) => {
+    if (!confirm(`¿Revertir la Orden de Compra ${ocCode} al estado "Pendiente"?\n\nSe restablecerán las cantidades recibidas a 0 y la orden volverá a figurar como pendiente de recepción.`)) {
+      return;
+    }
+
+    try {
+      // 1. Revert PO items of this PO to quantity_received = 0, status = 'Pendiente'
+      const { error: itemsErr } = await supabase
+        .from('purchase_order_items')
+        .update({
+          quantity_received: 0,
+          status: 'Pendiente'
+        })
+        .eq('purchase_order_id', poId);
+
+      if (itemsErr) throw itemsErr;
+
+      // 2. Revert PO status to 'Pendiente'
+      const { error: poErr } = await supabase
+        .from('purchase_orders')
+        .update({ status: 'Pendiente' })
+        .eq('id', poId);
+
+      if (poErr) throw poErr;
+
+      alert(`¡Orden de Compra ${ocCode} revertida a estado Pendiente con éxito!`);
+      await loadAllData(true);
+    } catch (err: any) {
+      console.error("Error revirtiendo orden de compra:", err);
+      alert("Error al revertir orden de compra: " + (err.message || String(err)));
     }
   };
 
@@ -5149,6 +5183,16 @@ export default function ComprasAdminPage() {
                                   </button>
                                 </>
                               )}
+                              {po.status === 'Cumplido' && (
+                                <button
+                                  onClick={() => handleRevertPOStatus(po.id, po.oc_code)}
+                                  className="p-1.5 text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 rounded-lg transition-all flex items-center gap-1 border border-amber-200 shadow-sm cursor-pointer"
+                                  title="Revertir a Pendiente / Reabrir OC"
+                                >
+                                  <RotateCcw className="w-3.5 h-3.5" />
+                                  <span className="text-[10px] font-black uppercase">Revertir</span>
+                                </button>
+                              )}
                               <button
                                 onClick={() => {
                                   setSelectedPO(po);
@@ -5405,6 +5449,23 @@ export default function ComprasAdminPage() {
                           className="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl font-black text-xs px-4 py-2.5"
                         >
                           Cancelar Orden
+                        </Button>
+                      </div>
+                    )}
+
+                    {selectedPO.status === 'Cumplido' && (
+                      <div className="flex justify-end pt-4 border-t border-slate-100">
+                        <Button
+                          type="button"
+                          onClick={() => {
+                            const poId = selectedPO.id;
+                            const ocCode = selectedPO.oc_code;
+                            setSelectedPO(null);
+                            handleRevertPOStatus(poId, ocCode);
+                          }}
+                          className="bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-xl font-black text-xs px-4 py-2.5 flex items-center gap-1.5 shadow-sm cursor-pointer"
+                        >
+                          <RotateCcw className="w-4 h-4" /> Revertir a Pendiente / Reabrir OC
                         </Button>
                       </div>
                     )}
