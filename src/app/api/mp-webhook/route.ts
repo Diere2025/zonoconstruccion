@@ -90,7 +90,7 @@ function parseMpNotification(title: string, text: string, bigText?: string) {
 
   // Clean up any trailing text
   payerName = payerName
-    .replace(/\s+(desde su cuenta|y ya está|te envió dinero|en tu cuenta|por transferencia|con mercado pago).*$/i, '')
+    .replace(/\s+(desde su cuenta|y ya está|te envió dinero|en tu cuenta|por transferencia|transferencia recibida|transferencia|con mercado pago|desde mercado pago).*$/i, '')
     .trim();
 
   return {
