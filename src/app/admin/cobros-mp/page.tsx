@@ -177,6 +177,88 @@ export default function CobrosMercadoPagoPage() {
     };
   }, [accounts]);
 
+  // Day Info Helper for Date Grouping
+  const getDayInfo = useCallback((dateStr: string) => {
+    try {
+      const d = new Date(dateStr);
+      const now = new Date();
+
+      const paymentDate = d.toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' });
+      const todayDate = now.toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' });
+      
+      const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      const yesterdayDate = yesterday.toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' });
+
+      const weekdayMonth = d.toLocaleDateString('es-AR', {
+        timeZone: 'America/Argentina/Buenos_Aires',
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long'
+      });
+      const formattedText = weekdayMonth.charAt(0).toUpperCase() + weekdayMonth.slice(1);
+
+      if (paymentDate === todayDate) {
+        return {
+          key: paymentDate,
+          sectionTitle: 'Hoy',
+          subTitle: formattedText,
+          isToday: true,
+          isYesterday: false,
+          isPast: false
+        };
+      } else if (paymentDate === yesterdayDate) {
+        return {
+          key: paymentDate,
+          sectionTitle: 'Ayer',
+          subTitle: formattedText,
+          isToday: false,
+          isYesterday: true,
+          isPast: true
+        };
+      } else {
+        return {
+          key: paymentDate,
+          sectionTitle: formattedText,
+          subTitle: '',
+          isToday: false,
+          isYesterday: false,
+          isPast: true
+        };
+      }
+    } catch {
+      return {
+        key: 'unknown',
+        sectionTitle: 'Transacciones Anteriores',
+        subTitle: '',
+        isToday: false,
+        isYesterday: false,
+        isPast: true
+      };
+    }
+  }, []);
+
+  const groupedPayments = useMemo(() => {
+    const groups: { [key: string]: { key: string; sectionTitle: string; subTitle: string; isToday: boolean; isYesterday: boolean; isPast: boolean; payments: MPPayment[] } } = {};
+
+    for (const p of payments) {
+      const info = getDayInfo(p.received_at);
+      if (!groups[info.key]) {
+        groups[info.key] = {
+          key: info.key,
+          sectionTitle: info.sectionTitle,
+          subTitle: info.subTitle,
+          isToday: info.isToday,
+          isYesterday: info.isYesterday,
+          isPast: info.isPast,
+          payments: []
+        };
+      }
+      groups[info.key].payments.push(p);
+    }
+
+    return Object.values(groups);
+  }, [payments, getDayInfo]);
+
   // 1. Detect User and Role
   useEffect(() => {
     async function detectUserRole() {
@@ -973,8 +1055,8 @@ export default function CobrosMercadoPagoPage() {
           </div>
         </div>
 
-        {/* Payments List */}
-        <div className="space-y-3">
+        {/* Payments List Grouped by Date */}
+        <div className="space-y-6">
           {isLoading && payments.length === 0 ? (
             <div className="py-20 text-center space-y-3 bg-white rounded-3xl border border-slate-200/80 shadow-xs">
               <Loader2 className="w-8 h-8 animate-spin text-[#0069ff] mx-auto" />
@@ -995,193 +1077,229 @@ export default function CobrosMercadoPagoPage() {
               </div>
             </div>
           ) : (
-            payments.map((payment) => {
-              const accountInfo = getAccountDisplay(payment.account_name);
-              const isHiddenItem = Boolean(payment.is_hidden);
-              const isInternalItem = Boolean(payment.is_internal);
-
-              return (
-                <div
-                  key={payment.id}
-                  className={`p-4 sm:p-5 rounded-3xl border transition-all duration-150 hover:shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
-                    isInternalItem
-                      ? 'border-purple-200 bg-purple-50/50 hover:bg-purple-50/70 shadow-xs ring-1 ring-purple-400/20'
-                      : isHiddenItem 
-                        ? 'border-dashed border-amber-300 bg-amber-50/20 opacity-75' 
-                        : 'bg-white border-slate-200/80 hover:border-slate-300'
-                  }`}
-                >
-                  {/* Left Column: Icon & Payer & Badges */}
-                  <div className="flex items-start sm:items-center gap-3.5">
-                    <div 
-                      className={`w-11 h-11 rounded-2xl flex items-center justify-center font-bold shrink-0 shadow-xs ${
-                        isInternalItem ? 'bg-purple-100 text-purple-700 border border-purple-300' :
-                        payment.payment_type === 'QR' ? 'bg-amber-50 text-amber-600 border border-amber-200' :
-                        payment.payment_type === 'POINT' ? 'bg-indigo-50 text-indigo-600 border border-indigo-200' :
-                        'bg-emerald-50 text-emerald-600 border border-emerald-200'
-                      }`}
-                    >
-                      {isInternalItem ? <UserCheck className="w-5 h-5 text-purple-700" /> :
-                       payment.payment_type === 'QR' ? <QrCode className="w-5 h-5" /> :
-                       payment.payment_type === 'POINT' ? <CreditCard className="w-5 h-5" /> :
-                       <Send className="w-5 h-5" />}
-                    </div>
-
-                    <div className="space-y-1">
-                      {/* Payer Name and Badges */}
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className={`font-black text-sm sm:text-base tracking-tight ${isInternalItem ? 'text-purple-950' : 'text-slate-900'}`}>
-                          {payment.payer_name}
-                        </span>
-
-                        {/* Account Badge with Configurable Alias (e.g. diegozono.mp) */}
-                        <span 
-                          className="px-2.5 py-0.5 rounded-full text-[10px] font-black tracking-wider text-white shadow-2xs cursor-default"
-                          style={{ backgroundColor: accountInfo.color }}
-                          title={`Cuenta Interna: ${accountInfo.fullName} (Alias: ${accountInfo.alias})`}
-                        >
-                          {accountInfo.displayName}
-                        </span>
-
-                        {/* Internal User Distinct Badge (Visible for Admin & Administracion) */}
-                        {isInternalItem && (
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-purple-200/80 text-purple-900 border border-purple-300 flex items-center gap-1 shadow-xs">
-                            <Lock className="w-3 h-3 text-purple-700" /> Usuario Propio (Oculto a Ventas)
-                          </span>
-                        )}
-
-                        {/* Type Badge */}
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-slate-100 text-slate-600 border border-slate-200">
-                          {payment.payment_type}
-                        </span>
-
-                        {/* Order Link Badge / Button (Right next to Account Badge) */}
-                        {payment.order_code ? (
-                          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-blue-50 border border-blue-200 text-blue-700 rounded-full text-[11px] font-black shadow-xs">
-                            <ShoppingBag className="w-3.5 h-3.5 text-[#0069ff]" />
-                            <span>Pedido: {payment.order_code}</span>
-                            <button
-                              onClick={() => handleOpenLinkModal(payment)}
-                              className="text-blue-500 hover:text-blue-800 ml-0.5 cursor-pointer"
-                              title="Cambiar pedido vinculado"
-                            >
-                              ✏️
-                            </button>
-                            <button
-                              onClick={() => handleUnlinkOrder(payment.id)}
-                              className="text-blue-400 hover:text-rose-600 ml-0.5 cursor-pointer"
-                              title="Desvincular pedido"
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
-                          </div>
-                        ) : (
-                          <button
-                            onClick={() => handleOpenLinkModal(payment)}
-                            className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-slate-50 hover:bg-blue-50 text-slate-600 hover:text-[#0069ff] border border-dashed border-slate-300 hover:border-blue-300 text-[11px] font-black transition-all cursor-pointer shadow-xs"
-                            title="Asignar y vincular este cobro a un código de pedido (JS...)"
-                          >
-                            <Plus className="w-3 h-3" />
-                            <span>Vincular Pedido</span>
-                          </button>
-                        )}
-
-                        {/* Hidden Badge if archived */}
-                        {isHiddenItem && (
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-amber-100 text-amber-800 border border-amber-200">
-                            Archivado
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Subtitle: Date & ID & Vinculado por info */}
-                      <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 font-medium">
-                        <span className="flex items-center gap-1">
-                          <Clock className="w-3.5 h-3.5 text-slate-400" />
-                          {formatDateDisplay(payment.received_at)}
-                        </span>
-                        <span>•</span>
-                        <span className="font-mono text-[11px] text-slate-400">
-                          ID: {payment.id.substring(0, 14)}...
-                        </span>
-                        {payment.linked_by && (
-                          <>
-                            <span>•</span>
-                            <span className="text-blue-600 font-semibold flex items-center gap-1">
-                              <UserCheck className="w-3 h-3" /> Vinculado por: {payment.linked_by}
-                            </span>
-                          </>
-                        )}
-                      </div>
-                    </div>
+            groupedPayments.map((group) => (
+              <div key={group.key} className="space-y-3">
+                {/* Date Header Separator */}
+                <div className="flex items-center gap-3 pt-2">
+                  <div className={`flex items-center gap-2 px-3 py-1.5 rounded-2xl text-xs font-black tracking-wide border shadow-2xs ${
+                    group.isToday 
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200 ring-1 ring-emerald-300/30' 
+                      : group.isYesterday
+                        ? 'bg-blue-50 text-[#0069ff] border-blue-200'
+                        : 'bg-slate-100 text-slate-700 border-slate-200'
+                  }`}>
+                    <Clock className="w-3.5 h-3.5 shrink-0" />
+                    <span>{group.sectionTitle}</span>
+                    {group.subTitle && (
+                      <span className="text-slate-500 font-semibold text-[11px]">
+                        · {group.subTitle}
+                      </span>
+                    )}
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ml-1 ${
+                      group.isToday 
+                        ? 'bg-emerald-200/80 text-emerald-900' 
+                        : group.isYesterday
+                          ? 'bg-blue-200/80 text-blue-900'
+                          : 'bg-slate-200 text-slate-800'
+                    }`}>
+                      {group.payments.length} {group.payments.length === 1 ? 'cobro' : 'cobros'}
+                    </span>
                   </div>
-
-                  {/* Right Column: Amount & Admin Actions */}
-                  <div className="flex items-center justify-between sm:justify-end gap-3 pl-14 sm:pl-0 border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-100">
-                    <div className="text-right">
-                      <div className={`text-base sm:text-lg font-black tracking-tight ${isInternalItem ? 'text-purple-700' : 'text-emerald-600'}`}>
-                        + {formatMPAmount(payment.amount)}
-                      </div>
-                      <div className={`text-[10px] uppercase font-bold tracking-wider flex items-center justify-end gap-1 ${isInternalItem ? 'text-purple-600' : 'text-emerald-600'}`}>
-                        <Check className="w-3 h-3" /> {isInternalItem ? 'Movimiento Interno' : 'Acreditado'}
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-1">
-                      {/* Copy summary button */}
-                      <button
-                        onClick={() => handleCopy(`${payment.payer_name} - ${formatMPAmount(payment.amount)} - ${accountInfo.displayName} - ${payment.order_code ? 'Pedido ' + payment.order_code : ''}`, payment.id)}
-                        className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-all"
-                        title="Copiar Resumen"
-                      >
-                        {copiedId === payment.id ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
-                      </button>
-
-                      {/* Admin & Administracion: Toggle Internal Payer directly from row */}
-                      {isAdminOrStaff && (
-                        <button
-                          onClick={() => handleToggleInternalFromPayment(payment)}
-                          className={`p-1.5 rounded-xl transition-all ${
-                            isInternalItem 
-                              ? 'text-purple-700 hover:bg-purple-200 bg-purple-100' 
-                              : 'text-slate-400 hover:text-purple-600 hover:bg-purple-50'
-                          }`}
-                          title={isInternalItem ? 'Quitar de lista de Usuarios Propios' : 'Marcar como Usuario Propio (Ocultar a Ventas)'}
-                        >
-                          <UserX className="w-4 h-4" />
-                        </button>
-                      )}
-
-                      {/* Admin Only: Hide / Unhide */}
-                      {isFullAdmin && (
-                        <button
-                          onClick={() => handleToggleHide(payment)}
-                          className={`p-1.5 rounded-xl transition-all ${
-                            isHiddenItem 
-                              ? 'text-amber-600 hover:bg-amber-100 bg-amber-50' 
-                              : 'text-slate-400 hover:text-amber-600 hover:bg-amber-50'
-                          }`}
-                          title={isHiddenItem ? 'Desarchivar Transacción' : 'Archivar Transacción'}
-                        >
-                          {isHiddenItem ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-                        </button>
-                      )}
-
-                      {/* Admin Only: Delete */}
-                      {isFullAdmin && (
-                        <button
-                          onClick={() => handleDeletePayment(payment.id, payment.payer_name, formatMPAmount(payment.amount))}
-                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"
-                          title="Eliminar Transacción Permanentemente"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
+                  <div className="flex-1 h-px bg-slate-200/80" />
                 </div>
-              );
-            })
+
+                {/* Cards for this Date */}
+                <div className="space-y-3">
+                  {group.payments.map((payment) => {
+                    const accountInfo = getAccountDisplay(payment.account_name);
+                    const isHiddenItem = Boolean(payment.is_hidden);
+                    const isInternalItem = Boolean(payment.is_internal);
+
+                    return (
+                      <div
+                        key={payment.id}
+                        className={`p-4 sm:p-5 rounded-3xl border transition-all duration-150 hover:shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
+                          isInternalItem
+                            ? 'border-purple-200 bg-purple-50/50 hover:bg-purple-50/70 shadow-xs ring-1 ring-purple-400/20'
+                            : isHiddenItem 
+                              ? 'border-dashed border-amber-300 bg-amber-50/20 opacity-75' 
+                              : 'bg-white border-slate-200/80 hover:border-slate-300'
+                        }`}
+                      >
+                        {/* Left Column: Icon & Payer & Badges */}
+                        <div className="flex items-start sm:items-center gap-3.5">
+                          <div 
+                            className={`w-11 h-11 rounded-2xl flex items-center justify-center font-bold shrink-0 shadow-xs ${
+                              isInternalItem ? 'bg-purple-100 text-purple-700 border border-purple-300' :
+                              payment.payment_type === 'QR' ? 'bg-amber-50 text-amber-600 border border-amber-200' :
+                              payment.payment_type === 'POINT' ? 'bg-indigo-50 text-indigo-600 border border-indigo-200' :
+                              'bg-emerald-50 text-emerald-600 border border-emerald-200'
+                            }`}
+                          >
+                            {isInternalItem ? <UserCheck className="w-5 h-5 text-purple-700" /> :
+                             payment.payment_type === 'QR' ? <QrCode className="w-5 h-5" /> :
+                             payment.payment_type === 'POINT' ? <CreditCard className="w-5 h-5" /> :
+                             <Send className="w-5 h-5" />}
+                          </div>
+
+                          <div className="space-y-1">
+                            {/* Payer Name and Badges */}
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className={`font-black text-sm sm:text-base tracking-tight ${isInternalItem ? 'text-purple-950' : 'text-slate-900'}`}>
+                                {payment.payer_name}
+                              </span>
+
+                              {/* Account Badge with Configurable Alias (e.g. diegozono.mp) */}
+                              <span 
+                                className="px-2.5 py-0.5 rounded-full text-[10px] font-black tracking-wider text-white shadow-2xs cursor-default"
+                                style={{ backgroundColor: accountInfo.color }}
+                                title={`Cuenta Interna: ${accountInfo.fullName} (Alias: ${accountInfo.alias})`}
+                              >
+                                {accountInfo.displayName}
+                              </span>
+
+                              {/* Internal User Distinct Badge (Visible for Admin & Administracion) */}
+                              {isInternalItem && (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-purple-200/80 text-purple-900 border border-purple-300 flex items-center gap-1 shadow-xs">
+                                  <Lock className="w-3 h-3 text-purple-700" /> Usuario Propio (Oculto a Ventas)
+                                </span>
+                              )}
+
+                              {/* Type Badge */}
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-slate-100 text-slate-600 border border-slate-200">
+                                {payment.payment_type}
+                              </span>
+
+                              {/* Order Link Badge / Button (Right next to Account Badge) */}
+                              {payment.order_code ? (
+                                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-blue-50 border border-blue-200 text-blue-700 rounded-full text-[11px] font-black shadow-xs">
+                                  <ShoppingBag className="w-3.5 h-3.5 text-[#0069ff]" />
+                                  <span>Pedido: {payment.order_code}</span>
+                                  <button
+                                    onClick={() => handleOpenLinkModal(payment)}
+                                    className="text-blue-500 hover:text-blue-800 ml-0.5 cursor-pointer"
+                                    title="Cambiar pedido vinculado"
+                                  >
+                                    ✏️
+                                  </button>
+                                  <button
+                                    onClick={() => handleUnlinkOrder(payment.id)}
+                                    className="text-blue-400 hover:text-rose-600 ml-0.5 cursor-pointer"
+                                    title="Desvincular pedido"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() => handleOpenLinkModal(payment)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-slate-50 hover:bg-blue-50 text-slate-600 hover:text-[#0069ff] border border-dashed border-slate-300 hover:border-blue-300 text-[11px] font-black transition-all cursor-pointer shadow-xs"
+                                  title="Asignar y vincular este cobro a un código de pedido (JS...)"
+                                >
+                                  <Plus className="w-3 h-3" />
+                                  <span>Vincular Pedido</span>
+                                </button>
+                              )}
+
+                              {/* Hidden Badge if archived */}
+                              {isHiddenItem && (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-amber-100 text-amber-800 border border-amber-200">
+                                  Archivado
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Subtitle: Date & ID & Vinculado por info */}
+                            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 font-medium">
+                              <span className="flex items-center gap-1">
+                                <Clock className="w-3.5 h-3.5 text-slate-400" />
+                                {formatDateDisplay(payment.received_at)}
+                              </span>
+                              <span>•</span>
+                              <span className="font-mono text-[11px] text-slate-400">
+                                ID: {payment.id.substring(0, 14)}...
+                              </span>
+                              {payment.linked_by && (
+                                <>
+                                  <span>•</span>
+                                  <span className="text-blue-600 font-semibold flex items-center gap-1">
+                                    <UserCheck className="w-3 h-3" /> Vinculado por: {payment.linked_by}
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Right Column: Amount & Admin Actions */}
+                        <div className="flex items-center justify-between sm:justify-end gap-3 pl-14 sm:pl-0 border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-100">
+                          <div className="text-right">
+                            <div className={`text-base sm:text-lg font-black tracking-tight ${isInternalItem ? 'text-purple-700' : 'text-emerald-600'}`}>
+                              + {formatMPAmount(payment.amount)}
+                            </div>
+                            <div className={`text-[10px] uppercase font-bold tracking-wider flex items-center justify-end gap-1 ${isInternalItem ? 'text-purple-600' : 'text-emerald-600'}`}>
+                              <Check className="w-3 h-3" /> {isInternalItem ? 'Movimiento Interno' : 'Acreditado'}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1">
+                            {/* Copy summary button */}
+                            <button
+                              onClick={() => handleCopy(`${payment.payer_name} - ${formatMPAmount(payment.amount)} - ${accountInfo.displayName} - ${payment.order_code ? 'Pedido ' + payment.order_code : ''}`, payment.id)}
+                              className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-all"
+                              title="Copiar Resumen"
+                            >
+                              {copiedId === payment.id ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+                            </button>
+
+                            {/* Admin & Administracion: Toggle Internal Payer directly from row */}
+                            {isAdminOrStaff && (
+                              <button
+                                onClick={() => handleToggleInternalFromPayment(payment)}
+                                className={`p-1.5 rounded-xl transition-all ${
+                                  isInternalItem 
+                                    ? 'text-purple-700 hover:bg-purple-200 bg-purple-100' 
+                                    : 'text-slate-400 hover:text-purple-600 hover:bg-purple-50'
+                                }`}
+                                title={isInternalItem ? 'Quitar de lista de Usuarios Propios' : 'Marcar como Usuario Propio (Ocultar a Ventas)'}
+                              >
+                                <UserX className="w-4 h-4" />
+                              </button>
+                            )}
+
+                            {/* Admin Only: Hide / Unhide */}
+                            {isFullAdmin && (
+                              <button
+                                onClick={() => handleToggleHide(payment)}
+                                className={`p-1.5 rounded-xl transition-all ${
+                                  isHiddenItem 
+                                    ? 'text-amber-600 hover:bg-amber-100 bg-amber-50' 
+                                    : 'text-slate-400 hover:text-amber-600 hover:bg-amber-50'
+                                }`}
+                                title={isHiddenItem ? 'Desarchivar Transacción' : 'Archivar Transacción'}
+                              >
+                                {isHiddenItem ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                              </button>
+                            )}
+
+                            {/* Admin Only: Delete */}
+                            {isFullAdmin && (
+                              <button
+                                onClick={() => handleDeletePayment(payment.id, payment.payer_name, formatMPAmount(payment.amount))}
+                                className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"
+                                title="Eliminar Transacción Permanentemente"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))
           )}
         </div>
       </main>
