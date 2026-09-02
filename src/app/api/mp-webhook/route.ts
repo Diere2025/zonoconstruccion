@@ -11,7 +11,19 @@ const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 
 // Comprehensive Mercado Pago Parser
 function parseMpNotification(title: string, text: string, bigText?: string) {
-  const content = `${text || ''} ${bigText || ''}`.trim();
+  let content = `${text || ''} ${bigText || ''}`.trim();
+
+  // If invoked with empty or unexpanded test values from Tasker Play button
+  if (!content || content.startsWith('%an') || (title.startsWith('%an') && text.startsWith('%an'))) {
+    return {
+      isIncomingPayment: true,
+      amount: 100,
+      formattedAmount: '$ 100',
+      payerName: 'Prueba de Conexión Tasker',
+      paymentType: 'TRANSFERENCIA'
+    };
+  }
+
   const lowerContent = content.toLowerCase();
   const lowerTitle = (title || '').toLowerCase();
 
