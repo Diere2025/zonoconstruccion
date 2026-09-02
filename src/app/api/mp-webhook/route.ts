@@ -125,7 +125,33 @@ async function handleProcessNotification(
   }
 
   const paymentId = `mp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-  const accountId = account.toLowerCase().replace(/\s+/g, '_');
+  
+  // Resolve account_id from mp_accounts (or auto-ensure to prevent FK failure)
+  let resolvedAccountId = 'acc_principal';
+  try {
+    const cleanAccount = (account || 'Cuenta MP3').trim();
+    const { data: matchedAcc } = await supabaseAdmin
+      .from('mp_accounts')
+      .select('id')
+      .or(`name.ilike.%${cleanAccount}%,alias.ilike.%${cleanAccount}%,id.ilike.%${cleanAccount.replace(/\s+/g, '_')}%`)
+      .maybeSingle();
+
+    if (matchedAcc?.id) {
+      resolvedAccountId = matchedAcc.id;
+    } else {
+      const fallbackId = cleanAccount.toLowerCase().replace(/[^a-z0-9]/g, '_');
+      await supabaseAdmin.from('mp_accounts').upsert({
+        id: fallbackId,
+        name: cleanAccount,
+        alias: cleanAccount,
+        color: '#0069ff',
+        is_active: true
+      }, { onConflict: 'id' });
+      resolvedAccountId = fallbackId;
+    }
+  } catch (e) {
+    console.warn('[MP Webhook] Error resolving account_id:', e);
+  }
 
   // Check if payer is an internal user
   let isInternal = false;
@@ -141,8 +167,8 @@ async function handleProcessNotification(
 
   const paymentRecord = {
     id: paymentId,
-    account_id: accountId,
-    account_name: account,
+    account_id: resolvedAccountId,
+    account_name: account || 'Cuenta MP3',
     amount: parsed.amount,
     formatted_amount: parsed.formattedAmount,
     payer_name: parsed.payerName,
