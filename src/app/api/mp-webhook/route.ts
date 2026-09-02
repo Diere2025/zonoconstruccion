@@ -231,6 +231,7 @@ export async function POST(request: Request) {
     }
 
     // Clean unexpanded Tasker variable names
+    const isTaskerTest = (typeof text === 'string' && text.startsWith('%an')) || (typeof title === 'string' && title.startsWith('%an'));
     if (typeof title === 'string' && title.startsWith('%an')) title = '';
     if (typeof text === 'string' && text.startsWith('%an')) text = '';
     if (typeof bigText === 'string' && bigText.startsWith('%an')) bigText = '';
@@ -240,11 +241,19 @@ export async function POST(request: Request) {
       title = url.searchParams.get('title') || url.searchParams.get('antitle') || '';
     }
 
-    const fullContent = `${title} ${text} ${bigText}`.toLowerCase();
     const hasValidToken = 
       tokenHeader === expectedSecret || 
       tokenQuery === expectedSecret || 
       (tokenHeader && tokenHeader.includes(expectedSecret));
+
+    // If it's a manual Play button test from Tasker or has valid token but empty text, generate a friendly test payment
+    if ((isTaskerTest || (!text && !title)) && (hasValidToken || tokenQuery || tokenHeader)) {
+      title = 'Mercado Pago';
+      text = 'Recibiste $ 100 de Prueba de Conexión Tasker';
+      bigText = 'Recibiste $ 100 de Prueba de Conexión Tasker desde su cuenta de Mercado Pago.';
+    }
+
+    const fullContent = `${title} ${text} ${bigText}`.toLowerCase();
 
     const hasValidPayload = 
       fullContent.includes('mercado') || 
