@@ -166,11 +166,11 @@ export default function AdminLayoutWrapper({
       try {
         const role = await getSellerRole(user.id);
         addLog(`Role from sellers table: ${role}`);
-        const userIsAdmin = role === 'admin';
+        const userIsAuthorized = role === 'admin' || role === 'seller' || role === 'logistica' || role === 'administracion' || role === 'fletero' || Boolean(role);
         globalAdminChecked = true;
-        globalIsAdmin = userIsAdmin;
+        globalIsAdmin = userIsAuthorized;
         if (isMounted) {
-          setIsAdmin(userIsAdmin);
+          setIsAdmin(userIsAuthorized);
           setLoading(false);
         }
       } catch (err: any) {

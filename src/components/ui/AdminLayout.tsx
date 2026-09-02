@@ -170,7 +170,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       title: "Tesorería y Finanzas",
       links: [
         { name: "Caja Diaria", href: "/vendedores/caja", icon: Wallet },
-        { name: "Cobros Mercado Pago", href: "/admin/cobros-mp", icon: ShieldCheck, adminOnly: true },
+        { name: "Cobros Mercado Pago", href: "/admin/cobros-mp", icon: ShieldCheck },
         { name: "Administración y Finanzas", href: "/admin/finanzas", icon: Coins, adminOnly: true },
         { name: "Comisiones de Vendedores", href: "/admin/comisiones", icon: Coins, adminOnly: true }
       ]

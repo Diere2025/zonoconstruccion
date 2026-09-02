@@ -167,7 +167,7 @@ export async function POST(request: Request) {
     let title = '';
     let text = '';
     let bigText = '';
-    let account = url.searchParams.get('account') || 'Cuenta Principal';
+    let account = url.searchParams.get('account') || 'Cuenta MP3';
 
     const contentType = (request.headers.get('content-type') || '').toLowerCase();
 
@@ -215,7 +215,7 @@ export async function GET(request: Request) {
     const text = url.searchParams.get('text') || url.searchParams.get('antext');
     const title = url.searchParams.get('title') || url.searchParams.get('antitle');
     const bigText = url.searchParams.get('bigText') || url.searchParams.get('anbigtext') || '';
-    const account = url.searchParams.get('account') || 'Cuenta Principal';
+    const account = url.searchParams.get('account') || 'Cuenta MP3';
 
     if (text || title) {
       return handleProcessNotification(request, title || 'Mercado Pago', text || '', bigText, account);

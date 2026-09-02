@@ -13,6 +13,7 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const action = searchParams.get('action') || 'list';
+    const userRole = (searchParams.get('role') || 'admin').toLowerCase();
 
     if (action === 'accounts') {
       const { data, error } = await supabaseAdmin
@@ -23,16 +24,63 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: true, data: data || [] });
     }
 
+    if (action === 'search-orders') {
+      const queryText = (searchParams.get('q') || '').trim();
+      let q = supabaseAdmin
+        .from('orders')
+        .select('id, legacy_code, customer_name, total_amount, status, created_at')
+        .order('created_at', { ascending: false });
+
+      if (queryText) {
+        q = q.or(`legacy_code.ilike.%${queryText}%,customer_name.ilike.%${queryText}%`);
+      }
+
+      const { data, error } = await q.limit(25);
+      if (error) throw error;
+
+      return NextResponse.json({
+        success: true,
+        data: (data || []).map(o => ({
+          id: o.id,
+          order_code: o.legacy_code || `ORD-${o.id.substring(0, 6)}`,
+          client_name: o.customer_name || 'Cliente S/D',
+          total_amount: Number(o.total_amount) || 0,
+          status: o.status,
+          created_at: o.created_at
+        }))
+      });
+    }
+
     if (action === 'list') {
       const accountId = searchParams.get('accountId');
       const search = searchParams.get('search');
-      const dateRange = searchParams.get('dateRange') || 'TODAY';
-      const type = searchParams.get('type');
+      let dateRange = searchParams.get('dateRange') || 'TODAY';
+      let type = searchParams.get('type') || 'ALL';
+      const showHidden = searchParams.get('showHidden') === 'true';
+
+      const isSeller = userRole === 'seller' || userRole === 'vendedora' || userRole === 'ventas';
+      const isLogistica = userRole === 'logistica';
+      const isFletero = userRole === 'fletero' || userRole === 'carrier';
+      const isAdminOrAdminStaff = userRole === 'admin' || userRole === 'administracion';
+
+      // Apply strict role restrictions
+      if (isSeller) {
+        dateRange = 'LAST_3_DAYS';
+        type = 'TRANSFERENCIA';
+      } else if (isLogistica) {
+        if (!['TODAY', 'YESTERDAY', 'LAST_3_DAYS', 'YESTERDAY_TODAY'].includes(dateRange)) {
+          dateRange = 'LAST_3_DAYS';
+        }
+      } else if (isFletero) {
+        dateRange = 'LAST_HOUR';
+      }
 
       const now = new Date();
-      // Argentina UTC-3 offset
+      // Argentina UTC-3 offset helper
+      const oneHourAgoIso = new Date(now.getTime() - 60 * 60 * 1000).toISOString();
       const todayStr = new Date(now.getTime() - 3 * 3600 * 1000).toISOString().split('T')[0];
       const yesterdayStr = new Date(now.getTime() - (24 + 3) * 3600 * 1000).toISOString().split('T')[0];
+      const threeDaysAgoStr = new Date(now.getTime() - (3 * 24 + 3) * 3600 * 1000).toISOString().split('T')[0];
       const sevenDaysAgoStr = new Date(now.getTime() - (7 * 24 + 3) * 3600 * 1000).toISOString().split('T')[0];
 
       let query = supabaseAdmin
@@ -40,12 +88,24 @@ export async function GET(request: Request) {
         .select('*')
         .order('received_at', { ascending: false });
 
-      if (dateRange === 'TODAY') {
+      // Hidden filter: only admin can view hidden items
+      if (isAdminOrAdminStaff && showHidden) {
+        query = query.eq('is_hidden', true);
+      } else {
+        query = query.or('is_hidden.is.null,is_hidden.eq.false');
+      }
+
+      // Date Range Filter
+      if (dateRange === 'LAST_HOUR') {
+        query = query.gte('received_at', oneHourAgoIso);
+      } else if (dateRange === 'TODAY') {
         query = query.gte('received_at', `${todayStr}T00:00:00.000Z`).lte('received_at', `${todayStr}T23:59:59.999Z`);
       } else if (dateRange === 'YESTERDAY') {
         query = query.gte('received_at', `${yesterdayStr}T00:00:00.000Z`).lte('received_at', `${yesterdayStr}T23:59:59.999Z`);
       } else if (dateRange === 'YESTERDAY_TODAY') {
         query = query.gte('received_at', `${yesterdayStr}T00:00:00.000Z`);
+      } else if (dateRange === 'LAST_3_DAYS') {
+        query = query.gte('received_at', `${threeDaysAgoStr}T00:00:00.000Z`);
       } else if (dateRange === 'LAST_7_DAYS') {
         query = query.gte('received_at', `${sevenDaysAgoStr}T00:00:00.000Z`);
       }
@@ -59,26 +119,33 @@ export async function GET(request: Request) {
       }
 
       if (search) {
-        query = query.or(`payer_name.ilike.%${search}%,formatted_amount.ilike.%${search}%,raw_body.ilike.%${search}%`);
+        query = query.or(`payer_name.ilike.%${search}%,formatted_amount.ilike.%${search}%,raw_body.ilike.%${search}%,order_code.ilike.%${search}%`);
       }
 
       const { data, error } = await query.limit(300);
       if (error) throw error;
 
-      // Calculate today stats
-      const { data: todayRecords } = await supabaseAdmin
-        .from('mp_payments')
-        .select('amount')
-        .gte('received_at', `${todayStr}T00:00:00.000Z`)
-        .lte('received_at', `${todayStr}T23:59:59.999Z`);
+      // Calculate stats ONLY for Admin & Administracion
+      let todayStats = null;
+      if (isAdminOrAdminStaff) {
+        const { data: todayRecords } = await supabaseAdmin
+          .from('mp_payments')
+          .select('amount')
+          .gte('received_at', `${todayStr}T00:00:00.000Z`)
+          .lte('received_at', `${todayStr}T23:59:59.999Z`)
+          .or('is_hidden.is.null,is_hidden.eq.false');
 
-      const totalCount = todayRecords ? todayRecords.length : 0;
-      const totalAmount = todayRecords ? todayRecords.reduce((acc, p) => acc + (Number(p.amount) || 0), 0) : 0;
+        const totalCount = todayRecords ? todayRecords.length : 0;
+        const totalAmount = todayRecords ? todayRecords.reduce((acc, p) => acc + (Number(p.amount) || 0), 0) : 0;
+        todayStats = { totalCount, totalAmount };
+      }
 
       return NextResponse.json({
         success: true,
         data: data || [],
-        todayStats: { totalCount, totalAmount }
+        todayStats,
+        effectiveRole: userRole,
+        effectiveRange: dateRange
       });
     }
 
@@ -95,11 +162,85 @@ export async function POST(request: Request) {
     const action = searchParams.get('action');
     const body = await request.json().catch(() => ({}));
 
+    if (action === 'link-order') {
+      const { paymentId, orderId, orderCode, linkedBy } = body;
+      if (!paymentId || !orderCode) {
+        return NextResponse.json({ error: 'paymentId y orderCode son requeridos' }, { status: 400 });
+      }
+
+      const { data, error } = await supabaseAdmin
+        .from('mp_payments')
+        .update({
+          order_id: orderId || null,
+          order_code: orderCode.trim().toUpperCase(),
+          linked_by: linkedBy || 'Usuario',
+          linked_at: new Date().toISOString()
+        })
+        .eq('id', paymentId)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return NextResponse.json({ success: true, payment: data });
+    }
+
+    if (action === 'unlink-order') {
+      const { paymentId } = body;
+      if (!paymentId) return NextResponse.json({ error: 'paymentId requerido' }, { status: 400 });
+
+      const { data, error } = await supabaseAdmin
+        .from('mp_payments')
+        .update({
+          order_id: null,
+          order_code: null,
+          linked_by: null,
+          linked_at: null
+        })
+        .eq('id', paymentId)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return NextResponse.json({ success: true, payment: data });
+    }
+
+    if (action === 'toggle-hide') {
+      const { paymentId, isHidden } = body;
+      if (!paymentId) return NextResponse.json({ error: 'paymentId requerido' }, { status: 400 });
+
+      const { data, error } = await supabaseAdmin
+        .from('mp_payments')
+        .update({
+          is_hidden: Boolean(isHidden)
+        })
+        .eq('id', paymentId)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return NextResponse.json({ success: true, payment: data });
+    }
+
+    if (action === 'delete-payment') {
+      const { paymentId } = body;
+      if (!paymentId) return NextResponse.json({ error: 'paymentId requerido' }, { status: 400 });
+
+      const { data, error } = await supabaseAdmin
+        .from('mp_payments')
+        .delete()
+        .eq('id', paymentId)
+        .select('id')
+        .single();
+
+      if (error) throw error;
+      return NextResponse.json({ success: true, message: 'Pago eliminado con éxito', id: data?.id });
+    }
+
     if (action === 'simulate') {
       const { title, text, account } = body;
       const testTitle = title || 'Mercado Pago';
       const testText = text || 'Recibiste $ 15.000 de Juan Carlos Pérez';
-      const testAccount = account || 'Cuenta Principal';
+      const testAccount = account || 'Cuenta MP3';
 
       const amountMatch = testText.match(/\$\s*([\d\.,]+)/);
       const rawAmount = amountMatch ? parseFloat(amountMatch[1].replace(/\./g, '').replace(',', '.')) : 15000;
@@ -121,7 +262,8 @@ export async function POST(request: Request) {
         received_at: new Date().toISOString(),
         raw_title: testTitle,
         raw_body: testText,
-        is_verified: true
+        is_verified: true,
+        is_hidden: false
       };
 
       const { data, error } = await supabaseAdmin.from('mp_payments').insert(paymentRecord).select().single();
