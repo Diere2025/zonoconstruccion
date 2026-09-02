@@ -1403,37 +1403,75 @@ export default function CobrosMercadoPagoPage() {
               </div>
             </div>
 
-            {/* Search Input */}
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-slate-700">Buscar Pedido en el Sistema</label>
-              <div className="relative">
-                <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                  type="text"
-                  value={orderSearchQuery}
-                  onChange={(e) => {
-                    setOrderSearchQuery(e.target.value);
-                    searchOrders(e.target.value);
-                  }}
-                  placeholder="Escribí código (ej: JS24940) o nombre de cliente..."
-                  className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-[#0069ff]/20 focus:border-[#0069ff]"
-                />
-              </div>
-            </div>
+            {/* Primary Action: Direct Code Input (Works whether the order exists in DB or not) */}
+            <form 
+              onSubmit={(e) => { 
+                e.preventDefault(); 
+                if (manualOrderCode.trim()) {
+                  handleLinkOrder(undefined, manualOrderCode);
+                }
+              }} 
+              className="space-y-2 p-4 bg-slate-50 border border-slate-200 rounded-2xl"
+            >
+              <label className="text-xs font-black text-slate-800 uppercase tracking-wider block">
+                Ingresar Código de Pedido
+              </label>
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                  <input
+                    type="text"
+                    autoFocus
+                    value={manualOrderCode}
+                    onChange={(e) => {
+                      const val = e.target.value.toUpperCase();
+                      setManualOrderCode(val);
+                      setOrderSearchQuery(val);
+                      searchOrders(val);
+                    }}
+                    placeholder="Ej: JS24940, LK01591, MS00412..."
+                    className="w-full pl-3 pr-8 py-2.5 bg-white border border-blue-200 rounded-xl text-sm font-mono font-black uppercase text-[#001538] focus:outline-none focus:ring-2 focus:ring-[#0069ff]/30 focus:border-[#0069ff] shadow-2xs"
+                  />
+                  {manualOrderCode && (
+                    <button
+                      type="button"
+                      onClick={() => { setManualOrderCode(''); setOrderSearchQuery(''); searchOrders(''); }}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
 
-            {/* Search Results List */}
-            <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                {orderSearchQuery ? 'Resultados de búsqueda' : 'Pedidos recientes'}
+                <button
+                  type="submit"
+                  disabled={isSavingLink || !manualOrderCode.trim()}
+                  className="px-5 py-2.5 bg-[#0069ff] hover:bg-blue-700 text-white rounded-xl text-xs font-black transition-all disabled:opacity-50 shrink-0 shadow-sm shadow-blue-500/20 flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>{isSavingLink ? 'Guardando...' : 'Vincular Pedido'}</span>
+                </button>
+              </div>
+
+              <p className="text-[11px] text-slate-500 font-medium flex items-center gap-1 pt-1">
+                <span>💡</span> Podés asignar el código aunque el pedido aún no esté cargado en el sistema.
+              </p>
+            </form>
+
+            {/* Smart Suggestions & Search Results List */}
+            <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                {orderSearchQuery ? `Sugerencias para "${orderSearchQuery}"` : 'O seleccionar de pedidos recientes'}
               </span>
 
               {isSearchingOrders ? (
-                <div className="py-6 text-center">
+                <div className="py-5 text-center">
                   <Loader2 className="w-5 h-5 animate-spin text-[#0069ff] mx-auto" />
                 </div>
               ) : orderSearchResults.length === 0 ? (
-                <div className="p-4 text-center text-xs text-slate-400 border border-dashed rounded-xl">
-                  No se encontraron pedidos coincidentes.
+                <div className="p-3 text-center text-xs text-slate-400 border border-dashed rounded-xl">
+                  {orderSearchQuery 
+                    ? `No se encontró el código "${orderSearchQuery}" en la base de datos (podés vincularlo igual con el botón de arriba).`
+                    : 'Escribí el código arriba para vincular directamente.'}
                 </div>
               ) : (
                 orderSearchResults.map((order) => {
@@ -1441,16 +1479,19 @@ export default function CobrosMercadoPagoPage() {
                   return (
                     <div
                       key={order.id}
-                      onClick={() => handleLinkOrder(order.id, order.order_code)}
+                      onClick={() => {
+                        setManualOrderCode(order.order_code);
+                        handleLinkOrder(order.id, order.order_code);
+                      }}
                       className={`p-3 rounded-2xl border transition-all cursor-pointer flex items-center justify-between gap-3 ${
                         isAmountMatch 
-                          ? 'border-emerald-200 bg-emerald-50/40 hover:bg-emerald-50' 
+                          ? 'border-emerald-200 bg-emerald-50/50 hover:bg-emerald-100/60 shadow-2xs' 
                           : 'border-slate-200 bg-white hover:bg-slate-50'
                       }`}
                     >
                       <div>
                         <div className="flex items-center gap-2">
-                          <span className="font-black text-xs text-[#001538]">{order.order_code}</span>
+                          <span className="font-mono font-black text-xs text-[#001538]">{order.order_code}</span>
                           <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-slate-100 text-slate-600">
                             {order.status}
                           </span>
@@ -1471,28 +1512,6 @@ export default function CobrosMercadoPagoPage() {
                   );
                 })
               )}
-            </div>
-
-            {/* Manual Code Input fallback */}
-            <div className="pt-3 border-t border-slate-100 space-y-2">
-              <label className="text-xs font-bold text-slate-700">O ingresar código manualmente</label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={manualOrderCode}
-                  onChange={(e) => setManualOrderCode(e.target.value)}
-                  placeholder="Ej: JS24940 o LK01598"
-                  className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold uppercase text-slate-800"
-                />
-                <button
-                  type="button"
-                  disabled={isSavingLink || !manualOrderCode.trim()}
-                  onClick={() => handleLinkOrder(undefined, manualOrderCode)}
-                  className="px-4 py-2 bg-[#0069ff] hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50"
-                >
-                  {isSavingLink ? 'Guardando...' : 'Asignar'}
-                </button>
-              </div>
             </div>
           </div>
         </div>

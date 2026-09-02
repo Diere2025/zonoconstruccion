@@ -252,11 +252,31 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'paymentId y orderCode son requeridos' }, { status: 400 });
       }
 
+      const cleanCode = String(orderCode).trim().toUpperCase();
+
+      // If orderId was not provided, attempt a lookup in orders table by legacy_code
+      let finalOrderId = orderId || null;
+      if (!finalOrderId) {
+        try {
+          const { data: matchedOrder } = await supabaseAdmin
+            .from('orders')
+            .select('id')
+            .ilike('legacy_code', cleanCode)
+            .maybeSingle();
+
+          if (matchedOrder?.id) {
+            finalOrderId = matchedOrder.id;
+          }
+        } catch (e) {
+          console.warn('Error looking up order ID by code:', e);
+        }
+      }
+
       const { data, error } = await supabaseAdmin
         .from('mp_payments')
         .update({
-          order_id: orderId || null,
-          order_code: orderCode.trim().toUpperCase(),
+          order_id: finalOrderId,
+          order_code: cleanCode,
           linked_by: linkedBy || 'Usuario',
           linked_at: new Date().toISOString()
         })
