@@ -203,7 +203,7 @@ export async function POST(request: Request) {
   try {
     const url = new URL(request.url);
     const tokenHeader = request.headers.get('x-webhook-token') || request.headers.get('authorization');
-    const tokenQuery = url.searchParams.get('token') || url.searchParams.get('secret') || url.searchParams.get('key');
+    let tokenQuery = url.searchParams.get('token') || url.searchParams.get('secret') || url.searchParams.get('key');
     const expectedSecret = process.env.MP_WEBHOOK_SECRET || 'mpchecker_secret_key_123';
 
     // Allow if token matches OR if valid MP notification structure is present
@@ -220,7 +220,7 @@ export async function POST(request: Request) {
       text = body.antext || body.text || body.android_text || body.message || body.body || '';
       bigText = body.anbigtext || body.bigText || body.android_big_text || '';
       if (body.account) account = body.account;
-      if (body.token) tokenQuery ? null : body.token;
+      if (body.token) tokenQuery = body.token;
       if (!title && !text) {
         const keys = Object.keys(body);
         if (keys.length > 0) text = keys.join(' ');
@@ -230,13 +230,28 @@ export async function POST(request: Request) {
       text = rawBody;
     }
 
+    // Clean unexpanded Tasker variable names
+    if (typeof title === 'string' && title.startsWith('%an')) title = '';
+    if (typeof text === 'string' && text.startsWith('%an')) text = '';
+    if (typeof bigText === 'string' && bigText.startsWith('%an')) bigText = '';
+
     if (!text && !title) {
       text = url.searchParams.get('text') || url.searchParams.get('antext') || '';
       title = url.searchParams.get('title') || url.searchParams.get('antitle') || '';
     }
 
-    const hasValidToken = tokenHeader === expectedSecret || tokenQuery === expectedSecret || (tokenHeader && tokenHeader.includes(expectedSecret));
-    const hasValidPayload = (title || text).toLowerCase().includes('mercado') || (title || text).includes('$') || (title || text).toLowerCase().includes('transfir');
+    const fullContent = `${title} ${text} ${bigText}`.toLowerCase();
+    const hasValidToken = 
+      tokenHeader === expectedSecret || 
+      tokenQuery === expectedSecret || 
+      (tokenHeader && tokenHeader.includes(expectedSecret));
+
+    const hasValidPayload = 
+      fullContent.includes('mercado') || 
+      fullContent.includes('$') || 
+      fullContent.includes('transfir') ||
+      fullContent.includes('recibiste') ||
+      fullContent.includes('cobro');
 
     if (!hasValidToken && !hasValidPayload) {
       return NextResponse.json(
