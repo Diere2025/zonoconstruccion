@@ -228,8 +228,8 @@ export async function POST(request: Request) {
 
     if (contentType.includes('application/json')) {
       const body: any = await request.json().catch(() => ({}));
-      title = body.antitle || body.title || body.android_title || body.header || '';
-      text = body.antext || body.text || body.android_text || body.message || body.body || '';
+      title = body.antitle || body.title || body.android_title || body.header || body.evtprm2 || '';
+      text = body.antext || body.text || body.android_text || body.message || body.body || body.evtprm3 || '';
       bigText = body.anbigtext || body.bigText || body.android_big_text || '';
       if (body.account) account = body.account;
       if (body.token) tokenQuery = body.token;
@@ -242,14 +242,14 @@ export async function POST(request: Request) {
       text = rawBody;
     }
 
-    // Clean any unexpanded Tasker variable tags (%antitle, %antext, %anbigtext, etc.)
-    title = (title || '').replace(/%an[a-z]+/gi, '').trim();
-    text = (text || '').replace(/%an[a-z]+/gi, '').trim();
-    bigText = (bigText || '').replace(/%an[a-z]+/gi, '').trim();
+    // Clean any unexpanded Tasker variable tags (%antitle, %antext, %evtprm2, etc.)
+    title = (title || '').replace(/%(?:an[a-z]+|evtprm[0-9]+)/gi, '').trim();
+    text = (text || '').replace(/%(?:an[a-z]+|evtprm[0-9]+)/gi, '').trim();
+    bigText = (bigText || '').replace(/%(?:an[a-z]+|evtprm[0-9]+)/gi, '').trim();
 
     if (!text && !title) {
-      text = (url.searchParams.get('text') || url.searchParams.get('antext') || '').replace(/%an[a-z]+/gi, '').trim();
-      title = (url.searchParams.get('title') || url.searchParams.get('antitle') || '').replace(/%an[a-z]+/gi, '').trim();
+      text = (url.searchParams.get('text') || url.searchParams.get('antext') || url.searchParams.get('evtprm3') || '').replace(/%(?:an[a-z]+|evtprm[0-9]+)/gi, '').trim();
+      title = (url.searchParams.get('title') || url.searchParams.get('antitle') || url.searchParams.get('evtprm2') || '').replace(/%(?:an[a-z]+|evtprm[0-9]+)/gi, '').trim();
     }
 
     const hasValidToken = 
