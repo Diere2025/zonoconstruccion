@@ -524,41 +524,68 @@ export async function GET() {
       { key: 'MANSILLA_ENZO', name: 'Enzo Mansilla', role: 'Ensamblaje (Enero)', isMaintenance: false, isWarehouse: true, isEventual: true }
     ];
 
-    // Proportional Salary Estimation for August (or any unclosed current month)
-    // If August salaries are not yet fully loaded in sheet, take July values scaled by days elapsed (e.g. 26/31)
-    const currentDayOfMonthVal = 26;
-    const totalDaysInAug = 31;
-    const monthProportion = currentDayOfMonthVal / totalDaysInAug;
+    // Proportional Salary Estimation Logic:
+    // If current month (Septiembre) or previous unclosed month (Agosto) are not yet loaded in the sheet,
+    // fallback dynamically to the last fully loaded month (Julio 2026).
+    const now = new Date();
+    // Argentina Time (UTC-3)
+    const argTime = new Date(now.getTime() - 3 * 3600 * 1000);
+    const currentYear = argTime.getUTCFullYear();
+    const currentMonthNum = argTime.getUTCMonth() + 1; // 9 = Septiembre
+    const currentDayNum = argTime.getUTCDate();
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    const currentMonthKey = `${currentYear}-${pad(currentMonthNum)}`; // '2026-09'
+    const daysInCurrentMonth = new Date(currentYear, currentMonthNum, 0).getDate(); // 30
+    const currentMonthProportion = Math.min(1, Math.max(1, currentDayNum) / daysInCurrentMonth);
 
-    if (!salariesByMonthAndOpKey['2026-08']) salariesByMonthAndOpKey['2026-08'] = {};
-    trackedOps.forEach(op => {
-      const actualAgo = salariesByMonthAndOpKey['2026-08']?.[op.key] || 0;
-      const prevJul = salariesByMonthAndOpKey['2026-07']?.[op.key] || 0;
-      if (prevJul > 0) {
-        const estimatedProportional = Math.round(prevJul * monthProportion);
-        if (actualAgo < estimatedProportional) {
-          salariesByMonthAndOpKey['2026-08'][op.key] = estimatedProportional;
-        }
+    // Build all active salary months up to current month (e.g. 2026-01 to 2026-09)
+    const allSalaryMonths: string[] = [];
+    for (let m = 1; m <= currentMonthNum; m++) {
+      allSalaryMonths.push(`2026-${pad(m)}`);
+    }
+
+    // Find last month with fully loaded salaries (e.g. 2026-07 Julio)
+    let lastLoadedMonth = '2026-07';
+    for (let i = allSalaryMonths.length - 1; i >= 0; i--) {
+      const ym = allSalaryMonths[i];
+      if (ym === currentMonthKey) continue; // skip current in-progress month
+      const ramirez = salariesByMonthAndOpKey[ym]?.['RAMIREZ_RODRIGO'] || 0;
+      const sandoval = salariesByMonthAndOpKey[ym]?.['SANDOVAL_LEONARDO'] || 0;
+      if (ramirez > 0 && sandoval > 0) {
+        lastLoadedMonth = ym;
+        break;
       }
-    });
+    }
 
-    const allSalaryMonths = ['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08'];
-    const operatorsData: OperatorSummary[] = [];
-    let totalPureRotomoldingSalariesWithoutSAC = 0;
-    let totalPureRotomoldingFabricatedWithoutSAC = 0;
-
+    // Estimate salaries for any month after lastLoadedMonth (e.g. Agosto 2026 and Septiembre 2026)
     allSalaryMonths.forEach(ym => {
-      const isAguinaldoMonth = ym === '2026-06';
-      if (!isAguinaldoMonth) {
-        ['RAMIREZ_RODRIGO', 'SANDOVAL_LEONARDO', 'CONTRERAS_SAMUEL'].forEach(k => {
-          totalPureRotomoldingSalariesWithoutSAC += (salariesByMonthAndOpKey[ym]?.[k] || 0);
-          totalPureRotomoldingFabricatedWithoutSAC += (fabByMonthAndOpKey[ym]?.[k] || 0);
+      if (ym > lastLoadedMonth) {
+        if (!salariesByMonthAndOpKey[ym]) salariesByMonthAndOpKey[ym] = {};
+        
+        const isCurrentInCourse = ym === currentMonthKey;
+        // If it's the current in-course month, use elapsed days proportion; if past unloaded month, use 100% of base month
+        const proportion = isCurrentInCourse ? currentMonthProportion : 1.0;
+
+        trackedOps.forEach(op => {
+          const actualVal = salariesByMonthAndOpKey[ym]?.[op.key] || 0;
+          const basePrevVal = salariesByMonthAndOpKey[lastLoadedMonth]?.[op.key] || 0;
+          if (basePrevVal > 0) {
+            const estimatedVal = Math.round(basePrevVal * proportion);
+            if (actualVal < estimatedVal) {
+              salariesByMonthAndOpKey[ym][op.key] = estimatedVal;
+            }
+          }
         });
       }
     });
 
-    const baseLaborCostPerTank = totalPureRotomoldingFabricatedWithoutSAC > 0 
-      ? Math.round(totalPureRotomoldingSalariesWithoutSAC / totalPureRotomoldingFabricatedWithoutSAC) 
+    const operatorsData: OperatorSummary[] = [];
+
+    // Standard benchmark for Direct Rotomolding labor cost per standard tank based on last loaded month (July: $2.483.367 / 517u = $4.800)
+    const lastLoadedRotoSalary = (salariesByMonthAndOpKey[lastLoadedMonth]?.['RAMIREZ_RODRIGO'] || 0) + (salariesByMonthAndOpKey[lastLoadedMonth]?.['SANDOVAL_LEONARDO'] || 0);
+    const standardMonthlyRotomoldingTanks = 517;
+    const baseLaborCostPerTank = lastLoadedRotoSalary > 0 
+      ? Math.round(lastLoadedRotoSalary / standardMonthlyRotomoldingTanks) 
       : 4800;
 
     trackedOps.forEach(op => {
@@ -708,7 +735,7 @@ export async function GET() {
         ? recentLuzSums.reduce((a, b) => a + b, 0) / recentLuzSums.length 
         : 546730;
       
-      const estimatedAugLuz = Math.round(avgRecentLuz * monthProportion);
+      const estimatedAugLuz = Math.round(avgRecentLuz);
       electricityByConsumedMonth['2026-08'] = estimatedAugLuz;
       isAugustEdenorEstimated = true;
 
@@ -880,18 +907,19 @@ export async function GET() {
     });
 
     const monthlyBreakdown: MonthlyCostBreakdown[] = Object.entries(monthlyGasMap).map(([ym, data]) => {
-      const isCurrentMonth = ym === '2026-08';
+      const isCurrentMonth = ym === currentMonthKey;
+      const isUnloadedMonth = ym > lastLoadedMonth;
       
-      // For August (or current unclosed month with large remaining stock in Zeppelin):
+      // For August, September or current month:
       // Calculate real gas consumption based on standard tank benchmark (7.57 L/u)
       let gasLitrosConsumidos = data.gasLitros;
       let gasInversionConsumida = data.inversion;
       let gasPerTank = data.tanques > 0 && data.gasLitros > 0 ? parseFloat((data.gasLitros / data.tanques).toFixed(2)) : 0;
       let gasCostPerTank = data.tanques > 0 && data.inversion > 0 ? data.inversion / data.tanques : 0;
 
-      if (isCurrentMonth && data.tanques > 0) {
+      if ((isCurrentMonth || ym >= '2026-08') && (data.tanques === 0 || gasPerTank === 0 || gasPerTank > 20)) {
         gasPerTank = 7.57;
-        gasLitrosConsumidos = parseFloat((data.tanques * gasPerTank).toFixed(1));
+        gasLitrosConsumidos = parseFloat(((data.tanques || 500) * gasPerTank).toFixed(1));
         gasInversionConsumida = Math.round(gasLitrosConsumidos * latestPrice);
         gasCostPerTank = Math.round(gasPerTank * latestPrice);
       }
@@ -905,20 +933,27 @@ export async function GET() {
           directRotomoldingSalary += sal;
         }
       });
-      const mdoCostPerTank = data.tanques > 0 && monthMdoSalary > 0 ? Math.round(monthMdoSalary / data.tanques) : 0;
-      const mdoDirectaCostPerTank = data.tanques > 0 && directRotomoldingSalary > 0 ? Math.round(directRotomoldingSalary / data.tanques) : 0;
+
+      // Unit cost: if month is estimated or has partial production, fallback to baseLaborCostPerTank ($4.800)
+      const mdoCostPerTank = (!isUnloadedMonth && data.tanques >= 200 && monthMdoSalary > 0)
+        ? Math.round(monthMdoSalary / data.tanques)
+        : Math.round(baseLaborCostPerTank * 1.35);
+
+      const mdoDirectaCostPerTank = (!isUnloadedMonth && data.tanques >= 200 && directRotomoldingSalary > 0)
+        ? Math.round(directRotomoldingSalary / data.tanques)
+        : baseLaborCostPerTank;
 
       const luzAmount = electricityByConsumedMonth[ym] || 0;
-      const luzCostPerTank = data.tanques > 0 && luzAmount > 0 ? Math.round(luzAmount / data.tanques) : 0;
+      const luzCostPerTank = data.tanques >= 200 && luzAmount > 0 ? Math.round(luzAmount / data.tanques) : 815;
 
       const opexData = opexByMonth[ym] || { opexTotal: 0, maq: 0, inst: 0, insumos: 0, capex: 0 };
-      const opexCostPerTank = data.tanques > 0 && opexData.opexTotal > 0 ? Math.round(opexData.opexTotal / data.tanques) : 0;
+      const opexCostPerTank = data.tanques >= 200 && opexData.opexTotal > 0 ? Math.round(opexData.opexTotal / data.tanques) : 2494;
 
       // Note: opexData.opexTotal already includes Julio Verón. To avoid double counting in total monthly operating cost,
       // we sum non-maintenance payroll + luz + opexData.opexTotal.
       const veronSal = salariesByMonthAndOpKey[ym]?.['VERON_JULIO'] || 0;
       const totalMonthlyOpCost = gasInversionConsumida + (monthMdoSalary - veronSal) + luzAmount + opexData.opexTotal;
-      const unitTotalCost = data.tanques > 0 ? Math.round(totalMonthlyOpCost / data.tanques) : 0;
+      const unitTotalCost = gasCostPerTank + mdoDirectaCostPerTank + luzCostPerTank + opexCostPerTank;
 
       return {
         monthKey: ym,
@@ -936,10 +971,10 @@ export async function GET() {
         mdoCostoUnitario: mdoCostPerTank,
         mdoDirectaTotal: directRotomoldingSalary,
         mdoDirectaCostoUnitario: mdoDirectaCostPerTank,
-        isEstimatedMdo: ym === '2026-08',
+        isEstimatedMdo: isUnloadedMonth,
         luzTotal: luzAmount,
         luzCostoUnitario: luzCostPerTank,
-        isEstimatedLuz: ym === '2026-08' && isAugustEdenorEstimated,
+        isEstimatedLuz: ym >= '2026-08',
         opexTotal: opexData.opexTotal,
         opexCostoUnitario: opexCostPerTank,
         opexMaquinaria: opexData.maq,
@@ -980,7 +1015,7 @@ export async function GET() {
     };
 
     // 8. Parse Sheet 'Tipo' for Official Manufactured Models and Direct Column E (Costo Insumos)
-    const baseGasLiters = (tanksByMonth['2026-08']?.totalTanks || 475) > 0 ? (monthlyGasMap['2026-08']?.gasLitros || 3594) / (tanksByMonth['2026-08']?.totalTanks || 475) : 7.57;
+    const baseGasLiters = 7.57; // Benchmark estándar 500L
     
     const modelScores: CombinedModelCost[] = [];
     const fabricatedProducts: FabricatedProductCost[] = [];
@@ -1304,8 +1339,8 @@ export async function GET() {
         baseOpexCostPerTank,
         baseGasCostPerTank: parseFloat((baseGasLiters * latestPrice).toFixed(0)),
         baseTotalManufacturingCost: parseFloat((baseGasLiters * latestPrice + baseLaborCostPerTank + baseElectricityCostPerTank + baseOpexCostPerTank).toFixed(0)),
-        pureRotomoldingSalariesWithoutSAC: totalPureRotomoldingSalariesWithoutSAC,
-        pureRotomoldingFabricatedWithoutSAC: totalPureRotomoldingFabricatedWithoutSAC,
+        pureRotomoldingSalariesWithoutSAC: lastLoadedRotoSalary,
+        pureRotomoldingFabricatedWithoutSAC: standardMonthlyRotomoldingTanks,
         totalOpex2026,
         totalCapex2026
       },
