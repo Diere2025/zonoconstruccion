@@ -125,6 +125,50 @@ export default function AdminLayoutWrapper({
     setAuthLogs(prev => [...prev.slice(-15), formatted]);
   };
 
+  const processUserRole = async (user: any) => {
+    if (!user) {
+      addLog("No user in session, ending loading");
+      globalAdminChecked = true;
+      globalIsAdmin = false;
+      setIsAdmin(false);
+      setLoading(false);
+      return;
+    }
+
+    addLog(`User detected (${user.email || user.id}). Checking admin status...`);
+    const email = (user.email || "").toLowerCase();
+
+    // Check if user is known admin email
+    if (
+      email === "diego.boveda@gmail.com" || 
+      email === "caroibarra.93@gmail.com" || 
+      email.includes("admin") || 
+      email.includes("diego")
+    ) {
+      addLog("User verified as admin via email pattern/list");
+      globalAdminChecked = true;
+      globalIsAdmin = true;
+      setIsAdmin(true);
+      setLoading(false);
+      return;
+    }
+
+    // Check seller role in database
+    try {
+      const role = await getSellerRole(user.id, email);
+      addLog(`Role from sellers table: ${role}`);
+      const userIsAuthorized = role === 'admin' || role === 'seller' || role === 'logistica' || role === 'administracion' || role === 'fletero' || Boolean(role);
+      globalAdminChecked = true;
+      globalIsAdmin = userIsAuthorized;
+      setIsAdmin(userIsAuthorized);
+      setLoading(false);
+    } catch (err: any) {
+      addLog(`Role check error: ${err.message}`);
+      setIsAdmin(false);
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const host = window.location.hostname.toLowerCase();
@@ -145,58 +189,6 @@ export default function AdminLayoutWrapper({
         setShowDiagnostics(true);
       }
     }, 3000);
-
-    const processUserRole = async (user: any) => {
-      if (!user) {
-        addLog("No user in session, ending loading");
-        globalAdminChecked = true;
-        globalIsAdmin = false;
-        if (isMounted) {
-          setIsAdmin(false);
-          setLoading(false);
-        }
-        return;
-      }
-
-      addLog(`User detected (${user.email || user.id}). Checking admin status...`);
-      const email = (user.email || "").toLowerCase();
-
-      // Check if user is known admin email
-      if (
-        email === "diego.boveda@gmail.com" || 
-        email === "caroibarra.93@gmail.com" || 
-        email.includes("admin") || 
-        email.includes("diego")
-      ) {
-        addLog("User verified as admin via email pattern/list");
-        globalAdminChecked = true;
-        globalIsAdmin = true;
-        if (isMounted) {
-          setIsAdmin(true);
-          setLoading(false);
-        }
-        return;
-      }
-
-      // Check seller role in database
-      try {
-        const role = await getSellerRole(user.id, email);
-        addLog(`Role from sellers table: ${role}`);
-        const userIsAuthorized = role === 'admin' || role === 'seller' || role === 'logistica' || role === 'administracion' || role === 'fletero' || Boolean(role);
-        globalAdminChecked = true;
-        globalIsAdmin = userIsAuthorized;
-        if (isMounted) {
-          setIsAdmin(userIsAuthorized);
-          setLoading(false);
-        }
-      } catch (err: any) {
-        addLog(`Role check error: ${err.message}`);
-        if (isMounted) {
-          setIsAdmin(false);
-          setLoading(false);
-        }
-      }
-    };
 
     async function checkAuth() {
       try {
@@ -257,12 +249,22 @@ export default function AdminLayoutWrapper({
     setIsLoggingIn(true);
     setLoginError(null);
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email: loginEmail.trim().toLowerCase(),
+      const emailClean = loginEmail.trim().toLowerCase();
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: emailClean,
         password: loginPassword,
       });
       if (error) {
         setLoginError("Correo o contraseña incorrectos. Por favor, verificá tus datos.");
+        setIsLoggingIn(false);
+        return;
+      }
+      if (data?.session) {
+        setSession(data.session);
+        globalAdminSession = data.session;
+      }
+      if (data?.user) {
+        await processUserRole(data.user);
       }
     } catch (err: any) {
       setLoginError("Error al iniciar sesión: " + (err.message || "Error desconocido"));
@@ -290,7 +292,7 @@ export default function AdminLayoutWrapper({
     }
   };
 
-  if (loading) {
+  if (loading || (!isAdmin && !globalAdminChecked)) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-[#070b14] text-white p-6">
         <Loader2 className="w-10 h-10 animate-spin text-blue-500 mb-4" />

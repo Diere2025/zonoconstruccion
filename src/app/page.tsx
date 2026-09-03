@@ -39,6 +39,16 @@ export default function RootPage() {
           .or(`id.eq.${user.id},email.ilike.${emailLower}`)
           .maybeSingle();
 
+        const isRestricted = emailLower.includes("jazmin") || 
+                             emailLower.includes("jazmín") || 
+                             emailLower.includes("ludmila") ||
+                             emailLower.includes("facundo");
+
+        if (isRestricted) {
+          router.replace("/vendedores/presupuestos");
+          return;
+        }
+
         const role = (seller?.role || metaRole || '').toLowerCase();
         if (role === 'logistica' || role === 'fletero') {
           router.replace("/admin/cobros-mp");
