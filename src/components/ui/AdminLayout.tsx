@@ -107,22 +107,29 @@ export function AdminLayout({ children }: AdminLayoutProps) {
           setUserRole('seller');
         }
 
+        // Check user metadata first for instant role detection
+        const metaRole = (user.user_metadata?.role || '').toLowerCase();
+        if (metaRole) {
+          setUserRole(metaRole as any);
+          if (metaRole === 'admin') isAdminUser = true;
+        }
+
         try {
           const { data: seller } = await supabase
             .from('sellers')
-            .select('id, name, full_name, role')
+            .select('id, full_name, role')
             .or(`id.eq.${user.id},email.ilike.${emailLower}`)
             .maybeSingle();
 
           if (seller?.role) {
             const roleLower = seller.role.toLowerCase();
-            setUserRole(roleLower);
+            setUserRole(roleLower as any);
             if (roleLower === 'admin') {
               isAdminUser = true;
             }
           }
 
-          const nameLower = (seller?.full_name || seller?.name || "").toLowerCase();
+          const nameLower = (seller?.full_name || "").toLowerCase();
           const isRestricted = !isAdminUser && (
             emailLower.includes("jazmin") || 
             emailLower.includes("jazmín") || 
@@ -287,7 +294,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         {/* Sidebar Header / Brand */}
         <div className="h-16 flex items-center justify-between px-5 border-b border-slate-800/80 shrink-0 bg-slate-950/40">
           <Link 
-            href={userRole === 'admin' ? "/admin/dashboard" : isRestrictedSeller ? "/vendedores/presupuestos" : "/vendedores"} 
+            href={userRole === 'admin' ? "/admin/dashboard" : (userRole === 'logistica' || userRole === 'fletero') ? "/admin/cobros-mp" : isRestrictedSeller ? "/vendedores/presupuestos" : "/vendedores"} 
             className="flex items-center gap-3 group"
           >
             <div className="w-8 h-8 rounded-xl bg-brand-600 flex items-center justify-center font-black text-white text-base shadow-xs shadow-brand-600/30 group-hover:scale-105 transition-transform">
@@ -395,7 +402,10 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                   {userEmail}
                 </p>
                 <span className="inline-block text-[10px] text-brand-300 font-medium">
-                  {userRole === 'admin' ? 'Administrador' : 'Vendedor'}
+                  {userRole === 'admin' ? 'Administrador' :
+                   userRole === 'logistica' ? 'Logística' :
+                   userRole === 'fletero' ? 'Fletero' :
+                   userRole === 'administracion' ? 'Administración' : 'Vendedor'}
                 </span>
               </div>
             </div>
@@ -417,7 +427,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         <header className="h-16 bg-white border-b border-slate-200/80 flex items-center justify-between px-6 shrink-0 z-10 shadow-2xs">
           <div className="flex items-center gap-4 min-w-0">
             <button 
-              onClick={toggleSidebar}
+              onClick={toggleSidebar} 
               className="p-2 hover:bg-slate-100 rounded-xl transition-colors text-slate-500 hover:text-slate-800 cursor-pointer"
               title={isSidebarOpen ? "Ocultar menú lateral" : "Mostrar menú lateral"}
             >
@@ -448,7 +458,12 @@ export function AdminLayout({ children }: AdminLayoutProps) {
             {/* Role Badge */}
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-100 border border-slate-200 text-slate-700 text-xs font-medium">
               <Shield className="w-3.5 h-3.5 text-slate-500" />
-              <span>{userRole === 'admin' ? 'Admin' : 'Vendedor'}</span>
+              <span>
+                {userRole === 'admin' ? 'Admin' :
+                 userRole === 'logistica' ? 'Logística' :
+                 userRole === 'fletero' ? 'Fletero' :
+                 userRole === 'administracion' ? 'Administración' : 'Vendedor'}
+              </span>
             </div>
           </div>
         </header>
