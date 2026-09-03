@@ -92,6 +92,10 @@ interface OrderSearchResult {
 
 type UserRole = 'admin' | 'administracion' | 'logistica' | 'seller' | 'fletero';
 
+// In-memory module cache for instant rendering without flashing
+let cachedCobrosRole: UserRole | null = null;
+let cachedCobrosName: string | null = null;
+
 export default function CobrosMercadoPagoPage() {
   const [payments, setPayments] = useState<MPPayment[]>([]);
   const [accounts, setAccounts] = useState<MPAccount[]>([]);
@@ -102,17 +106,54 @@ export default function CobrosMercadoPagoPage() {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  // User & Role State
-  const [currentUserRole, setCurrentUserRole] = useState<UserRole>('admin');
-  const [currentUserName, setCurrentUserName] = useState('Usuario');
-  const [isRoleLoaded, setIsRoleLoaded] = useState(false);
+  // User & Role State (Initialized synchronously from cache)
+  const [currentUserRole, setCurrentUserRole] = useState<UserRole>(() => {
+    if (typeof window !== 'undefined') {
+      if (cachedCobrosRole) return cachedCobrosRole;
+      const saved = sessionStorage.getItem('zono_user_role') as UserRole;
+      if (saved && ['admin', 'administracion', 'seller', 'logistica', 'fletero'].includes(saved)) {
+        return saved;
+      }
+    }
+    return 'seller';
+  });
 
-  // Filters
+  const [currentUserName, setCurrentUserName] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      if (cachedCobrosName) return cachedCobrosName;
+      const saved = sessionStorage.getItem('zono_user_name');
+      if (saved) return saved;
+    }
+    return 'Usuario';
+  });
+
+  const [isRoleLoaded, setIsRoleLoaded] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return cachedCobrosRole !== null || sessionStorage.getItem('zono_role_loaded') === 'true';
+    }
+    return false;
+  });
+
+  // Filters (Synchronously aligned with detected role)
   const [search, setSearch] = useState('');
   const [selectedAccountId, setSelectedAccountId] = useState('ALL');
-  const [selectedType, setSelectedType] = useState('ALL');
+  const [selectedType, setSelectedType] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const r = cachedCobrosRole || (sessionStorage.getItem('zono_user_role') as UserRole);
+      if (r === 'seller') return 'TRANSFERENCIA';
+    }
+    return 'ALL';
+  });
   const [selectedLinkedStatus, setSelectedLinkedStatus] = useState<'ALL' | 'UNLINKED' | 'LINKED'>('ALL');
-  const [selectedDateRange, setSelectedDateRange] = useState('TODAY');
+  const [selectedDateRange, setSelectedDateRange] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const r = cachedCobrosRole || (sessionStorage.getItem('zono_user_role') as UserRole);
+      if (r === 'fletero') return 'LAST_15_MIN';
+      if (r === 'seller' || r === 'logistica') return 'LAST_3_DAYS';
+      if (r === 'admin' || r === 'administracion') return 'TODAY';
+    }
+    return 'LAST_3_DAYS';
+  });
   const [showHidden, setShowHidden] = useState(false);
 
   // Modals
@@ -275,7 +316,19 @@ export default function CobrosMercadoPagoPage() {
         let detectedRole: UserRole = 'seller';
         let detectedName = user.email?.split('@')[0] || 'Usuario';
 
-        // Check if Admin
+        // Check user metadata first (instant)
+        const metaRole = (user.user_metadata?.role || '').toLowerCase();
+        const metaName = user.user_metadata?.full_name || '';
+        if (metaName) detectedName = metaName;
+        if (metaRole) {
+          if (metaRole === 'admin') detectedRole = 'admin';
+          else if (metaRole === 'administracion') detectedRole = 'administracion';
+          else if (metaRole === 'logistica') detectedRole = 'logistica';
+          else if (metaRole === 'fletero') detectedRole = 'fletero';
+          else detectedRole = 'seller';
+        }
+
+        // Check if Admin by email
         if (
           emailLower === 'diego.boveda@gmail.com' ||
           emailLower.includes('admin') ||
@@ -287,24 +340,36 @@ export default function CobrosMercadoPagoPage() {
         }
 
         // Check in sellers table
-        const { data: seller } = await supabase
-          .from('sellers')
-          .select('id, full_name, role')
-          .or(`id.eq.${user.id},email.ilike.${emailLower}`)
-          .maybeSingle();
+        try {
+          const { data: seller } = await supabase
+            .from('sellers')
+            .select('id, full_name, role')
+            .or(`id.eq.${user.id},email.ilike.${emailLower}`)
+            .maybeSingle();
 
-        if (seller) {
-          if (seller.full_name) detectedName = seller.full_name;
-          const r = (seller.role || '').toLowerCase();
-          if (r === 'admin') detectedRole = 'admin';
-          else if (r === 'administracion' || r === 'admin_staff') detectedRole = 'administracion';
-          else if (r === 'logistica' || r === 'deposito') detectedRole = 'logistica';
-          else if (r === 'fletero' || r === 'chofer' || r === 'transportista') detectedRole = 'fletero';
-          else detectedRole = 'seller';
+          if (seller) {
+            if (seller.full_name) detectedName = seller.full_name;
+            const r = (seller.role || '').toLowerCase();
+            if (r === 'admin') detectedRole = 'admin';
+            else if (r === 'administracion' || r === 'admin_staff') detectedRole = 'administracion';
+            else if (r === 'logistica' || r === 'deposito') detectedRole = 'logistica';
+            else if (r === 'fletero' || r === 'chofer' || r === 'transportista') detectedRole = 'fletero';
+            else detectedRole = 'seller';
+          }
+        } catch (e) {
+          console.warn('Error fetching seller in cobros-mp:', e);
         }
 
         setCurrentUserRole(detectedRole);
         setCurrentUserName(detectedName);
+        cachedCobrosRole = detectedRole;
+        cachedCobrosName = detectedName;
+
+        if (typeof window !== 'undefined') {
+          sessionStorage.setItem('zono_user_role', detectedRole);
+          sessionStorage.setItem('zono_user_name', detectedName);
+          sessionStorage.setItem('zono_role_loaded', 'true');
+        }
 
         // Adjust default range per role
         if (detectedRole === 'seller') {
@@ -765,8 +830,8 @@ export default function CobrosMercadoPagoPage() {
   const isSellerRole = currentUserRole === 'seller';
   const isLogisticaRole = currentUserRole === 'logistica';
   const isFleteroRole = currentUserRole === 'fletero';
-  const isAdminOrStaff = currentUserRole === 'admin' || currentUserRole === 'administracion';
-  const isFullAdmin = currentUserRole === 'admin';
+  const isAdminOrStaff = isRoleLoaded && (currentUserRole === 'admin' || currentUserRole === 'administracion');
+  const isFullAdmin = isRoleLoaded && currentUserRole === 'admin';
 
   const currentOrigin = typeof window !== 'undefined' ? window.location.origin : 'https://zono-erp.pages.dev';
   const webhookUrl = `${currentOrigin}/api/mp-webhook`;
