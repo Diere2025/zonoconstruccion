@@ -28,7 +28,7 @@ export default function RootPage() {
         }
 
         const metaRole = (user.user_metadata?.role || '').toLowerCase();
-        if (metaRole === 'logistica' || metaRole === 'fletero') {
+        if (metaRole === 'logistica' || metaRole === 'fletero' || metaRole === 'administracion') {
           router.replace("/admin/cobros-mp");
           return;
         }
@@ -50,9 +50,9 @@ export default function RootPage() {
         }
 
         const role = (seller?.role || metaRole || '').toLowerCase();
-        if (role === 'logistica' || role === 'fletero') {
+        if (role === 'logistica' || role === 'fletero' || role === 'administracion') {
           router.replace("/admin/cobros-mp");
-        } else if (role === 'admin' || role === 'administracion') {
+        } else if (role === 'admin') {
           router.replace("/admin/dashboard");
         } else {
           router.replace("/vendedores");
