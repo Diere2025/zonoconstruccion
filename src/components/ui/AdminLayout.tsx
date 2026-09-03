@@ -210,9 +210,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   // Route guards per role
   useEffect(() => {
     if (!isRoleLoaded) return;
-    if (userRole === 'logistica' && pathname && pathname !== '/admin/cobros-mp') {
-      router.replace('/admin/cobros-mp');
-    } else if (userRole === 'fletero' && pathname && pathname !== '/admin/cobros-mp') {
+    if ((userRole === 'logistica' || userRole === 'administracion' || userRole === 'fletero') && pathname && pathname !== '/admin/cobros-mp') {
       router.replace('/admin/cobros-mp');
     } else if (isRestrictedSeller && pathname && pathname !== '/vendedores/presupuestos' && pathname !== '/admin/cobros-mp') {
       router.replace('/vendedores/presupuestos');
@@ -359,7 +357,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         {/* Sidebar Header / Brand */}
         <div className="h-16 flex items-center justify-between px-5 border-b border-slate-800/80 shrink-0 bg-slate-950/40">
           <Link 
-            href={(userRole === 'admin' || userRole === 'administracion') ? "/admin/dashboard" : (userRole === 'logistica' || userRole === 'fletero') ? "/admin/cobros-mp" : isRestrictedSeller ? "/vendedores/presupuestos" : "/vendedores"} 
+            href={userRole === 'admin' ? "/admin/dashboard" : (userRole === 'logistica' || userRole === 'fletero' || userRole === 'administracion') ? "/admin/cobros-mp" : isRestrictedSeller ? "/vendedores/presupuestos" : "/vendedores"} 
             className="flex items-center gap-3 group"
           >
             <div className="w-8 h-8 rounded-xl bg-brand-600 flex items-center justify-center font-black text-white text-base shadow-xs shadow-brand-600/30 group-hover:scale-105 transition-transform">
@@ -396,14 +394,14 @@ export function AdminLayout({ children }: AdminLayoutProps) {
           ) : (
             linkSections.map((section, sIdx) => {
               const visibleLinks = section.links.filter(link => {
-                if (userRole === 'logistica' || userRole === 'fletero') {
+                if (userRole === 'logistica' || userRole === 'fletero' || userRole === 'administracion') {
                   return link.href === "/admin/cobros-mp";
                 }
                 if (isRestrictedSeller) {
                   return link.href === "/vendedores/presupuestos" || link.href === "/admin/cobros-mp";
                 }
-                if (link.adminOnly && userRole !== 'admin' && userRole !== 'administracion') return false;
-                if (link.sellerOnly && (userRole === 'admin' || userRole === 'administracion')) return false;
+                if (link.adminOnly && userRole !== 'admin') return false;
+                if (link.sellerOnly && userRole === 'admin') return false;
                 return true;
               });
 
@@ -443,8 +441,8 @@ export function AdminLayout({ children }: AdminLayoutProps) {
             })
           )}
 
-          {/* Atajos Rápidos / Tienda - Admin y Administración */}
-          {(userRole === 'admin' || userRole === 'administracion') && (
+          {/* Atajos Rápidos / Tienda - Solo para Admin */}
+          {userRole === 'admin' && (
             <div className="space-y-1.5 pt-2 border-t border-slate-800/80">
               <h4 className="px-3 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Acceso Público</h4>
               <Link 
