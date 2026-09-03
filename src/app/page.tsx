@@ -2,12 +2,57 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
 
 export default function RootPage() {
   const router = useRouter();
 
   useEffect(() => {
-    router.replace("/admin/dashboard");
+    async function redirectByRole() {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          router.replace("/admin");
+          return;
+        }
+
+        const emailLower = (user.email || '').toLowerCase();
+        if (
+          emailLower === 'diego.boveda@gmail.com' ||
+          emailLower.includes('admin') ||
+          emailLower.includes('diego') ||
+          emailLower === 'caroibarra.93@gmail.com'
+        ) {
+          router.replace("/admin/dashboard");
+          return;
+        }
+
+        const metaRole = (user.user_metadata?.role || '').toLowerCase();
+        if (metaRole === 'logistica' || metaRole === 'fletero') {
+          router.replace("/admin/cobros-mp");
+          return;
+        }
+
+        const { data: seller } = await supabase
+          .from('sellers')
+          .select('role')
+          .or(`id.eq.${user.id},email.ilike.${emailLower}`)
+          .maybeSingle();
+
+        const role = (seller?.role || metaRole || '').toLowerCase();
+        if (role === 'logistica' || role === 'fletero') {
+          router.replace("/admin/cobros-mp");
+        } else if (role === 'admin' || role === 'administracion') {
+          router.replace("/admin/dashboard");
+        } else {
+          router.replace("/vendedores");
+        }
+      } catch {
+        router.replace("/admin/dashboard");
+      }
+    }
+
+    redirectByRole();
   }, [router]);
 
   return (
