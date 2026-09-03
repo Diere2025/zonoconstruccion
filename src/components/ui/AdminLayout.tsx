@@ -359,7 +359,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         {/* Sidebar Header / Brand */}
         <div className="h-16 flex items-center justify-between px-5 border-b border-slate-800/80 shrink-0 bg-slate-950/40">
           <Link 
-            href={userRole === 'admin' ? "/admin/dashboard" : (userRole === 'logistica' || userRole === 'fletero') ? "/admin/cobros-mp" : isRestrictedSeller ? "/vendedores/presupuestos" : "/vendedores"} 
+            href={(userRole === 'admin' || userRole === 'administracion') ? "/admin/dashboard" : (userRole === 'logistica' || userRole === 'fletero') ? "/admin/cobros-mp" : isRestrictedSeller ? "/vendedores/presupuestos" : "/vendedores"} 
             className="flex items-center gap-3 group"
           >
             <div className="w-8 h-8 rounded-xl bg-brand-600 flex items-center justify-center font-black text-white text-base shadow-xs shadow-brand-600/30 group-hover:scale-105 transition-transform">
@@ -402,8 +402,8 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                 if (isRestrictedSeller) {
                   return link.href === "/vendedores/presupuestos" || link.href === "/admin/cobros-mp";
                 }
-                if (link.adminOnly && userRole !== 'admin') return false;
-                if (link.sellerOnly && userRole === 'admin') return false;
+                if (link.adminOnly && userRole !== 'admin' && userRole !== 'administracion') return false;
+                if (link.sellerOnly && (userRole === 'admin' || userRole === 'administracion')) return false;
                 return true;
               });
 
@@ -443,8 +443,8 @@ export function AdminLayout({ children }: AdminLayoutProps) {
             })
           )}
 
-          {/* Atajos Rápidos / Tienda - Solo para Admin */}
-          {userRole === 'admin' && (
+          {/* Atajos Rápidos / Tienda - Admin y Administración */}
+          {(userRole === 'admin' || userRole === 'administracion') && (
             <div className="space-y-1.5 pt-2 border-t border-slate-800/80">
               <h4 className="px-3 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Acceso Público</h4>
               <Link 
