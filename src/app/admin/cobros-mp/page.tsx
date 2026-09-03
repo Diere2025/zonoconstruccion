@@ -313,7 +313,7 @@ export default function CobrosMercadoPagoPage() {
         } else if (detectedRole === 'logistica') {
           setSelectedDateRange('LAST_3_DAYS');
         } else if (detectedRole === 'fletero') {
-          setSelectedDateRange('LAST_HOUR');
+          setSelectedDateRange('LAST_15_MIN');
         }
       } catch (err) {
         console.warn('Error detecting user role:', err);
@@ -528,7 +528,8 @@ export default function CobrosMercadoPagoPage() {
           paymentId: linkingPayment.id,
           orderId: orderId || null,
           orderCode: finalCode,
-          linkedBy: currentUserName
+          linkedBy: `${currentUserName} (${currentUserRole})`,
+          userRole: currentUserRole
         })
       });
 
@@ -553,7 +554,7 @@ export default function CobrosMercadoPagoPage() {
       const res = await fetch('/api/admin/cobros-mp-data?action=unlink-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ paymentId })
+        body: JSON.stringify({ paymentId, userRole: currentUserRole })
       });
       const data = await res.json();
       if (data.success && data.payment) {
@@ -561,6 +562,8 @@ export default function CobrosMercadoPagoPage() {
         if (linkingPayment?.id === paymentId) {
           setLinkingPayment(null);
         }
+      } else {
+        alert('Error al desvincular: ' + (data.error || 'Error'));
       }
     } catch (err: any) {
       alert('Error al desvincular: ' + err.message);
@@ -679,14 +682,14 @@ export default function CobrosMercadoPagoPage() {
     }
   };
 
-  // Admin: Toggle Hide
+  // Admin & Administracion: Toggle Hide
   const handleToggleHide = async (payment: MPPayment) => {
     const newHide = !payment.is_hidden;
     try {
       const res = await fetch('/api/admin/cobros-mp-data?action=toggle-hide', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ paymentId: payment.id, isHidden: newHide })
+        body: JSON.stringify({ paymentId: payment.id, isHidden: newHide, userRole: currentUserRole })
       });
       const data = await res.json();
       if (data.success) {
@@ -695,20 +698,26 @@ export default function CobrosMercadoPagoPage() {
         } else {
           setPayments(prev => prev.filter(p => p.id !== payment.id));
         }
+      } else {
+        alert('Error: ' + (data.error || 'No autorizado'));
       }
     } catch (err: any) {
       alert('Error al cambiar visibilidad: ' + err.message);
     }
   };
 
-  // Admin: Delete Payment
+  // Full Admin Only: Delete Payment
   const handleDeletePayment = async (paymentId: string, payer: string, amountFormatted: string) => {
+    if (currentUserRole !== 'admin') {
+      alert('Solo el Administrador Principal (Admin) puede eliminar pagos.');
+      return;
+    }
     if (!confirm(`¿Está seguro de eliminar definitivamente la transacción de ${payer} por ${amountFormatted}?`)) return;
     try {
       const res = await fetch('/api/admin/cobros-mp-data?action=delete-payment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ paymentId })
+        body: JSON.stringify({ paymentId, userRole: currentUserRole })
       });
       const data = await res.json();
       if (data.success) {
@@ -785,7 +794,7 @@ export default function CobrosMercadoPagoPage() {
               <p className="text-xs text-slate-500 font-medium">
                 {isSellerRole ? 'Transferencias entrantes (Últimos 3 días)' :
                  isLogisticaRole ? 'Cobros y transferencias para despacho (Últimos 3 días)' :
-                 isFleteroRole ? 'Verificación de cobros en viaje (Última hora)' :
+                 isFleteroRole ? 'Verificación de cobros en viaje (Últimos 15 minutos)' :
                  'Centro de Control y Conciliación en Tiempo Real'}
               </p>
             </div>
@@ -1015,7 +1024,7 @@ export default function CobrosMercadoPagoPage() {
 
               {isFleteroRole && (
                 <span className="px-3 py-1.5 rounded-xl bg-amber-50 text-amber-700 border border-amber-200 text-xs font-bold flex items-center gap-1">
-                  <Clock className="w-3.5 h-3.5" /> Última 1 Hora
+                  <Clock className="w-3.5 h-3.5" /> Últimos 15 Minutos
                 </span>
               )}
             </div>
@@ -1205,12 +1214,22 @@ export default function CobrosMercadoPagoPage() {
                                 </span>
                               )}
 
-                              {/* Order Linked Badge */}
+                              {/* Order Linked Badge / Conflict Badge */}
                               {payment.order_code ? (
-                                <span className="px-1.5 py-0.5 rounded text-[9px] font-black bg-blue-100 text-blue-800 border border-blue-200 flex items-center gap-0.5 shrink-0">
-                                  <ShoppingBag className="w-2.5 h-2.5 text-[#0069ff]" />
-                                  {payment.order_code}
-                                </span>
+                                payment.order_code.includes(' / ') ? (
+                                  <span 
+                                    className="px-1.5 py-0.5 rounded text-[9px] font-black bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-0.5 shrink-0 animate-pulse"
+                                    title={`Conflicto de Pedidos: ${payment.order_code} (Revisar en Administración)`}
+                                  >
+                                    <AlertCircle className="w-2.5 h-2.5 text-amber-700" />
+                                    <span>Conflicto: {payment.order_code}</span>
+                                  </span>
+                                ) : (
+                                  <span className="px-1.5 py-0.5 rounded text-[9px] font-black bg-blue-100 text-blue-800 border border-blue-200 flex items-center gap-0.5 shrink-0">
+                                    <ShoppingBag className="w-2.5 h-2.5 text-[#0069ff]" />
+                                    {payment.order_code}
+                                  </span>
+                                )
                               ) : null}
 
                               {/* Hidden Badge */}
@@ -1226,7 +1245,7 @@ export default function CobrosMercadoPagoPage() {
                               <span>{payment.payment_type === 'TRANSFERENCIA' ? 'Transferencia' : payment.payment_type === 'POINT' ? 'Point Smart' : 'Código QR'}</span>
                               <span>·</span>
                               <span>{formatTimeOnly(payment.received_at)}</span>
-                              {!payment.order_code && (
+                              {!payment.order_code && !isFleteroRole && (
                                 <>
                                   <span>·</span>
                                   <button
@@ -1944,51 +1963,96 @@ x-webhook-token: mpchecker_secret_key_123`}
               </div>
 
               {/* Order Link Section */}
-              <div className="p-3 bg-blue-50/60 rounded-2xl border border-blue-200 space-y-2">
-                <span className="text-xs font-bold text-blue-900 block">Vinculación con Pedido</span>
-                {selectedPaymentDetail.order_code ? (
+              {!isFleteroRole && (
+                <div className="p-3 bg-blue-50/60 rounded-2xl border border-blue-200 space-y-2">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5 text-blue-800 font-black text-sm">
-                      <ShoppingBag className="w-4 h-4 text-[#0069ff]" />
-                      <span>Pedido: {selectedPaymentDetail.order_code}</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => {
-                          const p = selectedPaymentDetail;
-                          setSelectedPaymentDetail(null);
-                          handleOpenLinkModal(p);
-                        }}
-                        className="px-2 py-1 bg-white border border-blue-300 text-blue-700 rounded-lg text-xs font-bold hover:bg-blue-50"
-                      >
-                        Cambiar
-                      </button>
-                      <button
-                        onClick={async () => {
-                          await handleUnlinkOrder(selectedPaymentDetail.id);
-                          setSelectedPaymentDetail(null);
-                        }}
-                        className="p-1 bg-white border border-rose-200 text-rose-600 rounded-lg hover:bg-rose-50"
-                        title="Desvincular"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
+                    <span className="text-xs font-bold text-blue-900 block">Vinculación con Pedido</span>
+                    {selectedPaymentDetail.linked_by && (
+                      <span className="text-[10px] text-slate-500 font-medium truncate max-w-[180px]">
+                        Por: {selectedPaymentDetail.linked_by}
+                      </span>
+                    )}
                   </div>
-                ) : (
-                  <button
-                    onClick={() => {
-                      const p = selectedPaymentDetail;
-                      setSelectedPaymentDetail(null);
-                      handleOpenLinkModal(p);
-                    }}
-                    className="w-full py-2.5 bg-[#0069ff] text-white rounded-xl font-bold flex items-center justify-center gap-1.5 shadow-md shadow-blue-500/20 hover:opacity-95"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>Asignar / Vincular a Pedido</span>
-                  </button>
-                )}
-              </div>
+
+                  {selectedPaymentDetail.order_code ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 text-blue-800 font-black text-sm">
+                          <ShoppingBag className="w-4 h-4 text-[#0069ff]" />
+                          <span>Pedido: {selectedPaymentDetail.order_code}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => {
+                              const p = selectedPaymentDetail;
+                              setSelectedPaymentDetail(null);
+                              handleOpenLinkModal(p);
+                            }}
+                            className="px-2 py-1 bg-white border border-blue-300 text-blue-700 rounded-lg text-xs font-bold hover:bg-blue-50"
+                          >
+                            Cambiar
+                          </button>
+                          <button
+                            onClick={async () => {
+                              await handleUnlinkOrder(selectedPaymentDetail.id);
+                              setSelectedPaymentDetail(null);
+                            }}
+                            className="p-1 bg-white border border-rose-200 text-rose-600 rounded-lg hover:bg-rose-50"
+                            title="Desvincular"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Conflict Resolution for Admin/Staff */}
+                      {selectedPaymentDetail.order_code.includes(' / ') && (
+                        <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl space-y-1.5 text-[11px]">
+                          <div className="font-black text-amber-900 flex items-center gap-1">
+                            <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
+                            <span>Conflicto: Ventas y Logística asignaron códigos distintos</span>
+                          </div>
+                          {isAdminOrStaff && (
+                            <div className="space-y-1 pt-1">
+                              <span className="font-bold text-amber-800 block">Elegir código definitivo:</span>
+                              <div className="flex flex-wrap gap-1.5">
+                                {selectedPaymentDetail.order_code.split(' / ').map((code) => {
+                                  const c = code.trim();
+                                  return (
+                                    <button
+                                      key={c}
+                                      onClick={async () => {
+                                        setLinkingPayment(selectedPaymentDetail);
+                                        await handleLinkOrder(undefined, c);
+                                        setSelectedPaymentDetail(null);
+                                      }}
+                                      className="px-2 py-1 bg-white hover:bg-amber-100 border border-amber-300 text-amber-900 rounded-lg font-black text-xs shadow-2xs cursor-pointer"
+                                    >
+                                      Asignar {c}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        const p = selectedPaymentDetail;
+                        setSelectedPaymentDetail(null);
+                        handleOpenLinkModal(p);
+                      }}
+                      className="w-full py-2.5 bg-[#0069ff] text-white rounded-xl font-bold flex items-center justify-center gap-1.5 shadow-md shadow-blue-500/20 hover:opacity-95 cursor-pointer"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Asignar / Vincular a Pedido</span>
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Quick Actions in Modal */}
@@ -1997,7 +2061,7 @@ x-webhook-token: mpchecker_secret_key_123`}
                 onClick={() => {
                   handleCopy(`${selectedPaymentDetail.payer_name} - ${formatMPAmount(selectedPaymentDetail.amount)} - ${getAccountDisplay(selectedPaymentDetail.account_name).displayName} - ${selectedPaymentDetail.order_code ? 'Pedido ' + selectedPaymentDetail.order_code : ''}`, 'detail-summary');
                 }}
-                className="py-2.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold flex items-center justify-center gap-1.5"
+                className="py-2.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 {copiedId === 'detail-summary' ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
                 <span>Copiar Resumen</span>
@@ -2009,7 +2073,7 @@ x-webhook-token: mpchecker_secret_key_123`}
                     await handleToggleInternalFromPayment(selectedPaymentDetail);
                     setSelectedPaymentDetail(null);
                   }}
-                  className={`py-2.5 px-3 rounded-xl font-bold flex items-center justify-center gap-1.5 ${
+                  className={`py-2.5 px-3 rounded-xl font-bold flex items-center justify-center gap-1.5 cursor-pointer ${
                     selectedPaymentDetail.is_internal 
                       ? 'bg-purple-100 hover:bg-purple-200 text-purple-900 border border-purple-300' 
                       : 'bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200'
@@ -2020,13 +2084,13 @@ x-webhook-token: mpchecker_secret_key_123`}
                 </button>
               )}
 
-              {isFullAdmin && (
+              {isAdminOrStaff && (
                 <button
                   onClick={async () => {
                     await handleToggleHide(selectedPaymentDetail);
                     setSelectedPaymentDetail(null);
                   }}
-                  className="py-2.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold flex items-center justify-center gap-1.5"
+                  className="py-2.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   {selectedPaymentDetail.is_hidden ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
                   <span>{selectedPaymentDetail.is_hidden ? 'Desarchivar' : 'Archivar'}</span>
@@ -2040,7 +2104,7 @@ x-webhook-token: mpchecker_secret_key_123`}
                     setSelectedPaymentDetail(null);
                     await handleDeletePayment(p.id, p.payer_name, formatMPAmount(p.amount));
                   }}
-                  className="py-2.5 px-3 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl font-bold flex items-center justify-center gap-1.5"
+                  className="py-2.5 px-3 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl font-bold flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                   <span>Eliminar</span>
