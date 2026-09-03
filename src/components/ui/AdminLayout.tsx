@@ -55,6 +55,11 @@ interface SidebarSection {
   links: SidebarLink[];
 }
 
+// In-memory module cache to eliminate flashing across navigation
+let cachedUserRole: 'seller' | 'admin' | 'logistica' | 'fletero' | 'administracion' | null = null;
+let cachedIsRestricted: boolean | null = null;
+let cachedUserEmail: string | null = null;
+
 export function AdminLayout({ children }: AdminLayoutProps) {
   const pathname = usePathname();
   const router = useRouter();
@@ -65,9 +70,38 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     }
     return true;
   });
-  const [userEmail, setUserEmail] = useState("");
-  const [userRole, setUserRole] = useState<'seller' | 'admin' | 'logistica' | 'fletero' | 'administracion'>('seller');
-  const [isRestrictedSeller, setIsRestrictedSeller] = useState(false);
+
+  const [userEmail, setUserEmail] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return cachedUserEmail || sessionStorage.getItem('zono_user_email') || "";
+    }
+    return "";
+  });
+
+  const [isRoleLoaded, setIsRoleLoaded] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return cachedUserRole !== null || sessionStorage.getItem('zono_role_loaded') === 'true';
+    }
+    return false;
+  });
+
+  const [userRole, setUserRole] = useState<'seller' | 'admin' | 'logistica' | 'fletero' | 'administracion'>(() => {
+    if (typeof window !== 'undefined') {
+      if (cachedUserRole) return cachedUserRole;
+      const saved = sessionStorage.getItem('zono_user_role');
+      if (saved) return saved as any;
+    }
+    return 'seller';
+  });
+
+  const [isRestrictedSeller, setIsRestrictedSeller] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      if (cachedIsRestricted !== null) return cachedIsRestricted;
+      const saved = sessionStorage.getItem('zono_is_restricted');
+      if (saved !== null) return saved === 'true';
+    }
+    return false;
+  });
 
   const toggleSidebar = () => {
     setIsSidebarOpen(prev => {
@@ -89,30 +123,34 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     }
 
     async function getUserDetails() {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          setIsRoleLoaded(true);
+          return;
+        }
+
         const email = user.email || "";
         setUserEmail(email);
+        cachedUserEmail = email;
         const emailLower = email.toLowerCase();
 
         // Check if Admin by email
         let isAdminUser = emailLower === 'diego.boveda@gmail.com' || 
-                           emailLower.includes('admin') || 
-                           emailLower.includes('diego') || 
-                           emailLower === 'caroibarra.93@gmail.com';
+                          emailLower.includes('admin') || 
+                          emailLower.includes('diego') || 
+                          emailLower === 'caroibarra.93@gmail.com';
 
-        if (isAdminUser) {
-          setUserRole('admin');
-        } else {
-          setUserRole('seller');
-        }
+        let detectedRole: 'seller' | 'admin' | 'logistica' | 'fletero' | 'administracion' = isAdminUser ? 'admin' : 'seller';
 
         // Check user metadata first for instant role detection
         const metaRole = (user.user_metadata?.role || '').toLowerCase();
         if (metaRole) {
-          setUserRole(metaRole as any);
+          detectedRole = metaRole as any;
           if (metaRole === 'admin') isAdminUser = true;
         }
+
+        let detectedRestricted = false;
 
         try {
           const { data: seller } = await supabase
@@ -123,14 +161,14 @@ export function AdminLayout({ children }: AdminLayoutProps) {
 
           if (seller?.role) {
             const roleLower = seller.role.toLowerCase();
-            setUserRole(roleLower as any);
+            detectedRole = roleLower as any;
             if (roleLower === 'admin') {
               isAdminUser = true;
             }
           }
 
           const nameLower = (seller?.full_name || "").toLowerCase();
-          const isRestricted = !isAdminUser && (
+          detectedRestricted = !isAdminUser && (
             emailLower.includes("jazmin") || 
             emailLower.includes("jazmín") || 
             nameLower.includes("jazmin") || 
@@ -142,18 +180,32 @@ export function AdminLayout({ children }: AdminLayoutProps) {
             user.id === "8207801b-b6cb-48cc-af0f-d2f9f2c98032" ||   // Ludmila
             user.id === "4c9b5ed0-3946-4df6-b4d5-3bdc9b1a6c7f"    // Ludmila Auth
           );
-          
-          setIsRestrictedSeller(Boolean(isRestricted));
         } catch (e) {
           console.warn("Error checking seller role in AdminLayout:", e);
         }
+
+        setUserRole(detectedRole);
+        setIsRestrictedSeller(detectedRestricted);
+        cachedUserRole = detectedRole;
+        cachedIsRestricted = detectedRestricted;
+
+        if (typeof window !== 'undefined') {
+          sessionStorage.setItem('zono_user_email', email);
+          sessionStorage.setItem('zono_user_role', detectedRole);
+          sessionStorage.setItem('zono_is_restricted', detectedRestricted ? 'true' : 'false');
+          sessionStorage.setItem('zono_role_loaded', 'true');
+        }
+      } finally {
+        setIsRoleLoaded(true);
       }
     }
+
     getUserDetails();
   }, [pathname]);
 
   // Route guards per role
   useEffect(() => {
+    if (!isRoleLoaded) return;
     if (userRole === 'logistica' && pathname && pathname !== '/admin/cobros-mp') {
       router.replace('/admin/cobros-mp');
     } else if (userRole === 'fletero' && pathname && pathname !== '/admin/cobros-mp' && pathname !== '/vendedores/ruteo') {
@@ -161,9 +213,18 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     } else if (isRestrictedSeller && pathname && pathname !== '/vendedores/presupuestos' && pathname !== '/admin/cobros-mp') {
       router.replace('/vendedores/presupuestos');
     }
-  }, [userRole, isRestrictedSeller, pathname, router]);
+  }, [isRoleLoaded, userRole, isRestrictedSeller, pathname, router]);
 
   const handleLogout = async () => {
+    cachedUserRole = null;
+    cachedIsRestricted = null;
+    cachedUserEmail = null;
+    if (typeof window !== 'undefined') {
+      sessionStorage.removeItem('zono_user_email');
+      sessionStorage.removeItem('zono_user_role');
+      sessionStorage.removeItem('zono_is_restricted');
+      sessionStorage.removeItem('zono_role_loaded');
+    }
     await supabase.auth.signOut();
     window.location.href = "/admin";
   };
@@ -320,56 +381,66 @@ export function AdminLayout({ children }: AdminLayoutProps) {
 
         {/* Navigation Content */}
         <div className="flex-1 overflow-y-auto custom-sidebar-scrollbar px-3 py-4 space-y-6">
-          {linkSections.map((section, sIdx) => {
-            const visibleLinks = section.links.filter(link => {
-              if (userRole === 'logistica') {
-                return link.href === "/admin/cobros-mp";
-              }
-              if (userRole === 'fletero') {
-                return link.href === "/admin/cobros-mp" || link.href === "/vendedores/ruteo";
-              }
-              if (isRestrictedSeller) {
-                return link.href === "/vendedores/presupuestos" || link.href === "/admin/cobros-mp";
-              }
-              if (link.adminOnly && userRole !== 'admin') return false;
-              if (link.sellerOnly && userRole === 'admin') return false;
-              return true;
-            });
-
-            if (visibleLinks.length === 0) return null;
-
-            return (
-              <div key={sIdx} className="space-y-1.5">
-                <h4 className="px-3 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
-                  {section.title}
-                </h4>
-                <div className="space-y-0.5">
-                  {visibleLinks.map(link => {
-                    const Icon = link.icon;
-                    const active = isActive(link.href);
-                    return (
-                      <Link 
-                        key={link.href}
-                        href={link.href}
-                        className={`group flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all duration-150 ${
-                          active 
-                            ? "bg-brand-600 text-white font-semibold shadow-xs" 
-                            : "text-slate-300 hover:text-white hover:bg-slate-800/60"
-                        }`}
-                      >
-                        <Icon className={`w-4 h-4 shrink-0 transition-colors ${
-                          active 
-                            ? "text-white" 
-                            : "text-slate-400 group-hover:text-slate-200"
-                        }`} />
-                        <span className="truncate">{link.name}</span>
-                      </Link>
-                    );
-                  })}
-                </div>
+          {!isRoleLoaded ? (
+            <div className="space-y-4 px-2 py-3 animate-pulse">
+              <div className="h-3 w-20 bg-slate-800 rounded mb-3" />
+              <div className="space-y-2">
+                <div className="h-8 bg-slate-800/60 rounded-xl" />
+                <div className="h-8 bg-slate-800/60 rounded-xl" />
               </div>
-            );
-          })}
+            </div>
+          ) : (
+            linkSections.map((section, sIdx) => {
+              const visibleLinks = section.links.filter(link => {
+                if (userRole === 'logistica') {
+                  return link.href === "/admin/cobros-mp";
+                }
+                if (userRole === 'fletero') {
+                  return link.href === "/admin/cobros-mp" || link.href === "/vendedores/ruteo";
+                }
+                if (isRestrictedSeller) {
+                  return link.href === "/vendedores/presupuestos" || link.href === "/admin/cobros-mp";
+                }
+                if (link.adminOnly && userRole !== 'admin') return false;
+                if (link.sellerOnly && userRole === 'admin') return false;
+                return true;
+              });
+
+              if (visibleLinks.length === 0) return null;
+
+              return (
+                <div key={sIdx} className="space-y-1.5">
+                  <h4 className="px-3 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+                    {section.title}
+                  </h4>
+                  <div className="space-y-0.5">
+                    {visibleLinks.map(link => {
+                      const Icon = link.icon;
+                      const active = isActive(link.href);
+                      return (
+                        <Link 
+                          key={link.href}
+                          href={link.href}
+                          className={`group flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all duration-150 ${
+                            active 
+                              ? "bg-brand-600 text-white font-semibold shadow-xs" 
+                              : "text-slate-300 hover:text-white hover:bg-slate-800/60"
+                          }`}
+                        >
+                          <Icon className={`w-4 h-4 shrink-0 transition-colors ${
+                            active 
+                              ? "text-white" 
+                              : "text-slate-400 group-hover:text-slate-200"
+                          }`} />
+                          <span className="truncate">{link.name}</span>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })
+          )}
 
           {/* Atajos Rápidos / Tienda - Solo para Admin */}
           {userRole === 'admin' && (
