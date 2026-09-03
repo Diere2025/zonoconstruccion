@@ -66,7 +66,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     return true;
   });
   const [userEmail, setUserEmail] = useState("");
-  const [userRole, setUserRole] = useState<'seller' | 'admin'>('seller');
+  const [userRole, setUserRole] = useState<'seller' | 'admin' | 'logistica' | 'fletero' | 'administracion'>('seller');
   const [isRestrictedSeller, setIsRestrictedSeller] = useState(false);
 
   const toggleSidebar = () => {
@@ -114,9 +114,12 @@ export function AdminLayout({ children }: AdminLayoutProps) {
             .or(`id.eq.${user.id},email.ilike.${emailLower}`)
             .maybeSingle();
 
-          if (seller?.role === 'admin') {
-            setUserRole('admin');
-            isAdminUser = true;
+          if (seller?.role) {
+            const roleLower = seller.role.toLowerCase();
+            setUserRole(roleLower);
+            if (roleLower === 'admin') {
+              isAdminUser = true;
+            }
           }
 
           const nameLower = (seller?.full_name || seller?.name || "").toLowerCase();
@@ -142,12 +145,16 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     getUserDetails();
   }, [pathname]);
 
-  // Route guard: Restricted sellers (Jazmín & Ludmila) can access /vendedores/presupuestos and /admin/cobros-mp
+  // Route guards per role
   useEffect(() => {
-    if (isRestrictedSeller && pathname && pathname !== '/vendedores/presupuestos' && pathname !== '/admin/cobros-mp') {
+    if (userRole === 'logistica' && pathname && pathname !== '/admin/cobros-mp') {
+      router.replace('/admin/cobros-mp');
+    } else if (userRole === 'fletero' && pathname && pathname !== '/admin/cobros-mp' && pathname !== '/vendedores/ruteo') {
+      router.replace('/admin/cobros-mp');
+    } else if (isRestrictedSeller && pathname && pathname !== '/vendedores/presupuestos' && pathname !== '/admin/cobros-mp') {
       router.replace('/vendedores/presupuestos');
     }
-  }, [isRestrictedSeller, pathname, router]);
+  }, [userRole, isRestrictedSeller, pathname, router]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -308,6 +315,12 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         <div className="flex-1 overflow-y-auto custom-sidebar-scrollbar px-3 py-4 space-y-6">
           {linkSections.map((section, sIdx) => {
             const visibleLinks = section.links.filter(link => {
+              if (userRole === 'logistica') {
+                return link.href === "/admin/cobros-mp";
+              }
+              if (userRole === 'fletero') {
+                return link.href === "/admin/cobros-mp" || link.href === "/vendedores/ruteo";
+              }
               if (isRestrictedSeller) {
                 return link.href === "/vendedores/presupuestos" || link.href === "/admin/cobros-mp";
               }

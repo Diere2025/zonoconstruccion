@@ -82,12 +82,10 @@ export async function GET(request: Request) {
           dateRange = 'LAST_3_DAYS';
         }
       } else if (isFletero) {
-        dateRange = 'LAST_HOUR';
+        dateRange = 'LAST_15_MIN';
       }
 
       // Exact Argentina (UTC-3) Day Boundary Helper:
-      // In Argentina Time (UTC-3), 00:00:00 is 03:00:00Z of the same day,
-      // and 23:59:59.999 is 02:59:59.999Z of the next day.
       const now = new Date();
       const argNow = new Date(now.getTime() - 3 * 3600 * 1000);
 
@@ -114,6 +112,7 @@ export async function GET(request: Request) {
       const yesterdayBounds = getArgDayBounds(-1);
       const threeDaysBounds = getArgDayBounds(-2);
       const sevenDaysBounds = getArgDayBounds(-6);
+      const fifteenMinsAgoIso = new Date(now.getTime() - 15 * 60 * 1000).toISOString();
       const oneHourAgoIso = new Date(now.getTime() - 60 * 60 * 1000).toISOString();
 
       let query = supabaseAdmin
@@ -126,7 +125,7 @@ export async function GET(request: Request) {
         query = query.or('is_internal.is.null,is_internal.eq.false');
       }
 
-      // Hidden filter: only admin can view hidden items
+      // Hidden filter: only admin and administracion can view hidden items
       if (isAdminOrAdminStaff && showHidden) {
         query = query.eq('is_hidden', true);
       } else {
@@ -134,7 +133,9 @@ export async function GET(request: Request) {
       }
 
       // Date Range Filter with strict Argentina timezone boundaries
-      if (dateRange === 'LAST_HOUR') {
+      if (isFletero || dateRange === 'LAST_15_MIN') {
+        query = query.gte('received_at', fifteenMinsAgoIso);
+      } else if (dateRange === 'LAST_HOUR') {
         query = query.gte('received_at', oneHourAgoIso);
       } else if (dateRange === 'TODAY') {
         query = query.gte('received_at', todayBounds.startIso).lte('received_at', todayBounds.endIso);
@@ -277,16 +278,35 @@ export async function POST(request: Request) {
     }
 
     if (action === 'link-order') {
-      const { paymentId, orderId, orderCode, linkedBy } = body;
+      const { paymentId, orderId, orderCode, linkedBy, userRole } = body;
       if (!paymentId || !orderCode) {
         return NextResponse.json({ error: 'paymentId y orderCode son requeridos' }, { status: 400 });
       }
 
+      const isFletero = userRole === 'fletero' || userRole === 'carrier';
+      if (isFletero) {
+        return NextResponse.json({ error: 'Los fleteros no tienen permisos para vincular pedidos' }, { status: 403 });
+      }
+
       const cleanCode = String(orderCode).trim().toUpperCase();
 
-      // If orderId was not provided, attempt a lookup in orders table by legacy_code
+      // Fetch existing payment to check for conflict
+      const { data: existingPayment } = await supabaseAdmin
+        .from('mp_payments')
+        .select('id, order_code, linked_by, order_id')
+        .eq('id', paymentId)
+        .maybeSingle();
+
+      const isAdminOrStaff = userRole === 'admin' || userRole === 'administracion';
+      let finalCode = cleanCode;
+      let finalLinkedBy = linkedBy || 'Usuario';
       let finalOrderId = orderId || null;
-      if (!finalOrderId) {
+
+      // Conflict handling: If payment was already linked to a different code, and user is NOT admin/administracion
+      if (existingPayment?.order_code && existingPayment.order_code !== cleanCode && !isAdminOrStaff) {
+        finalCode = `${existingPayment.order_code} / ${cleanCode}`;
+        finalLinkedBy = `${existingPayment.linked_by || 'Ventas/Logística'} | ${linkedBy || userRole}`;
+      } else if (!finalOrderId) {
         try {
           const { data: matchedOrder } = await supabaseAdmin
             .from('orders')
@@ -306,8 +326,8 @@ export async function POST(request: Request) {
         .from('mp_payments')
         .update({
           order_id: finalOrderId,
-          order_code: cleanCode,
-          linked_by: linkedBy || 'Usuario',
+          order_code: finalCode,
+          linked_by: finalLinkedBy,
           linked_at: new Date().toISOString()
         })
         .eq('id', paymentId)
@@ -319,8 +339,13 @@ export async function POST(request: Request) {
     }
 
     if (action === 'unlink-order') {
-      const { paymentId } = body;
+      const { paymentId, userRole } = body;
       if (!paymentId) return NextResponse.json({ error: 'paymentId requerido' }, { status: 400 });
+
+      const isFletero = userRole === 'fletero' || userRole === 'carrier';
+      if (isFletero) {
+        return NextResponse.json({ error: 'Los fleteros no tienen permisos para desvincular pedidos' }, { status: 403 });
+      }
 
       const { data, error } = await supabaseAdmin
         .from('mp_payments')
@@ -339,8 +364,13 @@ export async function POST(request: Request) {
     }
 
     if (action === 'toggle-hide') {
-      const { paymentId, isHidden } = body;
+      const { paymentId, isHidden, userRole } = body;
       if (!paymentId) return NextResponse.json({ error: 'paymentId requerido' }, { status: 400 });
+
+      const isAdminOrStaff = userRole === 'admin' || userRole === 'administracion';
+      if (!isAdminOrStaff) {
+        return NextResponse.json({ error: 'Solo administración y admin pueden ocultar o desocultar transacciones' }, { status: 403 });
+      }
 
       const { data, error } = await supabaseAdmin
         .from('mp_payments')
@@ -356,8 +386,13 @@ export async function POST(request: Request) {
     }
 
     if (action === 'delete-payment') {
-      const { paymentId } = body;
+      const { paymentId, userRole } = body;
       if (!paymentId) return NextResponse.json({ error: 'paymentId requerido' }, { status: 400 });
+
+      // ONLY full admin can delete! Administracion, Ventas, Logistica, Fleteros are blocked!
+      if (userRole !== 'admin') {
+        return NextResponse.json({ error: 'Solo el Administrador Principal (Admin) puede eliminar transacciones' }, { status: 403 });
+      }
 
       const { data, error } = await supabaseAdmin
         .from('mp_payments')
