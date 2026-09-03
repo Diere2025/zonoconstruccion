@@ -111,6 +111,7 @@ export default function CobrosMercadoPagoPage() {
   const [search, setSearch] = useState('');
   const [selectedAccountId, setSelectedAccountId] = useState('ALL');
   const [selectedType, setSelectedType] = useState('ALL');
+  const [selectedLinkedStatus, setSelectedLinkedStatus] = useState<'ALL' | 'UNLINKED' | 'LINKED'>('ALL');
   const [selectedDateRange, setSelectedDateRange] = useState('TODAY');
   const [showHidden, setShowHidden] = useState(false);
 
@@ -386,6 +387,7 @@ export default function CobrosMercadoPagoPage() {
         accountId: selectedAccountId,
         dateRange: selectedDateRange,
         type: selectedType,
+        linkedStatus: selectedLinkedStatus,
         search: search,
         showHidden: showHidden ? 'true' : 'false'
       });
@@ -400,7 +402,7 @@ export default function CobrosMercadoPagoPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [currentUserRole, isRoleLoaded, selectedAccountId, selectedDateRange, selectedType, search, showHidden]);
+  }, [currentUserRole, isRoleLoaded, selectedAccountId, selectedDateRange, selectedType, selectedLinkedStatus, search, showHidden]);
 
   useEffect(() => {
     loadAccounts();
@@ -1025,6 +1027,26 @@ export default function CobrosMercadoPagoPage() {
                   <Send className="w-3.5 h-3.5" /> Solo Transferencias
                 </div>
               )}
+
+              {/* Linked Status Filter */}
+              <div className="flex items-center gap-2">
+                <span className="text-slate-500 font-bold">Estado:</span>
+                <select
+                  value={selectedLinkedStatus}
+                  onChange={(e) => setSelectedLinkedStatus(e.target.value as any)}
+                  className={`border rounded-xl px-2.5 py-1 font-semibold focus:outline-none transition-all ${
+                    selectedLinkedStatus === 'UNLINKED' 
+                      ? 'bg-amber-50 border-amber-300 text-amber-900 font-bold'
+                      : selectedLinkedStatus === 'LINKED'
+                      ? 'bg-emerald-50 border-emerald-300 text-emerald-900 font-bold'
+                      : 'bg-slate-50 border-slate-200/80 text-slate-700'
+                  }`}
+                >
+                  <option value="ALL">Todos los cobros</option>
+                  <option value="UNLINKED">⚠️ Sin Vincular (Pendientes)</option>
+                  <option value="LINKED">✅ Vinculados a Pedido</option>
+                </select>
+              </div>
 
               {/* Hidden toggle for Admin */}
               {isFullAdmin && (

@@ -65,6 +65,7 @@ export async function GET(request: Request) {
       const search = searchParams.get('search');
       let dateRange = searchParams.get('dateRange') || 'TODAY';
       let type = searchParams.get('type') || 'ALL';
+      const linkedStatus = searchParams.get('linkedStatus') || 'ALL';
       const showHidden = searchParams.get('showHidden') === 'true';
 
       const isSeller = userRole === 'seller' || userRole === 'vendedora' || userRole === 'ventas';
@@ -84,13 +85,36 @@ export async function GET(request: Request) {
         dateRange = 'LAST_HOUR';
       }
 
+      // Exact Argentina (UTC-3) Day Boundary Helper:
+      // In Argentina Time (UTC-3), 00:00:00 is 03:00:00Z of the same day,
+      // and 23:59:59.999 is 02:59:59.999Z of the next day.
       const now = new Date();
-      // Argentina UTC-3 offset helper
+      const argNow = new Date(now.getTime() - 3 * 3600 * 1000);
+
+      const getArgDayBounds = (offsetDays: number = 0) => {
+        const target = new Date(argNow.getTime() + offsetDays * 24 * 3600 * 1000);
+        const y = target.getUTCFullYear();
+        const m = String(target.getUTCMonth() + 1).padStart(2, '0');
+        const d = String(target.getUTCDate()).padStart(2, '0');
+        const dayStr = `${y}-${m}-${d}`;
+
+        const next = new Date(target.getTime() + 24 * 3600 * 1000);
+        const ny = next.getUTCFullYear();
+        const nm = String(next.getUTCMonth() + 1).padStart(2, '0');
+        const nd = String(next.getUTCDate()).padStart(2, '0');
+        const nextDayStr = `${ny}-${nm}-${nd}`;
+
+        return {
+          startIso: `${dayStr}T03:00:00.000Z`,
+          endIso: `${nextDayStr}T02:59:59.999Z`
+        };
+      };
+
+      const todayBounds = getArgDayBounds(0);
+      const yesterdayBounds = getArgDayBounds(-1);
+      const threeDaysBounds = getArgDayBounds(-2);
+      const sevenDaysBounds = getArgDayBounds(-6);
       const oneHourAgoIso = new Date(now.getTime() - 60 * 60 * 1000).toISOString();
-      const todayStr = new Date(now.getTime() - 3 * 3600 * 1000).toISOString().split('T')[0];
-      const yesterdayStr = new Date(now.getTime() - (24 + 3) * 3600 * 1000).toISOString().split('T')[0];
-      const threeDaysAgoStr = new Date(now.getTime() - (3 * 24 + 3) * 3600 * 1000).toISOString().split('T')[0];
-      const sevenDaysAgoStr = new Date(now.getTime() - (7 * 24 + 3) * 3600 * 1000).toISOString().split('T')[0];
 
       let query = supabaseAdmin
         .from('mp_payments')
@@ -109,19 +133,19 @@ export async function GET(request: Request) {
         query = query.or('is_hidden.is.null,is_hidden.eq.false');
       }
 
-      // Date Range Filter
+      // Date Range Filter with strict Argentina timezone boundaries
       if (dateRange === 'LAST_HOUR') {
         query = query.gte('received_at', oneHourAgoIso);
       } else if (dateRange === 'TODAY') {
-        query = query.gte('received_at', `${todayStr}T00:00:00.000Z`).lte('received_at', `${todayStr}T23:59:59.999Z`);
+        query = query.gte('received_at', todayBounds.startIso).lte('received_at', todayBounds.endIso);
       } else if (dateRange === 'YESTERDAY') {
-        query = query.gte('received_at', `${yesterdayStr}T00:00:00.000Z`).lte('received_at', `${yesterdayStr}T23:59:59.999Z`);
+        query = query.gte('received_at', yesterdayBounds.startIso).lte('received_at', yesterdayBounds.endIso);
       } else if (dateRange === 'YESTERDAY_TODAY') {
-        query = query.gte('received_at', `${yesterdayStr}T00:00:00.000Z`);
+        query = query.gte('received_at', yesterdayBounds.startIso);
       } else if (dateRange === 'LAST_3_DAYS') {
-        query = query.gte('received_at', `${threeDaysAgoStr}T00:00:00.000Z`);
+        query = query.gte('received_at', threeDaysBounds.startIso);
       } else if (dateRange === 'LAST_7_DAYS') {
-        query = query.gte('received_at', `${sevenDaysAgoStr}T00:00:00.000Z`);
+        query = query.gte('received_at', sevenDaysBounds.startIso);
       }
 
       if (accountId && accountId !== 'ALL') {
@@ -132,6 +156,12 @@ export async function GET(request: Request) {
         query = query.eq('payment_type', type);
       }
 
+      if (linkedStatus === 'UNLINKED') {
+        query = query.is('order_id', null);
+      } else if (linkedStatus === 'LINKED') {
+        query = query.not('order_id', 'is', null);
+      }
+
       if (search) {
         query = query.or(`payer_name.ilike.%${search}%,formatted_amount.ilike.%${search}%,raw_body.ilike.%${search}%,order_code.ilike.%${search}%`);
       }
@@ -139,14 +169,14 @@ export async function GET(request: Request) {
       const { data, error } = await query.limit(300);
       if (error) throw error;
 
-      // Calculate stats ONLY for Admin & Administracion
+      // Calculate stats ONLY for Admin & Administracion using exact Argentina Today boundaries
       let todayStats = null;
       if (isAdminOrAdminStaff) {
         const { data: todayRecords } = await supabaseAdmin
           .from('mp_payments')
           .select('amount, is_internal')
-          .gte('received_at', `${todayStr}T00:00:00.000Z`)
-          .lte('received_at', `${todayStr}T23:59:59.999Z`)
+          .gte('received_at', todayBounds.startIso)
+          .lte('received_at', todayBounds.endIso)
           .or('is_hidden.is.null,is_hidden.eq.false');
 
         const totalCount = todayRecords ? todayRecords.length : 0;
