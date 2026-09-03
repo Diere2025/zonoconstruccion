@@ -876,9 +876,9 @@ export async function GET() {
       }
     });
 
-    const baseOpexCostPerTank = totalTanks2026 > 0 
+    const baseOpexCostPerTank = totalTanks2026 >= 1000 
       ? Math.round(totalOpex2026 / totalTanks2026) 
-      : 4811;
+      : 2494;
 
     // 7. Monthly Gas Consumption & Total Operating Cost Correlation
     const monthlyGasMap: Record<string, { gasLitros: number; inversion: number; tanques: number; litrosTransformados: number; }> = {};
