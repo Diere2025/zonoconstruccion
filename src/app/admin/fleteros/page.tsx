@@ -197,7 +197,7 @@ export default function FleterosManagementPage() {
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-lg font-black text-slate-900 tracking-tight">Gestión de Fleteros</h1>
+              <h1 className="text-lg font-black text-slate-900 tracking-tight">Gestión de Transportistas</h1>
               <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-indigo-50 text-indigo-700 border border-indigo-200">
                 Logística
               </span>
@@ -229,7 +229,7 @@ export default function FleterosManagementPage() {
             className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-md shadow-indigo-600/20 transition-all cursor-pointer"
           >
             <Plus className="w-4 h-4" />
-            <span>Nuevo Fletero</span>
+            <span>Nuevo Transportista</span>
           </button>
         </div>
       </div>
@@ -242,7 +242,7 @@ export default function FleterosManagementPage() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar fletero por nombre o correo..."
+            placeholder="Buscar transportista por nombre o correo..."
             className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200/80 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
           />
         </div>
@@ -257,20 +257,20 @@ export default function FleterosManagementPage() {
         </div>
       </div>
 
-      {/* Fleteros Grid */}
+      {/* Transportistas Grid */}
       {isLoading ? (
         <div className="flex flex-col items-center justify-center p-12 bg-white rounded-3xl border border-slate-200/80">
           <Loader2 className="w-8 h-8 text-indigo-600 animate-spin mb-3" />
-          <p className="text-xs text-slate-500 font-medium">Cargando lista de fleteros...</p>
+          <p className="text-xs text-slate-500 font-medium">Cargando lista de transportistas...</p>
         </div>
       ) : filteredFleteros.length === 0 ? (
         <div className="text-center p-12 bg-white rounded-3xl border border-slate-200/80 space-y-3">
           <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto text-slate-400">
             <Truck className="w-6 h-6" />
           </div>
-          <h3 className="text-sm font-bold text-slate-800">No se encontraron fleteros</h3>
+          <h3 className="text-sm font-bold text-slate-800">No se encontraron transportistas</h3>
           <p className="text-xs text-slate-400 max-w-sm mx-auto">
-            {search ? "No hay fleteros que coincidan con la búsqueda." : "Aún no hay fleteros registrados en el sistema."}
+            {search ? "No hay transportistas que coincidan con la búsqueda." : "Aún no hay transportistas registrados en el sistema."}
           </p>
         </div>
       ) : (
@@ -289,7 +289,7 @@ export default function FleterosManagementPage() {
                       ? "bg-indigo-50 text-indigo-600 border-indigo-200/80" 
                       : "bg-slate-200 text-slate-500 border-slate-300"
                   }`}>
-                    {fletero.full_name ? fletero.full_name.charAt(0).toUpperCase() : "F"}
+                    {fletero.full_name ? fletero.full_name.charAt(0).toUpperCase() : "T"}
                   </div>
                   <div className="min-w-0">
                     <h3 className="text-sm font-bold text-slate-900 truncate" title={fletero.full_name}>
@@ -342,7 +342,7 @@ export default function FleterosManagementPage() {
         </div>
       )}
 
-      {/* Modal: Nuevo Fletero */}
+      {/* Modal: Nuevo Transportista */}
       {showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
@@ -351,7 +351,7 @@ export default function FleterosManagementPage() {
                 <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
                   <Truck className="w-4 h-4" />
                 </div>
-                <h3 className="font-bold text-sm text-slate-900">Agregar Nuevo Fletero</h3>
+                <h3 className="font-bold text-sm text-slate-900">Agregar Nuevo Transportista</h3>
               </div>
               <button 
                 onClick={() => setShowCreateModal(false)}
@@ -370,7 +370,7 @@ export default function FleterosManagementPage() {
 
             <form onSubmit={handleCreateFletero} className="space-y-4">
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-700">Nombre Completo del Fletero / Empresa</label>
+                <label className="text-xs font-bold text-slate-700">Nombre Completo del Transportista / Empresa</label>
                 <input
                   type="text"
                   required
@@ -435,7 +435,7 @@ export default function FleterosManagementPage() {
                   disabled={isCreating}
                   className="flex-1 py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                 >
-                  {isCreating ? <Loader2 className="w-4 h-4 animate-spin" /> : "Crear Fletero"}
+                  {isCreating ? <Loader2 className="w-4 h-4 animate-spin" /> : "Crear Transportista"}
                 </button>
               </div>
             </form>
@@ -515,7 +515,7 @@ export default function FleterosManagementPage() {
 
                 <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200/80 text-xs text-slate-600 space-y-1">
                   <p><strong>Usuario:</strong> {selectedFletero.email}</p>
-                  <p>Los fleteros no pueden cambiar su clave ellos mismos; solo el personal de Logística o Admin puede definirla.</p>
+                  <p>Los transportistas no pueden cambiar su clave ellos mismos; solo el personal de Logística o Admin puede definirla.</p>
                 </div>
 
                 <div className="space-y-1">
