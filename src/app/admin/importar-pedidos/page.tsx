@@ -454,7 +454,7 @@ export default function ImportarPedidosPage() {
         });
 
         if (targetRows.length > 0) {
-          const CHUNK_SIZE = 25;
+          const CHUNK_SIZE = 10;
           const totalChunks = Math.ceil(targetRows.length / CHUNK_SIZE);
           addLog(`📄 ${sheet.name}: Procesando ${targetRows.length} pedidos en ${totalChunks} lote(s) seguro(s)...`);
 

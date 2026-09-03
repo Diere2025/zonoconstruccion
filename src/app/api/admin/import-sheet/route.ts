@@ -108,61 +108,30 @@ export async function POST(request: Request) {
 
     addLog(`Iniciando procesamiento de ${rows.length} pedidos en el servidor para ${sheetName}...`);
 
-    // 1. Fetch Master Data
-    // Helper function to fetch all products
-    async function fetchProductsAll() {
-      let allProducts: any[] = [];
-      let page = 0;
-      const pageSize = 1000;
-      let hasMore = true;
-      while (hasMore) {
-        const { data, error } = await supabaseAdmin
-          .from('products')
-          .select('id, name, sku, price')
-          .range(page * pageSize, (page + 1) * pageSize - 1);
-        if (error) throw error;
-        if (data && data.length > 0) {
-          allProducts = [...allProducts, ...data];
-          if (data.length < pageSize) {
-            hasMore = false;
-          } else {
-            page++;
-          }
-        } else {
-          hasMore = false;
-        }
+    // 1. Fetch Master Data with minimum subrequests
+    const targetCodes: string[] = [];
+    for (const row of rows) {
+      const rawCode = (row[1] || "").trim().toUpperCase();
+      if (rawCode) {
+        const parts = rawCode.split(/[\/,]/).map((c: string) => c.trim().toUpperCase()).filter(Boolean);
+        parts.forEach((p: string) => targetCodes.push(p));
       }
-      return allProducts;
     }
 
-    // Helper function to fetch all orders (ALL statuses) with pagination to prevent duplicates
-    async function fetchOrdersAll() {
-      let allOrders: any[] = [];
-      let page = 0;
-      const pageSize = 1000;
-      let hasMore = true;
-      while (hasMore) {
-        const { data, error } = await supabaseAdmin
-          .from('orders')
-          .select('id, legacy_code, status, delivery_detail, whaticket_link, order_medium_id')
-          .range(page * pageSize, (page + 1) * pageSize - 1);
-        if (error) throw error;
-        if (data && data.length > 0) {
-          allOrders = [...allOrders, ...data];
-          if (data.length < pageSize) {
-            hasMore = false;
-          } else {
-            page++;
-          }
-        } else {
-          hasMore = false;
-        }
-      }
-      return allOrders;
+    async function fetchOrdersForChunk() {
+      if (targetCodes.length === 0) return [];
+      const orConditions = targetCodes.map(c => `legacy_code.ilike.%${c}%`).join(',');
+      const { data, error } = await supabaseAdmin
+        .from('orders')
+        .select('id, legacy_code, status, delivery_detail, whaticket_link, order_medium_id')
+        .or(orConditions)
+        .limit(200);
+      if (error) throw error;
+      return data || [];
     }
 
     const [
-      products,
+      productsRes,
       sellersRes,
       localitiesRes,
       advSourcesRes,
@@ -171,16 +140,17 @@ export async function POST(request: Request) {
       phoneLinesRes,
       dbOrders
     ] = await Promise.all([
-      fetchProductsAll(),
+      supabaseAdmin.from('products').select('id, name, sku, price').limit(2000),
       supabaseAdmin.from('sellers').select('id, full_name, is_organic'),
       supabaseAdmin.from('localities').select('id, name, zone_id'),
       supabaseAdmin.from('advertising_sources').select('id, name'),
       supabaseAdmin.from('order_mediums').select('id, name'),
       supabaseAdmin.from('payment_methods').select('id, name, surcharge_percentage, installments'),
       supabaseAdmin.from('phone_lines').select('id, phone_number'),
-      fetchOrdersAll()
+      fetchOrdersForChunk()
     ]);
 
+    if (productsRes.error) throw productsRes.error;
     if (sellersRes.error) throw sellersRes.error;
     if (localitiesRes.error) throw localitiesRes.error;
     if (advSourcesRes.error) throw advSourcesRes.error;
@@ -188,7 +158,7 @@ export async function POST(request: Request) {
     if (paymentMethodsRes.error) throw paymentMethodsRes.error;
     if (phoneLinesRes.error) throw phoneLinesRes.error;
 
-    const dbProducts = products || [];
+    const dbProducts = productsRes.data || [];
     const dbSellers = sellersRes.data || [];
     const dbLocalities = localitiesRes.data || [];
     const dbAdvSources = advSourcesRes.data || [];
@@ -244,9 +214,14 @@ export async function POST(request: Request) {
       return null;
     };
 
-    // Download and parse claims sheet for linking returns/exchanges
+    // Download and parse claims sheet for linking returns/exchanges ONLY if this chunk has CAMB/REC orders
+    const hasCambOrRecInChunk = rows.some((r: any) => {
+      const code = (r[1] || "").trim().toUpperCase();
+      return code.startsWith("CAMB") || code.startsWith("REC");
+    });
+
     let claimsMap = new Map<string, string[]>();
-    if (!skipCAMB) {
+    if (!skipCAMB && hasCambOrRecInChunk) {
       addLog("Descargando planilla general de reclamos para vinculación de cambios...");
       try {
         const claimsRes = await fetch("https://docs.google.com/spreadsheets/d/1PzbotWVO-iLqV0rPvH2ZlXKkMGYPTIkmBd1owU45OCo/gviz/tq?tqx=out:csv&gid=1414092286", { cache: 'no-store' });
