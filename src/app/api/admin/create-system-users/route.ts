@@ -97,7 +97,6 @@ export async function GET(request: Request) {
       if (authUserId) {
         const { error: sellerErr } = await supabaseAdmin.from('sellers').upsert({
           id: authUserId,
-          name: targetUser.fullName,
           full_name: targetUser.fullName,
           email: emailLower,
           role: targetUser.role,
