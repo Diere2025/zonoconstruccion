@@ -34,7 +34,14 @@ import {
   Shield,
   ShieldCheck,
   Layers,
-  Flame
+  Flame,
+  KeyRound,
+  Eye,
+  EyeOff,
+  CheckCircle2,
+  AlertCircle,
+  Loader2,
+  Lock
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
@@ -102,6 +109,53 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     }
     return false;
   });
+
+  // Self Password Change State
+  const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
+  const [selfNewPassword, setSelfNewPassword] = useState("");
+  const [selfConfirmPassword, setSelfConfirmPassword] = useState("");
+  const [showSelfPwd, setShowSelfPwd] = useState(false);
+  const [isChangingSelfPwd, setIsChangingSelfPwd] = useState(false);
+  const [selfPwdError, setSelfPwdError] = useState<string | null>(null);
+  const [selfPwdSuccess, setSelfPwdSuccess] = useState(false);
+
+  const handleSelfPasswordChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSelfPwdError(null);
+    setSelfPwdSuccess(false);
+
+    if (selfNewPassword.length < 6) {
+      setSelfPwdError("La contraseña debe tener al menos 6 caracteres");
+      return;
+    }
+
+    if (selfNewPassword !== selfConfirmPassword) {
+      setSelfPwdError("Las contraseñas no coinciden");
+      return;
+    }
+
+    setIsChangingSelfPwd(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ password: selfNewPassword });
+      if (error) {
+        setSelfPwdError("Error al cambiar contraseña: " + error.message);
+        setIsChangingSelfPwd(false);
+        return;
+      }
+
+      setSelfPwdSuccess(true);
+      setSelfNewPassword("");
+      setSelfConfirmPassword("");
+      setTimeout(() => {
+        setShowChangePasswordModal(false);
+        setSelfPwdSuccess(false);
+      }, 2000);
+    } catch (err: any) {
+      setSelfPwdError(err.message || "Error al actualizar contraseña");
+    } finally {
+      setIsChangingSelfPwd(false);
+    }
+  };
 
   const toggleSidebar = () => {
     setIsSidebarOpen(prev => {
@@ -210,7 +264,9 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   // Route guards per role
   useEffect(() => {
     if (!isRoleLoaded) return;
-    if ((userRole === 'logistica' || userRole === 'administracion' || userRole === 'fletero') && pathname && pathname !== '/admin/cobros-mp') {
+    if (userRole === 'logistica' && pathname && pathname !== '/admin/cobros-mp' && pathname !== '/admin/fleteros') {
+      router.replace('/admin/cobros-mp');
+    } else if ((userRole === 'fletero' || userRole === 'administracion') && pathname && pathname !== '/admin/cobros-mp') {
       router.replace('/admin/cobros-mp');
     } else if (isRestrictedSeller && pathname && pathname !== '/vendedores/presupuestos' && pathname !== '/admin/cobros-mp') {
       router.replace('/vendedores/presupuestos');
@@ -257,6 +313,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     {
       title: "Logística y Distribución",
       links: [
+        { name: "Gestión de Fleteros", href: "/admin/fleteros", icon: Truck },
         { name: "Ruteo de Entregas", href: "/vendedores/ruteo", icon: Truck },
         { name: "Facturación Pendiente", href: "/admin/facturacion-pendiente", icon: PackageCheck, adminOnly: true },
         { name: "Auditoría de Entregas", href: "/admin/auditoria-logistica", icon: Clock, adminOnly: true },
@@ -394,7 +451,10 @@ export function AdminLayout({ children }: AdminLayoutProps) {
           ) : (
             linkSections.map((section, sIdx) => {
               const visibleLinks = section.links.filter(link => {
-                if (userRole === 'logistica' || userRole === 'fletero' || userRole === 'administracion') {
+                if (userRole === 'logistica') {
+                  return link.href === "/admin/cobros-mp" || link.href === "/admin/fleteros";
+                }
+                if (userRole === 'fletero' || userRole === 'administracion') {
                   return link.href === "/admin/cobros-mp";
                 }
                 if (isRestrictedSeller) {
@@ -481,6 +541,23 @@ export function AdminLayout({ children }: AdminLayoutProps) {
             </div>
           )}
 
+          {/* Self-service password change (Blocked for Fleteros) */}
+          {userRole !== 'fletero' && (
+            <button
+              onClick={() => {
+                setSelfNewPassword("");
+                setSelfConfirmPassword("");
+                setSelfPwdError(null);
+                setSelfPwdSuccess(false);
+                setShowChangePasswordModal(true);
+              }}
+              className="w-full flex items-center justify-center gap-2 py-1.5 px-3 bg-slate-800/40 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700/50 hover:border-slate-600 rounded-xl text-xs font-medium transition-all mb-2 cursor-pointer"
+            >
+              <KeyRound className="w-3.5 h-3.5 text-indigo-400" />
+              <span>Cambiar Mi Contraseña</span>
+            </button>
+          )}
+
           <button 
             onClick={handleLogout}
             className="w-full flex items-center justify-center gap-2 py-2 px-3 bg-slate-800/50 hover:bg-rose-950/40 text-slate-400 hover:text-rose-300 border border-slate-700/50 hover:border-rose-900/50 rounded-xl text-xs font-medium transition-all cursor-pointer"
@@ -545,6 +622,97 @@ export function AdminLayout({ children }: AdminLayoutProps) {
           </div>
         </main>
       </div>
+
+      {/* Modal: Cambiar Mi Contraseña */}
+      {showChangePasswordModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
+                  <KeyRound className="w-4 h-4" />
+                </div>
+                <h3 className="font-bold text-sm text-slate-900">Cambiar Contraseña</h3>
+              </div>
+              <button 
+                onClick={() => setShowChangePasswordModal(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {selfPwdSuccess ? (
+              <div className="py-4 text-center space-y-3">
+                <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 border border-emerald-200 flex items-center justify-center mx-auto">
+                  <CheckCircle2 className="w-6 h-6" />
+                </div>
+                <h4 className="font-bold text-sm text-slate-900">¡Contraseña Actualizada!</h4>
+                <p className="text-xs text-slate-500">Tu nueva contraseña ha sido guardada con éxito.</p>
+              </div>
+            ) : (
+              <form onSubmit={handleSelfPasswordChange} className="space-y-4">
+                {selfPwdError && (
+                  <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>{selfPwdError}</span>
+                  </div>
+                )}
+
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700">Nueva Contraseña</label>
+                  <div className="relative">
+                    <input
+                      type={showSelfPwd ? "text" : "password"}
+                      required
+                      placeholder="Mínimo 6 caracteres"
+                      value={selfNewPassword}
+                      onChange={(e) => setSelfNewPassword(e.target.value)}
+                      className="w-full pl-3.5 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowSelfPwd(!showSelfPwd)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                    >
+                      {showSelfPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700">Confirmar Contraseña</label>
+                  <input
+                    type={showSelfPwd ? "text" : "password"}
+                    required
+                    placeholder="Repetir nueva contraseña"
+                    value={selfConfirmPassword}
+                    onChange={(e) => setSelfConfirmPassword(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                  />
+                </div>
+
+                <div className="pt-2 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowChangePasswordModal(false)}
+                    className="flex-1 py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isChangingSelfPwd}
+                    className="flex-1 py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    {isChangingSelfPwd ? <Loader2 className="w-4 h-4 animate-spin" /> : "Guardar"}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
