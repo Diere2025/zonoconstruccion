@@ -175,8 +175,8 @@ export default function CostosFabricacionPage() {
       };
     }
 
-    // Specific Month or Current Month ("current" defaults to latest month: 2026-08)
-    const targetMonthKey = selectedPeriod === "current" ? "2026-08" : selectedPeriod;
+    // Specific Month or Current Month ("current" defaults to latest month in breakdown)
+    const targetMonthKey = selectedPeriod === "current" ? (data.monthlyBreakdown[0]?.monthKey || "2026-09") : selectedPeriod;
     const monthData = data.monthlyBreakdown.find(m => m.monthKey === targetMonthKey);
 
     if (monthData) {
@@ -184,11 +184,14 @@ export default function CostosFabricacionPage() {
       const gasCost = Math.round(gasLiters * latestPrice);
       const laborCost = (monthData as any).mdoDirectaCostoUnitario > 0 ? (monthData as any).mdoDirectaCostoUnitario : (data.costBenchmarks.baseLaborCostPerTank || 4800);
       const electricCost = monthData.luzCostoUnitario > 0 ? monthData.luzCostoUnitario : (data.costBenchmarks.baseElectricityCostPerTank || 815);
-      const opexCost = monthData.opexCostoUnitario > 0 ? monthData.opexCostoUnitario : (data.costBenchmarks.baseOpexCostPerTank || 4811);
+      const opexCost = monthData.opexCostoUnitario > 0 ? monthData.opexCostoUnitario : (data.costBenchmarks.baseOpexCostPerTank || 2494);
       const totalPlant = gasCost + laborCost + electricCost + opexCost;
 
+      const isCurrentInCourse = selectedPeriod === "current" || monthData.monthKey === data.monthlyBreakdown[0]?.monthKey;
+      const mdoNote = monthData.isEstimatedMdo ? " (Base MDO: Julio 2026)" : "";
+
       return {
-        label: `${monthData.monthName} ${selectedPeriod === "current" ? "(Mes en Curso)" : ""}`,
+        label: `${monthData.monthName} ${isCurrentInCourse ? "(Mes en Curso)" : ""}${mdoNote}`,
         gasPrice: latestPrice,
         gasLitersPerTank: gasLiters,
         gasCostPerTank: gasCost,
@@ -201,15 +204,15 @@ export default function CostosFabricacionPage() {
     }
 
     return {
-      label: "Mes Actual (Agosto 2026)",
+      label: "Mes Actual (Septiembre 2026 - Base MDO: Julio)",
       gasPrice: latestPrice,
       gasLitersPerTank: 7.57,
       gasCostPerTank: 7957,
       laborCostPerTank: 4800,
       electricityCostPerTank: 815,
-      opexCostPerTank: 1412,
-      totalPlantCostPerTank: 14984,
-      tanksInPeriod: 541
+      opexCostPerTank: 2494,
+      totalPlantCostPerTank: 16066,
+      tanksInPeriod: 517
     };
   }, [data, selectedPeriod]);
 
