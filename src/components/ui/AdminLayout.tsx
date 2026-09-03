@@ -176,9 +176,13 @@ export function AdminLayout({ children }: AdminLayoutProps) {
             emailLower.includes("ludmila") ||
             emailLower.includes("ludmilakrenz") ||
             nameLower.includes("ludmila") ||
+            emailLower.includes("facundo") ||
+            emailLower.includes("facundopaz") ||
+            nameLower.includes("facundo") ||
             user.id === "13430e05-b61a-4a3f-9fc3-152d377c4b0c" || // Jazmin
             user.id === "8207801b-b6cb-48cc-af0f-d2f9f2c98032" ||   // Ludmila
-            user.id === "4c9b5ed0-3946-4df6-b4d5-3bdc9b1a6c7f"    // Ludmila Auth
+            user.id === "4c9b5ed0-3946-4df6-b4d5-3bdc9b1a6c7f" ||   // Ludmila Auth
+            user.id === "3820a0fe-bb0a-4a84-ad85-79e49868cad7"    // Facundo Paz
           );
         } catch (e) {
           console.warn("Error checking seller role in AdminLayout:", e);
@@ -208,7 +212,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     if (!isRoleLoaded) return;
     if (userRole === 'logistica' && pathname && pathname !== '/admin/cobros-mp') {
       router.replace('/admin/cobros-mp');
-    } else if (userRole === 'fletero' && pathname && pathname !== '/admin/cobros-mp' && pathname !== '/vendedores/ruteo') {
+    } else if (userRole === 'fletero' && pathname && pathname !== '/admin/cobros-mp') {
       router.replace('/admin/cobros-mp');
     } else if (isRestrictedSeller && pathname && pathname !== '/vendedores/presupuestos' && pathname !== '/admin/cobros-mp') {
       router.replace('/vendedores/presupuestos');
@@ -392,11 +396,8 @@ export function AdminLayout({ children }: AdminLayoutProps) {
           ) : (
             linkSections.map((section, sIdx) => {
               const visibleLinks = section.links.filter(link => {
-                if (userRole === 'logistica') {
+                if (userRole === 'logistica' || userRole === 'fletero') {
                   return link.href === "/admin/cobros-mp";
-                }
-                if (userRole === 'fletero') {
-                  return link.href === "/admin/cobros-mp" || link.href === "/vendedores/ruteo";
                 }
                 if (isRestrictedSeller) {
                   return link.href === "/vendedores/presupuestos" || link.href === "/admin/cobros-mp";
