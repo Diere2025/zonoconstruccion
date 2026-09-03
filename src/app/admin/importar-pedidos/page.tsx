@@ -454,9 +454,9 @@ export default function ImportarPedidosPage() {
         });
 
         if (targetRows.length > 0) {
-          const CHUNK_SIZE = 10;
+          const CHUNK_SIZE = 5;
           const totalChunks = Math.ceil(targetRows.length / CHUNK_SIZE);
-          addLog(`📄 ${sheet.name}: Procesando ${targetRows.length} pedidos en ${totalChunks} lote(s) seguro(s)...`);
+          addLog(`📄 ${sheet.name}: Procesando ${targetRows.length} pedidos en ${totalChunks} lote(s) ultra-rápidos...`);
 
           for (let chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++) {
             if (cancelImportRef.current) break;
@@ -481,11 +481,15 @@ export default function ImportarPedidosPage() {
                     isCentralSheet: sheet.isCentralSheet
                   })
                 });
-                if (importRes.ok) break;
+                if (importRes && importRes.ok) break;
+                if (retry < 3) {
+                  addLog(`⏳ Reintentando lote ${chunkIdx + 1} de ${sheet.name} (intento ${retry + 1}/3)...`);
+                  await new Promise(r => setTimeout(r, 2000));
+                }
               } catch (e: any) {
                 if (retry < 3) {
-                  addLog(`⏳ Reintentando lote ${chunkIdx + 1} de ${sheet.name} por microcorte...`);
-                  await new Promise(r => setTimeout(r, 1500));
+                  addLog(`⏳ Reintentando lote ${chunkIdx + 1} de ${sheet.name} por microcorte (intento ${retry + 1}/3)...`);
+                  await new Promise(r => setTimeout(r, 2000));
                 }
               }
             }
