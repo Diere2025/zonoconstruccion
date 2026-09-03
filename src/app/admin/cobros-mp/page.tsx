@@ -136,6 +136,7 @@ export default function CobrosMercadoPagoPage() {
 
   // Order Linking Modal State
   const [linkingPayment, setLinkingPayment] = useState<MPPayment | null>(null);
+  const [selectedPaymentDetail, setSelectedPaymentDetail] = useState<MPPayment | null>(null);
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
   const [orderSearchResults, setOrderSearchResults] = useState<OrderSearchResult[]>([]);
   const [isSearchingOrders, setIsSearchingOrders] = useState(false);
@@ -725,14 +726,30 @@ export default function CobrosMercadoPagoPage() {
     try {
       const d = new Date(dateString);
       return d.toLocaleDateString('es-AR', {
+        timeZone: 'America/Argentina/Buenos_Aires',
         day: '2-digit',
         month: '2-digit',
         year: 'numeric',
         hour: '2-digit',
-        minute: '2-digit'
+        minute: '2-digit',
+        hour12: false
       }) + ' hs';
     } catch {
       return dateString;
+    }
+  };
+
+  const formatTimeOnly = (dateString: string) => {
+    try {
+      const d = new Date(dateString);
+      return d.toLocaleTimeString('es-AR', {
+        timeZone: 'America/Argentina/Buenos_Aires',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      }) + ' hs';
+    } catch {
+      return '';
     }
   };
 
@@ -748,7 +765,7 @@ export default function CobrosMercadoPagoPage() {
   return (
     <div className="min-h-screen bg-[#f8fafc] text-slate-800 pb-20">
       {/* Top Navigation Bar */}
-      <header className="sticky top-0 z-30 bg-white border-b border-slate-200/80 shadow-xs backdrop-blur-md">
+      <header className="bg-white border-b border-slate-200/80 shadow-xs">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-[#0069ff] flex items-center justify-center text-white shadow-md shadow-blue-500/20">
@@ -1122,7 +1139,7 @@ export default function CobrosMercadoPagoPage() {
                         ? 'bg-emerald-200/80 text-emerald-900' 
                         : group.isYesterday
                           ? 'bg-blue-200/80 text-blue-900'
-                          : 'bg-slate-200 text-slate-800'
+                        : 'bg-slate-200 text-slate-800'
                     }`}>
                       {group.payments.length} {group.payments.length === 1 ? 'cobro' : 'cobros'}
                     </span>
@@ -1130,8 +1147,8 @@ export default function CobrosMercadoPagoPage() {
                   <div className="flex-1 h-px bg-slate-200/80" />
                 </div>
 
-                {/* Cards for this Date */}
-                <div className="space-y-3">
+                {/* Compact MP-Style Rows for this Date */}
+                <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200/80 shadow-xs divide-y divide-slate-100 overflow-hidden">
                   {group.payments.map((payment) => {
                     const accountInfo = getAccountDisplay(payment.account_name);
                     const isHiddenItem = Boolean(payment.is_hidden);
@@ -1140,180 +1157,142 @@ export default function CobrosMercadoPagoPage() {
                     return (
                       <div
                         key={payment.id}
-                        className={`p-4 sm:p-5 rounded-3xl border transition-all duration-150 hover:shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
+                        onClick={() => setSelectedPaymentDetail(payment)}
+                        className={`px-3 py-2.5 sm:px-4 sm:py-3 transition-colors flex items-center justify-between gap-2.5 sm:gap-3 cursor-pointer select-none ${
                           isInternalItem
-                            ? 'border-purple-200 bg-purple-50/50 hover:bg-purple-50/70 shadow-xs ring-1 ring-purple-400/20'
+                            ? 'bg-purple-50/40 hover:bg-purple-50/80'
                             : isHiddenItem 
-                              ? 'border-dashed border-amber-300 bg-amber-50/20 opacity-75' 
-                              : 'bg-white border-slate-200/80 hover:border-slate-300'
+                              ? 'bg-amber-50/30 hover:bg-amber-50/60 opacity-75' 
+                              : 'hover:bg-slate-50/90'
                         }`}
                       >
-                        {/* Left Column: Icon & Payer & Badges */}
-                        <div className="flex items-start sm:items-center gap-3.5">
+                        {/* Left: Compact Circular Icon (MP Style) */}
+                        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
                           <div 
-                            className={`w-11 h-11 rounded-2xl flex items-center justify-center font-bold shrink-0 shadow-xs ${
-                              isInternalItem ? 'bg-purple-100 text-purple-700 border border-purple-300' :
+                            className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center font-bold shrink-0 shadow-2xs ${
+                              isInternalItem ? 'bg-purple-100 text-purple-700 border border-purple-200' :
                               payment.payment_type === 'QR' ? 'bg-amber-50 text-amber-600 border border-amber-200' :
                               payment.payment_type === 'POINT' ? 'bg-indigo-50 text-indigo-600 border border-indigo-200' :
                               'bg-emerald-50 text-emerald-600 border border-emerald-200'
                             }`}
                           >
-                            {isInternalItem ? <UserCheck className="w-5 h-5 text-purple-700" /> :
-                             payment.payment_type === 'QR' ? <QrCode className="w-5 h-5" /> :
-                             payment.payment_type === 'POINT' ? <CreditCard className="w-5 h-5" /> :
-                             <Send className="w-5 h-5" />}
+                            {isInternalItem ? <UserCheck className="w-4 h-4 text-purple-700" /> :
+                             payment.payment_type === 'QR' ? <QrCode className="w-4 h-4" /> :
+                             payment.payment_type === 'POINT' ? <CreditCard className="w-4 h-4" /> :
+                             <Send className="w-4 h-4" />}
                           </div>
 
-                          <div className="space-y-1">
-                            {/* Payer Name and Badges */}
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className={`font-black text-sm sm:text-base tracking-tight ${isInternalItem ? 'text-purple-950' : 'text-slate-900'}`}>
+                          {/* Center: Title & Subtitle Line */}
+                          <div className="min-w-0 flex-1 space-y-0.5">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className={`font-black text-xs sm:text-sm tracking-tight truncate max-w-[160px] sm:max-w-xs ${isInternalItem ? 'text-purple-950' : 'text-slate-900'}`}>
                                 {payment.payer_name}
                               </span>
 
-                              {/* Account Badge with Configurable Alias (e.g. diegozono.mp) */}
+                              {/* Mini Account Badge */}
                               <span 
-                                className="px-2.5 py-0.5 rounded-full text-[10px] font-black tracking-wider text-white shadow-2xs cursor-default"
+                                className="px-1.5 py-0.5 rounded text-[9px] font-black text-white shrink-0 tracking-wider shadow-2xs"
                                 style={{ backgroundColor: accountInfo.color }}
-                                title={`Cuenta Interna: ${accountInfo.fullName} (Alias: ${accountInfo.alias})`}
+                                title={`Cuenta: ${accountInfo.fullName}`}
                               >
                                 {accountInfo.displayName}
                               </span>
 
-                              {/* Internal User Distinct Badge (Visible for Admin & Administracion) */}
+                              {/* Internal Badge */}
                               {isInternalItem && (
-                                <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-purple-200/80 text-purple-900 border border-purple-300 flex items-center gap-1 shadow-xs">
-                                  <Lock className="w-3 h-3 text-purple-700" /> Usuario Propio (Oculto a Ventas)
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-black bg-purple-200 text-purple-900 border border-purple-300 shrink-0">
+                                  Propio
                                 </span>
                               )}
 
-                              {/* Type Badge */}
-                              <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-slate-100 text-slate-600 border border-slate-200">
-                                {payment.payment_type}
-                              </span>
-
-                              {/* Order Link Badge / Button (Right next to Account Badge) */}
+                              {/* Order Linked Badge */}
                               {payment.order_code ? (
-                                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-blue-50 border border-blue-200 text-blue-700 rounded-full text-[11px] font-black shadow-xs">
-                                  <ShoppingBag className="w-3.5 h-3.5 text-[#0069ff]" />
-                                  <span>Pedido: {payment.order_code}</span>
-                                  <button
-                                    onClick={() => handleOpenLinkModal(payment)}
-                                    className="text-blue-500 hover:text-blue-800 ml-0.5 cursor-pointer"
-                                    title="Cambiar pedido vinculado"
-                                  >
-                                    ✏️
-                                  </button>
-                                  <button
-                                    onClick={() => handleUnlinkOrder(payment.id)}
-                                    className="text-blue-400 hover:text-rose-600 ml-0.5 cursor-pointer"
-                                    title="Desvincular pedido"
-                                  >
-                                    <X className="w-3 h-3" />
-                                  </button>
-                                </div>
-                              ) : (
-                                <button
-                                  onClick={() => handleOpenLinkModal(payment)}
-                                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-slate-50 hover:bg-blue-50 text-slate-600 hover:text-[#0069ff] border border-dashed border-slate-300 hover:border-blue-300 text-[11px] font-black transition-all cursor-pointer shadow-xs"
-                                  title="Asignar y vincular este cobro a un código de pedido (JS...)"
-                                >
-                                  <Plus className="w-3 h-3" />
-                                  <span>Vincular Pedido</span>
-                                </button>
-                              )}
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-black bg-blue-100 text-blue-800 border border-blue-200 flex items-center gap-0.5 shrink-0">
+                                  <ShoppingBag className="w-2.5 h-2.5 text-[#0069ff]" />
+                                  {payment.order_code}
+                                </span>
+                              ) : null}
 
-                              {/* Hidden Badge if archived */}
+                              {/* Hidden Badge */}
                               {isHiddenItem && (
-                                <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-amber-100 text-amber-800 border border-amber-200">
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-black bg-amber-100 text-amber-800 border border-amber-200 shrink-0">
                                   Archivado
                                 </span>
                               )}
                             </div>
 
-                            {/* Subtitle: Date & ID & Vinculado por info */}
-                            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 font-medium">
-                              <span className="flex items-center gap-1">
-                                <Clock className="w-3.5 h-3.5 text-slate-400" />
-                                {formatDateDisplay(payment.received_at)}
-                              </span>
-                              <span>•</span>
-                              <span className="font-mono text-[11px] text-slate-400">
-                                ID: {payment.id.substring(0, 14)}...
-                              </span>
-                              {payment.linked_by && (
+                            {/* Subtitle: Type · Time · + Vincular */}
+                            <div className="flex items-center gap-1 text-[11px] text-slate-500 font-medium truncate">
+                              <span>{payment.payment_type === 'TRANSFERENCIA' ? 'Transferencia' : payment.payment_type === 'POINT' ? 'Point Smart' : 'Código QR'}</span>
+                              <span>·</span>
+                              <span>{formatTimeOnly(payment.received_at)}</span>
+                              {!payment.order_code && (
                                 <>
-                                  <span>•</span>
-                                  <span className="text-blue-600 font-semibold flex items-center gap-1">
-                                    <UserCheck className="w-3 h-3" /> Vinculado por: {payment.linked_by}
-                                  </span>
+                                  <span>·</span>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleOpenLinkModal(payment);
+                                    }}
+                                    className="text-[#0069ff] font-bold hover:underline inline-flex items-center gap-0.5"
+                                  >
+                                    <Plus className="w-2.5 h-2.5" /> Vincular
+                                  </button>
                                 </>
                               )}
                             </div>
                           </div>
                         </div>
 
-                        {/* Right Column: Amount & Admin Actions */}
-                        <div className="flex items-center justify-between sm:justify-end gap-3 pl-14 sm:pl-0 border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-100">
+                        {/* Right: Amount & Quick Actions */}
+                        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
                           <div className="text-right">
-                            <div className={`text-base sm:text-lg font-black tracking-tight ${isInternalItem ? 'text-purple-700' : 'text-emerald-600'}`}>
+                            <div className={`text-xs sm:text-sm font-black tracking-tight ${isInternalItem ? 'text-purple-700' : 'text-emerald-600'}`}>
                               + {formatMPAmount(payment.amount)}
                             </div>
-                            <div className={`text-[10px] uppercase font-bold tracking-wider flex items-center justify-end gap-1 ${isInternalItem ? 'text-purple-600' : 'text-emerald-600'}`}>
-                              <Check className="w-3 h-3" /> {isInternalItem ? 'Movimiento Interno' : 'Acreditado'}
+                            <div className={`text-[9px] sm:text-[10px] uppercase font-bold tracking-wider ${isInternalItem ? 'text-purple-500' : 'text-slate-400'}`}>
+                              {isInternalItem ? 'Interno' : 'Acreditado'}
                             </div>
                           </div>
 
-                          <div className="flex items-center gap-1">
-                            {/* Copy summary button */}
+                          {/* Desktop Quick Actions */}
+                          <div className="hidden sm:flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
                             <button
                               onClick={() => handleCopy(`${payment.payer_name} - ${formatMPAmount(payment.amount)} - ${accountInfo.displayName} - ${payment.order_code ? 'Pedido ' + payment.order_code : ''}`, payment.id)}
-                              className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-all"
+                              className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-all"
                               title="Copiar Resumen"
                             >
-                              {copiedId === payment.id ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+                              {copiedId === payment.id ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
                             </button>
 
-                            {/* Admin & Administracion: Toggle Internal Payer directly from row */}
                             {isAdminOrStaff && (
                               <button
                                 onClick={() => handleToggleInternalFromPayment(payment)}
-                                className={`p-1.5 rounded-xl transition-all ${
+                                className={`p-1.5 rounded-lg transition-all ${
                                   isInternalItem 
                                     ? 'text-purple-700 hover:bg-purple-200 bg-purple-100' 
                                     : 'text-slate-400 hover:text-purple-600 hover:bg-purple-50'
                                 }`}
-                                title={isInternalItem ? 'Quitar de lista de Usuarios Propios' : 'Marcar como Usuario Propio (Ocultar a Ventas)'}
+                                title={isInternalItem ? 'Quitar de Usuarios Propios' : 'Marcar como Usuario Propio'}
                               >
-                                <UserX className="w-4 h-4" />
+                                <UserX className="w-3.5 h-3.5" />
                               </button>
                             )}
 
-                            {/* Admin Only: Hide / Unhide */}
-                            {isFullAdmin && (
-                              <button
-                                onClick={() => handleToggleHide(payment)}
-                                className={`p-1.5 rounded-xl transition-all ${
-                                  isHiddenItem 
-                                    ? 'text-amber-600 hover:bg-amber-100 bg-amber-50' 
-                                    : 'text-slate-400 hover:text-amber-600 hover:bg-amber-50'
-                                }`}
-                                title={isHiddenItem ? 'Desarchivar Transacción' : 'Archivar Transacción'}
-                              >
-                                {isHiddenItem ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-                              </button>
-                            )}
-
-                            {/* Admin Only: Delete */}
                             {isFullAdmin && (
                               <button
                                 onClick={() => handleDeletePayment(payment.id, payment.payer_name, formatMPAmount(payment.amount))}
-                                className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"
-                                title="Eliminar Transacción Permanentemente"
+                                className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
+                                title="Eliminar Transacción"
                               >
-                                <Trash2 className="w-4 h-4" />
+                                <Trash2 className="w-3.5 h-3.5" />
                               </button>
                             )}
+                          </div>
+
+                          {/* Mobile Chevron */}
+                          <div className="sm:hidden text-slate-300">
+                            <ChevronRight className="w-4 h-4" />
                           </div>
                         </div>
                       </div>
@@ -1881,6 +1860,192 @@ x-webhook-token: mpchecker_secret_key_123`}
               >
                 🧹 Limpiar Pagos de Prueba y Simulaciones
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Detalle de Cobro (Mobile / Desktop) */}
+      {selectedPaymentDetail && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white border border-slate-200 rounded-3xl max-w-md w-full p-6 shadow-2xl relative space-y-5 max-h-[90vh] overflow-y-auto">
+            <button
+              onClick={() => setSelectedPaymentDetail(null)}
+              className="absolute top-5 right-5 p-1.5 text-slate-400 hover:text-slate-700 rounded-lg"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            {/* Header / Payer Info */}
+            <div className="flex items-center gap-3.5 pt-1">
+              <div 
+                className={`w-12 h-12 rounded-2xl flex items-center justify-center font-bold shrink-0 shadow-xs ${
+                  selectedPaymentDetail.is_internal ? 'bg-purple-100 text-purple-700 border border-purple-300' :
+                  selectedPaymentDetail.payment_type === 'QR' ? 'bg-amber-50 text-amber-600 border border-amber-200' :
+                  selectedPaymentDetail.payment_type === 'POINT' ? 'bg-indigo-50 text-indigo-600 border border-indigo-200' :
+                  'bg-emerald-50 text-emerald-600 border border-emerald-200'
+                }`}
+              >
+                {selectedPaymentDetail.is_internal ? <UserCheck className="w-6 h-6 text-purple-700" /> :
+                 selectedPaymentDetail.payment_type === 'QR' ? <QrCode className="w-6 h-6" /> :
+                 selectedPaymentDetail.payment_type === 'POINT' ? <CreditCard className="w-6 h-6" /> :
+                 <Send className="w-6 h-6" />}
+              </div>
+
+              <div className="min-w-0 flex-1">
+                <h3 className="text-base font-black text-[#001538] truncate">{selectedPaymentDetail.payer_name}</h3>
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <span 
+                    className="px-2 py-0.5 rounded text-[10px] font-black text-white"
+                    style={{ backgroundColor: getAccountDisplay(selectedPaymentDetail.account_name).color }}
+                  >
+                    {getAccountDisplay(selectedPaymentDetail.account_name).displayName}
+                  </span>
+                  <span className="text-[11px] text-slate-500 font-medium">
+                    {selectedPaymentDetail.payment_type === 'TRANSFERENCIA' ? 'Transferencia' : selectedPaymentDetail.payment_type === 'POINT' ? 'Point Smart' : 'Código QR'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Amount Box */}
+            <div className={`p-4 rounded-2xl border text-center ${
+              selectedPaymentDetail.is_internal ? 'bg-purple-50/60 border-purple-200' : 'bg-emerald-50/60 border-emerald-200'
+            }`}>
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Monto Acreditado</span>
+              <div className={`text-3xl font-black mt-1 ${
+                selectedPaymentDetail.is_internal ? 'text-purple-700' : 'text-emerald-700'
+              }`}>
+                + {formatMPAmount(selectedPaymentDetail.amount)}
+              </div>
+              <span className={`text-[11px] font-bold uppercase tracking-wider block mt-0.5 ${
+                selectedPaymentDetail.is_internal ? 'text-purple-600' : 'text-emerald-600'
+              }`}>
+                {selectedPaymentDetail.is_internal ? 'Movimiento Interno' : 'Cobro Acreditado'}
+              </span>
+            </div>
+
+            {/* Details List */}
+            <div className="space-y-2.5 text-xs">
+              <div className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                <span className="text-slate-500 font-bold">Fecha y Hora:</span>
+                <span className="font-bold text-slate-800">{formatDateDisplay(selectedPaymentDetail.received_at)}</span>
+              </div>
+
+              <div className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                <span className="text-slate-500 font-bold">ID Transacción:</span>
+                <button
+                  onClick={() => handleCopy(selectedPaymentDetail.id, 'detail-id')}
+                  className="font-mono text-slate-700 hover:text-blue-600 flex items-center gap-1 font-bold"
+                >
+                  {copiedId === 'detail-id' ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5 text-slate-400" />}
+                  <span>{selectedPaymentDetail.id.substring(0, 16)}...</span>
+                </button>
+              </div>
+
+              {/* Order Link Section */}
+              <div className="p-3 bg-blue-50/60 rounded-2xl border border-blue-200 space-y-2">
+                <span className="text-xs font-bold text-blue-900 block">Vinculación con Pedido</span>
+                {selectedPaymentDetail.order_code ? (
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 text-blue-800 font-black text-sm">
+                      <ShoppingBag className="w-4 h-4 text-[#0069ff]" />
+                      <span>Pedido: {selectedPaymentDetail.order_code}</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => {
+                          const p = selectedPaymentDetail;
+                          setSelectedPaymentDetail(null);
+                          handleOpenLinkModal(p);
+                        }}
+                        className="px-2 py-1 bg-white border border-blue-300 text-blue-700 rounded-lg text-xs font-bold hover:bg-blue-50"
+                      >
+                        Cambiar
+                      </button>
+                      <button
+                        onClick={async () => {
+                          await handleUnlinkOrder(selectedPaymentDetail.id);
+                          setSelectedPaymentDetail(null);
+                        }}
+                        className="p-1 bg-white border border-rose-200 text-rose-600 rounded-lg hover:bg-rose-50"
+                        title="Desvincular"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => {
+                      const p = selectedPaymentDetail;
+                      setSelectedPaymentDetail(null);
+                      handleOpenLinkModal(p);
+                    }}
+                    className="w-full py-2.5 bg-[#0069ff] text-white rounded-xl font-bold flex items-center justify-center gap-1.5 shadow-md shadow-blue-500/20 hover:opacity-95"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Asignar / Vincular a Pedido</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Quick Actions in Modal */}
+            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 text-xs">
+              <button
+                onClick={() => {
+                  handleCopy(`${selectedPaymentDetail.payer_name} - ${formatMPAmount(selectedPaymentDetail.amount)} - ${getAccountDisplay(selectedPaymentDetail.account_name).displayName} - ${selectedPaymentDetail.order_code ? 'Pedido ' + selectedPaymentDetail.order_code : ''}`, 'detail-summary');
+                }}
+                className="py-2.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold flex items-center justify-center gap-1.5"
+              >
+                {copiedId === 'detail-summary' ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>Copiar Resumen</span>
+              </button>
+
+              {isAdminOrStaff && (
+                <button
+                  onClick={async () => {
+                    await handleToggleInternalFromPayment(selectedPaymentDetail);
+                    setSelectedPaymentDetail(null);
+                  }}
+                  className={`py-2.5 px-3 rounded-xl font-bold flex items-center justify-center gap-1.5 ${
+                    selectedPaymentDetail.is_internal 
+                      ? 'bg-purple-100 hover:bg-purple-200 text-purple-900 border border-purple-300' 
+                      : 'bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200'
+                  }`}
+                >
+                  <UserX className="w-3.5 h-3.5" />
+                  <span>{selectedPaymentDetail.is_internal ? 'Quitar Propio' : 'Marcar Propio'}</span>
+                </button>
+              )}
+
+              {isFullAdmin && (
+                <button
+                  onClick={async () => {
+                    await handleToggleHide(selectedPaymentDetail);
+                    setSelectedPaymentDetail(null);
+                  }}
+                  className="py-2.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold flex items-center justify-center gap-1.5"
+                >
+                  {selectedPaymentDetail.is_hidden ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                  <span>{selectedPaymentDetail.is_hidden ? 'Desarchivar' : 'Archivar'}</span>
+                </button>
+              )}
+
+              {isFullAdmin && (
+                <button
+                  onClick={async () => {
+                    const p = selectedPaymentDetail;
+                    setSelectedPaymentDetail(null);
+                    await handleDeletePayment(p.id, p.payer_name, formatMPAmount(p.amount));
+                  }}
+                  className="py-2.5 px-3 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl font-bold flex items-center justify-center gap-1.5"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Eliminar</span>
+                </button>
+              )}
             </div>
           </div>
         </div>
