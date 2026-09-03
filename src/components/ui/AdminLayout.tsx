@@ -313,7 +313,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     {
       title: "Logística y Distribución",
       links: [
-        { name: "Gestión de Fleteros", href: "/admin/fleteros", icon: Truck },
+        { name: "Gestión de Transportistas", href: "/admin/fleteros", icon: Truck },
         { name: "Ruteo de Entregas", href: "/vendedores/ruteo", icon: Truck },
         { name: "Facturación Pendiente", href: "/admin/facturacion-pendiente", icon: PackageCheck, adminOnly: true },
         { name: "Auditoría de Entregas", href: "/admin/auditoria-logistica", icon: Clock, adminOnly: true },
@@ -534,7 +534,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                 <span className="inline-block text-[10px] text-brand-300 font-medium">
                   {userRole === 'admin' ? 'Administrador' :
                    userRole === 'logistica' ? 'Logística' :
-                   userRole === 'fletero' ? 'Fletero' :
+                   userRole === 'fletero' ? 'Transportista' :
                    userRole === 'administracion' ? 'Administración' : 'Vendedor'}
                 </span>
               </div>
@@ -608,7 +608,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
               <span>
                 {userRole === 'admin' ? 'Admin' :
                  userRole === 'logistica' ? 'Logística' :
-                 userRole === 'fletero' ? 'Fletero' :
+                 userRole === 'fletero' ? 'Transportista' :
                  userRole === 'administracion' ? 'Administración' : 'Vendedor'}
               </span>
             </div>

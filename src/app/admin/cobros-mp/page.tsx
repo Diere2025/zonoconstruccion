@@ -840,26 +840,26 @@ export default function CobrosMercadoPagoPage() {
     <div className="min-h-screen bg-[#f8fafc] text-slate-800 pb-20">
       {/* Top Navigation Bar */}
       <header className="bg-white border-b border-slate-200/80 shadow-xs">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-[#0069ff] flex items-center justify-center text-white shadow-md shadow-blue-500/20">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 min-h-[4rem] flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-2xl bg-[#0069ff] flex items-center justify-center text-white shadow-md shadow-blue-500/20 shrink-0">
               <ShieldCheck className="w-6 h-6" />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-base font-black text-[#001538] tracking-tight">Cobros Mercado Pago</h1>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-blue-50 text-[#0069ff] border border-blue-200">
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-blue-50 text-[#0069ff] border border-blue-200 shrink-0">
                   {currentUserRole === 'admin' ? 'Administrador' :
                    currentUserRole === 'administracion' ? 'Administración' :
                    currentUserRole === 'logistica' ? 'Logística' :
-                   currentUserRole === 'fletero' ? 'Fletero' : 'Ventas'}
+                   currentUserRole === 'fletero' ? 'Transportista' : 'Ventas'}
                 </span>
-                <div className={`w-2 h-2 rounded-full ${isRealtimeActive ? 'bg-emerald-500 animate-pulse' : 'bg-amber-400'}`} title={isRealtimeActive ? 'Conectado a Realtime' : 'Conectando...'} />
+                <div className={`w-2 h-2 rounded-full shrink-0 ${isRealtimeActive ? 'bg-emerald-500 animate-pulse' : 'bg-amber-400'}`} title={isRealtimeActive ? 'Conectado a Realtime' : 'Conectando...'} />
               </div>
-              <p className="text-xs text-slate-500 font-medium">
+              <p className="text-xs text-slate-500 font-medium truncate sm:whitespace-normal">
                 {isSellerRole ? 'Transferencias entrantes (Últimos 3 días)' :
                  isLogisticaRole ? 'Cobros y transferencias para despacho (Últimos 3 días)' :
-                 isFleteroRole ? 'Verificación de cobros en viaje (Últimos 15 minutos)' :
+                 isFleteroRole ? 'Cobros en destino en tiempo real (Últimos 15 min)' :
                  'Centro de Control y Conciliación en Tiempo Real'}
               </p>
             </div>
@@ -965,208 +965,204 @@ export default function CobrosMercadoPagoPage() {
           </div>
         )}
 
-        {/* Filters and Controls */}
-        <div className="p-4 sm:p-5 rounded-3xl bg-white border border-slate-200/80 shadow-xs space-y-4">
-          <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
-            
-            {/* Search Input */}
-            <div className="relative flex-1">
-              <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Buscar por pagador, importe, código de pedido (JS...)..."
-                className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200/80 rounded-2xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-[#0069ff]/20 focus:border-[#0069ff] transition-all"
-              />
-              {search && (
-                <button
-                  onClick={() => setSearch('')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              )}
-            </div>
-
-            {/* Date Range Selector (Adapted to user role) */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0">
-              {isAdminOrStaff && (
-                <>
+        {/* Filters and Controls (Hidden for Transportistas) */}
+        {!isFleteroRole && (
+          <div className="p-4 sm:p-5 rounded-3xl bg-white border border-slate-200/80 shadow-xs space-y-4">
+            <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
+              
+              {/* Search Input */}
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Buscar por pagador, importe, código de pedido (JS...)..."
+                  className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200/80 rounded-2xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-[#0069ff]/20 focus:border-[#0069ff] transition-all"
+                />
+                {search && (
                   <button
-                    onClick={() => setSelectedDateRange('TODAY')}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
-                      selectedDateRange === 'TODAY' 
-                        ? 'bg-[#0069ff] text-white shadow-xs' 
-                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                    }`}
+                    onClick={() => setSearch('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                   >
-                    Hoy
+                    <X className="w-4 h-4" />
                   </button>
-                  <button
-                    onClick={() => setSelectedDateRange('YESTERDAY')}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
-                      selectedDateRange === 'YESTERDAY' 
-                        ? 'bg-[#0069ff] text-white shadow-xs' 
-                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                    }`}
-                  >
-                    Ayer
-                  </button>
-                  <button
-                    onClick={() => setSelectedDateRange('LAST_3_DAYS')}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
-                      selectedDateRange === 'LAST_3_DAYS' 
-                        ? 'bg-[#0069ff] text-white shadow-xs' 
-                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                    }`}
-                  >
-                    3 Días
-                  </button>
-                  <button
-                    onClick={() => setSelectedDateRange('LAST_7_DAYS')}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
-                      selectedDateRange === 'LAST_7_DAYS' 
-                        ? 'bg-[#0069ff] text-white shadow-xs' 
-                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                    }`}
-                  >
-                    7 Días
-                  </button>
-                  <button
-                    onClick={() => setSelectedDateRange('ALL')}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
-                      selectedDateRange === 'ALL' 
-                        ? 'bg-[#0069ff] text-white shadow-xs' 
-                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                    }`}
-                  >
-                    Histórico
-                  </button>
-                </>
-              )}
-
-              {isLogisticaRole && (
-                <>
-                  <button
-                    onClick={() => setSelectedDateRange('TODAY')}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
-                      selectedDateRange === 'TODAY' 
-                        ? 'bg-[#0069ff] text-white shadow-xs' 
-                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                    }`}
-                  >
-                    Hoy
-                  </button>
-                  <button
-                    onClick={() => setSelectedDateRange('YESTERDAY')}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
-                      selectedDateRange === 'YESTERDAY' 
-                        ? 'bg-[#0069ff] text-white shadow-xs' 
-                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                    }`}
-                  >
-                    Ayer
-                  </button>
-                  <button
-                    onClick={() => setSelectedDateRange('LAST_3_DAYS')}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
-                      selectedDateRange === 'LAST_3_DAYS' 
-                        ? 'bg-[#0069ff] text-white shadow-xs' 
-                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                    }`}
-                  >
-                    Últimos 3 Días
-                  </button>
-                </>
-              )}
-
-              {isSellerRole && (
-                <span className="px-3 py-1.5 rounded-xl bg-blue-50 text-[#0069ff] border border-blue-200 text-xs font-bold">
-                  📅 Últimos 3 Días
-                </span>
-              )}
-
-              {isFleteroRole && (
-                <span className="px-3 py-1.5 rounded-xl bg-amber-50 text-amber-700 border border-amber-200 text-xs font-bold flex items-center gap-1">
-                  <Clock className="w-3.5 h-3.5" /> Últimos 15 Minutos
-                </span>
-              )}
-            </div>
-          </div>
-
-          {/* Secondary Filters */}
-          <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-100 text-xs">
-            <div className="flex flex-wrap items-center gap-3">
-              {/* Type Filter (Enabled only if not seller) */}
-              {!isSellerRole ? (
-                <div className="flex items-center gap-2">
-                  <span className="text-slate-500 font-bold">Tipo:</span>
-                  <select
-                    value={selectedType}
-                    onChange={(e) => setSelectedType(e.target.value)}
-                    className="bg-slate-50 border border-slate-200/80 rounded-xl px-2.5 py-1 font-semibold text-slate-700 focus:outline-none"
-                  >
-                    <option value="ALL">Todos los tipos</option>
-                    <option value="TRANSFERENCIA">Transferencia</option>
-                    <option value="QR">Código QR</option>
-                    <option value="POINT">Point / Tarjeta</option>
-                  </select>
-                </div>
-              ) : (
-                <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl font-bold">
-                  <Send className="w-3.5 h-3.5" /> Solo Transferencias
-                </div>
-              )}
-
-              {/* Linked Status Filter */}
-              <div className="flex items-center gap-2">
-                <span className="text-slate-500 font-bold">Estado:</span>
-                <select
-                  value={selectedLinkedStatus}
-                  onChange={(e) => setSelectedLinkedStatus(e.target.value as any)}
-                  className={`border rounded-xl px-2.5 py-1 font-semibold focus:outline-none transition-all ${
-                    selectedLinkedStatus === 'UNLINKED' 
-                      ? 'bg-amber-50 border-amber-300 text-amber-900 font-bold'
-                      : selectedLinkedStatus === 'LINKED'
-                      ? 'bg-emerald-50 border-emerald-300 text-emerald-900 font-bold'
-                      : 'bg-slate-50 border-slate-200/80 text-slate-700'
-                  }`}
-                >
-                  <option value="ALL">Todos los cobros</option>
-                  <option value="UNLINKED">⚠️ Sin Vincular (Pendientes)</option>
-                  <option value="LINKED">✅ Vinculados a Pedido</option>
-                </select>
+                )}
               </div>
 
-              {/* Hidden toggle for Admin */}
+              {/* Date Range Selector (Adapted to user role) */}
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0">
+                {isAdminOrStaff && (
+                  <>
+                    <button
+                      onClick={() => setSelectedDateRange('TODAY')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
+                        selectedDateRange === 'TODAY' 
+                          ? 'bg-[#0069ff] text-white shadow-xs' 
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      Hoy
+                    </button>
+                    <button
+                      onClick={() => setSelectedDateRange('YESTERDAY')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
+                        selectedDateRange === 'YESTERDAY' 
+                          ? 'bg-[#0069ff] text-white shadow-xs' 
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      Ayer
+                    </button>
+                    <button
+                      onClick={() => setSelectedDateRange('LAST_3_DAYS')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
+                        selectedDateRange === 'LAST_3_DAYS' 
+                          ? 'bg-[#0069ff] text-white shadow-xs' 
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      3 Días
+                    </button>
+                    <button
+                      onClick={() => setSelectedDateRange('LAST_7_DAYS')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
+                        selectedDateRange === 'LAST_7_DAYS' 
+                          ? 'bg-[#0069ff] text-white shadow-xs' 
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      7 Días
+                    </button>
+                    <button
+                      onClick={() => setSelectedDateRange('ALL')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
+                        selectedDateRange === 'ALL' 
+                          ? 'bg-[#0069ff] text-white shadow-xs' 
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      Histórico
+                    </button>
+                  </>
+                )}
+
+                {isLogisticaRole && (
+                  <>
+                    <button
+                      onClick={() => setSelectedDateRange('TODAY')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
+                        selectedDateRange === 'TODAY' 
+                          ? 'bg-[#0069ff] text-white shadow-xs' 
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      Hoy
+                    </button>
+                    <button
+                      onClick={() => setSelectedDateRange('YESTERDAY')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
+                        selectedDateRange === 'YESTERDAY' 
+                          ? 'bg-[#0069ff] text-white shadow-xs' 
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      Ayer
+                    </button>
+                    <button
+                      onClick={() => setSelectedDateRange('LAST_3_DAYS')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
+                        selectedDateRange === 'LAST_3_DAYS' 
+                          ? 'bg-[#0069ff] text-white shadow-xs' 
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      Últimos 3 Días
+                    </button>
+                  </>
+                )}
+
+                {isSellerRole && (
+                  <span className="px-3 py-1.5 rounded-xl bg-blue-50 text-[#0069ff] border border-blue-200 text-xs font-bold">
+                    📅 Últimos 3 Días
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Secondary Filters */}
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-100 text-xs">
+              <div className="flex flex-wrap items-center gap-3">
+                {/* Type Filter (Enabled only if not seller) */}
+                {!isSellerRole ? (
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-500 font-bold">Tipo:</span>
+                    <select
+                      value={selectedType}
+                      onChange={(e) => setSelectedType(e.target.value)}
+                      className="bg-slate-50 border border-slate-200/80 rounded-xl px-2.5 py-1 font-semibold text-slate-700 focus:outline-none"
+                    >
+                      <option value="ALL">Todos los tipos</option>
+                      <option value="TRANSFERENCIA">Transferencia</option>
+                      <option value="QR">Código QR</option>
+                      <option value="POINT">Point / Tarjeta</option>
+                    </select>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl font-bold">
+                    <Send className="w-3.5 h-3.5" /> Solo Transferencias
+                  </div>
+                )}
+
+                {/* Linked Status Filter */}
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-500 font-bold">Estado:</span>
+                  <select
+                    value={selectedLinkedStatus}
+                    onChange={(e) => setSelectedLinkedStatus(e.target.value as any)}
+                    className={`border rounded-xl px-2.5 py-1 font-semibold focus:outline-none transition-all ${
+                      selectedLinkedStatus === 'UNLINKED' 
+                        ? 'bg-amber-50 border-amber-300 text-amber-900 font-bold'
+                        : selectedLinkedStatus === 'LINKED'
+                        ? 'bg-emerald-50 border-emerald-300 text-emerald-900 font-bold'
+                        : 'bg-slate-50 border-slate-200/80 text-slate-700'
+                    }`}
+                  >
+                    <option value="ALL">Todos los cobros</option>
+                    <option value="UNLINKED">⚠️ Sin Vincular (Pendientes)</option>
+                    <option value="LINKED">✅ Vinculados a Pedido</option>
+                  </select>
+                </div>
+
+                {/* Hidden toggle for Admin */}
+                {isFullAdmin && (
+                  <button
+                    onClick={() => setShowHidden(!showHidden)}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-xl font-bold border transition-all ${
+                      showHidden 
+                        ? 'bg-amber-100 text-amber-900 border-amber-300' 
+                        : 'bg-slate-50 text-slate-500 border-slate-200 hover:text-slate-700'
+                    }`}
+                    title="Alternar entre transacciones normales y transacciones archivadas"
+                  >
+                    {showHidden ? <EyeOff className="w-3.5 h-3.5 text-amber-700" /> : <Eye className="w-3.5 h-3.5" />}
+                    <span>{showHidden ? 'Viendo Archivadas' : 'Ver Archivadas'}</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Maintenance and clean buttons for Admin */}
               {isFullAdmin && (
                 <button
-                  onClick={() => setShowHidden(!showHidden)}
-                  className={`flex items-center gap-1 px-2.5 py-1 rounded-xl font-bold border transition-all ${
-                    showHidden 
-                      ? 'bg-amber-100 text-amber-900 border-amber-300' 
-                      : 'bg-slate-50 text-slate-500 border-slate-200 hover:text-slate-700'
-                  }`}
-                  title="Alternar entre transacciones normales y transacciones archivadas"
+                  onClick={() => setShowMaintenanceModal(true)}
+                  className="text-slate-400 hover:text-slate-700 font-medium flex items-center gap-1 text-[11px]"
                 >
-                  {showHidden ? <EyeOff className="w-3.5 h-3.5 text-amber-700" /> : <Eye className="w-3.5 h-3.5" />}
-                  <span>{showHidden ? 'Viendo Archivadas' : 'Ver Archivadas'}</span>
+                  <SlidersHorizontal className="w-3.5 h-3.5" /> Mantenimiento
                 </button>
               )}
             </div>
-
-            {/* Maintenance and clean buttons for Admin */}
-            {isFullAdmin && (
-              <button
-                onClick={() => setShowMaintenanceModal(true)}
-                className="text-slate-400 hover:text-slate-700 font-medium flex items-center gap-1 text-[11px]"
-              >
-                <SlidersHorizontal className="w-3.5 h-3.5" /> Mantenimiento
-              </button>
-            )}
           </div>
-        </div>
+        )}
 
         {/* Payments List Grouped by Date */}
         <div className="space-y-6">
