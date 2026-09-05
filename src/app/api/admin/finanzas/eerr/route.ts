@@ -248,20 +248,20 @@ export async function GET(request: Request) {
       dailyValues: sumDaily(logisticsRows)
     };
 
-    // 5. Estructura y Personal (Sueldos, Honorarios, Alquileres)
+    // 5. Personal, RRHH y Estructura (Sueldos, Personal Eventual, Honorarios, Alquileres)
     const rowSueldos = createRow(sueldosRow);
+    const rowEventuales = createRow(eventualesRow, 'Personal Eventual (Jornales)');
     const rowHonorarios = createRow(honorariosRow);
     const rowAlquileres = createRow(alquileresRow);
-    const structureRows = [rowSueldos, rowHonorarios, rowAlquileres].filter(Boolean);
+    const structureRows = [rowSueldos, rowEventuales, rowHonorarios, rowAlquileres].filter(Boolean);
     const subtotalStructure = {
       total: structureRows.reduce((acc, r) => acc + (r?.total || 0), 0),
       dailyValues: sumDaily(structureRows)
     };
 
-    // 6. Gastos Operativos y Generales (Gastos Operativos Zono, Eventuales)
+    // 6. Gastos Operativos y Generales (Gastos Operativos Zono)
     const rowOperativos = createRow(operativosRow);
-    const rowEventuales = createRow(eventualesRow);
-    const operationalRows = [rowOperativos, rowEventuales].filter(Boolean);
+    const operationalRows = [rowOperativos].filter(Boolean);
     const subtotalOperational = {
       total: operationalRows.reduce((acc, r) => acc + (r?.total || 0), 0),
       dailyValues: sumDaily(operationalRows)
@@ -344,16 +344,16 @@ export async function GET(request: Request) {
       },
       {
         id: 'estructura',
-        title: '5. Estructura y Recursos Humanos',
-        badge: 'Sueldos y Alquiler',
+        title: '5. Personal, RRHH y Estructura',
+        badge: 'Sueldos, Eventuales y Alquiler',
         color: '#7c3aed', // purple
         subtotal: subtotalStructure,
         rows: structureRows
       },
       {
         id: 'operativos',
-        title: '6. Gastos Operativos y Generales',
-        badge: 'Operativos',
+        title: '6. Gastos Operativos y Servicios',
+        badge: 'Operativos Zono',
         color: '#475569', // slate
         subtotal: subtotalOperational,
         rows: operationalRows
