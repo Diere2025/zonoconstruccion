@@ -25,10 +25,12 @@ import {
   Calendar,
   CheckCircle2,
   AlertTriangle,
-  ShieldCheck
+  ShieldCheck,
+  PieChart
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { formatPrice, formatDateDDMMYYYY } from "@/lib/utils";
+import EstadoResultadosView from "@/components/finanzas/EstadoResultadosView";
 
 interface FinancialAccount {
   id: string;
@@ -352,7 +354,7 @@ function DateInput({
 }
 
 export default function AdminFinanzasPage() {
-  const [activeTab, setActiveTab] = useState<'flow' | 'accounts' | 'cc' | 'validations'>('flow');
+  const [activeTab, setActiveTab] = useState<'flow' | 'accounts' | 'cc' | 'validations' | 'eerr'>('flow');
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -1915,6 +1917,16 @@ export default function AdminFinanzasPage() {
               </span>
             )}
           </button>
+          <button
+            onClick={() => setActiveTab('eerr')}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
+              activeTab === 'eerr'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'text-indigo-600 dark:text-indigo-400 hover:text-indigo-900 bg-indigo-50/60'
+            }`}
+          >
+            <PieChart className="w-3.5 h-3.5" /> Estado de Resultados
+          </button>
         </div>
       </div>
 
@@ -3237,6 +3249,15 @@ export default function AdminFinanzasPage() {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          TAB 5: ESTADO DE RESULTADOS (EERR)
+          ========================================================================= */}
+      {activeTab === 'eerr' && (
+        <div className="animate-in fade-in slide-in-from-bottom-2 duration-200">
+          <EstadoResultadosView />
         </div>
       )}
 
