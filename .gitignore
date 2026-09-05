@@ -49,5 +49,8 @@ next-env.d.ts
 /import_localities.js
 /localities_sheet.csv
 /run_sql.js
+# credentials
+*credentials*.json
+google-credentials.json
 
 
