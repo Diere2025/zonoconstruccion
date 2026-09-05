@@ -7,8 +7,6 @@ import {
   PieChart as PieChartIcon,
   Calendar,
   RefreshCw,
-  ArrowUpRight,
-  ShieldCheck,
   Building2,
   Truck,
   Users,
@@ -17,7 +15,12 @@ import {
   Target,
   Sparkles,
   Search,
-  CheckCircle2
+  ChevronDown,
+  ChevronRight,
+  Maximize2,
+  Minimize2,
+  HelpCircle,
+  FileSpreadsheet
 } from 'lucide-react';
 
 interface ExpenseCategory {
@@ -43,15 +46,26 @@ interface DayData {
   hasData: boolean;
 }
 
-interface MatrixRow {
+interface MatrixItem {
   concept: string;
   pctTot: string;
   ingresos: number;
   egresos: number;
   pctUnit: string;
   total: number;
-  type: string;
   dailyValues: number[];
+}
+
+interface MatrixGroup {
+  id: string;
+  title: string;
+  badge: string;
+  color: string;
+  subtotal: {
+    total: number;
+    dailyValues: number[];
+  };
+  rows: MatrixItem[];
 }
 
 interface EERRResponse {
@@ -81,7 +95,7 @@ interface EERRResponse {
   dailyTimeline: DayData[];
   matrix: {
     days: string[];
-    rows: MatrixRow[];
+    groups: MatrixGroup[];
   };
 }
 
@@ -93,6 +107,29 @@ export default function EstadoResultadosView() {
   const [activeSegment, setActiveSegment] = useState<number | null>(null);
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Expand / collapse state for matrix groups
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+
+  const toggleGroup = (groupId: string) => {
+    setCollapsedGroups(prev => ({
+      ...prev,
+      [groupId]: !prev[groupId]
+    }));
+  };
+
+  const collapseAll = () => {
+    if (!data?.matrix?.groups) return;
+    const all: Record<string, boolean> = {};
+    data.matrix.groups.forEach(g => {
+      all[g.id] = true;
+    });
+    setCollapsedGroups(all);
+  };
+
+  const expandAll = () => {
+    setCollapsedGroups({});
+  };
 
   const fetchData = async (force = false) => {
     try {
@@ -130,33 +167,27 @@ export default function EstadoResultadosView() {
     }).format(val || 0);
   };
 
-  // Filter matrix rows by search
-  const filteredRows = useMemo(() => {
-    if (!data?.matrix?.rows) return [];
-    if (!searchQuery.trim()) return data.matrix.rows;
-    return data.matrix.rows.filter(r =>
-      r.concept.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+  // Filter groups and rows by search query
+  const filteredGroups = useMemo(() => {
+    if (!data?.matrix?.groups) return [];
+    if (!searchQuery.trim()) return data.matrix.groups;
+
+    const q = searchQuery.toLowerCase();
+    return data.matrix.groups
+      .map(group => {
+        const matchingRows = group.rows.filter(r =>
+          r.concept.toLowerCase().includes(q)
+        );
+        if (matchingRows.length > 0 || group.title.toLowerCase().includes(q)) {
+          return {
+            ...group,
+            rows: matchingRows.length > 0 ? matchingRows : group.rows
+          };
+        }
+        return null;
+      })
+      .filter(Boolean) as MatrixGroup[];
   }, [data, searchQuery]);
-
-  // Donut SVG Calculations
-  const donutData = useMemo(() => {
-    if (!data?.expensesByCategory) return [];
-    const total = data.expensesByCategory.reduce((acc, c) => acc + c.amount, 0);
-    let cumulativeAngle = 0;
-
-    return data.expensesByCategory.map((c, idx) => {
-      const angle = total > 0 ? (c.amount / total) * 360 : 0;
-      const startAngle = cumulativeAngle;
-      cumulativeAngle += angle;
-      return {
-        ...c,
-        index: idx,
-        startAngle,
-        angle
-      };
-    });
-  }, [data]);
 
   const activeDaysWithData = useMemo(() => {
     return data?.dailyTimeline.filter(d => d.hasData) || [];
@@ -164,9 +195,9 @@ export default function EstadoResultadosView() {
 
   if (loading && !data) {
     return (
-      <div className="flex flex-col items-center justify-center py-24 space-y-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+      <div className="flex flex-col items-center justify-center py-24 space-y-4 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-sm">
         <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-        <p className="text-slate-600 dark:text-slate-400 font-medium animate-pulse">
+        <p className="text-slate-600 dark:text-slate-400 font-medium animate-pulse text-sm">
           Consultando planilla con Cuenta de Servicio de Google...
         </p>
       </div>
@@ -175,7 +206,7 @@ export default function EstadoResultadosView() {
 
   if (error && !data) {
     return (
-      <div className="p-8 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-2xl text-center space-y-4">
+      <div className="p-8 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-3xl text-center space-y-4">
         <p className="text-rose-700 dark:text-rose-400 font-semibold text-lg">{error}</p>
         <button
           onClick={() => fetchData(true)}
@@ -189,22 +220,22 @@ export default function EstadoResultadosView() {
 
   if (!data) return null;
 
-  const { kpis, expensesByCategory, dailyTimeline, matrix } = data;
+  const { kpis, expensesByCategory, matrix } = data;
 
   return (
     <div className="space-y-6">
       {/* Header Bar */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 p-6 rounded-3xl text-white shadow-xl">
         <div className="space-y-1">
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <h2 className="text-2xl font-bold tracking-tight">Estado de Resultados (EERR)</h2>
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              Sincronizado con Google Sheets Privado
+              Conexión Privada Service Account
             </span>
           </div>
           <p className="text-slate-300 text-sm">
-            Control de ingresos, estructura de costos diarios y proyección financiera a fin de mes.
+            Estructura de costos agrupada por rubros contables, seguimiento diario y estimación a fin de mes.
           </p>
         </div>
 
@@ -350,7 +381,7 @@ export default function EstadoResultadosView() {
               <p className="text-xs text-slate-500">Facturación diaria vs. Utilidad acumulada</p>
             </div>
             <div className="text-xs text-slate-500">
-              {activeDaysWithData.length} de {dailyTimeline.length} días activos
+              {activeDaysWithData.length} días activos
             </div>
           </div>
 
@@ -414,7 +445,7 @@ export default function EstadoResultadosView() {
           </div>
         </div>
 
-        {/* Expenses Distribution Donut (5 cols) */}
+        {/* Expenses Distribution Breakdown (5 cols) */}
         <div className="lg:col-span-5 bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-sm flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between mb-4">
@@ -430,7 +461,7 @@ export default function EstadoResultadosView() {
               </span>
             </div>
 
-            {/* Donut Visual Breakdown List */}
+            {/* Breakdown List */}
             <div className="space-y-2.5 max-h-[360px] overflow-y-auto pr-1">
               {expensesByCategory.map((cat, idx) => (
                 <div
@@ -475,39 +506,61 @@ export default function EstadoResultadosView() {
         </div>
       </div>
 
-      {/* P&L Matrix Table */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-sm overflow-hidden">
-        <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      {/* Structured P&L Matrix Table */}
+      <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-sm overflow-hidden">
+        {/* Table Top Controls */}
+        <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <h3 className="text-base font-bold text-slate-900 dark:text-white">
-              Matriz Estado de Resultados Día a Día
+            <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <FileSpreadsheet className="w-5 h-5 text-indigo-600" />
+              Matriz Estado de Resultados Día a Día (EERR Agrupado)
             </h3>
             <p className="text-xs text-slate-500">
-              Detalle consolidado con los 31 días del mes de la hoja oficial
+              Rubros organizados con subtotales por categoría y detalle de los 31 días
             </p>
           </div>
 
-          <div className="relative w-full sm:w-64">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Buscar concepto..."
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
-            />
+          <div className="flex items-center gap-3">
+            <div className="relative w-full sm:w-60">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Filtrar concepto..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+
+            <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700 shrink-0">
+              <button
+                onClick={expandAll}
+                className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white rounded-lg transition"
+                title="Expandir todos los grupos"
+              >
+                <Maximize2 className="w-3.5 h-3.5" /> Expandir
+              </button>
+              <button
+                onClick={collapseAll}
+                className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white rounded-lg transition"
+                title="Colapsar todos los grupos"
+              >
+                <Minimize2 className="w-3.5 h-3.5" /> Colapsar
+              </button>
+            </div>
           </div>
         </div>
 
+        {/* Grouped Table */}
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs whitespace-nowrap">
-            <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-800">
+            <thead className="bg-slate-100/80 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-800">
               <tr>
-                <th className="py-3 px-4 sticky left-0 bg-slate-50 dark:bg-slate-800 z-10 min-w-[220px]">
-                  Concepto
+                <th className="py-3 px-4 sticky left-0 bg-slate-100 dark:bg-slate-800 z-20 min-w-[260px]">
+                  Rubro / Concepto
                 </th>
                 <th className="py-3 px-4 text-right min-w-[130px]">Total Mes</th>
-                <th className="py-3 px-3 text-right min-w-[80px]">% Incidencia</th>
+                <th className="py-3 px-3 text-right min-w-[85px]">% Incidencia</th>
                 {matrix.days.map((day, dIdx) => (
                   <th key={dIdx} className="py-3 px-3 text-right min-w-[90px] font-semibold text-slate-500">
                     {day}
@@ -516,56 +569,131 @@ export default function EstadoResultadosView() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
-              {filteredRows.map((row, rIdx) => {
-                const isFacturacion = row.concept.toLowerCase().includes('facturación');
-                const isUtilidad = row.concept.toLowerCase().includes('utilidad neta');
-                const isCMV = row.concept.toLowerCase().includes('mercadería');
+              {filteredGroups.map(group => {
+                const isCollapsed = Boolean(collapsedGroups[group.id]);
+                const isIngresos = group.id === 'ingresos';
+                const isResultados = group.id === 'resultados';
 
                 return (
-                  <tr
-                    key={rIdx}
-                    className={`transition hover:bg-slate-50/80 dark:hover:bg-slate-800/40 ${
-                      isFacturacion
-                        ? 'bg-indigo-50/40 dark:bg-indigo-950/20 font-bold'
-                        : isUtilidad
-                        ? 'bg-emerald-50/40 dark:bg-emerald-950/20 font-bold'
-                        : isCMV
-                        ? 'bg-blue-50/30 dark:bg-blue-950/10'
-                        : ''
-                    }`}
-                  >
-                    <td className="py-3 px-4 sticky left-0 bg-white dark:bg-slate-900 z-10 font-medium text-slate-800 dark:text-slate-200 border-r border-slate-100 dark:border-slate-800">
-                      {row.concept}
-                    </td>
-                    <td className={`py-3 px-4 text-right font-semibold ${
-                      isFacturacion
-                        ? 'text-indigo-600 dark:text-indigo-400'
-                        : isUtilidad
-                        ? 'text-emerald-600 dark:text-emerald-400'
-                        : 'text-slate-900 dark:text-white'
-                    }`}>
-                      {formatCurrency(row.total)}
-                    </td>
-                    <td className="py-3 px-3 text-right text-slate-500">
-                      {row.pctTot || '-'}
-                    </td>
-                    {row.dailyValues.map((val, vIdx) => (
-                      <td
-                        key={vIdx}
-                        className={`py-3 px-3 text-right ${
-                          val > 0
-                            ? isFacturacion
-                              ? 'text-indigo-600 font-semibold'
-                              : isUtilidad
-                              ? 'text-emerald-600 font-bold'
-                              : 'text-slate-700 dark:text-slate-300'
-                            : 'text-slate-300 dark:text-slate-600'
-                        }`}
-                      >
-                        {val > 0 ? formatCurrency(val) : '-'}
+                  <React.Fragment key={group.id}>
+                    {/* Section Header Row (Clickable to toggle) */}
+                    <tr
+                      onClick={() => toggleGroup(group.id)}
+                      className={`cursor-pointer transition select-none ${
+                        isIngresos
+                          ? 'bg-indigo-50/80 dark:bg-indigo-950/40 text-indigo-950 dark:text-indigo-200 font-bold'
+                          : isResultados
+                          ? 'bg-emerald-50/90 dark:bg-emerald-950/50 text-emerald-950 dark:text-emerald-200 font-bold'
+                          : 'bg-slate-100/70 dark:bg-slate-800/50 text-slate-900 dark:text-slate-100 font-bold hover:bg-slate-200/60'
+                      }`}
+                    >
+                      <td className="py-2.5 px-4 sticky left-0 z-10 bg-inherit border-r border-slate-200/60 dark:border-slate-700/60">
+                        <div className="flex items-center gap-2">
+                          <button className="p-0.5 rounded hover:bg-black/10 transition">
+                            {isCollapsed ? (
+                              <ChevronRight className="w-4 h-4 text-slate-500" />
+                            ) : (
+                              <ChevronDown className="w-4 h-4 text-slate-500" />
+                            )}
+                          </button>
+                          <span
+                            className="w-2.5 h-2.5 rounded-full shrink-0"
+                            style={{ backgroundColor: group.color }}
+                          />
+                          <span className="uppercase tracking-wider text-[11px] font-extrabold">
+                            {group.title}
+                          </span>
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white/70 dark:bg-slate-900/70 border border-black/5">
+                            {group.rows.length} {group.rows.length === 1 ? 'concepto' : 'conceptos'}
+                          </span>
+                        </div>
                       </td>
-                    ))}
-                  </tr>
+                      <td className="py-2.5 px-4 text-right font-black">
+                        {formatCurrency(group.subtotal.total)}
+                      </td>
+                      <td className="py-2.5 px-3 text-right text-[11px] text-slate-500">
+                        {kpis.totalFacturacion > 0
+                          ? `${((group.subtotal.total / kpis.totalFacturacion) * 100).toFixed(1)}%`
+                          : '-'}
+                      </td>
+                      {group.subtotal.dailyValues.map((dVal, dIdx) => (
+                        <td
+                          key={dIdx}
+                          className={`py-2.5 px-3 text-right font-semibold ${
+                            dVal > 0
+                              ? isIngresos
+                                ? 'text-indigo-600 dark:text-indigo-400'
+                                : isResultados
+                                ? 'text-emerald-600 dark:text-emerald-400 font-bold'
+                                : 'text-slate-800 dark:text-slate-200'
+                              : 'text-slate-300 dark:text-slate-600'
+                          }`}
+                        >
+                          {dVal > 0 ? formatCurrency(dVal) : '-'}
+                        </td>
+                      ))}
+                    </tr>
+
+                    {/* Detailed Rows (Shown when not collapsed) */}
+                    {!isCollapsed &&
+                      group.rows.map((row, rIdx) => {
+                        const isMainUtilidad = row.concept.includes('dsp de Impuestos');
+                        const isAcumulado = row.concept.includes('Acumulada');
+                        const isContribucion = row.concept.includes('Contribución Marginal');
+
+                        return (
+                          <tr
+                            key={rIdx}
+                            className={`transition hover:bg-slate-50/90 dark:hover:bg-slate-800/40 ${
+                              isMainUtilidad
+                                ? 'bg-emerald-50/30 dark:bg-emerald-950/20 font-bold'
+                                : isAcumulado
+                                ? 'bg-purple-50/20 dark:bg-purple-950/10 text-purple-950 dark:text-purple-200'
+                                : isContribucion
+                                ? 'bg-blue-50/20 dark:bg-blue-950/10'
+                                : ''
+                            }`}
+                          >
+                            <td className="py-2.5 px-4 pl-9 sticky left-0 bg-white dark:bg-slate-900 z-10 text-slate-700 dark:text-slate-300 border-r border-slate-100 dark:border-slate-800 font-medium">
+                              <div className="flex items-center gap-2">
+                                <span className="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600" />
+                                <span>{row.concept}</span>
+                              </div>
+                            </td>
+                            <td
+                              className={`py-2.5 px-4 text-right ${
+                                isMainUtilidad
+                                  ? 'text-emerald-600 font-black text-sm'
+                                  : isAcumulado
+                                  ? 'text-purple-600 font-bold'
+                                  : 'text-slate-800 dark:text-slate-200 font-semibold'
+                              }`}
+                            >
+                              {formatCurrency(row.total)}
+                            </td>
+                            <td className="py-2.5 px-3 text-right text-slate-400 text-[11px]">
+                              {row.pctTot || '-'}
+                            </td>
+                            {row.dailyValues.map((val, vIdx) => (
+                              <td
+                                key={vIdx}
+                                className={`py-2.5 px-3 text-right ${
+                                  val > 0
+                                    ? isMainUtilidad
+                                      ? 'text-emerald-600 font-bold'
+                                      : isAcumulado
+                                      ? 'text-purple-600 font-semibold'
+                                      : 'text-slate-700 dark:text-slate-300'
+                                    : 'text-slate-300 dark:text-slate-600'
+                                }`}
+                              >
+                                {val > 0 ? formatCurrency(val) : '-'}
+                              </td>
+                            ))}
+                          </tr>
+                        );
+                      })}
+                  </React.Fragment>
                 );
               })}
             </tbody>
