@@ -108,14 +108,17 @@ export default function EstadoResultadosView() {
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Expand / collapse state for matrix groups
+  // Expand / collapse state for matrix groups (default: all collapsed)
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
 
   const toggleGroup = (groupId: string) => {
-    setCollapsedGroups(prev => ({
-      ...prev,
-      [groupId]: !prev[groupId]
-    }));
+    setCollapsedGroups(prev => {
+      const current = prev[groupId] ?? true;
+      return {
+        ...prev,
+        [groupId]: !current
+      };
+    });
   };
 
   const collapseAll = () => {
@@ -128,7 +131,12 @@ export default function EstadoResultadosView() {
   };
 
   const expandAll = () => {
-    setCollapsedGroups({});
+    if (!data?.matrix?.groups) return;
+    const all: Record<string, boolean> = {};
+    data.matrix.groups.forEach(g => {
+      all[g.id] = false;
+    });
+    setCollapsedGroups(all);
   };
 
   const fetchData = async (force = false) => {
@@ -570,7 +578,7 @@ export default function EstadoResultadosView() {
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
               {filteredGroups.map(group => {
-                const isCollapsed = Boolean(collapsedGroups[group.id]);
+                const isCollapsed = searchQuery.trim() ? false : (collapsedGroups[group.id] ?? true);
                 const isIngresos = group.id === 'ingresos';
                 const isResultados = group.id === 'resultados';
 
