@@ -228,17 +228,16 @@ export async function GET(request: Request) {
       dailyValues: sumDaily(directCostRows)
     };
 
-    // 3. Marketing & Comercial (Publicidad, Publicidad Fee, Costos MercadoPago)
+    // 4. Comercial y Marketing (Publicidad, Publicidad Fee)
     const rowPub = createRow(publicidadRow);
     const rowPubFee = createRow(publicidadFeeRow);
-    const rowMp = createRow(mpRow);
-    const marketingRows = [rowPub, rowPubFee, rowMp].filter(Boolean);
+    const marketingRows = [rowPub, rowPubFee].filter(Boolean);
     const subtotalMarketing = {
       total: marketingRows.reduce((acc, r) => acc + (r?.total || 0), 0),
       dailyValues: sumDaily(marketingRows)
     };
 
-    // 4. Logística y Distribución (Servicio de Flete, Peajes, Vehículos)
+    // 3. Logística y Distribución (Servicio de Flete, Peajes, Vehículos)
     const rowFlete = createRow(fleteRow);
     const rowPeajes = createRow(peajesRow);
     const rowVehiculos = createRow(vehiculosRow);
@@ -267,9 +266,10 @@ export async function GET(request: Request) {
       dailyValues: sumDaily(operationalRows)
     };
 
-    // 7. Impuestos
+    // 7. Impuestos, Gravámenes y Costos de Cobranza (MercadoPago, IVA, IIBB)
+    const rowMp = createRow(mpRow);
     const rowImpuestos = createRow(impuestosRow);
-    const taxRows = [rowImpuestos].filter(Boolean);
+    const taxRows = [rowMp, rowImpuestos].filter(Boolean);
     const subtotalTax = {
       total: taxRows.reduce((acc, r) => acc + (r?.total || 0), 0),
       dailyValues: sumDaily(taxRows)
@@ -336,8 +336,8 @@ export async function GET(request: Request) {
       },
       {
         id: 'marketing',
-        title: '4. Comercial, Marketing y Pasarelas',
-        badge: 'Publicidad y Pagos',
+        title: '4. Comercial y Marketing',
+        badge: 'Pauta y Agencia',
         color: '#dc2626', // red
         subtotal: subtotalMarketing,
         rows: marketingRows
@@ -360,8 +360,8 @@ export async function GET(request: Request) {
       },
       {
         id: 'impuestos',
-        title: '7. Impuestos y Gravámenes',
-        badge: 'Impuestos',
+        title: '7. Impuestos, Gravámenes y Costos de Cobranza',
+        badge: 'MercadoPago y Tributos',
         color: '#0d9488', // teal
         subtotal: subtotalTax,
         rows: taxRows
