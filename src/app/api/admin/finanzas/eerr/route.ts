@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { fetchSpreadsheetValues } from '@/lib/googleSheets';
 
-export const runtime = 'nodejs';
+export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 
 const SPREADSHEET_ID = '1YFJcTYKjoP7uE1_LxKPNIC-7esxRY-1qn5y-4NKoaa0';
