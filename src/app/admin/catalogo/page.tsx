@@ -56,6 +56,7 @@ export default function AdminPage() {
   const [orphans, setOrphans] = useState<any[]>([]);
   const [loadingOrphans, setLoadingOrphans] = useState(false);
   const [orphanSearchTerm, setOrphanSearchTerm] = useState("");
+  const [autoLinking, setAutoLinking] = useState(false);
 
   // Tab State
   const [activeTab, setActiveTab] = useState<'products' | 'import' | 'orphans' | 'settings' | 'profitability' | 'taxonomy'>('products');
@@ -1161,8 +1162,9 @@ export default function AdminPage() {
         data.forEach(item => {
           const name = item.product_name || "Sin nombre";
           if (!groups[name]) {
+            // El SKU en el sistema es el mismo nombre del pedido/planilla
             const match = name.match(/\(([^)]+)\)\s*$/);
-            const skuCandidate = match ? match[1].trim() : "";
+            const skuCandidate = match ? match[1].trim() : name;
             
             groups[name] = {
               name,
@@ -1200,12 +1202,31 @@ export default function AdminPage() {
     }
   };
 
+  const handleAutoLinkOrphans = async () => {
+    setAutoLinking(true);
+    try {
+      const res = await fetch('/api/admin/auto-link-orphans', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        alert(data.message || `Se vincularon ${data.linkedCount} ítems históricos automáticamente.`);
+        fetchOrphanProducts();
+        fetchProducts();
+      } else {
+        alert("Error al auto-vincular: " + data.error);
+      }
+    } catch (err: any) {
+      alert("Error: " + err.message);
+    } finally {
+      setAutoLinking(false);
+    }
+  };
+
   const handleCreateOrphan = (orphan: any) => {
     let cleanName = orphan.name;
-    const sku = orphan.skuCandidate;
+    const sku = orphan.skuCandidate || orphan.name;
     
-    if (sku) {
-      cleanName = cleanName.replace(new RegExp(`\\s*\\(${sku}\\)\\s*$`, 'i'), '').trim();
+    if (orphan.skuCandidate && orphan.skuCandidate !== orphan.name) {
+      cleanName = cleanName.replace(new RegExp(`\\s*\\(${orphan.skuCandidate}\\)\\s*$`, 'i'), '').trim();
     }
     
     setEditingProduct({
@@ -1214,7 +1235,7 @@ export default function AdminPage() {
       price: Math.round(orphan.avgPrice || 0),
       category: 'Otros',
       is_active: true,
-      description: `Producto histórico creado automáticamente desde el panel de huérfanos. Original: ${orphan.name}`
+      description: `Producto creado desde el panel de huérfanos. SKU/Nombre: ${orphan.name}`
     });
     setIsFormOpen(true);
   };
@@ -1489,8 +1510,10 @@ export default function AdminPage() {
                             {product.image_url ? <img src={product.image_url} className="w-full h-full object-cover" /> : <ImageIcon className="w-5 h-5" />}
                           </div>
                           <div className="min-w-0 flex-1 overflow-hidden">
-                            <div className="font-bold text-slate-900 text-sm truncate">{product.name}</div>
-                            <div className="text-[10px] font-black text-brand-500 uppercase tracking-widest truncate">{product.sku || "SIN SKU"}</div>
+                            <div className="font-bold text-slate-900 text-sm truncate">{product.sku || product.name}</div>
+                            {product.name && product.name.toLowerCase().trim() !== (product.sku || "").toLowerCase().trim() ? (
+                              <div className="text-[11px] text-slate-400 font-medium truncate">Web: {product.name}</div>
+                            ) : null}
                           </div>
                         </div>
                       </td>
@@ -2352,15 +2375,28 @@ export default function AdminPage() {
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-3.5 h-3.5" />
                 <input 
                   type="text" 
-                  placeholder="Buscar huérfanos por nombre o SKU candidato..." 
+                  placeholder="Buscar por nombre o SKU..." 
                   className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 transition-all font-medium text-xs bg-white shadow-sm"
                   value={orphanSearchTerm}
                   onChange={(e) => setOrphanSearchTerm(e.target.value)}
                 />
               </div>
-              <div className="bg-amber-50 px-3 py-2 rounded-xl border border-amber-100 flex items-center gap-2 shrink-0">
-                <span className="text-[9px] font-black uppercase tracking-wider text-amber-700">Total Huérfanos</span>
-                <span className="text-xs font-black text-amber-900 bg-amber-100/80 px-2 py-0.5 rounded-md">{orphans.length}</span>
+              <div className="flex items-center gap-2 shrink-0">
+                <div className="bg-amber-50 px-3 py-2 rounded-xl border border-amber-100 flex items-center gap-2">
+                  <span className="text-[9px] font-black uppercase tracking-wider text-amber-700">Total Huérfanos</span>
+                  <span className="text-xs font-black text-amber-900 bg-amber-100/80 px-2 py-0.5 rounded-md">{orphans.length}</span>
+                </div>
+                {orphans.length > 0 && (
+                  <button
+                    onClick={handleAutoLinkOrphans}
+                    disabled={autoLinking}
+                    className="px-3 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-sm transition-all disabled:opacity-50 cursor-pointer"
+                    title="Vincular automáticamente todos los ítems cuyos nombres coincidan con productos del catálogo"
+                  >
+                    {autoLinking ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                    {autoLinking ? "Vinculando..." : "Vincular Coincidencias"}
+                  </button>
+                )}
               </div>
             </div>
 
@@ -2369,8 +2405,8 @@ export default function AdminPage() {
                 <table className="w-full text-left table-fixed">
                   <thead>
                     <tr className="bg-slate-100/80 border-b border-slate-200">
-                      <th className="px-4 py-3 text-[9px] font-black uppercase tracking-wider text-slate-500 w-2/5">Nombre en Pedido</th>
-                      <th className="px-3 py-3 text-[9px] font-black uppercase tracking-wider text-slate-500 w-1/5">SKU Candidato</th>
+                      <th className="px-4 py-3 text-[9px] font-black uppercase tracking-wider text-slate-500 w-2/5">Nombre / SKU en Pedido</th>
+                      <th className="px-3 py-3 text-[9px] font-black uppercase tracking-wider text-slate-500 w-1/5">Coincidencia en Catálogo</th>
                       <th className="px-3 py-3 text-[9px] font-black uppercase tracking-wider text-slate-500 text-center w-28">Cant. Pedidos</th>
                       <th className="px-3 py-3 text-[9px] font-black uppercase tracking-wider text-slate-500 text-center w-32">Cant. Vendida</th>
                       <th className="px-3 py-3 text-[9px] font-black uppercase tracking-wider text-slate-500 text-right w-36">Precio Promedio</th>
@@ -2398,7 +2434,7 @@ export default function AdminPage() {
                         return (
                           <tr>
                             <td colSpan={7} className="py-16 text-center text-slate-400 font-bold text-sm">
-                              No se encontraron productos huérfanos que coincidan con la búsqueda.
+                              No se encontraron productos huérfanos pendientes.
                             </td>
                           </tr>
                         );
@@ -2407,8 +2443,9 @@ export default function AdminPage() {
                       return filteredOrphans.map((orphan, idx) => {
                         const cleanOrphanName = orphan.name.replace(/\s*\([^)]+\)\s*$/, '').trim();
                         const existingMatch = products.find(p => 
-                          (orphan.skuCandidate && p.sku?.toLowerCase() === orphan.skuCandidate.toLowerCase()) ||
                           p.sku?.toLowerCase() === orphan.name.toLowerCase() ||
+                          p.sku?.toLowerCase() === cleanOrphanName.toLowerCase() ||
+                          (orphan.skuCandidate && p.sku?.toLowerCase() === orphan.skuCandidate.toLowerCase()) ||
                           p.name?.toLowerCase() === orphan.name.toLowerCase() ||
                           p.name?.toLowerCase() === cleanOrphanName.toLowerCase()
                         );
@@ -2419,12 +2456,15 @@ export default function AdminPage() {
                               {orphan.name}
                             </td>
                             <td className="px-3 py-3">
-                              {orphan.skuCandidate ? (
-                                <span className="inline-flex bg-brand-50 text-brand-700 border border-brand-100 text-[10px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider">
-                                  {orphan.skuCandidate}
+                              {existingMatch ? (
+                                <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider" title={`Coincide con SKU: ${existingMatch.sku}`}>
+                                  <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                                  <span className="truncate">{existingMatch.sku}</span>
                                 </span>
                               ) : (
-                                <span className="text-slate-400 font-medium text-[11px] italic">No detectado</span>
+                                <span className="text-amber-600 bg-amber-50 border border-amber-200 font-bold text-[10px] px-2 py-0.5 rounded-md">
+                                  Sin coincidencia
+                                </span>
                               )}
                             </td>
                             <td className="px-3 py-3 text-center text-xs font-bold text-slate-700">

@@ -406,13 +406,13 @@ export function ProductFormModal({ product, isOpen, onClose, onSuccess, allProdu
 
           {/* 3. SKU Y CATEGORÍA */}
           <div className="space-y-2">
-            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Nombre Interno (SKU)</label>
+            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Nombre Interno / SKU (Pedidos y Planillas)</label>
             <input 
               required 
-              placeholder="Ej: TANQUE-300L-P" 
+              placeholder="Ej: AquaFort - TRIC 1000L Beige" 
               className="w-full px-5 py-4 rounded-2xl border border-slate-100 focus:ring-4 focus:ring-brand-500/10 bg-slate-50 font-bold" 
               value={formData.sku} 
-              onChange={e => setFormData({...formData, sku: e.target.value.toUpperCase()})} 
+              onChange={e => setFormData({...formData, sku: e.target.value})} 
             />
           </div>
           
@@ -463,9 +463,10 @@ export function ProductFormModal({ product, isOpen, onClose, onSuccess, allProdu
           </div>
 
           <div className="space-y-2 md:col-span-2">
-            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Nombre Público</label>
+            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Nombre Comercial (Sitio Web Público)</label>
             <input 
               required 
+              placeholder="Ej: Tanque de agua Tricapa 1000 Litros - AquaFort"
               className="w-full px-5 py-4 rounded-2xl border border-slate-100 focus:ring-4 focus:ring-brand-500/10 bg-slate-50 font-bold" 
               value={formData.name} 
               onChange={e => setFormData({...formData, name: e.target.value})} 

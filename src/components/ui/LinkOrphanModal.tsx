@@ -136,11 +136,11 @@ export function LinkOrphanModal({
         <div className="p-8 space-y-6">
           {/* Orphan Info */}
           <div className="p-5 bg-amber-50/60 rounded-3xl border border-amber-100/50 space-y-2">
-            <span className="text-[9px] font-black uppercase tracking-wider text-amber-700 block">Nombre original en pedidos:</span>
+            <span className="text-[9px] font-black uppercase tracking-wider text-amber-700 block">Nombre / SKU original en pedidos:</span>
             <p className="text-sm font-extrabold text-slate-800">{orphanName}</p>
-            {skuCandidate && (
+            {skuCandidate && skuCandidate !== orphanName && (
               <p className="text-xs font-semibold text-slate-500">
-                SKU sugerido en pedido: <span className="bg-white px-2 py-0.5 rounded border border-slate-200 uppercase font-bold text-slate-700">{skuCandidate}</span>
+                Código extraído: <span className="bg-white px-2 py-0.5 rounded border border-slate-200 uppercase font-bold text-slate-700">{skuCandidate}</span>
               </p>
             )}
           </div>
@@ -152,8 +152,11 @@ export function LinkOrphanModal({
                 <Sparkles className="w-5 h-5" />
               </div>
               <div className="flex-1 space-y-1">
-                <span className="text-[9px] font-black uppercase tracking-wider text-brand-700 block">Coincidencia automática sugerida:</span>
-                <p className="text-xs font-black text-slate-800">{recommendedProduct.name}</p>
+                <span className="text-[9px] font-black uppercase tracking-wider text-brand-700 block">Coincidencia automática en Catálogo:</span>
+                <p className="text-xs font-black text-slate-800">{recommendedProduct.sku || recommendedProduct.name}</p>
+                {recommendedProduct.name && recommendedProduct.name.toLowerCase().trim() !== (recommendedProduct.sku || '').toLowerCase().trim() && (
+                  <p className="text-[11px] text-slate-500 font-medium">Nombre Web: {recommendedProduct.name}</p>
+                )}
                 <div className="flex items-center gap-2">
                   <span className="bg-white text-brand-700 border border-brand-100 text-[9px] font-black px-1.5 py-0.25 rounded uppercase tracking-wider">
                     SKU: {recommendedProduct.sku}
