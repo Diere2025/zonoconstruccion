@@ -123,7 +123,7 @@ export async function GET(request: Request) {
     const seller = sellerRes.data;
     const sellerType = seller?.seller_type || 'minorista';
     const isOrganic = seller?.is_organic || false;
-    const role = seller?.role === 'admin' ? 'admin' : 'seller';
+    const role = (seller?.role === 'admin' || seller?.role === 'administracion') ? 'admin' : 'seller';
 
     // Calculate bulk dynamic prices on the server
     const rawProducts = productsRes || [];

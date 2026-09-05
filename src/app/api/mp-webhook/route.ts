@@ -27,31 +27,53 @@ function parseMpNotification(title: string, text: string, bigText?: string) {
   const lowerContent = content.toLowerCase();
   const lowerTitle = (title || '').toLowerCase();
 
-  // Safety filter: Discard non-payment notifications ONLY if NOT an incoming payment
+  // Rejection filter: unconditionally discard bills, loans, services, and outgoing payments
+  const isExplicitOutgoingOrService =
+    lowerContent.includes('factura') ||
+    lowerContent.includes('vence hoy') ||
+    lowerContent.includes('vencimiento') ||
+    lowerContent.includes('a pagar') ||
+    lowerContent.includes('pagá ahora') ||
+    lowerContent.includes('pagaste') ||
+    lowerContent.includes('tu compra') ||
+    lowerContent.includes('pago de servicios') ||
+    lowerContent.includes('recarga') ||
+    lowerContent.includes('te prestamos') ||
+    lowerContent.includes('préstamo') ||
+    lowerContent.includes('débito automático') ||
+    lowerTitle.includes('factura') ||
+    lowerTitle.includes('vencimiento') ||
+    lowerTitle.includes('pagaste') ||
+    lowerTitle.includes('pagá');
+
+  if (isExplicitOutgoingOrService) {
+    return {
+      isIncomingPayment: false,
+      reason: 'Notificación descartada (corresponde a factura, servicio o gasto saliente)'
+    };
+  }
+
+  // Incoming validation: MUST explicitly be an incoming payment / cobro
   const isExplicitIncoming = 
     lowerContent.includes('recibiste') || 
     lowerContent.includes('te transfirió') || 
     lowerContent.includes('te envió dinero') || 
+    lowerContent.includes('te enviaron dinero') || 
     lowerContent.includes('ingresó') ||
+    lowerContent.includes('ingresaron') ||
     lowerContent.includes('cobro') ||
+    lowerContent.includes('cobraste') ||
+    lowerContent.includes('te pagaron') ||
+    lowerContent.includes('transferencia recibida') ||
     lowerTitle.includes('recibiste') ||
-    lowerTitle.includes('cobro');
+    lowerTitle.includes('cobro') ||
+    lowerTitle.includes('cobraste');
 
   if (!isExplicitIncoming) {
-    if (
-      lowerContent.includes('te prestamos') ||
-      lowerContent.includes('pedí tu préstamo') ||
-      lowerContent.includes('pagaste') ||
-      lowerContent.includes('tu compra de') ||
-      lowerContent.includes('pago de servicios') ||
-      lowerContent.includes('recarga de') ||
-      (!lowerContent.includes('$') && !lowerTitle.includes('$'))
-    ) {
-      return {
-        isIncomingPayment: false,
-        reason: 'Notificación descartada (no corresponde a un cobro entrante)'
-      };
-    }
+    return {
+      isIncomingPayment: false,
+      reason: 'Notificación descartada (no contiene palabras de acreditación/cobro entrante)'
+    };
   }
 
   // 1. Amount extraction

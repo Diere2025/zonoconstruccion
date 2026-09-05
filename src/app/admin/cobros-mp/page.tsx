@@ -40,7 +40,9 @@ import {
   Users2,
   Lock,
   Unlock,
-  Settings
+  Settings,
+  Truck,
+  ThumbsUp
 } from 'lucide-react';
 
 interface MPPayment {
@@ -63,6 +65,15 @@ interface MPPayment {
   linked_by?: string;
   linked_at?: string;
   notes?: string;
+  confirmed_by_fletero_id?: string | null;
+  confirmed_by_fletero_name?: string | null;
+  confirmed_by_fletero_at?: string | null;
+}
+
+interface FleteroUser {
+  id: string;
+  full_name: string;
+  email: string;
 }
 
 interface MPAccount {
@@ -127,6 +138,13 @@ export default function CobrosMercadoPagoPage() {
     return 'Usuario';
   });
 
+  const [currentUserId, setCurrentUserId] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      return sessionStorage.getItem('zono_user_id');
+    }
+    return null;
+  });
+
   const [isRoleLoaded, setIsRoleLoaded] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
       return cachedCobrosRole !== null || sessionStorage.getItem('zono_role_loaded') === 'true';
@@ -145,6 +163,9 @@ export default function CobrosMercadoPagoPage() {
     return 'ALL';
   });
   const [selectedLinkedStatus, setSelectedLinkedStatus] = useState<'ALL' | 'UNLINKED' | 'LINKED'>('ALL');
+  const [selectedFleteroFilter, setSelectedFleteroFilter] = useState<string>('ALL');
+  const [fleterosList, setFleterosList] = useState<FleteroUser[]>([]);
+  const [isConfirmingFletero, setIsConfirmingFletero] = useState<string | null>(null);
   const [selectedDateRange, setSelectedDateRange] = useState<string>(() => {
     if (typeof window !== 'undefined') {
       const r = cachedCobrosRole || (sessionStorage.getItem('zono_user_role') as UserRole);
@@ -280,10 +301,26 @@ export default function CobrosMercadoPagoPage() {
     }
   }, []);
 
+  const filteredPayments = useMemo(() => {
+    return payments.filter((p) => {
+      if (selectedFleteroFilter === 'WITH_FLETERO') {
+        if (!p.confirmed_by_fletero_name) return false;
+      } else if (selectedFleteroFilter === 'WITHOUT_FLETERO') {
+        if (p.confirmed_by_fletero_name) return false;
+      } else if (selectedFleteroFilter && selectedFleteroFilter !== 'ALL') {
+        const norm = selectedFleteroFilter.toLowerCase().trim();
+        const matchesName = (p.confirmed_by_fletero_name || '').toLowerCase().includes(norm);
+        const matchesId = p.confirmed_by_fletero_id === selectedFleteroFilter;
+        if (!matchesName && !matchesId) return false;
+      }
+      return true;
+    });
+  }, [payments, selectedFleteroFilter]);
+
   const groupedPayments = useMemo(() => {
     const groups: { [key: string]: { key: string; sectionTitle: string; subTitle: string; isToday: boolean; isYesterday: boolean; isPast: boolean; payments: MPPayment[] } } = {};
 
-    for (const p of payments) {
+    for (const p of filteredPayments) {
       const info = getDayInfo(p.received_at);
       if (!groups[info.key]) {
         groups[info.key] = {
@@ -300,7 +337,7 @@ export default function CobrosMercadoPagoPage() {
     }
 
     return Object.values(groups);
-  }, [payments, getDayInfo]);
+  }, [filteredPayments, getDayInfo]);
 
   // 1. Detect User and Role
   useEffect(() => {
@@ -339,6 +376,8 @@ export default function CobrosMercadoPagoPage() {
           detectedName = 'Diego Bóveda';
         }
 
+        let detectedUserId = user.id;
+
         // Check in sellers table
         try {
           const { data: seller } = await supabase
@@ -348,6 +387,7 @@ export default function CobrosMercadoPagoPage() {
             .maybeSingle();
 
           if (seller) {
+            if (seller.id) detectedUserId = seller.id;
             if (seller.full_name) detectedName = seller.full_name;
             const r = (seller.role || '').toLowerCase();
             if (r === 'admin') detectedRole = 'admin';
@@ -362,12 +402,14 @@ export default function CobrosMercadoPagoPage() {
 
         setCurrentUserRole(detectedRole);
         setCurrentUserName(detectedName);
+        setCurrentUserId(detectedUserId);
         cachedCobrosRole = detectedRole;
         cachedCobrosName = detectedName;
 
         if (typeof window !== 'undefined') {
           sessionStorage.setItem('zono_user_role', detectedRole);
           sessionStorage.setItem('zono_user_name', detectedName);
+          sessionStorage.setItem('zono_user_id', detectedUserId);
           sessionStorage.setItem('zono_role_loaded', 'true');
         }
 
@@ -442,6 +484,19 @@ export default function CobrosMercadoPagoPage() {
     }
   }, []);
 
+  // Load Fleteros List
+  const loadFleteros = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/cobros-mp-data?action=fleteros');
+      const data = await res.json();
+      if (data.success && data.data) {
+        setFleterosList(data.data);
+      }
+    } catch (e) {
+      console.error('Error loading fleteros list:', e);
+    }
+  }, []);
+
   // Load Payments
   const loadPayments = useCallback(async () => {
     if (!isRoleLoaded) return;
@@ -454,6 +509,7 @@ export default function CobrosMercadoPagoPage() {
         dateRange: selectedDateRange,
         type: selectedType,
         linkedStatus: selectedLinkedStatus,
+        fleteroFilter: selectedFleteroFilter,
         search: search,
         showHidden: showHidden ? 'true' : 'false'
       });
@@ -468,12 +524,13 @@ export default function CobrosMercadoPagoPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [currentUserRole, isRoleLoaded, selectedAccountId, selectedDateRange, selectedType, selectedLinkedStatus, search, showHidden]);
+  }, [currentUserRole, isRoleLoaded, selectedAccountId, selectedDateRange, selectedType, selectedLinkedStatus, selectedFleteroFilter, search, showHidden]);
 
   useEffect(() => {
     loadAccounts();
     loadInternalPayers();
-  }, [loadAccounts, loadInternalPayers]);
+    loadFleteros();
+  }, [loadAccounts, loadInternalPayers, loadFleteros]);
 
   useEffect(() => {
     loadPayments();
@@ -632,6 +689,98 @@ export default function CobrosMercadoPagoPage() {
       }
     } catch (err: any) {
       alert('Error al desvincular: ' + err.message);
+    }
+  };
+
+  // Fletero Confirm (1-touch confirmation for delivery drivers)
+  const handleFleteroConfirm = async (paymentId: string) => {
+    try {
+      setIsConfirmingFletero(paymentId);
+      const nowIso = new Date().toISOString();
+      // Optimistic update
+      setPayments(prev => prev.map(p => p.id === paymentId ? {
+        ...p,
+        confirmed_by_fletero_id: currentUserId,
+        confirmed_by_fletero_name: currentUserName,
+        confirmed_by_fletero_at: nowIso
+      } : p));
+      if (selectedPaymentDetail?.id === paymentId) {
+        setSelectedPaymentDetail(prev => prev ? {
+          ...prev,
+          confirmed_by_fletero_id: currentUserId,
+          confirmed_by_fletero_name: currentUserName,
+          confirmed_by_fletero_at: nowIso
+        } : null);
+      }
+
+      const res = await fetch('/api/admin/cobros-mp-data?action=fletero-confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          paymentId,
+          fleteroId: currentUserId,
+          fleteroName: currentUserName,
+          userRole: currentUserRole
+        })
+      });
+      const data = await res.json();
+      if (data.success && data.payment) {
+        setPayments(prev => prev.map(p => p.id === data.payment.id ? data.payment : p));
+        if (selectedPaymentDetail?.id === paymentId) {
+          setSelectedPaymentDetail(data.payment);
+        }
+      } else {
+        alert('Error al confirmar cobro: ' + (data.error || 'Error'));
+        loadPayments();
+      }
+    } catch (err: any) {
+      alert('Error de conexión al confirmar cobro: ' + err.message);
+      loadPayments();
+    } finally {
+      setIsConfirmingFletero(null);
+    }
+  };
+
+  // Fletero Unconfirm
+  const handleFleteroUnconfirm = async (paymentId: string) => {
+    if (!confirm('¿Desea quitar la confirmación de fletero para este cobro?')) return;
+    try {
+      setIsConfirmingFletero(paymentId);
+      setPayments(prev => prev.map(p => p.id === paymentId ? {
+        ...p,
+        confirmed_by_fletero_id: null,
+        confirmed_by_fletero_name: null,
+        confirmed_by_fletero_at: null
+      } : p));
+      if (selectedPaymentDetail?.id === paymentId) {
+        setSelectedPaymentDetail(prev => prev ? {
+          ...prev,
+          confirmed_by_fletero_id: null,
+          confirmed_by_fletero_name: null,
+          confirmed_by_fletero_at: null
+        } : null);
+      }
+
+      const res = await fetch('/api/admin/cobros-mp-data?action=fletero-unconfirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paymentId, userRole: currentUserRole })
+      });
+      const data = await res.json();
+      if (data.success && data.payment) {
+        setPayments(prev => prev.map(p => p.id === data.payment.id ? data.payment : p));
+        if (selectedPaymentDetail?.id === paymentId) {
+          setSelectedPaymentDetail(data.payment);
+        }
+      } else {
+        alert('Error al quitar confirmación: ' + (data.error || 'Error'));
+        loadPayments();
+      }
+    } catch (err: any) {
+      alert('Error al quitar confirmación: ' + err.message);
+      loadPayments();
+    } finally {
+      setIsConfirmingFletero(null);
     }
   };
 
@@ -813,7 +962,8 @@ export default function CobrosMercadoPagoPage() {
     }
   };
 
-  const formatTimeOnly = (dateString: string) => {
+  const formatTimeOnly = (dateString?: string | null) => {
+    if (!dateString) return '';
     try {
       const d = new Date(dateString);
       return d.toLocaleTimeString('es-AR', {
@@ -1087,6 +1237,31 @@ export default function CobrosMercadoPagoPage() {
                     📅 Últimos 3 Días
                   </span>
                 )}
+
+                {isFleteroRole && (
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => setSelectedDateRange('LAST_15_MIN')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
+                        selectedDateRange === 'LAST_15_MIN' 
+                          ? 'bg-[#0069ff] text-white shadow-xs' 
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      ⚡ Últimos 15 min
+                    </button>
+                    <button
+                      onClick={() => setSelectedDateRange('TODAY')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
+                        selectedDateRange === 'TODAY' 
+                          ? 'bg-[#0069ff] text-white shadow-xs' 
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      Hoy
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1134,6 +1309,35 @@ export default function CobrosMercadoPagoPage() {
                   </select>
                 </div>
 
+                {/* Fletero Filter (Admin, Logistica, Administracion) */}
+                {!isSellerRole && !isFleteroRole && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-500 font-bold">Fletero:</span>
+                    <select
+                      value={selectedFleteroFilter}
+                      onChange={(e) => setSelectedFleteroFilter(e.target.value)}
+                      className={`border rounded-xl px-2.5 py-1 font-semibold focus:outline-none transition-all ${
+                        selectedFleteroFilter !== 'ALL'
+                          ? 'bg-amber-50 border-amber-300 text-amber-900 font-bold'
+                          : 'bg-slate-50 border-slate-200/80 text-slate-700'
+                      }`}
+                    >
+                      <option value="ALL">Todos los fleteros</option>
+                      <option value="WITH_FLETERO">🚚 Con OK de Fletero</option>
+                      <option value="WITHOUT_FLETERO">Sin OK de Fletero</option>
+                      {fleterosList.length > 0 && (
+                        <optgroup label="Por Fletero">
+                          {fleterosList.map((f) => (
+                            <option key={f.id} value={f.full_name}>
+                              {f.full_name}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                    </select>
+                  </div>
+                )}
+
                 {/* Hidden toggle for Admin */}
                 {isFullAdmin && (
                   <button
@@ -1171,7 +1375,7 @@ export default function CobrosMercadoPagoPage() {
               <Loader2 className="w-8 h-8 animate-spin text-[#0069ff] mx-auto" />
               <p className="text-xs text-slate-500 font-medium">Cargando cobros de Mercado Pago...</p>
             </div>
-          ) : payments.length === 0 ? (
+          ) : filteredPayments.length === 0 ? (
             <div className="py-20 text-center space-y-3 bg-white rounded-3xl border border-slate-200/80 shadow-xs">
               <div className="w-14 h-14 rounded-3xl bg-slate-50 border border-slate-200 text-slate-400 flex items-center justify-center mx-auto shadow-xs">
                 <Inbox className="w-7 h-7" />
@@ -1179,9 +1383,11 @@ export default function CobrosMercadoPagoPage() {
               <div>
                 <h4 className="text-sm font-black text-slate-800">No se encontraron cobros</h4>
                 <p className="text-xs text-slate-500 max-w-sm mx-auto mt-1 font-medium">
-                  {showHidden 
-                    ? 'No hay transacciones marcadas como archivadas/ocultas.' 
-                    : 'Cuando ingrese una transferencia o cobro de Mercado Pago, aparecerá aquí automáticamente en tiempo real.'}
+                  {selectedFleteroFilter !== 'ALL'
+                    ? `No hay cobros registrados con confirmación de ${selectedFleteroFilter === 'WITH_FLETERO' ? 'fleteros' : selectedFleteroFilter === 'WITHOUT_FLETERO' ? 'cobros sin fletero' : selectedFleteroFilter} para este período.`
+                    : showHidden 
+                      ? 'No hay transacciones marcadas como archivadas/ocultas.' 
+                      : 'Cuando ingrese una transferencia o cobro de Mercado Pago, aparecerá aquí automáticamente en tiempo real.'}
                 </p>
               </div>
             </div>
@@ -1293,6 +1499,17 @@ export default function CobrosMercadoPagoPage() {
                                 )
                               ) : null}
 
+                              {/* Escueto Fletero Badge */}
+                              {payment.confirmed_by_fletero_name && (
+                                <span 
+                                  className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-50 text-amber-900 border border-amber-200/80 flex items-center gap-1 shrink-0"
+                                  title={`OK Fletero: ${payment.confirmed_by_fletero_name} (${formatTimeOnly(payment.confirmed_by_fletero_at)})`}
+                                >
+                                  <Truck className="w-2.5 h-2.5 text-amber-600" />
+                                  <span>OK {payment.confirmed_by_fletero_name.split(' ')[0]}</span>
+                                </span>
+                              )}
+
                               {/* Hidden Badge */}
                               {isHiddenItem && (
                                 <span className="px-1.5 py-0.5 rounded text-[9px] font-black bg-amber-100 text-amber-800 border border-amber-200 shrink-0">
@@ -1324,8 +1541,47 @@ export default function CobrosMercadoPagoPage() {
                           </div>
                         </div>
 
-                        {/* Right: Amount & Quick Actions */}
+                        {/* Right: Fletero Quick Action Button & Amount */}
                         <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+                          {/* Fletero 1-tap button */}
+                          {isFleteroRole && (
+                            <div onClick={(e) => e.stopPropagation()} className="shrink-0">
+                              {payment.confirmed_by_fletero_name ? (
+                                payment.confirmed_by_fletero_name === currentUserName || payment.confirmed_by_fletero_id === currentUserId ? (
+                                  <button
+                                    onClick={() => handleFleteroUnconfirm(payment.id)}
+                                    disabled={isConfirmingFletero === payment.id}
+                                    className="px-2 py-1 bg-emerald-50 hover:bg-rose-50 text-emerald-800 hover:text-rose-700 border border-emerald-300 hover:border-rose-300 rounded-xl text-xs font-black shadow-2xs flex items-center gap-1 transition-all cursor-pointer group"
+                                    title="Diste el OK a este cobro. Hacé clic para deshacer."
+                                  >
+                                    <Check className="w-3.5 h-3.5 text-emerald-600 group-hover:hidden" />
+                                    <X className="w-3.5 h-3.5 text-rose-600 hidden group-hover:inline" />
+                                    <span className="group-hover:hidden">Mi OK</span>
+                                    <span className="hidden group-hover:inline">Deshacer</span>
+                                  </button>
+                                ) : (
+                                  <span 
+                                    className="px-2 py-1 bg-slate-100 text-slate-600 border border-slate-200 rounded-xl text-xs font-bold flex items-center gap-1"
+                                    title={`Confirmado por ${payment.confirmed_by_fletero_name}`}
+                                  >
+                                    <Truck className="w-3.5 h-3.5 text-slate-500" />
+                                    <span>{payment.confirmed_by_fletero_name.split(' ')[0]}</span>
+                                  </span>
+                                )
+                              ) : (
+                                <button
+                                  onClick={() => handleFleteroConfirm(payment.id)}
+                                  disabled={isConfirmingFletero === payment.id}
+                                  className="px-2.5 py-1.5 bg-amber-500 hover:bg-amber-600 active:scale-95 text-white rounded-xl text-xs font-black shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                                  title="Confirmar que recibiste este cobro en destino"
+                                >
+                                  <ThumbsUp className="w-3.5 h-3.5" />
+                                  <span>Dar OK</span>
+                                </button>
+                              )}
+                            </div>
+                          )}
+
                           <div className="text-right">
                             <div className={`text-xs sm:text-sm font-black tracking-tight ${isInternalItem ? 'text-purple-700' : 'text-emerald-600'}`}>
                               + {formatMPAmount(payment.amount)}
@@ -1593,6 +1849,12 @@ export default function CobrosMercadoPagoPage() {
               <div>
                 <span className="text-slate-500 font-medium block">Pagador</span>
                 <span className="font-bold text-slate-900">{linkingPayment.payer_name}</span>
+                {linkingPayment.confirmed_by_fletero_name && (
+                  <div className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-black bg-amber-100 text-amber-900 border border-amber-300">
+                    <Truck className="w-3 h-3 text-amber-600" />
+                    <span>OK Fletero: {linkingPayment.confirmed_by_fletero_name}</span>
+                  </div>
+                )}
               </div>
               <div className="text-right">
                 <span className="text-slate-500 font-medium block">Monto Cobrado</span>
@@ -2021,6 +2283,62 @@ x-webhook-token: mpchecker_secret_key_123`}
                   {copiedId === 'detail-id' ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5 text-slate-400" />}
                   <span>{selectedPaymentDetail.id.substring(0, 16)}...</span>
                 </button>
+              </div>
+
+              {/* Fletero Confirmation Section */}
+              <div className="p-3 bg-amber-50/50 rounded-2xl border border-amber-200/80 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-amber-950">
+                    <Truck className="w-4 h-4 text-amber-600" />
+                    <span>Confirmación de Fletero en Destino</span>
+                  </div>
+                  {selectedPaymentDetail.confirmed_by_fletero_name && (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-200/70 text-amber-900 border border-amber-300">
+                      OK Confirmado
+                    </span>
+                  )}
+                </div>
+
+                {selectedPaymentDetail.confirmed_by_fletero_name ? (
+                  <div className="flex items-center justify-between pt-1">
+                    <div>
+                      <div className="text-xs font-black text-slate-800">
+                        {selectedPaymentDetail.confirmed_by_fletero_name}
+                      </div>
+                      {selectedPaymentDetail.confirmed_by_fletero_at && (
+                        <div className="text-[11px] text-slate-500">
+                          Confirmado a las {formatTimeOnly(selectedPaymentDetail.confirmed_by_fletero_at)}
+                        </div>
+                      )}
+                    </div>
+                    {(isFleteroRole || isAdminOrStaff || isLogisticaRole) && (
+                      <button
+                        onClick={async () => {
+                          await handleFleteroUnconfirm(selectedPaymentDetail.id);
+                          setSelectedPaymentDetail(null);
+                        }}
+                        className="px-2.5 py-1 text-xs font-bold text-rose-600 hover:bg-rose-50 border border-rose-200 rounded-lg cursor-pointer"
+                      >
+                        Deshacer OK
+                      </button>
+                    )}
+                  </div>
+                ) : isFleteroRole ? (
+                  <button
+                    onClick={async () => {
+                      await handleFleteroConfirm(selectedPaymentDetail.id);
+                      setSelectedPaymentDetail(null);
+                    }}
+                    className="w-full py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-bold flex items-center justify-center gap-1.5 shadow-md shadow-amber-500/20 cursor-pointer"
+                  >
+                    <ThumbsUp className="w-4 h-4" />
+                    <span>Confirmar que recibí este cobro</span>
+                  </button>
+                ) : (
+                  <div className="text-[11px] text-slate-500 font-medium">
+                    Sin confirmación de fletero para este cobro.
+                  </div>
+                )}
               </div>
 
               {/* Order Link Section */}
