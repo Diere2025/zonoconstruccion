@@ -37,7 +37,17 @@ function getCredentials(): ServiceAccountCredentials | null {
     }
   }
 
-  // 2. Try env vars
+  // 2. Try raw JSON from environment variable
+  const rawEnvJson = process.env.GOOGLE_SERVICE_ACCOUNT_KEY || process.env.GOOGLE_CREDENTIALS_JSON;
+  if (rawEnvJson) {
+    try {
+      return JSON.parse(rawEnvJson);
+    } catch (e) {
+      console.error('[GoogleSheets] Failed to parse GOOGLE_SERVICE_ACCOUNT_KEY:', e);
+    }
+  }
+
+  // 3. Try individual env vars
   if (process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL && process.env.GOOGLE_PRIVATE_KEY) {
     return {
       type: 'service_account',
