@@ -5,6 +5,8 @@ import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import { 
   BarChart3, 
+  TrendingUp,
+  Link2,
   ShoppingBag, 
   Settings, 
   LogOut, 
@@ -266,7 +268,9 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     if (!isRoleLoaded) return;
     if (userRole === 'logistica' && pathname && pathname !== '/admin/cobros-mp' && pathname !== '/admin/fleteros') {
       router.replace('/admin/cobros-mp');
-    } else if ((userRole === 'fletero' || userRole === 'administracion') && pathname && pathname !== '/admin/cobros-mp') {
+    } else if (userRole === 'fletero' && pathname && pathname !== '/admin/cobros-mp') {
+      router.replace('/admin/cobros-mp');
+    } else if (userRole === 'administracion' && pathname && !pathname.startsWith('/admin/dashboard') && !pathname.startsWith('/vendedores/pedidos') && pathname !== '/admin/cobros-mp' && pathname !== '/admin/finanzas' && pathname !== '/admin/facturacion-pendiente') {
       router.replace('/admin/cobros-mp');
     } else if (isRestrictedSeller && pathname && pathname !== '/vendedores/presupuestos' && pathname !== '/admin/cobros-mp') {
       router.replace('/vendedores/presupuestos');
@@ -289,17 +293,32 @@ export function AdminLayout({ children }: AdminLayoutProps) {
 
   const linkSections: SidebarSection[] = [
     {
-      title: "Consola de Control",
+      title: "Canal Minorista (B2C)",
       links: [
-        { name: "Dashboard General", href: "/admin/dashboard", icon: BarChart3, adminOnly: true },
+        { name: "Dashboard Minorista", href: "/admin/dashboard", icon: BarChart3, adminOnly: true },
         { name: "Dashboard Vendedor", href: "/vendedores", icon: BarChart3, sellerOnly: true },
-        { name: "Gestión de Pedidos", href: "/vendedores/pedidos", icon: ShoppingCart },
-        { name: "Importar Pedidos", href: "/admin/importar-pedidos", icon: Upload, adminOnly: true },
-        { name: "Clientes y Direcciones", href: "/vendedores/clientes", icon: Users },
-        { name: "Cotizador / Presupuestos", href: "/vendedores/presupuestos", icon: Calculator },
+        { name: "Pedidos Minoristas", href: "/vendedores/pedidos?client_type=minoristas", icon: ShoppingCart },
+        { name: "Cotizador Minorista", href: "/vendedores/presupuestos", icon: Calculator },
+        { name: "Clientes Minoristas", href: "/vendedores/clientes", icon: Users },
+        { name: "Meta Ads Performance", href: "/admin/meta-ads", icon: Target, adminOnly: true },
+        { name: "Postventa y Reclamos", href: "/vendedores/postventa", icon: RefreshCw }
+      ]
+    },
+    {
+      title: "Canal Mayorista (B2B)",
+      links: [
+        { name: "Dashboard Mayorista", href: "/admin/dashboard-mayorista", icon: TrendingUp, adminOnly: true },
+        { name: "Pedidos Mayoristas", href: "/vendedores/pedidos?list_type=todos&status=Todos&client_type=mayoristas", icon: ShoppingBag },
+        { name: "Cotizador Mayorista", href: "/vendedores/presupuestos-mayorista", icon: Calculator },
+        { name: "Lista Precios Mayorista", href: "/admin/lista-mayorista", icon: Calculator, adminOnly: true },
+        { name: "Vincular Productos", href: "/admin/dashboard-mayorista?tab=mapping", icon: Link2, adminOnly: true }
+      ]
+    },
+    {
+      title: "Operaciones y Control",
+      links: [
         { name: "Chequeo de Pagos", href: "/admin/cobros-mp", icon: ShieldCheck },
-        { name: "Postventa y Reclamos", href: "/vendedores/postventa", icon: RefreshCw },
-        { name: "Meta Ads Performance", href: "/admin/meta-ads", icon: Target, adminOnly: true }
+        { name: "Importar Pedidos", href: "/admin/importar-pedidos", icon: Upload, adminOnly: true }
       ]
     },
     {
@@ -355,9 +374,21 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     const pathOnly = urlParts[0].replace(/\/$/, "");
     const queryOnly = urlParts[1];
     
-    if (queryOnly) {
-      if (typeof window !== 'undefined') {
-        const searchParams = new URLSearchParams(window.location.search);
+    if (typeof window !== 'undefined') {
+      const searchParams = new URLSearchParams(window.location.search);
+
+      if (cleanPathname === "/vendedores/pedidos") {
+        const currentClientType = searchParams.get('client_type') || 'minoristas';
+        if (queryOnly) {
+          const linkParams = new URLSearchParams(queryOnly);
+          const linkClientType = linkParams.get('client_type') || 'minoristas';
+          return pathOnly === "/vendedores/pedidos" && currentClientType === linkClientType;
+        } else {
+          return pathOnly === "/vendedores/pedidos" && currentClientType === 'minoristas';
+        }
+      }
+
+      if (queryOnly) {
         const linkParams = new URLSearchParams(queryOnly);
         const activeTab = searchParams.get('tab') || 'suppliers';
         const linkTab = linkParams.get('tab');
@@ -365,7 +396,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       }
     }
     
-    if (pathOnly === "/admin/catalogo" || pathOnly === "/vendedores") {
+    if (pathOnly === "/admin/catalogo" || pathOnly === "/vendedores" || pathOnly === "/admin/dashboard-mayorista") {
       return cleanPathname === pathOnly;
     }
     
@@ -454,8 +485,19 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                 if (userRole === 'logistica') {
                   return link.href === "/admin/cobros-mp" || link.href === "/admin/fleteros";
                 }
-                if (userRole === 'fletero' || userRole === 'administracion') {
+                if (userRole === 'fletero') {
                   return link.href === "/admin/cobros-mp";
+                }
+                if (userRole === 'administracion') {
+                  return (
+                    link.href === "/admin/cobros-mp" ||
+                    link.href.startsWith("/admin/dashboard-mayorista") ||
+                    link.href === "/admin/dashboard" ||
+                    link.href === "/vendedores/pedidos?client_type=minoristas" ||
+                    link.href === "/vendedores/pedidos?list_type=todos&status=Todos&client_type=mayoristas" ||
+                    link.href === "/admin/finanzas" ||
+                    link.href === "/admin/facturacion-pendiente"
+                  );
                 }
                 if (isRestrictedSeller) {
                   return link.href === "/vendedores/presupuestos" || link.href === "/admin/cobros-mp";

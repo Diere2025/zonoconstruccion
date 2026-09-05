@@ -183,11 +183,16 @@ export default function ClientesPage() {
       if (totalClientsDb === 0) {
         const { count } = await supabase
           .from("clients")
-          .select("*", { count: 'exact', head: true });
+          .select("*", { count: 'exact', head: true })
+          .not("business_name", "is", null)
+          .neq("business_name", "");
         if (count) setTotalClientsDb(count);
       }
 
-      let query = supabase.from("v_client_balances_and_stats").select("*");
+      let query = supabase.from("v_client_balances_and_stats")
+        .select("*")
+        .not("business_name", "is", null)
+        .neq("business_name", "");
 
       if (debouncedSearchQuery.trim()) {
         const q = debouncedSearchQuery.trim();
@@ -210,7 +215,7 @@ export default function ClientesPage() {
       const { data, error } = await query;
       if (error) throw error;
 
-      setClients(data || []);
+      setClients((data || []).filter(c => c.business_name && c.business_name.trim() !== ''));
 
       const computedBalances: Record<string, { totalCharged: number; totalPaid: number; balance: number }> = {};
       (data || []).forEach(c => {

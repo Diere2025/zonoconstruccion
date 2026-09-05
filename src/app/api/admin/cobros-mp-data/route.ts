@@ -33,6 +33,17 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: true, data: data || [] });
     }
 
+    if (action === 'fleteros') {
+      const { data, error } = await supabaseAdmin
+        .from('sellers')
+        .select('id, full_name, email')
+        .eq('role', 'fletero')
+        .eq('is_active', true)
+        .order('full_name');
+      if (error) throw error;
+      return NextResponse.json({ success: true, data: data || [] });
+    }
+
     if (action === 'search-orders') {
       const queryText = (searchParams.get('q') || '').trim();
       let q = supabaseAdmin
@@ -66,6 +77,7 @@ export async function GET(request: Request) {
       let dateRange = searchParams.get('dateRange') || 'TODAY';
       let type = searchParams.get('type') || 'ALL';
       const linkedStatus = searchParams.get('linkedStatus') || 'ALL';
+      const fleteroFilter = searchParams.get('fleteroFilter') || 'ALL';
       const showHidden = searchParams.get('showHidden') === 'true';
 
       const isSeller = userRole === 'seller' || userRole === 'vendedora' || userRole === 'ventas';
@@ -82,7 +94,9 @@ export async function GET(request: Request) {
           dateRange = 'LAST_3_DAYS';
         }
       } else if (isFletero) {
-        dateRange = 'LAST_15_MIN';
+        if (dateRange !== 'TODAY' && dateRange !== 'LAST_15_MIN') {
+          dateRange = 'LAST_15_MIN';
+        }
       }
 
       // Exact Argentina (UTC-3) Day Boundary Helper:
@@ -161,6 +175,19 @@ export async function GET(request: Request) {
         query = query.is('order_id', null);
       } else if (linkedStatus === 'LINKED') {
         query = query.not('order_id', 'is', null);
+      }
+
+      if (fleteroFilter === 'WITH_FLETERO') {
+        query = query.not('confirmed_by_fletero_name', 'is', null);
+      } else if (fleteroFilter === 'WITHOUT_FLETERO') {
+        query = query.is('confirmed_by_fletero_name', null);
+      } else if (fleteroFilter && fleteroFilter !== 'ALL') {
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(fleteroFilter);
+        if (isUuid) {
+          query = query.or(`confirmed_by_fletero_id.eq.${fleteroFilter},confirmed_by_fletero_name.ilike.%${fleteroFilter}%`);
+        } else {
+          query = query.ilike('confirmed_by_fletero_name', `%${fleteroFilter}%`);
+        }
       }
 
       if (search) {
@@ -275,6 +302,44 @@ export async function POST(request: Request) {
       }
 
       return NextResponse.json({ success: true });
+    }
+
+    if (action === 'fletero-confirm') {
+      const { paymentId, fleteroId, fleteroName } = body;
+      if (!paymentId) return NextResponse.json({ error: 'paymentId requerido' }, { status: 400 });
+
+      const { data, error } = await supabaseAdmin
+        .from('mp_payments')
+        .update({
+          confirmed_by_fletero_id: fleteroId || null,
+          confirmed_by_fletero_name: fleteroName || 'Fletero',
+          confirmed_by_fletero_at: new Date().toISOString()
+        })
+        .eq('id', paymentId)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return NextResponse.json({ success: true, payment: data });
+    }
+
+    if (action === 'fletero-unconfirm') {
+      const { paymentId } = body;
+      if (!paymentId) return NextResponse.json({ error: 'paymentId requerido' }, { status: 400 });
+
+      const { data, error } = await supabaseAdmin
+        .from('mp_payments')
+        .update({
+          confirmed_by_fletero_id: null,
+          confirmed_by_fletero_name: null,
+          confirmed_by_fletero_at: null
+        })
+        .eq('id', paymentId)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return NextResponse.json({ success: true, payment: data });
     }
 
     if (action === 'link-order') {

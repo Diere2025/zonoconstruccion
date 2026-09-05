@@ -494,7 +494,7 @@ export default function PedidosPage() {
 
   const [activeTab, setActiveTab] = useState<'form' | 'list'>('list');
   const [statusFilter, setStatusFilter] = useState<'Pendientes' | 'En Revisión' | 'Entregados' | 'Anulados' | 'Todos'>('Pendientes');
-  const [clientTypeFilter, setClientTypeFilter] = useState<'todos' | 'minoristas' | 'mayoristas'>('todos');
+  const [clientTypeFilter, setClientTypeFilter] = useState<'todos' | 'minoristas' | 'mayoristas'>('minoristas');
   const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
   const [showProductDropdown, setShowProductDropdown] = useState(false);
   const [productSearchTerm, setProductSearchTerm] = useState("");
@@ -712,7 +712,7 @@ export default function PedidosPage() {
     const handlePopState = () => {
       const params = new URLSearchParams(window.location.search);
       setStatusFilter((params.get("status") as any) || 'Pendientes');
-      setClientTypeFilter((params.get("client_type") as any) || 'todos');
+      setClientTypeFilter((params.get("client_type") as any) || 'minoristas');
       setSelectedProducts(params.get("products") ? params.get("products")!.split(',').filter(Boolean) : []);
       setOrderSearchQuery(params.get("search") || '');
       setListType((params.get("list_type") as any) || 'mis_pedidos');
@@ -1830,7 +1830,16 @@ export default function PedidosPage() {
             .order('created_at', { ascending: false });
             
           if (listType === 'mis_pedidos' || role !== 'admin') {
-            query = query.eq('seller_id', userData.user.id);
+            if (clientTypeFilter !== 'mayoristas') {
+              query = query.eq('seller_id', userData.user.id);
+            }
+          }
+
+          // Apply client type filter at query level
+          if (clientTypeFilter === 'mayoristas') {
+            query = query.or('channel.eq.mayorista,legacy_code.ilike.AQ%,legacy_code.ilike.POW%');
+          } else if (clientTypeFilter === 'minoristas') {
+            query = query.neq('channel', 'mayorista').not('legacy_code', 'ilike', 'AQ%').not('legacy_code', 'ilike', 'POW%');
           }
           
           // Apply status filter
@@ -1883,8 +1892,8 @@ export default function PedidosPage() {
             query = query.lte('order_date', dateTo);
           }
           
-          // Limit to 500 for active states to display all pending orders, and 100 for history to keep UI fast
-          if (statusFilter === 'Pendientes' || statusFilter === 'En Revisión') {
+          // Limit to 500 for active states and wholesale history to display comprehensive history
+          if (statusFilter === 'Pendientes' || statusFilter === 'En Revisión' || clientTypeFilter === 'mayoristas') {
             query = query.limit(500);
           } else {
             query = query.limit(100);
@@ -2434,8 +2443,8 @@ export default function PedidosPage() {
       const dateB = new Date(b.order_date || b.created_at || 0).getTime();
       return sortDirection === 'asc' ? dateA - dateB : dateB - dateA;
     } else if (sortField === 'seller') {
-      const sellerA = normalizeText(a.sellers?.full_name || "");
-      const sellerB = normalizeText(b.sellers?.full_name || "");
+      const sellerA = normalizeText(a.sellers?.full_name || a.totals?.seller || "");
+      const sellerB = normalizeText(b.sellers?.full_name || b.totals?.seller || "");
       if (sellerA < sellerB) return sortDirection === 'asc' ? -1 : 1;
       if (sellerA > sellerB) return sortDirection === 'asc' ? 1 : -1;
       return 0;
@@ -4674,12 +4683,12 @@ export default function PedidosPage() {
                 ))}
               </div>
 
-              {/* Filtro de Tipo de Cliente */}
+              {/* Filtro de Tipo de Cliente / Canal */}
               <div className="flex bg-slate-200/60 p-0.5 rounded-xl border border-slate-300/30 self-start sm:self-auto shrink-0">
                 {([
-                  { id: 'todos', label: 'Todos' },
-                  { id: 'minoristas', label: 'Cons. Final' },
-                  { id: 'mayoristas', label: 'Mayoristas 👑' }
+                  { id: 'minoristas', label: 'Minoristas (B2C)' },
+                  { id: 'mayoristas', label: 'Mayoristas (B2B) 👑' },
+                  { id: 'todos', label: 'Todos los Canales' }
                 ] as const).map((filter) => (
                   <button
                     key={filter.id}
@@ -5157,7 +5166,7 @@ export default function PedidosPage() {
                     {/* Vendedor con Color Específico */}
                     <td className="px-3.5 py-2 whitespace-nowrap">
                       {(() => {
-                        const sellerName = p.sellers?.full_name || "Desconocido";
+                        const sellerName = p.sellers?.full_name || p.totals?.seller || "Desconocido";
                         const style = getSellerBadgeStyle(sellerName);
                         return (
                           <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10.5px] font-bold border ${style.bg} ${style.text} ${style.border} shadow-2xs`}>

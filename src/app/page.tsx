@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { PublicHome } from "@/components/PublicHome";
 
-export default function RootPage() {
+function ErpRedirector() {
   const router = useRouter();
 
   useEffect(() => {
@@ -74,4 +75,29 @@ export default function RootPage() {
       </div>
     </div>
   );
+}
+
+export default function RootPage() {
+  const [isErp, setIsErp] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const host = window.location.hostname.toLowerCase();
+      const search = window.location.search.toLowerCase();
+      // Only route to ERP if accessing explicitly on the ERP subdomain/pages.dev or via ?erp=true
+      if (host.includes('zono-erp') || host.includes('pages.dev') || search.includes('erp=true')) {
+        setIsErp(true);
+      } else {
+        setIsErp(false);
+      }
+    }
+  }, []);
+
+  // When visiting on zono-erp.pages.dev, redirect into the ERP
+  if (isErp === true) {
+    return <ErpRedirector />;
+  }
+
+  // On zono.com.ar, www.zono.com.ar and default localhost, render the public website
+  return <PublicHome />;
 }
