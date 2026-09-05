@@ -376,144 +376,6 @@ export default function EstadoResultadosView() {
         </div>
       </div>
 
-      {/* Main Analysis Section: Timeline & Donut Chart */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Daily Timeline Evolution (7 cols) */}
-        <div className="lg:col-span-7 bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-sm space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-indigo-600" />
-                Evolución Diaria del Mes
-              </h3>
-              <p className="text-xs text-slate-500">Facturación diaria vs. Utilidad acumulada</p>
-            </div>
-            <div className="text-xs text-slate-500">
-              {activeDaysWithData.length} días activos
-            </div>
-          </div>
-
-          {/* Daily Cards Chart */}
-          <div className="space-y-3 pt-2">
-            {activeDaysWithData.map((d, idx) => {
-              const maxRev = Math.max(...activeDaysWithData.map(x => x.revenue));
-              const revWidth = maxRev > 0 ? (d.revenue / maxRev) * 100 : 0;
-              const isPositive = d.netProfit >= 0;
-
-              return (
-                <div
-                  key={idx}
-                  onClick={() => setSelectedDay(selectedDay === idx ? null : idx)}
-                  className={`p-3.5 rounded-xl border transition cursor-pointer ${
-                    selectedDay === idx
-                      ? 'border-indigo-600 bg-indigo-50/50 dark:bg-indigo-950/30 shadow-sm'
-                      : 'border-slate-100 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 bg-slate-50/50 dark:bg-slate-800/30'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <span className="px-2.5 py-1 rounded-lg bg-slate-900 text-white font-bold text-xs">
-                        Día {d.day}
-                      </span>
-                      <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
-                        Fact: {formatCurrency(d.revenue)}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-3">
-                      <div className="text-right">
-                        <span className={`text-xs font-bold ${isPositive ? 'text-emerald-600' : 'text-rose-600'}`}>
-                          {isPositive ? '+' : ''}{formatCurrency(d.netProfit)}
-                        </span>
-                        <span className="text-[10px] text-slate-400 block">
-                          Acum: {formatCurrency(d.cumulativeProfit)}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Visual Bar Indicator */}
-                  <div className="w-full bg-slate-200 dark:bg-slate-700 h-2 rounded-full overflow-hidden flex">
-                    <div
-                      className="bg-indigo-600 h-full rounded-full transition-all duration-500"
-                      style={{ width: `${revWidth}%` }}
-                    />
-                  </div>
-
-                  {/* Quick daily efficiency ratios */}
-                  <div className="mt-2.5 pt-2 border-t border-slate-200/60 dark:border-slate-800/60 flex items-center justify-between text-[11px] text-slate-500">
-                    <span>CMV: <strong className="text-slate-700 dark:text-slate-300">{d.pctCmv}%</strong></span>
-                    <span>Flete: <strong className="text-slate-700 dark:text-slate-300">{d.pctFlete}%</strong></span>
-                    <span>Publi: <strong className="text-slate-700 dark:text-slate-300">{d.pctPublicidad}%</strong></span>
-                    <span>Egresos: <strong className="text-slate-700 dark:text-slate-300">{formatCurrency(d.expenses)}</strong></span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Expenses Distribution Breakdown (5 cols) */}
-        <div className="lg:col-span-5 bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-sm flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                  <PieChartIcon className="w-4 h-4 text-purple-600" />
-                  Estructura de Egresos
-                </h3>
-                <p className="text-xs text-slate-500">Distribución porcentual por concepto</p>
-              </div>
-              <span className="text-xs font-bold px-2.5 py-1 bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 rounded-lg">
-                Total: {formatCurrency(kpis.totalEgresos)}
-              </span>
-            </div>
-
-            {/* Breakdown List */}
-            <div className="space-y-2.5 max-h-[360px] overflow-y-auto pr-1">
-              {expensesByCategory.map((cat, idx) => (
-                <div
-                  key={idx}
-                  onMouseEnter={() => setActiveSegment(idx)}
-                  onMouseLeave={() => setActiveSegment(null)}
-                  className={`p-2.5 rounded-xl border transition flex items-center justify-between ${
-                    activeSegment === idx
-                      ? 'border-indigo-600 bg-indigo-50/40 dark:bg-indigo-950/30'
-                      : 'border-slate-100 dark:border-slate-800 hover:border-slate-200'
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <span
-                      className="w-3 h-3 rounded-full shrink-0"
-                      style={{ backgroundColor: cat.color }}
-                    />
-                    <span className="text-xs font-medium text-slate-700 dark:text-slate-300 truncate">
-                      {cat.name}
-                    </span>
-                  </div>
-
-                  <div className="text-right shrink-0">
-                    <span className="text-xs font-bold text-slate-900 dark:text-white block">
-                      {formatCurrency(cat.amount)}
-                    </span>
-                    <span className="text-[10px] text-slate-400 font-semibold">
-                      {cat.percentage}%
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 text-xs text-slate-500 flex items-center justify-between">
-            <span>Costo Mercadería representa el mayor egreso</span>
-            <span className="font-bold text-blue-600">
-              {expensesByCategory[0]?.percentage}%
-            </span>
-          </div>
-        </div>
-      </div>
-
       {/* Structured P&L Matrix Table */}
       <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-sm overflow-hidden">
         {/* Table Top Controls */}
@@ -708,6 +570,145 @@ export default function EstadoResultadosView() {
           </table>
         </div>
       </div>
+
+      {/* Main Analysis Section: Timeline & Donut Chart */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* Daily Timeline Evolution (7 cols) */}
+        <div className="lg:col-span-7 bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-sm space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-indigo-600" />
+                Evolución Diaria del Mes
+              </h3>
+              <p className="text-xs text-slate-500">Facturación diaria vs. Utilidad acumulada</p>
+            </div>
+            <div className="text-xs text-slate-500">
+              {activeDaysWithData.length} días activos
+            </div>
+          </div>
+
+          {/* Daily Cards Chart */}
+          <div className="space-y-3 pt-2">
+            {activeDaysWithData.map((d, idx) => {
+              const maxRev = Math.max(...activeDaysWithData.map(x => x.revenue));
+              const revWidth = maxRev > 0 ? (d.revenue / maxRev) * 100 : 0;
+              const isPositive = d.netProfit >= 0;
+
+              return (
+                <div
+                  key={idx}
+                  onClick={() => setSelectedDay(selectedDay === idx ? null : idx)}
+                  className={`p-3.5 rounded-xl border transition cursor-pointer ${
+                    selectedDay === idx
+                      ? 'border-indigo-600 bg-indigo-50/50 dark:bg-indigo-950/30 shadow-sm'
+                      : 'border-slate-100 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 bg-slate-50/50 dark:bg-slate-800/30'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="px-2.5 py-1 rounded-lg bg-slate-900 text-white font-bold text-xs">
+                        Día {d.day}
+                      </span>
+                      <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                        Fact: {formatCurrency(d.revenue)}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <span className={`text-xs font-bold ${isPositive ? 'text-emerald-600' : 'text-rose-600'}`}>
+                          {isPositive ? '+' : ''}{formatCurrency(d.netProfit)}
+                        </span>
+                        <span className="text-[10px] text-slate-400 block">
+                          Acum: {formatCurrency(d.cumulativeProfit)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Visual Bar Indicator */}
+                  <div className="w-full bg-slate-200 dark:bg-slate-700 h-2 rounded-full overflow-hidden flex">
+                    <div
+                      className="bg-indigo-600 h-full rounded-full transition-all duration-500"
+                      style={{ width: `${revWidth}%` }}
+                    />
+                  </div>
+
+                  {/* Quick daily efficiency ratios */}
+                  <div className="mt-2.5 pt-2 border-t border-slate-200/60 dark:border-slate-800/60 flex items-center justify-between text-[11px] text-slate-500">
+                    <span>CMV: <strong className="text-slate-700 dark:text-slate-300">{d.pctCmv}%</strong></span>
+                    <span>Flete: <strong className="text-slate-700 dark:text-slate-300">{d.pctFlete}%</strong></span>
+                    <span>Publi: <strong className="text-slate-700 dark:text-slate-300">{d.pctPublicidad}%</strong></span>
+                    <span>Egresos: <strong className="text-slate-700 dark:text-slate-300">{formatCurrency(d.expenses)}</strong></span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Expenses Distribution Breakdown (5 cols) */}
+        <div className="lg:col-span-5 bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <PieChartIcon className="w-4 h-4 text-purple-600" />
+                  Estructura de Egresos
+                </h3>
+                <p className="text-xs text-slate-500">Distribución porcentual por concepto</p>
+              </div>
+              <span className="text-xs font-bold px-2.5 py-1 bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 rounded-lg">
+                Total: {formatCurrency(kpis.totalEgresos)}
+              </span>
+            </div>
+
+            {/* Breakdown List */}
+            <div className="space-y-2.5 max-h-[360px] overflow-y-auto pr-1">
+              {expensesByCategory.map((cat, idx) => (
+                <div
+                  key={idx}
+                  onMouseEnter={() => setActiveSegment(idx)}
+                  onMouseLeave={() => setActiveSegment(null)}
+                  className={`p-2.5 rounded-xl border transition flex items-center justify-between ${
+                    activeSegment === idx
+                      ? 'border-indigo-600 bg-indigo-50/40 dark:bg-indigo-950/30'
+                      : 'border-slate-100 dark:border-slate-800 hover:border-slate-200'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span
+                      className="w-3 h-3 rounded-full shrink-0"
+                      style={{ backgroundColor: cat.color }}
+                    />
+                    <span className="text-xs font-medium text-slate-700 dark:text-slate-300 truncate">
+                      {cat.name}
+                    </span>
+                  </div>
+
+                  <div className="text-right shrink-0">
+                    <span className="text-xs font-bold text-slate-900 dark:text-white block">
+                      {formatCurrency(cat.amount)}
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-semibold">
+                      {cat.percentage}%
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 text-xs text-slate-500 flex items-center justify-between">
+            <span>Costo Mercadería representa el mayor egreso</span>
+            <span className="font-bold text-blue-600">
+              {expensesByCategory[0]?.percentage}%
+            </span>
+          </div>
+        </div>
+      </div>
+
     </div>
   );
 }
