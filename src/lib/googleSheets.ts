@@ -1,8 +1,3 @@
-import crypto from 'crypto';
-import https from 'https';
-import fs from 'fs';
-import path from 'path';
-
 interface ServiceAccountCredentials {
   type: string;
   project_id: string;
@@ -17,27 +12,33 @@ interface ServiceAccountCredentials {
 let cachedToken: string | null = null;
 let tokenExpiresAt = 0;
 
-function base64UrlEncode(str: string): string {
-  return Buffer.from(str)
-    .toString('base64')
+function base64UrlEncode(buffer: ArrayBuffer | Uint8Array): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary)
     .replace(/=/g, '')
     .replace(/\+/g, '-')
     .replace(/\//g, '_');
 }
 
-function getCredentials(): ServiceAccountCredentials | null {
-  // 1. Try file google-credentials.json
-  const filePath = path.join(process.cwd(), 'google-credentials.json');
-  if (fs.existsSync(filePath)) {
-    try {
-      const content = fs.readFileSync(filePath, 'utf8');
-      return JSON.parse(content);
-    } catch (e) {
-      console.error('[GoogleSheets] Failed to parse google-credentials.json:', e);
-    }
+function pemToArrayBuffer(pem: string): ArrayBuffer {
+  const b64 = pem
+    .replace(/-----BEGIN PRIVATE KEY-----/, '')
+    .replace(/-----END PRIVATE KEY-----/, '')
+    .replace(/\s+/g, '');
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
   }
+  return bytes.buffer;
+}
 
-  // 2. Try raw JSON from environment variable
+function getCredentials(): ServiceAccountCredentials | null {
+  // 1. Try raw JSON from environment variable
   const rawEnvJson = process.env.GOOGLE_SERVICE_ACCOUNT_KEY || process.env.GOOGLE_CREDENTIALS_JSON;
   if (rawEnvJson) {
     try {
@@ -47,7 +48,7 @@ function getCredentials(): ServiceAccountCredentials | null {
     }
   }
 
-  // 3. Try individual env vars
+  // 2. Try individual env vars
   if (process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL && process.env.GOOGLE_PRIVATE_KEY) {
     return {
       type: 'service_account',
@@ -72,67 +73,60 @@ export async function getGoogleAccessToken(): Promise<string> {
 
   const creds = getCredentials();
   if (!creds) {
-    throw new Error('Google Service Account credentials not found (missing google-credentials.json or env vars)');
+    throw new Error('Google Service Account credentials not found (missing GOOGLE_SERVICE_ACCOUNT_KEY env var)');
   }
 
-  return new Promise((resolve, reject) => {
-    const header = { alg: 'RS256', typ: 'JWT' };
-    const claimSet = {
-      iss: creds.client_email,
-      scope: 'https://www.googleapis.com/auth/spreadsheets.readonly',
-      aud: 'https://oauth2.googleapis.com/token',
-      exp: now + 3600,
-      iat: now
-    };
+  const header = { alg: 'RS256', typ: 'JWT' };
+  const claimSet = {
+    iss: creds.client_email,
+    scope: 'https://www.googleapis.com/auth/spreadsheets.readonly',
+    aud: 'https://oauth2.googleapis.com/token',
+    exp: now + 3600,
+    iat: now
+  };
 
-    const encHeader = base64UrlEncode(JSON.stringify(header));
-    const encClaimSet = base64UrlEncode(JSON.stringify(claimSet));
-    const signatureInput = `${encHeader}.${encClaimSet}`;
+  const encoder = new TextEncoder();
+  const encHeader = base64UrlEncode(encoder.encode(JSON.stringify(header)));
+  const encClaimSet = base64UrlEncode(encoder.encode(JSON.stringify(claimSet)));
+  const signatureInput = `${encHeader}.${encClaimSet}`;
 
-    const signer = crypto.createSign('RSA-SHA256');
-    signer.update(signatureInput);
-    const signature = signer
-      .sign(creds.private_key, 'base64')
-      .replace(/=/g, '')
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_');
+  const keyBuffer = pemToArrayBuffer(creds.private_key);
+  const cryptoKey = await crypto.subtle.importKey(
+    'pkcs8',
+    keyBuffer,
+    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
 
-    const jwt = `${signatureInput}.${signature}`;
-    const postData = `grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=${jwt}`;
+  const sigBuffer = await crypto.subtle.sign(
+    'RSASSA-PKCS1-v1_5',
+    cryptoKey,
+    encoder.encode(signatureInput)
+  );
 
-    const req = https.request(
-      'https://oauth2.googleapis.com/token',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'Content-Length': Buffer.byteLength(postData)
-        }
-      },
-      res => {
-        let body = '';
-        res.on('data', chunk => (body += chunk));
-        res.on('end', () => {
-          try {
-            const data = JSON.parse(body);
-            if (data.access_token) {
-              cachedToken = data.access_token;
-              tokenExpiresAt = now + (data.expires_in || 3600);
-              resolve(data.access_token);
-            } else {
-              reject(new Error(`OAuth2 token error: ${body}`));
-            }
-          } catch (e) {
-            reject(e);
-          }
-        });
-      }
-    );
+  const signature = base64UrlEncode(sigBuffer);
+  const jwt = `${signatureInput}.${signature}`;
 
-    req.on('error', reject);
-    req.write(postData);
-    req.end();
+  const bodyParams = new URLSearchParams({
+    grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+    assertion: jwt
   });
+
+  const res = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: bodyParams.toString()
+  });
+
+  const data = await res.json();
+  if (data.access_token) {
+    cachedToken = data.access_token;
+    tokenExpiresAt = now + (data.expires_in || 3600);
+    return data.access_token;
+  }
+
+  throw new Error(`OAuth2 token error: ${JSON.stringify(data)}`);
 }
 
 export async function fetchSpreadsheetValues(
@@ -140,35 +134,20 @@ export async function fetchSpreadsheetValues(
   range: string
 ): Promise<string[][]> {
   const token = await getGoogleAccessToken();
-  return new Promise((resolve, reject) => {
-    const encodedRange = encodeURIComponent(range);
-    const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodedRange}?valueRenderOption=FORMATTED_VALUE`;
+  const encodedRange = encodeURIComponent(range);
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodedRange}?valueRenderOption=FORMATTED_VALUE`;
 
-    https
-      .get(
-        url,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`
-          }
-        },
-        res => {
-          let body = '';
-          res.on('data', chunk => (body += chunk));
-          res.on('end', () => {
-            try {
-              const json = JSON.parse(body);
-              if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
-                resolve(json.values || []);
-              } else {
-                reject(new Error(json.error?.message || `Google Sheets API error: ${body}`));
-              }
-            } catch (e) {
-              reject(e);
-            }
-          });
-        }
-      )
-      .on('error', reject);
+  const res = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
   });
+
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`Google Sheets API error: ${res.status} ${errorText}`);
+  }
+
+  const json = await res.json();
+  return json.values || [];
 }
