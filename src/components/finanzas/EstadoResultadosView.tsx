@@ -429,15 +429,15 @@ export default function EstadoResultadosView() {
         {/* Grouped Table */}
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs whitespace-nowrap">
-            <thead className="bg-slate-100/80 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-800">
+            <thead className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-800">
               <tr>
-                <th className="py-3 px-4 sticky left-0 bg-slate-100 dark:bg-slate-800 z-20 min-w-[260px]">
+                <th className="py-3 px-2.5 sm:px-4 sticky left-0 bg-slate-100 dark:bg-slate-800 z-20 w-[170px] sm:w-[240px] min-w-[170px] sm:min-w-[240px] max-w-[170px] sm:max-w-none border-r border-slate-200 dark:border-slate-700 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
                   Rubro / Concepto
                 </th>
-                <th className="py-3 px-4 text-right min-w-[130px]">Total Mes</th>
-                <th className="py-3 px-3 text-right min-w-[85px]">% Incidencia</th>
+                <th className="py-3 px-2.5 sm:px-4 text-right min-w-[105px] sm:min-w-[130px]">Total Mes</th>
+                <th className="py-3 px-2 sm:px-3 text-right min-w-[70px] sm:min-w-[85px]">% Inc.</th>
                 {matrix.days.map((day, dIdx) => (
-                  <th key={dIdx} className="py-3 px-3 text-right min-w-[90px] font-semibold text-slate-500">
+                  <th key={dIdx} className="py-3 px-2 sm:px-3 text-right min-w-[75px] sm:min-w-[90px] font-semibold text-slate-500">
                     {day}
                   </th>
                 ))}
@@ -456,37 +456,43 @@ export default function EstadoResultadosView() {
                       onClick={() => toggleGroup(group.id)}
                       className={`cursor-pointer transition select-none ${
                         isIngresos
-                          ? 'bg-indigo-50/80 dark:bg-indigo-950/40 text-indigo-950 dark:text-indigo-200 font-bold'
+                          ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-950 dark:text-indigo-200 font-bold hover:bg-indigo-100/70'
                           : isResultados
-                          ? 'bg-emerald-50/90 dark:bg-emerald-950/50 text-emerald-950 dark:text-emerald-200 font-bold'
-                          : 'bg-slate-100/70 dark:bg-slate-800/50 text-slate-900 dark:text-slate-100 font-bold hover:bg-slate-200/60'
+                          ? 'bg-emerald-50 dark:bg-emerald-950/70 text-emerald-950 dark:text-emerald-200 font-bold hover:bg-emerald-100/70'
+                          : 'bg-slate-100 dark:bg-slate-800/80 text-slate-900 dark:text-slate-100 font-bold hover:bg-slate-200/80'
                       }`}
                     >
-                      <td className="py-2.5 px-4 sticky left-0 z-10 bg-inherit border-r border-slate-200/60 dark:border-slate-700/60">
-                        <div className="flex items-center gap-2">
-                          <button className="p-0.5 rounded hover:bg-black/10 transition">
+                      <td className={`py-2.5 px-2.5 sm:px-4 sticky left-0 z-10 w-[170px] sm:w-[240px] min-w-[170px] sm:min-w-[240px] max-w-[170px] sm:max-w-none border-r border-slate-200 dark:border-slate-700 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.12)] ${
+                        isIngresos
+                          ? 'bg-[#eef2ff] dark:bg-[#1e1b4b]'
+                          : isResultados
+                          ? 'bg-[#ecfdf5] dark:bg-[#064e3b]'
+                          : 'bg-[#f1f5f9] dark:bg-[#1e293b]'
+                      }`}>
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <button className="p-0.5 rounded hover:bg-black/10 transition shrink-0">
                             {isCollapsed ? (
-                              <ChevronRight className="w-4 h-4 text-slate-500" />
+                              <ChevronRight className="w-3.5 h-3.5 text-slate-500" />
                             ) : (
-                              <ChevronDown className="w-4 h-4 text-slate-500" />
+                              <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
                             )}
                           </button>
                           <span
                             className="w-2.5 h-2.5 rounded-full shrink-0"
                             style={{ backgroundColor: group.color }}
                           />
-                          <span className="uppercase tracking-wider text-[11px] font-extrabold">
+                          <span className="uppercase tracking-wider text-[11px] font-extrabold truncate" title={group.title}>
                             {group.title}
                           </span>
-                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white/70 dark:bg-slate-900/70 border border-black/5">
+                          <span className="hidden sm:inline-flex text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white dark:bg-slate-900 border border-black/5 shrink-0">
                             {group.rows.length} {group.rows.length === 1 ? 'concepto' : 'conceptos'}
                           </span>
                         </div>
                       </td>
-                      <td className="py-2.5 px-4 text-right font-black">
+                      <td className="py-2.5 px-2.5 sm:px-4 text-right font-black min-w-[105px] sm:min-w-[130px]">
                         {formatCurrency(group.subtotal.total)}
                       </td>
-                      <td className="py-2.5 px-3 text-right text-[11px] text-slate-500">
+                      <td className="py-2.5 px-2 sm:px-3 text-right text-[11px] text-slate-500 min-w-[70px] sm:min-w-[85px]">
                         {kpis.totalFacturacion > 0
                           ? `${((group.subtotal.total / kpis.totalFacturacion) * 100).toFixed(1)}%`
                           : '-'}
@@ -552,14 +558,14 @@ export default function EstadoResultadosView() {
                                 : ''
                             }`}
                           >
-                            <td className="py-2.5 px-4 pl-9 sticky left-0 bg-white dark:bg-slate-900 z-10 text-slate-700 dark:text-slate-300 border-r border-slate-100 dark:border-slate-800 font-medium">
-                              <div className="flex items-center gap-2">
-                                <span className="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600" />
-                                <span>{row.concept}</span>
+                            <td className="py-2.5 px-2.5 sm:px-4 pl-6 sm:pl-9 sticky left-0 bg-white dark:bg-slate-900 z-10 w-[170px] sm:w-[240px] min-w-[170px] sm:min-w-[240px] max-w-[170px] sm:max-w-none text-slate-700 dark:text-slate-300 border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)] font-medium">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <span className="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600 shrink-0" />
+                                <span className="truncate" title={row.concept}>{row.concept}</span>
                               </div>
                             </td>
                             <td
-                              className={`py-2.5 px-4 text-right ${
+                              className={`py-2.5 px-2.5 sm:px-4 text-right ${
                                 isMainUtilidad
                                   ? 'text-emerald-600 font-black text-sm'
                                   : isAcumulado
@@ -569,7 +575,7 @@ export default function EstadoResultadosView() {
                             >
                               {formatCurrency(row.total)}
                             </td>
-                            <td className="py-2.5 px-3 text-right text-slate-400 text-[11px]">
+                            <td className="py-2.5 px-2 sm:px-3 text-right text-slate-400 text-[11px]">
                               {row.pctTot || '-'}
                             </td>
                             {row.dailyValues.map((val, vIdx) => {
