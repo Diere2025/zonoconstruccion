@@ -1871,7 +1871,7 @@ export default function AdminFinanzasPage() {
         </div>
 
         {/* Tab switcher */}
-        <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 shrink-0">
+        <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 overflow-x-auto max-w-full scrollbar-none shrink-0">
           <button
             onClick={() => setActiveTab('flow')}
             className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${

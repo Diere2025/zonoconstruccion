@@ -43,6 +43,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Loader2,
+  FileSpreadsheet,
   Lock
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
@@ -270,7 +271,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       router.replace('/admin/cobros-mp');
     } else if (userRole === 'fletero' && pathname && pathname !== '/admin/cobros-mp') {
       router.replace('/admin/cobros-mp');
-    } else if (userRole === 'administracion' && pathname && !pathname.startsWith('/admin/dashboard') && !pathname.startsWith('/vendedores/pedidos') && pathname !== '/admin/cobros-mp' && pathname !== '/admin/finanzas' && pathname !== '/admin/facturacion-pendiente') {
+    } else if (userRole === 'administracion' && pathname && !pathname.startsWith('/admin/dashboard') && !pathname.startsWith('/vendedores/pedidos') && pathname !== '/admin/cobros-mp' && !pathname.startsWith('/admin/finanzas') && pathname !== '/admin/facturacion-pendiente') {
       router.replace('/admin/cobros-mp');
     } else if (isRestrictedSeller && pathname && pathname !== '/vendedores/presupuestos' && pathname !== '/admin/cobros-mp') {
       router.replace('/vendedores/presupuestos');
@@ -325,6 +326,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       title: "Tesorería y Finanzas",
       links: [
         { name: "Caja Diaria", href: "/vendedores/caja", icon: Wallet },
+        { name: "Estado de Resultados (EERR)", href: "/admin/finanzas/eerr", icon: FileSpreadsheet, adminOnly: true },
         { name: "Administración y Finanzas", href: "/admin/finanzas", icon: Coins, adminOnly: true },
         { name: "Comisiones de Vendedores", href: "/admin/comisiones", icon: Coins, adminOnly: true }
       ]
@@ -495,7 +497,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                     link.href === "/admin/dashboard" ||
                     link.href === "/vendedores/pedidos?client_type=minoristas" ||
                     link.href === "/vendedores/pedidos?list_type=todos&status=Todos&client_type=mayoristas" ||
-                    link.href === "/admin/finanzas" ||
+                    link.href.startsWith("/admin/finanzas") ||
                     link.href === "/admin/facturacion-pendiente"
                   );
                 }
