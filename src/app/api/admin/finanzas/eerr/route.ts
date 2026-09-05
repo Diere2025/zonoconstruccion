@@ -18,7 +18,6 @@ function parseMoney(val: any): number {
   if (!val) return 0;
   let str = val.toString().trim().replace(/[^0-9.,-]/g, '');
   if (!str) return 0;
-  // If format like 44.021.701 or 44.021.701,00
   str = str.replace(/\./g, '').replace(',', '.');
   const num = parseFloat(str);
   return isNaN(num) ? 0 : num;
@@ -51,7 +50,6 @@ export async function GET(request: Request) {
     }
 
     // Days headers: from column index 8 onwards in row 0
-    // Row 0: ["ge", "Concepto", "% Tot", "Ingresos", "Egresos", "% Unit", "", "", "1/9", "2/9", ...]
     const headerRow = values[0] || [];
     const dayHeaders: string[] = [];
     const dayColIndices: number[] = [];
@@ -73,7 +71,6 @@ export async function GET(request: Request) {
       }
     });
 
-    // Helper to get row by keywords
     function findRow(...keywords: string[]): string[] {
       for (const [k, r] of rowsByConcept.entries()) {
         if (keywords.every(kw => k.includes(kw.toLowerCase()))) {
@@ -84,7 +81,6 @@ export async function GET(request: Request) {
     }
 
     const facturacionRow = findRow('facturación');
-    const inversionesRow = findRow('inversiones');
     const costoMercaderiaRow = findRow('costo mercadería') || findRow('mercaderia');
     const publicidadRow = findRow('publicidad') && !findRow('publicidad (fee)') ? findRow('publicidad') : (rowsByConcept.get('publicidad') || []);
     const publicidadFeeRow = findRow('publicidad (fee)') || findRow('fee');
@@ -108,7 +104,7 @@ export async function GET(request: Request) {
     const pctPublicidadRow = findRow('% publicidad');
     const pctCmvRow = findRow('%cmv');
 
-    // Extract Totals and KPIs
+    // Totals
     const totalFacturacion = parseMoney(facturacionRow[3]);
     const totalEgresos = parseMoney(utilidadNetaRow[4]);
     const totalCmv = parseMoney(costoMercaderiaRow[4]);
@@ -166,7 +162,6 @@ export async function GET(request: Request) {
       const pctPubVal = pctPublicidadRow[col] ? parsePercent(pctPublicidadRow[col]) : (facturacion > 0 ? (publicidad / facturacion) * 100 : 0);
       const pctCmvVal = pctCmvRow[col] ? parsePercent(pctCmvRow[col]) : (facturacion > 0 ? (cmv / facturacion) * 100 : 0);
 
-      // Daily total expenses
       let dayExpenses = 0;
       for (let rIdx = 3; rIdx <= 22; rIdx++) {
         dayExpenses += parseMoney(values[rIdx]?.[col]);
@@ -189,22 +184,16 @@ export async function GET(request: Request) {
       };
     });
 
-    // Matrix rows for table view
-    const matrixRows = values.slice(1, 24).map(r => {
-      const concept = (r[1] || '').trim();
+    // Helper to format a single line row
+    function createRow(r: string[], conceptOverride?: string) {
+      if (!r || r.length === 0) return null;
+      const concept = conceptOverride || (r[1] || '').trim();
       const pctTot = (r[2] || '').trim();
       const ingresos = parseMoney(r[3]);
       const egresos = parseMoney(r[4]);
       const pctUnit = (r[5] || '').trim();
-
       const dailyValues = dayColIndices.map(col => parseMoney(r[col]));
-
-      let categoryType = 'gasto';
-      if (concept.toLowerCase().includes('facturación')) categoryType = 'ingreso';
-      else if (concept.toLowerCase().includes('mercadería') || concept.toLowerCase().includes('insumo')) categoryType = 'costo_directo';
-      else if (concept.toLowerCase().includes('publicidad') || concept.toLowerCase().includes('flete')) categoryType = 'comercial';
-      else if (concept.toLowerCase().includes('sueldos') || concept.toLowerCase().includes('alquileres') || concept.toLowerCase().includes('honorarios')) categoryType = 'fijo';
-      else if (concept.toLowerCase().includes('iibb') || concept.toLowerCase().includes('iigg')) categoryType = 'impuesto';
+      const total = ingresos > 0 ? ingresos : egresos;
 
       return {
         concept,
@@ -212,11 +201,183 @@ export async function GET(request: Request) {
         ingresos,
         egresos,
         pctUnit,
-        total: ingresos > 0 ? ingresos : egresos,
-        type: categoryType,
+        total,
         dailyValues
       };
-    }).filter(r => r.concept && (r.ingresos > 0 || r.egresos > 0 || r.concept.toLowerCase().includes('facturación')));
+    }
+
+    // Helper to sum daily values across multiple rows
+    function sumDaily(rows: (any | null)[]): number[] {
+      const validRows = rows.filter(Boolean);
+      return dayColIndices.map((_, idx) => {
+        return validRows.reduce((acc, r) => acc + (r.dailyValues[idx] || 0), 0);
+      });
+    }
+
+    // STRUCTURED & LOGICAL GROUPS
+    // 1. Ingresos
+    const rowFacturacion = createRow(facturacionRow);
+
+    // 2. Costos Directos & Mercadería (CMV, Insumo de Producto, Insumo GLP)
+    const rowCmv = createRow(costoMercaderiaRow);
+    const rowInsumoProd = createRow(insumoProdRow);
+    const rowInsumoGlp = createRow(insumoGlpRow);
+    const directCostRows = [rowCmv, rowInsumoProd, rowInsumoGlp].filter(Boolean);
+    const subtotalDirectCost = {
+      total: directCostRows.reduce((acc, r) => acc + (r?.total || 0), 0),
+      dailyValues: sumDaily(directCostRows)
+    };
+
+    // 3. Marketing & Comercial (Publicidad, Publicidad Fee, Costos MercadoPago)
+    const rowPub = createRow(publicidadRow);
+    const rowPubFee = createRow(publicidadFeeRow);
+    const rowMp = createRow(mpRow);
+    const marketingRows = [rowPub, rowPubFee, rowMp].filter(Boolean);
+    const subtotalMarketing = {
+      total: marketingRows.reduce((acc, r) => acc + (r?.total || 0), 0),
+      dailyValues: sumDaily(marketingRows)
+    };
+
+    // 4. Logística y Distribución (Servicio de Flete, Peajes, Vehículos)
+    const rowFlete = createRow(fleteRow);
+    const rowPeajes = createRow(peajesRow);
+    const rowVehiculos = createRow(vehiculosRow);
+    const logisticsRows = [rowFlete, rowPeajes, rowVehiculos].filter(Boolean);
+    const subtotalLogistics = {
+      total: logisticsRows.reduce((acc, r) => acc + (r?.total || 0), 0),
+      dailyValues: sumDaily(logisticsRows)
+    };
+
+    // 5. Estructura y Personal (Sueldos, Honorarios, Alquileres)
+    const rowSueldos = createRow(sueldosRow);
+    const rowHonorarios = createRow(honorariosRow);
+    const rowAlquileres = createRow(alquileresRow);
+    const structureRows = [rowSueldos, rowHonorarios, rowAlquileres].filter(Boolean);
+    const subtotalStructure = {
+      total: structureRows.reduce((acc, r) => acc + (r?.total || 0), 0),
+      dailyValues: sumDaily(structureRows)
+    };
+
+    // 6. Gastos Operativos y Generales (Gastos Operativos Zono, Eventuales)
+    const rowOperativos = createRow(operativosRow);
+    const rowEventuales = createRow(eventualesRow);
+    const operationalRows = [rowOperativos, rowEventuales].filter(Boolean);
+    const subtotalOperational = {
+      total: operationalRows.reduce((acc, r) => acc + (r?.total || 0), 0),
+      dailyValues: sumDaily(operationalRows)
+    };
+
+    // 7. Impuestos
+    const rowImpuestos = createRow(impuestosRow);
+    const taxRows = [rowImpuestos].filter(Boolean);
+    const subtotalTax = {
+      total: taxRows.reduce((acc, r) => acc + (r?.total || 0), 0),
+      dailyValues: sumDaily(taxRows)
+    };
+
+    // 8. Resultados
+    const rowUtilidadNeta = {
+      concept: 'Utilidad Neta dsp de Impuestos',
+      pctTot: totalFacturacion > 0 ? `${((utilidadNetaActual / totalFacturacion) * 100).toFixed(2)}%` : '0%',
+      ingresos: totalFacturacion,
+      egresos: totalEgresos,
+      pctUnit: '',
+      total: utilidadNetaActual, // Correct actual net profit!
+      dailyValues: dayColIndices.map(col => parseMoney(utilidadNetaRow[col]))
+    };
+
+    const rowAcumulado = {
+      concept: 'Utilidad Neta Acumulada',
+      pctTot: '-',
+      ingresos: 0,
+      egresos: 0,
+      pctUnit: '',
+      total: utilidadNetaActual,
+      dailyValues: dayColIndices.map(col => parseMoney(actualRow[col]) || parseMoney(values[24]?.[col]))
+    };
+
+    const rowContribucion = {
+      concept: 'Contribución Marginal',
+      pctTot: totalFacturacion > 0 ? `${(((totalFacturacion - subtotalDirectCost.total) / totalFacturacion) * 100).toFixed(2)}%` : '0%',
+      ingresos: 0,
+      egresos: 0,
+      pctUnit: '',
+      total: totalFacturacion - subtotalDirectCost.total,
+      dailyValues: dayColIndices.map(col => parseMoney(contribucionRow[col]))
+    };
+
+    const groups = [
+      {
+        id: 'ingresos',
+        title: '1. Ingresos Operativos',
+        badge: 'Facturación',
+        color: '#4f46e5', // indigo
+        subtotal: {
+          total: totalFacturacion,
+          dailyValues: rowFacturacion ? rowFacturacion.dailyValues : []
+        },
+        rows: [rowFacturacion].filter(Boolean)
+      },
+      {
+        id: 'costos_directos',
+        title: '2. Costos de Mercadería e Insumos (CMV)',
+        badge: 'Costos Directos',
+        color: '#2563eb', // blue
+        subtotal: subtotalDirectCost,
+        rows: directCostRows
+      },
+      {
+        id: 'logistica',
+        title: '3. Logística y Distribución',
+        badge: 'Flete y Peajes',
+        color: '#d97706', // amber
+        subtotal: subtotalLogistics,
+        rows: logisticsRows
+      },
+      {
+        id: 'marketing',
+        title: '4. Comercial, Marketing y Pasarelas',
+        badge: 'Publicidad y Pagos',
+        color: '#dc2626', // red
+        subtotal: subtotalMarketing,
+        rows: marketingRows
+      },
+      {
+        id: 'estructura',
+        title: '5. Estructura y Recursos Humanos',
+        badge: 'Sueldos y Alquiler',
+        color: '#7c3aed', // purple
+        subtotal: subtotalStructure,
+        rows: structureRows
+      },
+      {
+        id: 'operativos',
+        title: '6. Gastos Operativos y Generales',
+        badge: 'Operativos',
+        color: '#475569', // slate
+        subtotal: subtotalOperational,
+        rows: operationalRows
+      },
+      {
+        id: 'impuestos',
+        title: '7. Impuestos y Gravámenes',
+        badge: 'Impuestos',
+        color: '#0d9488', // teal
+        subtotal: subtotalTax,
+        rows: taxRows
+      },
+      {
+        id: 'resultados',
+        title: '8. Rentabilidad y Resultados Finales',
+        badge: 'P&L',
+        color: '#059669', // emerald
+        subtotal: {
+          total: utilidadNetaActual,
+          dailyValues: rowUtilidadNeta.dailyValues
+        },
+        rows: [rowUtilidadNeta, rowAcumulado, rowContribucion]
+      }
+    ];
 
     const result = {
       success: true,
@@ -245,7 +406,7 @@ export async function GET(request: Request) {
       dailyTimeline,
       matrix: {
         days: dayHeaders,
-        rows: matrixRows
+        groups
       }
     };
 
