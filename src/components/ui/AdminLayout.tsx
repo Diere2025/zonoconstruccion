@@ -227,17 +227,12 @@ export function AdminLayout({ children }: AdminLayoutProps) {
 
           const nameLower = (seller?.full_name || "").toLowerCase();
           detectedRestricted = !isAdminUser && (
-            emailLower.includes("jazmin") || 
-            emailLower.includes("jazmín") || 
-            nameLower.includes("jazmin") || 
-            nameLower.includes("jazmín") || 
             emailLower.includes("ludmila") ||
             emailLower.includes("ludmilakrenz") ||
             nameLower.includes("ludmila") ||
             emailLower.includes("facundo") ||
             emailLower.includes("facundopaz") ||
             nameLower.includes("facundo") ||
-            user.id === "13430e05-b61a-4a3f-9fc3-152d377c4b0c" || // Jazmin
             user.id === "8207801b-b6cb-48cc-af0f-d2f9f2c98032" ||   // Ludmila
             user.id === "4c9b5ed0-3946-4df6-b4d5-3bdc9b1a6c7f" ||   // Ludmila Auth
             user.id === "3820a0fe-bb0a-4a84-ad85-79e49868cad7"    // Facundo Paz
