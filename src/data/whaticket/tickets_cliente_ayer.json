@@ -1,0 +1,4420 @@
+[
+  {
+    "id": "fcb0cf1b-be33-48d1-b25e-5e0a4c195dc2",
+    "status": "open",
+    "unreadMessages": 1,
+    "lastMessage": "Por el momento no",
+    "protocolNumber": "xcMYaZEXarV3yufEHPkGsW",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-05T17:40:41.025Z",
+    "closedAt": "2026-09-05T19:03:18.176Z",
+    "lastReceivedMessageAt": "2026-09-06T01:11:07.837Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "f0a483e6-76f8-45c5-a150-a59adfc83782",
+    "connectionId": "d28f98ad-f938-4e5c-9df4-d12fba4ac0c2",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-09-05T17:39:56.837Z",
+    "updatedAt": "2026-09-06T01:11:07.892Z",
+    "contact": {
+      "id": "f0a483e6-76f8-45c5-a150-a59adfc83782",
+      "name": "Konny Amaya.Gral Rodriguez",
+      "number": "5491126597071",
+      "whatsappUserId": "32354559127778",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "f0a483e6-76f8-45c5-a150-a59adfc83782",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-03T14:11:38.639Z",
+            "updatedAt": "2026-09-03T14:11:38.639Z"
+          }
+        },
+        {
+          "name": "Linea Termotanque",
+          "color": "#64a420",
+          "id": "966f0508-6068-47e6-a769-fa622530ef84",
+          "ContactTag": {
+            "contactId": "f0a483e6-76f8-45c5-a150-a59adfc83782",
+            "tagId": "966f0508-6068-47e6-a769-fa622530ef84",
+            "createdAt": "2026-09-03T14:11:44.481Z",
+            "updatedAt": "2026-09-03T14:11:44.481Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "53977ba2-2cba-4eea-a576-47a73057b066",
+        "createdAt": "2026-09-06T01:11:07.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "30fac0fe-3f71-44d5-b6b3-e4ccc5dc5a0c",
+    "status": "open",
+    "unreadMessages": 0,
+    "lastMessage": "Nos dio las entre calles pero no la direccion de entrega",
+    "protocolNumber": "73N95Ke8w3P73diYy54vro",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-05T12:31:16.550Z",
+    "closedAt": null,
+    "lastReceivedMessageAt": "2026-09-05T21:30:04.903Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "71de13e7-7d38-49f7-87a0-b0a1e6499b9a",
+    "connectionId": "498d7a35-58fa-41b5-93c0-6dce14a1e58e",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-09-05T08:44:07.979Z",
+    "updatedAt": "2026-09-05T21:30:31.685Z",
+    "contact": {
+      "id": "71de13e7-7d38-49f7-87a0-b0a1e6499b9a",
+      "name": "Nazareno Aguirre. Cañuelas",
+      "number": "5492226626169",
+      "whatsappUserId": "13731161448700",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "71de13e7-7d38-49f7-87a0-b0a1e6499b9a",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-05T20:40:56.539Z",
+            "updatedAt": "2026-09-05T20:40:56.539Z"
+          }
+        },
+        {
+          "name": "Linea Tanques Gris",
+          "color": "#64a420",
+          "id": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+          "ContactTag": {
+            "contactId": "71de13e7-7d38-49f7-87a0-b0a1e6499b9a",
+            "tagId": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+            "createdAt": "2026-09-05T12:31:32.306Z",
+            "updatedAt": "2026-09-05T12:31:32.306Z"
+          }
+        },
+        {
+          "name": "Nuevo cliente",
+          "color": "#ffef62",
+          "id": "b3517546-9e8f-4696-a86f-a03a45d5a92b",
+          "ContactTag": {
+            "contactId": "71de13e7-7d38-49f7-87a0-b0a1e6499b9a",
+            "tagId": "b3517546-9e8f-4696-a86f-a03a45d5a92b",
+            "createdAt": "2026-09-05T20:40:57.668Z",
+            "updatedAt": "2026-09-05T20:40:57.668Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "3be99545-042f-4a59-8a25-9896e20edbad",
+        "createdAt": "2026-09-05T08:43:59.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "cabecd79-19a0-41cb-bd71-f78dd25be65d",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "✅ *Todo listo! Tu reserva ya está confirmada.* 🚚\n\n*Próximos pasos:*\n▪️ El día previo a la entrega te vamos a estar avisando el rango horario exacto.\n▪️ Al recibirlo, chequeá que el exterior esté impecable.\n\nGracias por confiar en *Zono*. 🙌 Te invito a agendar mi número para ver nuestros sorteos en los estados. Si a futuro necesitás algo más de nuestro catálogo escribinos directamente.\n\nQue lo disfrutes! - _Jazmin y equipo Zono._",
+    "protocolNumber": "r35C6oRRg56RFiPZj7khPx",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-05T20:09:04.854Z",
+    "closedAt": "2026-09-05T21:25:20.737Z",
+    "lastReceivedMessageAt": "2026-09-05T20:44:28.856Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "0987c7e7-f6d1-43d6-81ff-8c5a43d5646d",
+    "connectionId": "498d7a35-58fa-41b5-93c0-6dce14a1e58e",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-09-05T20:05:39.159Z",
+    "updatedAt": "2026-09-05T21:25:20.738Z",
+    "contact": {
+      "id": "0987c7e7-f6d1-43d6-81ff-8c5a43d5646d",
+      "name": "Alejandro Perez.CABA ",
+      "number": "5491165064837",
+      "whatsappUserId": "233530374267094",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "0987c7e7-f6d1-43d6-81ff-8c5a43d5646d",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-05T20:44:51.452Z",
+            "updatedAt": "2026-09-05T20:44:51.452Z"
+          }
+        },
+        {
+          "name": "Linea Tanques Gris",
+          "color": "#64a420",
+          "id": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+          "ContactTag": {
+            "contactId": "0987c7e7-f6d1-43d6-81ff-8c5a43d5646d",
+            "tagId": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+            "createdAt": "2026-09-05T20:09:15.798Z",
+            "updatedAt": "2026-09-05T20:09:15.798Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "bd83b55c-dbd8-4585-bdd4-e81cd7f5c1fe",
+        "createdAt": "2026-09-05T20:05:38.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "d3b1b89e-5d46-4820-a818-05e3e00a2c34",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "👍🏻",
+    "protocolNumber": "s9b1i5fBnXajSJ62aZgHoL",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-08-31T20:51:37.623Z",
+    "closedAt": "2026-09-05T21:23:38.397Z",
+    "lastReceivedMessageAt": "2026-09-05T20:07:50.682Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "106e8a65-899a-4d18-b8bd-92be8c62d64a",
+    "connectionId": "3c4572a7-97fa-4c51-968b-d8ce4ce053b2",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-08-31T20:50:24.072Z",
+    "updatedAt": "2026-09-05T21:23:38.398Z",
+    "contact": {
+      "id": "106e8a65-899a-4d18-b8bd-92be8c62d64a",
+      "name": "Luli Ruiz.City Bell ",
+      "number": "5492216912332",
+      "whatsappUserId": "232362109624414",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "https://pps.whatsapp.net/v/t61.24694-24/611223333_2352440308527155_4287773573157505008_n.jpg?stp=dst-jpg_s96x96_tt6&ccb=11-4&oh=01_Q5Aa5gEq9Khj7Usif6qqaOe7ai4NYbKQKg4oQ2zlYmlf0YQp2A&oe=6AA95B34&_nc_sid=5e03e0&_nc_cat=102",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "106e8a65-899a-4d18-b8bd-92be8c62d64a",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-01T12:05:52.745Z",
+            "updatedAt": "2026-09-01T12:05:52.745Z"
+          }
+        },
+        {
+          "name": "Linea Tanques Gris",
+          "color": "#64a420",
+          "id": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+          "ContactTag": {
+            "contactId": "106e8a65-899a-4d18-b8bd-92be8c62d64a",
+            "tagId": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+            "createdAt": "2026-08-31T20:51:48.577Z",
+            "updatedAt": "2026-08-31T20:51:48.577Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "2d811ab1-9f05-4841-9ffe-6c3b79708161",
+        "createdAt": "2026-09-05T19:44:57.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "80bda5b9-b491-4c8f-b275-53e7fc0e9325",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "A vos\"!",
+    "protocolNumber": "gU451A9BZoKfgys34FJpDF",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-05T12:45:31.039Z",
+    "closedAt": "2026-09-05T21:22:51.415Z",
+    "lastReceivedMessageAt": "2026-09-05T19:27:17.583Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "e52a844b-a68b-4757-93fd-45c3e9266302",
+    "connectionId": "498d7a35-58fa-41b5-93c0-6dce14a1e58e",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-09-05T11:25:04.739Z",
+    "updatedAt": "2026-09-05T21:22:51.415Z",
+    "contact": {
+      "id": "e52a844b-a68b-4757-93fd-45c3e9266302",
+      "name": "Jonathan Alvarez.Laferrere",
+      "number": "5491155841824",
+      "whatsappUserId": "146922409074720",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "e52a844b-a68b-4757-93fd-45c3e9266302",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-05T19:26:56.518Z",
+            "updatedAt": "2026-09-05T19:26:56.518Z"
+          }
+        },
+        {
+          "name": "Linea Tanques Gris",
+          "color": "#64a420",
+          "id": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+          "ContactTag": {
+            "contactId": "e52a844b-a68b-4757-93fd-45c3e9266302",
+            "tagId": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+            "createdAt": "2026-09-05T12:45:40.818Z",
+            "updatedAt": "2026-09-05T12:45:40.818Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "10b49c81-3543-4c12-a3b1-2796d09a4ec3",
+        "createdAt": "2026-09-05T11:25:03.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "d6e13f27-bffa-4904-9e69-278e9e020267",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "Gracias a vos!",
+    "protocolNumber": "swZjUSumVA3duSVcThz6uk",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-05T16:37:41.653Z",
+    "closedAt": "2026-09-05T21:20:28.230Z",
+    "lastReceivedMessageAt": "2026-09-05T18:54:09.952Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "68ee8a8e-6e75-4d7f-abfb-b3271bef09fb",
+    "connectionId": "498d7a35-58fa-41b5-93c0-6dce14a1e58e",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-09-05T16:08:38.359Z",
+    "updatedAt": "2026-09-05T21:20:28.230Z",
+    "contact": {
+      "id": "68ee8a8e-6e75-4d7f-abfb-b3271bef09fb",
+      "name": "Vitalia Urbano.Casanova",
+      "number": "5491139031090",
+      "whatsappUserId": "194863102451732",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "68ee8a8e-6e75-4d7f-abfb-b3271bef09fb",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-05T18:52:48.432Z",
+            "updatedAt": "2026-09-05T18:52:48.432Z"
+          }
+        },
+        {
+          "name": "Linea Tanques Gris",
+          "color": "#64a420",
+          "id": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+          "ContactTag": {
+            "contactId": "68ee8a8e-6e75-4d7f-abfb-b3271bef09fb",
+            "tagId": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+            "createdAt": "2026-09-05T16:37:54.396Z",
+            "updatedAt": "2026-09-05T16:37:54.396Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "1f912ccb-4da8-4e91-893d-caeeb5d9b2e2",
+        "createdAt": "2026-09-05T16:08:37.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "4115074c-93ea-4152-9949-c27a053e1e76",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "Gracias a vos!",
+    "protocolNumber": "938c5Y5cyzemc4baQ5upys",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-01T12:13:08.143Z",
+    "closedAt": "2026-09-05T21:18:04.228Z",
+    "lastReceivedMessageAt": "2026-09-05T18:43:02.812Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "0d97d320-22eb-4955-ae1e-df34d3980624",
+    "connectionId": "498d7a35-58fa-41b5-93c0-6dce14a1e58e",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-09-01T02:42:26.047Z",
+    "updatedAt": "2026-09-05T21:18:04.228Z",
+    "contact": {
+      "id": "0d97d320-22eb-4955-ae1e-df34d3980624",
+      "name": "Sara Taborda.Palomar ",
+      "number": "5491170367531",
+      "whatsappUserId": "171051384357063",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "0d97d320-22eb-4955-ae1e-df34d3980624",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-05T18:42:11.681Z",
+            "updatedAt": "2026-09-05T18:42:11.681Z"
+          }
+        },
+        {
+          "name": "Linea Tanques Gris",
+          "color": "#64a420",
+          "id": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+          "ContactTag": {
+            "contactId": "0d97d320-22eb-4955-ae1e-df34d3980624",
+            "tagId": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+            "createdAt": "2026-09-05T18:47:50.299Z",
+            "updatedAt": "2026-09-05T18:47:50.299Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "a6966edf-2ba5-4348-ba54-450ad9b604ce",
+        "createdAt": "2026-09-01T02:42:25.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "5e164b97-0f10-444d-9763-6efb582c0ecc",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "✅ *Todo listo! Tu reserva ya está confirmada.* 🚚\n\n*Próximos pasos:*\n▪️ El día previo a la entrega te vamos a estar avisando el rango horario exacto.\n▪️ Al recibirlo, chequeá que el exterior esté impecable.\n\nGracias por confiar en *Zono*. 🙌 Te invito a agendar mi número para ver nuestros sorteos en los estados. Si a futuro necesitás algo más de nuestro catálogo escribinos directamente.\n\nQue lo disfrutes! - _Jazmin y equipo Zono._",
+    "protocolNumber": "cBRSTGRvJYqXcNUvhzb155",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-08-10T13:34:44.234Z",
+    "closedAt": "2026-09-05T21:15:22.573Z",
+    "lastReceivedMessageAt": "2026-09-05T18:30:27.389Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "conversationExpiration": "2026-08-25T15:46:37.000Z",
+      "isAutoResolveScheduled": false,
+      "conversationRecipientType": "number"
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "fe9553a3-0b69-402f-8f01-8d066e5e0e99",
+    "connectionId": "3c4572a7-97fa-4c51-968b-d8ce4ce053b2",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-08-10T13:17:05.566Z",
+    "updatedAt": "2026-09-05T21:15:22.573Z",
+    "contact": {
+      "id": "fe9553a3-0b69-402f-8f01-8d066e5e0e99",
+      "name": "Bernabe Alvarez.Manuel Alberti ",
+      "number": "5491140296796",
+      "whatsappUserId": "52342850347120",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "https://pps.whatsapp.net/v/t61.24694-24/534425698_885240100605241_5409539446827003293_n.jpg?stp=dst-jpg_s96x96_tt6&ccb=11-4&oh=01_Q5Aa5gFKpbYdKSj-TQfInMI6j6Air21su8mXMmYVwOOqjpgZSQ&oe=6AA91DEA&_nc_sid=5e03e0&_nc_cat=104",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "fe9553a3-0b69-402f-8f01-8d066e5e0e99",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-05T18:38:54.883Z",
+            "updatedAt": "2026-09-05T18:38:54.883Z"
+          }
+        },
+        {
+          "name": "Linea Tanques Gris",
+          "color": "#64a420",
+          "id": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+          "ContactTag": {
+            "contactId": "fe9553a3-0b69-402f-8f01-8d066e5e0e99",
+            "tagId": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+            "createdAt": "2026-08-11T02:02:44.908Z",
+            "updatedAt": "2026-08-11T02:02:44.908Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "413d9d65-c398-4a15-8c1e-275eb1cbb917",
+        "createdAt": "2026-09-05T11:57:40.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "204b6d69-e733-47e8-af77-250dfc96f879",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "No hay problema!",
+    "protocolNumber": "4ZieaFZNUip9yZkJ7aGq3n",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-08-19T19:51:31.622Z",
+    "closedAt": "2026-09-05T21:12:15.117Z",
+    "lastReceivedMessageAt": "2026-09-05T18:09:26.755Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "f30e9ec9-ddc2-4d5d-85df-3db2b7f879e1",
+    "connectionId": "498d7a35-58fa-41b5-93c0-6dce14a1e58e",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-08-19T19:48:25.218Z",
+    "updatedAt": "2026-09-05T21:12:15.117Z",
+    "contact": {
+      "id": "f30e9ec9-ddc2-4d5d-85df-3db2b7f879e1",
+      "name": "Julio Perazzo.Gerli ",
+      "number": "5491161768627",
+      "whatsappUserId": "15908676309027",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "f30e9ec9-ddc2-4d5d-85df-3db2b7f879e1",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-05T16:58:56.895Z",
+            "updatedAt": "2026-09-05T16:58:56.895Z"
+          }
+        },
+        {
+          "name": "Linea Tanques Gris",
+          "color": "#64a420",
+          "id": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+          "ContactTag": {
+            "contactId": "f30e9ec9-ddc2-4d5d-85df-3db2b7f879e1",
+            "tagId": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+            "createdAt": "2026-08-21T19:11:06.118Z",
+            "updatedAt": "2026-08-21T19:11:06.118Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "a377407a-fa56-411a-a12a-cb366e4c4aad",
+        "createdAt": "2026-09-05T14:51:30.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "01aaadc6-6a92-4ad4-87b1-84660715cc07",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "✅ *Todo listo! Tu reserva ya está confirmada.* 🚚\n\n*Próximos pasos:*\n▪️ El día previo a la entrega te vamos a estar avisando el rango horario exacto.\n▪️ Al recibirlo, chequeá que el exterior esté impecable.\n\nGracias por confiar en *Zono*. 🙌 Te invito a agendar mi número para ver nuestros sorteos en los estados. Si a futuro necesitás algo más de nuestro catálogo escribinos directamente.\n\nQue lo disfrutes! - _Jazmin y equipo Zono._",
+    "protocolNumber": "1cWmzyJQSnaGhueR2TmVKD",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-05T13:17:44.877Z",
+    "closedAt": "2026-09-05T21:09:11.103Z",
+    "lastReceivedMessageAt": "2026-09-05T17:41:10.519Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "dde559da-cab2-4c02-bee4-a07dca6adc2a",
+    "connectionId": "498d7a35-58fa-41b5-93c0-6dce14a1e58e",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-09-05T12:53:42.968Z",
+    "updatedAt": "2026-09-05T21:09:11.103Z",
+    "contact": {
+      "id": "dde559da-cab2-4c02-bee4-a07dca6adc2a",
+      "name": "Nazareno Alderete.Solano ",
+      "number": "5491162459923",
+      "whatsappUserId": "259536451538971",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "dde559da-cab2-4c02-bee4-a07dca6adc2a",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-05T17:54:05.176Z",
+            "updatedAt": "2026-09-05T17:54:05.176Z"
+          }
+        },
+        {
+          "name": "Linea Tanques Gris",
+          "color": "#64a420",
+          "id": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+          "ContactTag": {
+            "contactId": "dde559da-cab2-4c02-bee4-a07dca6adc2a",
+            "tagId": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+            "createdAt": "2026-09-05T13:17:54.736Z",
+            "updatedAt": "2026-09-05T13:17:54.736Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "6a949621-bc8b-4d44-9a10-d43541bb2db3",
+        "createdAt": "2026-09-05T12:53:42.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "52589d94-53bc-42a4-ab2a-bb5e6899d37c",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "https://zono.com.ar/#productos",
+    "protocolNumber": "baLFrrPXwXkiMeS1XxCjwY",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-05T12:30:02.945Z",
+    "closedAt": "2026-09-05T21:05:36.440Z",
+    "lastReceivedMessageAt": "2026-09-05T17:35:41.375Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "c312ba08-d5c1-4dd6-8148-7e1363981158",
+    "connectionId": "498d7a35-58fa-41b5-93c0-6dce14a1e58e",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-09-05T06:54:22.879Z",
+    "updatedAt": "2026-09-05T21:05:36.440Z",
+    "contact": {
+      "id": "c312ba08-d5c1-4dd6-8148-7e1363981158",
+      "name": "Francisco Mostacedo.Los Hornos",
+      "number": "5492215759804",
+      "whatsappUserId": "107292896841810",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "c312ba08-d5c1-4dd6-8148-7e1363981158",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-05T14:52:04.419Z",
+            "updatedAt": "2026-09-05T14:52:04.419Z"
+          }
+        },
+        {
+          "name": "Linea Termotanque",
+          "color": "#64a420",
+          "id": "966f0508-6068-47e6-a769-fa622530ef84",
+          "ContactTag": {
+            "contactId": "c312ba08-d5c1-4dd6-8148-7e1363981158",
+            "tagId": "966f0508-6068-47e6-a769-fa622530ef84",
+            "createdAt": "2026-09-05T12:30:09.873Z",
+            "updatedAt": "2026-09-05T12:30:09.873Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "9f73ccd5-7a41-4e4a-83fd-a7e3f1ad0adf",
+        "createdAt": "2026-09-05T06:54:21.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "83c0da86-5563-49a9-b340-ac963fbb88c4",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "A vos!",
+    "protocolNumber": "hgCtxPss93j7m2jzdpQpwd",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-05T12:41:46.355Z",
+    "closedAt": "2026-09-05T21:03:26.348Z",
+    "lastReceivedMessageAt": "2026-09-05T17:35:41.687Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "909f7098-2185-47bd-bb7f-165ff1d39954",
+    "connectionId": "498d7a35-58fa-41b5-93c0-6dce14a1e58e",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-09-05T10:48:18.473Z",
+    "updatedAt": "2026-09-05T21:03:26.348Z",
+    "contact": {
+      "id": "909f7098-2185-47bd-bb7f-165ff1d39954",
+      "name": "Daniel Galinger .Escobar ",
+      "number": "5491166743397",
+      "whatsappUserId": "139023897067654",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "https://pps.whatsapp.net/v/t61.24694-24/731478199_1342216930652815_2054800602972155274_n.jpg?stp=dst-jpg_s96x96_tt6&ccb=11-4&oh=01_Q5Aa5gGR-V_XWdHaRyuLJ6DP_SrR6W7sz4kuHPEIt_JtM72SXQ&oe=6AA91FBE&_nc_sid=5e03e0&_nc_cat=101",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "909f7098-2185-47bd-bb7f-165ff1d39954",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-05T17:35:31.684Z",
+            "updatedAt": "2026-09-05T17:35:31.684Z"
+          }
+        },
+        {
+          "name": "Linea Termotanque",
+          "color": "#64a420",
+          "id": "966f0508-6068-47e6-a769-fa622530ef84",
+          "ContactTag": {
+            "contactId": "909f7098-2185-47bd-bb7f-165ff1d39954",
+            "tagId": "966f0508-6068-47e6-a769-fa622530ef84",
+            "createdAt": "2026-09-05T12:41:52.515Z",
+            "updatedAt": "2026-09-05T12:41:52.515Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "3c790e7f-f10e-4c49-ba7b-27049f4aca3b",
+        "createdAt": "2026-09-05T10:48:17.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "59ea6502-9f06-4d3a-a6d1-6518b5f54dd8",
+    "status": "open",
+    "unreadMessages": 1,
+    "lastMessage": "Dale bueno ellos me constatara...",
+    "protocolNumber": "c6Z3ambtYpgPDHTFqpNj2W",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-05T16:07:21.110Z",
+    "closedAt": "2026-09-05T20:54:19.547Z",
+    "lastReceivedMessageAt": "2026-09-05T21:01:44.393Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "003cf528-5ce8-4609-b7f9-9f2e1333e146",
+    "connectionId": "498d7a35-58fa-41b5-93c0-6dce14a1e58e",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-09-05T16:01:42.425Z",
+    "updatedAt": "2026-09-05T21:01:44.432Z",
+    "contact": {
+      "id": "003cf528-5ce8-4609-b7f9-9f2e1333e146",
+      "name": "Diego Gimenez.Varela ",
+      "number": "5491122676139",
+      "whatsappUserId": "62114253295730",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "003cf528-5ce8-4609-b7f9-9f2e1333e146",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-05T19:05:42.905Z",
+            "updatedAt": "2026-09-05T19:05:42.905Z"
+          }
+        },
+        {
+          "name": "Linea Kit Biodigestor",
+          "color": "#64a420",
+          "id": "8c9a059e-b5c5-4d16-acb5-6ae266b8c987",
+          "ContactTag": {
+            "contactId": "003cf528-5ce8-4609-b7f9-9f2e1333e146",
+            "tagId": "8c9a059e-b5c5-4d16-acb5-6ae266b8c987",
+            "createdAt": "2026-09-05T16:07:30.415Z",
+            "updatedAt": "2026-09-05T16:07:30.415Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "5b5c97aa-fdf9-4c74-a01a-1173bfeed300",
+        "createdAt": "2026-09-05T16:01:41.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "0d1e9102-748d-4a65-9174-8dce2eb7b1b6",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "✅ *Todo listo! Tu reserva ya está confirmada.* 🚚\n\n*Próximos pasos:*\n▪️ El día previo a la entrega te vamos a estar avisando el rango horario exacto.\n▪️ Al recibirlo, chequeá que el exterior esté impecable.\n\nGracias por confiar en *Zono*. 🙌 Te invito a agendar mi número para ver nuestros sorteos en los estados. Si a futuro necesitás algo más de nuestro catálogo escribinos directamente.\n\nQue lo disfrutes! - _Jazmin y equipo Zono._",
+    "protocolNumber": "2BXP97FBEozY2HjHp2A4Mq",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-04T20:49:24.460Z",
+    "closedAt": "2026-09-05T21:00:11.617Z",
+    "lastReceivedMessageAt": "2026-09-05T17:26:26.412Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "9c1c3ecd-1e8b-4ab1-9ac7-585e450b0f43",
+    "connectionId": "498d7a35-58fa-41b5-93c0-6dce14a1e58e",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-09-04T20:38:17.968Z",
+    "updatedAt": "2026-09-05T21:00:11.617Z",
+    "contact": {
+      "id": "9c1c3ecd-1e8b-4ab1-9ac7-585e450b0f43",
+      "name": "Celeste Mosnak.Villa La Florida",
+      "number": "5491134293627",
+      "whatsappUserId": "124142288400524",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "9c1c3ecd-1e8b-4ab1-9ac7-585e450b0f43",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-05T17:39:10.261Z",
+            "updatedAt": "2026-09-05T17:39:10.261Z"
+          }
+        },
+        {
+          "name": "Linea Tanques Gris",
+          "color": "#64a420",
+          "id": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+          "ContactTag": {
+            "contactId": "9c1c3ecd-1e8b-4ab1-9ac7-585e450b0f43",
+            "tagId": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+            "createdAt": "2026-09-04T20:49:51.035Z",
+            "updatedAt": "2026-09-04T20:49:51.035Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "465ca076-6032-4182-8142-da51e6aa655c",
+        "createdAt": "2026-09-04T20:38:16.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "3ed60244-5cad-460c-80d0-03b987d99f60",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "🎤 - Audio",
+    "protocolNumber": "8L38vEuyRLJkm1gXeaR2E9",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-08-31T15:51:50.893Z",
+    "closedAt": "2026-09-05T20:46:37.113Z",
+    "lastReceivedMessageAt": "2026-09-05T20:44:09.767Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "706e1a41-5c80-484a-b293-5f10d2594e06",
+    "connectionId": "498d7a35-58fa-41b5-93c0-6dce14a1e58e",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-08-31T15:20:08.278Z",
+    "updatedAt": "2026-09-05T20:46:37.113Z",
+    "contact": {
+      "id": "706e1a41-5c80-484a-b293-5f10d2594e06",
+      "name": "Paula Colombres.San Miguel ",
+      "number": "5491160931292",
+      "whatsappUserId": "183678739157207",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "https://pps.whatsapp.net/v/t61.24694-24/358742619_351700524401013_7979219522710603181_n.jpg?stp=dst-jpg_s96x96_tt6&ccb=11-4&oh=01_Q5Aa5gHnls99pCKsgY4zhrcJbg4FR9Xtvkn4QEM6UKXQbxu2bw&oe=6AA97FB2&_nc_sid=5e03e0&_nc_cat=106",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "706e1a41-5c80-484a-b293-5f10d2594e06",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-03T17:06:27.012Z",
+            "updatedAt": "2026-09-03T17:06:27.012Z"
+          }
+        },
+        {
+          "name": "Linea Tanques Gris",
+          "color": "#64a420",
+          "id": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+          "ContactTag": {
+            "contactId": "706e1a41-5c80-484a-b293-5f10d2594e06",
+            "tagId": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+            "createdAt": "2026-09-03T17:48:29.802Z",
+            "updatedAt": "2026-09-03T17:48:29.802Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "f7b9af74-b314-4f18-a227-210840104569",
+        "createdAt": "2026-09-05T20:32:55.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "8363cca4-785b-4244-9296-db89d14730b3",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "✅ *Todo listo! Tu reserva ya está confirmada.* 🚚\n\n*Próximos pasos:*\n▪️ El día previo a la entrega te vamos a estar avisando el rango horario exacto.\n▪️ Al recibirlo, chequeá que el exterior esté impecable.\n\nGracias por confiar en *Zono*. 🙌 Te invito a agendar mi número para ver nuestros sorteos en los estados. Si a futuro necesitás algo más de nuestro catálogo escribinos directamente.\n\nQue lo disfrutes! - _Jazmin y equipo Zono._",
+    "protocolNumber": "he2tPg2T1JZckMuCYs3zt2",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-08-25T22:39:23.389Z",
+    "closedAt": "2026-09-05T20:39:57.317Z",
+    "lastReceivedMessageAt": "2026-09-05T17:24:26.719Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "conversationExpiration": "2026-08-27T01:03:53.000Z",
+      "isAutoResolveScheduled": false,
+      "conversationRecipientType": "number"
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "86b80227-a051-4964-a5b9-f14e98e763e3",
+    "connectionId": "3c4572a7-97fa-4c51-968b-d8ce4ce053b2",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-08-25T22:20:41.096Z",
+    "updatedAt": "2026-09-05T20:39:57.317Z",
+    "contact": {
+      "id": "86b80227-a051-4964-a5b9-f14e98e763e3",
+      "name": "Braian Espindola.Pilar",
+      "number": "5491127181052",
+      "whatsappUserId": "246428093935851",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "https://pps.whatsapp.net/v/t61.24694-24/688432894_1393370982629828_3169977564119289939_n.jpg?stp=dst-jpg_s96x96_tt6&ccb=11-4&oh=01_Q5Aa5gH245r8xtphFQgkrtMdSMXgM28xymTlF528Y0OVF3sgcg&oe=6AA9444F&_nc_sid=5e03e0&_nc_cat=105",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "86b80227-a051-4964-a5b9-f14e98e763e3",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-05T17:33:13.709Z",
+            "updatedAt": "2026-09-05T17:33:13.709Z"
+          }
+        },
+        {
+          "name": "Linea Tanques Gris",
+          "color": "#64a420",
+          "id": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+          "ContactTag": {
+            "contactId": "86b80227-a051-4964-a5b9-f14e98e763e3",
+            "tagId": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+            "createdAt": "2026-09-05T17:18:32.540Z",
+            "updatedAt": "2026-09-05T17:18:32.540Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "7c27ca7c-1623-40fe-bffb-837c78b56be7",
+        "createdAt": "2026-09-05T15:15:44.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "93474745-b514-4ced-ae97-e69068c40222",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "A vos\"",
+    "protocolNumber": "jbPBLxxbo5StyZVefcDFEj",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-05T12:18:59.045Z",
+    "closedAt": "2026-09-05T20:37:26.041Z",
+    "lastReceivedMessageAt": "2026-09-05T17:21:36.185Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "0e8028c7-56de-40ed-8385-45493bbd0109",
+    "connectionId": "3ae77544-853f-4011-9624-8e4d5c4ac6e3",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-09-05T01:56:55.061Z",
+    "updatedAt": "2026-09-05T20:37:26.041Z",
+    "contact": {
+      "id": "0e8028c7-56de-40ed-8385-45493bbd0109",
+      "name": "Maria Guzman .Cuartel V",
+      "number": "5491126582887",
+      "whatsappUserId": "102400778100898",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "0e8028c7-56de-40ed-8385-45493bbd0109",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-05T17:20:45.976Z",
+            "updatedAt": "2026-09-05T17:20:45.976Z"
+          }
+        },
+        {
+          "name": "Linea Termotanque",
+          "color": "#64a420",
+          "id": "966f0508-6068-47e6-a769-fa622530ef84",
+          "ContactTag": {
+            "contactId": "0e8028c7-56de-40ed-8385-45493bbd0109",
+            "tagId": "966f0508-6068-47e6-a769-fa622530ef84",
+            "createdAt": "2026-09-05T12:19:12.537Z",
+            "updatedAt": "2026-09-05T12:19:12.537Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "3d1b35c5-9f87-42af-8c49-29f86739b7a8",
+        "createdAt": "2026-09-05T01:56:54.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "60ccd412-da95-49d5-b45d-539e0e91b7dd",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "Ahi cambie el presupuesto !",
+    "protocolNumber": "cXhSoQwCMyC1AM5apzdcK4",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-03T12:08:25.385Z",
+    "closedAt": "2026-09-05T20:35:34.059Z",
+    "lastReceivedMessageAt": "2026-09-05T17:18:26.270Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "076f6c63-51dd-4824-833f-74c60205728c",
+    "connectionId": "3ae77544-853f-4011-9624-8e4d5c4ac6e3",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-09-03T02:05:45.955Z",
+    "updatedAt": "2026-09-05T20:35:34.059Z",
+    "contact": {
+      "id": "076f6c63-51dd-4824-833f-74c60205728c",
+      "name": "Carlos Negrete . Pacheco ",
+      "number": "5491161103928",
+      "whatsappUserId": "172086605701202",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "https://pps.whatsapp.net/v/t61.24694-24/468866976_8929503757143432_8691011799558302267_n.jpg?stp=dst-jpg_s96x96_tt6&ccb=11-4&oh=01_Q5Aa5gEpqXME3EKrk5jSjFhIsNB0kq9T-Er5VCrVgKRtXkr3qQ&oe=6AA9512A&_nc_sid=5e03e0&_nc_cat=104",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "076f6c63-51dd-4824-833f-74c60205728c",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-05T17:17:54.220Z",
+            "updatedAt": "2026-09-05T17:17:54.220Z"
+          }
+        },
+        {
+          "name": "Linea Kit Biodigestor",
+          "color": "#64a420",
+          "id": "8c9a059e-b5c5-4d16-acb5-6ae266b8c987",
+          "ContactTag": {
+            "contactId": "076f6c63-51dd-4824-833f-74c60205728c",
+            "tagId": "8c9a059e-b5c5-4d16-acb5-6ae266b8c987",
+            "createdAt": "2026-09-03T12:08:34.938Z",
+            "updatedAt": "2026-09-03T12:08:34.938Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "6f7c3af7-ef40-42ea-b72f-537b2614a737",
+        "createdAt": "2026-09-03T02:05:44.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "5e4eafeb-e894-45c6-8ba8-49cec88ada6e",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "Hubo algun inconveniente?",
+    "protocolNumber": "cDrobiFYYQJswxiDCCMdtq",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-05T12:19:37.194Z",
+    "closedAt": "2026-09-05T20:26:02.785Z",
+    "lastReceivedMessageAt": "2026-09-05T01:54:47.362Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "a9d7eade-15ba-4a18-a472-1e0e174cf97b",
+    "connectionId": "3ae77544-853f-4011-9624-8e4d5c4ac6e3",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-09-05T01:54:47.357Z",
+    "updatedAt": "2026-09-05T20:26:02.785Z",
+    "contact": {
+      "id": "a9d7eade-15ba-4a18-a472-1e0e174cf97b",
+      "name": "Fernando Herrera. 9 de Abril ",
+      "number": "5491136890020",
+      "whatsappUserId": "277773167943691",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "a9d7eade-15ba-4a18-a472-1e0e174cf97b",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-06-24T16:39:26.730Z",
+            "updatedAt": "2026-06-24T16:39:26.730Z"
+          }
+        },
+        {
+          "name": "Linea Tanques Gris",
+          "color": "#64a420",
+          "id": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+          "ContactTag": {
+            "contactId": "a9d7eade-15ba-4a18-a472-1e0e174cf97b",
+            "tagId": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+            "createdAt": "2026-06-24T16:39:28.604Z",
+            "updatedAt": "2026-06-24T16:39:28.604Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "cdc5ed48-e53e-472a-a431-fb6e63c659e5",
+        "createdAt": "2026-09-05T01:54:46.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "3fe64223-b0a5-40f4-a159-fb3e921175a3",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "✅ *Todo listo! Tu reserva ya está confirmada.* 🚚\n\n*Próximos pasos:*\n▪️ El día previo a la entrega te vamos a estar avisando el rango horario exacto.\n▪️ Al recibirlo, chequeá que el exterior esté impecable.\n\nGracias por confiar en *Zono*. 🙌 Te invito a agendar mi número para ver nuestros sorteos en los estados. Si a futuro necesitás algo más de nuestro catálogo escribinos directamente.\n\nQue lo disfrutes! - _Jazmin y equipo Zono._",
+    "protocolNumber": "8TDU5QWzS1c92xQaNkCJii",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-05T00:09:44.488Z",
+    "closedAt": "2026-09-05T19:46:02.051Z",
+    "lastReceivedMessageAt": "2026-09-05T15:42:49.742Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "999b00b0-b0d3-4ff0-991c-1987b52b4aa2",
+    "connectionId": "498d7a35-58fa-41b5-93c0-6dce14a1e58e",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-09-05T00:08:51.055Z",
+    "updatedAt": "2026-09-05T19:46:02.051Z",
+    "contact": {
+      "id": "999b00b0-b0d3-4ff0-991c-1987b52b4aa2",
+      "name": "Nadia Del Hoyo.Victoria",
+      "number": "5492944148122",
+      "whatsappUserId": "33879071182891",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "https://pps.whatsapp.net/v/t61.24694-24/722664160_2496938117476912_5188843886194373642_n.jpg?stp=dst-jpg_s96x96_tt6&ccb=11-4&oh=01_Q5Aa5gESpm4Z5s6OdTLYaaGiRAO5XKy_jGdxLy4nPMqJBOAy0A&oe=6AA8675F&_nc_sid=5e03e0&_nc_cat=110",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "999b00b0-b0d3-4ff0-991c-1987b52b4aa2",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-05T15:50:16.909Z",
+            "updatedAt": "2026-09-05T15:50:16.909Z"
+          }
+        },
+        {
+          "name": "Linea Tanques Gris",
+          "color": "#64a420",
+          "id": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+          "ContactTag": {
+            "contactId": "999b00b0-b0d3-4ff0-991c-1987b52b4aa2",
+            "tagId": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+            "createdAt": "2026-05-02T19:02:40.088Z",
+            "updatedAt": "2026-05-02T19:02:40.088Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "f7a19643-b13d-4aec-bd2d-29bf2c0df2c3",
+        "createdAt": "2026-09-05T00:08:50.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "b682dd67-6a5a-411b-9db6-ab789608911a",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "✅ *Todo listo! Tu reserva ya está confirmada.* 🚚\n\n*Próximos pasos:*\n▪️ El día previo a la entrega te vamos a estar avisando el rango horario exacto.\n▪️ Al recibirlo, chequeá que el exterior esté impecable.\n\nGracias por confiar en *Zono*. 🙌 Te invito a agendar mi número para ver nuestros sorteos en los estados. Si a futuro necesitás algo más de nuestro catálogo escribinos directamente.\n\nQue lo disfrutes! - _Jazmin y equipo Zono._",
+    "protocolNumber": "oxakRTNLM6kf98j9APAe8Q",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-04T16:07:37.690Z",
+    "closedAt": "2026-09-05T19:43:40.874Z",
+    "lastReceivedMessageAt": "2026-09-05T15:23:57.041Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "635d3a00-70d8-46ea-a19a-8f5f8241cd1b",
+    "connectionId": "498d7a35-58fa-41b5-93c0-6dce14a1e58e",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-09-04T16:06:40.832Z",
+    "updatedAt": "2026-09-05T19:43:40.874Z",
+    "contact": {
+      "id": "635d3a00-70d8-46ea-a19a-8f5f8241cd1b",
+      "name": "Daniel Fernandez.Villa Rosa",
+      "number": "5491161691836",
+      "whatsappUserId": "34278251483306",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "https://pps.whatsapp.net/v/t61.24694-24/143683610_440971220925531_3898193101846364332_n.jpg?stp=dst-jpg_s96x96_tt6&ccb=11-4&oh=01_Q5Aa5gGRO38X81UuMU7qxoF95MEK1jU9XUyObJLhlHV9mnnXpw&oe=6AA7F276&_nc_sid=5e03e0&_nc_cat=107",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "635d3a00-70d8-46ea-a19a-8f5f8241cd1b",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-05T15:36:38.398Z",
+            "updatedAt": "2026-09-05T15:36:38.398Z"
+          }
+        },
+        {
+          "name": "Linea Tanques Gris",
+          "color": "#64a420",
+          "id": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+          "ContactTag": {
+            "contactId": "635d3a00-70d8-46ea-a19a-8f5f8241cd1b",
+            "tagId": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+            "createdAt": "2026-09-04T16:07:47.083Z",
+            "updatedAt": "2026-09-04T16:07:47.083Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "d2565a06-e93e-473c-a88e-9285738abee4",
+        "createdAt": "2026-09-04T16:06:39.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "15a83e05-6b08-43b1-88fc-07e359d5584c",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "✅ *Todo listo! Tu reserva ya está confirmada.* 🚚\n\n*Próximos pasos:*\n▪️ El día previo a la entrega te vamos a estar avisando el rango horario exacto.\n▪️ Al recibirlo, chequeá que el exterior esté impecable.\n\nGracias por confiar en *Zono*. 🙌 Te invito a agendar mi número para ver nuestros sorteos en los estados. Si a futuro necesitás algo más de nuestro catálogo escribinos directamente.\n\nQue lo disfrutes! - _Jazmin y equipo Zono._",
+    "protocolNumber": "3F7quPzo2ucb9qeGtUqmj9",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-05T12:23:14.948Z",
+    "closedAt": "2026-09-05T19:39:13.423Z",
+    "lastReceivedMessageAt": "2026-09-05T14:23:00.992Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "230795d4-e0d8-47a6-a828-912e10b863d9",
+    "connectionId": "3ae77544-853f-4011-9624-8e4d5c4ac6e3",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-09-05T03:35:39.290Z",
+    "updatedAt": "2026-09-05T19:39:13.423Z",
+    "contact": {
+      "id": "230795d4-e0d8-47a6-a828-912e10b863d9",
+      "name": "Sinthia Ozorio.Gdor Costa",
+      "number": "5491135622610",
+      "whatsappUserId": "153442169446495",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "https://pps.whatsapp.net/v/t61.24694-24/608284669_1262462275860645_86784077974869311_n.jpg?stp=dst-jpg_s96x96_tt6&ccb=11-4&oh=01_Q5Aa5gEEiezeBS3Tj4Cu1ElJrxUEoHAD8eUPjELPmkA3O_HLBg&oe=6AA89292&_nc_sid=5e03e0&_nc_cat=104",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "230795d4-e0d8-47a6-a828-912e10b863d9",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-05T14:26:55.279Z",
+            "updatedAt": "2026-09-05T14:26:55.279Z"
+          }
+        },
+        {
+          "name": "Linea Termotanque",
+          "color": "#64a420",
+          "id": "966f0508-6068-47e6-a769-fa622530ef84",
+          "ContactTag": {
+            "contactId": "230795d4-e0d8-47a6-a828-912e10b863d9",
+            "tagId": "966f0508-6068-47e6-a769-fa622530ef84",
+            "createdAt": "2026-09-05T12:23:24.250Z",
+            "updatedAt": "2026-09-05T12:23:24.250Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "940aeecc-bff3-417d-b080-69854c0b24bd",
+        "createdAt": "2026-09-05T03:35:38.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "0c307da8-b82d-4221-82fe-f062c297bbe8",
+    "status": "open",
+    "unreadMessages": 0,
+    "lastMessage": "Hola! Tuviste oportunidad de ver la propuesta? \n\nTe quedó alguna duda puntual que quieras que revisemos?",
+    "protocolNumber": "2viuPEQUVn9mauqw6W4Nsm",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-08-11T12:23:24.744Z",
+    "closedAt": "2026-08-11T20:02:52.045Z",
+    "lastReceivedMessageAt": "2026-09-05T18:09:01.354Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "09a0e601-b77f-4446-8606-19ca45e2fd41",
+    "connectionId": "3ae77544-853f-4011-9624-8e4d5c4ac6e3",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-08-11T04:04:38.433Z",
+    "updatedAt": "2026-09-05T19:35:08.620Z",
+    "contact": {
+      "id": "09a0e601-b77f-4446-8606-19ca45e2fd41",
+      "name": "Francisco Barreto. Villa Centenario ",
+      "number": "5491124086717",
+      "whatsappUserId": "194029593612356",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "https://pps.whatsapp.net/v/t61.24694-24/298647695_604316534471748_1625478049312026717_n.jpg?stp=dst-jpg_s96x96_tt6&ccb=11-4&oh=01_Q5Aa5gHBTtdyO9Csp8JJejdxxp8hO-PShhf6nZEFlDVRbdjWBA&oe=6AA97AAF&_nc_sid=5e03e0&_nc_cat=103",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "09a0e601-b77f-4446-8606-19ca45e2fd41",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-08-11T12:23:48.420Z",
+            "updatedAt": "2026-08-11T12:23:48.420Z"
+          }
+        },
+        {
+          "name": "Linea Termotanque",
+          "color": "#64a420",
+          "id": "966f0508-6068-47e6-a769-fa622530ef84",
+          "ContactTag": {
+            "contactId": "09a0e601-b77f-4446-8606-19ca45e2fd41",
+            "tagId": "966f0508-6068-47e6-a769-fa622530ef84",
+            "createdAt": "2026-08-11T12:23:44.707Z",
+            "updatedAt": "2026-08-11T12:23:44.707Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "27b78bda-85dd-4f7c-8547-201bf0ff1deb",
+        "createdAt": "2026-09-05T17:46:49.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "8b127b87-3042-4993-8a67-1e60e15aba55",
+    "status": "open",
+    "unreadMessages": 0,
+    "lastMessage": "Hubo algun inconveniente?",
+    "protocolNumber": "ib3JQ3KrQvjNfXJyHVkCHk",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-01T12:57:02.497Z",
+    "closedAt": "2026-09-05T13:32:36.328Z",
+    "lastReceivedMessageAt": "2026-09-05T14:01:41.573Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "097127ce-593c-464a-8fb2-177b4757ba60",
+    "connectionId": "498d7a35-58fa-41b5-93c0-6dce14a1e58e",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-09-01T12:29:51.611Z",
+    "updatedAt": "2026-09-05T19:33:47.850Z",
+    "contact": {
+      "id": "097127ce-593c-464a-8fb2-177b4757ba60",
+      "name": "Sebastian Giannini.Lisandro Olmos",
+      "number": "5492215915622",
+      "whatsappUserId": "2701651927254",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "097127ce-593c-464a-8fb2-177b4757ba60",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-02T15:04:25.128Z",
+            "updatedAt": "2026-09-02T15:04:25.128Z"
+          }
+        },
+        {
+          "name": "Linea Tanques Gris",
+          "color": "#64a420",
+          "id": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+          "ContactTag": {
+            "contactId": "097127ce-593c-464a-8fb2-177b4757ba60",
+            "tagId": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+            "createdAt": "2026-09-01T12:57:09.699Z",
+            "updatedAt": "2026-09-01T12:57:09.699Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "829c0feb-2b3b-4b9b-b4fa-c03a8c42bb39",
+        "createdAt": "2026-09-05T13:48:26.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "d6f2b97e-4bf5-4ca7-a48c-9abfb6c40448",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "✅ *Todo listo! Tu reserva ya está confirmada.* 🚚\n\n*Próximos pasos:*\n▪️ El día previo a la entrega te vamos a estar avisando el rango horario exacto.\n▪️ Al recibirlo, chequeá que el exterior esté impecable.\n\nGracias por confiar en *Zono*. 🙌 Te invito a agendar mi número para ver nuestros sorteos en los estados. Si a futuro necesitás algo más de nuestro catálogo escribinos directamente.\n\nQue lo disfrutes! - _Jazmin y equipo Zono._",
+    "protocolNumber": "sxtFQahubHHn3KZFSM4fgA",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-04T12:34:29.960Z",
+    "closedAt": "2026-09-05T19:25:49.155Z",
+    "lastReceivedMessageAt": "2026-09-04T23:27:31.754Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "89ebd794-4cbe-4271-87b1-ab043b7f6342",
+    "connectionId": "498d7a35-58fa-41b5-93c0-6dce14a1e58e",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-09-04T10:56:05.842Z",
+    "updatedAt": "2026-09-05T19:25:49.155Z",
+    "contact": {
+      "id": "89ebd794-4cbe-4271-87b1-ab043b7f6342",
+      "name": "Elías Huaman.San Fernando ",
+      "number": "5491123235545",
+      "whatsappUserId": "211793511215129",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "89ebd794-4cbe-4271-87b1-ab043b7f6342",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-05T12:05:35.490Z",
+            "updatedAt": "2026-09-05T12:05:35.490Z"
+          }
+        },
+        {
+          "name": "Linea Tanques Gris",
+          "color": "#64a420",
+          "id": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+          "ContactTag": {
+            "contactId": "89ebd794-4cbe-4271-87b1-ab043b7f6342",
+            "tagId": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+            "createdAt": "2026-09-04T12:34:37.251Z",
+            "updatedAt": "2026-09-04T12:34:37.251Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "c30fcd3e-bbd6-41e3-8d79-2bb4f4c9b948",
+        "createdAt": "2026-09-04T10:56:04.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "7607690e-576f-4a58-b649-dc42da562d6a",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "✅ *Todo listo! Tu reserva ya está confirmada.* 🚚\n\n*Próximos pasos:*\n▪️ El día previo a la entrega te vamos a estar avisando el rango horario exacto.\n▪️ Al recibirlo, chequeá que el exterior esté impecable.\n\nGracias por confiar en *Zono*. 🙌 Te invito a agendar mi número para ver nuestros sorteos en los estados. Si a futuro necesitás algo más de nuestro catálogo escribinos directamente.\n\nQue lo disfrutes! - _Jazmin y equipo Zono._",
+    "protocolNumber": "fzkmhEa45pPEusctEZ7CPU",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-08-26T13:43:13.945Z",
+    "closedAt": "2026-09-05T19:23:16.206Z",
+    "lastReceivedMessageAt": "2026-09-04T23:19:01.693Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "conversationExpiration": "2026-08-27T14:15:58.000Z",
+      "isAutoResolveScheduled": false,
+      "conversationRecipientType": "number"
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "db08431f-ff78-48c2-b189-244b3e5776c2",
+    "connectionId": "3c4572a7-97fa-4c51-968b-d8ce4ce053b2",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-08-26T13:27:18.731Z",
+    "updatedAt": "2026-09-05T19:23:16.206Z",
+    "contact": {
+      "id": "db08431f-ff78-48c2-b189-244b3e5776c2",
+      "name": "Hector Gonzalez.Jose C Paz",
+      "number": "5491162929748",
+      "whatsappUserId": "79663187636422",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "db08431f-ff78-48c2-b189-244b3e5776c2",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-05T12:03:53.743Z",
+            "updatedAt": "2026-09-05T12:03:53.743Z"
+          }
+        },
+        {
+          "name": "Linea Tanques Gris",
+          "color": "#64a420",
+          "id": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+          "ContactTag": {
+            "contactId": "db08431f-ff78-48c2-b189-244b3e5776c2",
+            "tagId": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+            "createdAt": "2026-08-26T13:43:27.177Z",
+            "updatedAt": "2026-08-26T13:43:27.177Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "f548a0c1-b97a-4190-8ec0-5fb1133a6dff",
+        "createdAt": "2026-09-04T23:00:29.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "d5c8d4dd-b06c-4697-ae4f-d7053ce0d958",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "✅ *Todo listo! Tu reserva ya está confirmada.* 🚚\n\n*Próximos pasos:*\n▪️ El día previo a la entrega te vamos a estar avisando el rango horario exacto.\n▪️ Al recibirlo, chequeá que el exterior esté impecable.\n\nGracias por confiar en *Zono*. 🙌 Te invito a agendar mi número para ver nuestros sorteos en los estados. Si a futuro necesitás algo más de nuestro catálogo escribinos directamente.\n\nQue lo disfrutes! - _Jazmin y equipo Zono._",
+    "protocolNumber": "sp9iQd2xdVE3eKGUB4EPhu",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-04T20:15:53.211Z",
+    "closedAt": "2026-09-05T19:21:15.033Z",
+    "lastReceivedMessageAt": "2026-09-04T22:19:14.033Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "2bcde3bd-07a3-4492-b4a7-7ae33dc821c5",
+    "connectionId": "498d7a35-58fa-41b5-93c0-6dce14a1e58e",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-09-04T20:13:25.604Z",
+    "updatedAt": "2026-09-05T19:21:15.033Z",
+    "contact": {
+      "id": "2bcde3bd-07a3-4492-b4a7-7ae33dc821c5",
+      "name": "Alberto Moscatelli.Luzuriaga",
+      "number": "5493442581106",
+      "whatsappUserId": "112519620350156",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "https://pps.whatsapp.net/v/t61.24694-24/298199174_438123498370157_8441232549364879338_n.jpg?stp=dst-jpg_s96x96_tt6&ccb=11-4&oh=01_Q5Aa5gHVs2vKKq11WwHVxQAWQ5s0ESPlkNqoBxE_9Lp1-aZewA&oe=6AA840B3&_nc_sid=5e03e0&_nc_cat=104",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "2bcde3bd-07a3-4492-b4a7-7ae33dc821c5",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-05T11:59:56.889Z",
+            "updatedAt": "2026-09-05T11:59:56.889Z"
+          }
+        },
+        {
+          "name": "Linea Termotanque",
+          "color": "#64a420",
+          "id": "966f0508-6068-47e6-a769-fa622530ef84",
+          "ContactTag": {
+            "contactId": "2bcde3bd-07a3-4492-b4a7-7ae33dc821c5",
+            "tagId": "966f0508-6068-47e6-a769-fa622530ef84",
+            "createdAt": "2026-09-04T20:16:04.797Z",
+            "updatedAt": "2026-09-04T20:16:04.797Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "714eb6f1-3c16-403f-b82d-50dea18933cb",
+        "createdAt": "2026-09-04T20:13:24.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "424bce3f-8eae-449a-bdb5-bce964b61ce3",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "✅ *Todo listo! Tu reserva ya está confirmada.* 🚚\n\n*Próximos pasos:*\n▪️ El día previo a la entrega te vamos a estar avisando el rango horario exacto.\n▪️ Al recibirlo, chequeá que el exterior esté impecable.\n\nGracias por confiar en *Zono*. 🙌 Te invito a agendar mi número para ver nuestros sorteos en los estados. Si a futuro necesitás algo más de nuestro catálogo escribinos directamente.\n\nQue lo disfrutes! - _Jazmin y equipo Zono._",
+    "protocolNumber": "9bPtEhkJ2nneDyyyXPGrYx",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-04T18:19:42.581Z",
+    "closedAt": "2026-09-05T19:18:01.199Z",
+    "lastReceivedMessageAt": "2026-09-04T21:40:39.809Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "78ac0604-62c5-4e66-bc1f-67e820adf77f",
+    "connectionId": "3ae77544-853f-4011-9624-8e4d5c4ac6e3",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-09-04T18:18:10.685Z",
+    "updatedAt": "2026-09-05T19:18:01.199Z",
+    "contact": {
+      "id": "78ac0604-62c5-4e66-bc1f-67e820adf77f",
+      "name": "Rodrigo Castro .Ramos Mejia ",
+      "number": "5491133508356",
+      "whatsappUserId": "157217345011874",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "https://pps.whatsapp.net/v/t61.24694-24/473404614_1187825829396786_8152066717567371273_n.jpg?stp=dst-jpg_s96x96_tt6&ccb=11-4&oh=01_Q5Aa5gHWvUI_EcT4ujb0Kh9VJN_u8KSAQ-O6UnLC_r-4Ze3Fqw&oe=6AA8259A&_nc_sid=5e03e0&_nc_cat=102",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "78ac0604-62c5-4e66-bc1f-67e820adf77f",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-05T12:00:04.896Z",
+            "updatedAt": "2026-09-05T12:00:04.896Z"
+          }
+        },
+        {
+          "name": "Linea Termotanque",
+          "color": "#64a420",
+          "id": "966f0508-6068-47e6-a769-fa622530ef84",
+          "ContactTag": {
+            "contactId": "78ac0604-62c5-4e66-bc1f-67e820adf77f",
+            "tagId": "966f0508-6068-47e6-a769-fa622530ef84",
+            "createdAt": "2026-09-04T18:19:52.057Z",
+            "updatedAt": "2026-09-04T18:19:52.057Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "4dca0276-7327-4623-91dc-9ae57f91946b",
+        "createdAt": "2026-09-04T18:18:09.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "10561f6c-7aa8-4a47-85b5-5e8fae5e18ce",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "👍❤️",
+    "protocolNumber": "321ayVivycpqKevXGQZjLE",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-05T17:43:22.868Z",
+    "closedAt": "2026-09-05T19:12:15.420Z",
+    "lastReceivedMessageAt": "2026-09-05T19:04:44.010Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "isHold": false,
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "66e25614-8db2-49d2-9169-e6809f6b48b8",
+    "connectionId": "d28f98ad-f938-4e5c-9df4-d12fba4ac0c2",
+    "queueId": null,
+    "chatbotId": null,
+    "createdAt": "2026-09-05T17:43:15.158Z",
+    "updatedAt": "2026-09-05T19:12:15.420Z",
+    "contact": {
+      "id": "66e25614-8db2-49d2-9169-e6809f6b48b8",
+      "name": "Marcelo Guadagno.Udaondo ",
+      "number": "5491130014363",
+      "whatsappUserId": "104140122378417",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "https://pps.whatsapp.net/v/t61.24694-24/686527445_1671133570616364_8446879535830869554_n.jpg?stp=dst-jpg_s96x96_tt6&ccb=11-4&oh=01_Q5Aa5gG2YHMYwtaaGDp18yBClaNrMkVz3hokC7u09NUQuImg4A&oe=6AA66A5C&_nc_sid=5e03e0&_nc_cat=101",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "66e25614-8db2-49d2-9169-e6809f6b48b8",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-03T15:34:20.799Z",
+            "updatedAt": "2026-09-03T15:34:20.799Z"
+          }
+        },
+        {
+          "name": "Linea Tanques Gris",
+          "color": "#64a420",
+          "id": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+          "ContactTag": {
+            "contactId": "66e25614-8db2-49d2-9169-e6809f6b48b8",
+            "tagId": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+            "createdAt": "2026-09-03T12:24:21.603Z",
+            "updatedAt": "2026-09-03T12:24:21.603Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "e2f7aa67-a341-4dda-b441-0b8077c608a9",
+        "createdAt": "2026-09-05T17:43:15.234Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "bd687923-fc57-4073-b8e6-4ff97ca8d7b7",
+    "status": "closed",
+    "unreadMessages": null,
+    "lastMessage": "\n¡Hola Caludia! 👋 Soy Jazmin de Zono Construcción! 😊\n  _El dia LUNES vamos a efectuar la entrega de su pedido , queriamos saber si puede recibirlo! Esperamos su confirmacion ",
+    "protocolNumber": "poyjRPY2JsSF6aiTTkNupi",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-05T17:42:04.920Z",
+    "closedAt": "2026-09-05T19:03:15.817Z",
+    "lastReceivedMessageAt": null,
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "60a334c8-b2bf-4308-a113-7055dd3f9157",
+    "connectionId": "d28f98ad-f938-4e5c-9df4-d12fba4ac0c2",
+    "queueId": null,
+    "chatbotId": null,
+    "createdAt": "2026-09-05T17:41:54.879Z",
+    "updatedAt": "2026-09-05T19:03:15.817Z",
+    "contact": {
+      "id": "60a334c8-b2bf-4308-a113-7055dd3f9157",
+      "name": "Claudia Gonzalez.Bernal ",
+      "number": "5491157469348",
+      "whatsappUserId": "229321272766596",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "https://pps.whatsapp.net/v/t61.24694-24/673269971_1540324754446107_3125708958135504875_n.jpg?stp=dst-jpg_s96x96_tt6&ccb=11-4&oh=01_Q5Aa5QF7lQAxilAt6NzyzjUEA0KhnFjiPIQgGvgmqz9nvI6Ozw&oe=6AA4084F&_nc_sid=5e03e0&_nc_cat=109",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "60a334c8-b2bf-4308-a113-7055dd3f9157",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-01T17:28:26.715Z",
+            "updatedAt": "2026-09-01T17:28:26.715Z"
+          }
+        },
+        {
+          "name": "Linea Tanques Gris",
+          "color": "#64a420",
+          "id": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+          "ContactTag": {
+            "contactId": "60a334c8-b2bf-4308-a113-7055dd3f9157",
+            "tagId": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+            "createdAt": "2026-07-15T11:56:13.614Z",
+            "updatedAt": "2026-07-15T11:56:13.614Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "17fd7c6e-8737-4ad0-b432-779a94d4de67",
+        "createdAt": "2026-09-05T17:41:54.895Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "dcd69487-58c1-44b0-8784-9802424f8852",
+    "status": "closed",
+    "unreadMessages": null,
+    "lastMessage": "\n¡Hola Agustina! 👋 Soy Jazmin de Zono Construcción! 😊\n  _El dia LUNES vamos a efectuar la entrega de su pedido , queriamos saber si puede recibirlo! Esperamos su confirmacion ",
+    "protocolNumber": "tgEqBnnXzaqALzGfD1Tbbf",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-05T12:38:41.563Z",
+    "closedAt": "2026-09-05T19:03:11.321Z",
+    "lastReceivedMessageAt": null,
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "7cb6cce5-48ed-4740-a0f6-d8badafe1684",
+    "connectionId": "d28f98ad-f938-4e5c-9df4-d12fba4ac0c2",
+    "queueId": null,
+    "chatbotId": null,
+    "createdAt": "2026-09-05T12:38:10.988Z",
+    "updatedAt": "2026-09-05T19:03:11.321Z",
+    "contact": {
+      "id": "7cb6cce5-48ed-4740-a0f6-d8badafe1684",
+      "name": "Agustina Giordano .Jose C Paz",
+      "number": "5491130220109",
+      "whatsappUserId": null,
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": null,
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "7cb6cce5-48ed-4740-a0f6-d8badafe1684",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-08-19T17:57:46.085Z",
+            "updatedAt": "2026-08-19T17:57:46.085Z"
+          }
+        },
+        {
+          "name": "Linea Tanques Gris",
+          "color": "#64a420",
+          "id": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+          "ContactTag": {
+            "contactId": "7cb6cce5-48ed-4740-a0f6-d8badafe1684",
+            "tagId": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+            "createdAt": "2026-08-19T12:24:11.116Z",
+            "updatedAt": "2026-08-19T12:24:11.116Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "84c98a31-d6c2-4251-a4f2-712016d4570d",
+        "createdAt": "2026-09-05T17:43:31.646Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "d996b011-154d-482d-9835-00f8d38e0994",
+    "status": "closed",
+    "unreadMessages": null,
+    "lastMessage": "\n¡Hola Tubalcain ! 👋 Soy Jazmin de Zono Construcción! 😊\n  _El dia LUNES vamos a efectuar la entrega de su pedido , queriamos saber si puede recibirlo! Esperamos su confirmacion ",
+    "protocolNumber": "sSoxCKwk3vTnr3gixsL1Fw",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-05T17:42:22.682Z",
+    "closedAt": "2026-09-05T19:03:08.989Z",
+    "lastReceivedMessageAt": null,
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "901ec3b8-93cc-4474-9744-15278b263c18",
+    "connectionId": "d28f98ad-f938-4e5c-9df4-d12fba4ac0c2",
+    "queueId": null,
+    "chatbotId": null,
+    "createdAt": "2026-09-05T17:42:15.210Z",
+    "updatedAt": "2026-09-05T19:03:08.989Z",
+    "contact": {
+      "id": "901ec3b8-93cc-4474-9744-15278b263c18",
+      "name": "Tubalcain Tena.Lanus",
+      "number": "5491153242206",
+      "whatsappUserId": "71618630049971",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "https://pps.whatsapp.net/v/t61.24694-24/620498503_1291218699635038_5047017891877112678_n.jpg?stp=dst-jpg_s96x96_tt6&ccb=11-4&oh=01_Q5Aa5gFMmdY_yBWDteMk9sPGLy8W4DUOS7BaMzT8r_4LazQhmw&oe=6AA681C0&_nc_sid=5e03e0&_nc_cat=101",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "901ec3b8-93cc-4474-9744-15278b263c18",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-03T14:05:46.398Z",
+            "updatedAt": "2026-09-03T14:05:46.398Z"
+          }
+        },
+        {
+          "name": "Linea Termotanque",
+          "color": "#64a420",
+          "id": "966f0508-6068-47e6-a769-fa622530ef84",
+          "ContactTag": {
+            "contactId": "901ec3b8-93cc-4474-9744-15278b263c18",
+            "tagId": "966f0508-6068-47e6-a769-fa622530ef84",
+            "createdAt": "2026-09-01T12:09:32.030Z",
+            "updatedAt": "2026-09-01T12:09:32.030Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "0129344c-96a5-4f9d-ba75-601b160cd48f",
+        "createdAt": "2026-09-05T17:42:15.227Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "87f5146f-8399-412d-84c1-5eebe6c64d73",
+    "status": "closed",
+    "unreadMessages": null,
+    "lastMessage": "\n¡Hola KoPedro! 👋 Soy Jazmin de Zono Construcción! 😊\n  _El dia LUNES vamos a efectuar la entrega de su pedido , queriamos saber si puede recibirlo! Esperamos su confirmacion ",
+    "protocolNumber": "hMJPQ4sP1ej4xNdKGYFRtr",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-05T17:41:29.760Z",
+    "closedAt": "2026-09-05T19:03:06.231Z",
+    "lastReceivedMessageAt": null,
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "f8ffd528-74ac-4ef5-8cab-2107884cc98c",
+    "connectionId": "d28f98ad-f938-4e5c-9df4-d12fba4ac0c2",
+    "queueId": null,
+    "chatbotId": null,
+    "createdAt": "2026-09-05T17:41:24.402Z",
+    "updatedAt": "2026-09-05T19:03:06.231Z",
+    "contact": {
+      "id": "f8ffd528-74ac-4ef5-8cab-2107884cc98c",
+      "name": "5491131195030",
+      "number": "5491131195030",
+      "whatsappUserId": "163548076441840",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": null,
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "f8ffd528-74ac-4ef5-8cab-2107884cc98c",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-05T17:41:42.454Z",
+            "updatedAt": "2026-09-05T17:41:42.454Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "4538883b-2b28-4302-9e56-cbe90a4285e3",
+        "createdAt": "2026-09-05T17:41:24.418Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "0cd57336-b4d7-410c-b5d3-3ca52d13ff23",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "el pedido está cancelado !",
+    "protocolNumber": "2zVaQPSgN6afUe6fGDsxMV",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-02T23:12:36.240Z",
+    "closedAt": "2026-09-05T19:02:15.190Z",
+    "lastReceivedMessageAt": "2026-09-05T16:40:04.116Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "4cdf22bc-3ab1-4735-af71-d8c603c815c7",
+    "connectionId": "498d7a35-58fa-41b5-93c0-6dce14a1e58e",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-09-02T22:46:45.519Z",
+    "updatedAt": "2026-09-05T19:02:15.190Z",
+    "contact": {
+      "id": "4cdf22bc-3ab1-4735-af71-d8c603c815c7",
+      "name": "Andrea holub. Fco Alvarez",
+      "number": "5491139149699",
+      "whatsappUserId": "147141402066992",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "4cdf22bc-3ab1-4735-af71-d8c603c815c7",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-03T01:29:52.877Z",
+            "updatedAt": "2026-09-03T01:29:52.877Z"
+          }
+        },
+        {
+          "name": "Hablar",
+          "color": "#33ab9f",
+          "id": "0176685c-7980-4510-97e1-fab8740bf175",
+          "ContactTag": {
+            "contactId": "4cdf22bc-3ab1-4735-af71-d8c603c815c7",
+            "tagId": "0176685c-7980-4510-97e1-fab8740bf175",
+            "createdAt": "2026-09-03T17:14:19.482Z",
+            "updatedAt": "2026-09-03T17:14:19.482Z"
+          }
+        },
+        {
+          "name": "Linea Kit Biodigestor",
+          "color": "#64a420",
+          "id": "8c9a059e-b5c5-4d16-acb5-6ae266b8c987",
+          "ContactTag": {
+            "contactId": "4cdf22bc-3ab1-4735-af71-d8c603c815c7",
+            "tagId": "8c9a059e-b5c5-4d16-acb5-6ae266b8c987",
+            "createdAt": "2025-05-26T12:44:36.719Z",
+            "updatedAt": "2025-05-26T12:44:36.719Z"
+          }
+        },
+        {
+          "name": "Ludmila",
+          "color": "#cc7900",
+          "id": "dee45524-d917-464c-8af9-4c69be9c37f2",
+          "ContactTag": {
+            "contactId": "4cdf22bc-3ab1-4735-af71-d8c603c815c7",
+            "tagId": "dee45524-d917-464c-8af9-4c69be9c37f2",
+            "createdAt": "2026-09-03T17:14:25.821Z",
+            "updatedAt": "2026-09-03T17:14:25.821Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "05abde60-1115-4b76-8a14-190166725eed",
+        "createdAt": "2026-09-05T16:39:30.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "cc629969-3aec-4924-a42d-f4a9ddac8272",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "Ok",
+    "protocolNumber": "rePNXH8A2QzMRMDypWE8b3",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-04T13:46:31.780Z",
+    "closedAt": "2026-09-05T18:45:58.919Z",
+    "lastReceivedMessageAt": "2026-09-05T18:43:06.530Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "isHold": false,
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "fdf43d47-6b5d-4c22-be9e-61fc74d95756",
+    "connectionId": "d28f98ad-f938-4e5c-9df4-d12fba4ac0c2",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-09-04T13:46:07.979Z",
+    "updatedAt": "2026-09-05T18:45:58.919Z",
+    "contact": {
+      "id": "fdf43d47-6b5d-4c22-be9e-61fc74d95756",
+      "name": "Martin Pereyra.Zarate",
+      "number": "5493487205946",
+      "whatsappUserId": "279958937141263",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "https://pps.whatsapp.net/v/t61.24694-24/56480393_2210544442539389_2332707174951682048_n.jpg?stp=dst-jpg_s96x96_tt6&ccb=11-4&oh=01_Q5Aa5gGWZt8MOPMpT1YMQJ8ovAtdoA2vrFMkriwjsHqJ-ymSkw&oe=6AA7D221&_nc_sid=5e03e0&_nc_cat=111",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "fdf43d47-6b5d-4c22-be9e-61fc74d95756",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-01T18:49:20.689Z",
+            "updatedAt": "2026-09-01T18:49:20.689Z"
+          }
+        },
+        {
+          "name": "Linea Kit Biodigestor",
+          "color": "#64a420",
+          "id": "8c9a059e-b5c5-4d16-acb5-6ae266b8c987",
+          "ContactTag": {
+            "contactId": "fdf43d47-6b5d-4c22-be9e-61fc74d95756",
+            "tagId": "8c9a059e-b5c5-4d16-acb5-6ae266b8c987",
+            "createdAt": "2026-07-27T13:03:58.826Z",
+            "updatedAt": "2026-07-27T13:03:58.826Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "2fdc7b42-c2b1-4bd4-8434-bd63340773ff",
+        "createdAt": "2026-09-05T18:43:06.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "78c90d8a-c709-4eff-81b7-f6e170c80337",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "Perfecto !",
+    "protocolNumber": "fV5nkNM2PZoRyiVWRmTc4D",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-05T17:42:35.290Z",
+    "closedAt": "2026-09-05T18:32:37.793Z",
+    "lastReceivedMessageAt": "2026-09-05T18:23:31.191Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "c5c61a86-4d9a-4dc4-acbc-52f550fd7086",
+    "connectionId": "d28f98ad-f938-4e5c-9df4-d12fba4ac0c2",
+    "queueId": null,
+    "chatbotId": null,
+    "createdAt": "2026-09-05T17:42:30.119Z",
+    "updatedAt": "2026-09-05T18:32:37.793Z",
+    "contact": {
+      "id": "c5c61a86-4d9a-4dc4-acbc-52f550fd7086",
+      "name": "Eduardo Toscanini.Wilde",
+      "number": "5491161509191",
+      "whatsappUserId": "107314203889822",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "https://pps.whatsapp.net/v/t61.24694-24/453908083_371764115736478_2289061708661060988_n.jpg?stp=dst-jpg_s96x96_tt6&ccb=11-4&oh=01_Q5Aa5gGSaJP7Yc1-Yj_4YRUq6o7bZyvQ6p5jI--vUWkzaEwjvQ&oe=6AA84DCB&_nc_sid=5e03e0&_nc_cat=102",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "c5c61a86-4d9a-4dc4-acbc-52f550fd7086",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-04T20:57:29.488Z",
+            "updatedAt": "2026-09-04T20:57:29.488Z"
+          }
+        },
+        {
+          "name": "Linea Termotanque",
+          "color": "#64a420",
+          "id": "966f0508-6068-47e6-a769-fa622530ef84",
+          "ContactTag": {
+            "contactId": "c5c61a86-4d9a-4dc4-acbc-52f550fd7086",
+            "tagId": "966f0508-6068-47e6-a769-fa622530ef84",
+            "createdAt": "2026-09-04T20:09:29.656Z",
+            "updatedAt": "2026-09-04T20:09:29.656Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "ffe3189e-cff2-4a19-b316-cf009eb4cd2b",
+        "createdAt": "2026-09-05T17:42:30.136Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "549b8297-9856-4b3d-bb79-253a6cd8443a",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "😊",
+    "protocolNumber": "brY2Gwv46aNcsTPRkQA7Sw",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-04T23:07:47.791Z",
+    "closedAt": "2026-09-05T18:16:09.876Z",
+    "lastReceivedMessageAt": "2026-09-05T18:15:29.580Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "8c289504-c9cd-4136-9aff-97af7d9ed48f",
+    "connectionId": "498d7a35-58fa-41b5-93c0-6dce14a1e58e",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-09-04T22:53:51.908Z",
+    "updatedAt": "2026-09-05T18:16:09.876Z",
+    "contact": {
+      "id": "8c289504-c9cd-4136-9aff-97af7d9ed48f",
+      "name": "Alberto Yonar. Deposito",
+      "number": "5491139423049",
+      "whatsappUserId": "222165957918809",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "8c289504-c9cd-4136-9aff-97af7d9ed48f",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-04T23:28:53.898Z",
+            "updatedAt": "2026-09-04T23:28:53.898Z"
+          }
+        },
+        {
+          "name": "Linea Tanques Gris",
+          "color": "#64a420",
+          "id": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+          "ContactTag": {
+            "contactId": "8c289504-c9cd-4136-9aff-97af7d9ed48f",
+            "tagId": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+            "createdAt": "2026-08-12T00:22:51.386Z",
+            "updatedAt": "2026-08-12T00:22:51.386Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "d0e1607a-e44d-4ce5-a114-3504988fa42d",
+        "createdAt": "2026-09-05T18:15:17.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "6f149aaa-1a1b-469b-99ec-c3466a97f8ea",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "Mil gracias!",
+    "protocolNumber": "eHyXbrg3gcDtyhJvXcfSbw",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-05T17:42:49.016Z",
+    "closedAt": "2026-09-05T18:12:36.867Z",
+    "lastReceivedMessageAt": "2026-09-05T18:12:07.753Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "55f2cbd0-7cbc-4461-b6f1-832fbdd1a15c",
+    "connectionId": "d28f98ad-f938-4e5c-9df4-d12fba4ac0c2",
+    "queueId": null,
+    "chatbotId": null,
+    "createdAt": "2026-09-05T17:42:42.584Z",
+    "updatedAt": "2026-09-05T18:12:36.867Z",
+    "contact": {
+      "id": "55f2cbd0-7cbc-4461-b6f1-832fbdd1a15c",
+      "name": "Ignacia Moyano.Lanus",
+      "number": "5491171613891",
+      "whatsappUserId": "34708150829193",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "55f2cbd0-7cbc-4461-b6f1-832fbdd1a15c",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-03T18:24:23.503Z",
+            "updatedAt": "2026-09-03T18:24:23.503Z"
+          }
+        },
+        {
+          "name": "Linea Tanques Gris",
+          "color": "#64a420",
+          "id": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+          "ContactTag": {
+            "contactId": "55f2cbd0-7cbc-4461-b6f1-832fbdd1a15c",
+            "tagId": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+            "createdAt": "2026-01-21T15:21:35.848Z",
+            "updatedAt": "2026-01-21T15:21:35.848Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "cd3bf158-264b-4a94-975d-222db821e627",
+        "createdAt": "2026-09-05T17:42:42.608Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "4a24073d-90f6-4367-92db-7227981b044a",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "Muchas gracias!",
+    "protocolNumber": "aa198GugSi6NF7f3eXyRCN",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-01-20T20:55:12.132Z",
+    "closedAt": "2026-09-05T17:57:56.572Z",
+    "lastReceivedMessageAt": "2026-09-05T17:44:41.841Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "isHold": false,
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "75724266-923c-4099-a8a6-f00b47c0a567",
+    "connectionId": "d28f98ad-f938-4e5c-9df4-d12fba4ac0c2",
+    "queueId": null,
+    "chatbotId": null,
+    "createdAt": "2026-01-20T18:13:15.495Z",
+    "updatedAt": "2026-09-05T17:57:56.572Z",
+    "contact": {
+      "id": "75724266-923c-4099-a8a6-f00b47c0a567",
+      "name": "Gabriela Sosa.Jose C Paz",
+      "number": "5491123042061",
+      "whatsappUserId": "252161841725527",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "75724266-923c-4099-a8a6-f00b47c0a567",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-02T14:38:04.604Z",
+            "updatedAt": "2026-09-02T14:38:04.604Z"
+          }
+        },
+        {
+          "name": "Linea Kit Biodigestor",
+          "color": "#64a420",
+          "id": "8c9a059e-b5c5-4d16-acb5-6ae266b8c987",
+          "ContactTag": {
+            "contactId": "75724266-923c-4099-a8a6-f00b47c0a567",
+            "tagId": "8c9a059e-b5c5-4d16-acb5-6ae266b8c987",
+            "createdAt": "2026-07-18T17:06:25.414Z",
+            "updatedAt": "2026-07-18T17:06:25.414Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "f5e53a87-7a76-440b-9ed5-2bbcb837b926",
+        "createdAt": "2026-09-05T17:43:45.439Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "03533c76-49a9-47e5-9b75-99ce8c05940c",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "A vos ",
+    "protocolNumber": "1pPguZc39jvPWqiheFDm2J",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-08-31T18:14:23.037Z",
+    "closedAt": "2026-09-05T17:34:25.801Z",
+    "lastReceivedMessageAt": "2026-09-05T17:24:28.057Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "isHold": false,
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "4cadc26e-2b51-492f-8304-ae88ff906461",
+    "connectionId": "d28f98ad-f938-4e5c-9df4-d12fba4ac0c2",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-08-31T18:14:18.203Z",
+    "updatedAt": "2026-09-05T17:34:25.801Z",
+    "contact": {
+      "id": "4cadc26e-2b51-492f-8304-ae88ff906461",
+      "name": "Evelyn Diaz.Del Viso ",
+      "number": "5491130809898",
+      "whatsappUserId": "153223109292075",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "https://pps.whatsapp.net/v/t61.24694-24/699953181_1559127235616547_4832722046915649174_n.jpg?stp=dst-jpg_s96x96_tt6&ccb=11-4&oh=01_Q5Aa5gFtGKHjumf_wroCuO9j-s7ciOZZP1q18DhNO9EzphDuSA&oe=6AA958EC&_nc_sid=5e03e0&_nc_cat=107",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "4cadc26e-2b51-492f-8304-ae88ff906461",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-08-12T19:41:19.784Z",
+            "updatedAt": "2026-08-12T19:41:19.784Z"
+          }
+        },
+        {
+          "name": "Linea Tanques Gris",
+          "color": "#64a420",
+          "id": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+          "ContactTag": {
+            "contactId": "4cadc26e-2b51-492f-8304-ae88ff906461",
+            "tagId": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+            "createdAt": "2026-08-11T22:13:06.833Z",
+            "updatedAt": "2026-08-11T22:13:06.833Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "8223cee4-6161-4223-b44c-d88f1bc5a5be",
+        "createdAt": "2026-09-05T16:45:43.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "01603b2d-d0bf-4a4d-9672-6051cb511074",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "Ok gracias s",
+    "protocolNumber": "1aRxZteDgBk6ANvtGT1qcE",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-03T18:34:03.802Z",
+    "closedAt": "2026-09-05T17:32:27.411Z",
+    "lastReceivedMessageAt": "2026-09-05T17:23:49.340Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "0387f302-aaee-4923-a073-4a13c8e7f55c",
+    "connectionId": "498d7a35-58fa-41b5-93c0-6dce14a1e58e",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-09-03T18:28:58.340Z",
+    "updatedAt": "2026-09-05T17:32:27.412Z",
+    "contact": {
+      "id": "0387f302-aaee-4923-a073-4a13c8e7f55c",
+      "name": "Gabriela Lopez.Zeballos",
+      "number": "5491136566586",
+      "whatsappUserId": "269699048853682",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "0387f302-aaee-4923-a073-4a13c8e7f55c",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-03T19:04:40.379Z",
+            "updatedAt": "2026-09-03T19:04:40.379Z"
+          }
+        },
+        {
+          "name": "Linea Termotanque",
+          "color": "#64a420",
+          "id": "966f0508-6068-47e6-a769-fa622530ef84",
+          "ContactTag": {
+            "contactId": "0387f302-aaee-4923-a073-4a13c8e7f55c",
+            "tagId": "966f0508-6068-47e6-a769-fa622530ef84",
+            "createdAt": "2026-09-03T18:34:13.278Z",
+            "updatedAt": "2026-09-03T18:34:13.278Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "0782d164-5bed-4249-87d7-2d7b246d9752",
+        "createdAt": "2026-09-05T16:30:22.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "d8322bd1-d9d9-4961-a220-96214915f75e",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "Podrías pasar potra ves",
+    "protocolNumber": "sGq3jKtkjjxA1ADP9R3YKy",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-05T12:37:47.754Z",
+    "closedAt": "2026-09-05T17:22:35.830Z",
+    "lastReceivedMessageAt": "2026-09-05T17:07:03.654Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "0387f302-aaee-4923-a073-4a13c8e7f55c",
+    "connectionId": "d28f98ad-f938-4e5c-9df4-d12fba4ac0c2",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-09-05T12:37:29.928Z",
+    "updatedAt": "2026-09-05T17:22:35.830Z",
+    "contact": {
+      "id": "0387f302-aaee-4923-a073-4a13c8e7f55c",
+      "name": "Gabriela Lopez.Zeballos",
+      "number": "5491136566586",
+      "whatsappUserId": "269699048853682",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "0387f302-aaee-4923-a073-4a13c8e7f55c",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-03T19:04:40.379Z",
+            "updatedAt": "2026-09-03T19:04:40.379Z"
+          }
+        },
+        {
+          "name": "Linea Termotanque",
+          "color": "#64a420",
+          "id": "966f0508-6068-47e6-a769-fa622530ef84",
+          "ContactTag": {
+            "contactId": "0387f302-aaee-4923-a073-4a13c8e7f55c",
+            "tagId": "966f0508-6068-47e6-a769-fa622530ef84",
+            "createdAt": "2026-09-03T18:34:13.278Z",
+            "updatedAt": "2026-09-03T18:34:13.278Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "d0072dc4-958a-4816-a103-be6ad183dfe0",
+        "createdAt": "2026-09-05T17:07:03.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "9151eda5-fb5c-4b5c-8fe0-499ceb9e4ee4",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "A vos!",
+    "protocolNumber": "iWN6y6Bofnr3uE9a2t7Bq9",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-04T19:41:17.928Z",
+    "closedAt": "2026-09-05T16:55:54.711Z",
+    "lastReceivedMessageAt": "2026-09-05T14:20:06.958Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "a77fac10-22ca-46aa-8afb-571494b807d7",
+    "connectionId": "498d7a35-58fa-41b5-93c0-6dce14a1e58e",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-09-04T19:32:06.881Z",
+    "updatedAt": "2026-09-05T16:55:54.711Z",
+    "contact": {
+      "id": "a77fac10-22ca-46aa-8afb-571494b807d7",
+      "name": "Adrian Prada.Ituzaingo ",
+      "number": "5491130888408",
+      "whatsappUserId": "193385231024254",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "https://pps.whatsapp.net/v/t61.24694-24/442126678_1893953711065644_4603385353918196997_n.jpg?stp=dst-jpg_s96x96_tt6&ccb=11-4&oh=01_Q5Aa5gEixQa6yi9WgguqThurcoDx4KKiIUyxa3HIdO16NTwqLA&oe=6AA81F83&_nc_sid=5e03e0&_nc_cat=110",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "a77fac10-22ca-46aa-8afb-571494b807d7",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-05T14:19:17.883Z",
+            "updatedAt": "2026-09-05T14:19:17.883Z"
+          }
+        },
+        {
+          "name": "Linea Tanques Gris",
+          "color": "#64a420",
+          "id": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+          "ContactTag": {
+            "contactId": "a77fac10-22ca-46aa-8afb-571494b807d7",
+            "tagId": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+            "createdAt": "2026-09-04T19:41:25.834Z",
+            "updatedAt": "2026-09-04T19:41:25.834Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "81018463-fcfe-474b-87d7-03219052a7ee",
+        "createdAt": "2026-09-04T19:32:05.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "688c4bde-f43f-4f75-b990-b643af0d8193",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "Dale 7/9 al 9/9 ",
+    "protocolNumber": "dUMn6G6ysFTCXcu9J1fBM6",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-05T12:54:53.801Z",
+    "closedAt": "2026-09-05T16:53:42.569Z",
+    "lastReceivedMessageAt": "2026-09-05T15:17:18.906Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "7abe3b42-02d7-43bb-9184-76967cd742ee",
+    "connectionId": "498d7a35-58fa-41b5-93c0-6dce14a1e58e",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-09-05T12:06:40.143Z",
+    "updatedAt": "2026-09-05T16:53:42.570Z",
+    "contact": {
+      "id": "7abe3b42-02d7-43bb-9184-76967cd742ee",
+      "name": "Abel Oscar Chaves.Merlo ",
+      "number": "5491128479323",
+      "whatsappUserId": "271575546876115",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "7abe3b42-02d7-43bb-9184-76967cd742ee",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-05T15:12:13.827Z",
+            "updatedAt": "2026-09-05T15:12:13.827Z"
+          }
+        },
+        {
+          "name": "Linea Tanques Gris",
+          "color": "#64a420",
+          "id": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+          "ContactTag": {
+            "contactId": "7abe3b42-02d7-43bb-9184-76967cd742ee",
+            "tagId": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+            "createdAt": "2026-09-05T12:55:05.265Z",
+            "updatedAt": "2026-09-05T12:55:05.265Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "aaa69004-fbde-47ea-ba5a-b4a0251d8f44",
+        "createdAt": "2026-09-05T12:06:39.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "eb5ba046-1066-478b-86c4-ff8468d4acb9",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "👍",
+    "protocolNumber": "v4DVMVWYKoTWrKmCGMpZ6K",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-05T13:09:26.404Z",
+    "closedAt": "2026-09-05T16:51:06.428Z",
+    "lastReceivedMessageAt": "2026-09-05T15:49:10.720Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "836b32b7-e828-4bea-916c-216ff8d95ff0",
+    "connectionId": "498d7a35-58fa-41b5-93c0-6dce14a1e58e",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-09-05T11:56:17.496Z",
+    "updatedAt": "2026-09-05T16:51:06.428Z",
+    "contact": {
+      "id": "836b32b7-e828-4bea-916c-216ff8d95ff0",
+      "name": "Hugo Galarza.CABA  ",
+      "number": "5491163356149",
+      "whatsappUserId": "123330153677053",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "836b32b7-e828-4bea-916c-216ff8d95ff0",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-05T15:38:19.466Z",
+            "updatedAt": "2026-09-05T15:38:19.466Z"
+          }
+        },
+        {
+          "name": "Linea Termotanque",
+          "color": "#64a420",
+          "id": "966f0508-6068-47e6-a769-fa622530ef84",
+          "ContactTag": {
+            "contactId": "836b32b7-e828-4bea-916c-216ff8d95ff0",
+            "tagId": "966f0508-6068-47e6-a769-fa622530ef84",
+            "createdAt": "2026-09-05T13:09:48.763Z",
+            "updatedAt": "2026-09-05T13:09:48.763Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "534f528c-7404-4993-8899-8aaab92c2baa",
+        "createdAt": "2026-09-05T11:56:16.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "6a827897-8ae4-4c42-9796-886ff800d926",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "Gracias a vos Stella !\n",
+    "protocolNumber": "e9QdVjdwrLjKjLfaahTJ2L",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-04T14:33:15.470Z",
+    "closedAt": "2026-09-05T16:48:55.566Z",
+    "lastReceivedMessageAt": "2026-09-05T16:05:25.244Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "7653dda8-1d95-4085-9567-cee73029d4e4",
+    "connectionId": "498d7a35-58fa-41b5-93c0-6dce14a1e58e",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-09-04T14:23:54.885Z",
+    "updatedAt": "2026-09-05T16:48:55.566Z",
+    "contact": {
+      "id": "7653dda8-1d95-4085-9567-cee73029d4e4",
+      "name": "Stella Maris Cerda.Merlo ",
+      "number": "5491141942968",
+      "whatsappUserId": "228320511844419",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "https://pps.whatsapp.net/v/t61.24694-24/138575363_797067504519250_4730521164769346194_n.jpg?stp=dst-jpg_s96x96_tt6&ccb=11-4&oh=01_Q5Aa5gGvox1pyIir_lCCLE6ud7NVmoaf3M4dwHgb1YRX-RlEPg&oe=6AA80150&_nc_sid=5e03e0&_nc_cat=105",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "7653dda8-1d95-4085-9567-cee73029d4e4",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-05T15:33:59.536Z",
+            "updatedAt": "2026-09-05T15:33:59.536Z"
+          }
+        },
+        {
+          "name": "Linea Tanques Gris",
+          "color": "#64a420",
+          "id": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+          "ContactTag": {
+            "contactId": "7653dda8-1d95-4085-9567-cee73029d4e4",
+            "tagId": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+            "createdAt": "2026-08-25T22:29:42.246Z",
+            "updatedAt": "2026-08-25T22:29:42.246Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "51a5e15b-dc2f-445d-a82c-87500fe0321a",
+        "createdAt": "2026-09-05T14:52:10.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "64689a03-0a8c-4d15-8e48-9ecff51a8f71",
+    "status": "closed",
+    "unreadMessages": null,
+    "lastMessage": null,
+    "protocolNumber": "dp8QEwsgPy5M8h918Hgtyv",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": null,
+    "closedAt": "2026-09-05T16:38:39.175Z",
+    "lastReceivedMessageAt": null,
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "2f91dddd-28e6-4371-8813-8a0e58e1dc6c",
+    "connectionId": "d28f98ad-f938-4e5c-9df4-d12fba4ac0c2",
+    "queueId": null,
+    "chatbotId": null,
+    "createdAt": "2026-09-05T16:38:06.462Z",
+    "updatedAt": "2026-09-05T16:38:39.175Z",
+    "contact": {
+      "id": "2f91dddd-28e6-4371-8813-8a0e58e1dc6c",
+      "name": "Dina Genes.San Justo ",
+      "number": "5491156294500",
+      "whatsappUserId": "208104788602982",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "https://pps.whatsapp.net/v/t61.24694-24/716289891_1440331088148820_9090173675573248637_n.jpg?stp=dst-jpg_s96x96_tt6&ccb=11-4&oh=01_Q5Aa5QHcPcrJ8_RAEBcw5XV0SKVlMnlVwrFp0oqCNV6mXuz1Wg&oe=6AA56A54&_nc_sid=5e03e0&_nc_cat=108",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "2f91dddd-28e6-4371-8813-8a0e58e1dc6c",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-02T18:44:16.109Z",
+            "updatedAt": "2026-09-02T18:44:16.109Z"
+          }
+        },
+        {
+          "name": "Linea Termotanque",
+          "color": "#64a420",
+          "id": "966f0508-6068-47e6-a769-fa622530ef84",
+          "ContactTag": {
+            "contactId": "2f91dddd-28e6-4371-8813-8a0e58e1dc6c",
+            "tagId": "966f0508-6068-47e6-a769-fa622530ef84",
+            "createdAt": "2026-09-02T17:35:17.553Z",
+            "updatedAt": "2026-09-02T17:35:17.553Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "c6527f94-6a81-4c32-a6a9-72f75b8edc04",
+        "createdAt": "2026-09-05T16:38:06.482Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "40eb8f91-cf3b-4f68-afa3-231cf93c7ad2",
+    "status": "open",
+    "unreadMessages": 0,
+    "lastMessage": "Yo concele el pedido",
+    "protocolNumber": "91XUobUGBhPSoLECzNawPd",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-05T13:05:51.778Z",
+    "closedAt": "2026-09-05T15:28:43.590Z",
+    "lastReceivedMessageAt": "2026-09-05T16:00:29.148Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "71e61809-2492-4b7a-ab02-50b65da730e7",
+    "connectionId": "d28f98ad-f938-4e5c-9df4-d12fba4ac0c2",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-09-05T13:05:00.497Z",
+    "updatedAt": "2026-09-05T16:03:56.250Z",
+    "contact": {
+      "id": "71e61809-2492-4b7a-ab02-50b65da730e7",
+      "name": "5491164260110",
+      "number": "5491164260110",
+      "whatsappUserId": "11480497938435",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "https://pps.whatsapp.net/v/t61.24694-24/674217961_1779966373048679_776253484232354606_n.jpg?stp=dst-jpg_s96x96_tt6&ccb=11-4&oh=01_Q5Aa5gFUyoNHhuxvBlizK-b91IKlX5u1nlLz2y4kaFibgkCQKg&oe=6AA94800&_nc_sid=5e03e0&_nc_cat=103",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "71e61809-2492-4b7a-ab02-50b65da730e7",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-05T13:05:09.958Z",
+            "updatedAt": "2026-09-05T13:05:09.958Z"
+          }
+        },
+        {
+          "name": "Hablar",
+          "color": "#33ab9f",
+          "id": "0176685c-7980-4510-97e1-fab8740bf175",
+          "ContactTag": {
+            "contactId": "71e61809-2492-4b7a-ab02-50b65da730e7",
+            "tagId": "0176685c-7980-4510-97e1-fab8740bf175",
+            "createdAt": "2026-09-05T16:04:32.118Z",
+            "updatedAt": "2026-09-05T16:04:32.118Z"
+          }
+        },
+        {
+          "name": "Linea Kit Biodigestor",
+          "color": "#64a420",
+          "id": "8c9a059e-b5c5-4d16-acb5-6ae266b8c987",
+          "ContactTag": {
+            "contactId": "71e61809-2492-4b7a-ab02-50b65da730e7",
+            "tagId": "8c9a059e-b5c5-4d16-acb5-6ae266b8c987",
+            "createdAt": "2026-09-05T13:05:06.389Z",
+            "updatedAt": "2026-09-05T13:05:06.389Z"
+          }
+        },
+        {
+          "name": "Ludmila",
+          "color": "#cc7900",
+          "id": "dee45524-d917-464c-8af9-4c69be9c37f2",
+          "ContactTag": {
+            "contactId": "71e61809-2492-4b7a-ab02-50b65da730e7",
+            "tagId": "dee45524-d917-464c-8af9-4c69be9c37f2",
+            "createdAt": "2026-09-05T13:05:13.410Z",
+            "updatedAt": "2026-09-05T13:05:13.410Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "b29e439b-46a9-4ba3-9d77-d81e4f18719e",
+        "createdAt": "2026-09-05T16:00:29.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "ed845b1b-f1e9-4b5e-b48c-d53d5b0cd15a",
+    "status": "open",
+    "unreadMessages": 0,
+    "lastMessage": "👍",
+    "protocolNumber": "vk7PziG3xokHXvBZtktJku",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-05T14:27:17.461Z",
+    "closedAt": null,
+    "lastReceivedMessageAt": "2026-09-05T15:54:10.265Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "20459214-89fe-499c-80b8-c697551ee7c5",
+    "connectionId": "498d7a35-58fa-41b5-93c0-6dce14a1e58e",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-09-05T14:27:02.235Z",
+    "updatedAt": "2026-09-05T15:58:18.047Z",
+    "contact": {
+      "id": "20459214-89fe-499c-80b8-c697551ee7c5",
+      "name": "Juan Cruz.CABA",
+      "number": "5491153248821",
+      "whatsappUserId": "98629645774864",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "20459214-89fe-499c-80b8-c697551ee7c5",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-08-10T16:27:55.452Z",
+            "updatedAt": "2026-08-10T16:27:55.452Z"
+          }
+        },
+        {
+          "name": "Linea Termotanque",
+          "color": "#64a420",
+          "id": "966f0508-6068-47e6-a769-fa622530ef84",
+          "ContactTag": {
+            "contactId": "20459214-89fe-499c-80b8-c697551ee7c5",
+            "tagId": "966f0508-6068-47e6-a769-fa622530ef84",
+            "createdAt": "2026-08-10T13:46:40.264Z",
+            "updatedAt": "2026-08-10T13:46:40.264Z"
+          }
+        },
+        {
+          "name": "Lunes",
+          "color": "#35baf6",
+          "id": "18741227-489d-4fb9-bd12-1a6003d684db",
+          "ContactTag": {
+            "contactId": "20459214-89fe-499c-80b8-c697551ee7c5",
+            "tagId": "18741227-489d-4fb9-bd12-1a6003d684db",
+            "createdAt": "2026-09-05T15:44:18.801Z",
+            "updatedAt": "2026-09-05T15:44:18.801Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "ec3ee0d0-a2d4-4933-8e8e-3ff58b4f7248",
+        "createdAt": "2026-09-05T14:27:01.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "25d66e13-591a-4062-91e8-fbbc524b006a",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "Gracias a vos!",
+    "protocolNumber": "5EZMBaKX62yvMjsMxSPZCE",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-04T13:10:41.423Z",
+    "closedAt": "2026-09-05T14:53:14.068Z",
+    "lastReceivedMessageAt": "2026-09-05T14:49:20.739Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "e32927f8-2f9c-4d9b-8acf-83930899408e",
+    "connectionId": "d28f98ad-f938-4e5c-9df4-d12fba4ac0c2",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-09-04T12:51:51.582Z",
+    "updatedAt": "2026-09-05T14:53:14.068Z",
+    "contact": {
+      "id": "e32927f8-2f9c-4d9b-8acf-83930899408e",
+      "name": "Juan Blasetti .Melchor Romero ",
+      "number": "5492216759574",
+      "whatsappUserId": "47859474944244",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "e32927f8-2f9c-4d9b-8acf-83930899408e",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-04T15:56:37.352Z",
+            "updatedAt": "2026-09-04T15:56:37.352Z"
+          }
+        },
+        {
+          "name": "Linea Kit Biodigestor",
+          "color": "#64a420",
+          "id": "8c9a059e-b5c5-4d16-acb5-6ae266b8c987",
+          "ContactTag": {
+            "contactId": "e32927f8-2f9c-4d9b-8acf-83930899408e",
+            "tagId": "8c9a059e-b5c5-4d16-acb5-6ae266b8c987",
+            "createdAt": "2026-09-04T13:10:51.976Z",
+            "updatedAt": "2026-09-04T13:10:51.976Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "822070e9-c219-491e-9487-03cd4e5ecf34",
+        "createdAt": "2026-09-05T14:38:02.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "82387b7c-fe02-47b0-9871-6720b59a5c8b",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "Seria $237.700",
+    "protocolNumber": "h5DMNzSfnbFu7EgkRSEreD",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-02-05T18:39:51.823Z",
+    "closedAt": "2026-09-05T14:37:57.278Z",
+    "lastReceivedMessageAt": "2026-09-05T14:35:14.243Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "conversationExpiration": "2026-08-04T13:01:53.000Z",
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "547debaa-9400-475d-99e6-31cf273363d7",
+    "connectionId": "3c4572a7-97fa-4c51-968b-d8ce4ce053b2",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-02-05T18:36:30.406Z",
+    "updatedAt": "2026-09-05T14:37:57.279Z",
+    "contact": {
+      "id": "547debaa-9400-475d-99e6-31cf273363d7",
+      "name": "Hector Molina.Catan ",
+      "number": "5491126727653",
+      "whatsappUserId": "114658849632275",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "https://pps.whatsapp.net/v/t61.24694-24/686046859_2161884231280115_2489018236653938655_n.jpg?stp=dst-jpg_s96x96_tt6&ccb=11-4&oh=01_Q5Aa5gFLrm6wGa0oLAP6WUT48KgVAFfZHDs7v2koHCyQgyqWrg&oe=6AA809B0&_nc_sid=5e03e0&_nc_cat=103",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "547debaa-9400-475d-99e6-31cf273363d7",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-07-29T14:39:50.083Z",
+            "updatedAt": "2026-07-29T14:39:50.083Z"
+          }
+        },
+        {
+          "name": "Linea Tanques Gris",
+          "color": "#64a420",
+          "id": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+          "ContactTag": {
+            "contactId": "547debaa-9400-475d-99e6-31cf273363d7",
+            "tagId": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+            "createdAt": "2026-07-29T14:39:54.043Z",
+            "updatedAt": "2026-07-29T14:39:54.043Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "e44c812d-eb54-4695-9de0-ac3a4a1a4e9e",
+        "createdAt": "2026-09-05T14:19:21.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "d2d2502e-ff78-45b6-8eb5-f31ca449c22c",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "Ah ustedes",
+    "protocolNumber": "s2VupQo4ZFPDeXGVtp499U",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-05T14:05:47.280Z",
+    "closedAt": "2026-09-05T14:27:42.928Z",
+    "lastReceivedMessageAt": "2026-09-05T14:20:41.642Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "isHold": false,
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "606f32c9-5b25-4e1a-9751-a5d1255e7482",
+    "connectionId": "d28f98ad-f938-4e5c-9df4-d12fba4ac0c2",
+    "queueId": null,
+    "chatbotId": null,
+    "createdAt": "2026-09-05T14:05:37.366Z",
+    "updatedAt": "2026-09-05T14:27:42.929Z",
+    "contact": {
+      "id": "606f32c9-5b25-4e1a-9751-a5d1255e7482",
+      "name": "Fernando Bringas.Virrey del Pino ",
+      "number": "5491125651233",
+      "whatsappUserId": "191448838365290",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "https://pps.whatsapp.net/v/t61.24694-24/613433116_964824509792315_3994867652558688362_n.jpg?stp=dst-jpg_s96x96_tt6&ccb=11-4&oh=01_Q5Aa5gGsj0fPl_qYoZoVpdc4b40ZjzgLExSrDn_iy5yPmKeyoA&oe=6AA6902C&_nc_sid=5e03e0&_nc_cat=102",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "606f32c9-5b25-4e1a-9751-a5d1255e7482",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-03T16:16:46.977Z",
+            "updatedAt": "2026-09-03T16:16:46.977Z"
+          }
+        },
+        {
+          "name": "Linea Termotanque",
+          "color": "#64a420",
+          "id": "966f0508-6068-47e6-a769-fa622530ef84",
+          "ContactTag": {
+            "contactId": "606f32c9-5b25-4e1a-9751-a5d1255e7482",
+            "tagId": "966f0508-6068-47e6-a769-fa622530ef84",
+            "createdAt": "2026-09-03T15:33:30.405Z",
+            "updatedAt": "2026-09-03T15:33:30.405Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "0454847e-6fff-4731-ab5b-5bb7b2be2544",
+        "createdAt": "2026-09-05T14:05:37.407Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "592f1b3f-5213-4b11-8c43-2b328fdfa8d9",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "Perfecto ! Muchas gracias!",
+    "protocolNumber": "c1K8EMHThYihBzGKQPDvCD",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-05T13:07:26.929Z",
+    "closedAt": "2026-09-05T14:09:57.244Z",
+    "lastReceivedMessageAt": "2026-09-05T13:50:52.393Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "88f2896c-88c5-4ef5-815e-e3c20304f4ca",
+    "connectionId": "d28f98ad-f938-4e5c-9df4-d12fba4ac0c2",
+    "queueId": null,
+    "chatbotId": null,
+    "createdAt": "2026-09-05T13:07:03.995Z",
+    "updatedAt": "2026-09-05T14:09:57.244Z",
+    "contact": {
+      "id": "88f2896c-88c5-4ef5-815e-e3c20304f4ca",
+      "name": "Julian Bequio.Cardales",
+      "number": "5491144408021",
+      "whatsappUserId": "91328285302922",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "88f2896c-88c5-4ef5-815e-e3c20304f4ca",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-03T18:54:41.620Z",
+            "updatedAt": "2026-09-03T18:54:41.620Z"
+          }
+        },
+        {
+          "name": "Linea Kit Biodigestor",
+          "color": "#64a420",
+          "id": "8c9a059e-b5c5-4d16-acb5-6ae266b8c987",
+          "ContactTag": {
+            "contactId": "88f2896c-88c5-4ef5-815e-e3c20304f4ca",
+            "tagId": "8c9a059e-b5c5-4d16-acb5-6ae266b8c987",
+            "createdAt": "2026-09-03T18:46:59.634Z",
+            "updatedAt": "2026-09-03T18:46:59.634Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "eb9a3a7e-5c49-4351-a164-d0672d960534",
+        "createdAt": "2026-09-05T13:07:04.023Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "3d35b6a8-a1da-4e38-a44c-b2822d5ca190",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "Mil gracias Rita",
+    "protocolNumber": "8yoCazKVYu5oU1AKLvx9J5",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-02T12:10:39.901Z",
+    "closedAt": "2026-09-05T14:06:09.244Z",
+    "lastReceivedMessageAt": "2026-09-05T13:43:59.821Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "b01372ee-afab-43b4-b763-ed6ff1033f45",
+    "connectionId": "498d7a35-58fa-41b5-93c0-6dce14a1e58e",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-09-02T01:45:19.023Z",
+    "updatedAt": "2026-09-05T14:06:09.244Z",
+    "contact": {
+      "id": "b01372ee-afab-43b4-b763-ed6ff1033f45",
+      "name": "Rita Fernandez. Lanus",
+      "number": "5491127968225",
+      "whatsappUserId": "34166632624236",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "https://pps.whatsapp.net/v/t61.24694-24/640258323_1004346809244118_1784884446359565855_n.jpg?stp=dst-jpg_s96x96_tt6&ccb=11-4&oh=01_Q5Aa5gEO2nssIKpLdp6no6GOzClHFITfRRKsb_a8JFMXURJZxg&oe=6AA80EB7&_nc_sid=5e03e0&_nc_cat=104",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "b01372ee-afab-43b4-b763-ed6ff1033f45",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-04T18:05:05.617Z",
+            "updatedAt": "2026-09-04T18:05:05.617Z"
+          }
+        },
+        {
+          "name": "Linea Tanques Gris",
+          "color": "#64a420",
+          "id": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+          "ContactTag": {
+            "contactId": "b01372ee-afab-43b4-b763-ed6ff1033f45",
+            "tagId": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+            "createdAt": "2026-03-17T01:42:55.542Z",
+            "updatedAt": "2026-03-17T01:42:55.542Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "af66a88a-2e58-4024-82f8-d638dada1fbe",
+        "createdAt": "2026-09-05T13:43:59.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "9d5bb3c3-a8de-4470-b710-61534972281d",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "Mil gracias !",
+    "protocolNumber": "kr1LycgHTDKfqxQmYonvyz",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-05T13:03:55.782Z",
+    "closedAt": "2026-09-05T14:05:26.747Z",
+    "lastReceivedMessageAt": "2026-09-05T14:03:20.735Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "isHold": false,
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "2e211649-42b8-483b-93ff-ab3c43136393",
+    "connectionId": "d28f98ad-f938-4e5c-9df4-d12fba4ac0c2",
+    "queueId": null,
+    "chatbotId": null,
+    "createdAt": "2026-09-05T13:03:21.822Z",
+    "updatedAt": "2026-09-05T14:05:26.748Z",
+    "contact": {
+      "id": "2e211649-42b8-483b-93ff-ab3c43136393",
+      "name": "5491131008467",
+      "number": "5491131008467",
+      "whatsappUserId": "184082315141137",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "2e211649-42b8-483b-93ff-ab3c43136393",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-05T13:03:28.935Z",
+            "updatedAt": "2026-09-05T13:03:28.935Z"
+          }
+        },
+        {
+          "name": "Linea Kit Biodigestor",
+          "color": "#64a420",
+          "id": "8c9a059e-b5c5-4d16-acb5-6ae266b8c987",
+          "ContactTag": {
+            "contactId": "2e211649-42b8-483b-93ff-ab3c43136393",
+            "tagId": "8c9a059e-b5c5-4d16-acb5-6ae266b8c987",
+            "createdAt": "2026-09-05T13:03:32.849Z",
+            "updatedAt": "2026-09-05T13:03:32.849Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "b06bdc65-14cf-4dee-9cb3-d38fa428d808",
+        "createdAt": "2026-09-05T13:03:21.840Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "a746c2f2-8331-4167-b889-947fac7c8021",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "A ustedes",
+    "protocolNumber": "mE3NmqHTQzJefiLyD13HKP",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-05T13:06:56.462Z",
+    "closedAt": "2026-09-05T13:59:44.621Z",
+    "lastReceivedMessageAt": "2026-09-05T13:52:41.664Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "isHold": false,
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "a25b5649-603b-4a06-aac5-9aeed1fec65b",
+    "connectionId": "d28f98ad-f938-4e5c-9df4-d12fba4ac0c2",
+    "queueId": null,
+    "chatbotId": null,
+    "createdAt": "2026-09-05T13:06:39.331Z",
+    "updatedAt": "2026-09-05T13:59:44.621Z",
+    "contact": {
+      "id": "a25b5649-603b-4a06-aac5-9aeed1fec65b",
+      "name": "Joana Nuñez.Spegazzini ",
+      "number": "5491136809453",
+      "whatsappUserId": "201846383734917",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "a25b5649-603b-4a06-aac5-9aeed1fec65b",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-02T17:42:18.772Z",
+            "updatedAt": "2026-09-02T17:42:18.772Z"
+          }
+        },
+        {
+          "name": "Linea Tanques Gris",
+          "color": "#64a420",
+          "id": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+          "ContactTag": {
+            "contactId": "a25b5649-603b-4a06-aac5-9aeed1fec65b",
+            "tagId": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+            "createdAt": "2026-09-01T12:06:44.832Z",
+            "updatedAt": "2026-09-01T12:06:44.832Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "53ab4e58-bc9c-4f6e-aaeb-8f6e20558a3b",
+        "createdAt": "2026-09-05T13:06:39.377Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "72980fc5-aee9-43f9-b151-df0ee01a7696",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "Dale genial !",
+    "protocolNumber": "f9JsZu4ZXVVtkoUVLMnBYA",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-05T13:02:58.867Z",
+    "closedAt": "2026-09-05T13:59:37.759Z",
+    "lastReceivedMessageAt": "2026-09-05T13:28:41.927Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "b565f3bb-fdf4-45b5-9055-e71327cb1aaa",
+    "connectionId": "d28f98ad-f938-4e5c-9df4-d12fba4ac0c2",
+    "queueId": null,
+    "chatbotId": null,
+    "createdAt": "2026-09-05T13:01:16.640Z",
+    "updatedAt": "2026-09-05T13:59:37.760Z",
+    "contact": {
+      "id": "b565f3bb-fdf4-45b5-9055-e71327cb1aaa",
+      "name": "5491124066546",
+      "number": "5491124066546",
+      "whatsappUserId": "100433834061825",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "https://pps.whatsapp.net/v/t61.24694-24/518002005_2196422240803757_7086401482465124630_n.jpg?stp=dst-jpg_s96x96_tt6&ccb=11-4&oh=01_Q5Aa5gESZGmFoR-uAUJkjii2AixuA-zigZdXPjNxS6aaDkVp4Q&oe=6AA92A4A&_nc_sid=5e03e0&_nc_cat=104",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "b565f3bb-fdf4-45b5-9055-e71327cb1aaa",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-05T13:01:22.545Z",
+            "updatedAt": "2026-09-05T13:01:22.545Z"
+          }
+        },
+        {
+          "name": "Linea Kit Biodigestor",
+          "color": "#64a420",
+          "id": "8c9a059e-b5c5-4d16-acb5-6ae266b8c987",
+          "ContactTag": {
+            "contactId": "b565f3bb-fdf4-45b5-9055-e71327cb1aaa",
+            "tagId": "8c9a059e-b5c5-4d16-acb5-6ae266b8c987",
+            "createdAt": "2026-09-05T13:01:25.625Z",
+            "updatedAt": "2026-09-05T13:01:25.625Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "d2b3d3b7-e02a-48eb-b37e-127404202634",
+        "createdAt": "2026-09-05T13:01:16.665Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "f047c520-0bb6-41e8-ad49-5c6fbf13e736",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "🎤 - Audio",
+    "protocolNumber": "vEUHmYcTMJxnxKzbs66cMy",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-04T13:45:49.402Z",
+    "closedAt": "2026-09-05T13:41:35.169Z",
+    "lastReceivedMessageAt": "2026-09-05T13:18:49.888Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "5a6b952b-3456-427c-a719-167206147f32",
+    "connectionId": "d28f98ad-f938-4e5c-9df4-d12fba4ac0c2",
+    "queueId": null,
+    "chatbotId": null,
+    "createdAt": "2026-09-04T13:45:20.305Z",
+    "updatedAt": "2026-09-05T13:41:35.169Z",
+    "contact": {
+      "id": "5a6b952b-3456-427c-a719-167206147f32",
+      "name": "Facundo De Paoli.Lujan",
+      "number": "5492323215580",
+      "whatsappUserId": "177171880505366",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "https://pps.whatsapp.net/v/t61.24694-24/636701653_2315419615637511_4102698753308557547_n.jpg?stp=dst-jpg_s96x96_tt6&ccb=11-4&oh=01_Q5Aa5gFnLAVj8SM5Kxi2sQODUwzorcxNPj5zV_KSGKSCdkZ13w&oe=6AA7D4C1&_nc_sid=5e03e0&_nc_cat=111",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "5a6b952b-3456-427c-a719-167206147f32",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-01T17:12:18.870Z",
+            "updatedAt": "2026-09-01T17:12:18.870Z"
+          }
+        },
+        {
+          "name": "Linea Kit Biodigestor",
+          "color": "#64a420",
+          "id": "8c9a059e-b5c5-4d16-acb5-6ae266b8c987",
+          "ContactTag": {
+            "contactId": "5a6b952b-3456-427c-a719-167206147f32",
+            "tagId": "8c9a059e-b5c5-4d16-acb5-6ae266b8c987",
+            "createdAt": "2026-09-01T14:40:52.718Z",
+            "updatedAt": "2026-09-01T14:40:52.718Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "8c3ee418-8264-4c08-a5cc-33e74cee95de",
+        "createdAt": "2026-09-05T13:00:28.468Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "8ad8cf00-395f-4a96-89ab-7b86f0595f28",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "Si, te avisamos un dia antes de ir!",
+    "protocolNumber": "i9r9TppiXZaix7hN6mzQCY",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-05T13:06:28.035Z",
+    "closedAt": "2026-09-05T13:33:03.465Z",
+    "lastReceivedMessageAt": "2026-09-05T13:11:24.635Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "e6f15c44-27f3-4b86-a93d-2116eadcfb2d",
+    "connectionId": "d28f98ad-f938-4e5c-9df4-d12fba4ac0c2",
+    "queueId": null,
+    "chatbotId": null,
+    "createdAt": "2026-09-05T13:06:02.868Z",
+    "updatedAt": "2026-09-05T13:33:03.465Z",
+    "contact": {
+      "id": "e6f15c44-27f3-4b86-a93d-2116eadcfb2d",
+      "name": "Agustin maderna. Cañuelas",
+      "number": "5492226686539",
+      "whatsappUserId": "113481743347905",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "https://pps.whatsapp.net/v/t61.24694-24/638455306_810574602103631_3454682576705686180_n.jpg?stp=dst-jpg_s96x96_tt6&ccb=11-4&oh=01_Q5Aa5gHo8781P7klBXoR3-9uNmQ122ejFPoX6tCu70CKrCYT7Q&oe=6AA6F401&_nc_sid=5e03e0&_nc_cat=105",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "e6f15c44-27f3-4b86-a93d-2116eadcfb2d",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-09-04T01:33:31.338Z",
+            "updatedAt": "2026-09-04T01:33:31.338Z"
+          }
+        },
+        {
+          "name": "Linea Tanques Gris",
+          "color": "#64a420",
+          "id": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+          "ContactTag": {
+            "contactId": "e6f15c44-27f3-4b86-a93d-2116eadcfb2d",
+            "tagId": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+            "createdAt": "2026-07-21T22:14:16.182Z",
+            "updatedAt": "2026-07-21T22:14:16.182Z"
+          }
+        },
+        {
+          "name": "Ludmila",
+          "color": "#cc7900",
+          "id": "dee45524-d917-464c-8af9-4c69be9c37f2",
+          "ContactTag": {
+            "contactId": "e6f15c44-27f3-4b86-a93d-2116eadcfb2d",
+            "tagId": "dee45524-d917-464c-8af9-4c69be9c37f2",
+            "createdAt": "2026-09-05T13:06:30.761Z",
+            "updatedAt": "2026-09-05T13:06:30.761Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "48c401e0-abba-486d-9fb3-526c27131c48",
+        "createdAt": "2026-09-05T13:06:02.883Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "9863bd54-d64a-4495-912b-84b359c4fc19",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "🎤 - Audio",
+    "protocolNumber": "jPqNFnEyYL2v91mi4uD3eX",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-04T20:39:42.178Z",
+    "closedAt": "2026-09-05T12:02:15.291Z",
+    "lastReceivedMessageAt": "2026-09-04T20:40:36.651Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "9ad5ad7f-d33b-4984-af68-e0a7168eaea9",
+    "connectionId": "d28f98ad-f938-4e5c-9df4-d12fba4ac0c2",
+    "queueId": null,
+    "chatbotId": null,
+    "createdAt": "2026-09-04T20:39:24.168Z",
+    "updatedAt": "2026-09-05T12:02:15.291Z",
+    "contact": {
+      "id": "9ad5ad7f-d33b-4984-af68-e0a7168eaea9",
+      "name": "Nestor Adrian Prada.Quilmes",
+      "number": "5491144946324",
+      "whatsappUserId": "228874696785987",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "https://pps.whatsapp.net/v/t61.24694-24/699302508_1050592360954746_1508134801409240147_n.jpg?stp=dst-jpg_s96x96_tt6&ccb=11-4&oh=01_Q5Aa5gGcvDXfPx-Jk2_BtAtMuUIqhWEFhPDlJ3m4fDAU8jUM3g&oe=6AA83775&_nc_sid=5e03e0&_nc_cat=100",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "9ad5ad7f-d33b-4984-af68-e0a7168eaea9",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-08-31T14:54:46.015Z",
+            "updatedAt": "2026-08-31T14:54:46.015Z"
+          }
+        },
+        {
+          "name": "Linea Termotanque",
+          "color": "#64a420",
+          "id": "966f0508-6068-47e6-a769-fa622530ef84",
+          "ContactTag": {
+            "contactId": "9ad5ad7f-d33b-4984-af68-e0a7168eaea9",
+            "tagId": "966f0508-6068-47e6-a769-fa622530ef84",
+            "createdAt": "2026-08-31T12:41:48.355Z",
+            "updatedAt": "2026-08-31T12:41:48.355Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "f73ed935-fb16-4125-9b2b-4922fa273b47",
+        "createdAt": "2026-09-04T20:39:24.188Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "1cb94ded-d179-4d84-89e4-e1fc46c556b9",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "Te pido disculpas por el error de logistica, elpedido fue cargado para el dia Lunes 7/9",
+    "protocolNumber": "4xHV7VeWjwVAhUewhvyPRT",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-07-31T22:07:37.613Z",
+    "closedAt": "2026-09-05T12:01:11.206Z",
+    "lastReceivedMessageAt": "2026-09-04T14:42:23.613Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "c36bba2c-b424-4f82-bc76-a7c48833eb3f",
+    "connectionId": "498d7a35-58fa-41b5-93c0-6dce14a1e58e",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2026-07-31T21:21:56.320Z",
+    "updatedAt": "2026-09-05T12:01:11.207Z",
+    "contact": {
+      "id": "c36bba2c-b424-4f82-bc76-a7c48833eb3f",
+      "name": "Natasha Acuña.Merlo ",
+      "number": "5491137889017",
+      "whatsappUserId": "233504587673771",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "c36bba2c-b424-4f82-bc76-a7c48833eb3f",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-08-03T18:52:09.864Z",
+            "updatedAt": "2026-08-03T18:52:09.864Z"
+          }
+        },
+        {
+          "name": "Linea Kit Biodigestor",
+          "color": "#64a420",
+          "id": "8c9a059e-b5c5-4d16-acb5-6ae266b8c987",
+          "ContactTag": {
+            "contactId": "c36bba2c-b424-4f82-bc76-a7c48833eb3f",
+            "tagId": "8c9a059e-b5c5-4d16-acb5-6ae266b8c987",
+            "createdAt": "2026-07-31T22:07:44.209Z",
+            "updatedAt": "2026-07-31T22:07:44.209Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "1a86c4d3-51d5-4e91-92f5-042881c04753",
+        "createdAt": "2026-09-04T14:42:13.000Z",
+        "reasonTags": []
+      }
+    ]
+  },
+  {
+    "id": "a1a54370-ec4a-47f5-8cdc-58eadb372458",
+    "status": "closed",
+    "unreadMessages": 0,
+    "lastMessage": "📷 - Image",
+    "protocolNumber": "kXHJLqCpgxHjzj7Ja7S1sC",
+    "channel": "WHATSAPP",
+    "isGroup": false,
+    "isChatbotDone": true,
+    "firstRespondedAt": "2026-09-05T00:10:23.294Z",
+    "closedAt": "2026-09-05T11:57:28.502Z",
+    "lastReceivedMessageAt": "2026-09-05T00:15:22.378Z",
+    "lastAwayMessageSentAt": null,
+    "metadata": {
+      "aiHandling": false,
+      "isAutoResolveScheduled": false
+    },
+    "snoozedUntil": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+    "peerUserId": null,
+    "contactId": "1c4513a4-7808-4dc0-ac80-b9daf5e55a5e",
+    "connectionId": "498d7a35-58fa-41b5-93c0-6dce14a1e58e",
+    "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "chatbotId": null,
+    "createdAt": "2025-11-28T18:42:16.974Z",
+    "updatedAt": "2026-09-05T11:57:28.502Z",
+    "contact": {
+      "id": "1c4513a4-7808-4dc0-ac80-b9daf5e55a5e",
+      "name": "Claudia Ramos .Ciudadela ",
+      "number": "5491151318959",
+      "whatsappUserId": "210049754521724",
+      "email": "",
+      "treatmentName": "",
+      "profilePicUrl": "",
+      "isVerified": true,
+      "metadata": {},
+      "tags": [
+        {
+          "name": "Cliente",
+          "color": "#35baf6",
+          "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+          "ContactTag": {
+            "contactId": "1c4513a4-7808-4dc0-ac80-b9daf5e55a5e",
+            "tagId": "0098db98-0950-4598-962b-c6ddfa6effa8",
+            "createdAt": "2026-08-13T11:44:55.106Z",
+            "updatedAt": "2026-08-13T11:44:55.106Z"
+          }
+        },
+        {
+          "name": "Linea Tanques Gris",
+          "color": "#64a420",
+          "id": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+          "ContactTag": {
+            "contactId": "1c4513a4-7808-4dc0-ac80-b9daf5e55a5e",
+            "tagId": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+            "createdAt": "2026-08-10T18:57:46.416Z",
+            "updatedAt": "2026-08-10T18:57:46.416Z"
+          }
+        }
+      ]
+    },
+    "conversations": [
+      {
+        "id": "931f249f-0c6b-43ee-b304-837754534cb4",
+        "createdAt": "2026-09-05T00:09:54.000Z",
+        "reasonTags": []
+      }
+    ]
+  }
+]

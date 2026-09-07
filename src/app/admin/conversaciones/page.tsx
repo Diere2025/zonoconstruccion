@@ -40,10 +40,20 @@ interface ChatMessage {
   fromMe: boolean;
   senderName: string;
   time: string;
+  dateIso?: string;
+  dayLabel?: string;
   body: string;
   mediaType?: string | null;
   mediaUrl?: string | null;
   originalFilename?: string | null;
+}
+
+interface MatchedOrderItem {
+  productId?: string;
+  name: string;
+  quantity: number;
+  price: number;
+  subtotal: number;
 }
 
 interface MatchedOrder {
@@ -55,6 +65,13 @@ interface MatchedOrder {
   orderDate?: string;
   status?: string;
   whaticketLink?: string;
+  items?: MatchedOrderItem[];
+}
+
+interface DetectedDraft {
+  address?: string;
+  entrecalles?: string;
+  total?: number;
 }
 
 interface Conversation {
@@ -73,9 +90,11 @@ interface Conversation {
   lastMessage: string;
   lastMessageTime: string;
   lastMessageDate: string;
+  reservationDateLabel?: string | null;
   rawTimestamp: string;
   isConfirmedReservation: boolean;
   matchedOrder?: MatchedOrder | null;
+  detectedDraft?: DetectedDraft | null;
   messages: ChatMessage[];
 }
 
@@ -89,7 +108,7 @@ export default function ConversacionesAdminPage() {
 
   // Filters
   const [dateFilter, setDateFilter] = useState("2026-09-05"); // Ayer por defecto
-  const [tagFilter, setTagFilter] = useState("all");          // Todas por defecto para mostrar todas las ventas
+  const [tagFilter, setTagFilter] = useState("Cliente");      // Solo etiqueta Cliente por defecto
   const [searchQuery, setSearchQuery] = useState("");
   const [sellerFilter, setSellerFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -265,62 +284,71 @@ export default function ConversacionesAdminPage() {
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2">
-            {/* Conversion Toggle Pills */}
-            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs font-medium">
-              <button
-                onClick={() => setOnlyOrdersFilter(false)}
-                className={`px-3 py-1.5 rounded-md transition-all ${
-                  !onlyOrdersFilter
-                    ? "bg-white text-slate-900 shadow-xs font-semibold"
-                    : "text-slate-600 hover:text-slate-900"
-                }`}
-              >
-                Todas las Conversaciones
-              </button>
-              <button
-                onClick={() => setOnlyOrdersFilter(true)}
-                className={`px-3 py-1.5 rounded-md transition-all flex items-center gap-1.5 ${
-                  onlyOrdersFilter
-                    ? "bg-emerald-600 text-white shadow-xs font-semibold"
-                    : "text-emerald-700 hover:text-emerald-800 font-medium"
-                }`}
-              >
-                <ShoppingCart className="w-3.5 h-3.5" />
-                Solo Ventas Concretadas ({metrics.withOrders})
-              </button>
-            </div>
-
             {/* Quick Date Pills */}
             <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs font-medium">
               <button
                 onClick={() => setDateFilter("2026-09-05")}
-                className={`px-2.5 py-1.5 rounded-md transition-all ${
+                className={`px-3 py-1.5 rounded-md transition-all ${
                   dateFilter === "2026-09-05" 
                     ? "bg-white text-emerald-700 shadow-xs font-semibold" 
                     : "text-slate-600 hover:text-slate-900"
                 }`}
               >
-                Ayer (05/09 - Sáb y Ventas)
+                Ayer (05/09/2026)
               </button>
               <button
-                onClick={() => setDateFilter("2026-09-04")}
-                className={`px-2.5 py-1.5 rounded-md transition-all ${
-                  dateFilter === "2026-09-04" 
+                onClick={() => setDateFilter("2026-09-06")}
+                className={`px-3 py-1.5 rounded-md transition-all ${
+                  dateFilter === "2026-09-06" 
                     ? "bg-white text-emerald-700 shadow-xs font-semibold" 
                     : "text-slate-600 hover:text-slate-900"
                 }`}
               >
-                Viernes (04/09)
+                Hoy (06/09/2026)
               </button>
               <button
                 onClick={() => setDateFilter("all")}
-                className={`px-2.5 py-1.5 rounded-md transition-all ${
+                className={`px-3 py-1.5 rounded-md transition-all ${
                   dateFilter === "all" 
                     ? "bg-white text-emerald-700 shadow-xs font-semibold" 
                     : "text-slate-600 hover:text-slate-900"
                 }`}
               >
                 Todas las fechas
+              </button>
+            </div>
+
+            {/* Quick Status Pills */}
+            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs font-medium">
+              <button
+                onClick={() => setStatusFilter("all")}
+                className={`px-3 py-1.5 rounded-md transition-all ${
+                  statusFilter === "all"
+                    ? "bg-white text-slate-900 shadow-xs font-semibold"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                Cualquier Estado ({metrics.total})
+              </button>
+              <button
+                onClick={() => setStatusFilter("open")}
+                className={`px-3 py-1.5 rounded-md transition-all ${
+                  statusFilter === "open"
+                    ? "bg-amber-500 text-white shadow-xs font-semibold"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                Abiertos
+              </button>
+              <button
+                onClick={() => setStatusFilter("closed")}
+                className={`px-3 py-1.5 rounded-md transition-all ${
+                  statusFilter === "closed"
+                    ? "bg-emerald-600 text-white shadow-xs font-semibold"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                Resueltos / Cerrados
               </button>
             </div>
           </div>
@@ -543,40 +571,87 @@ export default function ConversacionesAdminPage() {
 
               {/* Matched Order Alert Banner if linked in Zono */}
               {selectedConversation.matchedOrder ? (
-                <div className="p-3 bg-emerald-50 border-b border-emerald-200 flex items-center justify-between gap-3 text-xs text-emerald-900">
-                  <div className="flex items-center gap-2 truncate">
-                    <div className="p-1.5 bg-emerald-200 text-emerald-800 rounded-md shrink-0">
-                      <ShoppingCart className="w-4 h-4" />
+                <div className="p-3 bg-emerald-50 border-b border-emerald-200 flex flex-col gap-2 text-xs text-emerald-900">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 bg-emerald-200 text-emerald-800 rounded-md shrink-0">
+                        <ShoppingCart className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <span className="font-bold text-emerald-950">Pedido #{selectedConversation.matchedOrder.id.slice(0, 8)}:</span>{" "}
+                        <span className="font-semibold">{selectedConversation.matchedOrder.customerName}</span> •{" "}
+                        <span className="font-extrabold text-emerald-800 text-sm">
+                          ${selectedConversation.matchedOrder.totalAmount?.toLocaleString("es-AR")}
+                        </span>{" "}
+                        • Estado: <span className="px-1.5 py-0.5 rounded bg-emerald-200/80 font-semibold">{selectedConversation.matchedOrder.status || "Pendiente"}</span>
+                      </div>
                     </div>
-                    <div className="truncate">
-                      <span className="font-bold">Pedido vinculado en Zono:</span>{" "}
-                      <span>{selectedConversation.matchedOrder.customerName}</span> •{" "}
-                      <span className="font-semibold text-emerald-700">
-                        ${selectedConversation.matchedOrder.totalAmount?.toLocaleString("es-AR")}
-                      </span>{" "}
-                      • Localidad: {selectedConversation.matchedOrder.locality || "S/D"}
+
+                    <Link
+                      href={`/vendedores/pedidos?search=${encodeURIComponent(selectedConversation.matchedOrder.customerName.split(" ")[0])}`}
+                      className="px-3 py-1 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-semibold text-xs shrink-0 flex items-center gap-1.5 transition-all shadow-xs"
+                    >
+                      Ver en Pedidos
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </Link>
+                  </div>
+
+                  {/* Dirección y entrecalles */}
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-slate-700 pl-8">
+                    <div>
+                      <span className="text-slate-500 font-medium">📍 Dirección:</span>{" "}
+                      <span className="font-semibold text-slate-900">{selectedConversation.matchedOrder.address || "S/D"}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 font-medium">🏙️ Localidad:</span>{" "}
+                      <span className="font-semibold text-slate-900">{selectedConversation.matchedOrder.locality || "S/D"}</span>
                     </div>
                   </div>
 
-                  <Link
-                    href={`/vendedores/pedidos?search=${encodeURIComponent(selectedConversation.matchedOrder.customerName.split(" ")[0])}`}
-                    className="px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs shrink-0 flex items-center gap-1 transition-all"
-                  >
-                    Ver en Pedidos
-                    <ArrowRight className="w-3 h-3" />
-                  </Link>
+                  {/* Desglose de Productos DB */}
+                  {selectedConversation.matchedOrder.items && selectedConversation.matchedOrder.items.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5 pl-8 pt-1">
+                      <span className="text-[11px] font-bold text-emerald-900 mr-1">📦 Productos:</span>
+                      {selectedConversation.matchedOrder.items.map((it, idx) => (
+                        <span key={idx} className="px-2 py-0.5 rounded-md bg-white border border-emerald-300/80 text-[11px] font-medium text-emerald-950 flex items-center gap-1">
+                          <span className="font-bold text-emerald-700">{it.quantity}x</span> {it.name}
+                          <span className="text-slate-500 font-mono">(${it.price?.toLocaleString("es-AR")})</span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ) : (
-                <div className="p-2.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between text-xs text-slate-500">
-                  <div className="flex items-center gap-2">
-                    <AlertCircle className="w-3.5 h-3.5 text-slate-400" />
-                    <span>Sin pedido confirmado en el ERP todavía</span>
+                <div className="p-3 bg-amber-50/90 border-b border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs text-amber-900">
+                  <div className="flex items-start gap-2.5">
+                    <div className="p-1.5 bg-amber-200 text-amber-800 rounded-md shrink-0 mt-0.5">
+                      <AlertCircle className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-amber-950">Sin pedido confirmado en ERP todavía</span>
+                        {selectedConversation.reservationDateLabel && (
+                          <span className="px-2 py-0.5 rounded bg-amber-200 text-[11px] font-semibold text-amber-900 border border-amber-300 inline-block">
+                            📅 {selectedConversation.reservationDateLabel}
+                          </span>
+                        )}
+                      </div>
+                      {selectedConversation.detectedDraft?.address && (
+                        <p className="text-[11px] text-slate-700 mt-1">
+                          <span className="font-medium text-slate-500">📍 Detectado en chat:</span> {selectedConversation.detectedDraft.address}
+                          {selectedConversation.detectedDraft.total && selectedConversation.detectedDraft.total > 0 ? (
+                            <span className="font-bold text-amber-900 ml-2">• Total: ${selectedConversation.detectedDraft.total.toLocaleString("es-AR")}</span>
+                          ) : null}
+                        </p>
+                      )}
+                    </div>
                   </div>
                   <Link
-                    href={`/vendedores/pedidos?client_name=${encodeURIComponent(selectedConversation.contact?.name)}&client_phone=${encodeURIComponent(selectedConversation.contact?.number)}`}
-                    className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 hover:underline flex items-center gap-1"
+                    href={`/vendedores/pedidos?client_name=${encodeURIComponent(selectedConversation.contact?.name || "")}&client_phone=${encodeURIComponent(selectedConversation.contact?.number || "")}&address=${encodeURIComponent(selectedConversation.detectedDraft?.address || "")}&notes=${encodeURIComponent(`Venta coordinada por Whaticket ticket #${selectedConversation.id}`)}`}
+                    className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shrink-0 flex items-center justify-center gap-1.5 shadow-xs transition-all"
                   >
-                    + Crear Pedido para este cliente
+                    ⚡ Pre-cargar Pedido en ERP
+                    <ArrowRight className="w-3.5 h-3.5" />
                   </Link>
                 </div>
               )}
@@ -589,19 +664,24 @@ export default function ConversacionesAdminPage() {
                   backgroundSize: "20px 20px"
                 }}
               >
-                {/* Date Divider */}
-                <div className="flex justify-center">
-                  <span className="text-[11px] font-semibold text-slate-500 bg-white/90 px-3 py-1 rounded-full shadow-xs border border-slate-200">
-                    Ayer, 5 de Septiembre de 2026
-                  </span>
-                </div>
+                {/* Chat Balloons with Dynamic Date Dividers per Day */}
+                {selectedConversation.messages?.map((msg, index) => {
+                  const prevMsg = index > 0 ? selectedConversation.messages[index - 1] : null;
+                  const showDateDivider = !prevMsg || prevMsg.dateIso !== msg.dateIso;
 
-                {/* Chat Balloons */}
-                {selectedConversation.messages?.map((msg) => (
-                  <div
-                    key={msg.id}
-                    className={`flex ${msg.fromMe ? "justify-end" : "justify-start"}`}
-                  >
+                  return (
+                    <React.Fragment key={msg.id}>
+                      {showDateDivider && (
+                        <div className="flex justify-center my-3">
+                          <span className="text-[11px] font-semibold text-slate-600 bg-white/95 px-3.5 py-1 rounded-full shadow-xs border border-slate-200 flex items-center gap-1.5">
+                            <Calendar className="w-3 h-3 text-emerald-600" />
+                            {msg.dayLabel || msg.dateIso || "Historial"}
+                          </span>
+                        </div>
+                      )}
+                      <div
+                        className={`flex ${msg.fromMe ? "justify-end" : "justify-start"}`}
+                      >
                     <div
                       className={`max-w-[85%] sm:max-w-[75%] rounded-2xl p-3.5 shadow-xs text-sm ${
                         msg.fromMe
@@ -685,7 +765,9 @@ export default function ConversacionesAdminPage() {
                       )}
                     </div>
                   </div>
-                ))}
+                </React.Fragment>
+              );
+                })}
               </div>
 
               {/* Bottom Quick Bar */}

@@ -79,7 +79,7 @@ export async function getGoogleAccessToken(): Promise<string> {
   const header = { alg: 'RS256', typ: 'JWT' };
   const claimSet = {
     iss: creds.client_email,
-    scope: 'https://www.googleapis.com/auth/spreadsheets.readonly https://www.googleapis.com/auth/drive.readonly',
+    scope: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive',
     aud: 'https://oauth2.googleapis.com/token',
     exp: now + 3600,
     iat: now
@@ -200,5 +200,199 @@ export async function fetchSpreadsheetCsv(
   }
 
   return await res.text();
+}
+
+export interface SheetOrderItem {
+  name: string;
+  quantity: number;
+  unitPrice: number;
+}
+
+export interface SheetOrderPayload {
+  deliveryDate?: string;
+  orderDate?: string;
+  maxDeliveryDate?: string;
+  clientName: string;
+  phonePrimary?: string;
+  phoneSecondary?: string;
+  whaticketLink?: string;
+  source?: string;
+  deliveryNotes?: string;
+  medium?: string;
+  sellerName?: string;
+  status?: string;
+  locality?: string;
+  address?: string;
+  mapsLink?: string;
+  category?: string;
+  paymentMethod?: string;
+  identification?: string;
+  paymentStatus?: string;
+  depositOrPaidAmount?: number;
+  freightType?: string;
+  freightCost?: number;
+  items?: SheetOrderItem[];
+}
+
+const PRODUCT_SLOT_RANGES: [string, string][] = [
+  ['AE', 'AG'],
+  ['AI', 'AK'],
+  ['AM', 'AO'],
+  ['AQ', 'AS'],
+  ['AU', 'AW'],
+  ['AY', 'BA'],
+  ['BC', 'BE'],
+  ['BG', 'BI'],
+  ['BK', 'BM'],
+  ['BO', 'BQ'],
+  ['BS', 'BU'],
+  ['BW', 'BY']
+];
+
+function formatDateForSheet(val?: string | null): string {
+  if (!val) return '';
+  const clean = val.split('T')[0].trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) {
+    const [yyyy, mm, dd] = clean.split('-');
+    return `${parseInt(dd, 10)}/${parseInt(mm, 10)}/${yyyy}`;
+  }
+  return clean;
+}
+
+export async function getNextAvailableSheetCode(
+  spreadsheetId: string,
+  sheetName: string = 'Pendientes'
+): Promise<{ code: string; rowNumber: number }> {
+  // Fetch columns B to F from row 2 to 300
+  const rows = await fetchSpreadsheetValues(spreadsheetId, `'${sheetName}'!B2:F300`);
+  let emptyRowIndex = -1;
+  let code = '';
+  let lastKnownCode = '';
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i] || [];
+    const currentCode = (row[0] || '').trim();
+    const clientName = (row[4] || '').trim();
+
+    if (currentCode) {
+      lastKnownCode = currentCode;
+    }
+
+    // Row is considered available if client name (Col F, index 4) is empty
+    if (!clientName) {
+      emptyRowIndex = i;
+      code = currentCode;
+      break;
+    }
+  }
+
+  // Row number in 1-based index (row 2 is index 0)
+  const rowNumber = emptyRowIndex !== -1 ? emptyRowIndex + 2 : rows.length + 2;
+
+  if (!code) {
+    if (lastKnownCode) {
+      const match = lastKnownCode.match(/^([A-Za-z-]+)(\d+)$/);
+      if (match) {
+        const prefix = match[1];
+        const numStr = match[2];
+        const nextNum = parseInt(numStr, 10) + 1;
+        code = `${prefix}${String(nextNum).padStart(numStr.length, '0')}`;
+      } else {
+        code = `DB${String(rowNumber).padStart(4, '0')}`;
+      }
+    } else {
+      code = `DB${String(rowNumber).padStart(4, '0')}`;
+    }
+  }
+
+  return { code, rowNumber };
+}
+
+export async function appendOrderToSellerSheet(
+  spreadsheetId: string,
+  sheetName: string = 'Pendientes',
+  order: SheetOrderPayload
+): Promise<{ success: boolean; code: string; rowNumber: number }> {
+  const token = await getGoogleAccessToken();
+
+  const { code, rowNumber } = await getNextAvailableSheetCode(spreadsheetId, sheetName);
+
+  const formattedDeliveryDate = formatDateForSheet(order.deliveryDate);
+  const formattedOrderDate = formatDateForSheet(order.orderDate);
+  const formattedMaxDeliveryDate = formatDateForSheet(order.maxDeliveryDate);
+
+  const batchData: Array<{ range: string; values: any[][] }> = [
+    {
+      range: `'${sheetName}'!C${rowNumber}:E${rowNumber}`,
+      values: [[formattedDeliveryDate, formattedOrderDate, formattedMaxDeliveryDate]]
+    },
+    {
+      range: `'${sheetName}'!F${rowNumber}:H${rowNumber}`,
+      values: [[order.clientName || '', order.phonePrimary || '', order.phoneSecondary || '']]
+    },
+    {
+      range: `'${sheetName}'!I${rowNumber}:K${rowNumber}`,
+      values: [[order.whaticketLink || '', order.source || '', order.deliveryNotes || '']]
+    },
+    {
+      range: `'${sheetName}'!L${rowNumber}:M${rowNumber}`,
+      values: [[order.medium || '', order.sellerName || '']]
+    },
+    {
+      range: `'${sheetName}'!Q${rowNumber}:T${rowNumber}`,
+      values: [[order.status || '🔹 Pasado', order.locality || '', order.address || '', order.mapsLink || '']]
+    },
+    {
+      range: `'${sheetName}'!U${rowNumber}:W${rowNumber}`,
+      values: [[order.category || '', order.paymentMethod || '', order.identification || '']]
+    },
+    {
+      range: `'${sheetName}'!X${rowNumber}:Y${rowNumber}`,
+      values: [[order.paymentStatus || 'No Abonado', order.depositOrPaidAmount ?? 0]]
+    },
+    {
+      range: `'${sheetName}'!AA${rowNumber}:AB${rowNumber}`,
+      values: [[order.freightType || '⚪ Flete Regular', order.freightCost ?? 0]]
+    }
+  ];
+
+  // Add product items into safe non-formula slots
+  if (order.items && order.items.length > 0) {
+    const maxItems = Math.min(order.items.length, PRODUCT_SLOT_RANGES.length);
+    for (let i = 0; i < maxItems; i++) {
+      const item = order.items[i];
+      const [startCol, endCol] = PRODUCT_SLOT_RANGES[i];
+      batchData.push({
+        range: `'${sheetName}'!${startCol}${rowNumber}:${endCol}${rowNumber}`,
+        values: [[item.name || '', item.quantity || 1, item.unitPrice || 0]]
+      });
+    }
+  }
+
+  const updateRes = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        valueInputOption: 'USER_ENTERED',
+        data: batchData
+      })
+    }
+  );
+
+  if (!updateRes.ok) {
+    const errText = await updateRes.text();
+    throw new Error(`Google Sheets batchUpdate error (${updateRes.status}): ${errText}`);
+  }
+
+  return {
+    success: true,
+    code,
+    rowNumber
+  };
 }
 
