@@ -1,7 +1,14 @@
+export const runtime = 'edge';
+export const dynamic = 'force-dynamic';
+
 import { NextResponse } from "next/server";
-import fs from "fs";
-import path from "path";
 import { createClient } from "@supabase/supabase-js";
+
+import ticketsDataRaw from "@/data/whaticket/tickets.json";
+import usersDataRaw from "@/data/whaticket/users.json";
+import tagsDataRaw from "@/data/whaticket/tags.json";
+import queuesDataRaw from "@/data/whaticket/queues.json";
+import realMessagesMapRaw from "@/data/whaticket/real_messages.json";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://ckvbyfgsbjbfaqotmeld.supabase.co";
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
@@ -33,27 +40,16 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const dateFilter = searchParams.get("date") ?? "2026-09-05";
-    const tagFilter = searchParams.get("tag") ?? "Cliente";
+    const tagFilter = searchParams.get("tag") ?? "all";
     const searchQuery = (searchParams.get("search") || "").trim().toLowerCase();
     const statusFilter = searchParams.get("status") || "all";
     const sellerFilter = searchParams.get("seller") || "all";
 
-    const baseDir = path.join(process.cwd(), "src", "data", "whaticket");
-    const fallbackDir = path.join(process.cwd(), "scratch", "whaticket_mirror_backup");
-
-    const getFile = (filename: string) => {
-      const p1 = path.join(baseDir, filename);
-      if (fs.existsSync(p1)) return JSON.parse(fs.readFileSync(p1, "utf-8"));
-      const p2 = path.join(fallbackDir, filename === "tickets.json" ? "tickets_sample.json" : filename);
-      if (fs.existsSync(p2)) return JSON.parse(fs.readFileSync(p2, "utf-8"));
-      return null;
-    };
-
-    const ticketsData = getFile("tickets.json") as RawTicket[] | null;
-    const usersData = getFile("users.json");
-    const tagsData = getFile("tags.json");
-    const queuesData = getFile("queues.json");
-    const realMessagesMap = getFile("real_messages.json") || {};
+    const ticketsData = (ticketsDataRaw || []) as unknown as RawTicket[];
+    const usersData = usersDataRaw as any;
+    const tagsData = tagsDataRaw as any;
+    const queuesData = queuesDataRaw as any;
+    const realMessagesMap = (realMessagesMapRaw || {}) as Record<string, any[]>;
 
     if (!ticketsData || !Array.isArray(ticketsData)) {
       return NextResponse.json({
@@ -95,7 +91,50 @@ export async function GET(request: Request) {
     });
     const allUniqueTickets = Array.from(uniqueTicketsMap.values());
 
+    const onlyOrders = searchParams.get("onlyOrders") === "true";
+
+    let ordersList: any[] = [];
+    try {
+      const { data: orders } = await supabase
+        .from("orders")
+        .select("id, customer_name, locality, address, total_amount, order_date, whaticket_link, status, created_at")
+        .order("created_at", { ascending: false })
+        .limit(1000);
+      if (orders) ordersList = orders;
+    } catch (dbErr) {
+      console.warn("Could not fetch orders for cross-reference:", dbErr);
+    }
+
+    // Pre-match each ticket with order
+    const ticketOrderMap = new Map<string, any>();
+    allUniqueTickets.forEach((t) => {
+      let matchedOrder: any = null;
+      for (const o of ordersList) {
+        if (o.whaticket_link && o.whaticket_link.includes(t.id)) {
+          matchedOrder = o;
+          break;
+        }
+        if (t.contact?.name && o.customer_name) {
+          const cNameClean = t.contact.name.toLowerCase().split(".")[0].trim();
+          const oNameClean = o.customer_name.toLowerCase().trim();
+          if (cNameClean.length >= 4 && (oNameClean.includes(cNameClean) || cNameClean.includes(oNameClean))) {
+            matchedOrder = o;
+            break;
+          }
+        }
+      }
+      if (matchedOrder) {
+        ticketOrderMap.set(t.id, matchedOrder);
+      }
+    });
+
     const filtered = allUniqueTickets.filter((t) => {
+      const matchedOrder = ticketOrderMap.get(t.id);
+
+      if (onlyOrders && !matchedOrder) {
+        return false;
+      }
+
       if (tagFilter && tagFilter !== "all") {
         const hasTag = (t.contact?.tags || []).some(
           (tg) => tg.name.toLowerCase().trim() === tagFilter.toLowerCase().trim()
@@ -106,8 +145,15 @@ export async function GET(request: Request) {
       if (dateFilter && dateFilter !== "all") {
         const rawDate = t.updatedAt || t.lastReceivedMessageAt || t.createdAt;
         const d = new Date(rawDate);
-        const arDate = d.toLocaleDateString("en-CA", { timeZone: "America/Argentina/Buenos_Aires" });
-        if (arDate !== dateFilter) return false;
+        const tDate = d.toLocaleDateString("en-CA", { timeZone: "America/Argentina/Buenos_Aires" });
+        const oDate = matchedOrder
+          ? new Date(matchedOrder.created_at || matchedOrder.order_date).toLocaleDateString("en-CA", { timeZone: "America/Argentina/Buenos_Aires" })
+          : null;
+
+        // Match if ticket was active on that date OR if the sale was created on that date
+        if (tDate !== dateFilter && oDate !== dateFilter) {
+          return false;
+        }
       }
 
       if (statusFilter !== "all" && t.status !== statusFilter) {
@@ -125,7 +171,15 @@ export async function GET(request: Request) {
         const name = (t.contact?.name || "").toLowerCase();
         const number = (t.contact?.number || "").toLowerCase();
         const msg = (t.lastMessage || "").toLowerCase();
-        if (!name.includes(searchQuery) && !number.includes(searchQuery) && !msg.includes(searchQuery)) {
+        const orderCustomer = (matchedOrder?.customer_name || "").toLowerCase();
+        const orderLocality = (matchedOrder?.locality || "").toLowerCase();
+        if (
+          !name.includes(searchQuery) &&
+          !number.includes(searchQuery) &&
+          !msg.includes(searchQuery) &&
+          !orderCustomer.includes(searchQuery) &&
+          !orderLocality.includes(searchQuery)
+        ) {
           return false;
         }
       }
@@ -133,40 +187,13 @@ export async function GET(request: Request) {
       return true;
     });
 
-    let ordersList: any[] = [];
-    try {
-      const { data: orders } = await supabase
-        .from("orders")
-        .select("id, customer_name, locality, address, total_amount, order_date, whaticket_link, status")
-        .order("created_at", { ascending: false })
-        .limit(300);
-      if (orders) ordersList = orders;
-    } catch (dbErr) {
-      console.warn("Could not fetch orders for cross-reference:", dbErr);
-    }
-
     let withOrdersCount = 0;
     let totalSoldAmount = 0;
 
     const conversations = filtered.map((t) => {
       const sellerName = userMap[t.userId || ""] || "Jazmín";
       const queueName = queueMap[t.queueId || ""] || "Ventas";
-
-      let matchedOrder: any = null;
-      for (const o of ordersList) {
-        if (o.whaticket_link && o.whaticket_link.includes(t.id)) {
-          matchedOrder = o;
-          break;
-        }
-        if (t.contact?.name && o.customer_name) {
-          const cNameClean = t.contact.name.toLowerCase().split(".")[0].trim();
-          const oNameClean = o.customer_name.toLowerCase().trim();
-          if (cNameClean.length >= 4 && (oNameClean.includes(cNameClean) || cNameClean.includes(oNameClean))) {
-            matchedOrder = o;
-            break;
-          }
-        }
-      }
+      const matchedOrder = ticketOrderMap.get(t.id) || null;
 
       if (matchedOrder) {
         withOrdersCount++;
