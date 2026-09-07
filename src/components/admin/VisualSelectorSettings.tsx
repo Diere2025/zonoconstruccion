@@ -244,13 +244,64 @@ export default function VisualSelectorSettings({ products = [] }: VisualSelector
     setEditingItem(null);
   };
 
+  // Helper to compress image to lightweight JPG on client side before upload
+  const compressImageToJpg = async (file: File, maxWidth = 1200, quality = 0.82): Promise<Blob> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const img = new Image();
+        img.onload = () => {
+          let { width, height } = img;
+          if (width > maxWidth) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            resolve(file);
+            return;
+          }
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, width, height);
+          ctx.drawImage(img, 0, 0, width, height);
+          canvas.toBlob(
+            (blob) => {
+              if (blob) resolve(blob);
+              else resolve(file);
+            },
+            'image/jpeg',
+            quality
+          );
+        };
+        img.onerror = () => resolve(file);
+        img.src = event.target?.result as string;
+      };
+      reader.onerror = () => resolve(file);
+      reader.readAsDataURL(file);
+    });
+  };
+
   // Helper to upload an image to Supabase Storage
   const uploadImageFile = async (file: File): Promise<string> => {
-    const ext = file.name.split('.').pop();
+    let uploadData: Blob | File = file;
+    let ext = 'jpg';
+    try {
+      uploadData = await compressImageToJpg(file);
+    } catch {
+      uploadData = file;
+      ext = file.name.split('.').pop() || 'jpg';
+    }
+
     const filePath = `visual-selector/${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${ext}`;
     const { error: uploadError } = await supabase.storage
       .from('product-images')
-      .upload(filePath, file, { upsert: true });
+      .upload(filePath, uploadData, { 
+        contentType: 'image/jpeg',
+        upsert: true 
+      });
     if (uploadError) throw uploadError;
     const { data: publicUrlData } = supabase.storage
       .from('product-images')
