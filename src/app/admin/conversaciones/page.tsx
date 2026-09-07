@@ -594,10 +594,59 @@ export default function ConversacionesAdminPage() {
                         </span>
                       </div>
 
+                      {/* Audio Player if voice note */}
+                      {msg.mediaType === "audio" && (
+                        <div className="my-2 p-2.5 rounded-xl bg-black/5 flex flex-col gap-1">
+                          <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-800">
+                            <Mic className="w-4 h-4" />
+                            <span>Nota de voz (Audio)</span>
+                          </div>
+                          {msg.mediaUrl ? (
+                            <audio 
+                              controls 
+                              src={msg.mediaUrl} 
+                              className="w-full h-9 mt-1" 
+                              preload="none" 
+                            />
+                          ) : (
+                            <span className="text-[11px] text-slate-400 italic">
+                              Audio de WhatsApp
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Image Viewer if image attached */}
+                      {msg.mediaType === "image" && (
+                        <div className="my-2">
+                          {msg.mediaUrl ? (
+                            <a 
+                              href={msg.mediaUrl} 
+                              target="_blank" 
+                              rel="noopener noreferrer" 
+                              title="Clic para ver en tamaño original"
+                            >
+                              <img 
+                                src={msg.mediaUrl} 
+                                alt="Adjunto de WhatsApp" 
+                                className="max-h-72 rounded-lg object-cover shadow-xs border border-black/10 hover:opacity-95 transition-all" 
+                              />
+                            </a>
+                          ) : (
+                            <div className="p-2.5 rounded-lg bg-black/5 flex items-center gap-2 text-xs text-slate-600">
+                              <ImageIcon className="w-4 h-4 text-slate-400" />
+                              <span>Foto / Comprobante adjunto</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
                       {/* Body */}
-                      <div className="text-slate-800 whitespace-pre-wrap text-[13px] leading-relaxed">
-                        {renderFormattedText(msg.body)}
-                      </div>
+                      {msg.body && (
+                        <div className="text-slate-800 whitespace-pre-wrap text-[13px] leading-relaxed">
+                          {renderFormattedText(msg.body)}
+                        </div>
+                      )}
 
                       {/* Read status icon */}
                       {msg.fromMe && (
