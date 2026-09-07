@@ -100,6 +100,10 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    if (order.sellerName && /^jazm[ií]n\s+s[aá]nchez$/i.test(order.sellerName.trim())) {
+      order.sellerName = 'Jazmín Sanchez';
+    }
+
     const result = await appendOrderToSellerSheet(
       config.spreadsheetId,
       config.sheetName,
