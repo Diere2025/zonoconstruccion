@@ -445,7 +445,7 @@ export async function appendOrderToSellerSheet(
       },
       {
         range: `'${sheetName}'!Q${rowNumber}:T${rowNumber}`,
-        values: [[order.status || '🔹 Pasado', order.locality || '', order.address || '', order.mapsLink || '']]
+        values: [[order.status || '🔸 Validado', order.locality || '', order.address || '', order.mapsLink || '']]
       },
       {
         range: `'${sheetName}'!U${rowNumber}:W${rowNumber}`,
