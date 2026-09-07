@@ -526,49 +526,70 @@ export default function PedidosPage() {
   const [orderCategory, setOrderCategory] = useState<string>("auto");
 
   const detectedCategory = useMemo(() => {
-    if (orderItems.length === 0) return "Otros";
+    if (orderItems.length === 0) return "OTRO";
     
-    // Count items per category
     let termotanqueCount = 0;
     let tanquesCount = 0;
     let biofortCount = 0;
-    let mepsCount = 0;
+    let instalacionBiofortCount = 0;
+    let mepCount = 0;
+    let rolloMembranaCount = 0;
+    let latexCount = 0;
+    let baseCount = 0;
     let escalerasCount = 0;
-    let pinturasCount = 0;
+    let colombraroCount = 0;
+    let herramientasCount = 0;
     let otrosCount = 0;
     
     orderItems.forEach(item => {
-      const nameLower = item.name.toLowerCase();
-      if (nameLower.includes("termotanque") || nameLower.includes("termo")) {
+      const nameLower = (item.name || "").toLowerCase();
+      const skuLower = (item.sku || "").toLowerCase();
+      const full = `${nameLower} ${skuLower}`;
+
+      if (full.includes("instalaci") || full.includes("mano de obra")) {
+        instalacionBiofortCount += item.quantity;
+      } else if (full.includes("termotanque") || full.includes("termo")) {
         termotanqueCount += item.quantity;
-      } else if (nameLower.includes("aquafort") || nameLower.includes("tanque") || nameLower.includes("base") || nameLower.includes("flotante") || nameLower.includes("flotador")) {
-        tanquesCount += item.quantity;
-      } else if (nameLower.includes("biofort") || nameLower.includes("biodigestor") || nameLower.includes("septic") || nameLower.includes("séptic") || nameLower.includes("desengrasadora") || nameLower.includes("inspeccion") || nameLower.includes("inspección") || nameLower.includes("lodos") || nameLower.includes("wp") || nameLower.includes("aerosol") || nameLower.includes("lubricante")) {
+      } else if (full.includes("biodigestor") || full.includes("septic") || full.includes("séptic") || full.includes("desengrasadora") || full.includes("lodos") || full.includes("biofort")) {
         biofortCount += item.quantity;
-      } else if (nameLower.includes("meps") || nameLower.includes("equilibrio") || nameLower.includes("membrana")) {
-        mepsCount += item.quantity;
-      } else if (nameLower.includes("escalera")) {
+      } else if (full.includes("base hierro") || (full.includes("base") && !full.includes("tanque") && !full.includes("revestimiento"))) {
+        baseCount += item.quantity;
+      } else if (full.includes("aquafort") || full.includes("tanque") || full.includes("flotante") || full.includes("flotador") || full.includes("bicapa") || full.includes("tricapa") || full.includes("cuatricapa") || full.includes("cisterna")) {
+        tanquesCount += item.quantity;
+      } else if (full.includes("rollo") || full.includes("asfalt") || full.includes("aluflex") || full.includes("megaflex") || full.includes("membrana en rollo")) {
+        rolloMembranaCount += item.quantity;
+      } else if (full.includes("látex") || full.includes("latex") || full.includes("bianca") || full.includes("andina")) {
+        latexCount += item.quantity;
+      } else if (full.includes("meps") || full.includes("mep") || full.includes("equilibrio") || full.includes("revestimiento") || full.includes("membrana")) {
+        mepCount += item.quantity;
+      } else if (full.includes("escalera")) {
         escalerasCount += item.quantity;
-      } else if (nameLower.includes("látex") || nameLower.includes("latex") || nameLower.includes("pintura")) {
-        pinturasCount += item.quantity;
+      } else if (full.includes("colombraro")) {
+        colombraroCount += item.quantity;
+      } else if (full.includes("kld") || full.includes("caterpillar") || full.includes("herramienta") || full.includes("morsa") || full.includes("taladro") || full.includes("amoladora")) {
+        herramientasCount += item.quantity;
       } else {
         otrosCount += item.quantity;
       }
     });
     
-    // Find which category has the most quantities (weight-based)
     const counts = [
-      { cat: "Termotanques", count: termotanqueCount },
-      { cat: "Tanques de Agua", count: tanquesCount },
-      { cat: "Biodigestores", count: biofortCount },
-      { cat: "MEPS", count: mepsCount },
-      { cat: "Escaleras", count: escalerasCount },
-      { cat: "Pinturas", count: pinturasCount }
+      { cat: "TANQUES", count: tanquesCount },
+      { cat: "TERMOTANQUES", count: termotanqueCount },
+      { cat: "BIODIGESTOR", count: biofortCount },
+      { cat: "INSTALACIÓN BIOFORT", count: instalacionBiofortCount },
+      { cat: "BASE", count: baseCount },
+      { cat: "LATEX", count: latexCount },
+      { cat: "ROLLO MEMBRANA", count: rolloMembranaCount },
+      { cat: "MEP", count: mepCount },
+      { cat: "ESCALERAS", count: escalerasCount },
+      { cat: "COLOMBRARO", count: colombraroCount },
+      { cat: "HERRAMIENTAS ELÉCTRICAS", count: herramientasCount },
+      { cat: "OTRO", count: otrosCount }
     ];
     
-    // Sort descending by count, and default to the highest
     counts.sort((a, b) => b.count - a.count);
-    return counts[0].count > 0 ? counts[0].cat : "Otros";
+    return counts[0].count > 0 ? counts[0].cat : "OTRO";
   }, [orderItems]);
 
   const [usageCounts, setUsageCounts] = useState<Record<string, number>>({});
@@ -1179,6 +1200,18 @@ export default function PedidosPage() {
   const [cardSurcharge, setCardSurcharge] = useState<number>(0);
   const [dbPaymentMethods, setDbPaymentMethods] = useState<any[]>([]);
   const [selectedPaymentMethodId, setSelectedPaymentMethodId] = useState<string>("");
+
+  const activePaymentMethods = useMemo(() => {
+    const seen = new Set<string>();
+    return (dbPaymentMethods || [])
+      .filter(pm => pm.is_active !== false)
+      .filter(pm => {
+        const key = (pm.name || '').trim().toLowerCase();
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+  }, [dbPaymentMethods]);
   const [isFreeShipping, setIsFreeShipping] = useState(true);
   const [shippingCost, setShippingCost] = useState<number>(0);
   const [includeIVA, setIncludeIVA] = useState(false);
@@ -1383,7 +1416,7 @@ export default function PedidosPage() {
   useEffect(() => {
     async function loadInitialData() {
       try {
-        const PEDIDOS_CACHE_VER = "zc_pedidos_v10_variants_restored";
+        const PEDIDOS_CACHE_VER = "zc_pedidos_v12_pricing_and_methods";
         if (sessionStorage.getItem("cached_pedidos_ver") !== PEDIDOS_CACHE_VER) {
           sessionStorage.clear();
           sessionStorage.setItem("cached_pedidos_ver", PEDIDOS_CACHE_VER);
@@ -2271,7 +2304,18 @@ export default function PedidosPage() {
         .filter(prod => prod.id === childId)
         .map(prod => ({ ...prod, variant_type: "10Kg" }));
     }
-    return allProducts.filter(prod => prod.parent_id === p.id);
+    const directChildren = allProducts.filter(prod => prod.parent_id === p.id && prod.is_active !== false);
+    if (directChildren.length > 0) return directChildren;
+
+    // Fallback for (CIEGO) variants if parent_id was not set
+    const ciegoFallback = allProducts.filter(prod =>
+      prod.id !== p.id &&
+      prod.is_active !== false &&
+      (prod.name?.trim().toLowerCase() === `${p.name?.trim().toLowerCase()} (ciego)` ||
+       prod.name?.trim().toLowerCase() === `${p.name?.trim().toLowerCase()} ciego`)
+    ).map(prod => ({ ...prod, variant_type: prod.variant_type || "CIEGO" }));
+
+    return ciegoFallback;
   };
 
   const searchTerms = normalizeText(searchTerm).split(/\s+/).filter(Boolean);
@@ -2293,7 +2337,7 @@ export default function PedidosPage() {
     }
 
     const childVariants = getDisplayVariants(p, products);
-    const childrenText = childVariants.map(child => `${child.name} ${child.sku || ''}`).join(' ');
+    const childrenText = childVariants.map(child => `${child.name} ${child.sku || ''} ${child.variant_type || ''}`).join(' ');
 
     const searchableText = normalizeText(`${p.name} ${p.sku || ''} ${extraSearchable} ${childrenText}`);
     return searchTerms.every(term => searchableText.includes(term));
@@ -2887,7 +2931,7 @@ export default function PedidosPage() {
             phoneSecondary: clientPhone2,
             whaticketLink: whaticketLink || '',
             source: sellerType === 'mayorista' ? 'Mayorista' : advName,
-            deliveryNotes: deliveryDetail || aclaraciones || '',
+            deliveryNotes: [aclaraciones, deliveryDetail].filter(Boolean).map((s: string) => s.trim()).join(' / '),
             medium: mediumName,
             sellerName: sellerFullName,
             status: orderStatus === 'En Espera' ? 'En Espera' : '🔹 Pasado',
@@ -2903,6 +2947,7 @@ export default function PedidosPage() {
             freightCost: shippingAmount || 0,
             items: orderItems.map(item => ({
               name: item.name,
+              sku: item.sku,
               quantity: item.quantity,
               unitPrice: item.customPrice
             }))
@@ -4111,13 +4156,18 @@ export default function PedidosPage() {
                     className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 transition-all cursor-pointer text-slate-800"
                   >
                     <option value="auto">Auto-detectar ({detectedCategory})</option>
-                    <option value="Tanques de Agua">Tanques de Agua</option>
-                    <option value="Biodigestores">Biodigestores</option>
-                    <option value="MEPS">MEPS</option>
-                    <option value="Escaleras">Escaleras</option>
-                    <option value="Pinturas">Pinturas</option>
-                    <option value="Termotanques">Termotanques</option>
-                    <option value="Otros">Otros</option>
+                    <option value="TANQUES">TANQUES</option>
+                    <option value="TERMOTANQUES">TERMOTANQUES</option>
+                    <option value="BIODIGESTOR">BIODIGESTOR</option>
+                    <option value="BASE">BASE</option>
+                    <option value="LATEX">LATEX</option>
+                    <option value="ROLLO MEMBRANA">ROLLO MEMBRANA</option>
+                    <option value="MEP">MEP</option>
+                    <option value="ESCALERAS">ESCALERAS</option>
+                    <option value="COLOMBRARO">COLOMBRARO</option>
+                    <option value="HERRAMIENTAS ELÉCTRICAS">HERRAMIENTAS ELÉCTRICAS</option>
+                    <option value="INSTALACIÓN BIOFORT">INSTALACIÓN BIOFORT</option>
+                    <option value="OTRO">OTRO</option>
                   </select>
                 </div>
               </div>
@@ -4459,7 +4509,7 @@ export default function PedidosPage() {
                             }}
                             className="w-full px-2.5 py-1.5 text-xs font-bold border border-slate-200 rounded-lg outline-none bg-slate-50 text-slate-700 focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500"
                           >
-                            {dbPaymentMethods.map(pm => (
+                            {activePaymentMethods.map(pm => (
                               <option key={pm.id} value={pm.id}>
                                 {pm.name} {pm.surcharge_percentage > 0 ? `(+${pm.surcharge_percentage}% Recargo)` : ''}
                               </option>
