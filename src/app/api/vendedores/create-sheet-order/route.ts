@@ -4,11 +4,16 @@ import { appendOrderToSellerSheet, getNextAvailableSheetCode, SheetOrderPayload 
 export const runtime = 'edge';
 
 // Seller spreadsheet configuration
-// Initially enabled only for Diego Bóveda as requested
 const SELLER_SHEET_CONFIG: Record<string, { spreadsheetId: string; sheetName: string; enabled: boolean }> = {
   // Diego Bóveda
   '381df0d1-183f-4ccb-aaf2-8147c76159a9': {
     spreadsheetId: '1ccs1yPtwSSUf6dcA5XpxhpvPaWmHfJ0zsCfyJvEBvtg',
+    sheetName: 'Pendientes',
+    enabled: true
+  },
+  // Jazmín Sánchez
+  '13430e05-b61a-4a3f-9fc3-152d377c4b0c': {
+    spreadsheetId: '16DPcJEdrTMYvNSaUKQo9ODKClqe1VHLlKOX6O_sELRw',
     sheetName: 'Pendientes',
     enabled: true
   }
