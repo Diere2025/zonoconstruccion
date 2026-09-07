@@ -126,7 +126,7 @@ export async function POST(request: Request) {
         .from('orders')
         .select('id, legacy_code, status, delivery_detail, whaticket_link, order_medium_id')
         .or(orConditions)
-        .limit(200);
+        .limit(1000);
       if (error) throw error;
       return data || [];
     }
@@ -885,6 +885,20 @@ export async function POST(request: Request) {
         }
 
       } else {
+        // VALIDACIÓN ANTI-DUPLICADOS: Verificar directamente en DB antes de insertar
+        if (orderCode) {
+          const { data: directExisting } = await supabaseAdmin
+            .from('orders')
+            .select('id')
+            .eq('legacy_code', orderCode.trim().toUpperCase())
+            .maybeSingle();
+
+          if (directExisting) {
+            addLog(`  ⚠️ Pedido ${orderCode} ya existe en el sistema (ID: ${directExisting.id.substring(0, 8)}). Omitiendo inserción duplicada.`);
+            continue;
+          }
+        }
+
         addLog(`  ✍ Creando pedido en la base de datos (${orderCode})...`);
         const { data: newOrder, error: errOrder } = await supabaseAdmin
           .from('orders')

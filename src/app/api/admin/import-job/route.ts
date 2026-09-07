@@ -617,6 +617,19 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
               totalUpdated++;
             }
           } else {
+            // VALIDACIÓN ANTI-DUPLICADOS: Verificar directamente en DB antes de insertar
+            if (orderCode) {
+              const { data: directExisting } = await supabaseAdmin
+                .from('orders')
+                .select('id')
+                .eq('legacy_code', orderCode.trim().toUpperCase())
+                .maybeSingle();
+
+              if (directExisting) {
+                continue;
+              }
+            }
+
             // INSERT NEW ORDER
             const { data: newOrder, error: errIns } = await supabaseAdmin.from('orders').insert({
               seller_id: sellerId,

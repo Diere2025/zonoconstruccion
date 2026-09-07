@@ -32,7 +32,11 @@ import {
   Sparkles,
   Home,
   DollarSign,
-  CheckCircle2
+  CheckCircle2,
+  Copy,
+  Download,
+  Database,
+  FileSpreadsheet
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { supabase } from "@/lib/supabase";
@@ -507,6 +511,13 @@ export default function PedidosPage() {
   const [submitting, setSubmitting] = useState(false);
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
   const isEditingRef = useRef(false);
+
+  // Load from DB & Sheet Sync States
+  const [showLoadFromDbModal, setShowLoadFromDbModal] = useState(false);
+  const [loadFromDbSearch, setLoadFromDbSearch] = useState("");
+  const [recentDbOrders, setRecentDbOrders] = useState<any[]>([]);
+  const [loadingDbOrders, setLoadingDbOrders] = useState(false);
+  const [syncingOrderId, setSyncingOrderId] = useState<string | null>(null);
 
   const [products, setProducts] = useState<Product[]>([]);
 
@@ -1411,13 +1422,32 @@ export default function PedidosPage() {
         });
       }
 
-      const nextNum = maxNum + 1;
+      let nextNum = maxNum + 1;
       let nextNumStr = String(nextNum);
       if (needsPadding && paddingLength > 0) {
         nextNumStr = nextNumStr.padStart(paddingLength, '0');
       }
 
-      setLegacyCode(`${prefix}${nextNumStr}`);
+      let candidateCode = `${prefix}${nextNumStr}`;
+      // Verificar que el código candidato no exista ya en la base de datos
+      let attempts = 0;
+      while (attempts < 50) {
+        const { data: codeExists } = await supabase
+          .from('orders')
+          .select('id')
+          .eq('legacy_code', candidateCode)
+          .maybeSingle();
+        if (!codeExists) break;
+        nextNum++;
+        nextNumStr = String(nextNum);
+        if (needsPadding && paddingLength > 0) {
+          nextNumStr = nextNumStr.padStart(paddingLength, '0');
+        }
+        candidateCode = `${prefix}${nextNumStr}`;
+        attempts++;
+      }
+
+      setLegacyCode(candidateCode);
     } catch (err) {
       console.error("Error generating legacy code:", err);
       setLegacyCode(`ZC${Date.now().toString().slice(-6)}`);
@@ -2034,7 +2064,35 @@ export default function PedidosPage() {
     fetchOrders();
   }, [activeTab, listType, role, debouncedOrderSearch, statusFilter, selectedProducts, expandedSelectedProductIds, products, clientTypeFilter, dateFrom, dateTo]);
 
-  const handleEditOrder = async (order: any) => {
+  // Fetch recent orders for the "Cargar desde BD" modal
+  const fetchOrdersForModal = async () => {
+    setLoadingDbOrders(true);
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      if (!userData.user) return;
+
+      let q = supabase
+        .from('orders')
+        .select('*, order_items(product_name, quantity, unit_price), sellers(full_name)')
+        .order('created_at', { ascending: false })
+        .limit(40);
+
+      if (role !== 'admin') {
+        q = q.eq('seller_id', userData.user.id);
+      }
+
+      const { data, error } = await q;
+      if (error) throw error;
+      setRecentDbOrders(data || []);
+    } catch (e) {
+      console.error('Error fetching orders for modal:', e);
+    } finally {
+      setLoadingDbOrders(false);
+    }
+  };
+
+  // Generic loader: can be used for editing (isClone=false) or cloning/re-creating (isClone=true)
+  const handleLoadOrderIntoForm = async (order: any, isClone: boolean = false) => {
     isEditingRef.current = true;
     try {
       setSubmitting(true);
@@ -2154,7 +2212,16 @@ export default function PedidosPage() {
       setEntregaInicial(initDelDateStr);
       setOriginalDeliveryDate(initDelDateStr);
       setEntregaMaxima(order.max_delivery_date ? order.max_delivery_date.split('T')[0] : "");
-      setFechaPedido(order.order_date ? order.order_date.split('T')[0] : order.created_at.split('T')[0]);
+      
+      if (isClone) {
+        const today = new Date();
+        const yyyy = today.getFullYear();
+        const mm = String(today.getMonth() + 1).padStart(2, '0');
+        const dd = String(today.getDate()).padStart(2, '0');
+        setFechaPedido(`${yyyy}-${mm}-${dd}`);
+      } else {
+        setFechaPedido(order.order_date ? order.order_date.split('T')[0] : (order.created_at ? order.created_at.split('T')[0] : ''));
+      }
       setWhaticketLink(order.whaticket_link || "");
       
       // 5. Set payment details
@@ -2217,7 +2284,6 @@ export default function PedidosPage() {
           paymentAmount = totalsObj.deposit_amount || 0;
         }
 
-        // Subtract surcharge if loaded under a card plan to get the base amount
         let baseAmount = paymentAmount;
         let surchargePercentage = 0;
         if (isCardOrSurcharge) {
@@ -2236,14 +2302,25 @@ export default function PedidosPage() {
             card_installments: isCardOrSurcharge ? (totalsObj.installments || pm?.installments || 1) : undefined,
             card_surcharge: isCardOrSurcharge ? surchargePercentage : undefined,
             receipt_url: totalsObj.deposit_receipt_url || "",
-            notes: payStatus === 'Seniado' ? "Seña inicial (Migrado)" : (payStatus === 'Abonado' ? "Pago completo (Migrado)" : ""),
-            created_at: order.created_at
+            notes: payStatus === 'Seniado' ? "Seña inicial" : (payStatus === 'Abonado' ? "Pago completo" : ""),
+            created_at: isClone ? new Date().toISOString() : order.created_at
           }
         ]);
       }
       
       // 6. Origen y Recepción
-      setLegacyCode(order.legacy_code || "");
+      if (isClone) {
+        setEditingOrderId(null);
+        if (currentUserId) {
+          generateNextLegacyCode(currentUserId);
+        } else {
+          setLegacyCode("");
+        }
+      } else {
+        setEditingOrderId(order.id);
+        setLegacyCode(order.legacy_code || "");
+      }
+      
       setSelectedAdvertisingSourceId(order.advertising_source_id || "");
       setSelectedOrderMediumId(order.order_medium_id || "");
       if (order.received_phone_line_id) {
@@ -2263,18 +2340,146 @@ export default function PedidosPage() {
       setHoldProductId(order.hold_product_id || "");
       setOrderCategory(order.category || "auto");
       
-      setEditingOrderId(order.id);
       setActiveTab('form');
+      setShowLoadFromDbModal(false);
       
+      if (isClone) {
+        alert("¡Datos del pedido cargados en el formulario! Podés revisar o modificar los datos y confirmar para crearlo como un nuevo pedido.");
+      }
     } catch (err: any) {
-      console.error("Error loading order for edit:", err);
-      alert("Error al cargar el pedido para edición: " + err.message);
+      console.error("Error loading order:", err);
+      alert("Error al cargar el pedido: " + err.message);
     } finally {
       setSubmitting(false);
-      // Mantener la bandera de edición un poco para que no sea pisada por useEffect asincrónicos
       setTimeout(() => {
         isEditingRef.current = false;
       }, 600);
+    }
+  };
+
+  const handleEditOrder = (order: any) => handleLoadOrderIntoForm(order, false);
+  const handleCloneOrder = (order: any) => handleLoadOrderIntoForm(order, true);
+
+  // Reintentar o sincronizar un pedido existente en BD directamente a la Planilla de Google
+  const handleSyncExistingOrderToSheet = async (order: any) => {
+    try {
+      setSyncingOrderId(order.id);
+
+      // Fetch items if not attached
+      let items = order.order_items || [];
+      if (!items || items.length === 0 || !items[0].unit_price) {
+        const { data: itms } = await supabase
+          .from('order_items')
+          .select('*')
+          .eq('order_id', order.id);
+        if (itms) items = itms;
+      }
+
+      const sellerId = order.seller_id || currentUserId;
+      const selectedPayMethodName = dbPaymentMethods.find(m => m.id === order.payment_method_id)?.name || 'Efectivo';
+      const totalsObj = order.totals || {};
+
+      let clientPhone = '';
+      let clientPhone2 = '';
+      if (order.client_id) {
+        let c = clients.find(cl => cl.id === order.client_id);
+        if (!c) {
+          const { data: cData } = await supabase
+            .from("clients")
+            .select("phone_primary, phone_secondary")
+            .eq("id", order.client_id)
+            .maybeSingle();
+          if (cData) {
+            clientPhone = cData.phone_primary || '';
+            clientPhone2 = cData.phone_secondary || '';
+          }
+        } else {
+          clientPhone = c.phone_primary || '';
+          clientPhone2 = c.phone_secondary || '';
+        }
+      }
+
+      const sellerFullName = sellersList.find(s => s.id === sellerId)?.full_name || order.sellers?.full_name || 'Vendedor';
+      const advName = advertisingSources.find(a => a.id === order.advertising_source_id)?.name || '';
+      const mediumName = orderMediums.find(m => m.id === order.order_medium_id)?.name || 'WhatsApp';
+
+      const sheetOrderPayload = {
+        deliveryDate: order.initial_delivery_date ? order.initial_delivery_date.split('T')[0] : '',
+        orderDate: order.order_date ? order.order_date.split('T')[0] : (order.created_at ? order.created_at.split('T')[0] : ''),
+        maxDeliveryDate: order.max_delivery_date ? order.max_delivery_date.split('T')[0] : '',
+        clientName: order.customer_name || '',
+        phonePrimary: clientPhone,
+        phoneSecondary: clientPhone2,
+        whaticketLink: order.whaticket_link || '',
+        source: order.channel === 'mayorista' ? 'Mayorista' : advName,
+        deliveryNotes: [
+          order.delivery_notes, 
+          order.delivery_detail, 
+          totalsObj.payment_timing === 'contra_entrega' 
+            ? `Cobrar al entregar: ${formatPrice(order.total_amount || 0)} (${selectedPayMethodName})` 
+            : (totalsObj.payment_timing === 'partial' 
+                ? `Seña: ${formatPrice(totalsObj.deposit_amount || 0)} - Saldo al entregar: ${formatPrice(totalsObj.pending_balance || 0)}` 
+                : '')
+        ].filter(Boolean).map((s: string) => s.trim()).join(' / '),
+        medium: mediumName,
+        sellerName: sellerFullName,
+        status: order.status === 'En Espera' ? 'En Espera' : '🔹 Pasado',
+        locality: order.locality || '',
+        address: order.address || '',
+        mapsLink: order.google_maps_link || '',
+        category: order.category || 'General',
+        paymentMethod: selectedPayMethodName,
+        identification: '',
+        paymentStatus: totalsObj.payment_timing === 'paid' ? 'Abonado' : (totalsObj.payment_timing === 'partial' ? 'Señado' : 'No Abonado'),
+        depositOrPaidAmount: totalsObj.deposit_amount || (totalsObj.payment_timing === 'paid' ? order.total_amount : 0),
+        freightType: order.freight_type || '⚪ Flete Regular',
+        freightCost: totalsObj.freight || 0,
+        items: items.map((item: any) => ({
+          name: item.product_name || item.name || '',
+          sku: item.sku || '',
+          quantity: item.quantity || 1,
+          unitPrice: item.unit_price || item.price || 0
+        }))
+      };
+
+      const sheetRes = await fetch('/api/vendedores/create-sheet-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sellerId,
+          order: sheetOrderPayload
+        })
+      });
+
+      if (!sheetRes.ok) {
+        const errData = await sheetRes.json().catch(() => ({}));
+        throw new Error(errData.error || errData.message || 'Error al conectar con la planilla');
+      }
+
+      const sheetData = await sheetRes.json();
+      if (!sheetData.synced || !sheetData.code) {
+        throw new Error(sheetData.message || 'La planilla no devolvió un código válido');
+      }
+
+      // Actualizar en base de datos
+      const { error: updErr } = await supabase
+        .from('orders')
+        .update({ legacy_code: sheetData.code })
+        .eq('id', order.id);
+
+      if (updErr) {
+        console.warn('Error updating legacy_code in DB:', updErr);
+      }
+
+      // Actualizar estado local
+      setOrders(prev => prev.map(o => o.id === order.id ? { ...o, legacy_code: sheetData.code } : o));
+
+      alert(`¡Pedido sincronizado con la planilla con éxito!\nCódigo asignado: ${sheetData.code}`);
+    } catch (err: any) {
+      console.error('Error syncing order to sheet:', err);
+      alert(`No se pudo sincronizar el pedido a la planilla: ${err.message}`);
+    } finally {
+      setSyncingOrderId(null);
     }
   };
 
@@ -2869,6 +3074,10 @@ export default function PedidosPage() {
 
       // 2. Crear o Actualizar Pedido de Venta
       let orderData: any = null;
+      let finalLegacyCode: string | null = null;
+      let sheetSyncSuccess = false;
+      let sheetAttempted = false;
+      let sheetSyncError = '';
 
       if (editingOrderId) {
         // Obtener ítems anteriores para poder revertir stock
@@ -2878,6 +3087,20 @@ export default function PedidosPage() {
           .eq('order_id', editingOrderId);
 
         if (oldItemsErr) throw oldItemsErr;
+
+        // Validar código duplicado al editar
+        if (legacyCode) {
+          const { data: dupOrder } = await supabase
+            .from('orders')
+            .select('id, customer_name, legacy_code')
+            .eq('legacy_code', legacyCode.trim().toUpperCase())
+            .neq('id', editingOrderId)
+            .maybeSingle();
+
+          if (dupOrder) {
+            throw new Error(`El código de pedido "${legacyCode}" ya existe en el pedido de "${dupOrder.customer_name}". No se puede duplicar.`);
+          }
+        }
 
         // Actualizar Pedido
         const { data: updatedOrder, error: orderError } = await supabase
@@ -2993,10 +3216,7 @@ export default function PedidosPage() {
         if (deleteItemsErr) throw deleteItemsErr;
 
       } else {
-        // Sincronizar a Google Sheets si el vendedor tiene planilla configurada (Diego Bóveda)
-        let finalLegacyCode = legacyCode;
-        let sheetSyncSuccess = false;
-
+        // Sincronizar a Google Sheets si el vendedor tiene planilla configurada
         try {
           const selectedPayMethodName = dbPaymentMethods.find(m => m.id === paymentsList[0]?.payment_method_id)?.name || 'Efectivo';
           const clientPhone = isNewClient 
@@ -3059,16 +3279,37 @@ export default function PedidosPage() {
 
           if (sheetRes.ok) {
             const sheetData = await sheetRes.json();
-            if (sheetData.synced && sheetData.code) {
-              finalLegacyCode = sheetData.code;
-              sheetSyncSuccess = true;
+            if (sheetData.synced) {
+              sheetAttempted = true;
+              if (sheetData.code) {
+                finalLegacyCode = sheetData.code;
+                sheetSyncSuccess = true;
+              }
             }
           } else {
+            sheetAttempted = true;
             const errData = await sheetRes.json().catch(() => ({}));
+            sheetSyncError = errData.error || errData.message || `Error (${sheetRes.status}) al sincronizar con la planilla`;
             console.warn('Google Sheet sync returned non-ok:', sheetRes.status, errData);
           }
-        } catch (sheetErr) {
+        } catch (sheetErr: any) {
+          sheetAttempted = true;
+          sheetSyncError = sheetErr?.message || 'Error de red al conectar con la planilla';
           console.error('Error synchronizing order to Google Sheet:', sheetErr);
+        }
+
+        // VALIDACIÓN ANTI-DUPLICADOS: Verificar que el código asignado no exista en el sistema
+        const codeToCheck = finalLegacyCode || legacyCode;
+        if (codeToCheck) {
+          const { data: dupOrder } = await supabase
+            .from('orders')
+            .select('id, customer_name, legacy_code')
+            .eq('legacy_code', codeToCheck.trim().toUpperCase())
+            .maybeSingle();
+
+          if (dupOrder) {
+            throw new Error(`El código de pedido "${codeToCheck}" ya existe en el sistema (asignado a "${dupOrder.customer_name}"). No se puede cargar un pedido con código duplicado.`);
+          }
         }
 
         // Insertar Nuevo Pedido
@@ -3168,10 +3409,12 @@ export default function PedidosPage() {
         alert("Pedido actualizado con éxito. Las reservas de stock han sido actualizadas.");
         setEditingOrderId(null);
       } else {
-        if (orderData.legacy_code) {
-          alert(`Pedido ${orderData.legacy_code} guardado y registrado en la planilla con éxito.`);
+        if (sheetSyncSuccess && finalLegacyCode) {
+          alert(`¡Pedido ${finalLegacyCode} guardado y registrado en la planilla con éxito!`);
+        } else if (sheetAttempted && !sheetSyncSuccess) {
+          alert(`⚠️ ATENCIÓN: El pedido se guardó en el sistema, pero NO se pudo registrar en la planilla de Google.\n\nMotivo: ${sheetSyncError || 'Error de permisos o conexión'}\n\nPodrás sincronizarlo manualmente desde la lista de pedidos con el botón "A Planilla" una vez verificado el acceso.`);
         } else {
-          alert("Pedido cargado con éxito. Se ha reservado el stock de los productos.");
+          alert("Pedido cargado con éxito en el sistema. Se ha reservado el stock de los productos.");
         }
       }
       
@@ -3267,27 +3510,39 @@ export default function PedidosPage() {
             </p>
           </div>
           
-          <div className="flex bg-slate-200/50 p-0.5 rounded-xl">
-            <button 
-              onClick={() => setActiveTab('form')}
-              className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${activeTab === 'form' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={() => { fetchOrdersForModal(); setShowLoadFromDbModal(true); }}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/80 rounded-xl text-xs font-bold transition-all shadow-2xs hover:shadow-xs active:scale-95 cursor-pointer"
+              title="Cargar datos de un pedido existente en la base de datos (reintentar o duplicar)"
             >
-              {editingOrderId ? "✏️ Editar Pedido" : "Nuevo Pedido"}
+              <Database className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Cargar desde BD</span>
             </button>
-            <button 
-              onClick={() => { setActiveTab('list'); setListType('mis_pedidos'); }}
-              className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${activeTab === 'list' && listType === 'mis_pedidos' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-            >
-              Mis Pedidos
-            </button>
-            {role === 'admin' && (
+
+            <div className="flex bg-slate-200/50 p-0.5 rounded-xl">
               <button 
-                onClick={() => { setActiveTab('list'); setListType('todos'); }}
-                className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${activeTab === 'list' && listType === 'todos' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                onClick={() => setActiveTab('form')}
+                className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${activeTab === 'form' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
               >
-                Todos los Pedidos
+                {editingOrderId ? "✏️ Editar Pedido" : "Nuevo Pedido"}
               </button>
-            )}
+              <button 
+                onClick={() => { setActiveTab('list'); setListType('mis_pedidos'); }}
+                className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${activeTab === 'list' && listType === 'mis_pedidos' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                Mis Pedidos
+              </button>
+              {role === 'admin' && (
+                <button 
+                  onClick={() => { setActiveTab('list'); setListType('todos'); }}
+                  className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${activeTab === 'list' && listType === 'todos' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                  Todos los Pedidos
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -5552,6 +5807,25 @@ export default function PedidosPage() {
                         >
                           <Edit className="w-3.5 h-3.5" />
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => handleCloneOrder(p)}
+                          className="p-1.5 bg-slate-50 hover:bg-blue-600 text-slate-500 hover:text-white rounded-lg border border-slate-200 hover:border-blue-600 transition-all duration-150 active:scale-90 shadow-2xs cursor-pointer"
+                          title="Duplicar / Cargar como Nuevo Pedido"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSyncExistingOrderToSheet(p)}
+                          disabled={syncingOrderId === p.id}
+                          className={`p-1.5 bg-slate-50 hover:bg-emerald-600 text-slate-500 hover:text-white rounded-lg border border-slate-200 hover:border-emerald-600 transition-all duration-150 active:scale-90 shadow-2xs cursor-pointer ${
+                            syncingOrderId === p.id ? 'opacity-50 cursor-not-allowed' : ''
+                          }`}
+                          title={p.legacy_code ? `Re-enviar a Planilla (Código actual: ${p.legacy_code})` : "Sincronizar a Planilla Google Sheets"}
+                        >
+                          <FileSpreadsheet className={`w-3.5 h-3.5 ${syncingOrderId === p.id ? 'animate-spin text-emerald-600' : ''}`} />
+                        </button>
                         {role === 'admin' && (
                           <button
                             type="button"
@@ -6111,6 +6385,176 @@ export default function PedidosPage() {
                   Guardar Vista
                 </Button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL CARGAR DESDE PEDIDO EN BD */}
+      {showLoadFromDbModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-100 flex flex-col max-h-[85vh] animate-in fade-in zoom-in-95 duration-150">
+            {/* Header */}
+            <div className="p-4 border-b border-slate-100 flex items-center justify-between shrink-0 bg-slate-50/50 rounded-t-2xl">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shadow-2xs">
+                  <Database className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-black text-slate-900 text-sm">Cargar Pedido desde Base de Datos</h3>
+                  <p className="text-[11px] text-slate-400 font-medium">Reutiliza, reintenta o sincroniza un pedido existente registrado en el sistema.</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowLoadFromDbModal(false)}
+                className="p-1.5 hover:bg-slate-100 text-slate-400 hover:text-slate-600 rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Search filter */}
+            <div className="p-3 border-b border-slate-100 shrink-0 bg-white">
+              <div className="relative">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Buscar por cliente, código anterior, localidad..."
+                  value={loadFromDbSearch}
+                  onChange={(e) => setLoadFromDbSearch(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none"
+                />
+              </div>
+            </div>
+
+            {/* List */}
+            <div className="p-4 overflow-y-auto flex-1 divide-y divide-slate-100 space-y-3">
+              {loadingDbOrders ? (
+                <div className="flex flex-col items-center justify-center py-12 text-slate-400 gap-2">
+                  <Loader2 className="w-6 h-6 animate-spin text-indigo-600" />
+                  <span className="text-xs font-semibold">Cargando pedidos de la base de datos...</span>
+                </div>
+              ) : recentDbOrders.filter(o => {
+                  if (!loadFromDbSearch.trim()) return true;
+                  const q = loadFromDbSearch.toLowerCase();
+                  return (
+                    (o.customer_name && o.customer_name.toLowerCase().includes(q)) ||
+                    (o.legacy_code && o.legacy_code.toLowerCase().includes(q)) ||
+                    (o.locality && o.locality.toLowerCase().includes(q)) ||
+                    (o.sellers?.full_name && o.sellers.full_name.toLowerCase().includes(q))
+                  );
+                }).length === 0 ? (
+                <div className="text-center py-12 text-slate-400 text-xs font-semibold">
+                  No se encontraron pedidos en la base de datos.
+                </div>
+              ) : (
+                recentDbOrders
+                  .filter(o => {
+                    if (!loadFromDbSearch.trim()) return true;
+                    const q = loadFromDbSearch.toLowerCase();
+                    return (
+                      (o.customer_name && o.customer_name.toLowerCase().includes(q)) ||
+                      (o.legacy_code && o.legacy_code.toLowerCase().includes(q)) ||
+                      (o.locality && o.locality.toLowerCase().includes(q)) ||
+                      (o.sellers?.full_name && o.sellers.full_name.toLowerCase().includes(q))
+                    );
+                  })
+                  .map(order => {
+                    const itemsSummary = (order.order_items || [])
+                      .map((it: any) => `${it.quantity}x ${it.product_name}`)
+                      .join(', ');
+
+                    return (
+                      <div key={order.id} className="pt-3 first:pt-0 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white hover:bg-slate-50/80 p-3 rounded-xl border border-slate-100 transition-colors">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap mb-1">
+                            <span className="font-extrabold text-xs text-slate-900">{order.customer_name}</span>
+                            {order.legacy_code ? (
+                              <span className="px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded text-[9px] font-mono font-bold">
+                                {order.legacy_code}
+                              </span>
+                            ) : (
+                              <span className="px-1.5 py-0.5 bg-amber-50 text-amber-700 border border-amber-200/60 rounded text-[9px] font-bold">
+                                Sin código planilla
+                              </span>
+                            )}
+                            <span className="text-[10px] text-slate-400 font-semibold">
+                              {formatDate(order.order_date || order.created_at)}
+                            </span>
+                          </div>
+
+                          <div className="text-[11px] text-slate-500 truncate mb-1">
+                            {order.locality ? `${order.locality} • ` : ''} Total: <span className="font-bold text-slate-800">{formatPrice(order.total_amount)}</span>
+                            {order.sellers?.full_name && ` • Vendedor: ${order.sellers.full_name}`}
+                          </div>
+
+                          {itemsSummary && (
+                            <p className="text-[10px] text-slate-400 line-clamp-1 italic">
+                              {itemsSummary}
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Actions for this order */}
+                        <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
+                          {/* Sync to Sheet */}
+                          <button
+                            type="button"
+                            disabled={syncingOrderId === order.id}
+                            onClick={() => handleSyncExistingOrderToSheet(order)}
+                            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
+                              order.legacy_code 
+                                ? 'bg-slate-50 hover:bg-emerald-50 text-slate-600 hover:text-emerald-700 border-slate-200 hover:border-emerald-300' 
+                                : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-300'
+                            }`}
+                            title="Sincronizar directamente a la planilla de Google"
+                          >
+                            <FileSpreadsheet className={`w-3.5 h-3.5 ${syncingOrderId === order.id ? 'animate-spin text-emerald-600' : 'text-emerald-600'}`} />
+                            <span className="text-[11px]">{order.legacy_code ? 'Re-sincronizar' : 'A Planilla'}</span>
+                          </button>
+
+                          {/* Clone into form */}
+                          <button
+                            type="button"
+                            onClick={() => handleCloneOrder(order)}
+                            className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200/80 rounded-lg text-xs font-bold transition-all cursor-pointer"
+                            title="Cargar datos en el formulario como un nuevo pedido (no sobreescribe el original)"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                            <span className="text-[11px]">Cargar en Formulario</span>
+                          </button>
+
+                          {/* Edit in form */}
+                          <button
+                            type="button"
+                            onClick={() => handleEditOrder(order)}
+                            className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-lg text-xs font-bold transition-all cursor-pointer"
+                            title="Editar este pedido existente"
+                          >
+                            <Edit className="w-3.5 h-3.5 text-slate-600" />
+                            <span className="text-[11px]">Editar</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-3 border-t border-slate-100 bg-slate-50/50 rounded-b-2xl flex justify-between items-center text-xs">
+              <span className="text-[11px] text-slate-400 font-medium">
+                Se muestran los pedidos más recientes de la base de datos.
+              </span>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setShowLoadFromDbModal(false)}
+                className="text-xs font-bold text-slate-500 cursor-pointer"
+              >
+                Cerrar
+              </Button>
             </div>
           </div>
         </div>

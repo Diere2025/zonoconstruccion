@@ -19,22 +19,7 @@ export async function createStockTransaction(
   supabase: SupabaseClient,
   transaction: StockTransactionInput
 ): Promise<{ success: boolean; error?: string }> {
-  const { error } = await supabase
-    .from('inventory_transactions')
-    .insert({
-      product_id: transaction.productId,
-      quantity: transaction.quantity,
-      type: transaction.type,
-      reference_id: transaction.referenceId,
-      user_id: transaction.userId
-    });
-
-  if (error) {
-    console.error('Error creating stock transaction:', error);
-    return { success: false, error: error.message };
-  }
-
-  return { success: true };
+  return createBulkStockTransactions(supabase, [transaction]);
 }
 
 /**
@@ -46,6 +31,24 @@ export async function createBulkStockTransactions(
 ): Promise<{ success: boolean; error?: string }> {
   if (transactions.length === 0) return { success: true };
 
+  // 1. Intentar registrar a través de API segura del servidor para evitar bloqueos por RLS en clientes
+  try {
+    const res = await fetch('/api/erp/stock-transactions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ transactions })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success) {
+        return { success: true };
+      }
+    }
+  } catch (apiErr) {
+    console.warn('API /api/erp/stock-transactions no disponible, probando inserción directa:', apiErr);
+  }
+
+  // 2. Fallback: Inserción directa con el cliente
   const { error } = await supabase
     .from('inventory_transactions')
     .insert(
@@ -59,7 +62,7 @@ export async function createBulkStockTransactions(
     );
 
   if (error) {
-    console.error('Error creating bulk stock transactions:', error);
+    console.warn('Advertencia al registrar transacciones de stock en cliente:', error);
     return { success: false, error: error.message };
   }
 
