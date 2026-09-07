@@ -227,12 +227,17 @@ export function AdminLayout({ children }: AdminLayoutProps) {
 
           const nameLower = (seller?.full_name || "").toLowerCase();
           detectedRestricted = !isAdminUser && (
+            emailLower.includes("jazmin") || 
+            emailLower.includes("jazmín") || 
+            nameLower.includes("jazmin") || 
+            nameLower.includes("jazmín") || 
             emailLower.includes("ludmila") ||
             emailLower.includes("ludmilakrenz") ||
             nameLower.includes("ludmila") ||
             emailLower.includes("facundo") ||
             emailLower.includes("facundopaz") ||
             nameLower.includes("facundo") ||
+            user.id === "13430e05-b61a-4a3f-9fc3-152d377c4b0c" ||   // Jazmin
             user.id === "8207801b-b6cb-48cc-af0f-d2f9f2c98032" ||   // Ludmila
             user.id === "4c9b5ed0-3946-4df6-b4d5-3bdc9b1a6c7f" ||   // Ludmila Auth
             user.id === "3820a0fe-bb0a-4a84-ad85-79e49868cad7"    // Facundo Paz
@@ -269,7 +274,13 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       router.replace('/admin/cobros-mp');
     } else if (userRole === 'administracion' && pathname && !pathname.startsWith('/admin/dashboard') && !pathname.startsWith('/vendedores/pedidos') && pathname !== '/admin/cobros-mp' && !pathname.startsWith('/admin/finanzas') && pathname !== '/admin/facturacion-pendiente') {
       router.replace('/admin/cobros-mp');
-    } else if (isRestrictedSeller && pathname && pathname !== '/vendedores/presupuestos' && pathname !== '/admin/cobros-mp') {
+    } else if (
+      isRestrictedSeller && 
+      pathname && 
+      pathname !== '/vendedores/presupuestos' && 
+      !pathname.startsWith('/vendedores/pedidos') && 
+      pathname !== '/admin/cobros-mp'
+    ) {
       router.replace('/vendedores/presupuestos');
     }
   }, [isRoleLoaded, userRole, isRestrictedSeller, pathname, router]);
@@ -299,7 +310,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         { name: "Clientes Minoristas", href: "/vendedores/clientes", icon: Users },
         { name: "Meta Ads Performance", href: "/admin/meta-ads", icon: Target, adminOnly: true },
         { name: "Postventa y Reclamos", href: "/vendedores/postventa", icon: RefreshCw },
-        { name: "Conversaciones WhatsApp", href: "/admin/conversaciones", icon: MessageSquare }
+        { name: "Conversaciones WhatsApp", href: "/admin/conversaciones", icon: MessageSquare, adminOnly: true }
       ]
     },
     {
@@ -322,7 +333,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     {
       title: "Tesorería y Finanzas",
       links: [
-        { name: "Caja Diaria", href: "/vendedores/caja", icon: Wallet },
+        { name: "Caja Diaria", href: "/vendedores/caja", icon: Wallet, adminOnly: true },
         { name: "Estado de Resultados (EERR)", href: "/admin/finanzas/eerr", icon: FileSpreadsheet, adminOnly: true },
         { name: "Administración y Finanzas", href: "/admin/finanzas", icon: Coins, adminOnly: true },
         { name: "Comisiones de Vendedores", href: "/admin/comisiones", icon: Coins, adminOnly: true }
@@ -331,7 +342,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     {
       title: "Logística y Distribución",
       links: [
-        { name: "Gestión de Transportistas", href: "/admin/fleteros", icon: Truck },
+        { name: "Gestión de Transportistas", href: "/admin/fleteros", icon: Truck, adminOnly: true },
         { name: "Ruteo de Entregas", href: "/vendedores/ruteo", icon: Truck },
         { name: "Facturación Pendiente", href: "/admin/facturacion-pendiente", icon: PackageCheck, adminOnly: true },
         { name: "Auditoría de Entregas", href: "/admin/auditoria-logistica", icon: Clock, adminOnly: true },
@@ -499,7 +510,11 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                   );
                 }
                 if (isRestrictedSeller) {
-                  return link.href === "/vendedores/presupuestos" || link.href === "/admin/cobros-mp";
+                  return (
+                    link.href === "/vendedores/presupuestos" ||
+                    link.href === "/vendedores/pedidos?client_type=minoristas" ||
+                    link.href === "/admin/cobros-mp"
+                  );
                 }
                 if (link.adminOnly && userRole !== 'admin') return false;
                 if (link.sellerOnly && userRole === 'admin') return false;
