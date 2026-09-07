@@ -615,7 +615,9 @@ export default function PedidosPage() {
   const [sellerType, setSellerType] = useState<'minorista' | 'mayorista'>('minorista');
   const [listType, setListType] = useState<'mis_pedidos' | 'todos'>('mis_pedidos');
   const [sellerFilter, setSellerFilter] = useState<string>('todos');
-  const [sellersList, setSellersList] = useState<{ id: string; full_name: string; email: string }[]>([]);
+  const [sellersList, setSellersList] = useState<{ id: string; full_name: string; email: string; role?: string }[]>([]);
+  const [currentSeller, setCurrentSeller] = useState<{ id: string; full_name: string; email: string; role?: string } | null>(null);
+  const [selectedSellerId, setSelectedSellerId] = useState<string>("");
   const [orders, setOrders] = useState<any[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [orderSearchQuery, setOrderSearchQuery] = useState("");
@@ -1375,7 +1377,7 @@ export default function PedidosPage() {
         .from('sellers')
         .select('full_name, email')
         .eq('id', userId)
-        .single();
+        .maybeSingle();
 
       let prefix = "ZC";
       if (seller) {
@@ -1386,6 +1388,7 @@ export default function PedidosPage() {
         else if (cleanName.includes("belen") || cleanName.includes("belén")) prefix = "BR";
         else if (cleanName.includes("mariano")) prefix = "MS";
         else if (cleanName.includes("pablo")) prefix = "PJ";
+        else if (cleanName.includes("facundo")) prefix = "FP";
       }
 
       const { data: ordersData } = await supabase
@@ -1458,10 +1461,18 @@ export default function PedidosPage() {
   useEffect(() => {
     async function loadInitialData() {
       try {
-        const PEDIDOS_CACHE_VER = "zc_pedidos_v12_pricing_and_methods";
-        if (sessionStorage.getItem("cached_pedidos_ver") !== PEDIDOS_CACHE_VER) {
+        const { data: userData } = await supabase.auth.getUser();
+        if (!userData.user) return;
+        const userId = userData.user.id;
+        setCurrentUserId(userId);
+        setSelectedSellerId(userId);
+
+        const PEDIDOS_CACHE_VER = "zc_pedidos_v14_sellers_and_pricing";
+        const cachedUserId = sessionStorage.getItem("cached_pedidos_user_id");
+        if (sessionStorage.getItem("cached_pedidos_ver") !== PEDIDOS_CACHE_VER || (cachedUserId && cachedUserId !== userId)) {
           sessionStorage.clear();
           sessionStorage.setItem("cached_pedidos_ver", PEDIDOS_CACHE_VER);
+          sessionStorage.setItem("cached_pedidos_user_id", userId);
         }
 
         // Intentar cargar desde caché para velocidad instantánea
@@ -1477,12 +1488,20 @@ export default function PedidosPage() {
         const cachedLines = sessionStorage.getItem("cached_pedidos_lines");
         const cachedOrganic = sessionStorage.getItem("cached_pedidos_organic");
         const cachedPayMethods = sessionStorage.getItem("cached_pedidos_payment_methods");
+        const cachedSellers = sessionStorage.getItem("cached_pedidos_sellers");
+        const cachedCurrentSeller = sessionStorage.getItem("cached_pedidos_current_seller");
 
         if (cachedProducts && cachedClients && cachedLocalities && cachedDt && cachedType && cachedAdv && cachedMediums && cachedLines && cachedOrganic && cachedPayMethods) {
           setSellerType(cachedType as any);
           if (cachedRole) {
             setRole(cachedRole as any);
             setListType(cachedRole === 'admin' ? 'todos' : 'mis_pedidos');
+          }
+          if (cachedSellers) {
+            try { setSellersList(JSON.parse(cachedSellers)); } catch (e) {}
+          }
+          if (cachedCurrentSeller) {
+            try { setCurrentSeller(JSON.parse(cachedCurrentSeller)); } catch (e) {}
           }
           const parsedCache = JSON.parse(cachedProducts);
           setProducts(Array.isArray(parsedCache) ? parsedCache.filter((p: any) => p && p.is_active !== false) : []);
@@ -1497,13 +1516,24 @@ export default function PedidosPage() {
           setDbPaymentMethods(JSON.parse(cachedPayMethods));
         }
 
-        const { data: userData } = await supabase.auth.getUser();
-        if (!userData.user) return;
-        const userId = userData.user.id;
-        setCurrentUserId(userId);
-
         const cacheExists = !!(cachedProducts && cachedClients && cachedLocalities && cachedDt && cachedType && cachedAdv && cachedMediums && cachedLines && cachedOrganic && cachedPayMethods);
         if (cacheExists) {
+          // Asegurar que sellersList y currentSeller estén disponibles
+          if (!cachedSellers || !cachedCurrentSeller) {
+            const [sellersRes, curSellerRes] = await Promise.all([
+              supabase.from('sellers').select('id, full_name, email, role').eq('is_active', true).order('full_name'),
+              supabase.from('sellers').select('id, full_name, email, role, seller_type, is_organic').eq('id', userId).maybeSingle()
+            ]);
+            if (sellersRes.data) {
+              setSellersList(sellersRes.data);
+              sessionStorage.setItem("cached_pedidos_sellers", JSON.stringify(sellersRes.data));
+            }
+            if (curSellerRes.data) {
+              setCurrentSeller(curSellerRes.data);
+              sessionStorage.setItem("cached_pedidos_current_seller", JSON.stringify(curSellerRes.data));
+            }
+          }
+
           // Si el caché de metadatos ya existe, evitamos la sobrecarga de consultas y transferencia a la base de datos
           const recentOrdersRes = await supabase
             .from("orders")
@@ -1564,6 +1594,15 @@ export default function PedidosPage() {
         if (!res.ok) throw new Error(`HTTP error ${res.status}`);
         
         const payload = await res.json();
+        
+        if (payload.sellers) {
+          setSellersList(payload.sellers);
+          sessionStorage.setItem("cached_pedidos_sellers", JSON.stringify(payload.sellers));
+        }
+        if (payload.currentSeller) {
+          setCurrentSeller(payload.currentSeller);
+          sessionStorage.setItem("cached_pedidos_current_seller", JSON.stringify(payload.currentSeller));
+        }
         
         setSellerType(payload.sellerType);
         sessionStorage.setItem("cached_pedidos_seller_type", payload.sellerType);
@@ -2311,6 +2350,7 @@ export default function PedidosPage() {
       // 6. Origen y Recepción
       if (isClone) {
         setEditingOrderId(null);
+        setSelectedSellerId(currentUserId);
         if (currentUserId) {
           generateNextLegacyCode(currentUserId);
         } else {
@@ -2318,6 +2358,9 @@ export default function PedidosPage() {
         }
       } else {
         setEditingOrderId(order.id);
+        if (order.seller_id) {
+          setSelectedSellerId(order.seller_id);
+        }
         setLegacyCode(order.legacy_code || "");
       }
       
@@ -2399,7 +2442,11 @@ export default function PedidosPage() {
         }
       }
 
-      const sellerFullName = sellersList.find(s => s.id === sellerId)?.full_name || order.sellers?.full_name || 'Vendedor';
+      let sellerFullName = sellersList.find(s => s.id === sellerId)?.full_name || order.sellers?.full_name;
+      if (!sellerFullName) {
+        const { data: sRow } = await supabase.from('sellers').select('full_name').eq('id', sellerId).maybeSingle();
+        sellerFullName = sRow?.full_name || 'Vendedor';
+      }
       const advName = advertisingSources.find(a => a.id === order.advertising_source_id)?.name || '';
       const mediumName = orderMediums.find(m => m.id === order.order_medium_id)?.name || 'WhatsApp';
 
@@ -2988,7 +3035,8 @@ export default function PedidosPage() {
     try {
       const { data: userData } = await supabase.auth.getUser();
       if (!userData.user) throw new Error("No user authenticated");
-      const seller_id = userData.user.id;
+      const loggedInUserId = userData.user.id;
+      const seller_id = (role === 'admin' && selectedSellerId) ? selectedSellerId : loggedInUserId;
 
       let finalClientId = selectedClientId;
       let finalAddressId = selectedAddressId;
@@ -3185,8 +3233,8 @@ export default function PedidosPage() {
                 new_date: entregaInicial,
                 reason_type: postponementReasonType,
                 motive: postponementMotive || null,
-                created_by_id: seller_id,
-                created_by_name: isNewClient ? newClientName : (cliente || "Vendedor")
+                created_by_id: loggedInUserId,
+                created_by_name: currentSeller?.full_name || userData.user.user_metadata?.full_name || "Vendedor"
               });
           }
         }
@@ -3225,7 +3273,18 @@ export default function PedidosPage() {
           const clientPhone2 = isNewClient
             ? (newClientPhones.map(cleanPhoneForSaving).filter(Boolean)[1] || '')
             : '';
-          const sellerFullName = sellersList.find(s => s.id === seller_id)?.full_name || 'Diego Bóveda';
+          let sellerFullName = sellersList.find(s => s.id === seller_id)?.full_name;
+          if (!sellerFullName) {
+            const { data: sRow } = await supabase
+              .from('sellers')
+              .select('full_name')
+              .eq('id', seller_id)
+              .maybeSingle();
+            sellerFullName = sRow?.full_name;
+          }
+          if (!sellerFullName) {
+            sellerFullName = (seller_id === loggedInUserId ? (currentSeller?.full_name || userData.user.user_metadata?.full_name) : '') || 'Vendedor';
+          }
           const advName = advertisingSources.find(a => a.id === selectedAdvertisingSourceId)?.name || '';
           const mediumName = orderMediums.find(m => m.id === selectedOrderMediumId)?.name || 'WhatsApp';
 
@@ -3611,6 +3670,7 @@ export default function PedidosPage() {
                   setLocalidadId("");
                   setOrderItems([]);
                   setOrderCategory("auto");
+                  setSelectedSellerId(currentUserId);
                   generateNextLegacyCode(currentUserId);
                   setSelectedAdvertisingSourceId("");
                   setSelectedOrderMediumId("");
@@ -4301,7 +4361,7 @@ export default function PedidosPage() {
                 <Target className="w-4 h-4 text-brand-500" /> Origen y Canal de Venta
               </h3>
               
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-start">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4 items-start">
                 {/* Código de Pedido Legacy */}
                 <div className="space-y-1">
                   <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Código de Pedido (Anterior)</label>
@@ -4310,8 +4370,39 @@ export default function PedidosPage() {
                     value={legacyCode}
                     readOnly
                     placeholder="Generando..."
-                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-100 text-slate-500 font-bold text-xs outline-none cursor-not-allowed select-all"
+                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-100 text-slate-500 font-bold text-xs outline-none cursor-not-allowed select-all h-[34px]"
                   />
+                </div>
+
+                {/* Vendedor Asignado */}
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">
+                    {role === 'admin' ? '👤 Vendedor Asignado' : '👤 Vendedor'}
+                  </label>
+                  {role === 'admin' && sellersList.length > 0 ? (
+                    <select
+                      value={selectedSellerId || currentUserId}
+                      onChange={(e) => {
+                        const newId = e.target.value;
+                        setSelectedSellerId(newId);
+                        generateNextLegacyCode(newId);
+                      }}
+                      className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-800 font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 transition-all cursor-pointer h-[34px]"
+                    >
+                      {sellersList.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          👤 {s.full_name || s.email}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      value={currentSeller?.full_name || sellersList.find(s => s.id === (selectedSellerId || currentUserId))?.full_name || "Vendedor"}
+                      readOnly
+                      className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-100 text-slate-700 font-bold text-xs outline-none cursor-not-allowed select-all h-[34px]"
+                    />
+                  )}
                 </div>
 
 
@@ -4454,10 +4545,11 @@ export default function PedidosPage() {
                       );
                     }
                     
+                    const effectiveSellerId = (role === 'admin' && selectedSellerId) ? selectedSellerId : currentUserId;
                     const filteredLines = phoneLines.filter(line => {
                       const associatedSellerIds = (line.seller_phone_lines || []).map((spl: any) => spl.seller_id);
                       if (isOrganic) {
-                        return associatedSellerIds.includes(currentUserId) || line.seller_id === currentUserId;
+                        return associatedSellerIds.includes(effectiveSellerId) || line.seller_id === effectiveSellerId;
                       } else {
                         return associatedSellerIds.length === 0 && !line.seller_id;
                       }

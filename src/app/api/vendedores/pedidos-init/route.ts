@@ -55,13 +55,14 @@ export async function GET(request: Request) {
       mediumRes,
       phoneLinesRes,
       payMethodsRes,
-      recentOrdersRes
+      recentOrdersRes,
+      sellersRes
     ] = await Promise.all([
       supabaseAdmin
         .from('sellers')
-        .select('role, seller_type, is_organic')
+        .select('id, full_name, email, role, seller_type, is_organic')
         .eq('id', userId)
-        .single(),
+        .maybeSingle(),
       fetchAllProducts(),
       supabaseAdmin
         .from("v_client_balances_and_stats")
@@ -105,7 +106,12 @@ export async function GET(request: Request) {
         .from('orders')
         .select('advertising_source_id, order_medium_id, received_phone_line_id')
         .order('created_at', { ascending: false })
-        .limit(100)
+        .limit(100),
+      supabaseAdmin
+        .from('sellers')
+        .select('id, full_name, email, role')
+        .eq('is_active', true)
+        .order('full_name')
     ]);
 
     if (sellerRes.error) throw sellerRes.error;
@@ -187,9 +193,11 @@ export async function GET(request: Request) {
     });
 
     return NextResponse.json({
+      currentSeller: seller || null,
       sellerType,
       isOrganic,
       role,
+      sellers: sellersRes.data || [],
       products: productsWithPrices,
       clients: clientsRes.data || [],
       localities: mappedLocalities,
