@@ -93,6 +93,7 @@ export default function ConversacionesAdminPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [sellerFilter, setSellerFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [onlyOrdersFilter, setOnlyOrdersFilter] = useState(false);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [copiedPhone, setCopiedPhone] = useState(false);
@@ -107,6 +108,7 @@ export default function ConversacionesAdminPage() {
       if (searchQuery) params.set("search", searchQuery);
       if (sellerFilter !== "all") params.set("seller", sellerFilter);
       if (statusFilter !== "all") params.set("status", statusFilter);
+      if (onlyOrdersFilter) params.set("onlyOrders", "true");
 
       const res = await fetch(`/api/admin/conversaciones?${params.toString()}`);
       if (!res.ok) {
@@ -133,7 +135,7 @@ export default function ConversacionesAdminPage() {
 
   useEffect(() => {
     fetchConversations();
-  }, [dateFilter, tagFilter, sellerFilter, statusFilter]);
+  }, [dateFilter, tagFilter, sellerFilter, statusFilter, onlyOrdersFilter]);
 
   // Client-side instant search filter
   const filteredConversations = useMemo(() => {
@@ -262,38 +264,65 @@ export default function ConversacionesAdminPage() {
       {/* Filter Bar */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          {/* Quick Date Pills */}
-          <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs font-medium">
-            <button
-              onClick={() => setDateFilter("2026-09-05")}
-              className={`px-3 py-1.5 rounded-md transition-all ${
-                dateFilter === "2026-09-05" 
-                  ? "bg-white text-emerald-700 shadow-xs font-semibold" 
-                  : "text-slate-600 hover:text-slate-900"
-              }`}
-            >
-              Ayer (05/09/2026)
-            </button>
-            <button
-              onClick={() => setDateFilter("2026-09-06")}
-              className={`px-3 py-1.5 rounded-md transition-all ${
-                dateFilter === "2026-09-06" 
-                  ? "bg-white text-emerald-700 shadow-xs font-semibold" 
-                  : "text-slate-600 hover:text-slate-900"
-              }`}
-            >
-              Hoy (06/09/2026)
-            </button>
-            <button
-              onClick={() => setDateFilter("all")}
-              className={`px-3 py-1.5 rounded-md transition-all ${
-                dateFilter === "all" 
-                  ? "bg-white text-emerald-700 shadow-xs font-semibold" 
-                  : "text-slate-600 hover:text-slate-900"
-              }`}
-            >
-              Todas las fechas
-            </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Conversion Toggle Pills */}
+            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs font-medium">
+              <button
+                onClick={() => setOnlyOrdersFilter(false)}
+                className={`px-3 py-1.5 rounded-md transition-all ${
+                  !onlyOrdersFilter
+                    ? "bg-white text-slate-900 shadow-xs font-semibold"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                Todas las Conversaciones
+              </button>
+              <button
+                onClick={() => setOnlyOrdersFilter(true)}
+                className={`px-3 py-1.5 rounded-md transition-all flex items-center gap-1.5 ${
+                  onlyOrdersFilter
+                    ? "bg-emerald-600 text-white shadow-xs font-semibold"
+                    : "text-emerald-700 hover:text-emerald-800 font-medium"
+                }`}
+              >
+                <ShoppingCart className="w-3.5 h-3.5" />
+                Solo Ventas Concretadas ({metrics.withOrders})
+              </button>
+            </div>
+
+            {/* Quick Date Pills */}
+            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs font-medium">
+              <button
+                onClick={() => setDateFilter("2026-09-05")}
+                className={`px-2.5 py-1.5 rounded-md transition-all ${
+                  dateFilter === "2026-09-05" 
+                    ? "bg-white text-emerald-700 shadow-xs font-semibold" 
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                Ayer (05/09 - Sáb y Ventas)
+              </button>
+              <button
+                onClick={() => setDateFilter("2026-09-04")}
+                className={`px-2.5 py-1.5 rounded-md transition-all ${
+                  dateFilter === "2026-09-04" 
+                    ? "bg-white text-emerald-700 shadow-xs font-semibold" 
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                Viernes (04/09)
+              </button>
+              <button
+                onClick={() => setDateFilter("all")}
+                className={`px-2.5 py-1.5 rounded-md transition-all ${
+                  dateFilter === "all" 
+                    ? "bg-white text-emerald-700 shadow-xs font-semibold" 
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                Todas las fechas
+              </button>
+            </div>
           </div>
 
           {/* Search Box */}
