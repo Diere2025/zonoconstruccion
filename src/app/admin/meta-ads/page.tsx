@@ -27,7 +27,10 @@ import {
   SlidersHorizontal,
   ArrowDownRight,
   Zap,
-  Award
+  Award,
+  Clock,
+  Gauge,
+  Calculator
 } from "lucide-react";
 import { formatPrice } from "@/lib/utils";
 
@@ -205,6 +208,173 @@ export default function MetaAdsPage() {
   const [liveSearchQuery, setLiveSearchQuery] = useState("");
   const [liveLineFilter, setLiveLineFilter] = useState("all");
   const [liveStatusFilter, setLiveStatusFilter] = useState<string>("all");
+
+  // Live Pacing & Forecasting State
+  const [currentTime, setCurrentTime] = useState<Date>(new Date());
+  const [simulatedBudgetInput, setSimulatedBudgetInput] = useState<string>("");
+  const [isSimulatingBudget, setIsSimulatingBudget] = useState<boolean>(false);
+
+  // Auto-refresh clock every 30s to keep pacing exact
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Real-time Pacing & Forecasting Engine
+  const livePacingMetrics = useMemo(() => {
+    if (!liveSummary) return null;
+
+    const totalMessages = liveSummary.totalMessages || 0;
+    const totalSpendArs = liveSummary.totalSpendArs || 0;
+    const realBudgetArs = liveSummary.totalBudgetArs || 0;
+    
+    // Check if custom simulation budget is active
+    const parsedSimulatedBudget = parseFloat(simulatedBudgetInput.replace(/[^0-9]/g, ''));
+    const activeBudgetArs = (isSimulatingBudget && !isNaN(parsedSimulatedBudget) && parsedSimulatedBudget > 0)
+      ? parsedSimulatedBudget 
+      : realBudgetArs;
+
+    const avgCprArs = liveSummary.avgCprArs || (totalMessages > 0 ? totalSpendArs / totalMessages : 0);
+
+    // Get time in Argentina timezone
+    let currentHour = currentTime.getHours();
+    let currentMinute = currentTime.getMinutes();
+    let currentSecond = currentTime.getSeconds();
+
+    try {
+      const formatter = new Intl.DateTimeFormat('es-AR', {
+        timeZone: 'America/Argentina/Buenos_Aires',
+        hour: 'numeric',
+        minute: 'numeric',
+        second: 'numeric',
+        hour12: false
+      });
+      const parts = formatter.formatToParts(currentTime);
+      const h = parts.find(p => p.type === 'hour')?.value;
+      const m = parts.find(p => p.type === 'minute')?.value;
+      const s = parts.find(p => p.type === 'second')?.value;
+      if (h) currentHour = parseInt(h, 10);
+      if (m) currentMinute = parseInt(m, 10);
+      if (s) currentSecond = parseInt(s, 10);
+    } catch (e) {
+      // fallback to local time
+    }
+
+    const elapsedHours = currentHour + (currentMinute / 60) + (currentSecond / 3600);
+    // Clamp fraction to at least 1 hour (0.0416) and max 1.0
+    const elapsedDayFraction = Math.max(0.0416, Math.min(1, elapsedHours / 24));
+    const elapsedDayPercent = Math.round(elapsedDayFraction * 100);
+
+    // 1. Budget ideal/ficticio a la hora actual (Expected spend up to current hour)
+    const expectedSpendToNow = activeBudgetArs * elapsedDayFraction;
+
+    // 2. Velocidad de Pacing (Pacing Speed)
+    // Example: 100k budget, 50k spent at 12:00 (50% day) -> 50k / 50k = 1.00x
+    // Example: 100k budget, 100k spent at 12:00 (50% day) -> 100k / 50k = 2.00x
+    const pacingSpeed = expectedSpendToNow > 0 ? (totalSpendArs / expectedSpendToNow) : 1;
+
+    // 3. Proyección al final del día por Ritmo Horario Real (Pacing):
+    const projectedSpendByPace = totalSpendArs / elapsedDayFraction;
+    const projectedMessagesByPace = Math.round(totalMessages / elapsedDayFraction);
+
+    // 4. Proyección al final del día según Presupuesto Total Asignado (Meta 100%):
+    const projectedMessagesByBudget = avgCprArs > 0 ? Math.round(activeBudgetArs / avgCprArs) : 0;
+    const projectedSpendByBudget = activeBudgetArs;
+
+    // 5. Diferencia entre gasto real y esperado a esta hora:
+    const spendDiff = totalSpendArs - expectedSpendToNow;
+
+    // 6. Estado y etiqueta de velocidad:
+    let speedBadge = {
+      label: 'Velocidad Normal (x1)',
+      shortLabel: 'En Ritmo',
+      color: 'text-emerald-700',
+      bg: 'bg-emerald-50',
+      border: 'border-emerald-200',
+      badgeColor: 'bg-emerald-500',
+      icon: '✅',
+      description: 'La cuenta consume el presupuesto en proporción equilibrada con las horas del día.'
+    };
+
+    if (pacingSpeed >= 1.40) {
+      speedBadge = {
+        label: 'Muy Acelerado (x2+)',
+        shortLabel: 'Muy Rápido',
+        color: 'text-rose-700',
+        bg: 'bg-rose-50',
+        border: 'border-rose-200',
+        badgeColor: 'bg-rose-500',
+        icon: '🔥',
+        description: 'La inversión va a más del 140% de lo programado. Si continúa así, se consumirá antes del final del día.'
+      };
+    } else if (pacingSpeed >= 1.15) {
+      speedBadge = {
+        label: 'Acelerado',
+        shortLabel: 'Rápido',
+        color: 'text-amber-700',
+        bg: 'bg-amber-50',
+        border: 'border-amber-200',
+        badgeColor: 'bg-amber-500',
+        icon: '⚡',
+        description: 'La inversión va más rápido de lo esperado para este horario.'
+      };
+    } else if (pacingSpeed >= 0.85) {
+      speedBadge = {
+        label: 'Ritmo Óptimo (x1)',
+        shortLabel: 'En Ritmo',
+        color: 'text-emerald-700',
+        bg: 'bg-emerald-50',
+        border: 'border-emerald-200',
+        badgeColor: 'bg-emerald-500',
+        icon: '✅',
+        description: 'La cuenta consume el presupuesto de forma proporcional a las horas transcurridas.'
+      };
+    } else if (pacingSpeed >= 0.60) {
+      speedBadge = {
+        label: 'Ritmo Lento',
+        shortLabel: 'Lento',
+        color: 'text-blue-700',
+        bg: 'bg-blue-50',
+        border: 'border-blue-200',
+        badgeColor: 'bg-blue-500',
+        icon: '❄️',
+        description: 'La cuenta está gastando más lento de lo programado. Al ritmo actual no llegará a agotar el presupuesto.'
+      };
+    } else {
+      speedBadge = {
+        label: 'Muy Lento / Frena',
+        shortLabel: 'Muy Lento',
+        color: 'text-indigo-700',
+        bg: 'bg-indigo-50',
+        border: 'border-indigo-200',
+        badgeColor: 'bg-indigo-500',
+        icon: '⏳',
+        description: 'El gasto está significativamente rezagado respecto a las horas del día.'
+      };
+    }
+
+    const timeFormatted = `${String(currentHour).padStart(2, '0')}:${String(currentMinute).padStart(2, '0')} hs`;
+
+    return {
+      activeBudgetArs,
+      isSimulating: isSimulatingBudget && activeBudgetArs !== realBudgetArs,
+      realBudgetArs,
+      elapsedHours,
+      elapsedDayFraction,
+      elapsedDayPercent,
+      timeFormatted,
+      expectedSpendToNow,
+      pacingSpeed,
+      projectedSpendByPace,
+      projectedMessagesByPace,
+      projectedMessagesByBudget,
+      projectedSpendByBudget,
+      spendDiff,
+      speedBadge
+    };
+  }, [liveSummary, currentTime, simulatedBudgetInput, isSimulatingBudget]);
 
   // History & Charts Data State - Synchronously initialized to current month
   const [presetPeriod, setPresetPeriod] = useState<string>("this_month");
@@ -956,83 +1126,355 @@ export default function MetaAdsPage() {
               {/* Executive Summary Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 {/* 1. Leads Hoy */}
-                <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm space-y-2 relative overflow-hidden">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                      💬 Leads / Mensajes Hoy
-                    </span>
-                    <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl">
-                      <MessageSquare className="w-4 h-4" />
+                <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm space-y-3 relative overflow-hidden flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                        💬 Leads / Mensajes Hoy
+                      </span>
+                      <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl">
+                        <MessageSquare className="w-4 h-4" />
+                      </div>
                     </div>
+                    <div className="text-2xl font-black text-slate-900 tracking-tight">
+                      {liveSummary?.totalMessages || 0} <span className="text-xs font-bold text-slate-400">conversaciones</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 font-semibold">
+                      Entrantes por Whaticket en {liveSummary?.activeCampaignsCount || 0} campañas activas
+                    </p>
                   </div>
-                  <div className="text-2xl font-black text-slate-900 tracking-tight">
-                    {liveSummary?.totalMessages || 0} <span className="text-xs font-bold text-slate-400">conversaciones</span>
-                  </div>
-                  <p className="text-[11px] text-slate-500 font-semibold">
-                    Entrantes por Whaticket en {liveSummary?.activeCampaignsCount || 0} campañas activas
-                  </p>
+
+                  {livePacingMetrics && (
+                    <div className="mt-4 pt-3 border-t border-slate-100 space-y-2 text-[11px]">
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-500 font-medium flex items-center gap-1">
+                          <span className="text-indigo-600 font-black">🎯</span> Proy. según Budget:
+                        </span>
+                        <span className="font-black text-slate-900 font-mono">
+                          ~{livePacingMetrics.projectedMessagesByBudget} msgs
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-500 font-medium flex items-center gap-1">
+                          <span className="text-emerald-600 font-black">⏱️</span> Proy. al Ritmo Actual:
+                        </span>
+                        <span className="font-black text-emerald-700 font-mono bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-200/70">
+                          ~{livePacingMetrics.projectedMessagesByPace} msgs
+                        </span>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* 2. Inversión Hoy */}
-                <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm space-y-2 relative overflow-hidden">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                      💸 Inversión Publicitaria Hoy
-                    </span>
-                    <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
-                      <DollarSign className="w-4 h-4" />
+                <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm space-y-3 relative overflow-hidden flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                        💸 Inversión Publicitaria Hoy
+                      </span>
+                      <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
+                        <DollarSign className="w-4 h-4" />
+                      </div>
                     </div>
+                    <div className="text-2xl font-black text-slate-900 tracking-tight">
+                      {formatPrice(liveSummary?.totalSpendArs || 0)}
+                    </div>
+                    <p className="text-[11px] text-slate-500 font-semibold font-mono">
+                      US$ {(liveSummary?.totalSpendUsd || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                    </p>
                   </div>
-                  <div className="text-2xl font-black text-slate-900 tracking-tight">
-                    {formatPrice(liveSummary?.totalSpendArs || 0)}
-                  </div>
-                  <p className="text-[11px] text-slate-500 font-semibold font-mono">
-                    US$ {(liveSummary?.totalSpendUsd || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                  </p>
+
+                  {livePacingMetrics && (
+                    <div className="mt-4 pt-3 border-t border-slate-100 space-y-2 text-[11px]">
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-500 font-medium flex items-center gap-1">
+                          <span className="text-indigo-600 font-black">⏱️</span> Proy. Gasto Fin de Día:
+                        </span>
+                        <span className="font-black text-indigo-700 font-mono bg-indigo-50 px-2 py-0.5 rounded-lg border border-indigo-200/70">
+                          {formatPrice(livePacingMetrics.projectedSpendByPace)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-500 font-medium flex items-center gap-1">
+                          <span>🎯</span> Budget Asignado:
+                        </span>
+                        <span className="font-bold text-slate-700 font-mono">
+                          {formatPrice(livePacingMetrics.activeBudgetArs)}
+                        </span>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* 3. CPR Promedio */}
-                <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm space-y-2 relative overflow-hidden">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                      🎯 CPR Promedio Hoy
-                    </span>
-                    <div className="p-2 bg-amber-50 text-amber-600 rounded-xl">
-                      <Target className="w-4 h-4" />
+                <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm space-y-3 relative overflow-hidden flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                        🎯 CPR Promedio Hoy
+                      </span>
+                      <div className="p-2 bg-amber-50 text-amber-600 rounded-xl">
+                        <Target className="w-4 h-4" />
+                      </div>
                     </div>
+                    <div className="text-2xl font-black text-slate-900 tracking-tight">
+                      {formatPrice(liveSummary?.avgCprArs || 0)} <span className="text-xs font-bold text-slate-400">/ lead</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 font-semibold">
+                      Costo promedio ponderado por mensaje
+                    </p>
                   </div>
-                  <div className="text-2xl font-black text-slate-900 tracking-tight">
-                    {formatPrice(liveSummary?.avgCprArs || 0)} <span className="text-xs font-bold text-slate-400">/ lead</span>
-                  </div>
-                  <p className="text-[11px] text-slate-500 font-semibold">
-                    Costo promedio ponderado por mensaje
-                  </p>
+
+                  {livePacingMetrics && (
+                    <div className="mt-4 pt-3 border-t border-slate-100 space-y-2 text-[11px]">
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-500 font-medium flex items-center gap-1">
+                          <span>⚡</span> Rendimiento:
+                        </span>
+                        <span className="font-bold text-slate-900 font-mono">
+                          ~{liveSummary?.avgCprArs > 0 ? Math.round(100000 / liveSummary.avgCprArs) : 0} leads / $100k
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-500 font-medium flex items-center gap-1">
+                          <span>📊</span> Estado costo:
+                        </span>
+                        <span className={`font-black font-mono text-[10px] px-2 py-0.5 rounded-lg border ${
+                          liveSummary?.avgCprArs > 3500 
+                            ? 'bg-amber-50 text-amber-700 border-amber-200/70' 
+                            : 'bg-emerald-50 text-emerald-700 border-emerald-200/70'
+                        }`}>
+                          {liveSummary?.avgCprArs > 3500 ? '⚠️ Costo elevado' : '✅ Costo competitivo'}
+                        </span>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* 4. Pacing Presupuesto */}
-                <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm space-y-2 relative overflow-hidden">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                      📊 Presupuesto del Día
-                    </span>
-                    <div className="p-2 bg-purple-50 text-purple-600 rounded-xl">
-                      <Activity className="w-4 h-4" />
+                <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm space-y-3 relative overflow-hidden flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                        📊 Presupuesto & Ritmo
+                      </span>
+                      <div className="p-2 bg-purple-50 text-purple-600 rounded-xl">
+                        <Activity className="w-4 h-4" />
+                      </div>
+                    </div>
+
+                    <div className="flex items-baseline justify-between">
+                      <div className="text-2xl font-black text-slate-900 tracking-tight">
+                        {liveSummary?.pacingPercent || 0}% <span className="text-xs font-bold text-slate-400">consumido</span>
+                      </div>
+                      {livePacingMetrics && (
+                        <div className={`px-2 py-0.5 rounded-lg text-xs font-black font-mono flex items-center gap-1 border ${livePacingMetrics.speedBadge.bg} ${livePacingMetrics.speedBadge.color} ${livePacingMetrics.speedBadge.border}`}>
+                          <span>{livePacingMetrics.speedBadge.icon}</span>
+                          <span>{livePacingMetrics.pacingSpeed.toFixed(2)}x</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden mt-2">
+                      <div 
+                        className="bg-indigo-600 h-full rounded-full transition-all"
+                        style={{ width: `${Math.min(100, liveSummary?.pacingPercent || 0)}%` }}
+                      />
                     </div>
                   </div>
-                  <div className="text-2xl font-black text-slate-900 tracking-tight">
-                    {liveSummary?.pacingPercent || 0}% <span className="text-xs font-bold text-slate-400">consumido</span>
-                  </div>
-                  <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                    <div 
-                      className="bg-indigo-600 h-full rounded-full transition-all"
-                      style={{ width: `${Math.min(100, liveSummary?.pacingPercent || 0)}%` }}
-                    />
-                  </div>
-                  <p className="text-[10px] text-slate-400 font-semibold">
-                    Límite diario: {formatPrice(liveSummary?.totalBudgetArs || 0)}
-                  </p>
+
+                  {livePacingMetrics && (
+                    <div className="mt-4 pt-3 border-t border-slate-100 space-y-2 text-[11px]">
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-500 font-medium">
+                          Velocidad:
+                        </span>
+                        <span className={`font-black ${livePacingMetrics.speedBadge.color}`}>
+                          {livePacingMetrics.speedBadge.label}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-500 font-medium">
+                          Budget ideal a las {livePacingMetrics.timeFormatted}:
+                        </span>
+                        <span className="font-bold text-slate-700 font-mono">
+                          {formatPrice(livePacingMetrics.expectedSpendToNow)}
+                        </span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
+
+              {/* Real-time Pacing & Forecasting Hero Panel */}
+              {livePacingMetrics && (
+                <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-6 relative overflow-hidden">
+                  {/* Header & Speed Pill */}
+                  <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-5 border-b border-slate-100">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="p-2 rounded-xl bg-indigo-50 text-indigo-600 border border-indigo-100">
+                          <Gauge className="w-5 h-5" />
+                        </span>
+                        <h3 className="text-base sm:text-lg font-black tracking-tight text-slate-900 flex items-center gap-2">
+                          Monitor de Ritmo de Gasto y Proyecciones de Cierre
+                        </h3>
+                        <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          En Vivo
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 font-medium">
+                        Cálculo dinámico basado en la hora actual ({livePacingMetrics.timeFormatted}), el avance del día ({livePacingMetrics.elapsedDayPercent}%) y la velocidad de consumo de Meta.
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2.5">
+                      {/* Speed Indicator Pill */}
+                      <div className={`px-3 py-1.5 rounded-2xl border flex items-center gap-2.5 font-mono ${livePacingMetrics.speedBadge.bg} ${livePacingMetrics.speedBadge.color} ${livePacingMetrics.speedBadge.border}`}>
+                        <span className="text-base">{livePacingMetrics.speedBadge.icon}</span>
+                        <div className="leading-tight">
+                          <div className="text-[9px] uppercase font-bold text-slate-400">Velocidad Actual</div>
+                          <div className="text-sm font-black">{livePacingMetrics.pacingSpeed.toFixed(2)}x ({livePacingMetrics.speedBadge.shortLabel})</div>
+                        </div>
+                      </div>
+
+                      {/* Simulation Button */}
+                      <button
+                        type="button"
+                        onClick={() => setIsSimulatingBudget(!isSimulatingBudget)}
+                        className={`px-3 py-2 rounded-2xl text-xs font-bold border transition-all cursor-pointer flex items-center gap-1.5 ${
+                          isSimulatingBudget
+                            ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm'
+                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100 hover:text-slate-900'
+                        }`}
+                      >
+                        <SlidersHorizontal className="w-3.5 h-3.5" />
+                        <span>{isSimulatingBudget ? 'Simulando Budget' : 'Simular Budget'}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Budget Simulation Drawer */}
+                  {isSimulatingBudget && (
+                    <div className="bg-indigo-50/70 p-4 rounded-2xl border border-indigo-100 flex flex-col sm:flex-row items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2">
+                      <div className="flex items-center gap-2 text-xs text-indigo-900 font-medium">
+                        <Calculator className="w-4 h-4 text-indigo-600 flex-shrink-0" />
+                        <span>Ingresá un presupuesto diario ficticio para proyectar el cierre:</span>
+                      </div>
+                      <div className="flex items-center gap-2 w-full sm:w-auto">
+                        <input
+                          type="number"
+                          placeholder={`Ej: ${liveSummary?.totalBudgetArs || 1000000}`}
+                          value={simulatedBudgetInput}
+                          onChange={(e) => setSimulatedBudgetInput(e.target.value)}
+                          className="w-44 px-3 py-1.5 bg-white border border-indigo-200 rounded-xl text-xs font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        />
+                        <button
+                          onClick={() => {
+                            setSimulatedBudgetInput("");
+                            setIsSimulatingBudget(false);
+                          }}
+                          className="text-xs text-indigo-600 hover:text-indigo-800 px-2 py-1 font-bold cursor-pointer"
+                        >
+                          Restablecer
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Two Side-by-Side Projection Models */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Model A: Por Ritmo Horario Real */}
+                    <div className="bg-slate-50/80 border border-slate-100 p-5 rounded-2xl space-y-4 hover:border-slate-200 transition-all">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className="p-2 rounded-xl bg-blue-50 text-blue-600 border border-blue-100">
+                            <Clock className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <h4 className="text-sm font-black text-slate-900">Proyección por Ritmo Horario</h4>
+                            <p className="text-[10px] text-slate-500 font-semibold">Gasto y mensajes si Meta mantiene la velocidad de hoy</p>
+                          </div>
+                        </div>
+                        <span className="text-[10px] font-black font-mono px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200">
+                          Ritmo {livePacingMetrics.pacingSpeed.toFixed(2)}x
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3 pt-1">
+                        <div className="bg-white p-3.5 rounded-xl border border-slate-100 shadow-2xs">
+                          <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Gasto Proyectado Cierre</span>
+                          <div className="text-lg font-black text-slate-900 mt-1 font-mono">
+                            {formatPrice(livePacingMetrics.projectedSpendByPace)}
+                          </div>
+                          <p className="text-[10px] text-slate-400 mt-0.5 font-medium">
+                            Consumirá {Math.round(livePacingMetrics.projectedSpendByPace / (livePacingMetrics.activeBudgetArs || 1) * 100)}% del budget
+                          </p>
+                        </div>
+
+                        <div className="bg-white p-3.5 rounded-xl border border-slate-100 shadow-2xs">
+                          <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Mensajes Proyectados</span>
+                          <div className="text-lg font-black text-emerald-600 mt-1 font-mono">
+                            ~{livePacingMetrics.projectedMessagesByPace} <span className="text-xs font-bold text-slate-400">msgs</span>
+                          </div>
+                          <p className="text-[10px] text-slate-400 mt-0.5 font-medium">
+                            +{Math.max(0, livePacingMetrics.projectedMessagesByPace - (liveSummary?.totalMessages || 0))} restantes hoy
+                          </p>
+                        </div>
+                      </div>
+
+                      <p className="text-[11px] text-slate-500 leading-relaxed font-medium">
+                        A las <strong className="text-slate-800">{livePacingMetrics.timeFormatted}</strong> ({livePacingMetrics.elapsedDayPercent}% del día transcurrido), el budget ideal esperado era <strong className="text-slate-800">{formatPrice(livePacingMetrics.expectedSpendToNow)}</strong>. Al ir gastando <strong className="text-slate-800">{formatPrice(liveSummary?.totalSpendArs || 0)}</strong>, la velocidad de consumo es <strong className={livePacingMetrics.speedBadge.color}>{livePacingMetrics.pacingSpeed.toFixed(2)}x</strong> ({livePacingMetrics.speedBadge.label.toLowerCase()}).
+                      </p>
+                    </div>
+
+                    {/* Model B: Por Budget Total Asignado */}
+                    <div className="bg-slate-50/80 border border-slate-100 p-5 rounded-2xl space-y-4 hover:border-slate-200 transition-all">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className="p-2 rounded-xl bg-purple-50 text-purple-600 border border-purple-100">
+                            <Target className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <h4 className="text-sm font-black text-slate-900">Proyección por Budget Asignado</h4>
+                            <p className="text-[10px] text-slate-500 font-semibold">Mensajes estimados si Meta consume el 100% del límite diario</p>
+                          </div>
+                        </div>
+                        <span className="text-[10px] font-black font-mono px-2 py-0.5 rounded-md bg-purple-50 text-purple-700 border border-purple-200">
+                          Meta 100%
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3 pt-1">
+                        <div className="bg-white p-3.5 rounded-xl border border-slate-100 shadow-2xs">
+                          <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Presupuesto Objetivo</span>
+                          <div className="text-lg font-black text-slate-900 mt-1 font-mono">
+                            {formatPrice(livePacingMetrics.activeBudgetArs)}
+                          </div>
+                          <p className="text-[10px] text-slate-400 mt-0.5 font-medium">
+                            Faltan ejecutar {formatPrice(Math.max(0, livePacingMetrics.activeBudgetArs - (liveSummary?.totalSpendArs || 0)))}
+                          </p>
+                        </div>
+
+                        <div className="bg-white p-3.5 rounded-xl border border-slate-100 shadow-2xs">
+                          <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Mensajes a Meta</span>
+                          <div className="text-lg font-black text-indigo-600 mt-1 font-mono">
+                            ~{livePacingMetrics.projectedMessagesByBudget} <span className="text-xs font-bold text-slate-400">msgs</span>
+                          </div>
+                          <p className="text-[10px] text-slate-400 mt-0.5 font-medium">
+                            Al CPR actual de {formatPrice(liveSummary?.avgCprArs || 0)}/lead
+                          </p>
+                        </div>
+                      </div>
+
+                      <p className="text-[11px] text-slate-500 leading-relaxed font-medium">
+                        Si Meta consume el 100% del presupuesto asignado para hoy ({formatPrice(livePacingMetrics.activeBudgetArs)}), generaría aproximadamente <strong className="text-indigo-700">~{livePacingMetrics.projectedMessagesByBudget} mensajes</strong> manteniendo el CPR promedio actual.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Filters Bar */}
               <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -1176,8 +1618,15 @@ export default function MetaAdsPage() {
                                   <span className="text-slate-400">-</span>
                                 )}
                               </td>
-                              <td className="p-4 text-right font-black text-indigo-600 text-sm">
-                                {c.messages}
+                              <td className="p-4 text-right">
+                                <div className="font-black text-indigo-600 text-sm">
+                                  {c.messages}
+                                </div>
+                                {livePacingMetrics && isActiva && (
+                                  <div className="text-[10px] text-slate-400 font-semibold font-mono whitespace-nowrap mt-0.5">
+                                    Proy: ~{Math.round(c.messages / livePacingMetrics.elapsedDayFraction)} msgs
+                                  </div>
+                                )}
                               </td>
                               <td className="p-4 text-right font-mono text-slate-600">
                                 US$ {c.spendUsd.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
@@ -1198,19 +1647,35 @@ export default function MetaAdsPage() {
                                 {formatPrice(c.budgetArs)}
                               </td>
                               <td className="p-4 text-center">
-                                <div className="flex items-center justify-center gap-2">
-                                  <div className="w-12 bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                                    <div 
-                                      className={`h-full rounded-full ${
-                                        c.budgetConsumedPercent > 90 ? 'bg-rose-500' :
-                                        c.budgetConsumedPercent > 60 ? 'bg-indigo-500' : 'bg-emerald-500'
-                                      }`}
-                                      style={{ width: `${Math.min(100, c.budgetConsumedPercent)}%` }}
-                                    />
+                                <div className="flex flex-col items-center gap-1">
+                                  <div className="flex items-center justify-center gap-2">
+                                    <div className="w-12 bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                                      <div 
+                                        className={`h-full rounded-full ${
+                                          c.budgetConsumedPercent > 90 ? 'bg-rose-500' :
+                                          c.budgetConsumedPercent > 60 ? 'bg-indigo-500' : 'bg-emerald-500'
+                                        }`}
+                                        style={{ width: `${Math.min(100, c.budgetConsumedPercent)}%` }}
+                                      />
+                                    </div>
+                                    <span className="text-[11px] font-black text-slate-700 font-mono">
+                                      {c.budgetConsumedPercent}%
+                                    </span>
                                   </div>
-                                  <span className="text-[11px] font-black text-slate-700 font-mono">
-                                    {c.budgetConsumedPercent}%
-                                  </span>
+                                  {livePacingMetrics && c.budgetArs > 0 && isActiva && (() => {
+                                    const campExpected = c.budgetArs * livePacingMetrics.elapsedDayFraction;
+                                    const campSpeed = campExpected > 0 ? (c.spendArs / campExpected) : 1;
+                                    return (
+                                      <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-black font-mono border ${
+                                        campSpeed >= 1.3 ? 'bg-rose-50 text-rose-700 border-rose-200' :
+                                        campSpeed >= 1.15 ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                                        campSpeed >= 0.85 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                                        'bg-blue-50 text-blue-700 border-blue-200'
+                                      }`}>
+                                        {campSpeed.toFixed(1)}x {campSpeed >= 1.15 ? 'rápido' : campSpeed < 0.85 ? 'lento' : 'ritmo'}
+                                      </span>
+                                    );
+                                  })()}
                                 </div>
                               </td>
                             </tr>

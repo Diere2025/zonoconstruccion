@@ -7,6 +7,7 @@ import { Product, PaymentMethod } from "@/types";
 import { Search, Plus, Trash2, Copy, Check, Calculator, ArrowRight, Save, Package, Globe, Edit2, ShoppingBag, Download } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { cn, formatPrice } from "@/lib/utils";
+import InlineVisualProductSelector from "@/components/vendedores/InlineVisualProductSelector";
 
 export const isDiscountItem = (item: { name?: string; sku?: string }) => {
   if (!item) return false;
@@ -448,6 +449,22 @@ export default function PresupuestosPage() {
       localStorage.setItem('product_usage_counts', JSON.stringify(counts));
       setUsageCounts(counts);
     } catch (e) {}
+  };
+
+  const addItems = (newProducts: Product[]) => {
+    setQuoteItems(prev => {
+      const next = [...prev];
+      newProducts.forEach(prod => {
+        const existing = next.find(i => i.id === prod.id);
+        if (existing) {
+          existing.quantity += 1;
+        } else {
+          next.push({ ...prod, quantity: 1, customPrice: prod.price });
+        }
+      });
+      return next;
+    });
+    setSearchTerm("");
   };
 
   const handleSaveKit = async () => {
@@ -951,7 +968,18 @@ export default function PresupuestosPage() {
                 </div>
               </div>
             )}
-            
+
+            {/* Selector Visual Integrado (cuando no se está escribiendo en el buscador) */}
+            {!searchTerm && (
+              <div className="pt-3 border-t border-slate-100 mt-3">
+                <InlineVisualProductSelector
+                  products={products}
+                  onAddProduct={addItem}
+                  onAddProducts={addItems}
+                />
+              </div>
+            )}
+
             {searchTerm && (
               <div className="mt-2 border border-slate-200/60 rounded-lg overflow-hidden bg-slate-50">
                 {filteredProducts.map(p => {

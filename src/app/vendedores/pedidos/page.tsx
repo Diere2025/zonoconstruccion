@@ -28,11 +28,17 @@ import {
   Eye,
   Globe,
   Edit2,
-  ChevronDown
+  ChevronDown,
+  Sparkles,
+  Home,
+  DollarSign,
+  CheckCircle2
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { supabase } from "@/lib/supabase";
 import { Product } from "@/types";
+import VisualProductSelectorModal from "@/components/vendedores/VisualProductSelectorModal";
+import InlineVisualProductSelector from "@/components/vendedores/InlineVisualProductSelector";
 import { cn, formatPrice } from "@/lib/utils";
 import { calculateBulkPrices } from "@/lib/erp/prices";
 import { createBulkStockTransactions } from "@/lib/erp/stock";
@@ -522,6 +528,7 @@ export default function PedidosPage() {
     .sort((a, b) => a.name.localeCompare(b.name));
 
   const [searchTerm, setSearchTerm] = useState("");
+  const [isVisualModalOpen, setIsVisualModalOpen] = useState(false);
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
   const [orderCategory, setOrderCategory] = useState<string>("auto");
 
@@ -833,6 +840,8 @@ export default function PedidosPage() {
   const [currentUserId, setCurrentUserId] = useState<string>("");
   const [paymentState, setPaymentState] = useState<'unpaid' | 'partial' | 'paid'>('unpaid');
   const [depositAmountInput, setDepositAmountInput] = useState<number>(0);
+  const [paymentTiming, setPaymentTiming] = useState<'contra_entrega' | 'partial' | 'paid'>('contra_entrega');
+  const [customDepositAmount, setCustomDepositAmount] = useState<number>(0);
 
   // Dynamic payments list
   interface PaymentBreakdownItem {
@@ -1274,28 +1283,31 @@ export default function PedidosPage() {
   };
 
   const selectedPaymentMethod = (() => {
-    if (paymentType === 'efectivo') {
-      const cashMethod = dbPaymentMethods.find(pm => pm.id === "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3") || 
-                         dbPaymentMethods.find(pm => pm.name.toLowerCase().includes("efectivo")) || 
-                         { id: "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3", name: "Efectivo / Transferencia", surcharge_percentage: 0, installments: 1 };
-      return cashMethod;
-    } else {
-      const matched = dbPaymentMethods.find(pm => pm.id === selectedPaymentMethodId);
-      if (matched) {
-        return {
-          id: matched.id,
-          name: matched.name,
-          surcharge_percentage: cardSurcharge,
-          installments: cardInstallments
-        };
-      }
+    const primaryPmId = paymentsList[0]?.payment_method_id || selectedPaymentMethodId;
+    const matched = dbPaymentMethods.find(pm => pm.id === primaryPmId);
+    if (matched) {
+      const isCard = matched.id !== "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3" && 
+                     ((matched.surcharge_percentage || 0) > 0 || 
+                      (matched.name && (matched.name.toLowerCase().includes("tarjeta") || matched.name.toLowerCase().includes("cuota") || matched.name.toLowerCase().includes("link"))));
+      const surcharge = isCard 
+        ? (paymentsList[0]?.card_surcharge !== undefined ? paymentsList[0].card_surcharge : (matched.surcharge_percentage || 0))
+        : 0;
+      const installments = isCard
+        ? (paymentsList[0]?.card_installments !== undefined ? paymentsList[0].card_installments : (matched.installments || 1))
+        : 1;
       return {
-        id: selectedPaymentMethodId || "e885c35b-1175-4702-8692-75d1f8f3c7b3",
-        name: cardInstallments === 1 ? "Tarjeta de Crédito (1 Pago)" : `Tarjeta de Crédito (${cardInstallments} Cuotas)`,
-        surcharge_percentage: cardSurcharge,
-        installments: cardInstallments
+        id: matched.id,
+        name: matched.name,
+        surcharge_percentage: surcharge,
+        installments
       };
     }
+    return {
+      id: "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3",
+      name: "Efectivo / Transferencia",
+      surcharge_percentage: 0,
+      installments: 1
+    };
   })();
 
   // Load preloaded budget if it exists
@@ -2175,13 +2187,19 @@ export default function PedidosPage() {
       
       const payStatus = order.payment_status;
       if (payStatus === 'Abonado') {
+        setPaymentTiming('paid');
         setPaymentState('paid');
+        setCustomDepositAmount(order.total_amount || 0);
         setDepositAmountInput(0);
       } else if (payStatus === 'Seniado') {
+        setPaymentTiming('partial');
         setPaymentState('partial');
+        setCustomDepositAmount(totalsObj.deposit_amount || 0);
         setDepositAmountInput(totalsObj.deposit_amount || 0);
       } else {
+        setPaymentTiming('contra_entrega');
         setPaymentState('unpaid');
+        setCustomDepositAmount(0);
         setDepositAmountInput(0);
       }
       
@@ -2343,32 +2361,49 @@ export default function PedidosPage() {
     return searchTerms.every(term => searchableText.includes(term));
   }).slice(0, 10);
 
-  const addItem = (product: Product) => {
-    // Validar si el producto está descontinuado y el stock es insuficiente
-    const isDiscontinued = (product as any).is_discontinued || false;
-    const currentStock = (product as any).stock_current !== undefined ? (product as any).stock_current : 999;
-    const existing = orderItems.find(i => i.id === product.id);
-    const currentQtyInCart = existing ? existing.quantity : 0;
+  const addItems = (productsToAdd: Product[]) => {
+    if (!productsToAdd || productsToAdd.length === 0) return;
 
-    if (isDiscontinued && currentQtyInCart + 1 > currentStock) {
-      alert(`No se puede agregar el producto. Está DESCONTINUADO y no hay stock disponible (Stock: ${currentStock}).`);
-      return;
-    }
+    setOrderItems(prev => {
+      const current = [...prev];
+      for (const product of productsToAdd) {
+        const isDiscontinued = (product as any).is_discontinued || false;
+        const currentStock = (product as any).stock_current !== undefined ? (product as any).stock_current : 999;
+        const existingIndex = current.findIndex(i => i.id === product.id);
+        const currentQtyInCart = existingIndex >= 0 ? current[existingIndex].quantity : 0;
 
-    if (existing) {
-      setOrderItems(orderItems.map(i => i.id === product.id ? { ...i, quantity: i.quantity + 1 } : i));
-    } else {
-      setOrderItems([...orderItems, { ...product, quantity: 1, customPrice: product.price }]);
-    }
+        if (isDiscontinued && currentQtyInCart + 1 > currentStock) {
+          alert(`No se puede agregar "${product.name}". Está DESCONTINUADO y no hay stock disponible (Stock: ${currentStock}).`);
+          continue;
+        }
+
+        if (existingIndex >= 0) {
+          current[existingIndex] = {
+            ...current[existingIndex],
+            quantity: current[existingIndex].quantity + 1
+          };
+        } else {
+          current.push({ ...product, quantity: 1, customPrice: product.price });
+        }
+      }
+      return current;
+    });
+
     setSearchTerm("");
-    
+
     // Guardar uso en localStorage
     try {
       const counts = { ...usageCounts };
-      counts[product.id] = (counts[product.id] || 0) + 1;
+      for (const product of productsToAdd) {
+        counts[product.id] = (counts[product.id] || 0) + 1;
+      }
       localStorage.setItem('product_usage_counts', JSON.stringify(counts));
       setUsageCounts(counts);
     } catch (e) {}
+  };
+
+  const addItem = (product: Product) => {
+    addItems([product]);
   };
 
   const removeItem = (id: string) => {
@@ -2498,6 +2533,8 @@ export default function PedidosPage() {
   }, 0);
   const shippingAmount = isFreeShipping ? 0 : shippingCost;
 
+  const orderBaseAmount = Math.max(0, subtotal + shippingAmount);
+
   // Calculate surcharges and totals dynamically per payment item (Proportional Surcharges)
   const paymentsWithSurcharges = paymentsList.map(p => {
     const pm = dbPaymentMethods.find(m => m.id === p.payment_method_id) || { id: "", name: "", surcharge_percentage: 0, installments: 1 };
@@ -2512,18 +2549,32 @@ export default function PedidosPage() {
       : 0;
     
     const installments = isCard
-      ? (p.card_installments !== undefined ? p.card_installments : pm.installments)
+      ? (p.card_installments !== undefined ? p.card_installments : (pm.installments || 1))
       : 1;
 
-    const surchargeVal = p.amount * (surchargePct / 100);
+    // Determine the base amount for this payment item:
+    // If single payment item, it covers the entire orderBaseAmount
+    let baseAmount = p.amount;
+    if (paymentsList.length === 1) {
+      baseAmount = (p.amount && p.amount > 0) ? p.amount : orderBaseAmount;
+    } else if (!p.amount || p.amount === 0) {
+      const otherAllocated = paymentsList
+        .filter(other => other.id !== p.id)
+        .reduce((sum, other) => sum + (other.amount || 0), 0);
+      baseAmount = Math.max(0, orderBaseAmount - otherAllocated);
+    }
+
+    const surchargeVal = baseAmount * (surchargePct / 100);
+    const totalAmount = baseAmount + surchargeVal;
     
     return {
       ...p,
+      baseAmount,
       isCard,
       surchargePercentage: surchargePct,
       surchargeValue: surchargeVal,
       installments,
-      totalAmount: p.amount + surchargeVal
+      totalAmount
     };
   });
 
@@ -2531,20 +2582,45 @@ export default function PedidosPage() {
   const subtotalWithSurchargeAndShipping = subtotal + totalSurcharges + shippingAmount;
   const ivaAmount = includeIVA ? subtotalWithSurchargeAndShipping * 0.21 : 0;
   const total = subtotalWithSurchargeAndShipping + ivaAmount;
-
-  // derived values
-  const totalPaid = paymentsWithSurcharges.reduce((acc, p) => acc + p.totalAmount, 0);
-  const pendingBalance = Math.max(0, total - totalPaid);
-  const hasDeposit = totalPaid > 0;
-  const depositAmount = totalPaid;
   const surcharge = totalSurcharges; // Alias to match other variables in page.tsx
 
-  // Auto-sync paymentState and depositAmountInput with breakdown totals
+  // Derived payment status and balances based on paymentTiming
+  let totalPaid = 0;
+  let depositAmount = 0;
+  let hasDeposit = false;
+  let pendingBalance = total;
+
+  if (paymentTiming === 'paid') {
+    totalPaid = total;
+    depositAmount = total;
+    hasDeposit = true;
+    pendingBalance = 0;
+  } else if (paymentTiming === 'partial') {
+    totalPaid = customDepositAmount;
+    depositAmount = customDepositAmount;
+    hasDeposit = customDepositAmount > 0;
+    pendingBalance = Math.max(0, total - customDepositAmount);
+  } else {
+    // 'contra_entrega' (paga en domicilio al recibir)
+    totalPaid = 0;
+    depositAmount = 0;
+    hasDeposit = false;
+    pendingBalance = total;
+  }
+
+  // Auto-sync paymentState and depositAmountInput with paymentTiming
   useEffect(() => {
-    const state = totalPaid === 0 ? 'unpaid' : (pendingBalance <= 0.05 ? 'paid' : 'partial');
-    setPaymentState(state);
-    setDepositAmountInput(totalPaid);
-  }, [totalPaid, pendingBalance]);
+    if (paymentTiming === 'paid') {
+      setPaymentState('paid');
+      setDepositAmountInput(total);
+    } else if (paymentTiming === 'partial') {
+      setPaymentState((customDepositAmount >= total && total > 0) ? 'paid' : (customDepositAmount > 0 ? 'partial' : 'unpaid'));
+      setDepositAmountInput(customDepositAmount);
+    } else {
+      setPaymentState('unpaid');
+      setDepositAmountInput(0);
+    }
+  }, [paymentTiming, customDepositAmount, total]);
 
   const filteredClients = clientSearchQuery.trim()
     ? clients.filter(c => 
@@ -2832,9 +2908,20 @@ export default function PedidosPage() {
               deposit_amount: hasDeposit ? depositAmount : 0,
               deposit_receipt_url: paymentsList.find(p => p.receipt_url)?.receipt_url || "",
               pending_balance: pendingBalance,
-              payments_breakdown: paymentsList
+              payments_breakdown: paymentsWithSurcharges.map(p => ({
+                id: p.id,
+                payment_method_id: p.payment_method_id,
+                amount: p.baseAmount,
+                surcharge: p.surchargeValue,
+                total: p.totalAmount,
+                card_installments: p.installments,
+                card_surcharge: p.surchargePercentage,
+                receipt_url: p.receipt_url,
+                notes: p.notes
+              })),
+              payment_timing: paymentTiming
             },
-            payment_status: paymentState === 'paid' ? 'Abonado' : (paymentState === 'partial' ? 'Seniado' : 'Pendiente'),
+            payment_status: paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? 'Seniado' : 'Pendiente'),
             logistics_zone_id: localities.find(l => l.id === localidadId)?.zone_id || null,
             advertising_source_id: selectedAdvertisingSourceId || null,
             order_medium_id: selectedOrderMediumId || null,
@@ -2931,7 +3018,15 @@ export default function PedidosPage() {
             phoneSecondary: clientPhone2,
             whaticketLink: whaticketLink || '',
             source: sellerType === 'mayorista' ? 'Mayorista' : advName,
-            deliveryNotes: [aclaraciones, deliveryDetail].filter(Boolean).map((s: string) => s.trim()).join(' / '),
+            deliveryNotes: [
+              aclaraciones, 
+              deliveryDetail, 
+              paymentTiming === 'contra_entrega' 
+                ? `Cobrar al entregar: ${formatPrice(total)} (${selectedPayMethodName})` 
+                : (paymentTiming === 'partial' 
+                    ? `Seña: ${formatPrice(customDepositAmount)} - Saldo al entregar: ${formatPrice(pendingBalance)}` 
+                    : '')
+            ].filter(Boolean).map((s: string) => s.trim()).join(' / '),
             medium: mediumName,
             sellerName: sellerFullName,
             status: orderStatus === 'En Espera' ? 'En Espera' : '🔹 Pasado',
@@ -2941,8 +3036,8 @@ export default function PedidosPage() {
             category: orderCategory === 'auto' ? detectedCategory : orderCategory,
             paymentMethod: selectedPayMethodName,
             identification: newClientTaxId || '',
-            paymentStatus: paymentState === 'paid' ? 'Abonado' : (paymentState === 'partial' ? 'Señado' : 'No Abonado'),
-            depositOrPaidAmount: hasDeposit ? depositAmount : (paymentState === 'paid' ? total : 0),
+            paymentStatus: paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? 'Señado' : 'No Abonado'),
+            depositOrPaidAmount: hasDeposit ? depositAmount : (paymentTiming === 'paid' ? total : 0),
             freightType: flete || '⚪ Flete Regular',
             freightCost: shippingAmount || 0,
             items: orderItems.map(item => ({
@@ -3008,10 +3103,21 @@ export default function PedidosPage() {
               deposit_amount: hasDeposit ? depositAmount : 0,
               deposit_receipt_url: paymentsList.find(p => p.receipt_url)?.receipt_url || "",
               pending_balance: pendingBalance,
-              payments_breakdown: paymentsList
+              payments_breakdown: paymentsWithSurcharges.map(p => ({
+                id: p.id,
+                payment_method_id: p.payment_method_id,
+                amount: p.baseAmount,
+                surcharge: p.surchargeValue,
+                total: p.totalAmount,
+                card_installments: p.installments,
+                card_surcharge: p.surchargePercentage,
+                receipt_url: p.receipt_url,
+                notes: p.notes
+              })),
+              payment_timing: paymentTiming
             },
             channel: sellerType === 'mayorista' ? 'mayorista' : 'vendedor_externo',
-            payment_status: paymentState === 'paid' ? 'Abonado' : (paymentState === 'partial' ? 'Seniado' : 'Pendiente'),
+            payment_status: paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? 'Seniado' : 'Pendiente'),
             logistics_zone_id: localities.find(l => l.id === localidadId)?.zone_id || null,
             advertising_source_id: selectedAdvertisingSourceId || null,
             order_medium_id: selectedOrderMediumId || null,
@@ -3102,6 +3208,8 @@ export default function PedidosPage() {
       setIsFreeShipping(true);
       setShippingCost(0);
       setIncludeIVA(false);
+      setPaymentTiming('contra_entrega');
+      setCustomDepositAmount(0);
       setPaymentState('unpaid');
       setDepositAmountInput(0);
       setDepositReceiptUrl("");
@@ -3223,6 +3331,8 @@ export default function PedidosPage() {
                   setIsFreeShipping(true);
                   setShippingCost(0);
                   setIncludeIVA(false);
+                  setPaymentTiming('contra_entrega');
+                  setCustomDepositAmount(0);
                   setPaymentState('unpaid');
                   setDepositAmountInput(0);
                   setDepositReceiptUrl("");
@@ -4179,190 +4289,57 @@ export default function PedidosPage() {
               {/* Columna Izquierda: Agregar Productos y Pago */}
               <div className="space-y-4 h-fit">
                 {/* Catálogo */}
-                <div className="space-y-4 bg-white p-4 rounded-xl border border-slate-200/60 shadow-sm">
-                  <h2 className="font-black text-xs text-slate-800 mb-3 flex items-center gap-1.5 uppercase tracking-wider border-b border-slate-100 pb-2">
-                    <Search className="w-4 h-4 text-brand-500" /> Agregar Productos
-                  </h2>
-                
-                <div className="relative">
-                  <input 
-                    type="text" 
-                    className="w-full pl-3 pr-3 py-1.5 rounded-lg border border-slate-200 focus:ring-2 focus:ring-brand-500/10 outline-none font-bold text-xs"
-                    placeholder="Buscar por nombre o interno (SKU)..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                  />
-                </div>
-
-                {(() => {
-                  const displayKits = kits.filter(k => {
-                    if (selectedCategoryFilter && k.category !== selectedCategoryFilter) return false;
-                    if (adminSellerFilter === 'mis_kits') {
-                       return k.isGlobal || k.sellerId === currentUserId;
-                    }
-                    return true;
-                  });
-
-                  if ((kits.length === 0 && role !== 'admin') || searchTerm) return null;
-
-                  return (
-                    <div className="mt-3 border-b border-slate-100 pb-3">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 mb-2">
-                        <p className="text-[9px] font-black uppercase tracking-wider text-slate-400">Kits Guardados</p>
-                        <div className="flex items-center gap-1.5">
-                          <select 
-                            value={selectedCategoryFilter} 
-                            onChange={(e) => setSelectedCategoryFilter(e.target.value)}
-                            className="text-[10px] px-1.5 py-0.5 rounded border border-slate-200 bg-slate-50 outline-none font-bold text-slate-600 cursor-pointer"
-                          >
-                            <option value="">Todas las categorías</option>
-                            {KIT_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                          </select>
-                          {role === 'admin' && (
-                            <select
-                              value={adminSellerFilter}
-                              onChange={(e) => setAdminSellerFilter(e.target.value)}
-                              className="text-[10px] px-1.5 py-0.5 rounded border border-slate-200 bg-slate-50 outline-none font-bold text-slate-600 cursor-pointer"
-                            >
-                              <option value="mis_kits">Mis Kits y Globales</option>
-                              <option value="todos">Todos los Kits</option>
-                            </select>
-                          )}
-                        </div>
-                      </div>
-                      
-                      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
-                        <select
-                          value={selectedKitId}
-                          onChange={(e) => setSelectedKitId(e.target.value)}
-                          className="flex-1 w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white outline-none font-bold text-slate-700 cursor-pointer shadow-sm focus:ring-2 focus:ring-brand-500/10"
-                        >
-                          <option value="">-- Seleccionar un Kit --</option>
-                          {displayKits.map(kit => (
-                            <option key={kit.id} value={kit.id}>
-                              {kit.isGlobal ? "⭐ " : ""}{kit.name}
-                            </option>
-                          ))}
-                        </select>
-
-                        <div className="flex gap-1.5 w-full sm:w-auto">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const kit = displayKits.find(k => k.id === selectedKitId);
-                              if (kit) addKitToOrder(kit);
-                            }}
-                            disabled={!selectedKitId}
-                            className="flex-1 sm:flex-none px-3 py-1.5 bg-brand-50 border border-brand-100 text-brand-600 hover:bg-brand-600 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-xs font-black transition-all flex items-center justify-center gap-1.5 group"
-                          >
-                            <Package className="w-3.5 h-3.5 text-brand-400 group-hover:text-white transition-colors" />
-                            Cargar
-                          </button>
-
-                          {(() => {
-                            const selectedKit = displayKits.find(k => k.id === selectedKitId);
-                            if (!selectedKit) return null;
-                            
-                            const canModify = selectedKit.sellerId === currentUserId || role === 'admin';
-                            
-                            return (
-                              <>
-                                {role === 'admin' && !selectedKit.isGlobal && (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => makeKitGlobal(selectedKit.id, e)}
-                                    className="px-2 py-1.5 bg-indigo-50 border border-indigo-100 text-indigo-600 hover:bg-indigo-500 hover:text-white rounded-lg transition-all flex items-center justify-center"
-                                    title="Hacer Global"
-                                  >
-                                    <Globe className="w-3.5 h-3.5" />
-                                  </button>
-                                )}
-                                {canModify && (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setEditKitId(selectedKit.id);
-                                      setEditKitNameValue(selectedKit.name);
-                                      setShowEditNameModal(true);
-                                    }}
-                                    className="px-2 py-1.5 bg-amber-50 border border-amber-100 text-amber-600 hover:bg-amber-500 hover:text-white rounded-lg transition-all flex items-center justify-center"
-                                    title="Editar Nombre"
-                                  >
-                                    <Edit2 className="w-3.5 h-3.5" />
-                                  </button>
-                                )}
-                                {canModify && (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      deleteKit(selectedKit.id, e);
-                                      setSelectedKitId("");
-                                    }}
-                                    className="px-2 py-1.5 bg-red-50 border border-red-100 text-red-600 hover:bg-red-500 hover:text-white rounded-lg transition-all flex items-center justify-center"
-                                    title="Eliminar Kit"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                )}
-                              </>
-                            );
-                          })()}
-                        </div>
-                      </div>
-                      {displayKits.length === 0 && <span className="text-[10px] text-slate-400 font-medium block mt-1.5">No hay kits en esta categoría.</span>}
-                    </div>
-                  );
-                })()}
-
-                {/* Tags de productos más utilizados */}
-                {frequentProducts.length > 0 && !searchTerm && (
-                  <div className="mt-3">
-                    <p className="text-[9px] font-black uppercase tracking-wider text-slate-400 mb-1.5">Más Utilizados</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {frequentProducts.flatMap(p => {
-                        const childVariants = getDisplayVariants(p, products);
-                        const parentLabel = p.sku || p.name;
-                        const displayParentLabel = parentLabel.length > 30 ? parentLabel.substring(0, 28) + '...' : parentLabel;
-
-                        const tags = [
-                          <button
-                            key={`freq-parent-${p.id}`}
-                            type="button"
-                            onClick={() => addItem(p)}
-                            className="px-2 py-0.5 bg-brand-50 border border-brand-100 text-brand-600 hover:bg-brand-600 hover:text-white rounded text-[9px] font-black uppercase tracking-wide transition-all flex items-center gap-1 group"
-                            title={p.name}
-                          >
-                            <Plus className="w-2.5 h-2.5 text-brand-400 group-hover:text-white transition-colors" />
-                            {displayParentLabel}
-                          </button>
-                        ];
-                        childVariants.forEach(v => {
-                          const childLabel = v.sku || v.name;
-                          const displayChildLabel = childLabel.length > 30 ? childLabel.substring(0, 28) + '...' : childLabel;
-                          tags.push(
-                            <button
-                              key={`freq-child-${p.id}-${v.id}`}
-                              type="button"
-                              onClick={() => addItem(v)}
-                              className={cn(
-                                "px-2 py-0.5 border rounded text-[9px] font-black uppercase tracking-wide transition-all flex items-center gap-1 group",
-                                v.variant_type?.toLowerCase().includes('ciego')
-                                  ? "bg-amber-50 border-amber-100 text-amber-700 hover:bg-amber-600 hover:text-white"
-                                  : "bg-blue-50 border-blue-100 text-blue-700 hover:bg-blue-600 hover:text-white"
-                              )}
-                              title={v.name}
-                            >
-                              <Plus className="w-2.5 h-2.5 transition-colors" />
-                              {displayChildLabel}
-                            </button>
-                          );
-                        });
-                        return tags;
-                      })}
+                <div className="space-y-3 bg-white p-4 rounded-xl border border-slate-200/60 shadow-sm">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                    <h2 className="font-black text-xs text-slate-800 flex items-center gap-1.5 uppercase tracking-wider">
+                      <Search className="w-4 h-4 text-brand-500" /> Agregar Productos
+                    </h2>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setIsVisualModalOpen(true)}
+                        className="px-2 py-0.5 rounded-md text-[10px] font-bold text-slate-500 hover:text-brand-600 hover:bg-slate-100 transition-colors flex items-center gap-1 cursor-pointer"
+                        title="Ver en pantalla completa"
+                      >
+                        <span>Pantalla Completa</span>
+                      </button>
+                      <span className="text-[10px] font-black uppercase tracking-wider text-brand-600 bg-brand-50 px-2 py-0.5 rounded-md flex items-center gap-1">
+                        <Sparkles className="w-3 h-3" /> Selector Visual
+                      </span>
                     </div>
                   </div>
-                )}
+                
+                  {/* Buscador manual superior */}
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input 
+                      type="text" 
+                      className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-slate-200 focus:ring-2 focus:ring-brand-500/10 outline-none font-bold text-xs"
+                      placeholder="Buscar por nombre o interno (SKU) para agregar manualmente..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                    {searchTerm && (
+                      <button
+                        type="button"
+                        onClick={() => setSearchTerm('')}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs font-black"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Selector Visual Integrado (cuando no se está escribiendo en el buscador) */}
+                  {!searchTerm && (
+                    <div className="pt-1">
+                      <InlineVisualProductSelector
+                        products={products}
+                        onAddProduct={addItem}
+                        onAddProducts={addItems}
+                      />
+                    </div>
+                  )}
 
                 {searchTerm && (
                   <div className="mt-2 border border-slate-200/60 rounded-lg overflow-hidden bg-slate-50">
@@ -4464,6 +4441,126 @@ export default function PedidosPage() {
                   </button>
                 </div>
 
+                {/* Selector de Condición de Cobro */}
+                <div className="bg-white p-3 rounded-xl border border-slate-200 space-y-2.5 shadow-sm">
+                  <div className="flex items-center justify-between flex-wrap gap-1.5">
+                    <span className="text-[9px] font-black text-slate-500 uppercase tracking-wider">
+                      ¿Cuándo / Cómo abona el cliente?
+                    </span>
+                    {paymentTiming === 'contra_entrega' && (
+                      <span className="text-[10px] font-black text-red-600 bg-red-50 px-2 py-0.5 rounded-full border border-red-100 flex items-center gap-1">
+                        ❌ A Cobrar en Domicilio (Pendiente)
+                      </span>
+                    )}
+                    {paymentTiming === 'partial' && (
+                      <span className="text-[10px] font-black text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-100 flex items-center gap-1">
+                        💵 Con Seña Previa (Señado)
+                      </span>
+                    )}
+                    {paymentTiming === 'paid' && (
+                      <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100 flex items-center gap-1">
+                        ✅ Ya Abonado (100% Pagado)
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPaymentTiming('contra_entrega');
+                        setCustomDepositAmount(0);
+                      }}
+                      className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                        paymentTiming === 'contra_entrega'
+                          ? 'bg-red-50/70 border-red-300 ring-2 ring-red-500/20 shadow-sm'
+                          : 'bg-slate-50/60 border-slate-200 hover:bg-slate-100/80 text-slate-600'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5 mb-0.5">
+                        <Home className={`w-3.5 h-3.5 ${paymentTiming === 'contra_entrega' ? 'text-red-600' : 'text-slate-400'}`} />
+                        <span className={`text-xs font-black ${paymentTiming === 'contra_entrega' ? 'text-red-700' : 'text-slate-700'}`}>
+                          En Domicilio
+                        </span>
+                      </div>
+                      <p className="text-[9px] font-bold text-slate-400">Paga al recibir (100% impago)</p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPaymentTiming('partial');
+                      }}
+                      className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                        paymentTiming === 'partial'
+                          ? 'bg-amber-50/70 border-amber-300 ring-2 ring-amber-500/20 shadow-sm'
+                          : 'bg-slate-50/60 border-slate-200 hover:bg-slate-100/80 text-slate-600'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5 mb-0.5">
+                        <DollarSign className={`w-3.5 h-3.5 ${paymentTiming === 'partial' ? 'text-amber-600' : 'text-slate-400'}`} />
+                        <span className={`text-xs font-black ${paymentTiming === 'partial' ? 'text-amber-700' : 'text-slate-700'}`}>
+                          Con Seña Previa
+                        </span>
+                      </div>
+                      <p className="text-[9px] font-bold text-slate-400">Seña hoy + saldo en entrega</p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPaymentTiming('paid');
+                        setCustomDepositAmount(total);
+                      }}
+                      className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                        paymentTiming === 'paid'
+                          ? 'bg-emerald-50/70 border-emerald-300 ring-2 ring-emerald-500/20 shadow-sm'
+                          : 'bg-slate-50/60 border-slate-200 hover:bg-slate-100/80 text-slate-600'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5 mb-0.5">
+                        <CheckCircle2 className={`w-3.5 h-3.5 ${paymentTiming === 'paid' ? 'text-emerald-600' : 'text-slate-400'}`} />
+                        <span className={`text-xs font-black ${paymentTiming === 'paid' ? 'text-emerald-700' : 'text-slate-700'}`}>
+                          Ya Abonado
+                        </span>
+                      </div>
+                      <p className="text-[9px] font-bold text-slate-400">100% abonado antes de enviar</p>
+                    </button>
+                  </div>
+
+                  {paymentTiming === 'partial' && (
+                    <div className="p-2.5 bg-amber-50/60 rounded-lg border border-amber-200/90 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 animate-in fade-in duration-200">
+                      <div>
+                        <span className="text-[10px] font-black text-amber-900 uppercase tracking-wider block">
+                          Monto de Seña Cobrada Hoy:
+                        </span>
+                        <span className="text-[9px] font-bold text-amber-700">
+                          Saldo restante a cobrar al entregar: <strong className="font-black">{formatPrice(pendingBalance)}</strong>
+                        </span>
+                      </div>
+                      <div className="relative w-full sm:w-44">
+                        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">$</span>
+                        <input
+                          type="number"
+                          value={customDepositAmount === 0 ? "" : customDepositAmount}
+                          onChange={(e) => setCustomDepositAmount(Math.max(0, Number(e.target.value)))}
+                          placeholder="Monto de seña..."
+                          className="w-full pl-6 pr-2.5 py-1.5 border border-amber-300 rounded-lg text-xs font-black text-amber-900 outline-none focus:ring-2 focus:ring-amber-500/20 bg-white"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {paymentTiming === 'contra_entrega' && (
+                    <div className="p-2 bg-slate-100/80 rounded-lg border border-slate-200 text-[10px] font-bold text-slate-700 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-1">
+                      <span>El cliente abonará al fletero / repartidor al recibir el pedido.</span>
+                      <span className="font-black text-red-600 whitespace-nowrap">
+                        A cobrar en destino: {formatPrice(total)}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
                 <div className="space-y-3.5">
                   {paymentsWithSurcharges.map((p, idx) => (
                     <div key={p.id} className="p-3 bg-white rounded-xl border border-slate-200 space-y-2.5 relative group animate-in fade-in duration-200">
@@ -4519,7 +4616,9 @@ export default function PedidosPage() {
 
                         {/* Monto Base */}
                         <div className="flex flex-col gap-1">
-                          <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider">Monto a Acreditar</span>
+                          <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider">
+                            {paymentsList.length > 1 ? "Monto Base Asignado" : "Importe Base del Pedido"}
+                          </span>
                           <div className="relative">
                             <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">$</span>
                             <input
@@ -4529,7 +4628,7 @@ export default function PedidosPage() {
                                 const val = Math.max(0, Number(e.target.value));
                                 setPaymentsList(prev => prev.map(item => item.id === p.id ? { ...item, amount: val } : item));
                               }}
-                              placeholder="Monto a abonar..."
+                              placeholder={paymentsList.length === 1 ? `${p.baseAmount} (Total base)` : "Monto a abonar..."}
                               className="w-full pl-5 pr-2.5 py-1.5 border border-slate-200 rounded-lg text-xs font-bold outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 bg-slate-50"
                             />
                           </div>
@@ -4564,9 +4663,19 @@ export default function PedidosPage() {
                                 className="w-12 px-1 py-0.5 text-[10px] font-bold border border-slate-200 rounded text-center outline-none bg-white text-slate-700"
                               />
                             </div>
+                            {p.surchargeValue > 0 && (
+                              <div className="text-[10px] font-extrabold text-red-600 whitespace-nowrap">
+                                +{formatPrice(p.surchargeValue)}
+                              </div>
+                            )}
                           </div>
-                          <div className="text-[10px] font-extrabold text-brand-700 whitespace-nowrap">
+                          <div className="text-[10px] font-extrabold text-brand-700 whitespace-nowrap text-right">
                             Cobrar en terminal: <span className="text-xs font-black">{formatPrice(p.totalAmount)}</span>
+                            {p.installments > 1 && (
+                              <span className="block text-[9px] font-bold text-slate-500">
+                                {p.installments} cuotas de {formatPrice(p.totalAmount / p.installments)}
+                              </span>
+                            )}
                           </div>
                         </div>
                       )}
@@ -4738,17 +4847,17 @@ export default function PedidosPage() {
                   <div className="flex flex-col gap-2.5 p-2.5 bg-white rounded-xl border border-slate-200">
                     <span className="text-[9px] font-black text-slate-600 uppercase tracking-wide">Estado de Pago del Pedido</span>
                     <div className="flex items-center gap-2">
-                      {paymentState === 'paid' ? (
+                      {paymentTiming === 'paid' ? (
                         <span className="px-2 py-1 rounded bg-emerald-100 text-emerald-800 text-[10px] font-black uppercase tracking-wider flex items-center gap-1">
                           <Check className="w-3 h-3 stroke-[3]" /> Completado (Abonado)
                         </span>
-                      ) : paymentState === 'partial' ? (
+                      ) : paymentTiming === 'partial' ? (
                         <span className="px-2 py-1 rounded bg-amber-100 text-amber-800 text-[10px] font-black uppercase tracking-wider flex items-center gap-1">
                           💵 Parcial (Señado)
                         </span>
                       ) : (
                         <span className="px-2 py-1 rounded bg-red-100 text-red-800 text-[10px] font-black uppercase tracking-wider flex items-center gap-1">
-                          ❌ Pendiente (Impago)
+                          ❌ A Cobrar en Domicilio (Pendiente)
                         </span>
                       )}
                     </div>
@@ -4783,10 +4892,10 @@ export default function PedidosPage() {
                     <span>Subtotal Artículos</span>
                     <span>{formatPrice(subtotal)}</span>
                   </div>
-                  {surcharge > 0 && (
-                    <div className="flex justify-between text-xs font-bold text-red-500">
-                      <span>Recargo Financiero ({selectedPaymentMethod?.surcharge_percentage}%)</span>
-                      <span>+{formatPrice(surcharge)}</span>
+                  {totalSurcharges > 0 && (
+                    <div className="flex justify-between text-xs font-bold text-red-600">
+                      <span>Recargo Financiero</span>
+                      <span>+{formatPrice(totalSurcharges)}</span>
                     </div>
                   )}
                   {shippingAmount > 0 && (
@@ -4805,17 +4914,32 @@ export default function PedidosPage() {
                     <span>Total de Pedido</span>
                     <span>{formatPrice(total)}</span>
                   </div>
-                  {hasDeposit && (
+
+                  {paymentTiming === 'partial' && (
                     <>
                       <div className="flex justify-between text-xs font-bold text-emerald-600 pt-2 border-t border-slate-100">
-                        <span>Seña Recibida</span>
-                        <span>-{formatPrice(depositAmount)}</span>
+                        <span>Seña Recibida Hoy</span>
+                        <span>-{formatPrice(customDepositAmount)}</span>
                       </div>
-                      <div className="flex justify-between text-sm font-black text-brand-700 pt-1">
-                        <span>Saldo Pendiente</span>
+                      <div className="flex justify-between text-sm font-black text-amber-700 pt-1">
+                        <span>Saldo a Cobrar en Domicilio</span>
                         <span>{formatPrice(pendingBalance)}</span>
                       </div>
                     </>
+                  )}
+
+                  {paymentTiming === 'contra_entrega' && (
+                    <div className="flex justify-between text-sm font-black text-red-600 pt-2 border-t border-slate-100">
+                      <span>A Cobrar en Domicilio</span>
+                      <span>{formatPrice(total)}</span>
+                    </div>
+                  )}
+
+                  {paymentTiming === 'paid' && (
+                    <div className="flex justify-between text-xs font-bold text-emerald-600 pt-2 border-t border-slate-100">
+                      <span>Total Abonado</span>
+                      <span>{formatPrice(total)} (Sin saldo pendiente)</span>
+                    </div>
                   )}
                 </div>
 
@@ -5991,6 +6115,16 @@ export default function PedidosPage() {
           </div>
         </div>
       )}
+
+      {/* MODAL SELECTOR VISUAL DE PRODUCTOS */}
+      <VisualProductSelectorModal
+        isOpen={isVisualModalOpen}
+        onClose={() => setIsVisualModalOpen(false)}
+        products={products}
+        onAddProduct={addItem}
+        onAddProducts={addItems}
+        isAdmin={role === 'admin'}
+      />
     </div>
   );
 }

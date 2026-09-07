@@ -20,10 +20,12 @@ import {
   ToggleLeft,
   ToggleRight,
   Pencil,
-  Settings
+  Settings,
+  Sparkles
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { Product } from "@/types";
+import VisualSelectorSettings from "@/components/admin/VisualSelectorSettings";
 
 interface Seller {
   id: string;
@@ -55,7 +57,7 @@ interface AdvertisingSource {
 }
 
 export default function AjustesPage() {
-  const [mainTab, setMainTab] = useState<"general" | "payments" | "reception" | "maintenance">("general");
+  const [mainTab, setMainTab] = useState<"general" | "payments" | "reception" | "selector_visual" | "maintenance">("general");
   const [receptionSubTab, setReceptionSubTab] = useState<"lines" | "mediums" | "sources">("lines");
 
   const [products, setProducts] = useState<Product[]>([]);
@@ -115,15 +117,29 @@ export default function AjustesPage() {
     async function loadData() {
       setLoading(true);
       try {
+        // Fetch all products with pagination loop to bypass default Supabase 1000 items limit
+        let allProducts: Product[] = [];
+        let from = 0;
+        const step = 1000;
+        while (true) {
+          const { data, error } = await supabase
+            .from('products')
+            .select('*')
+            .order('name')
+            .range(from, from + step - 1);
+          if (error || !data || data.length === 0) break;
+          allProducts.push(...data);
+          if (data.length < step) break;
+          from += step;
+        }
+
         const [
-          prodRes,
           pmRes,
           sellersRes,
           linesRes,
           mediumsRes,
           sourcesRes
         ] = await Promise.all([
-          supabase.from('products').select('*').order('name'),
           supabase.from('payment_methods').select('*').order('name'),
           supabase.from("sellers").select("id, full_name, role, is_active").order("full_name"),
           supabase.from("phone_lines").select("*, seller_phone_lines(seller_id)").order("name"),
@@ -131,7 +147,7 @@ export default function AjustesPage() {
           supabase.from("advertising_sources").select("*").order("name")
         ]);
 
-        if (prodRes.data) setProducts(prodRes.data);
+        if (allProducts.length > 0) setProducts(allProducts);
         if (pmRes.data) setPaymentMethods(pmRes.data);
         if (sellersRes.data) setSellers(sellersRes.data);
         if (linesRes.data) setPhoneLines(linesRes.data);
@@ -637,6 +653,18 @@ export default function AjustesPage() {
         >
           <Phone className="w-4 h-4" />
           Parámetros de Recepción
+        </button>
+        <button
+          type="button"
+          onClick={() => setMainTab("selector_visual")}
+          className={`flex items-center justify-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer whitespace-nowrap ${
+            mainTab === "selector_visual"
+              ? "bg-white text-brand-600 shadow-sm font-black"
+              : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
+          }`}
+        >
+          <Sparkles className="w-4 h-4 text-brand-500" />
+          Selector Visual
         </button>
         <button
           type="button"
@@ -1354,6 +1382,13 @@ export default function AjustesPage() {
             )}
 
 
+          </div>
+        )}
+
+        {/* TAB: SELECTOR VISUAL */}
+        {mainTab === "selector_visual" && (
+          <div className="animate-in fade-in duration-200">
+            <VisualSelectorSettings products={products} />
           </div>
         )}
 

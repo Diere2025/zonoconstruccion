@@ -337,8 +337,8 @@ export async function getNextAvailableSheetCode(
   spreadsheetId: string,
   sheetName: string = 'Pendientes'
 ): Promise<{ code: string; rowNumber: number }> {
-  // Fetch columns B to F from row 2 to 300
-  const rows = await fetchSpreadsheetValues(spreadsheetId, `'${sheetName}'!B2:F300`);
+  // Fetch columns B to F (all rows dynamically)
+  const rows = await fetchSpreadsheetValues(spreadsheetId, `'${sheetName}'!B2:F`);
   let emptyRowIndex = -1;
   let code = '';
   let lastKnownCode = '';
