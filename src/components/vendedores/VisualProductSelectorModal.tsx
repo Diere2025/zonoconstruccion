@@ -662,10 +662,10 @@ export default function VisualProductSelectorModal({
                       }`}
                     >
                       <div className="flex items-center justify-between">
-                        <span className="font-black text-xs text-slate-800">🔘 Completo (Estándar)</span>
+                        <span className="font-black text-xs text-slate-800">🔘 Estándar</span>
                         {!isCiego && <Check className="w-4 h-4 text-brand-600" />}
                       </div>
-                      <p className="text-[10px] text-slate-500 mt-1">Con orificios y flotante de fábrica incluido.</p>
+                      <p className="text-[10px] text-slate-500 mt-1">Con perforaciones de fábrica.</p>
                     </div>
 
                     <div 

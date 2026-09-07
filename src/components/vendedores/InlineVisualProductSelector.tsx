@@ -564,7 +564,7 @@ export default function InlineVisualProductSelector({
                     }`}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="font-black text-xs text-slate-800">Completo</span>
+                      <span className="font-black text-xs text-slate-800">Estándar</span>
                       {!isCiego && <Check className="w-3.5 h-3.5 text-brand-600 stroke-[3]" />}
                     </div>
                     <p className="text-[9px] text-slate-400">Con perforaciones de fábrica.</p>
