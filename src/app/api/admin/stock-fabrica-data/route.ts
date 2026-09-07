@@ -1,5 +1,6 @@
 export const runtime = 'edge';
 import { NextResponse } from "next/server";
+import { fetchSpreadsheetCsv } from '@/lib/googleSheets';
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -84,18 +85,9 @@ export async function GET() {
     const stockUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_FACTORY_STOCK_ID}/gviz/tq?tqx=out:csv&sheet=Stock`;
     const fabUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_PRODUCTION_ID}/gviz/tq?tqx=out:csv&sheet=Fabricaci%C3%B3n`;
 
-    const [stockRes, fabRes] = await Promise.all([
-      fetch(stockUrl, { cache: "no-store" }),
-      fetch(fabUrl, { cache: "no-store" })
-    ]);
-
-    if (!stockRes.ok) {
-      throw new Error(`Error al leer la hoja Stock de Fábrica (${stockRes.status})`);
-    }
-
     const [stockCsv, fabCsv] = await Promise.all([
-      stockRes.text(),
-      fabRes.ok ? fabRes.text() : Promise.resolve("")
+      fetchSpreadsheetCsv(stockUrl),
+      fetchSpreadsheetCsv(fabUrl).catch(() => "")
     ]);
 
     // 1. Build set of products really manufactured in plant (from 2025/2026 production sheet)

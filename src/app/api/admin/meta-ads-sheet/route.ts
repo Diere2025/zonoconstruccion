@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { fetchSpreadsheetCsv } from '@/lib/googleSheets';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.dummy';
@@ -114,10 +115,7 @@ export async function GET(request: Request) {
     if (tab === 'live') {
       // 1. Fetch live today metrics from 'MSG-Hoy'
       const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent('MSG-Hoy')}`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`Error al leer planilla de Google Sheets: HTTP ${res.status}`);
-      
-      const csvText = await res.text();
+      const csvText = await fetchSpreadsheetCsv(url);
       const rows = parseCSV(csvText);
 
       const liveCampaigns: any[] = [];
@@ -217,10 +215,7 @@ export async function GET(request: Request) {
     if (tab === 'history') {
       // 2. Fetch historical metrics from 'CálculoParaEERR'
       const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent('CálculoParaEERR')}`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`Error al leer histórico de Google Sheets: HTTP ${res.status}`);
-
-      const csvText = await res.text();
+      const csvText = await fetchSpreadsheetCsv(url);
       const rows = parseCSV(csvText);
 
       const parsedHistory: any[] = [];

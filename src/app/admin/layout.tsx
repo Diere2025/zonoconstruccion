@@ -26,7 +26,7 @@ import { Button } from "@/components/ui/Button";
 import { AdminLayout } from "@/components/ui/AdminLayout";
 
 let globalAdminSession: any = null;
-let globalAdminChecked = false;
+let globalCheckedUserId: string | null = null;
 let globalIsAdmin = false;
 
 // Cache to prevent duplicate concurrent queries to `sellers` table
@@ -90,8 +90,14 @@ function clearRoleCache() {
   cachedRole = null;
   rolePromise = null;
   globalAdminSession = null;
-  globalAdminChecked = false;
+  globalCheckedUserId = null;
   globalIsAdmin = false;
+  if (typeof window !== "undefined") {
+    sessionStorage.removeItem('zono_user_role');
+    sessionStorage.removeItem('zono_user_email');
+    sessionStorage.removeItem('zono_role_loaded');
+    sessionStorage.removeItem('zono_is_restricted');
+  }
 }
 
 export default function AdminLayoutWrapper({
@@ -102,7 +108,8 @@ export default function AdminLayoutWrapper({
   const router = useRouter();
   const [session, setSession] = useState<any>(globalAdminSession);
   const [isAdmin, setIsAdmin] = useState(globalIsAdmin);
-  const [loading, setLoading] = useState(!globalAdminChecked);
+  const [checkedUserId, setCheckedUserId] = useState<string | null>(globalCheckedUserId);
+  const [loading, setLoading] = useState(!globalCheckedUserId);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [authLogs, setAuthLogs] = useState<string[]>([]);
   
@@ -125,20 +132,21 @@ export default function AdminLayoutWrapper({
     setAuthLogs(prev => [...prev.slice(-15), formatted]);
   };
 
-  const processUserRole = async (user: any) => {
+  const processUserRole = async (user: any): Promise<boolean> => {
     if (!user) {
       addLog("No user in session, ending loading");
-      globalAdminChecked = true;
+      globalCheckedUserId = null;
       globalIsAdmin = false;
+      setCheckedUserId(null);
       setIsAdmin(false);
       setLoading(false);
-      return;
+      return false;
     }
 
     addLog(`User detected (${user.email || user.id}). Checking admin status...`);
     const email = (user.email || "").toLowerCase();
 
-    // Check if user is known admin email
+    // 1. Check if user is known admin email
     if (
       email === "diego.boveda@gmail.com" || 
       email === "caroibarra.93@gmail.com" || 
@@ -146,26 +154,76 @@ export default function AdminLayoutWrapper({
       email.includes("diego")
     ) {
       addLog("User verified as admin via email pattern/list");
-      globalAdminChecked = true;
+      globalCheckedUserId = user.id;
       globalIsAdmin = true;
+      setCheckedUserId(user.id);
       setIsAdmin(true);
       setLoading(false);
-      return;
+      return true;
     }
 
-    // Check seller role in database
+    // 2. Check user metadata for instant role detection
+    const metaRole = (user.user_metadata?.role || "").toLowerCase();
+    if (metaRole && ['admin', 'seller', 'logistica', 'administracion', 'fletero'].includes(metaRole)) {
+      addLog(`User verified via metadata role: ${metaRole}`);
+      globalCheckedUserId = user.id;
+      globalIsAdmin = true;
+      setCheckedUserId(user.id);
+      setIsAdmin(true);
+      setLoading(false);
+      return true;
+    }
+
+    // 3. Check memory cache or session storage
+    if (cachedUserId === user.id && cachedRole) {
+      const userIsAuthorized = cachedRole === 'admin' || cachedRole === 'seller' || cachedRole === 'logistica' || cachedRole === 'administracion' || cachedRole === 'fletero' || Boolean(cachedRole);
+      globalCheckedUserId = user.id;
+      globalIsAdmin = userIsAuthorized;
+      setCheckedUserId(user.id);
+      setIsAdmin(userIsAuthorized);
+      setLoading(false);
+      return userIsAuthorized;
+    }
+
+    if (typeof window !== "undefined") {
+      const storedRole = sessionStorage.getItem('zono_user_role');
+      const storedEmail = sessionStorage.getItem('zono_user_email');
+      if (storedRole && storedEmail === email) {
+        addLog(`User verified via session storage: ${storedRole}`);
+        globalCheckedUserId = user.id;
+        globalIsAdmin = true;
+        setCheckedUserId(user.id);
+        setIsAdmin(true);
+        setLoading(false);
+        return true;
+      }
+    }
+
+    // 4. Check seller role in database
     try {
       const role = await getSellerRole(user.id, email);
       addLog(`Role from sellers table: ${role}`);
       const userIsAuthorized = role === 'admin' || role === 'seller' || role === 'logistica' || role === 'administracion' || role === 'fletero' || Boolean(role);
-      globalAdminChecked = true;
+      
+      if (typeof window !== "undefined" && role) {
+        sessionStorage.setItem('zono_user_role', role);
+        sessionStorage.setItem('zono_user_email', email);
+      }
+
+      globalCheckedUserId = user.id;
       globalIsAdmin = userIsAuthorized;
+      setCheckedUserId(user.id);
       setIsAdmin(userIsAuthorized);
       setLoading(false);
+      return userIsAuthorized;
     } catch (err: any) {
       addLog(`Role check error: ${err.message}`);
+      globalCheckedUserId = user.id;
+      globalIsAdmin = false;
+      setCheckedUserId(user.id);
       setIsAdmin(false);
       setLoading(false);
+      return false;
     }
   };
 
@@ -185,20 +243,31 @@ export default function AdminLayoutWrapper({
     // Safety timeout: Never hang on loading spinner
     const timer = setTimeout(() => {
       if (isMounted && loading) {
-        addLog("Auth check exceeded 3s timeout - enabling diagnostics");
+        addLog("Auth check exceeded 4s timeout - enabling diagnostics");
         setShowDiagnostics(true);
       }
-    }, 3000);
+    }, 4000);
 
     async function checkAuth() {
       try {
-        const { data: { session }, error } = await supabase.auth.getSession();
+        const { data: { session: currentSession }, error } = await supabase.auth.getSession();
         if (error) {
           addLog(`getSession error: ${error.message}`);
         }
-        globalAdminSession = session;
-        if (isMounted) setSession(session);
-        await processUserRole(session?.user);
+        if (!isMounted) return;
+
+        if (currentSession?.user) {
+          globalAdminSession = currentSession;
+          await processUserRole(currentSession.user);
+          if (isMounted) {
+            setSession(currentSession);
+          }
+        } else {
+          await processUserRole(null);
+          if (isMounted) {
+            setSession(null);
+          }
+        }
       } catch (err: any) {
         addLog(`Auth check caught exception: ${err.message || err}`);
         if (isMounted) setLoading(false);
@@ -207,19 +276,26 @@ export default function AdminLayoutWrapper({
 
     checkAuth();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      globalAdminSession = session;
-      if (isMounted) setSession(session);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
+      if (!isMounted) return;
 
-      if (!session?.user) {
+      if (!newSession?.user) {
         clearRoleCache();
-      }
-
-      setTimeout(() => {
         if (isMounted) {
-          processUserRole(session?.user);
+          setSession(null);
+          setCheckedUserId(null);
+          setIsAdmin(false);
+          setLoading(false);
         }
-      }, 0);
+      } else {
+        globalAdminSession = newSession;
+        if (globalCheckedUserId !== newSession.user.id) {
+          await processUserRole(newSession.user);
+        }
+        if (isMounted) {
+          setSession(newSession);
+        }
+      }
     });
 
     return () => {
@@ -259,12 +335,11 @@ export default function AdminLayoutWrapper({
         setIsLoggingIn(false);
         return;
       }
-      if (data?.session) {
-        setSession(data.session);
+      if (data?.user && data?.session) {
         globalAdminSession = data.session;
-      }
-      if (data?.user) {
+        // Check role first so isAdmin is ready synchronously before setting session
         await processUserRole(data.user);
+        setSession(data.session);
       }
     } catch (err: any) {
       setLoginError("Error al iniciar sesión: " + (err.message || "Error desconocido"));
@@ -292,11 +367,16 @@ export default function AdminLayoutWrapper({
     }
   };
 
-  if (loading || (!isAdmin && !globalAdminChecked)) {
+  const isRoleVerified = Boolean(session?.user?.id && checkedUserId === session.user.id);
+  const isVerifying = loading || (Boolean(session?.user) && !isRoleVerified);
+
+  if (isVerifying) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-[#070b14] text-white p-6">
         <Loader2 className="w-10 h-10 animate-spin text-blue-500 mb-4" />
-        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Iniciando Zono ERP...</p>
+        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+          {isLoggingIn ? "Verificando credenciales..." : "Iniciando Zono ERP..."}
+        </p>
         
         {showDiagnostics && (
           <div className="w-full max-w-md bg-slate-900 p-6 rounded-2xl shadow-xl border border-slate-800 animate-in fade-in slide-in-from-bottom-4 duration-300 mt-6">
@@ -566,7 +646,10 @@ export default function AdminLayoutWrapper({
             Tu cuenta no posee permisos de Administrador para acceder a este módulo central.
           </p>
           <Button
-            onClick={() => supabase.auth.signOut()}
+            onClick={() => {
+              clearRoleCache();
+              supabase.auth.signOut();
+            }}
             className="w-full mt-6 py-4 font-black rounded-2xl bg-red-600/20 hover:bg-red-600 text-red-300 hover:text-white border border-red-500/30 transition-all cursor-pointer"
           >
             Cerrar Sesión

@@ -2,6 +2,7 @@ export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { fetchSpreadsheetCsv } from '@/lib/googleSheets';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.dummy';
@@ -137,13 +138,12 @@ export async function POST() {
     });
 
     // 2. Fetch BDProductos
-    const bdRes = await fetch("https://docs.google.com/spreadsheets/d/1FRVREzG1O_m8SENpTv-bOgu7AmnS-Em-cxCy-5_fmGI/export?format=csv&gid=1789541813", { cache: 'no-store' });
     const bdDiscontinuedSet = new Set<string>();
     const bdProductSupplierMap = new Map<string, string>();
     const bdSupplierNames = new Set<string>();
 
-    if (bdRes.ok) {
-      const bdCsv = await bdRes.text();
+    try {
+      const bdCsv = await fetchSpreadsheetCsv("https://docs.google.com/spreadsheets/d/1FRVREzG1O_m8SENpTv-bOgu7AmnS-Em-cxCy-5_fmGI/export?format=csv&gid=1789541813");
       const bdRows = parseCSV(bdCsv);
       for (let i = 1; i < bdRows.length; i++) {
         const row = bdRows[i];
@@ -163,6 +163,8 @@ export async function POST() {
         }
       }
       addLog(`BDProductos cargada con ${bdRows.length - 1} registros y ${bdSupplierNames.size} proveedores detectados.`);
+    } catch (bdErr: any) {
+      addLog(`Aviso: No se pudo cargar BDProductos: ${bdErr.message}`);
     }
 
     // 2b. Sync Suppliers with Database
@@ -230,11 +232,7 @@ export async function POST() {
     });
 
     // 3. Fetch Prices Sheet
-    const priceRes = await fetch("https://docs.google.com/spreadsheets/d/1K3c_6SMScaTkSI3FMDnQPVyj-c7MSqQEoWW4q3mL3Jg/export?format=csv&gid=508601925", { cache: 'no-store' });
-    if (!priceRes.ok) {
-      throw new Error("No se pudo descargar la planilla de precios de Google Sheets.");
-    }
-    const priceCsv = await priceRes.text();
+    const priceCsv = await fetchSpreadsheetCsv("https://docs.google.com/spreadsheets/d/1K3c_6SMScaTkSI3FMDnQPVyj-c7MSqQEoWW4q3mL3Jg/export?format=csv&gid=508601925");
     const priceRows = parseCSV(priceCsv);
 
     const activePricesMap = new Map<string, { price: number; brand?: string; rawName: string }>();

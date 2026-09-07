@@ -592,7 +592,7 @@ export default function AdminPage() {
       
       const bdSuppMap = new Map<string, string>();
       try {
-        const bdRes = await fetch(bdProductsUrl, { cache: 'no-store' });
+        const bdRes = await fetch(`/api/admin/fetch-sheet?url=${encodeURIComponent(bdProductsUrl)}`, { cache: 'no-store' });
         if (bdRes.ok) {
           const bdText = await bdRes.text();
           const bdRows = parseCSV(bdText);
@@ -986,13 +986,13 @@ export default function AdminPage() {
     setCostsImportStatus("Descargando planilla de costos desde Google Sheets...");
     setCostsImportErrors([]);
     try {
-      const response = await fetch("https://docs.google.com/spreadsheets/d/1q5n2GWzQTQQKrqWLApBV1s8TurN8sk5PIBnYQmitNSE/export?format=csv&gid=698741684", {
+      const response = await fetch("/api/admin/fetch-sheet?id=1q5n2GWzQTQQKrqWLApBV1s8TurN8sk5PIBnYQmitNSE&gid=698741684", {
         headers: {
           'pragma': 'no-cache',
           'cache-control': 'no-cache'
         }
       });
-      if (!response.ok) throw new Error("Error al descargar la planilla. Verificá que sea pública.");
+      if (!response.ok) throw new Error("Error al descargar la planilla de costos.");
       
       const csvText = await response.text();
       processCostsData(csvText);

@@ -2,6 +2,7 @@ export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { fetchSpreadsheetCsv } from '@/lib/googleSheets';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.dummy';
@@ -303,18 +304,7 @@ export async function GET(request: Request) {
         return NextResponse.json({ error: 'URL requerida' }, { status: 400 });
       }
 
-      const res = await fetch(sheetUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-        },
-        cache: 'no-store'
-      });
-
-      if (!res.ok) {
-        return NextResponse.json({ error: `Error ${res.status} al conectar con Google Sheets` }, { status: res.status });
-      }
-
-      const csv = await res.text();
+      const csv = await fetchSpreadsheetCsv(sheetUrl);
       return NextResponse.json({ success: true, csv });
     }
 

@@ -2,6 +2,7 @@ export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 import { NextResponse, after } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { fetchSpreadsheetCsv } from '@/lib/googleSheets';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.dummy';
@@ -324,10 +325,8 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
       }).eq('id', jobId);
 
       try {
-        const pmRes = await fetch("https://docs.google.com/spreadsheets/d/1nz545_xNUgdI2LMAGIDCjh6Qs8-vUDHdynzj7jU2wm0/gviz/tq?tqx=out:csv&gid=1294713859", { cache: 'no-store' });
-        if (pmRes.ok) {
-          const pmCsv = await pmRes.text();
-          const pmRows = parseCSV(pmCsv);
+        const pmCsv = await fetchSpreadsheetCsv("https://docs.google.com/spreadsheets/d/1nz545_xNUgdI2LMAGIDCjh6Qs8-vUDHdynzj7jU2wm0/gviz/tq?tqx=out:csv&gid=1294713859");
+        const pmRows = parseCSV(pmCsv);
           const { data: currentPms } = await supabaseAdmin.from('payment_methods').select('*');
           const existingPms = currentPms || [];
           
@@ -351,7 +350,6 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
             }
           }
           await addLog("💳 Medios de pago y recargos sincronizados con éxito.");
-        }
       } catch (errPm: any) {
         await addLog(`⚠️ Medios de pago: ${errPm.message}`);
       }
@@ -478,11 +476,7 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
       }).eq('id', jobId);
 
       await addLog(`📄 Descargando planilla de ${sheet.name}...`);
-      const response = await fetch(sheet.url, { cache: 'no-store' });
-      if (!response.ok) {
-        throw new Error(`Error al descargar ${sheet.name} (HTTP ${response.status})`);
-      }
-      const csvText = await response.text();
+      const csvText = await fetchSpreadsheetCsv(sheet.url);
       const rawRows = parseCSV(csvText);
       const rows = mergeContiguousSheetRows(rawRows);
 

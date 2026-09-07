@@ -2,6 +2,7 @@ export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { fetchSpreadsheetCsv } from '@/lib/googleSheets';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.dummy';
@@ -109,11 +110,7 @@ const summarizeItems = (items: any[]) => {
 export async function GET() {
   try {
     // 1. Fetch Logistics CSV from Google Sheets
-    const csvRes = await fetch(LOGISTICS_SHEET_URL, { cache: 'no-store' });
-    if (!csvRes.ok) {
-      return NextResponse.json({ error: 'No se pudo descargar la planilla de logística.' }, { status: 500 });
-    }
-    const csvText = await csvRes.text();
+    const csvText = await fetchSpreadsheetCsv(LOGISTICS_SHEET_URL);
     const rows = parseCSV(csvText);
 
     // 2. Fetch all database orders (paginated to bypass Supabase 1000 limit)
@@ -544,12 +541,7 @@ export async function POST() {
   try {
     console.log("POST: Starting logistics delivered sync...");
     // 1. Fetch Logistics CSV from Google Sheets
-    const csvRes = await fetch(LOGISTICS_SHEET_URL, { cache: 'no-store' });
-    if (!csvRes.ok) {
-      console.error("POST: Failed to download logistics sheet");
-      return NextResponse.json({ error: 'No se pudo descargar la planilla de logística.' }, { status: 500 });
-    }
-    const csvText = await csvRes.text();
+    const csvText = await fetchSpreadsheetCsv(LOGISTICS_SHEET_URL);
     console.log("POST: Downloaded CSV text, length:", csvText.length);
     const rows = parseCSV(csvText);
     console.log("POST: Parsed CSV rows count:", rows.length);
@@ -934,9 +926,8 @@ export async function POST() {
     // 5. Trigger Stock Sync / Recalculate reserves after synchronization
     console.log("POST: Triggering stock recalculation...");
     const STOCK_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1vrI3WFH6W35sj9JJ4sa3yr7XlJDaKP920R6t54jLW6o/export?format=csv&gid=447948741';
-    const csvStockRes = await fetch(STOCK_SHEET_URL, { cache: 'no-store' });
-    if (csvStockRes.ok) {
-      const csvStockText = await csvStockRes.text();
+    try {
+      const csvStockText = await fetchSpreadsheetCsv(STOCK_SHEET_URL);
       const stockLines = csvStockText.split('\n');
       if (stockLines.length > 0) {
         const stockHeaders = stockLines[0].split(',').map(h => h.replace(/^"|"$/g, '').trim());
@@ -1013,8 +1004,8 @@ export async function POST() {
           console.error("POST: Stock sync error fetching db data", productsRes.error, pendingRes.error);
         }
       }
-    } else {
-      console.error("POST: Failed to download Stock sheet");
+    } catch (stockErr: any) {
+      console.error("POST: Failed to download Stock sheet", stockErr);
     }
 
     console.log(`POST: Completed successfully. Synced ${syncedOrdersCount} orders.`);
