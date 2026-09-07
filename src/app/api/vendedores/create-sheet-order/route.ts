@@ -101,7 +101,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (order.sellerName && /^jazm[ií]n\s+s[aá]nchez$/i.test(order.sellerName.trim())) {
-      order.sellerName = 'Jazmín Sanchez';
+      order.sellerName = 'Jazmin Sanchez';
     }
 
     // Asegurar que el estado en planilla siempre sea '🔸 Validado' salvo que esté 'En Espera'
