@@ -40,9 +40,7 @@ function ErpRedirector() {
           .or(`id.eq.${user.id},email.ilike.${emailLower}`)
           .maybeSingle();
 
-        const isRestricted = emailLower.includes("jazmin") || 
-                             emailLower.includes("jazmín") || 
-                             emailLower.includes("ludmila") ||
+        const isRestricted = emailLower.includes("ludmila") ||
                              emailLower.includes("facundo");
 
         if (isRestricted) {
