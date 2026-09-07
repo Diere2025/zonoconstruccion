@@ -308,6 +308,16 @@ function normalizeProductNameForSheet(name: string, sku?: string): string {
   return name;
 }
 
+function normalizeSellerNameForSheet(sellerName?: string | null): string {
+  if (!sellerName) return '';
+  const trimmed = sellerName.trim();
+  // Matchear 'Jazmín Sánchez' de la BD a 'Jazmín Sanchez' para planilla (sin acento en la 'á')
+  if (/^jazm[ií]n\s+s[aá]nchez$/i.test(trimmed)) {
+    return 'Jazmín Sanchez';
+  }
+  return trimmed;
+}
+
 const PRODUCT_SLOT_RANGES: [string, string][] = [
   ['AE', 'AG'],
   ['AI', 'AK'],
@@ -441,7 +451,7 @@ export async function appendOrderToSellerSheet(
       },
       {
         range: `'${sheetName}'!L${rowNumber}:M${rowNumber}`,
-        values: [[order.medium || '', order.sellerName || '']]
+        values: [[order.medium || '', normalizeSellerNameForSheet(order.sellerName)]]
       },
       {
         range: `'${sheetName}'!Q${rowNumber}:T${rowNumber}`,
