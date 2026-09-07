@@ -157,6 +157,14 @@ export function generateDefaultVisualConfig(products: Product[]): VisualCatalogC
       badgeColor: 'bg-neutral-900 text-white',
       imageUrl: 'https://ckvbyfgsbjbfaqotmeld.supabase.co/storage/v1/object/public/product-images/0.4898699852366949.jpg',
       matchFn: (name: string) => (name.includes('bic ') || name.includes('bicapa')) && !name.includes('tric') && !name.includes('cuatr')
+    },
+    {
+      id: 'cisternas',
+      name: 'Cisternas',
+      description: 'Cisternas reforzadas para enterrar',
+      badgeColor: 'bg-emerald-800 text-white',
+      imageUrl: 'https://ckvbyfgsbjbfaqotmeld.supabase.co/storage/v1/object/public/product-images/visual-selector/1788809405398_cisterna_aquafort.jpg',
+      matchFn: (name: string) => name.includes('cisterna')
     }
   ];
 
@@ -164,7 +172,8 @@ export function generateDefaultVisualConfig(products: Product[]): VisualCatalogC
     // Find all products for this color
     const colorProducts = activeProducts.filter(p => {
       const text = `${p.name} ${p.sku || ''}`.toLowerCase();
-      if (text.includes('cisterna') || text.includes('base') || text.includes('flotante')) return false;
+      if (colorDef.id !== 'cisternas' && text.includes('cisterna')) return false;
+      if (text.includes('base') || text.includes('flotante')) return false;
       return colorDef.matchFn(text);
     });
 
