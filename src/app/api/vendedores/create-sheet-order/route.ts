@@ -104,6 +104,11 @@ export async function POST(req: NextRequest) {
       order.sellerName = 'Jazmín Sanchez';
     }
 
+    // Asegurar que el estado en planilla siempre sea '🔸 Validado' salvo que esté 'En Espera'
+    if (order.status !== 'En Espera') {
+      order.status = '🔸 Validado';
+    }
+
     const result = await appendOrderToSellerSheet(
       config.spreadsheetId,
       config.sheetName,
