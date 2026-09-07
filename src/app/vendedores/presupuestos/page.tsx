@@ -803,52 +803,6 @@ export default function PresupuestosPage() {
             
 
             
-            {/* Tags de productos más utilizados */}
-            {frequentProducts.length > 0 && !searchTerm && (
-              <div className="mt-3">
-                <p className="text-[9px] font-black uppercase tracking-wider text-slate-400 mb-1.5">Más Utilizados</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {frequentProducts.flatMap(p => {
-                    const childVariants = getDisplayVariants(p, products);
-                    const parentLabel = p.sku || p.name;
-                    const displayParentLabel = parentLabel.length > 30 ? parentLabel.substring(0, 28) + '...' : parentLabel;
-
-                    const tags = [
-                      <button
-                        key={`freq-parent-${p.id}`}
-                        onClick={() => addItem(p)}
-                        className="px-2 py-0.5 bg-brand-50 border border-brand-100 text-brand-600 hover:bg-brand-600 hover:text-white rounded text-[9px] font-black uppercase tracking-wide transition-all flex items-center gap-1 group"
-                        title={p.name}
-                      >
-                        <Plus className="w-2.5 h-2.5 text-brand-400 group-hover:text-white transition-colors" />
-                        {displayParentLabel}
-                      </button>
-                    ];
-                    childVariants.forEach(v => {
-                      const childLabel = v.sku || v.name;
-                      const displayChildLabel = childLabel.length > 30 ? childLabel.substring(0, 28) + '...' : childLabel;
-                      tags.push(
-                        <button
-                          key={`freq-child-${p.id}-${v.id}`}
-                          onClick={() => addItem(v)}
-                          className={cn(
-                            "px-2 py-0.5 border rounded text-[9px] font-black uppercase tracking-wide transition-all flex items-center gap-1 group",
-                            v.variant_type?.toLowerCase().includes('ciego')
-                              ? "bg-amber-50 border-amber-100 text-amber-700 hover:bg-amber-600 hover:text-white"
-                              : "bg-blue-50 border-blue-100 text-blue-700 hover:bg-blue-600 hover:text-white"
-                          )}
-                          title={v.name}
-                        >
-                          <Plus className="w-2.5 h-2.5 transition-colors" />
-                          {displayChildLabel}
-                        </button>
-                      );
-                    });
-                    return tags;
-                  })}
-                </div>
-              </div>
-            )}
 
             {/* Selector Visual Integrado (cuando no se está escribiendo en el buscador) */}
             {!searchTerm && (
