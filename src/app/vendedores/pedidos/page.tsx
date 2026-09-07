@@ -5831,15 +5831,54 @@ export default function PedidosPage() {
                             type="button"
                             onClick={async () => {
                               if (!confirm(`¿Estás seguro de que deseas eliminar permanentemente el pedido de "${p.customer_name}"? Esta acción no se puede deshacer.`)) return;
+
+                              let deleteClient = false;
+                              if (p.client_id) {
+                                try {
+                                  const { data: otherOrders } = await supabase
+                                    .from('orders')
+                                    .select('id')
+                                    .eq('client_id', p.client_id)
+                                    .neq('id', p.id)
+                                    .limit(1);
+
+                                  if (!otherOrders || otherOrders.length === 0) {
+                                    deleteClient = confirm(
+                                      `El cliente "${p.customer_name}" no tiene ningún otro pedido registrado en el sistema.\n\n¿Deseas eliminar también al cliente y sus datos asociados?`
+                                    );
+                                  }
+                                } catch (chkErr) {
+                                  console.warn("Error al consultar pedidos del cliente:", chkErr);
+                                }
+                              }
+
                               try {
-                                const { error } = await supabase
-                                  .from('orders')
-                                  .delete()
-                                  .eq('id', p.id);
-                                if (error) throw error;
-                                setOrders(orders.filter(o => o.id !== p.id));
+                                const res = await fetch('/api/vendedores/delete-order', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({
+                                    orderId: p.id,
+                                    deleteClient
+                                  })
+                                });
+
+                                const resData = await res.json();
+                                if (!res.ok || !resData.success) {
+                                  throw new Error(resData.error || 'Error al eliminar pedido');
+                                }
+
+                                setOrders(prev => prev.filter(o => o.id !== p.id));
+                                if (resData.clientWasDeleted && p.client_id) {
+                                  setClients(prev => prev.filter(c => c.id !== p.client_id));
+                                }
+
+                                alert(
+                                  resData.clientWasDeleted
+                                    ? `Pedido y cliente "${p.customer_name}" eliminados con éxito.`
+                                    : `Pedido de "${p.customer_name}" eliminado con éxito.`
+                                );
                               } catch (err: any) {
-                                alert(`Error al eliminar pedido: ${err.message || err.details}`);
+                                alert(`Error al eliminar pedido: ${err.message || err.details || 'Error desconocido'}`);
                               }
                             }}
                             className="p-1.5 bg-slate-50 hover:bg-red-600 text-slate-400 hover:text-white rounded-lg border border-slate-200 hover:border-red-600 transition-all duration-150 active:scale-90 shadow-2xs cursor-pointer"
