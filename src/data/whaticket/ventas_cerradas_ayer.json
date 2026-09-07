@@ -1,0 +1,698 @@
+[
+  {
+    "ticketId": "30fac0fe-3f71-44d5-b6b3-e4ccc5dc5a0c",
+    "whaticketLink": "https://app.whaticket.com/tickets/30fac0fe-3f71-44d5-b6b3-e4ccc5dc5a0c",
+    "clienteNombre": "Nazareno Aguirre",
+    "dni": "",
+    "telefono": "5492226626169",
+    "direccion": "2226626169",
+    "localidad": "Cañuelas",
+    "productos": [
+      "tanque listo!"
+    ],
+    "montoTotal": 0,
+    "formaPago": "Efectivo o Transferencia",
+    "fechaEntrega": "",
+    "vendedor": "Jazmín",
+    "estadoTicket": "open",
+    "yaRegistradoEnErp": false,
+    "idPedidoErp": null
+  },
+  {
+    "ticketId": "cabecd79-19a0-41cb-bd71-f78dd25be65d",
+    "whaticketLink": "https://app.whaticket.com/tickets/cabecd79-19a0-41cb-bd71-f78dd25be65d",
+    "clienteNombre": "Alejandro Perez",
+    "dni": "",
+    "telefono": "5491165064837",
+    "direccion": "Soy Sanitarista por lo cual acá es una edificio q dependo de los Horarios de la encargada q recién puedo saberlo el Lunes el horario y día q va estar , Afpconstrucciones , Alejandro Pérez , 1165064837, Domicilio de entrega , Pedro Lozano 2956.",
+    "localidad": "CABA",
+    "productos": [
+      "tanque incluye tapa"
+    ],
+    "montoTotal": 131100,
+    "formaPago": "Efectivo o Transferencia",
+    "fechaEntrega": "",
+    "vendedor": "Jazmín",
+    "estadoTicket": "closed",
+    "yaRegistradoEnErp": true,
+    "idPedidoErp": "94fa3733-e7b2-44a8-aa96-e06709c03185"
+  },
+  {
+    "ticketId": "d3b1b89e-5d46-4820-a818-05e3e00a2c34",
+    "whaticketLink": "https://app.whaticket.com/tickets/d3b1b89e-5d46-4820-a818-05e3e00a2c34",
+    "clienteNombre": "Luli Ruiz",
+    "dni": "",
+    "telefono": "5492216912332",
+    "direccion": ".número celular 2216912332",
+    "localidad": "City Bell",
+    "productos": [
+      "️Base 85 cm"
+    ],
+    "montoTotal": 129400,
+    "formaPago": "Efectivo o Transferencia",
+    "fechaEntrega": "",
+    "vendedor": "Jazmín",
+    "estadoTicket": "closed",
+    "yaRegistradoEnErp": true,
+    "idPedidoErp": "173bb92e-e7cc-4482-833a-57d961741049"
+  },
+  {
+    "ticketId": "80bda5b9-b491-4c8f-b275-53e7fc0e9325",
+    "whaticketLink": "https://app.whaticket.com/tickets/80bda5b9-b491-4c8f-b275-53e7fc0e9325",
+    "clienteNombre": "Jonathan Alvarez",
+    "dni": "",
+    "telefono": "5491155841824",
+    "direccion": "1155841824",
+    "localidad": "Laferrere",
+    "productos": [
+      "tanque o según el esquema adjunto 👆"
+    ],
+    "montoTotal": 179100,
+    "formaPago": "Efectivo o Transferencia",
+    "fechaEntrega": "",
+    "vendedor": "Jazmín",
+    "estadoTicket": "closed",
+    "yaRegistradoEnErp": true,
+    "idPedidoErp": "eaecb643-b940-46da-a6f1-a89a2d679085"
+  },
+  {
+    "ticketId": "d6e13f27-bffa-4904-9e69-278e9e020267",
+    "whaticketLink": "https://app.whaticket.com/tickets/d6e13f27-bffa-4904-9e69-278e9e020267",
+    "clienteNombre": "Vitalia Urbano",
+    "dni": "",
+    "telefono": "5491139031090",
+    "direccion": "Vitalia urbano 1139031090, Peribebuy6044, Entre cristiania y mi esperanza, Barrio san alberto, 1126095026 sergiode martes a sabado de 10 a 20horas",
+    "localidad": "Casanova",
+    "productos": [
+      "tanque listo!"
+    ],
+    "montoTotal": 247700,
+    "formaPago": "Efectivo o Transferencia",
+    "fechaEntrega": "",
+    "vendedor": "Jazmín",
+    "estadoTicket": "closed",
+    "yaRegistradoEnErp": true,
+    "idPedidoErp": "a8d429f0-dbf7-4178-ab34-79ac41b8cee4"
+  },
+  {
+    "ticketId": "4115074c-93ea-4152-9949-c27a053e1e76",
+    "whaticketLink": "https://app.whaticket.com/tickets/4115074c-93ea-4152-9949-c27a053e1e76",
+    "clienteNombre": "Sara Taborda",
+    "dni": "",
+    "telefono": "5491170367531",
+    "direccion": "Sara taborda , Celu: 1170367531, Direc: Carlos Gardel 649, Entre  fluguerto y Álvarez., Localidad :el palomar (partido morón ), Tel alternativo::1126018842 (Cristian:albanil).., ,   POR UN TEMA laboral. Puedo recibir este pedido el sábado ..,                     Gracias",
+    "localidad": "el palomar (partido morón )",
+    "productos": [
+      "\udd38 1x AQUAFORT - TRIC 500L GRIS a $119.400",
+      "\udd38 1x BASE HIERRO REFORZADA 85 CMS a $49.700",
+      "\udd38 1x Flotante Eco Varilla Plástica 1/2 a $10.000"
+    ],
+    "montoTotal": 179100,
+    "formaPago": "Efectivo o Transferencia",
+    "fechaEntrega": "",
+    "vendedor": "Jazmín",
+    "estadoTicket": "closed",
+    "yaRegistradoEnErp": true,
+    "idPedidoErp": "a39a91cb-3570-42da-a89b-734e6943b172"
+  },
+  {
+    "ticketId": "5e164b97-0f10-444d-9763-6efb582c0ecc",
+    "whaticketLink": "https://app.whaticket.com/tickets/5e164b97-0f10-444d-9763-6efb582c0ecc",
+    "clienteNombre": "Bernabe Alvarez",
+    "dni": "",
+    "telefono": "5491140296796",
+    "direccion": "Av. Constitución 1405 Local 2 entre Las Amarilis y Las Madreselvas",
+    "localidad": "Manuel Alberti",
+    "productos": [
+      "\udd38 1x AquaFort - TRIC 2000L Beige a $478.000"
+    ],
+    "montoTotal": 518000,
+    "formaPago": "Efectivo o Transferencia",
+    "fechaEntrega": "",
+    "vendedor": "Jazmín",
+    "estadoTicket": "closed",
+    "yaRegistradoEnErp": true,
+    "idPedidoErp": "9ebdcdd0-a4b9-4f1b-bd4b-fc64577284d2"
+  },
+  {
+    "ticketId": "204b6d69-e733-47e8-af77-250dfc96f879",
+    "whaticketLink": "https://app.whaticket.com/tickets/204b6d69-e733-47e8-af77-250dfc96f879",
+    "clienteNombre": "Julio Perazzo",
+    "dni": "",
+    "telefono": "5491161768627",
+    "direccion": "Julio Perazzo, 1161768627, Ferré 690 entre Bolaños y Bouchard, Lanus Este, 1161768627, 1167571448, Puede recibir el martes.",
+    "localidad": "Gerli",
+    "productos": [
+      "\udd38 1x AquaFort - CUATR (Slim) 500L a $207.000",
+      "\udd38 1x Base Hierro Reforzada 74 cms a $49.700",
+      "\udd38 1x Flotante Eco Varilla Plástica 1/2 a $10.000"
+    ],
+    "montoTotal": 266700,
+    "formaPago": "Efectivo / Transferencia",
+    "fechaEntrega": "",
+    "vendedor": "Jazmín",
+    "estadoTicket": "closed",
+    "yaRegistradoEnErp": true,
+    "idPedidoErp": "913d6cb9-efea-4c0b-953b-018ba700bd44"
+  },
+  {
+    "ticketId": "01aaadc6-6a92-4ad4-87b1-84660715cc07",
+    "whaticketLink": "https://app.whaticket.com/tickets/01aaadc6-6a92-4ad4-87b1-84660715cc07",
+    "clienteNombre": "Nazareno Alderete",
+    "dni": "",
+    "telefono": "5491162459923",
+    "direccion": "Alderete nazareno , 1162459923, Calle 890 entre avenida Monteverde y calle 856 número 1145 barrio los chaperos , Yohana Areco 11 2876-6017, Todos los días",
+    "localidad": "Solano",
+    "productos": [
+      "tanque o según el esquema adjunto 👆"
+    ],
+    "montoTotal": 129400,
+    "formaPago": "Efectivo o Transferencia",
+    "fechaEntrega": "",
+    "vendedor": "Jazmín",
+    "estadoTicket": "closed",
+    "yaRegistradoEnErp": true,
+    "idPedidoErp": "8925458f-3c8b-4008-b9e5-baed3c8b0092"
+  },
+  {
+    "ticketId": "52589d94-53bc-42a4-ab2a-bb5e6899d37c",
+    "whaticketLink": "https://app.whaticket.com/tickets/52589d94-53bc-42a4-ab2a-bb5e6899d37c",
+    "clienteNombre": "Francisco Mostacedo",
+    "dni": "",
+    "telefono": "5492215759804",
+    "direccion": "Ok sería para el 17de septiembre xfa",
+    "localidad": "Los Hornos",
+    "productos": [
+      "️Termotanque Universal 60L"
+    ],
+    "montoTotal": 282000,
+    "formaPago": "Efectivo o Transferencia",
+    "fechaEntrega": "",
+    "vendedor": "Jazmín",
+    "estadoTicket": "closed",
+    "yaRegistradoEnErp": true,
+    "idPedidoErp": "db30ba5a-805f-4e28-847d-a13ac860ec16"
+  },
+  {
+    "ticketId": "83c0da86-5563-49a9-b340-ac963fbb88c4",
+    "whaticketLink": "https://app.whaticket.com/tickets/83c0da86-5563-49a9-b340-ac963fbb88c4",
+    "clienteNombre": "Daniel Galinger",
+    "dni": "",
+    "telefono": "5491166743397",
+    "direccion": "1166743397",
+    "localidad": "Escobar",
+    "productos": [
+      "Termotanque Universal 90L"
+    ],
+    "montoTotal": 311000,
+    "formaPago": "Efectivo o Transferencia",
+    "fechaEntrega": "",
+    "vendedor": "Jazmín",
+    "estadoTicket": "closed",
+    "yaRegistradoEnErp": true,
+    "idPedidoErp": "78ab369f-e0aa-4751-b5af-f618444b1c62"
+  },
+  {
+    "ticketId": "59ea6502-9f06-4d3a-a6d1-6518b5f54dd8",
+    "whaticketLink": "https://app.whaticket.com/tickets/59ea6502-9f06-4d3a-a6d1-6518b5f54dd8",
+    "clienteNombre": "Diego Gimenez",
+    "dni": "",
+    "telefono": "5491122676139",
+    "direccion": "DIEGO DARIO GIMENEZ, CEL. 1122676139, CALLE PARRAVICINI 2650. E/ Roque Perez y Pilar. Florencio Varela , Tel alternativo 11 3043-0357 Alicia Gomenez ya a partir del lunes podemos recibirlo",
+    "localidad": "Varela",
+    "productos": [
+      "️2 Kit bio completo +desengrasadora"
+    ],
+    "montoTotal": 962200,
+    "formaPago": "Efectivo o Transferencia",
+    "fechaEntrega": "7/9 al 10/9",
+    "vendedor": "Jazmín",
+    "estadoTicket": "open",
+    "yaRegistradoEnErp": true,
+    "idPedidoErp": "44717210-8f27-4156-9d27-5ba46ff01050"
+  },
+  {
+    "ticketId": "0d1e9102-748d-4a65-9174-8dce2eb7b1b6",
+    "whaticketLink": "https://app.whaticket.com/tickets/0d1e9102-748d-4a65-9174-8dce2eb7b1b6",
+    "clienteNombre": "Celeste Mosnak",
+    "dni": "",
+    "telefono": "5491134293627",
+    "direccion": "Celeste mosnak , 1134293627 para Whatsapp , 1162708403 para llamado , Villa la florida 855 n 66, Entre camino g belgrano y 871 , , Apartir del lunes a viernes puedo recibir de 08:00 a 13:00hs",
+    "localidad": "Villa La Florida",
+    "productos": [
+      "tanque o según el esquema adjunto 👆"
+    ],
+    "montoTotal": 186000,
+    "formaPago": "Efectivo o Transferencia",
+    "fechaEntrega": "",
+    "vendedor": "Jazmín",
+    "estadoTicket": "closed",
+    "yaRegistradoEnErp": true,
+    "idPedidoErp": "9e2f1f2d-1217-4d35-a64e-6c863a64bcd5"
+  },
+  {
+    "ticketId": "3ed60244-5cad-460c-80d0-03b987d99f60",
+    "whaticketLink": "https://app.whaticket.com/tickets/3ed60244-5cad-460c-80d0-03b987d99f60",
+    "clienteNombre": "Paula Colombres",
+    "dni": "",
+    "telefono": "5491160931292",
+    "direccion": "Larralde 1795 caseros",
+    "localidad": "San Miguel",
+    "productos": [
+      "Tanque + Base + Flotante) ➔ $179"
+    ],
+    "montoTotal": 179100,
+    "formaPago": "Efectivo o Transferencia",
+    "fechaEntrega": "",
+    "vendedor": "Jazmín",
+    "estadoTicket": "closed",
+    "yaRegistradoEnErp": true,
+    "idPedidoErp": "912bf2a1-0f5c-420f-9bcc-9265664f0b28"
+  },
+  {
+    "ticketId": "8363cca4-785b-4244-9296-db89d14730b3",
+    "whaticketLink": "https://app.whaticket.com/tickets/8363cca4-785b-4244-9296-db89d14730b3",
+    "clienteNombre": "Braian Espindola",
+    "dni": "",
+    "telefono": "5491127181052",
+    "direccion": "Espindola braian , 1127181052, Los ombues 363, Entre santa Teresa y santa elena. , Manuel alberti",
+    "localidad": "Pilar",
+    "productos": [
+      "tanque o según el esquema adjunto 👆"
+    ],
+    "montoTotal": 198000,
+    "formaPago": "Efectivo o Transferencia",
+    "fechaEntrega": "",
+    "vendedor": "Jazmín",
+    "estadoTicket": "closed",
+    "yaRegistradoEnErp": true,
+    "idPedidoErp": "94437931-e415-419c-a7a5-59a857125041"
+  },
+  {
+    "ticketId": "93474745-b514-4ced-ae97-e69068c40222",
+    "whaticketLink": "https://app.whaticket.com/tickets/93474745-b514-4ced-ae97-e69068c40222",
+    "clienteNombre": "Maria Guzman",
+    "dni": "",
+    "telefono": "5491126582887",
+    "direccion": "N y A Guzmán María, Teléfono 1126582887, Direc 3de febrero 5327 entre Víctor Hugo y Carlos Ebercht, Barrio cuartel quinto Moreno, Día jueves después del medio día",
+    "localidad": "Cuartel V",
+    "productos": [
+      "️Termotanque Cooper 50L"
+    ],
+    "montoTotal": 245000,
+    "formaPago": "Efectivo o Transferencia",
+    "fechaEntrega": "",
+    "vendedor": "Jazmín",
+    "estadoTicket": "closed",
+    "yaRegistradoEnErp": true,
+    "idPedidoErp": "65b6f9eb-afdf-4ecd-8add-6323b61119e0"
+  },
+  {
+    "ticketId": "60ccd412-da95-49d5-b45d-539e0e91b7dd",
+    "whaticketLink": "https://app.whaticket.com/tickets/60ccd412-da95-49d5-b45d-539e0e91b7dd",
+    "clienteNombre": "Carlos Negrete",
+    "dni": "",
+    "telefono": "5491161103928",
+    "direccion": "Entre colectora norte y pasaje italia",
+    "localidad": "Pacheco",
+    "productos": [
+      "️Kit bio 1000L completo  $612.650"
+    ],
+    "montoTotal": 642650,
+    "formaPago": "Efectivo o Transferencia",
+    "fechaEntrega": "",
+    "vendedor": "Jazmín",
+    "estadoTicket": "closed",
+    "yaRegistradoEnErp": true,
+    "idPedidoErp": "e6298d37-c413-4d71-aea6-ff4ba78a2667"
+  },
+  {
+    "ticketId": "3fe64223-b0a5-40f4-a159-fb3e921175a3",
+    "whaticketLink": "https://app.whaticket.com/tickets/3fe64223-b0a5-40f4-a159-fb3e921175a3",
+    "clienteNombre": "Nadia Del Hoyo",
+    "dni": "",
+    "telefono": "5492944148122",
+    "direccion": "Nadia Soledad del hoyo, 294 4148122, , Simon de iriondo 3831, Esquina colectora de acceso tigre ambrosoni y santa rosa, , Victoria, San Fernando , , Tel Alternativo, 54 9 11 7609-8250, , A partir del Dia Lunes a la tarde",
+    "localidad": "Victoria",
+    "productos": [
+      "tanque o según el esquema adjunto 👆"
+    ],
+    "montoTotal": 119400,
+    "formaPago": "Efectivo o Transferencia",
+    "fechaEntrega": "",
+    "vendedor": "Jazmín",
+    "estadoTicket": "closed",
+    "yaRegistradoEnErp": true,
+    "idPedidoErp": "77f36c04-6d58-48b6-bc38-ffd288e7f8ea"
+  },
+  {
+    "ticketId": "b682dd67-6a5a-411b-9db6-ab789608911a",
+    "whaticketLink": "https://app.whaticket.com/tickets/b682dd67-6a5a-411b-9db6-ab789608911a",
+    "clienteNombre": "Daniel Fernandez",
+    "dni": "",
+    "telefono": "5491161691836",
+    "direccion": "Daniel antonio fernandéz  1161691836 Maria Eva Duarte De Peron 472 etre calle salgueiro y masa pilar Villa Rosa",
+    "localidad": "Villa Rosa",
+    "productos": [
+      "tanque listo!"
+    ],
+    "montoTotal": 186000,
+    "formaPago": "Efectivo o Transferencia",
+    "fechaEntrega": "",
+    "vendedor": "Jazmín",
+    "estadoTicket": "closed",
+    "yaRegistradoEnErp": true,
+    "idPedidoErp": "c630f6b0-7b4c-472a-a916-f6f2c1e96743"
+  },
+  {
+    "ticketId": "15a83e05-6b08-43b1-88fc-07e359d5584c",
+    "whaticketLink": "https://app.whaticket.com/tickets/15a83e05-6b08-43b1-88fc-07e359d5584c",
+    "clienteNombre": "Sinthia Ozorio",
+    "dni": "",
+    "telefono": "5491135622610",
+    "direccion": "Sinthia ozorio celular 1135622610",
+    "localidad": "Gdor Costa",
+    "productos": [
+      "️Termotanque Cooper 50L"
+    ],
+    "montoTotal": 245000,
+    "formaPago": "Efectivo o Transferencia",
+    "fechaEntrega": "",
+    "vendedor": "Jazmín",
+    "estadoTicket": "closed",
+    "yaRegistradoEnErp": true,
+    "idPedidoErp": "0dc0b44f-dfb8-4961-bf8c-ac5a17aad02f"
+  },
+  {
+    "ticketId": "8b127b87-3042-4993-8a67-1e60e15aba55",
+    "whaticketLink": "https://app.whaticket.com/tickets/8b127b87-3042-4993-8a67-1e60e15aba55",
+    "clienteNombre": "Sebastian Giannini",
+    "dni": "",
+    "telefono": "5492215915622",
+    "direccion": "Pero armamos con uno de 600 litros",
+    "localidad": "Lisandro Olmos",
+    "productos": [
+      "\udd38 1x AquaFort - TRIC 600L Gris a $133.300",
+      "\udd38 1x BASE HIERRO REFORZADA 85 CMS a $49.700",
+      "\udd38 1x Flotante Eco Varilla Plástica 1/2 a $10.000"
+    ],
+    "montoTotal": 193000,
+    "formaPago": "Efectivo o Transferencia",
+    "fechaEntrega": "",
+    "vendedor": "Jazmín",
+    "estadoTicket": "open",
+    "yaRegistradoEnErp": true,
+    "idPedidoErp": "3dcdc7da-3aa8-4923-9a19-152962b2e09e"
+  },
+  {
+    "ticketId": "d6f2b97e-4bf5-4ca7-a48c-9abfb6c40448",
+    "whaticketLink": "https://app.whaticket.com/tickets/d6f2b97e-4bf5-4ca7-a48c-9abfb6c40448",
+    "clienteNombre": "Elías Huaman",
+    "dni": "",
+    "telefono": "5491123235545",
+    "direccion": "Elias Huaman.cel. 1123235545  localidad. San Fernando. Calle.Junin 1241 altura Av. Libertador al 300.entre constitución y 3  de febrero Tanque tricapa de 1000 litros + basé",
+    "localidad": "San Fernando",
+    "productos": [
+      "\udd38 1x AquaFort - TRIC 1000L Gris a $188.000",
+      "\udd38 1x Base Hierro Reforzada 102 cms a $49.700",
+      "\udd38 1x Flotante Eco Varilla Plástica 1/2 a $10.000"
+    ],
+    "montoTotal": 247700,
+    "formaPago": "Efectivo / Transferencia",
+    "fechaEntrega": "",
+    "vendedor": "Jazmín",
+    "estadoTicket": "closed",
+    "yaRegistradoEnErp": true,
+    "idPedidoErp": "db826880-9320-4e64-a74f-9b262aff4d92"
+  },
+  {
+    "ticketId": "7607690e-576f-4a58-b649-dc42da562d6a",
+    "whaticketLink": "https://app.whaticket.com/tickets/7607690e-576f-4a58-b649-dc42da562d6a",
+    "clienteNombre": "Hector Gonzalez",
+    "dni": "",
+    "telefono": "5491162929748",
+    "direccion": "Héctor Javier González , 11-5504-0506, Cesáreo de Quirós 422. Entre Capitán Martínez y Acerboni. (a tres cuadras de la ruta 197),  José C Paz., Tel alternativo: 11-6292-9748 (Natalia), Lunes, miércoles y viernes: todo el día.",
+    "localidad": "Jose C Paz",
+    "productos": [
+      "tanque listo!"
+    ],
+    "montoTotal": 169900,
+    "formaPago": "Efectivo contra entrega",
+    "fechaEntrega": "",
+    "vendedor": "Jazmín",
+    "estadoTicket": "closed",
+    "yaRegistradoEnErp": true,
+    "idPedidoErp": "4276903b-2681-49ca-8c21-02923de963ce"
+  },
+  {
+    "ticketId": "d5c8d4dd-b06c-4697-ae4f-d7053ce0d958",
+    "whaticketLink": "https://app.whaticket.com/tickets/d5c8d4dd-b06c-4697-ae4f-d7053ce0d958",
+    "clienteNombre": "Alberto Moscatelli",
+    "dni": "",
+    "telefono": "5493442581106",
+    "direccion": "Alberto moscatelli.             Allmafuerte 968 3 c, entre Bermudez y Miguel Cane.          Villa Luzuriaga.          Teléfono fijo 75263988.              A partir del día martes .",
+    "localidad": "Luzuriaga",
+    "productos": [
+      "Termotanque ELÉCTRICO (S"
+    ],
+    "montoTotal": 282000,
+    "formaPago": "Efectivo contra entrega",
+    "fechaEntrega": "",
+    "vendedor": "Jazmín",
+    "estadoTicket": "closed",
+    "yaRegistradoEnErp": true,
+    "idPedidoErp": "9ce14571-771a-4b64-ac03-960ad2f64a32"
+  },
+  {
+    "ticketId": "424bce3f-8eae-449a-bdb5-bce964b61ce3",
+    "whaticketLink": "https://app.whaticket.com/tickets/424bce3f-8eae-449a-bdb5-bce964b61ce3",
+    "clienteNombre": "Rodrigo Castro",
+    "dni": "",
+    "telefono": "5491133508356",
+    "direccion": "Rodrigo castro , Tel 1133508356 , Argentina 2919, entre Salta y Av Villegas , Ramos Mejia/ Lomas del Mirador , la matanza. , Tel alternativo Anabel 11 3942-1722, , A partir de mañana sabado ya estoy",
+    "localidad": "Ramos Mejia",
+    "productos": [
+      "termotanques"
+    ],
+    "montoTotal": 305000,
+    "formaPago": "Efectivo contra entrega",
+    "fechaEntrega": "",
+    "vendedor": "Jazmín",
+    "estadoTicket": "closed",
+    "yaRegistradoEnErp": true,
+    "idPedidoErp": "da397e7e-0e85-4133-8602-252435f9223c"
+  },
+  {
+    "ticketId": "0cd57336-b4d7-410c-b5d3-3ca52d13ff23",
+    "whaticketLink": "https://app.whaticket.com/tickets/0cd57336-b4d7-410c-b5d3-3ca52d13ff23",
+    "clienteNombre": "Andrea holub",
+    "dni": "",
+    "telefono": "5491139149699",
+    "direccion": "Andrea holub , DNI 24.964.386, 1164260110, Calle ,Conesa 873 ,fco Alvarez partido de moreno",
+    "localidad": "Fco Alvarez",
+    "productos": [
+      "Biodigestor BioFort 500L"
+    ],
+    "montoTotal": 391850,
+    "formaPago": "Efectivo o Transferencia",
+    "fechaEntrega": "3/9 y 6/9",
+    "vendedor": "Jazmín",
+    "estadoTicket": "closed",
+    "yaRegistradoEnErp": true,
+    "idPedidoErp": "45ebc9e0-88a9-42bb-8020-cabb9ad1c9bb"
+  },
+  {
+    "ticketId": "549b8297-9856-4b3d-bb79-253a6cd8443a",
+    "whaticketLink": "https://app.whaticket.com/tickets/549b8297-9856-4b3d-bb79-253a6cd8443a",
+    "clienteNombre": "Alberto Yonar",
+    "dni": "",
+    "telefono": "5491139423049",
+    "direccion": "Para tanque de 500 lts en zona oeste Morera.",
+    "localidad": "Deposito",
+    "productos": [
+      "tanque listo!"
+    ],
+    "montoTotal": 119400,
+    "formaPago": "Efectivo contra entrega",
+    "fechaEntrega": "",
+    "vendedor": "Jazmín",
+    "estadoTicket": "closed",
+    "yaRegistradoEnErp": true,
+    "idPedidoErp": "403f36a1-5e36-46de-9f84-8ace9ea26e80"
+  },
+  {
+    "ticketId": "01603b2d-d0bf-4a4d-9672-6051cb511074",
+    "whaticketLink": "https://app.whaticket.com/tickets/01603b2d-d0bf-4a4d-9672-6051cb511074",
+    "clienteNombre": "Gabriela Lopez",
+    "dni": "",
+    "telefono": "5491136566586",
+    "direccion": "Sucre 262 (e/ Calles 854 y Medrano )",
+    "localidad": "Zeballos",
+    "productos": [
+      "️Termotanque Universal 90L"
+    ],
+    "montoTotal": 311000,
+    "formaPago": "Efectivo o Transferencia",
+    "fechaEntrega": "",
+    "vendedor": "Jazmín",
+    "estadoTicket": "closed",
+    "yaRegistradoEnErp": true,
+    "idPedidoErp": "b841cce9-4f6f-49f8-89de-bd2ec854ec78"
+  },
+  {
+    "ticketId": "9151eda5-fb5c-4b5c-8fe0-499ceb9e4ee4",
+    "whaticketLink": "https://app.whaticket.com/tickets/9151eda5-fb5c-4b5c-8fe0-499ceb9e4ee4",
+    "clienteNombre": "Adrian Prada",
+    "dni": "",
+    "telefono": "5491130888408",
+    "direccion": "Adrian Prada 1130888408, Bransen 385 entre Lavalle y Olazabal Ituzaingó , Puedo recibir el pedido el día Martes 8/9 de 10 a 13 hs",
+    "localidad": "Ituzaingo",
+    "productos": [
+      "\udd38 1x AquaFort - TRIC 750L Gris a $159.900",
+      "\udd38 1x Base Hierro Reforzada 102 cms a $49.700",
+      "\udd38 1x Flotante Eco Varilla Plástica 1/2 a $10.000"
+    ],
+    "montoTotal": 219600,
+    "formaPago": "Efectivo o Transferencia",
+    "fechaEntrega": "",
+    "vendedor": "Jazmín",
+    "estadoTicket": "closed",
+    "yaRegistradoEnErp": true,
+    "idPedidoErp": "b0c6a9e1-f6a1-4f6f-a15d-606e3bb55c14"
+  },
+  {
+    "ticketId": "688c4bde-f43f-4f75-b990-b643af0d8193",
+    "whaticketLink": "https://app.whaticket.com/tickets/688c4bde-f43f-4f75-b990-b643af0d8193",
+    "clienteNombre": "Abel Oscar Chaves",
+    "dni": "",
+    "telefono": "5491128479323",
+    "direccion": "Abel Oscar Chaves, 11 2847 9323, Santiago del Estero 1438, Entre Navarro y Merlo, Merlo Norte, 1150485141, Ha partir de hoy",
+    "localidad": "Merlo",
+    "productos": [
+      "tanque o según el esquema adjunto 👆"
+    ],
+    "montoTotal": 119400,
+    "formaPago": "Efectivo o Transferencia",
+    "fechaEntrega": "",
+    "vendedor": "Jazmín",
+    "estadoTicket": "closed",
+    "yaRegistradoEnErp": true,
+    "idPedidoErp": "b94bbbca-80c6-4a9d-aaa7-82a145cc0580"
+  },
+  {
+    "ticketId": "eb5ba046-1066-478b-86c4-ff8468d4acb9",
+    "whaticketLink": "https://app.whaticket.com/tickets/eb5ba046-1066-478b-86c4-ff8468d4acb9",
+    "clienteNombre": "Hugo Galarza",
+    "dni": "",
+    "telefono": "5491163356149",
+    "direccion": "Ok, Hugo Galarza , 1163356149, Colombres 145 primero \"E \", Entré Irigoyen y Don Bosco , Num.alter.1166111148, Silvana , Día lunes a partir de las 10 hasta las 18 hs, Día martes de 10 a 18 hs",
+    "localidad": "CABA",
+    "productos": [
+      "️Termotanque COOPER 25L"
+    ],
+    "montoTotal": 229000,
+    "formaPago": "Efectivo o Transferencia",
+    "fechaEntrega": "",
+    "vendedor": "Jazmín",
+    "estadoTicket": "closed",
+    "yaRegistradoEnErp": true,
+    "idPedidoErp": "f987d837-0ebc-4e86-baa7-afbc70e6559b"
+  },
+  {
+    "ticketId": "6a827897-8ae4-4c42-9796-886ff800d926",
+    "whaticketLink": "https://app.whaticket.com/tickets/6a827897-8ae4-4c42-9796-886ff800d926",
+    "clienteNombre": "Stella Maris Cerda",
+    "dni": "",
+    "telefono": "5491141942968",
+    "direccion": "Cerda Stella Maris , Calle Santiago del Estero , 1936 MERLO PCia, Entre guardia vieja y Dorrego , Celu 42942968, Localidad Merlo norte pcia , Código postal 2722",
+    "localidad": "Merlo",
+    "productos": [
+      "tanque"
+    ],
+    "montoTotal": 169100,
+    "formaPago": "Efectivo o Transferencia",
+    "fechaEntrega": "",
+    "vendedor": "Jazmín",
+    "estadoTicket": "closed",
+    "yaRegistradoEnErp": true,
+    "idPedidoErp": "bbe24916-0729-4c37-bc22-33444aa8b894"
+  },
+  {
+    "ticketId": "25d66e13-591a-4062-91e8-fbbc524b006a",
+    "whaticketLink": "https://app.whaticket.com/tickets/25d66e13-591a-4062-91e8-fbbc524b006a",
+    "clienteNombre": "Juan Blasetti",
+    "dni": "",
+    "telefono": "5492216759574",
+    "direccion": "Calle 515 s/n (e/ Calles 159 y 157 )",
+    "localidad": "Melchor Romero",
+    "productos": [
+      "Biodigestor 750L a $303"
+    ],
+    "montoTotal": 96000,
+    "formaPago": "Efectivo o Transferencia",
+    "fechaEntrega": "",
+    "vendedor": "Jazmín",
+    "estadoTicket": "closed",
+    "yaRegistradoEnErp": true,
+    "idPedidoErp": "403d421d-603c-4948-8650-a9e8a54f1fee"
+  },
+  {
+    "ticketId": "82387b7c-fe02-47b0-9871-6720b59a5c8b",
+    "whaticketLink": "https://app.whaticket.com/tickets/82387b7c-fe02-47b0-9871-6720b59a5c8b",
+    "clienteNombre": "Hector Molina",
+    "dni": "",
+    "telefono": "5491126727653",
+    "direccion": "Hector alejandro molina , 1126727653, Equiza 5053, Entre , Jachal y patagonia gonsalez catan, 11 4064-4740, 30/7/2026",
+    "localidad": "Catan",
+    "productos": [
+      "️Base de 102 cm"
+    ],
+    "montoTotal": 237700,
+    "formaPago": "Efectivo o Transferencia",
+    "fechaEntrega": "",
+    "vendedor": "Jazmín",
+    "estadoTicket": "closed",
+    "yaRegistradoEnErp": true,
+    "idPedidoErp": "2a466dae-ec2a-4b3a-9f10-81219d38d894"
+  },
+  {
+    "ticketId": "3d35b6a8-a1da-4e38-a44c-b2822d5ca190",
+    "whaticketLink": "https://app.whaticket.com/tickets/3d35b6a8-a1da-4e38-a44c-b2822d5ca190",
+    "clienteNombre": "Rita Fernandez",
+    "dni": "",
+    "telefono": "5491127968225",
+    "direccion": "Pichincha 3125 e/ Oyuela y Posadas. Lanús Este  ( Portón verde)",
+    "localidad": "Lanus",
+    "productos": [
+      "\udd38 1x AQUAFORT - TRIC 500L GRIS a $119.400",
+      "\udd38 1x BASE HIERRO REFORZADA 85 CMS a $49.700",
+      "\udd38 1x Flotante Eco Varilla Plástica 1/2 a $10.000"
+    ],
+    "montoTotal": 358200,
+    "formaPago": "Efectivo o Transferencia",
+    "fechaEntrega": "",
+    "vendedor": "Jazmín",
+    "estadoTicket": "closed",
+    "yaRegistradoEnErp": true,
+    "idPedidoErp": "bdedbfa2-1076-4a3d-94ca-5b77951dde3e"
+  },
+  {
+    "ticketId": "1cb94ded-d179-4d84-89e4-e1fc46c556b9",
+    "whaticketLink": "https://app.whaticket.com/tickets/1cb94ded-d179-4d84-89e4-e1fc46c556b9",
+    "clienteNombre": "Natasha Acuña",
+    "dni": "",
+    "telefono": "5491137889017",
+    "direccion": "Natasha Acuña , 1137889017, Gregoria matorras 3230 entre Lacroze y Pedernera, barrio Samore, Merlo., 1155015708, Luciano , El lunes desde las 14hs estaría genial",
+    "localidad": "Merlo",
+    "productos": [
+      "TANQUES BIODIGESTORES BIOFORT"
+    ],
+    "montoTotal": 0,
+    "formaPago": "Efectivo o Transferencia",
+    "fechaEntrega": "",
+    "vendedor": "Jazmín",
+    "estadoTicket": "closed",
+    "yaRegistradoEnErp": false,
+    "idPedidoErp": null
+  }
+]

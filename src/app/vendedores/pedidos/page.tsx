@@ -1301,6 +1301,20 @@ export default function PedidosPage() {
   const generateNextLegacyCode = async (userId: string) => {
     if (!userId) return;
     try {
+      // 1. Intentar consultar el próximo código disponible en la planilla del vendedor
+      try {
+        const sheetRes = await fetch(`/api/vendedores/create-sheet-order?sellerId=${userId}`);
+        if (sheetRes.ok) {
+          const sheetData = await sheetRes.json();
+          if (sheetData.synced && sheetData.code) {
+            setLegacyCode(sheetData.code);
+            return;
+          }
+        }
+      } catch (sheetErr) {
+        console.warn("Could not fetch next code from sheet, falling back to DB:", sheetErr);
+      }
+
       const { data: seller } = await supabase
         .from('sellers')
         .select('full_name, email')
@@ -1571,6 +1585,66 @@ export default function PedidosPage() {
 
         // Autogenerar código de pedido al inicio
         await generateNextLegacyCode(userId);
+
+        // Pre-cargar pedido automáticamente si viene desde el módulo de Conversaciones
+        if (typeof window !== "undefined") {
+          const params = new URLSearchParams(window.location.search);
+          const cName = params.get("client_name");
+          if (cName) {
+            setActiveTab("form");
+            setSelectedClientId("");
+            setNewClientName(cName);
+            const cPhone = params.get("client_phone");
+            if (cPhone) {
+              setNewClientPhone(cPhone);
+            }
+            const cAddress = params.get("address");
+            if (cAddress) {
+              setDireccion(cAddress);
+            }
+            const cLoc = params.get("locality");
+            if (cLoc && payload.localities) {
+              const matchedLoc = payload.localities.find((l: any) =>
+                l.name.toLowerCase().trim() === cLoc.toLowerCase().trim() ||
+                cLoc.toLowerCase().includes(l.name.toLowerCase()) ||
+                l.name.toLowerCase().includes(cLoc.toLowerCase())
+              );
+              if (matchedLoc) {
+                setLocalidadId(matchedLoc.id);
+              }
+            }
+            const cNotes = params.get("notes");
+            if (cNotes) {
+              setAclaraciones(cNotes);
+            }
+            const cWhaticket = params.get("whaticket");
+            if (cWhaticket) {
+              setWhaticketLink(cWhaticket);
+            }
+            const cItems = params.get("items");
+            if (cItems && payload.products) {
+              try {
+                const parsed = JSON.parse(cItems);
+                const itemsToAdd = parsed.map((pi: any) => {
+                  const p = payload.products.find((prod: any) => prod.id === pi.productId || prod.name.toLowerCase() === (pi.name || "").toLowerCase());
+                  if (p) {
+                    return {
+                      ...p,
+                      quantity: pi.quantity || 1,
+                      customPrice: pi.price !== undefined ? pi.price : p.price
+                    };
+                  }
+                  return null;
+                }).filter(Boolean);
+                if (itemsToAdd.length > 0) {
+                  setOrderItems(itemsToAdd);
+                }
+              } catch (e) {
+                console.error("Error pre-populating order items:", e);
+              }
+            }
+          }
+        }
       } catch (err) {
         console.error("Error loading form dependencies:", err);
       }
@@ -2788,6 +2862,75 @@ export default function PedidosPage() {
         if (deleteItemsErr) throw deleteItemsErr;
 
       } else {
+        // Sincronizar a Google Sheets si el vendedor tiene planilla configurada (Diego Bóveda)
+        let finalLegacyCode = legacyCode;
+        let sheetSyncSuccess = false;
+
+        try {
+          const selectedPayMethodName = dbPaymentMethods.find(m => m.id === paymentsList[0]?.payment_method_id)?.name || 'Efectivo';
+          const clientPhone = isNewClient 
+            ? (newClientPhones.map(cleanPhoneForSaving).filter(Boolean)[0] || '')
+            : (clients.find(c => c.id === selectedClientId)?.phone_primary || '');
+          const clientPhone2 = isNewClient
+            ? (newClientPhones.map(cleanPhoneForSaving).filter(Boolean)[1] || '')
+            : '';
+          const sellerFullName = sellersList.find(s => s.id === seller_id)?.full_name || 'Diego Bóveda';
+          const advName = advertisingSources.find(a => a.id === selectedAdvertisingSourceId)?.name || '';
+          const mediumName = orderMediums.find(m => m.id === selectedOrderMediumId)?.name || 'WhatsApp';
+
+          const sheetOrderPayload = {
+            deliveryDate: entregaInicial,
+            orderDate: fechaPedido,
+            maxDeliveryDate: entregaMaxima,
+            clientName: isNewClient ? newClientName : (cliente || ''),
+            phonePrimary: clientPhone,
+            phoneSecondary: clientPhone2,
+            whaticketLink: whaticketLink || '',
+            source: sellerType === 'mayorista' ? 'Mayorista' : advName,
+            deliveryNotes: deliveryDetail || aclaraciones || '',
+            medium: mediumName,
+            sellerName: sellerFullName,
+            status: orderStatus === 'En Espera' ? 'En Espera' : '🔹 Pasado',
+            locality: locName,
+            address: direccion,
+            mapsLink: linkMaps || '',
+            category: orderCategory === 'auto' ? detectedCategory : orderCategory,
+            paymentMethod: selectedPayMethodName,
+            identification: newClientTaxId || '',
+            paymentStatus: paymentState === 'paid' ? 'Abonado' : (paymentState === 'partial' ? 'Señado' : 'No Abonado'),
+            depositOrPaidAmount: hasDeposit ? depositAmount : (paymentState === 'paid' ? total : 0),
+            freightType: flete || '⚪ Flete Regular',
+            freightCost: shippingAmount || 0,
+            items: orderItems.map(item => ({
+              name: item.name,
+              quantity: item.quantity,
+              unitPrice: item.customPrice
+            }))
+          };
+
+          const sheetRes = await fetch('/api/vendedores/create-sheet-order', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sellerId: seller_id,
+              order: sheetOrderPayload
+            })
+          });
+
+          if (sheetRes.ok) {
+            const sheetData = await sheetRes.json();
+            if (sheetData.synced && sheetData.code) {
+              finalLegacyCode = sheetData.code;
+              sheetSyncSuccess = true;
+            }
+          } else {
+            const errData = await sheetRes.json().catch(() => ({}));
+            console.warn('Google Sheet sync returned non-ok:', sheetRes.status, errData);
+          }
+        } catch (sheetErr) {
+          console.error('Error synchronizing order to Google Sheet:', sheetErr);
+        }
+
         // Insertar Nuevo Pedido
         const { data: newOrder, error: orderError } = await supabase
           .from('orders')
@@ -2829,7 +2972,7 @@ export default function PedidosPage() {
             order_medium_id: selectedOrderMediumId || null,
             received_phone_line_id: (selectedPhoneLineId && selectedPhoneLineId !== 'otro') ? selectedPhoneLineId : null,
             delivery_detail: deliveryDetail || null,
-            legacy_code: legacyCode || null,
+            legacy_code: finalLegacyCode || null,
             hold_reason: orderStatus === 'En Espera' ? holdReason : null,
             hold_product_id: orderStatus === 'En Espera' && holdProductId ? holdProductId : null,
             category: orderCategory === 'auto' ? detectedCategory : orderCategory
@@ -2874,7 +3017,11 @@ export default function PedidosPage() {
         alert("Pedido actualizado con éxito. Las reservas de stock han sido actualizadas.");
         setEditingOrderId(null);
       } else {
-        alert("Pedido cargado con éxito. Se ha reservado el stock de los productos.");
+        if (orderData.legacy_code) {
+          alert(`Pedido ${orderData.legacy_code} guardado y registrado en la planilla con éxito.`);
+        } else {
+          alert("Pedido cargado con éxito. Se ha reservado el stock de los productos.");
+        }
       }
       
       // Reset form

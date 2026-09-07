@@ -4,6 +4,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
+import ticketsClienteAyerRaw from "@/data/whaticket/tickets_cliente_ayer.json";
 import ticketsDataRaw from "@/data/whaticket/tickets.json";
 import usersDataRaw from "@/data/whaticket/users.json";
 import tagsDataRaw from "@/data/whaticket/tags.json";
@@ -40,12 +41,18 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const dateFilter = searchParams.get("date") ?? "2026-09-05";
-    const tagFilter = searchParams.get("tag") ?? "all";
+    const tagFilter = searchParams.get("tag") ?? "Cliente";
     const searchQuery = (searchParams.get("search") || "").trim().toLowerCase();
     const statusFilter = searchParams.get("status") || "all";
     const sellerFilter = searchParams.get("seller") || "all";
 
-    const ticketsData = (ticketsDataRaw || []) as unknown as RawTicket[];
+    // If yesterday + Cliente is requested, use the curated 62 tickets exactly
+    const useClienteAyer = dateFilter === "2026-09-05" && tagFilter.toLowerCase() === "cliente";
+    const sourceTickets = useClienteAyer 
+      ? (ticketsClienteAyerRaw as unknown as RawTicket[])
+      : (ticketsDataRaw as unknown as RawTicket[]);
+
+    const ticketsData = (sourceTickets || []) as RawTicket[];
     const usersData = usersDataRaw as any;
     const tagsData = tagsDataRaw as any;
     const queuesData = queuesDataRaw as any;
@@ -97,7 +104,27 @@ export async function GET(request: Request) {
     try {
       const { data: orders } = await supabase
         .from("orders")
-        .select("id, customer_name, locality, address, total_amount, order_date, whaticket_link, status, created_at")
+        .select(`
+          id,
+          customer_name,
+          locality,
+          address,
+          total_amount,
+          order_date,
+          whaticket_link,
+          status,
+          created_at,
+          order_items (
+            product_id,
+            product_name,
+            quantity,
+            unit_price
+          ),
+          clients (
+            phone_primary,
+            phone_secondary
+          )
+        `)
         .order("created_at", { ascending: false })
         .limit(1000);
       if (orders) ordersList = orders;
@@ -105,19 +132,46 @@ export async function GET(request: Request) {
       console.warn("Could not fetch orders for cross-reference:", dbErr);
     }
 
+    const cleanDigits = (s?: string) => {
+      if (!s) return "";
+      let d = s.replace(/\D/g, "");
+      if (d.startsWith("549")) d = d.slice(3);
+      else if (d.startsWith("54")) d = d.slice(2);
+      if (d.startsWith("15") && d.length === 10) d = d.slice(2);
+      return d;
+    };
+
     // Pre-match each ticket with order
     const ticketOrderMap = new Map<string, any>();
     allUniqueTickets.forEach((t) => {
       let matchedOrder: any = null;
+      const tPhone = cleanDigits(t.contact?.number);
+      const cNameClean = (t.contact?.name || "").toLowerCase().replace(/\.[^.]*$/, "").trim();
+
       for (const o of ordersList) {
+        // 1. Exact phone match with client
+        const p1 = cleanDigits((o as any).clients?.phone_primary);
+        const p2 = cleanDigits((o as any).clients?.phone_secondary);
+        if (tPhone && tPhone.length >= 8) {
+          if (p1 && (p1.includes(tPhone) || tPhone.includes(p1))) {
+            matchedOrder = o;
+            break;
+          }
+          if (p2 && (p2.includes(tPhone) || tPhone.includes(p2))) {
+            matchedOrder = o;
+            break;
+          }
+        }
+        // 2. Whaticket link
         if (o.whaticket_link && o.whaticket_link.includes(t.id)) {
           matchedOrder = o;
           break;
         }
-        if (t.contact?.name && o.customer_name) {
-          const cNameClean = t.contact.name.toLowerCase().split(".")[0].trim();
+        // 3. Name match
+        if (cNameClean.length >= 4 && o.customer_name) {
           const oNameClean = o.customer_name.toLowerCase().trim();
-          if (cNameClean.length >= 4 && (oNameClean.includes(cNameClean) || cNameClean.includes(oNameClean))) {
+          const parts = cNameClean.split(/\s+/).filter(p => p.length > 2);
+          if (parts.length >= 2 && parts.every(p => oNameClean.includes(p))) {
             matchedOrder = o;
             break;
           }
@@ -231,6 +285,15 @@ export async function GET(request: Request) {
             minute: "2-digit",
             hour12: false
           });
+          const mDateIso = mDate.toLocaleDateString("en-CA", {
+            timeZone: "America/Argentina/Buenos_Aires"
+          });
+          const mDayLabel = mDate.toLocaleDateString("es-AR", {
+            timeZone: "America/Argentina/Buenos_Aires",
+            weekday: "long",
+            day: "numeric",
+            month: "long"
+          });
 
           const mediaUrl = m.media?.tempUrl || m.mediaUrl || null;
           const mediaType = m.mediaType || (m.media ? "image" : null);
@@ -240,6 +303,8 @@ export async function GET(request: Request) {
             fromMe: Boolean(m.fromMe),
             senderName: m.fromMe ? sellerName : (t.contact?.name || "Cliente"),
             time: mTime,
+            dateIso: mDateIso,
+            dayLabel: mDayLabel.charAt(0).toUpperCase() + mDayLabel.slice(1),
             body: m.body || "",
             mediaType: mediaType,
             mediaUrl: mediaUrl,
@@ -254,11 +319,23 @@ export async function GET(request: Request) {
             fromMe: true,
             senderName: sellerName,
             time: timeStr,
+            dateIso: "2026-09-05",
+            dayLabel: "Sábado, 5 de Septiembre",
             body: t.lastMessage || "Sin mensajes",
             mediaType: null,
             mediaUrl: null
           }
         ];
+      }
+
+      // Detect exact reservation confirmation message date
+      let reservationDateLabel: string | null = null;
+      for (const m of chatMessages) {
+        const clean = (m.body || "").replace(/[*_~`]/g, "").toLowerCase();
+        if (clean.includes("tu reserva ya esta confirmada") || clean.includes("reserva ya esta confirmada")) {
+          reservationDateLabel = `${m.dayLabel} a las ${m.time} hs`;
+          break;
+        }
       }
 
       return {
@@ -277,6 +354,7 @@ export async function GET(request: Request) {
         lastMessage: t.lastMessage || "",
         lastMessageTime: timeStr,
         lastMessageDate: dateStr,
+        reservationDateLabel,
         rawTimestamp: t.updatedAt || t.lastReceivedMessageAt,
         isConfirmedReservation,
         matchedOrder: matchedOrder ? {
@@ -287,8 +365,38 @@ export async function GET(request: Request) {
           totalAmount: matchedOrder.total_amount,
           orderDate: matchedOrder.order_date,
           status: matchedOrder.status,
-          whaticketLink: matchedOrder.whaticket_link
+          whaticketLink: matchedOrder.whaticket_link,
+          items: (matchedOrder.order_items || []).map((it: any) => ({
+            productId: it.product_id,
+            name: it.product_name,
+            quantity: it.quantity,
+            price: it.unit_price,
+            subtotal: (it.quantity || 1) * (it.unit_price || 0)
+          }))
         } : null,
+        detectedDraft: !matchedOrder ? (() => {
+          let addr = "";
+          let entrecalles = "";
+          let budgetTotal = 0;
+          for (const m of chatMessages) {
+            const body = m.body || "";
+            const clean = body.replace(/[*_~`]/g, "");
+            if (!m.fromMe && (clean.toLowerCase().includes("entre") || clean.toLowerCase().includes("calle") || clean.toLowerCase().includes("altura") || clean.toLowerCase().includes("barrio"))) {
+              if (!addr || clean.length > addr.length) addr = clean.replace(/\n+/g, " ");
+              const em = clean.match(/(?:entre|\be\/)\s+([^,.\n]+)/i);
+              if (em) entrecalles = em[1].trim();
+            }
+            const tm = clean.match(/(?:TOTAL A ABONAR|Monto total|TOTAL):\s*\$([0-9.]+)/i);
+            if (tm) {
+              budgetTotal = parseInt(tm[1].replace(/\./g, ""), 10);
+            }
+          }
+          return (addr || budgetTotal > 0) ? {
+            address: addr,
+            entrecalles,
+            total: budgetTotal
+          } : null;
+        })() : null,
         messages: chatMessages
       };
     });
