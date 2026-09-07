@@ -311,9 +311,9 @@ function normalizeProductNameForSheet(name: string, sku?: string): string {
 function normalizeSellerNameForSheet(sellerName?: string | null): string {
   if (!sellerName) return '';
   const trimmed = sellerName.trim();
-  // Matchear 'Jazmín Sánchez' de la BD a 'Jazmín Sanchez' para planilla (sin acento en la 'á')
+  // Matchear 'Jazmín Sánchez' de la BD a 'Jazmin Sanchez' para planilla (sin acentos)
   if (/^jazm[ií]n\s+s[aá]nchez$/i.test(trimmed)) {
-    return 'Jazmín Sanchez';
+    return 'Jazmin Sanchez';
   }
   return trimmed;
 }

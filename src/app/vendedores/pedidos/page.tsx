@@ -2469,7 +2469,7 @@ export default function PedidosPage() {
                 : '')
         ].filter(Boolean).map((s: string) => s.trim()).join(' / '),
         medium: mediumName,
-        sellerName: sellerFullName && /^jazm[ií]n\s+s[aá]nchez$/i.test(sellerFullName.trim()) ? 'Jazmín Sanchez' : sellerFullName,
+        sellerName: sellerFullName && /^jazm[ií]n\s+s[aá]nchez$/i.test(sellerFullName.trim()) ? 'Jazmin Sanchez' : sellerFullName,
         status: order.status === 'En Espera' ? 'En Espera' : '🔸 Validado',
         locality: order.locality || '',
         address: order.address || '',
@@ -3307,7 +3307,7 @@ export default function PedidosPage() {
                     : '')
             ].filter(Boolean).map((s: string) => s.trim()).join(' / '),
             medium: mediumName,
-            sellerName: sellerFullName && /^jazm[ií]n\s+s[aá]nchez$/i.test(sellerFullName.trim()) ? 'Jazmín Sanchez' : sellerFullName,
+            sellerName: sellerFullName && /^jazm[ií]n\s+s[aá]nchez$/i.test(sellerFullName.trim()) ? 'Jazmin Sanchez' : sellerFullName,
             status: orderStatus === 'En Espera' ? 'En Espera' : '🔸 Validado',
             locality: locName,
             address: direccion,
