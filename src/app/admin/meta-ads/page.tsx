@@ -197,7 +197,7 @@ function DateInput({
 }
 
 export default function MetaAdsPage() {
-  const [activeTab, setActiveTab] = useState<'live' | 'charts' | 'history'>('charts');
+  const [activeTab, setActiveTab] = useState<'live' | 'charts' | 'history'>('live');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<string>("");
@@ -624,17 +624,6 @@ export default function MetaAdsPage() {
       {/* Tabs Navigation */}
       <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 pb-2">
         <button
-          onClick={() => setActiveTab('charts')}
-          className={`px-5 py-2.5 rounded-2xl font-black text-xs transition-all flex items-center gap-2 cursor-pointer ${
-            activeTab === 'charts'
-              ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
-              : 'text-slate-600 hover:bg-slate-100'
-          }`}
-        >
-          <BarChart3 className="w-4 h-4" />
-          📊 Gráficos & Evolución Diaria
-        </button>
-        <button
           onClick={() => setActiveTab('live')}
           className={`px-5 py-2.5 rounded-2xl font-black text-xs transition-all flex items-center gap-2 cursor-pointer ${
             activeTab === 'live'
@@ -644,6 +633,17 @@ export default function MetaAdsPage() {
         >
           <Activity className="w-4 h-4" />
           ⚡ En Vivo Hoy (MSG-Hoy)
+        </button>
+        <button
+          onClick={() => setActiveTab('charts')}
+          className={`px-5 py-2.5 rounded-2xl font-black text-xs transition-all flex items-center gap-2 cursor-pointer ${
+            activeTab === 'charts'
+              ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
+              : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <BarChart3 className="w-4 h-4" />
+          📊 Gráficos & Evolución Diaria
         </button>
         <button
           onClick={() => setActiveTab('history')}
