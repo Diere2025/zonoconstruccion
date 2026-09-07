@@ -1,6 +1,7 @@
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
+import { fetchSpreadsheetCsv } from '@/lib/googleSheets';
 
 const SPREADSHEET_ID = "1z_yqAdxYn0aESDIARhL_Y9KyYSidQ2tp7Ezkqde0IE0";
 
@@ -140,18 +141,9 @@ export async function GET() {
     const fabUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=Fabricaci%C3%B3n`;
     const ensUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=Ensamblaje`;
 
-    const [fabRes, ensRes] = await Promise.all([
-      fetch(fabUrl, { cache: 'no-store' }),
-      fetch(ensUrl, { cache: 'no-store' })
-    ]);
-
-    if (!fabRes.ok || !ensRes.ok) {
-      throw new Error("No se pudo conectar con la planilla de Google Sheets de Producción.");
-    }
-
     const [fabCsv, ensCsv] = await Promise.all([
-      fabRes.text(),
-      ensRes.text()
+      fetchSpreadsheetCsv(fabUrl),
+      fetchSpreadsheetCsv(ensUrl)
     ]);
 
     const fabRows = parseCSV(fabCsv);

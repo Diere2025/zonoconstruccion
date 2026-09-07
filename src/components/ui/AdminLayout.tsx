@@ -44,7 +44,8 @@ import {
   AlertCircle,
   Loader2,
   FileSpreadsheet,
-  Lock
+  Lock,
+  MessageSquare
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
@@ -302,7 +303,8 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         { name: "Cotizador Minorista", href: "/vendedores/presupuestos", icon: Calculator },
         { name: "Clientes Minoristas", href: "/vendedores/clientes", icon: Users },
         { name: "Meta Ads Performance", href: "/admin/meta-ads", icon: Target, adminOnly: true },
-        { name: "Postventa y Reclamos", href: "/vendedores/postventa", icon: RefreshCw }
+        { name: "Postventa y Reclamos", href: "/vendedores/postventa", icon: RefreshCw },
+        { name: "Conversaciones WhatsApp", href: "/admin/conversaciones", icon: MessageSquare }
       ]
     },
     {

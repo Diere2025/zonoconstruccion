@@ -269,7 +269,7 @@ export default function ImportarPedidosPage() {
         setCurrentStepText("Sincronizando medios de pago...");
         setProgressPercent(10);
         try {
-          const pmRes = await fetch("https://docs.google.com/spreadsheets/d/1nz545_xNUgdI2LMAGIDCjh6Qs8-vUDHdynzj7jU2wm0/gviz/tq?tqx=out:csv&gid=1294713859", { cache: 'no-store' });
+          const pmRes = await fetch("/api/admin/fetch-sheet?id=1nz545_xNUgdI2LMAGIDCjh6Qs8-vUDHdynzj7jU2wm0&gid=1294713859", { cache: 'no-store' });
           if (pmRes.ok) {
             const pmCsv = await pmRes.text();
             const pmRows = parseCSV(pmCsv);
@@ -412,7 +412,7 @@ export default function ImportarPedidosPage() {
         setCurrentStepText(`Planilla ${sIdx + 1}/${sheets.length}: ${sheet.name}...`);
 
         addLog(`📄 Descargando planilla de ${sheet.name}...`);
-        const response = await fetch(sheet.url, { cache: 'no-store' });
+        const response = await fetch(`/api/admin/fetch-sheet?url=${encodeURIComponent(sheet.url)}`, { cache: 'no-store' });
         if (!response.ok) {
           throw new Error(`Error al descargar ${sheet.name} (HTTP ${response.status})`);
         }

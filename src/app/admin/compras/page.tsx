@@ -2330,7 +2330,7 @@ export default function ComprasAdminPage() {
       const gid = '134506688';
       
       addLog("📥 Descargando Planilla Unificada de Conciliación desde Google Sheets...");
-      const res = await fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`);
+      const res = await fetch(`/api/admin/fetch-sheet?id=${sheetId}&gid=${gid}`);
       if (!res.ok) throw new Error("Error al descargar planilla de conciliación de Google Sheets.");
       const csvText = await res.text();
       

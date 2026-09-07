@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getArgentinaDaysAgoString } from '@/lib/utils';
+import { fetchSpreadsheetCsv } from '@/lib/googleSheets';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.dummy';
@@ -113,11 +114,7 @@ function parseCSV(text: string): any[] {
 export async function GET() {
   try {
     // 1. Fetch CSV from Google Sheets
-    const csvRes = await fetch(STOCK_SHEET_URL, { cache: 'no-store' });
-    if (!csvRes.ok) {
-      return NextResponse.json({ error: 'No se pudo descargar la planilla de stock de Google Sheets.' }, { status: 500 });
-    }
-    const csvText = await csvRes.text();
+    const csvText = await fetchSpreadsheetCsv(STOCK_SHEET_URL);
     const sheetRows = parseCSV(csvText);
 
     // 30-day window (matching spreadsheet operational cutoff)
@@ -275,11 +272,7 @@ export async function GET() {
 export async function POST() {
   try {
     // 1. Fetch CSV from Google Sheets
-    const csvRes = await fetch(STOCK_SHEET_URL, { cache: 'no-store' });
-    if (!csvRes.ok) {
-      return NextResponse.json({ error: 'No se pudo descargar la planilla de stock de Google Sheets.' }, { status: 500 });
-    }
-    const csvText = await csvRes.text();
+    const csvText = await fetchSpreadsheetCsv(STOCK_SHEET_URL);
     const sheetRows = parseCSV(csvText);
 
     // 30-day window (matching spreadsheet operational cutoff)

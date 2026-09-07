@@ -1,0 +1,329 @@
+[
+  {
+    "id": "e7f4c639-404b-41cd-bd02-a5cd86aeeecb",
+    "name": "Compras",
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "greetingMessage": "",
+    "workingHours": {
+      "days": {
+        "friday": [],
+        "monday": [],
+        "sunday": [],
+        "tuesday": [],
+        "saturday": [],
+        "thursday": [],
+        "wednesday": []
+      },
+      "isEnabled": false,
+      "awayMessage": "",
+      "sendAfterChatbot": false,
+      "overrideGlobalSetting": false
+    },
+    "metadata": {
+      "csatConfig": {
+        "enabled": false,
+        "commentBuckets": [],
+        "commentTimeout": 15,
+        "requestComment": false,
+        "requestMessage": "",
+        "thankYouBuckets": [
+          {
+            "message": "",
+            "ratings": [
+              4,
+              5
+            ]
+          }
+        ],
+        "thankYouMessage": "",
+        "sendOnAutoResolve": false,
+        "useInteractiveList": false,
+        "overrideGlobalSetting": false,
+        "conditionalThankYouEnabled": false
+      },
+      "autoResolveTicketConfig": {
+        "enabled": false,
+        "idleTimeout": 5,
+        "warnMessage": "",
+        "warnTimeout": 1,
+        "overrideGlobalSetting": false,
+        "shouldSendFarewellMessage": true
+      }
+    },
+    "color": "#fcc400",
+    "chatbots": []
+  },
+  {
+    "id": "4733fd3b-3e9a-4398-ad4c-b4c972369ddf",
+    "name": "Logística",
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "greetingMessage": "",
+    "workingHours": {
+      "days": {
+        "friday": [],
+        "monday": [],
+        "sunday": [],
+        "tuesday": [],
+        "saturday": [],
+        "thursday": [],
+        "wednesday": []
+      },
+      "isEnabled": false,
+      "awayMessage": "",
+      "sendAfterChatbot": false,
+      "overrideGlobalSetting": false
+    },
+    "metadata": {
+      "csatConfig": {
+        "enabled": false,
+        "commentBuckets": [],
+        "commentTimeout": 15,
+        "requestComment": false,
+        "requestMessage": "",
+        "thankYouBuckets": [
+          {
+            "message": "",
+            "ratings": [
+              4,
+              5
+            ]
+          }
+        ],
+        "thankYouMessage": "",
+        "sendOnAutoResolve": false,
+        "useInteractiveList": false,
+        "overrideGlobalSetting": false,
+        "conditionalThankYouEnabled": false
+      },
+      "autoResolveTicketConfig": {
+        "enabled": false,
+        "idleTimeout": 5,
+        "warnMessage": "",
+        "warnTimeout": 1,
+        "overrideGlobalSetting": false,
+        "shouldSendFarewellMessage": true
+      }
+    },
+    "color": "#333333",
+    "chatbots": []
+  },
+  {
+    "id": "1a6167b1-0b24-470d-a57d-4bc2b53224f5",
+    "name": "Reclamos",
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "greetingMessage": "",
+    "workingHours": {
+      "days": {
+        "friday": [],
+        "monday": [],
+        "sunday": [],
+        "tuesday": [],
+        "saturday": [],
+        "thursday": [],
+        "wednesday": []
+      },
+      "isEnabled": false,
+      "awayMessage": "",
+      "sendAfterChatbot": false,
+      "overrideGlobalSetting": false
+    },
+    "metadata": {
+      "csatConfig": {
+        "enabled": false,
+        "commentBuckets": [],
+        "commentTimeout": 15,
+        "requestComment": false,
+        "requestMessage": "",
+        "thankYouBuckets": [
+          {
+            "message": "",
+            "ratings": [
+              4,
+              5
+            ]
+          }
+        ],
+        "thankYouMessage": "",
+        "sendOnAutoResolve": false,
+        "useInteractiveList": false,
+        "overrideGlobalSetting": false,
+        "conditionalThankYouEnabled": false
+      },
+      "autoResolveTicketConfig": {
+        "enabled": false,
+        "idleTimeout": 5,
+        "warnMessage": "",
+        "warnTimeout": 1,
+        "overrideGlobalSetting": false,
+        "shouldSendFarewellMessage": true
+      }
+    },
+    "color": "#b80000",
+    "chatbots": []
+  },
+  {
+    "id": "f89b80cb-151c-4f8f-b58b-998fb9583054",
+    "name": "RRHH",
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "greetingMessage": "",
+    "workingHours": {
+      "days": {
+        "friday": [],
+        "monday": [],
+        "sunday": [],
+        "tuesday": [],
+        "saturday": [],
+        "thursday": [],
+        "wednesday": []
+      },
+      "isEnabled": false,
+      "awayMessage": "",
+      "sendAfterChatbot": false,
+      "overrideGlobalSetting": false
+    },
+    "metadata": {
+      "csatConfig": {
+        "enabled": false,
+        "commentBuckets": [],
+        "commentTimeout": 15,
+        "requestComment": false,
+        "requestMessage": "",
+        "thankYouBuckets": [
+          {
+            "message": "",
+            "ratings": [
+              4,
+              5
+            ]
+          }
+        ],
+        "thankYouMessage": "",
+        "sendOnAutoResolve": false,
+        "useInteractiveList": false,
+        "overrideGlobalSetting": false,
+        "conditionalThankYouEnabled": false
+      },
+      "autoResolveTicketConfig": {
+        "enabled": false,
+        "idleTimeout": 5,
+        "warnMessage": "",
+        "warnTimeout": 1,
+        "overrideGlobalSetting": false,
+        "shouldSendFarewellMessage": true
+      }
+    },
+    "color": "#fb9e00",
+    "chatbots": []
+  },
+  {
+    "id": "deca07da-59d5-4eca-a9c0-30720316a2a0",
+    "name": "Venta Mayorista",
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "greetingMessage": "",
+    "workingHours": {
+      "days": {
+        "friday": [],
+        "monday": [],
+        "sunday": [],
+        "tuesday": [],
+        "saturday": [],
+        "thursday": [],
+        "wednesday": []
+      },
+      "isEnabled": false,
+      "awayMessage": "",
+      "sendAfterChatbot": false,
+      "overrideGlobalSetting": false
+    },
+    "metadata": {
+      "csatConfig": {
+        "enabled": false,
+        "commentBuckets": [],
+        "commentTimeout": 15,
+        "requestComment": false,
+        "requestMessage": "",
+        "thankYouBuckets": [
+          {
+            "message": "",
+            "ratings": [
+              4,
+              5
+            ]
+          }
+        ],
+        "thankYouMessage": "",
+        "sendOnAutoResolve": false,
+        "useInteractiveList": false,
+        "overrideGlobalSetting": false,
+        "conditionalThankYouEnabled": false
+      },
+      "autoResolveTicketConfig": {
+        "enabled": false,
+        "idleTimeout": 5,
+        "warnMessage": "",
+        "warnTimeout": 1,
+        "overrideGlobalSetting": false,
+        "shouldSendFarewellMessage": true
+      }
+    },
+    "color": "#73d8ff",
+    "chatbots": []
+  },
+  {
+    "id": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+    "name": "Ventas",
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "greetingMessage": "",
+    "workingHours": {
+      "days": {
+        "friday": [],
+        "monday": [],
+        "sunday": [],
+        "tuesday": [],
+        "saturday": [],
+        "thursday": [],
+        "wednesday": []
+      },
+      "isEnabled": false,
+      "awayMessage": "",
+      "delegateToAi": false,
+      "sendAfterChatbot": false,
+      "overrideGlobalSetting": false
+    },
+    "metadata": {
+      "aiConfig": {
+        "distanceThreshold": 0.7,
+        "overrideGlobalSetting": false
+      },
+      "csatConfig": {
+        "enabled": false,
+        "commentBuckets": [],
+        "commentTimeout": 15,
+        "requestComment": false,
+        "requestMessage": "",
+        "thankYouBuckets": [
+          {
+            "message": "",
+            "ratings": [
+              4,
+              5
+            ]
+          }
+        ],
+        "thankYouMessage": "",
+        "sendOnAutoResolve": false,
+        "useInteractiveList": false,
+        "overrideGlobalSetting": false,
+        "conditionalThankYouEnabled": false
+      },
+      "autoResolveTicketConfig": {
+        "enabled": false,
+        "idleTimeout": 5,
+        "warnMessage": "",
+        "overrideGlobalSetting": false
+      }
+    },
+    "color": "#0c797d",
+    "chatbots": []
+  }
+]

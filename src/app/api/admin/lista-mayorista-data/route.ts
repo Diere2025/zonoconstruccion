@@ -1,6 +1,7 @@
 export const runtime = 'edge';
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { fetchSpreadsheetCsv } from '@/lib/googleSheets';
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -63,11 +64,7 @@ export async function GET() {
   try {
     // 1. Descargar BDCosto directamente desde Google Sheets
     const url = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_COSTS_ID}/gviz/tq?tqx=out:csv&gid=${GID_BD_COSTO}`;
-    const res = await fetch(url, { cache: 'no-store' });
-    if (!res.ok) {
-      throw new Error(`Error al descargar BDCosto (HTTP ${res.status})`);
-    }
-    const csvText = await res.text();
+    const csvText = await fetchSpreadsheetCsv(url);
     const lines = csvText.split('\n');
 
     // Mapeo de Columna E por producto

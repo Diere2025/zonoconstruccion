@@ -2,6 +2,7 @@ export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { fetchSpreadsheetCsv } from '@/lib/googleSheets';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.dummy';
@@ -224,9 +225,8 @@ export async function POST(request: Request) {
     if (!skipCAMB && hasCambOrRecInChunk) {
       addLog("Descargando planilla general de reclamos para vinculación de cambios...");
       try {
-        const claimsRes = await fetch("https://docs.google.com/spreadsheets/d/1PzbotWVO-iLqV0rPvH2ZlXKkMGYPTIkmBd1owU45OCo/gviz/tq?tqx=out:csv&gid=1414092286", { cache: 'no-store' });
-        if (claimsRes.ok) {
-          const claimsCsv = await claimsRes.text();
+        const claimsCsv = await fetchSpreadsheetCsv("https://docs.google.com/spreadsheets/d/1PzbotWVO-iLqV0rPvH2ZlXKkMGYPTIkmBd1owU45OCo/gviz/tq?tqx=out:csv&gid=1414092286");
+        if (claimsCsv) {
           
           const parseCSV = (csvText: string) => {
             const result: string[][] = [];

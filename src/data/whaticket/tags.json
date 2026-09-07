@@ -1,0 +1,265 @@
+{
+  "tags": [
+    {
+      "id": "11587063-4814-4a96-b0d7-36125cb7d27a",
+      "name": "Agrega",
+      "color": "#ffef62"
+    },
+    {
+      "id": "793b0b57-9297-4570-a314-257c799733a4",
+      "name": "AQ CABA",
+      "color": "#0066ff"
+    },
+    {
+      "id": "aa3823db-156b-4a4e-a776-28301e1a3be1",
+      "name": "AQ Interior Bs. As.",
+      "color": "#0066ff"
+    },
+    {
+      "id": "5a8d86d8-0515-4dee-8282-eee2eb255581",
+      "name": "AQ Zona Norte",
+      "color": "#0066ff"
+    },
+    {
+      "id": "fbee03e7-c40e-4ba5-86ca-cbdaca6b9e93",
+      "name": "AQ Zona Oeste",
+      "color": "#0066ff"
+    },
+    {
+      "id": "cbba49b8-e827-44d0-9ffd-de74b36b6c80",
+      "name": "AQ Zona Sur",
+      "color": "#0066ff"
+    },
+    {
+      "id": "889bbc29-d844-4e5c-aeb6-4caf93fad22e",
+      "name": "Aviso Ingreso Productos",
+      "color": "#35baf6"
+    },
+    {
+      "id": "8a139d36-1c23-4846-b222-cfed5ac6c94c",
+      "name": "Cambio",
+      "color": "#f6685e"
+    },
+    {
+      "id": "0098db98-0950-4598-962b-c6ddfa6effa8",
+      "name": "Cliente",
+      "color": "#35baf6"
+    },
+    {
+      "id": "2245e662-cc2d-40a4-a68d-46766c9e4496",
+      "name": "Estafa",
+      "color": "#f01111"
+    },
+    {
+      "id": "de4a5e8c-d00d-4749-b9b0-f79de4bf86f6",
+      "name": "Express",
+      "color": "#9778ce"
+    },
+    {
+      "id": "3a9495d7-dab4-4764-a827-129cc7b74dfe",
+      "name": "Factura",
+      "color": "#33ab9f"
+    },
+    {
+      "id": "9f8d7507-5f60-4536-a154-9b58403853ce",
+      "name": "Fuera Cobertura ",
+      "color": "#f6685e"
+    },
+    {
+      "id": "0176685c-7980-4510-97e1-fab8740bf175",
+      "name": "Hablar",
+      "color": "#33ab9f"
+    },
+    {
+      "id": "bfd84b85-c611-4ac2-86d5-6077085c3127",
+      "name": "Jazmin",
+      "color": "#ffac33"
+    },
+    {
+      "id": "7eb72d31-cb5c-41e7-9f9d-b4e4579cd2bb",
+      "name": "Jueves",
+      "color": "#35baf6"
+    },
+    {
+      "id": "5aa4b62e-3acc-40cb-a4df-b66f749ccccd",
+      "name": "Linea Biodigestor Instalacion",
+      "color": "#64a420"
+    },
+    {
+      "id": "0291284d-b909-492e-b708-fc0817d49c69",
+      "name": "Linea Combo Latex",
+      "color": "#64a420"
+    },
+    {
+      "id": "ed582d68-32dd-410a-8269-8c6907e90e28",
+      "name": "Linea Combo Tanque",
+      "color": "#64a420"
+    },
+    {
+      "id": "947c0319-fb16-4a91-adf8-d4a83acaa1da",
+      "name": "Linea Escalera ",
+      "color": "#64a420"
+    },
+    {
+      "id": "9e7a162e-24ef-496c-af7e-67551bcf4be9",
+      "name": "Linea Hogar",
+      "color": "#64a420"
+    },
+    {
+      "id": "8c9a059e-b5c5-4d16-acb5-6ae266b8c987",
+      "name": "Linea Kit Biodigestor",
+      "color": "#64a420"
+    },
+    {
+      "id": "22a05951-6135-4999-bb89-5c521185fa5c",
+      "name": "Linea Latex ",
+      "color": "#64a420"
+    },
+    {
+      "id": "2aeb9c2c-7dcb-49c7-9f0f-34312b923916",
+      "name": "Linea Latex c/ entonadores",
+      "color": "#64a420"
+    },
+    {
+      "id": "5251bd77-0a8a-4e7b-b66d-bf1df0e22c84",
+      "name": "Linea MEP Equilibrio",
+      "color": "#64a420"
+    },
+    {
+      "id": "3701ebb8-c9cf-4721-afea-5a0b263c5225",
+      "name": "Linea Tanque Beige",
+      "color": "#64a420"
+    },
+    {
+      "id": "1dd99f71-2d71-4ead-9caa-bb6b4d4f1e58",
+      "name": "Linea Tanque Segunda",
+      "color": "#64a420"
+    },
+    {
+      "id": "6e991c37-960c-4046-84d6-3cd110e39e3d",
+      "name": "Linea Tanques Gris",
+      "color": "#64a420"
+    },
+    {
+      "id": "966f0508-6068-47e6-a769-fa622530ef84",
+      "name": "Linea Termotanque",
+      "color": "#64a420"
+    },
+    {
+      "id": "7ffa97f0-1f61-49ba-bfc7-2705d92f7895",
+      "name": "Llamar",
+      "color": "#f6685e"
+    },
+    {
+      "id": "dee45524-d917-464c-8af9-4c69be9c37f2",
+      "name": "Ludmila",
+      "color": "#cc7900"
+    },
+    {
+      "id": "18741227-489d-4fb9-bd12-1a6003d684db",
+      "name": "Lunes",
+      "color": "#35baf6"
+    },
+    {
+      "id": "d526ce4e-a807-47a0-89db-884dd93a0f57",
+      "name": "Mantener",
+      "color": "#33ab9f"
+    },
+    {
+      "id": "45ee7ec7-5d1c-4784-a5ef-15bcc966d84f",
+      "name": "Martes",
+      "color": "#35baf6"
+    },
+    {
+      "id": "392f9f8f-635f-4c7e-8ee6-f1ab93a7a7e3",
+      "name": "Mayorista",
+      "color": "#9778ce"
+    },
+    {
+      "id": "29d788f9-391c-4901-bbd7-e9fa12aaa69e",
+      "name": "mes",
+      "color": null
+    },
+    {
+      "id": "cbd96895-a759-4aac-8f61-cc30b9dacaa8",
+      "name": "Mes Siguiente",
+      "color": "#35baf6"
+    },
+    {
+      "id": "5b64a8b5-fac8-4e3f-814b-472ac31adb0b",
+      "name": "Miercoles",
+      "color": "#35baf6"
+    },
+    {
+      "id": "b3517546-9e8f-4696-a86f-a03a45d5a92b",
+      "name": "Nuevo cliente",
+      "color": "#ffef62"
+    },
+    {
+      "id": "f628e247-f950-4771-9a6c-26bc193e79a4",
+      "name": "Posibles",
+      "color": "#9778ce"
+    },
+    {
+      "id": "40893892-69dc-4521-9368-5a58e3399046",
+      "name": "Productos Solicitados",
+      "color": "#5f4390"
+    },
+    {
+      "id": "5c97cc46-76ef-4c8a-b547-877f61d9ad0d",
+      "name": "Proveedor",
+      "color": "#33ab9f"
+    },
+    {
+      "id": "d3a89792-baa4-42e5-96cd-d85cb072aac2",
+      "name": "Reclamos",
+      "color": "#f6685e"
+    },
+    {
+      "id": "ea2be687-96e5-4ac1-87cf-858aaa69a4f0",
+      "name": "Recupero",
+      "color": "#33ab9f"
+    },
+    {
+      "id": "c1a24042-d2aa-4f27-9408-b148a1491e77",
+      "name": "Recupero Finalizado",
+      "color": "#35baf6"
+    },
+    {
+      "id": "2a4fd6db-9301-41ae-8fff-12634cbffde8",
+      "name": "Repactado",
+      "color": "#f6685e"
+    },
+    {
+      "id": "e23cc93a-3583-4298-be59-3090f12f19f9",
+      "name": "Sabado",
+      "color": "#35baf6"
+    },
+    {
+      "id": "861597a6-93df-4d98-8e03-8d7fe55c7ef3",
+      "name": "Seguimiento Anulación",
+      "color": "#f6685e"
+    },
+    {
+      "id": "affc66f3-a417-4b37-be49-5e1140029ada",
+      "name": "SPAM",
+      "color": null
+    },
+    {
+      "id": "04da27ea-09ce-4efe-ba17-bce79b2c13ed",
+      "name": "Tarde",
+      "color": "#939ed5"
+    },
+    {
+      "id": "b1ec02e9-ac24-4ba8-b806-6f34071eb411",
+      "name": "Viernes",
+      "color": "#35baf6"
+    },
+    {
+      "id": "f55c5d85-365a-4dd8-b4eb-83f265ae2bf1",
+      "name": "zona peligrosa",
+      "color": "#f6685e"
+    }
+  ],
+  "hasMore": false
+}

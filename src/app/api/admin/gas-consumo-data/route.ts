@@ -1,5 +1,6 @@
 export const runtime = 'edge';
 import { NextResponse } from "next/server";
+import { fetchSpreadsheetCsv } from '@/lib/googleSheets';
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -325,15 +326,15 @@ export async function GET() {
     const pricesUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_PRICES_ID}/export?format=csv&gid=508601925`;
     const supabaseProductsUrl = `${SUPABASE_URL}/rest/v1/products?is_active=eq.true&select=id,name,sku,price&order=name.asc`;
 
-    const [gasRes, tipoRes, sueldosRes, edenorRes, gastosRes, fabRes, ensRes, pricesRes, dbProductsRes] = await Promise.all([
-      fetch(gasCargaUrl, { cache: "no-store" }),
-      fetch(gasTipoUrl, { cache: "no-store" }),
-      fetch(gasSueldosUrl, { cache: "no-store" }),
-      fetch(gasEdenorUrl, { cache: "no-store" }),
-      fetch(gasGastosUrl, { cache: "no-store" }),
-      fetch(prodFabUrl, { cache: "no-store" }),
-      fetch(prodEnsUrl, { cache: "no-store" }),
-      fetch(pricesUrl, { cache: "no-store" }),
+    const [gasCsv, tipoCsv, sueldosCsv, edenorCsv, gastosCsv, fabCsv, ensCsv, pricesCsv, dbProductsRes] = await Promise.all([
+      fetchSpreadsheetCsv(gasCargaUrl),
+      fetchSpreadsheetCsv(gasTipoUrl).catch(() => ""),
+      fetchSpreadsheetCsv(gasSueldosUrl).catch(() => ""),
+      fetchSpreadsheetCsv(gasEdenorUrl).catch(() => ""),
+      fetchSpreadsheetCsv(gasGastosUrl).catch(() => ""),
+      fetchSpreadsheetCsv(prodFabUrl).catch(() => ""),
+      fetchSpreadsheetCsv(prodEnsUrl).catch(() => ""),
+      fetchSpreadsheetCsv(pricesUrl).catch(() => ""),
       fetch(supabaseProductsUrl, {
         headers: {
           'apikey': SUPABASE_KEY,
@@ -344,21 +345,7 @@ export async function GET() {
       })
     ]);
 
-    if (!gasRes.ok) {
-      throw new Error(`Error al leer la hoja de Cargas de Gas (${gasRes.status})`);
-    }
-
-    const [gasCsv, tipoCsv, sueldosCsv, edenorCsv, gastosCsv, fabCsv, ensCsv, pricesCsv, dbProducts] = await Promise.all([
-      gasRes.text(),
-      tipoRes.ok ? tipoRes.text() : Promise.resolve(""),
-      sueldosRes.ok ? sueldosRes.text() : Promise.resolve(""),
-      edenorRes.ok ? edenorRes.text() : Promise.resolve(""),
-      gastosRes.ok ? gastosRes.text() : Promise.resolve(""),
-      fabRes.ok ? fabRes.text() : Promise.resolve(""),
-      ensRes.ok ? ensRes.text() : Promise.resolve(""),
-      pricesRes.ok ? pricesRes.text() : Promise.resolve(""),
-      dbProductsRes.ok ? dbProductsRes.json() : Promise.resolve([])
-    ]);
+    const dbProducts = dbProductsRes.ok ? await dbProductsRes.json() : [];
 
     // Build Prices and SKU Map
     const pricesMap: Record<string, { price: number; sku?: string; id?: string }> = {};

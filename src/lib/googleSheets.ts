@@ -79,7 +79,7 @@ export async function getGoogleAccessToken(): Promise<string> {
   const header = { alg: 'RS256', typ: 'JWT' };
   const claimSet = {
     iss: creds.client_email,
-    scope: 'https://www.googleapis.com/auth/spreadsheets.readonly',
+    scope: 'https://www.googleapis.com/auth/spreadsheets.readonly https://www.googleapis.com/auth/drive.readonly',
     aud: 'https://oauth2.googleapis.com/token',
     exp: now + 3600,
     iat: now
@@ -151,3 +151,54 @@ export async function fetchSpreadsheetValues(
   const json = await res.json();
   return json.values || [];
 }
+
+export async function fetchSpreadsheetCsv(
+  urlOrId: string,
+  options?: { gid?: string | number; sheet?: string }
+): Promise<string> {
+  const token = await getGoogleAccessToken();
+  let spreadsheetId = urlOrId.trim();
+  let gid = options?.gid;
+  let sheet = options?.sheet;
+
+  if (urlOrId.includes('docs.google.com/spreadsheets/d/')) {
+    const match = urlOrId.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+    if (match) {
+      spreadsheetId = match[1];
+    }
+    try {
+      const parsedUrl = new URL(urlOrId);
+      if (gid === undefined && parsedUrl.searchParams.has('gid')) {
+        gid = parsedUrl.searchParams.get('gid')!;
+      }
+      if (sheet === undefined && parsedUrl.searchParams.has('sheet')) {
+        sheet = parsedUrl.searchParams.get('sheet')!;
+      }
+    } catch {
+      // Not a full URL with scheme, continue
+    }
+  }
+
+  let fetchUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:csv`;
+  if (gid !== undefined && gid !== null && gid !== '') {
+    fetchUrl += `&gid=${gid}`;
+  }
+  if (sheet) {
+    fetchUrl += `&sheet=${encodeURIComponent(sheet)}`;
+  }
+
+  const res = await fetch(fetchUrl, {
+    headers: {
+      Authorization: `Bearer ${token}`
+    },
+    cache: 'no-store'
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`Google Sheets fetch error (${res.status}): ${errorText}`);
+  }
+
+  return await res.text();
+}
+

@@ -1,0 +1,229 @@
+{
+  "users": [
+    {
+      "name": "Diego",
+      "id": "82cbc81d-30db-47d0-a176-ebf799129819",
+      "email": "diere.books@gmail.com",
+      "status": "online",
+      "lastSeen": "2026-09-05T23:06:06.950Z",
+      "isActive": true,
+      "isEmailVerified": true,
+      "profilePicture": "https://storage.googleapis.com/public.whaticket.com/user-avatars/dd9d7f48-f7a1-4408-9a48-cd6b76f646c8/790374e32cef4dd59ca8a709504dc5ba.jpeg",
+      "profile": "admin",
+      "profileId": null,
+      "twoFactorEnabled": false,
+      "metadata": {
+        "isAway": null,
+        "awayReason": null,
+        "awayClearAt": null
+      },
+      "queues": [
+        {
+          "id": "4733fd3b-3e9a-4398-ad4c-b4c972369ddf",
+          "name": "Logística",
+          "color": "#333333",
+          "UserQueue": {
+            "userId": "82cbc81d-30db-47d0-a176-ebf799129819",
+            "queueId": "4733fd3b-3e9a-4398-ad4c-b4c972369ddf",
+            "isAutoAssignmentEnabled": false,
+            "createdAt": "2026-05-07T17:32:52.426Z",
+            "updatedAt": "2026-05-07T17:32:52.426Z"
+          }
+        },
+        {
+          "id": "deca07da-59d5-4eca-a9c0-30720316a2a0",
+          "name": "Venta Mayorista",
+          "color": "#73d8ff",
+          "UserQueue": {
+            "userId": "82cbc81d-30db-47d0-a176-ebf799129819",
+            "queueId": "deca07da-59d5-4eca-a9c0-30720316a2a0",
+            "isAutoAssignmentEnabled": true,
+            "createdAt": "2026-04-13T11:35:34.187Z",
+            "updatedAt": "2026-04-24T20:05:34.053Z"
+          }
+        },
+        {
+          "id": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+          "name": "Ventas",
+          "color": "#0c797d",
+          "UserQueue": {
+            "userId": "82cbc81d-30db-47d0-a176-ebf799129819",
+            "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+            "isAutoAssignmentEnabled": false,
+            "createdAt": "2026-05-06T12:23:12.625Z",
+            "updatedAt": "2026-05-06T12:23:12.625Z"
+          }
+        },
+        {
+          "id": "1a6167b1-0b24-470d-a57d-4bc2b53224f5",
+          "name": "Reclamos",
+          "color": "#b80000",
+          "UserQueue": {
+            "userId": "82cbc81d-30db-47d0-a176-ebf799129819",
+            "queueId": "1a6167b1-0b24-470d-a57d-4bc2b53224f5",
+            "isAutoAssignmentEnabled": false,
+            "createdAt": "2026-05-07T13:14:16.145Z",
+            "updatedAt": "2026-05-07T13:14:16.145Z"
+          }
+        },
+        {
+          "id": "f89b80cb-151c-4f8f-b58b-998fb9583054",
+          "name": "RRHH",
+          "color": "#fb9e00",
+          "UserQueue": {
+            "userId": "82cbc81d-30db-47d0-a176-ebf799129819",
+            "queueId": "f89b80cb-151c-4f8f-b58b-998fb9583054",
+            "isAutoAssignmentEnabled": false,
+            "createdAt": "2026-05-07T17:30:35.047Z",
+            "updatedAt": "2026-05-07T17:30:35.047Z"
+          }
+        },
+        {
+          "id": "e7f4c639-404b-41cd-bd02-a5cd86aeeecb",
+          "name": "Compras",
+          "color": "#fcc400",
+          "UserQueue": {
+            "userId": "82cbc81d-30db-47d0-a176-ebf799129819",
+            "queueId": "e7f4c639-404b-41cd-bd02-a5cd86aeeecb",
+            "isAutoAssignmentEnabled": false,
+            "createdAt": "2026-05-07T17:31:03.855Z",
+            "updatedAt": "2026-05-07T17:31:03.855Z"
+          }
+        }
+      ],
+      "customProfile": null
+    },
+    {
+      "name": "Jazmin",
+      "id": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+      "email": "zonov.backup3881@gmail.com",
+      "status": "offline",
+      "lastSeen": "2026-09-05T21:35:37.983Z",
+      "isActive": true,
+      "isEmailVerified": false,
+      "profilePicture": "https://storage.googleapis.com/public.whaticket.com/user-avatars/dd9d7f48-f7a1-4408-9a48-cd6b76f646c8/6fa3ac8eb3a34bd59648cd729164c855.jpeg",
+      "profile": "custom",
+      "profileId": "dd5c5ccc-2718-42f1-91ce-d2b7642a15cb",
+      "twoFactorEnabled": false,
+      "metadata": {
+        "isAway": null,
+        "awayReason": null,
+        "awayClearAt": null
+      },
+      "queues": [
+        {
+          "id": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+          "name": "Ventas",
+          "color": "#0c797d",
+          "UserQueue": {
+            "userId": "1bd725c2-d8a8-4f73-9f4f-4690603afe9b",
+            "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+            "isAutoAssignmentEnabled": true,
+            "createdAt": "2025-07-23T15:36:39.526Z",
+            "updatedAt": "2026-04-28T23:52:31.827Z"
+          }
+        }
+      ],
+      "customProfile": {
+        "id": "dd5c5ccc-2718-42f1-91ce-d2b7642a15cb",
+        "name": "Supervisor"
+      }
+    },
+    {
+      "name": "Ludmila",
+      "id": "61b3f822-b28a-44bb-80b7-3fb2c482b9ce",
+      "email": "ludmila.krenz@zono.com.ar",
+      "status": "offline",
+      "lastSeen": "2026-09-05T01:31:40.237Z",
+      "isActive": true,
+      "isEmailVerified": false,
+      "profilePicture": "https://storage.googleapis.com/public.whaticket.com/user-avatars/dd9d7f48-f7a1-4408-9a48-cd6b76f646c8/76df1d27ab1541c2953b97c3e328db23.jpeg",
+      "profile": "custom",
+      "profileId": "dd5c5ccc-2718-42f1-91ce-d2b7642a15cb",
+      "twoFactorEnabled": false,
+      "metadata": {
+        "isAway": null,
+        "awayReason": null,
+        "awayClearAt": null
+      },
+      "queues": [
+        {
+          "id": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+          "name": "Ventas",
+          "color": "#0c797d",
+          "UserQueue": {
+            "userId": "61b3f822-b28a-44bb-80b7-3fb2c482b9ce",
+            "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+            "isAutoAssignmentEnabled": false,
+            "createdAt": "2026-05-19T12:28:07.743Z",
+            "updatedAt": "2026-05-19T12:28:07.743Z"
+          }
+        }
+      ],
+      "customProfile": {
+        "id": "dd5c5ccc-2718-42f1-91ce-d2b7642a15cb",
+        "name": "Supervisor"
+      }
+    },
+    {
+      "name": "Matías",
+      "id": "2e1d1221-861c-49a2-8add-e7930ee1126b",
+      "email": "dtocompras.zono@gmail.com",
+      "status": "offline",
+      "lastSeen": "2026-09-04T15:25:26.514Z",
+      "isActive": true,
+      "isEmailVerified": true,
+      "profilePicture": "",
+      "profile": "custom",
+      "profileId": "dd5c5ccc-2718-42f1-91ce-d2b7642a15cb",
+      "twoFactorEnabled": false,
+      "metadata": {
+        "isAway": null,
+        "awayReason": null,
+        "awayClearAt": null
+      },
+      "queues": [
+        {
+          "id": "e7f4c639-404b-41cd-bd02-a5cd86aeeecb",
+          "name": "Compras",
+          "color": "#fcc400",
+          "UserQueue": {
+            "userId": "2e1d1221-861c-49a2-8add-e7930ee1126b",
+            "queueId": "e7f4c639-404b-41cd-bd02-a5cd86aeeecb",
+            "isAutoAssignmentEnabled": false,
+            "createdAt": "2026-05-07T17:31:03.457Z",
+            "updatedAt": "2026-05-07T17:31:03.457Z"
+          }
+        },
+        {
+          "id": "4733fd3b-3e9a-4398-ad4c-b4c972369ddf",
+          "name": "Logística",
+          "color": "#333333",
+          "UserQueue": {
+            "userId": "2e1d1221-861c-49a2-8add-e7930ee1126b",
+            "queueId": "4733fd3b-3e9a-4398-ad4c-b4c972369ddf",
+            "isAutoAssignmentEnabled": false,
+            "createdAt": "2026-08-10T16:27:19.793Z",
+            "updatedAt": "2026-08-10T16:27:19.793Z"
+          }
+        },
+        {
+          "id": "1a6167b1-0b24-470d-a57d-4bc2b53224f5",
+          "name": "Reclamos",
+          "color": "#b80000",
+          "UserQueue": {
+            "userId": "2e1d1221-861c-49a2-8add-e7930ee1126b",
+            "queueId": "1a6167b1-0b24-470d-a57d-4bc2b53224f5",
+            "isAutoAssignmentEnabled": false,
+            "createdAt": "2026-05-07T13:31:08.394Z",
+            "updatedAt": "2026-05-07T13:31:08.394Z"
+          }
+        }
+      ],
+      "customProfile": {
+        "id": "dd5c5ccc-2718-42f1-91ce-d2b7642a15cb",
+        "name": "Supervisor"
+      }
+    }
+  ]
+}

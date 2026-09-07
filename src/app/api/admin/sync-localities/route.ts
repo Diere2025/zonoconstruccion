@@ -2,6 +2,7 @@ export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { fetchSpreadsheetCsv } from '@/lib/googleSheets';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.dummy';
@@ -14,11 +15,7 @@ const GOOGLE_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1iNciz2d6Do7m7w
 export async function GET() {
   try {
     // 1. Fetch CSV from Google Sheets
-    const csvRes = await fetch(GOOGLE_SHEET_URL, { cache: 'no-store' });
-    if (!csvRes.ok) {
-      return NextResponse.json({ error: 'No se pudo descargar la planilla de Google Sheets.' }, { status: 500 });
-    }
-    const csvText = await csvRes.text();
+    const csvText = await fetchSpreadsheetCsv(GOOGLE_SHEET_URL);
     const lines = csvText.split('\n');
 
     // Find the header line "Localidad,Zona"

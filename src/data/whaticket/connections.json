@@ -1,0 +1,316 @@
+[
+  {
+    "id": "3ae77544-853f-4011-9624-8e4d5c4ac6e3",
+    "name": "Línea 8386",
+    "number": "5491168618386",
+    "browserSessionInfo": null,
+    "socketSessionInfo": null,
+    "qrcode": "",
+    "status": "CONNECTED",
+    "channel": "WHATSAPP",
+    "externalId": "5491168618386",
+    "facebookUserId": null,
+    "facebookAccessToken": null,
+    "ticketReopenPeriod": 15,
+    "battery": null,
+    "connectionType": null,
+    "plugged": null,
+    "isDefault": false,
+    "greetingMessage": null,
+    "farewellMessage": null,
+    "keepOneTicketPerContact": true,
+    "metadata": {
+      "useZapo": true,
+      "lastPhoneSync": "2026-08-22T12:50:55.967Z",
+      "sessionOrigin": "baileys",
+      "returnToLastAgent": true
+    },
+    "linkSlug": null,
+    "mediaId": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "proxyAddress": "188.42.18.125:20000",
+    "farewellMediaId": null,
+    "createdAt": "2026-08-03T19:51:46.252Z",
+    "updatedAt": "2026-08-22T12:50:55.975Z",
+    "queues": [
+      {
+        "id": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+        "name": "Ventas",
+        "color": "#0c797d",
+        "greetingMessage": "",
+        "ConnectionQueue": {
+          "connectionId": "3ae77544-853f-4011-9624-8e4d5c4ac6e3",
+          "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+          "priority": 0,
+          "createdAt": "2026-08-03T19:52:28.315Z",
+          "updatedAt": "2026-08-03T19:52:28.315Z"
+        }
+      }
+    ]
+  },
+  {
+    "id": "3c4572a7-97fa-4c51-968b-d8ce4ce053b2",
+    "name": "Línea 3454",
+    "number": "5491123673454",
+    "browserSessionInfo": null,
+    "socketSessionInfo": null,
+    "qrcode": "",
+    "status": "CONNECTED",
+    "channel": "WHATSAPP",
+    "externalId": "5491123673454",
+    "facebookUserId": null,
+    "facebookAccessToken": null,
+    "ticketReopenPeriod": 15,
+    "battery": null,
+    "connectionType": null,
+    "plugged": null,
+    "isDefault": false,
+    "greetingMessage": null,
+    "farewellMessage": null,
+    "keepOneTicketPerContact": true,
+    "metadata": {
+      "useZapo": true,
+      "lastPhoneSync": "2026-08-27T18:05:11.545Z",
+      "returnToLastAgent": true,
+      "assigningTicketsSince": null
+    },
+    "linkSlug": null,
+    "mediaId": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "proxyAddress": "188.42.12.78:20000",
+    "farewellMediaId": null,
+    "createdAt": "2026-08-27T18:04:49.469Z",
+    "updatedAt": "2026-08-27T20:41:31.723Z",
+    "queues": [
+      {
+        "id": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+        "name": "Ventas",
+        "color": "#0c797d",
+        "greetingMessage": "",
+        "ConnectionQueue": {
+          "connectionId": "3c4572a7-97fa-4c51-968b-d8ce4ce053b2",
+          "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+          "priority": 0,
+          "createdAt": "2026-08-27T20:41:31.732Z",
+          "updatedAt": "2026-08-27T20:41:31.732Z"
+        }
+      }
+    ]
+  },
+  {
+    "id": "8474b5aa-e6f7-488b-b9b2-352106629573",
+    "name": "Línea 3264",
+    "number": "5491161253264",
+    "browserSessionInfo": null,
+    "socketSessionInfo": null,
+    "qrcode": null,
+    "status": "CONNECTED",
+    "channel": "WABA",
+    "externalId": "5491161253264",
+    "facebookUserId": null,
+    "facebookAccessToken": null,
+    "ticketReopenPeriod": 15,
+    "battery": null,
+    "connectionType": null,
+    "plugged": null,
+    "isDefault": false,
+    "greetingMessage": "",
+    "farewellMessage": "",
+    "keepOneTicketPerContact": true,
+    "metadata": {
+      "wabaId": "1897846454332585",
+      "phoneId": "691230070736780",
+      "accessToken": "EAAWSfSSspcoBO5NMBZCt0xLNImfPSRLLDDUhXhS1XmfDr0Ca7zZBe1oePub4EGe7vK8X7SQHHdKG04HeUCBTn6A4SEGMQly5Aaf7jtHyNlAByiC0zMIbucEBmDkumxZAqohJtx1X293ScqT2LImdxJ7WrsOwsl6J4p9JT1njb37hZAVV0KqSQH4etHBrzFn4kGAQ0OeDZA0VXsBvCU4yByWKZCAU3Qz3ITe5YoKmmkndy4tcZC0aDZCDXf1YFJCN",
+      "facebookAppId": "1568441067414986"
+    },
+    "linkSlug": null,
+    "mediaId": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "proxyAddress": null,
+    "farewellMediaId": null,
+    "createdAt": "2025-06-11T19:45:32.004Z",
+    "updatedAt": "2026-05-27T17:51:44.847Z",
+    "queues": [
+      {
+        "id": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+        "name": "Ventas",
+        "color": "#0c797d",
+        "greetingMessage": "",
+        "ConnectionQueue": {
+          "connectionId": "8474b5aa-e6f7-488b-b9b2-352106629573",
+          "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+          "priority": 0,
+          "createdAt": "2026-05-27T17:51:44.855Z",
+          "updatedAt": "2026-05-27T17:51:44.855Z"
+        }
+      }
+    ]
+  },
+  {
+    "id": "498d7a35-58fa-41b5-93c0-6dce14a1e58e",
+    "name": "Linea 4592",
+    "number": "5491134214592",
+    "browserSessionInfo": null,
+    "socketSessionInfo": null,
+    "qrcode": "",
+    "status": "CONNECTED",
+    "channel": "WHATSAPP",
+    "externalId": "5491134214592",
+    "facebookUserId": null,
+    "facebookAccessToken": null,
+    "ticketReopenPeriod": 15,
+    "battery": null,
+    "connectionType": null,
+    "plugged": null,
+    "isDefault": false,
+    "greetingMessage": "",
+    "farewellMessage": "",
+    "keepOneTicketPerContact": true,
+    "metadata": {
+      "apiKey": "",
+      "appName": "",
+      "useZapo": true,
+      "sessionOrigin": "baileys",
+      "useInteractiveMessage": false
+    },
+    "linkSlug": null,
+    "mediaId": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "proxyAddress": "188.42.18.54:20000",
+    "farewellMediaId": null,
+    "createdAt": "2026-05-04T16:35:06.674Z",
+    "updatedAt": "2026-08-13T22:27:16.078Z",
+    "queues": [
+      {
+        "id": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+        "name": "Ventas",
+        "color": "#0c797d",
+        "greetingMessage": "",
+        "ConnectionQueue": {
+          "connectionId": "498d7a35-58fa-41b5-93c0-6dce14a1e58e",
+          "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+          "priority": 0,
+          "createdAt": "2026-05-04T17:17:36.064Z",
+          "updatedAt": "2026-05-04T17:17:36.064Z"
+        }
+      }
+    ]
+  },
+  {
+    "id": "d28f98ad-f938-4e5c-9df4-d12fba4ac0c2",
+    "name": "Línea 4181",
+    "number": "5491157694181",
+    "browserSessionInfo": null,
+    "socketSessionInfo": null,
+    "qrcode": "",
+    "status": "CONNECTED",
+    "channel": "WHATSAPP",
+    "externalId": "5491157694181",
+    "facebookUserId": null,
+    "facebookAccessToken": null,
+    "ticketReopenPeriod": 15,
+    "battery": null,
+    "connectionType": null,
+    "plugged": null,
+    "isDefault": false,
+    "greetingMessage": "",
+    "farewellMessage": "",
+    "keepOneTicketPerContact": true,
+    "metadata": {
+      "apiKey": "",
+      "appName": "",
+      "useZapo": true,
+      "sessionOrigin": "baileys"
+    },
+    "linkSlug": null,
+    "mediaId": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "proxyAddress": "188.42.155.36:20000",
+    "farewellMediaId": null,
+    "createdAt": "2025-07-03T02:25:34.654Z",
+    "updatedAt": "2026-08-13T19:52:54.382Z",
+    "queues": [
+      {
+        "id": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+        "name": "Ventas",
+        "color": "#0c797d",
+        "greetingMessage": "",
+        "ConnectionQueue": {
+          "connectionId": "d28f98ad-f938-4e5c-9df4-d12fba4ac0c2",
+          "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+          "priority": 0,
+          "createdAt": "2026-05-27T17:52:04.716Z",
+          "updatedAt": "2026-05-27T17:52:04.716Z"
+        }
+      }
+    ]
+  },
+  {
+    "id": "ee63180a-a0ff-4205-9338-b3027b6fac5f",
+    "name": "Recupero 6073",
+    "number": "5491151526073",
+    "browserSessionInfo": null,
+    "socketSessionInfo": null,
+    "qrcode": "",
+    "status": "CONNECTED",
+    "channel": "WHATSAPP",
+    "externalId": "5491151526073",
+    "facebookUserId": null,
+    "facebookAccessToken": null,
+    "ticketReopenPeriod": 15,
+    "battery": null,
+    "connectionType": null,
+    "plugged": null,
+    "isDefault": false,
+    "greetingMessage": "",
+    "farewellMessage": "",
+    "keepOneTicketPerContact": true,
+    "metadata": {
+      "apiKey": "",
+      "appName": "",
+      "useZapo": true,
+      "sessionOrigin": "baileys",
+      "messagingLimits": {
+        "lastSync": "2026-06-29T22:11:15.353Z",
+        "newChatMessageCap": {
+          "mv_status": "NOT_ELIGIBLE",
+          "ote_status": "NOT_ELIGIBLE",
+          "used_quota": 0,
+          "total_quota": 0,
+          "capping_status": "NONE",
+          "cycle_end_timestamp": "1",
+          "cycle_start_timestamp": "0",
+          "server_sent_timestamp": "1782771075"
+        },
+        "accountReachOutTimeLock": {
+          "is_active": true,
+          "enforcement_type": "RESTRICT_ALL_COMPANIONS",
+          "time_enforcement_ends": "1782943992"
+        }
+      },
+      "useInteractiveMessage": false
+    },
+    "linkSlug": null,
+    "mediaId": null,
+    "companyId": "dd9d7f48-f7a1-4408-9a48-cd6b76f646c8",
+    "proxyAddress": "188.42.9.6:20000",
+    "farewellMediaId": null,
+    "createdAt": "2026-06-12T21:49:41.785Z",
+    "updatedAt": "2026-08-27T12:43:20.071Z",
+    "queues": [
+      {
+        "id": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+        "name": "Ventas",
+        "color": "#0c797d",
+        "greetingMessage": "",
+        "ConnectionQueue": {
+          "connectionId": "ee63180a-a0ff-4205-9338-b3027b6fac5f",
+          "queueId": "be310ac9-515e-4485-9582-bd078b6c0ac3",
+          "priority": 0,
+          "createdAt": "2026-06-12T21:49:56.670Z",
+          "updatedAt": "2026-06-12T21:49:56.670Z"
+        }
+      }
+    ]
+  }
+]
