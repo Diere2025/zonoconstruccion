@@ -238,8 +238,8 @@ export function AdminLayout({ children }: AdminLayoutProps) {
             emailLower.includes("facundopaz") ||
             nameLower.includes("facundo") ||
             user.id === "13430e05-b61a-4a3f-9fc3-152d377c4b0c" ||   // Jazmin
-            user.id === "8207801b-b6cb-48cc-af0f-d2f9f2c98032" ||   // Ludmila
-            user.id === "4c9b5ed0-3946-4df6-b4d5-3bdc9b1a6c7f" ||   // Ludmila Auth
+            user.id === "54b2d319-8f6f-47ff-b794-b7731978410a" ||   // Ludmila
+            user.id === "8207801b-b6cb-48cc-af0f-d2f9f2c98032" ||   // Ludmila Old
             user.id === "3820a0fe-bb0a-4a84-ad85-79e49868cad7"    // Facundo Paz
           );
         } catch (e) {
@@ -326,6 +326,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     {
       title: "Operaciones y Control",
       links: [
+        { name: "Gestión de Vendedores", href: "/admin/vendedores", icon: Users, adminOnly: true },
         { name: "Chequeo de Pagos", href: "/admin/cobros-mp", icon: ShieldCheck },
         { name: "Importar Pedidos", href: "/admin/importar-pedidos", icon: Upload, adminOnly: true }
       ]

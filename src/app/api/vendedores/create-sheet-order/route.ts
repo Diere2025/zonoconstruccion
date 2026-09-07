@@ -23,6 +23,11 @@ const SELLER_SHEET_CONFIG: Record<string, { spreadsheetId: string; sheetName: st
     enabled: true
   },
   // Ludmila Krenz
+  '54b2d319-8f6f-47ff-b794-b7731978410a': {
+    spreadsheetId: '1tp10RNH7z5VpWL9eVmofpOVrB2HzEpfbSEc1ngKO9_8',
+    sheetName: 'Pendientes',
+    enabled: true
+  },
   '8207801b-b6cb-48cc-af0f-d2f9f2c98032': {
     spreadsheetId: '1tp10RNH7z5VpWL9eVmofpOVrB2HzEpfbSEc1ngKO9_8',
     sheetName: 'Pendientes',
