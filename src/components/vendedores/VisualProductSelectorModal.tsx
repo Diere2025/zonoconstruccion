@@ -210,15 +210,55 @@ export default function VisualProductSelectorModal({
     }, 1200);
   };
 
+  // Helper to compute item price (for combos, kits or direct products)
+  const getItemPrice = (item: VisualItemOption, prodMatch?: Product) => {
+    if (item.price !== undefined) return item.price;
+    if (item.isCombo && item.comboItems && item.comboItems.length > 0) {
+      return item.comboItems.reduce((acc, ci) => {
+        const p = products.find(prod => prod.id === ci.productId);
+        const unit = ci.customPrice !== undefined ? ci.customPrice : (p?.price || 0);
+        return acc + unit * (ci.quantity || 1);
+      }, 0);
+    }
+    return prodMatch?.price;
+  };
+
   // Quick direct add for items that don't need accessories
   const handleQuickAdd = (item: VisualItemOption) => {
+    // 1. If it is a combo with bundled products
+    if (item.isCombo && item.comboItems && item.comboItems.length > 0) {
+      const itemsToAdd: (Product & { customPrice?: number; quantity?: number })[] = [];
+      for (const ci of item.comboItems) {
+        const prod = products.find(p => p.id === ci.productId);
+        if (prod) {
+          itemsToAdd.push({
+            ...prod,
+            quantity: ci.quantity || 1,
+            customPrice: ci.customPrice !== undefined ? ci.customPrice : prod.price
+          });
+        }
+      }
+      if (itemsToAdd.length > 0) {
+        if (onAddProducts) {
+          onAddProducts(itemsToAdd as any);
+        } else {
+          itemsToAdd.forEach(p => onAddProduct(p as any));
+        }
+        setAddedFeedback(`¡${item.label} agregado al pedido!`);
+        setTimeout(() => setAddedFeedback(null), 1200);
+        return;
+      }
+    }
+
+    // 2. Single product add
     const p = products.find(prod => prod.id === item.productId);
     if (!p) {
       alert("No se encontró el producto en el catálogo.");
       return;
     }
-    onAddProduct(p);
-    setAddedFeedback(`¡${p.name} agregado al pedido!`);
+    const finalProduct = item.price !== undefined ? { ...p, price: item.price, customPrice: item.price } : p;
+    onAddProduct(finalProduct as any);
+    setAddedFeedback(`¡${item.label || p.name} agregado al pedido!`);
     setTimeout(() => setAddedFeedback(null), 1200);
   };
 
@@ -492,7 +532,8 @@ export default function VisualProductSelectorModal({
                 <div className="divide-y divide-slate-100 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                   {activeItems.map(item => {
                     const prodMatch = products.find(p => p.id === item.productId);
-                    const isAvailable = Boolean(prodMatch);
+                    const isAvailable = Boolean(prodMatch) || Boolean(item.isCombo && item.comboItems && item.comboItems.length > 0);
+                    const calculatedPrice = getItemPrice(item, prodMatch);
 
                     return (
                       <div
@@ -521,18 +562,22 @@ export default function VisualProductSelectorModal({
                               </span>
                             )}
                           </div>
-                          {prodMatch && (
+                          {item.description ? (
+                            <p className="text-[11px] text-slate-500 font-medium truncate">
+                              {item.description}
+                            </p>
+                          ) : prodMatch ? (
                             <p className="text-[11px] text-slate-500 font-medium truncate">
                               {prodMatch.name}
                             </p>
-                          )}
+                          ) : null}
                         </div>
 
                         <div className="flex items-center gap-3 shrink-0">
                           <div className="text-right">
-                            {prodMatch ? (
+                            {calculatedPrice !== undefined ? (
                               <p className="font-black text-base text-slate-900 group-hover:text-brand-600 transition-colors">
-                                {fmt(prodMatch.price)}
+                                {fmt(calculatedPrice)}
                               </p>
                             ) : (
                               <p className="text-xs font-bold text-slate-400">Consultar</p>
@@ -559,7 +604,8 @@ export default function VisualProductSelectorModal({
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                   {activeItems.map(item => {
                     const prodMatch = products.find(p => p.id === item.productId);
-                    const isAvailable = Boolean(prodMatch);
+                    const isAvailable = Boolean(prodMatch) || Boolean(item.isCombo && item.comboItems && item.comboItems.length > 0);
+                    const calculatedPrice = getItemPrice(item, prodMatch);
 
                     return (
                       <div
@@ -596,9 +642,9 @@ export default function VisualProductSelectorModal({
                         </div>
 
                         <div className="mt-3 pt-2 border-t border-slate-100">
-                          {prodMatch ? (
+                          {calculatedPrice !== undefined ? (
                             <>
-                              <p className="font-black text-sm text-brand-600">{fmt(prodMatch.price)}</p>
+                              <p className="font-black text-sm text-brand-600">{fmt(calculatedPrice)}</p>
                               <span className="text-[9px] font-bold text-slate-400">
                                 {item.allowCiego || item.recommendedBaseCm ? 'Configurar' : 'Agregar'}
                               </span>

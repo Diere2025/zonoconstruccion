@@ -488,11 +488,22 @@ export default function PedidosPage() {
     return PALETTE[Math.abs(hash) % PALETTE.length];
   };
 
+  const normalizeSellerName = (name?: string | null): string => {
+    if (!name) return '';
+    const trimmed = name.trim();
+    if (/^jazm[ií]n(\s+s[aá]nchez)?$/i.test(trimmed)) return 'Jazmin Sanchez';
+    if (/^ludmila(\s+krenz)?$/i.test(trimmed)) return 'Ludmila Krenz';
+    if (/^facundo(\s+paz)?$/i.test(trimmed)) return 'Facundo Paz';
+    if (/^diego(\s+b[oó]veda)?$/i.test(trimmed)) return 'Diego Bóveda';
+    return trimmed;
+  };
+
   const isOrderWholesale = (order: any): boolean => {
     if (!order) return false;
     if (order.channel === 'mayorista') return true;
     const legacy = (order.legacy_code || '').toUpperCase().trim();
-    if (legacy.startsWith('AQU') || legacy.startsWith('POW') || legacy.startsWith('AQ-')) return true;
+    if (legacy.startsWith('AQU') || legacy.startsWith('POW')) return true;
+    if (legacy.startsWith('AQ-') && !legacy.startsWith('AQ-FP')) return true;
     if (order.clients) {
       if (Array.isArray(order.clients)) {
         return !!order.clients[0]?.is_wholesale;
@@ -1398,7 +1409,7 @@ export default function PedidosPage() {
         else if (cleanName.includes("belen") || cleanName.includes("belén")) prefix = "BR";
         else if (cleanName.includes("mariano")) prefix = "MS";
         else if (cleanName.includes("pablo")) prefix = "PJ";
-        else if (cleanName.includes("facundo")) prefix = "FP";
+        else if (cleanName.includes("facundo")) prefix = "AQ-FP";
       }
 
       const { data: ordersData } = await supabase
@@ -2027,9 +2038,15 @@ export default function PedidosPage() {
             .order('order_date', { ascending: false })
             .order('created_at', { ascending: false });
             
+          const facundoIds = ['3820a0fe-bb0a-4a84-ad85-79e49868cad7', '54b9ce55-7354-4b39-9886-314aa79f6aa6'];
+          const ludmilaIds = ['54b2d319-8f6f-47ff-b794-b7731978410a', '8207801b-b6cb-48cc-af0f-d2f9f2c98032'];
+          const effectiveUserSellerIds = facundoIds.includes(userData.user.id)
+            ? facundoIds
+            : (ludmilaIds.includes(userData.user.id) ? ludmilaIds : [userData.user.id]);
+
           if (listType === 'mis_pedidos' || role !== 'admin') {
             if (clientTypeFilter !== 'mayoristas') {
-              query = query.eq('seller_id', userData.user.id);
+              query = query.in('seller_id', effectiveUserSellerIds);
             }
           }
 
@@ -2037,7 +2054,7 @@ export default function PedidosPage() {
           if (clientTypeFilter === 'mayoristas') {
             query = query.or('channel.eq.mayorista,legacy_code.ilike.AQ%,legacy_code.ilike.POW%');
           } else if (clientTypeFilter === 'minoristas') {
-            query = query.neq('channel', 'mayorista').not('legacy_code', 'ilike', 'AQ%').not('legacy_code', 'ilike', 'POW%');
+            query = query.neq('channel', 'mayorista').not('legacy_code', 'ilike', 'AQU%').not('legacy_code', 'ilike', 'POW%');
           }
           
           // Apply status filter
@@ -2127,7 +2144,12 @@ export default function PedidosPage() {
         .limit(40);
 
       if (role !== 'admin') {
-        q = q.eq('seller_id', userData.user.id);
+        const facundoIds = ['3820a0fe-bb0a-4a84-ad85-79e49868cad7', '54b9ce55-7354-4b39-9886-314aa79f6aa6'];
+        const ludmilaIds = ['54b2d319-8f6f-47ff-b794-b7731978410a', '8207801b-b6cb-48cc-af0f-d2f9f2c98032'];
+        const effectiveUserSellerIds = facundoIds.includes(userData.user.id)
+          ? facundoIds
+          : (ludmilaIds.includes(userData.user.id) ? ludmilaIds : [userData.user.id]);
+        q = q.in('seller_id', effectiveUserSellerIds);
       }
 
       const { data, error } = await q;
@@ -2479,7 +2501,7 @@ export default function PedidosPage() {
                 : '')
         ].filter(Boolean).map((s: string) => s.trim()).join(' / '),
         medium: mediumName,
-        sellerName: sellerFullName && /^jazm[ií]n\s+s[aá]nchez$/i.test(sellerFullName.trim()) ? 'Jazmin Sanchez' : sellerFullName,
+        sellerName: normalizeSellerName(sellerFullName),
         status: order.status === 'En Espera' ? 'En Espera' : '🔸 Validado',
         locality: order.locality || '',
         address: order.address || '',
@@ -2629,12 +2651,14 @@ export default function PedidosPage() {
     setOrderItems(prev => {
       const current = [...prev];
       for (const product of productsToAdd) {
+        const qtyToAdd = (product as any).quantity || 1;
+        const targetCustomPrice = (product as any).customPrice !== undefined ? (product as any).customPrice : product.price;
         const isDiscontinued = (product as any).is_discontinued || false;
         const currentStock = (product as any).stock_current !== undefined ? (product as any).stock_current : 999;
         const existingIndex = current.findIndex(i => i.id === product.id);
         const currentQtyInCart = existingIndex >= 0 ? current[existingIndex].quantity : 0;
 
-        if (isDiscontinued && currentQtyInCart + 1 > currentStock) {
+        if (isDiscontinued && currentQtyInCart + qtyToAdd > currentStock) {
           alert(`No se puede agregar "${product.name}". Está DESCONTINUADO y no hay stock disponible (Stock: ${currentStock}).`);
           continue;
         }
@@ -2642,10 +2666,11 @@ export default function PedidosPage() {
         if (existingIndex >= 0) {
           current[existingIndex] = {
             ...current[existingIndex],
-            quantity: current[existingIndex].quantity + 1
+            quantity: current[existingIndex].quantity + qtyToAdd,
+            customPrice: (product as any).customPrice !== undefined ? targetCustomPrice : current[existingIndex].customPrice
           };
         } else {
-          current.push({ ...product, quantity: 1, customPrice: product.price });
+          current.push({ ...product, quantity: qtyToAdd, customPrice: targetCustomPrice });
         }
       }
       return current;
@@ -3317,7 +3342,7 @@ export default function PedidosPage() {
                     : '')
             ].filter(Boolean).map((s: string) => s.trim()).join(' / '),
             medium: mediumName,
-            sellerName: sellerFullName && /^jazm[ií]n\s+s[aá]nchez$/i.test(sellerFullName.trim()) ? 'Jazmin Sanchez' : sellerFullName,
+            sellerName: normalizeSellerName(sellerFullName),
             status: orderStatus === 'En Espera' ? 'En Espera' : '🔸 Validado',
             locality: locName,
             address: direccion,
@@ -4597,13 +4622,18 @@ export default function PedidosPage() {
                     }
                     
                     const effectiveSellerId = (role === 'admin' && selectedSellerId) ? selectedSellerId : currentUserId;
+                    const facundoIds = ['3820a0fe-bb0a-4a84-ad85-79e49868cad7', '54b9ce55-7354-4b39-9886-314aa79f6aa6'];
+                    const ludmilaIds = ['54b2d319-8f6f-47ff-b794-b7731978410a', '8207801b-b6cb-48cc-af0f-d2f9f2c98032'];
+                    const targetSellerIds = facundoIds.includes(effectiveSellerId)
+                      ? facundoIds
+                      : (ludmilaIds.includes(effectiveSellerId) ? ludmilaIds : [effectiveSellerId]);
+
                     const filteredLines = phoneLines.filter(line => {
+                      if (role === 'admin') return true;
                       const associatedSellerIds = (line.seller_phone_lines || []).map((spl: any) => spl.seller_id);
-                      if (isOrganic) {
-                        return associatedSellerIds.includes(effectiveSellerId) || line.seller_id === effectiveSellerId;
-                      } else {
-                        return associatedSellerIds.length === 0 && !line.seller_id;
-                      }
+                      const isMine = associatedSellerIds.some(id => targetSellerIds.includes(id)) || (line.seller_id && targetSellerIds.includes(line.seller_id));
+                      const isUnassigned = associatedSellerIds.length === 0 && !line.seller_id;
+                      return isMine || isUnassigned;
                     });
 
                     return (

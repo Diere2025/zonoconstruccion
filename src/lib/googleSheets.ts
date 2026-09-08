@@ -308,15 +308,30 @@ function normalizeProductNameForSheet(name: string, sku?: string): string {
   return name;
 }
 
-function normalizeSellerNameForSheet(sellerName?: string | null): string {
+export function normalizeSellerNameForSheet(sellerName?: string | null): string {
   if (!sellerName) return '';
   const trimmed = sellerName.trim();
-  // Matchear 'Jazmín Sánchez' de la BD a 'Jazmin Sanchez' para planilla (sin acentos)
-  if (/^jazm[ií]n\s+s[aá]nchez$/i.test(trimmed)) {
+  if (/^jazm[ií]n(\s+s[aá]nchez)?$/i.test(trimmed)) {
     return 'Jazmin Sanchez';
+  }
+  if (/^ludmila(\s+krenz)?$/i.test(trimmed)) {
+    return 'Ludmila Krenz';
+  }
+  if (/^facundo(\s+paz)?$/i.test(trimmed)) {
+    return 'Facundo Paz';
+  }
+  if (/^diego(\s+b[oó]veda)?$/i.test(trimmed)) {
+    return 'Diego Bóveda';
   }
   return trimmed;
 }
+
+const SPREADSHEET_DEFAULT_PREFIX: Record<string, string> = {
+  '1ccs1yPtwSSUf6dcA5XpxhpvPaWmHfJ0zsCfyJvEBvtg': 'DB',
+  '16DPcJEdrTMYvNSaUKQo9ODKClqe1VHLlKOX6O_sELRw': 'JS',
+  '1tp10RNH7z5VpWL9eVmofpOVrB2HzEpfbSEc1ngKO9_8': 'LK',
+  '1c0iswWt2GAv8NhXfNgIlaOul9wanpZHaeMFeN2Pr0ns': 'AQ-FP'
+};
 
 const PRODUCT_SLOT_RANGES: [string, string][] = [
   ['AE', 'AG'],
@@ -372,6 +387,7 @@ export async function getNextAvailableSheetCode(
 
   // Row number in 1-based index (row 2 is index 0)
   const rowNumber = emptyRowIndex !== -1 ? emptyRowIndex + 2 : rows.length + 2;
+  const defaultPrefix = SPREADSHEET_DEFAULT_PREFIX[spreadsheetId] || 'DB';
 
   if (!code) {
     if (lastKnownCode) {
@@ -382,10 +398,10 @@ export async function getNextAvailableSheetCode(
         const nextNum = parseInt(numStr, 10) + 1;
         code = `${prefix}${String(nextNum).padStart(numStr.length, '0')}`;
       } else {
-        code = `DB${String(rowNumber).padStart(4, '0')}`;
+        code = `${defaultPrefix}${String(rowNumber).padStart(4, '0')}`;
       }
     } else {
-      code = `DB${String(rowNumber).padStart(4, '0')}`;
+      code = `${defaultPrefix}${String(rowNumber).padStart(4, '0')}`;
     }
   }
 

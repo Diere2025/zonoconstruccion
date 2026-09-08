@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { appendOrderToSellerSheet, getNextAvailableSheetCode, SheetOrderPayload } from '@/lib/googleSheets';
+import { appendOrderToSellerSheet, getNextAvailableSheetCode, normalizeSellerNameForSheet, SheetOrderPayload } from '@/lib/googleSheets';
 import { createClient } from '@supabase/supabase-js';
 
 export const runtime = 'edge';
@@ -35,6 +35,11 @@ const SELLER_SHEET_CONFIG: Record<string, { spreadsheetId: string; sheetName: st
   },
   // Facundo Paz
   '54b9ce55-7354-4b39-9886-314aa79f6aa6': {
+    spreadsheetId: '1c0iswWt2GAv8NhXfNgIlaOul9wanpZHaeMFeN2Pr0ns',
+    sheetName: 'Pendientes',
+    enabled: true
+  },
+  '3820a0fe-bb0a-4a84-ad85-79e49868cad7': {
     spreadsheetId: '1c0iswWt2GAv8NhXfNgIlaOul9wanpZHaeMFeN2Pr0ns',
     sheetName: 'Pendientes',
     enabled: true
@@ -100,9 +105,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    if (order.sellerName && /^jazm[ií]n\s+s[aá]nchez$/i.test(order.sellerName.trim())) {
-      order.sellerName = 'Jazmin Sanchez';
-    }
+    order.sellerName = normalizeSellerNameForSheet(order.sellerName);
 
     // Asegurar que el estado en planilla siempre sea '🔸 Validado' salvo que esté 'En Espera'
     if (order.status !== 'En Espera') {

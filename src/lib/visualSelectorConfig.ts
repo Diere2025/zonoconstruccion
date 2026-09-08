@@ -7,13 +7,20 @@ export interface VisualOptionAddon {
   defaultSelected?: boolean;
 }
 
+export interface VisualComboItem {
+  productId: string;
+  quantity: number;
+  customPrice?: number;
+}
+
 export interface VisualItemOption {
   id: string;
   label: string;
   description?: string;
-  badge?: string; // e.g. "Slim", "Chato", "Oferta", "Más Vendido"
+  badge?: string; // e.g. "Slim", "Chato", "Oferta", "Más Vendido", "Combo"
   imageUrl?: string;
   isActive: boolean;
+  price?: number; // displayed price for combo or custom item
   
   // Single product link
   productId?: string;
@@ -22,10 +29,7 @@ export interface VisualItemOption {
 
   // Combo bundle (multiple products in 1 click)
   isCombo?: boolean;
-  comboItems?: Array<{
-    productId: string;
-    quantity: number;
-  }>;
+  comboItems?: VisualComboItem[];
 
   // Base and accessory recommendations
   recommendedBaseCm?: number; // 74, 85, 102, 145
@@ -284,35 +288,59 @@ export function generateDefaultVisualConfig(products: Product[]): VisualCatalogC
     };
   });
 
-  // --- BIODIGESTORES ---
+  const bioKitsInstalacion = activeProducts.filter(p => {
+    const text = `${p.name} ${p.sku || ''}`.toLowerCase();
+    return text.includes('kit instalaci') || text.includes('adicionales instalaci');
+  });
+
   const bioCombos = activeProducts.filter(p => {
     const text = `${p.name} ${p.sku || ''}`.toLowerCase();
     const isBio = text.includes('biodigestor') || text.includes('séptic') || text.includes('septic') || text.includes('biofort');
-    return isBio && (text.includes('kit') || text.includes('combo') || text.includes('instalaci') || text.includes('adicionales'));
+    return isBio && text.includes('combo') && !text.includes('kit instalaci');
   });
 
   const bioIndividuales = activeProducts.filter(p => {
     const text = `${p.name} ${p.sku || ''}`.toLowerCase();
     const isBio = text.includes('biodigestor') || text.includes('séptic') || text.includes('septic') || text.includes('biofort') || text.includes('desengrasadora') || text.includes('lodos');
-    return isBio && !text.includes('kit') && !text.includes('combo') && !text.includes('instalaci');
+    return isBio && !text.includes('kit instalaci') && !text.includes('combo') && !text.includes('adicionales');
   });
 
   const bioSubgroups: VisualSubGroup[] = [
     {
-      id: 'combos',
-      name: 'Combos y Kits de Instalación',
-      description: 'Kits completos con accesorios e insumos',
+      id: 'kits_instalacion',
+      name: 'Kits de Instalación Completa',
+      description: 'Kits con mano de obra de instalación y cañerías completas',
+      badgeColor: 'bg-emerald-600 text-white',
       imageUrl: 'https://ckvbyfgsbjbfaqotmeld.supabase.co/storage/v1/object/public/product-images/products/0.9509750112986566.png',
+      isActive: true,
+      items: bioKitsInstalacion.map(prod => ({
+        id: `item_${prod.id}`,
+        label: prod.name,
+        description: prod.name,
+        badge: 'Kit',
+        imageUrl: prod.image_url || 'https://ckvbyfgsbjbfaqotmeld.supabase.co/storage/v1/object/public/product-images/products/0.9509750112986566.png',
+        isActive: true,
+        productId: prod.id,
+        price: prod.price
+      }))
+    },
+    {
+      id: 'combos_biofort',
+      name: 'Combos BioFort (Equipos y Accesorios)',
+      description: 'Sistemas sépticos completos con accesorios e insumos bonificados',
+      badgeColor: 'bg-blue-600 text-white',
+      imageUrl: 'https://ckvbyfgsbjbfaqotmeld.supabase.co/storage/v1/object/public/product-images/0.4963342225093239.webp',
       isActive: true,
       items: bioCombos.map(prod => ({
         id: `item_${prod.id}`,
         label: prod.name,
         description: prod.name,
         badge: 'Combo',
-        imageUrl: prod.image_url || 'https://ckvbyfgsbjbfaqotmeld.supabase.co/storage/v1/object/public/product-images/products/0.9509750112986566.png',
+        imageUrl: prod.image_url || 'https://ckvbyfgsbjbfaqotmeld.supabase.co/storage/v1/object/public/product-images/0.4963342225093239.webp',
         isActive: true,
         productId: prod.id,
-        isCombo: true
+        isCombo: true,
+        price: prod.price
       }))
     },
     {

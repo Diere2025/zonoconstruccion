@@ -174,15 +174,55 @@ export default function InlineVisualProductSelector({
     }, 1200);
   };
 
+  // Helper to compute item price (for combos, kits or direct products)
+  const getItemPrice = (item: VisualItemOption, prodMatch?: Product) => {
+    if (item.price !== undefined) return item.price;
+    if (item.isCombo && item.comboItems && item.comboItems.length > 0) {
+      return item.comboItems.reduce((acc, ci) => {
+        const p = products.find(prod => prod.id === ci.productId);
+        const unit = ci.customPrice !== undefined ? ci.customPrice : (p?.price || 0);
+        return acc + unit * (ci.quantity || 1);
+      }, 0);
+    }
+    return prodMatch?.price;
+  };
+
   // Quick direct add for items without customization
   const handleQuickAdd = (item: VisualItemOption) => {
+    // 1. If it is a combo with bundled products
+    if (item.isCombo && item.comboItems && item.comboItems.length > 0) {
+      const itemsToAdd: (Product & { customPrice?: number; quantity?: number })[] = [];
+      for (const ci of item.comboItems) {
+        const prod = products.find(p => p.id === ci.productId);
+        if (prod) {
+          itemsToAdd.push({
+            ...prod,
+            quantity: ci.quantity || 1,
+            customPrice: ci.customPrice !== undefined ? ci.customPrice : prod.price
+          });
+        }
+      }
+      if (itemsToAdd.length > 0) {
+        if (onAddProducts) {
+          onAddProducts(itemsToAdd as any);
+        } else {
+          itemsToAdd.forEach(p => onAddProduct(p as any));
+        }
+        setAddedFeedback(`¡${item.label} agregado!`);
+        setTimeout(() => setAddedFeedback(null), 1200);
+        return;
+      }
+    }
+
+    // 2. Single product add
     const p = products.find(prod => prod.id === item.productId);
     if (!p) {
       alert("No se encontró el producto en el catálogo.");
       return;
     }
-    onAddProduct(p);
-    setAddedFeedback(`¡${p.name} agregado!`);
+    const finalProduct = item.price !== undefined ? { ...p, price: item.price, customPrice: item.price } : p;
+    onAddProduct(finalProduct as any);
+    setAddedFeedback(`¡${item.label || p.name} agregado!`);
     setTimeout(() => setAddedFeedback(null), 1200);
   };
 
@@ -412,7 +452,8 @@ export default function InlineVisualProductSelector({
               <div className="divide-y divide-slate-100 border border-slate-200 rounded-lg overflow-hidden max-h-[280px] overflow-y-auto">
                 {activeItems.map(item => {
                   const prodMatch = products.find(p => p.id === item.productId);
-                  const isAvailable = Boolean(prodMatch);
+                  const isAvailable = Boolean(prodMatch) || Boolean(item.isCombo && item.comboItems && item.comboItems.length > 0);
+                  const calculatedPrice = getItemPrice(item, prodMatch);
 
                   return (
                     <div
@@ -441,16 +482,18 @@ export default function InlineVisualProductSelector({
                             </span>
                           )}
                         </div>
-                        {prodMatch && (
+                        {item.description ? (
+                          <p className="text-[10px] text-slate-400 truncate">{item.description}</p>
+                        ) : prodMatch ? (
                           <p className="text-[10px] text-slate-400 truncate">{prodMatch.name}</p>
-                        )}
+                        ) : null}
                       </div>
 
                       <div className="flex items-center gap-2 shrink-0">
                         <div className="text-right">
-                          {prodMatch ? (
+                          {calculatedPrice !== undefined ? (
                             <span className="font-black text-xs text-slate-900 group-hover:text-brand-600">
-                              {fmt(prodMatch.price)}
+                              {fmt(calculatedPrice)}
                             </span>
                           ) : (
                             <span className="text-[10px] font-bold text-slate-400">Consultar</span>
@@ -473,7 +516,8 @@ export default function InlineVisualProductSelector({
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-[300px] overflow-y-auto p-0.5">
                 {activeItems.map(item => {
                   const prodMatch = products.find(p => p.id === item.productId);
-                  const isAvailable = Boolean(prodMatch);
+                  const isAvailable = Boolean(prodMatch) || Boolean(item.isCombo && item.comboItems && item.comboItems.length > 0);
+                  const calculatedPrice = getItemPrice(item, prodMatch);
 
                   return (
                     <div
@@ -510,8 +554,8 @@ export default function InlineVisualProductSelector({
                       </div>
 
                       <div className="mt-1.5 pt-1 border-t border-slate-100">
-                        {prodMatch ? (
-                          <p className="font-black text-xs text-brand-600">{fmt(prodMatch.price)}</p>
+                        {calculatedPrice !== undefined ? (
+                          <p className="font-black text-xs text-brand-600">{fmt(calculatedPrice)}</p>
                         ) : (
                           <p className="text-[9px] font-bold text-slate-400">Consultar</p>
                         )}
