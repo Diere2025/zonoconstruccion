@@ -52,3 +52,16 @@ export function getArgentinaDaysAgoString(daysAgo: number): string {
   return `${resYear}-${resMonth}-${resDay}`;
 }
 
+/**
+ * Normaliza texto para búsquedas insensibles a mayúsculas, minúsculas y acentos/tildes
+ * Ej: 'séptica' -> 'septica', 'CÁMARA' -> 'camara', 'Conexión' -> 'conexion'
+ */
+export function normalizeText(text?: string | null): string {
+  if (!text) return '';
+  return text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+}
+

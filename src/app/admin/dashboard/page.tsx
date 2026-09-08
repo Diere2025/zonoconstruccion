@@ -27,7 +27,9 @@ import {
   ShieldAlert, 
   PlusCircle, 
   Wallet,
-  CheckCircle2
+  CheckCircle2,
+  Sparkles,
+  ArrowRightLeft
 } from "lucide-react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
@@ -200,6 +202,14 @@ export default function AdminDashboard() {
   const [productsSold, setProductsSold] = useState<any[]>([]);
   const [sellersList, setSellersList] = useState<any[]>([]);
   const [selectedSellerId, setSelectedSellerId] = useState<string>("all");
+  const [unimportedSellerData, setUnimportedSellerData] = useState<{
+    totalCount: number;
+    totalAmount: number;
+    todayOrdersCount: number;
+    todayAmount: number;
+    todayUnits: number;
+    orders: any[];
+  } | null>(null);
 
   const [categorySales, setCategorySales] = useState<CategoryData[]>([]);
   const [totalCategoryQty, setTotalCategoryQty] = useState<number>(0);
@@ -473,7 +483,8 @@ export default function AdminDashboard() {
         ordersInRangeRes,
         prevOrdersRes,
         itemsRes,
-        weeklyOrdersRes
+        weeklyOrdersRes,
+        unimportedRes
       ] = await Promise.all([
         supabase.from("clients").select("id", { count: "exact", head: true }),
         supabase.from("products").select("id", { count: "exact", head: true }),
@@ -482,12 +493,24 @@ export default function AdminDashboard() {
         rangeQuery,
         prevRangeQuery,
         itemsQuery,
-        weeklyOrdersQuery
+        weeklyOrdersQuery,
+        fetch('/api/admin/unimported-orders').then(r => r.ok ? r.json() : null).catch(() => null)
       ]);
 
       if (ordersInRangeRes.error) throw ordersInRangeRes.error;
       if (sellersRes.error) throw sellersRes.error;
       if (itemsRes.error) throw itemsRes.error;
+
+      if (unimportedRes && unimportedRes.success) {
+        setUnimportedSellerData({
+          totalCount: unimportedRes.totalUnimportedCount || 0,
+          totalAmount: unimportedRes.unimportedOrders?.reduce((acc: number, o: any) => acc + (o.totalAmount || 0), 0) || 0,
+          todayOrdersCount: unimportedRes.todayStats?.ordersCount || 0,
+          todayAmount: unimportedRes.todayStats?.totalAmount || 0,
+          todayUnits: unimportedRes.todayStats?.totalUnits || 0,
+          orders: unimportedRes.unimportedOrders || []
+        });
+      }
 
       const rawOrdersInRange = ordersInRangeRes.data || [];
       const rawPrevOrders = prevOrdersRes.data || [];
@@ -1284,6 +1307,43 @@ export default function AdminDashboard() {
           </Link>
         </div>
       </div>
+
+      {/* Real-time Unimported Seller Orders Notification Banner */}
+      {unimportedSellerData && unimportedSellerData.totalCount > 0 && (
+        <div className="bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-amber-500/5 border border-amber-300/60 rounded-2xl p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-sm">
+          <div className="flex items-center gap-3.5">
+            <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-sm">
+              <Sparkles className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="text-sm font-bold text-slate-900">
+                  {unimportedSellerData.totalCount} {unimportedSellerData.totalCount === 1 ? 'pedido detectado' : 'pedidos detectados'} en planillas de vendedores aún no importados
+                </h4>
+                <span className="bg-amber-100 text-amber-800 text-[10px] font-black px-2 py-0.5 rounded-full border border-amber-300">
+                  {formatPrice(unimportedSellerData.totalAmount)}
+                </span>
+              </div>
+              <p className="text-xs text-slate-600 mt-0.5">
+                {unimportedSellerData.todayOrdersCount > 0 
+                  ? `Hoy ingresaron ${unimportedSellerData.todayOrdersCount} pedidos (${formatPrice(unimportedSellerData.todayAmount)}, ${unimportedSellerData.todayUnits} unidades). Ya se computan en reservas y cálculos diarios sin necesidad de importar todo el tiempo.`
+                  : 'Estos pedidos ya se tienen en cuenta en los cálculos de reservas y estadísticas sin necesidad de importar a cada momento.'}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 self-end md:self-center shrink-0">
+            <Link href="/admin/importar-pedidos">
+              <button
+                type="button"
+                className="px-3.5 py-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+              >
+                <ArrowRightLeft className="w-3.5 h-3.5" />
+                Importar al Sistema
+              </button>
+            </Link>
+          </div>
+        </div>
+      )}
 
       {/* Expanded Metrics Grid (6 Executive KPI Cards with PoP comparison) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">

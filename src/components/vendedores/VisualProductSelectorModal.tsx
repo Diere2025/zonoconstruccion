@@ -19,6 +19,7 @@ import {
   Trash2,
   Package,
   Tag,
+  Percent,
   ShoppingBag,
   ShoppingCart
 } from "lucide-react";
@@ -33,10 +34,15 @@ import {
   findFlotanteProduct
 } from "@/lib/visualSelectorConfig";
 import { supabase } from "@/lib/supabase";
+import { evaluateDiscountSuggestions, DiscountSuggestion } from "@/lib/discountRules";
+import { formatPrice, normalizeText } from "@/lib/utils";
 
 export interface VisualOrderItem extends Product {
   quantity: number;
   customPrice: number;
+  basePrice?: number;
+  discountType?: 'percentage' | 'fixed';
+  discountValue?: number;
   bundleParentId?: string;
   isIncludedInKit?: boolean;
   baseQuantity?: number;
@@ -51,10 +57,15 @@ interface VisualProductSelectorModalProps {
   onAddProducts?: (products: Product[]) => void;
   onUpdateQuantity?: (id: string, qty: number) => void;
   onUpdateCustomPrice?: (id: string, price: number) => void;
+  onUpdateItemDiscount?: (id: string, discountType: 'percentage' | 'fixed', discountValue: number) => void;
   onRemoveItem?: (id: string) => void;
   onUpdateKitQuantity?: (kitId: string, newQty: number, included: VisualOrderItem[]) => void;
   onRemoveKit?: (kitId: string, included: VisualOrderItem[]) => void;
   onClearOrderItems?: () => void;
+  orderDiscountType?: 'percentage' | 'fixed';
+  orderDiscountValue?: number;
+  onUpdateOrderDiscount?: (type: 'percentage' | 'fixed', value: number) => void;
+  onApplyDiscountSuggestion?: (sug: DiscountSuggestion) => void;
   isAdmin?: boolean;
 }
 
@@ -67,10 +78,15 @@ export default function VisualProductSelectorModal({
   onAddProducts,
   onUpdateQuantity,
   onUpdateCustomPrice,
+  onUpdateItemDiscount,
   onRemoveItem,
   onUpdateKitQuantity,
   onRemoveKit,
   onClearOrderItems,
+  orderDiscountType = 'percentage',
+  orderDiscountValue = 0,
+  onUpdateOrderDiscount,
+  onApplyDiscountSuggestion,
   isAdmin = false
 }: VisualProductSelectorModalProps) {
   const [config, setConfig] = useState<VisualCatalogConfig | null>(null);
@@ -95,6 +111,12 @@ export default function VisualProductSelectorModal({
   const [expandedKits, setExpandedKits] = useState<Record<string, boolean>>({});
   const toggleKitExpand = (kitId: string) => {
     setExpandedKits(prev => ({ ...prev, [kitId]: !prev[kitId] }));
+  };
+
+  // Item Discounts Accordion State in Cart
+  const [openDiscountItemIds, setOpenDiscountItemIds] = useState<Record<string, boolean>>({});
+  const toggleItemDiscount = (id: string) => {
+    setOpenDiscountItemIds(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
   // Feedback banner
@@ -188,14 +210,14 @@ export default function VisualProductSelectorModal({
     return (currentSubgroup?.items || []).filter(it => it.isActive !== false);
   }, [currentSubgroup]);
 
-  // Fast text search across all products
+  // Fast text search across all products (accent and case insensitive)
   const searchResults = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
+    const q = normalizeText(searchQuery);
     if (!q) return [];
     const words = q.split(/\s+/).filter(Boolean);
     return products
       .filter(p => {
-        const full = `${p.name} ${p.sku || ""}`.toLowerCase();
+        const full = normalizeText(`${p.name} ${p.sku || ""} ${p.category || ""}`);
         return words.every(w => full.includes(w));
       })
       .slice(0, 40);
@@ -285,14 +307,22 @@ export default function VisualProductSelectorModal({
         const ci = item.comboItems[idx];
         const prod = products.find(p => p.id === ci.productId);
         if (prod) {
+          const effectiveBase = ci.basePrice !== undefined ? ci.basePrice : prod.price;
+          const effectiveCustom = ci.customPrice !== undefined ? ci.customPrice : prod.price;
+          const discType = ci.discountType || (effectiveCustom < effectiveBase ? 'percentage' : undefined);
+          const discVal = ci.discountValue !== undefined ? ci.discountValue : (discType === 'percentage' && effectiveBase > 0 ? Math.round(((effectiveBase - effectiveCustom) / effectiveBase) * 100) : undefined);
+
           itemsToAdd.push({
             ...prod,
             quantity: ci.quantity || 1,
-            customPrice: ci.customPrice !== undefined ? ci.customPrice : prod.price,
+            customPrice: effectiveCustom,
+            basePrice: effectiveBase,
+            discountType: discType,
+            discountValue: discVal,
             bundleParentId: (isKit && idx > 0) ? parentId : undefined,
             isIncludedInKit: isKit && idx > 0,
             baseQuantity: ci.quantity || 1
-          });
+          } as any);
         }
       }
       if (itemsToAdd.length > 0) {
@@ -344,8 +374,8 @@ export default function VisualProductSelectorModal({
     };
   }, [orderItems]);
 
-  // Calculate live subtotal
-  const subtotal = useMemo(() => {
+  // Calculate live gross subtotal and order discount
+  const itemsGrossSubtotal = useMemo(() => {
     return orderItems.reduce((acc, item) => {
       const name = (item.name || "").toLowerCase();
       const sku = (item.sku || "").toLowerCase();
@@ -355,6 +385,54 @@ export default function VisualProductSelectorModal({
       return acc + (effectivePrice * item.quantity);
     }, 0);
   }, [orderItems]);
+
+  const orderDiscountAmount = useMemo(() => {
+    if (!orderDiscountValue || orderDiscountValue <= 0) return 0;
+    if (orderDiscountType === 'percentage') {
+      return Math.round(itemsGrossSubtotal * (Math.min(100, orderDiscountValue) / 100));
+    }
+    return Math.min(itemsGrossSubtotal, orderDiscountValue);
+  }, [itemsGrossSubtotal, orderDiscountType, orderDiscountValue]);
+
+  const subtotal = Math.max(0, itemsGrossSubtotal - orderDiscountAmount);
+
+  // Evaluar sugerencias automáticas de bonificaciones por cantidad (ej: MEP x2, x3, x6, x12)
+  const discountSuggestions = useMemo(() => {
+    return evaluateDiscountSuggestions(orderItems, products);
+  }, [orderItems, products]);
+
+  const handleApplyDiscountSuggestion = (sug: DiscountSuggestion) => {
+    if (onApplyDiscountSuggestion) {
+      onApplyDiscountSuggestion(sug);
+      return;
+    }
+
+    if (sug.existingDiscountItemId) {
+      onRemoveItem?.(sug.existingDiscountItemId);
+    }
+
+    if (sug.itemDiscountAction) {
+      const { itemIds, discountPct } = sug.itemDiscountAction;
+      itemIds.forEach(id => {
+        onUpdateItemDiscount?.(id, 'percentage', discountPct);
+      });
+      return;
+    }
+
+    if (sug.targetProduct) {
+      const prodToAdd = {
+        ...sug.targetProduct,
+        quantity: sug.suggestedQty,
+        customPrice: -sug.unitDiscount,
+        basePrice: -sug.unitDiscount
+      };
+      if (onAddProducts) {
+        onAddProducts([prodToAdd]);
+      } else {
+        onAddProduct(prodToAdd);
+      }
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -527,23 +605,24 @@ export default function VisualProductSelectorModal({
                       return (
                         <div
                           key={p.id}
-                          className="p-3 flex items-center justify-between gap-3 hover:bg-slate-50 transition-colors"
+                          onClick={() => handleAddSearchItem(p)}
+                          className="p-3 flex items-center justify-between gap-3 hover:bg-brand-50/40 active:bg-brand-50/70 transition-all cursor-pointer group select-none"
                         >
                           <div className="flex items-center gap-3 min-w-0 flex-1">
-                            <div className="w-10 h-10 rounded-lg bg-slate-100 p-1 flex items-center justify-center shrink-0 border border-slate-200 overflow-hidden">
+                            <div className="w-10 h-10 rounded-lg bg-slate-100 p-1 flex items-center justify-center shrink-0 border border-slate-200 overflow-hidden group-hover:border-brand-300 group-hover:bg-white transition-colors">
                               {p.image_url ? (
                                 <img src={p.image_url} alt={p.name} className="max-h-full max-w-full object-contain" />
                               ) : (
-                                <Package className="w-5 h-5 text-slate-400" />
+                                <Package className="w-5 h-5 text-slate-400 group-hover:text-brand-500 transition-colors" />
                               )}
                             </div>
                             <div className="min-w-0 flex-1">
                               {p.sku && (
-                                <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block">
+                                <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block group-hover:text-slate-500 transition-colors">
                                   {p.sku}
                                 </span>
                               )}
-                              <p className="font-bold text-xs text-slate-800 truncate" title={p.name}>
+                              <p className="font-bold text-xs text-slate-800 truncate group-hover:text-brand-600 transition-colors" title={p.name}>
                                 {p.name}
                               </p>
                               <div className="flex items-center gap-2 mt-0.5">
@@ -559,8 +638,11 @@ export default function VisualProductSelectorModal({
 
                           <button
                             type="button"
-                            onClick={() => handleAddSearchItem(p)}
-                            className="px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-xs font-black flex items-center gap-1 shrink-0 transition-colors shadow-2xs cursor-pointer"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleAddSearchItem(p);
+                            }}
+                            className="px-3 py-1.5 bg-brand-600 group-hover:bg-brand-700 active:scale-95 text-white rounded-lg text-xs font-black flex items-center gap-1 shrink-0 transition-all shadow-2xs cursor-pointer"
                           >
                             <Plus className="w-3.5 h-3.5" />
                             <span>Agregar</span>
@@ -1164,6 +1246,46 @@ export default function VisualProductSelectorModal({
                 </div>
               ) : (
                 <>
+                  {/* SUGERENCIAS AUTOMÁTICAS DE BONIFICACIÓN */}
+                  {discountSuggestions.length > 0 && (
+                    <div className="space-y-1.5 mb-2 shrink-0">
+                      {discountSuggestions.map((sug) => (
+                        <div 
+                          key={sug.ruleId} 
+                          className="bg-gradient-to-r from-amber-500/10 via-amber-100 to-amber-50 border border-amber-300 rounded-xl p-2.5 flex items-center justify-between gap-2 shadow-xs animate-in slide-in-from-top duration-200"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="w-7 h-7 rounded-lg bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-2xs">
+                              <Sparkles className="w-3.5 h-3.5" />
+                            </span>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[8px] font-black uppercase tracking-wider bg-amber-200 text-amber-900 px-1 py-0.2 rounded">
+                                  Beneficio
+                                </span>
+                                <p className="font-extrabold text-xs text-amber-950 truncate">
+                                  {sug.ruleName} ({sug.suggestedQty} unid.)
+                                </p>
+                              </div>
+                              <p className="text-[10.5px] text-amber-800 font-medium truncate">
+                                {sug.description} → Ahorro: <strong>{fmt(sug.totalDiscount)}</strong>
+                              </p>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleApplyDiscountSuggestion(sug)}
+                            className="px-2.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[11px] font-black shrink-0 flex items-center gap-1 shadow-xs transition-all cursor-pointer hover:scale-102"
+                          >
+                            <Check className="w-3 h-3" />
+                            {sug.action === 'upgrade' ? 'Actualizar' : 'Aplicar'}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
                   {/* LISTA COMPACTA DE ARTÍCULOS Y SERVICIOS */}
                   {standardItems.map((item, idx) => {
                     const nameLower = (item.name || "").toLowerCase();
@@ -1176,9 +1298,9 @@ export default function VisualProductSelectorModal({
                     const displayName = (rawSku && !isAutoSku) ? rawSku : item.name;
 
                     return (
-                      <div 
-                        key={`${item.id}-${idx}`} 
-                        className={`rounded-lg py-1.5 px-2.5 border transition-all flex items-center justify-between gap-2 ${
+                      <React.Fragment key={`${item.id}-${idx}`}>
+                        <div 
+                          className={`rounded-lg py-1.5 px-2.5 border transition-all flex items-center justify-between gap-2 ${
                           isKitService 
                             ? 'bg-emerald-50/50 border-emerald-300' 
                             : isIncludedZero 
@@ -1198,9 +1320,19 @@ export default function VisualProductSelectorModal({
                               $0
                             </span>
                           )}
+                          {Boolean(item.discountValue && item.discountValue > 0) && (
+                            <span className="inline-flex items-center gap-0.5 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded border border-amber-300 shrink-0">
+                              {item.discountType === 'percentage' ? `${item.discountValue}% OFF` : `-$${formatPrice(item.discountValue || 0)}`}
+                            </span>
+                          )}
                           <p className="font-bold text-slate-800 text-xs truncate" title={displayName}>
                             {displayName}
                           </p>
+                          {Boolean(item.basePrice && item.basePrice > item.customPrice) && (
+                            <span className="text-[10px] text-slate-400 line-through shrink-0">
+                              {formatPrice(item.basePrice!)}
+                            </span>
+                          )}
                         </div>
 
                         {/* Controles en línea compacta: [-] {qty} [+] | $ {precio} | 🗑️ */}
@@ -1240,6 +1372,23 @@ export default function VisualProductSelectorModal({
                             />
                           </div>
 
+                          {/* Botón para aplicar o editar descuento por producto */}
+                          <button
+                            type="button"
+                            onClick={() => toggleItemDiscount(item.id)}
+                            className={`h-6.5 px-1.5 rounded-md border text-[10px] font-bold flex items-center gap-0.5 transition-colors cursor-pointer ${
+                              Boolean(item.discountValue && item.discountValue > 0)
+                                ? 'bg-amber-100 border-amber-300 text-amber-800'
+                                : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-amber-50 hover:text-amber-700 hover:border-amber-200'
+                            }`}
+                            title="Aplicar descuento a este producto"
+                          >
+                            <Percent className="w-2.5 h-2.5" />
+                            {Boolean(item.discountValue && item.discountValue > 0) && (
+                              <span>{item.discountType === 'percentage' ? `${item.discountValue}%` : `$`}</span>
+                            )}
+                          </button>
+
                           {/* Botón para SACAR producto */}
                           {onRemoveItem && (
                             <button 
@@ -1253,64 +1402,212 @@ export default function VisualProductSelectorModal({
                           )}
                         </div>
                       </div>
-                    );
-                  })}
 
-                  {/* 3. DESCUENTOS Y BONIFICACIONES COMPACTO */}
-                  {discountItems.map((item, idx) => (
-                    <div 
-                      key={`${item.id}-${idx}`} 
-                      className="bg-amber-50/60 border border-amber-200 rounded-lg py-1.5 px-2.5 flex items-center justify-between gap-2"
-                    >
-                      <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                        <span className="inline-flex items-center gap-1 text-[7.5px] font-black uppercase tracking-wider px-1 py-0.2 bg-amber-100 text-amber-800 rounded border border-amber-200 shrink-0">
-                          <Tag className="w-2.5 h-2.5 text-amber-600" /> Descuento
-                        </span>
-                        <p className="font-bold text-slate-800 text-xs truncate">{item.name}</p>
-                      </div>
+                      {/* Sub-fila expandida para configurar descuento de este producto */}
+                      {openDiscountItemIds[item.id] && (
+                        <div className="bg-amber-50/70 border border-amber-200/90 rounded-md px-2 py-1.5 flex items-center justify-between gap-2 text-xs animate-in fade-in duration-150">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] font-bold text-amber-900">Desc. producto:</span>
+                            <div className="flex items-center bg-white border border-amber-300 rounded overflow-hidden text-[10px]">
+                              <button
+                                type="button"
+                                onClick={() => onUpdateItemDiscount?.(item.id, 'percentage', item.discountValue || 0)}
+                                className={`px-1.5 py-0.5 font-black cursor-pointer ${item.discountType === 'percentage' || !item.discountType ? 'bg-amber-500 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+                              >
+                                %
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => onUpdateItemDiscount?.(item.id, 'fixed', item.discountValue || 0)}
+                                className={`px-1.5 py-0.5 font-black cursor-pointer ${item.discountType === 'fixed' ? 'bg-amber-500 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+                              >
+                                $
+                              </button>
+                            </div>
+                            <input
+                              type="number"
+                              value={item.discountValue || ""}
+                              placeholder="0"
+                              onChange={(e) => onUpdateItemDiscount?.(item.id, item.discountType || 'percentage', Number(e.target.value))}
+                              className="w-16 px-1.5 py-0.5 bg-white border border-amber-300 rounded text-xs font-bold text-right outline-none text-slate-800"
+                            />
+                          </div>
 
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <span className="font-black text-xs text-amber-700 bg-amber-100/60 px-1.5 py-0.5 rounded border border-amber-200/60">
-                          -{fmt(Math.abs(item.customPrice * item.quantity))}
-                        </span>
-                        {onRemoveItem && (
-                          <button 
-                            type="button"
-                            onClick={() => onRemoveItem(item.id)}
-                            className="text-slate-400 hover:text-red-500 p-1 rounded hover:bg-red-50 transition-colors cursor-pointer"
-                            title="Quitar bonificación"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10.5px] text-amber-800 font-bold">
+                              {item.discountType === 'percentage'
+                                ? `(-${fmt(Math.round(((item.basePrice || item.price) * (item.discountValue || 0)) / 100))}/u)`
+                                : `(-${fmt(item.discountValue || 0)}/u)`}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onUpdateItemDiscount?.(item.id, 'percentage', 0);
+                                toggleItemDiscount(item.id);
+                              }}
+                              className="text-[10px] font-extrabold text-red-500 hover:text-red-700 cursor-pointer"
+                            >
+                              Limpiar
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+
+                {/* 3. DESCUENTOS Y BONIFICACIONES COMPACTO */}
+                {discountItems.map((item, idx) => (
+                  <div 
+                    key={`${item.id}-${idx}`} 
+                    className="bg-amber-50/60 border border-amber-200 rounded-lg py-1.5 px-2.5 flex items-center justify-between gap-2"
+                  >
+                    <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                      <span className="inline-flex items-center gap-1 text-[7.5px] font-black uppercase tracking-wider px-1 py-0.2 bg-amber-100 text-amber-800 rounded border border-amber-200 shrink-0">
+                        <Tag className="w-2.5 h-2.5 text-amber-600" /> Descuento
+                      </span>
+                      <p className="font-bold text-slate-800 text-xs truncate">{item.name}</p>
                     </div>
-                  ))}
-                </>
-              )}
 
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {/* Selector de cantidad compacto para bonificaciones */}
+                      <div className="flex items-center bg-white border border-amber-200 rounded-md overflow-hidden h-6.5">
+                        <button 
+                          type="button" 
+                          onClick={() => onUpdateQuantity?.(item.id, item.quantity - 1)} 
+                          className="px-1.5 font-black text-slate-500 hover:bg-amber-100 text-xs h-full cursor-pointer transition-colors"
+                          title="Restar 1 unidad"
+                        >
+                          -
+                        </button>
+                        <span className="px-1.5 font-black text-xs min-w-[1.2rem] text-center text-slate-800">
+                          {item.quantity}
+                        </span>
+                        <button 
+                          type="button" 
+                          onClick={() => onUpdateQuantity?.(item.id, item.quantity + 1)} 
+                          className="px-1.5 font-black text-slate-500 hover:bg-amber-100 text-xs h-full cursor-pointer transition-colors"
+                          title="Sumar 1 unidad"
+                        >
+                          +
+                        </button>
+                      </div>
+
+                      {/* Precio editable con -$ */}
+                      <div className="flex items-center bg-white border border-amber-300 rounded-md px-1.5 h-6.5">
+                        <span className="text-[9.5px] font-bold text-amber-700 mr-0.5">-$</span>
+                        <input 
+                          type="number" 
+                          value={Math.abs(item.customPrice) || ""}
+                          placeholder="0"
+                          onChange={(e) => onUpdateCustomPrice?.(item.id, -Math.abs(Number(e.target.value)))}
+                          className="w-16 text-xs font-bold text-right outline-none bg-transparent text-amber-900"
+                          title="Monto del descuento unitario (editable)"
+                        />
+                      </div>
+
+                      <span className="font-black text-xs text-amber-700 bg-amber-100/60 px-1.5 py-0.5 rounded border border-amber-200/60 min-w-[3.5rem] text-right">
+                        -{fmt(Math.abs(item.customPrice * item.quantity))}
+                      </span>
+
+                      {onRemoveItem && (
+                        <button 
+                          type="button"
+                          onClick={() => onRemoveItem(item.id)}
+                          className="text-slate-400 hover:text-red-500 p-1 rounded hover:bg-red-50 transition-colors cursor-pointer"
+                          title="Quitar bonificación"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </>
+            )}
+
+          </div>
+
+          {/* CART FOOTER WITH SUBTOTAL AND CONFIRM BUTTON */}
+          <div className="p-3.5 border-t border-slate-200 bg-white shrink-0 space-y-2.5">
+            {/* Descuento al total del pedido en modal */}
+            <div className="bg-slate-50 p-2 rounded-xl border border-slate-200/80 space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-600 flex items-center gap-1">
+                  <Tag className="w-3 h-3 text-amber-600" /> Descuento Total Pedido
+                </span>
+                {orderDiscountAmount > 0 && (
+                  <span className="text-[10px] font-black text-amber-700 bg-amber-100/70 px-1.5 py-0.2 rounded border border-amber-200">
+                    -{fmt(orderDiscountAmount)}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="flex items-center bg-white border border-slate-200 rounded-lg overflow-hidden text-xs shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => onUpdateOrderDiscount?.('percentage', orderDiscountValue || 0)}
+                    className={`px-2 py-1 font-black cursor-pointer ${orderDiscountType === 'percentage' ? 'bg-amber-500 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+                  >
+                    %
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onUpdateOrderDiscount?.('fixed', orderDiscountValue || 0)}
+                    className={`px-2 py-1 font-black cursor-pointer ${orderDiscountType === 'fixed' ? 'bg-amber-500 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+                  >
+                    $
+                  </button>
+                </div>
+                <input
+                  type="number"
+                  value={orderDiscountValue || ""}
+                  placeholder={orderDiscountType === 'percentage' ? "% Desc. general" : "$ Desc. general"}
+                  onChange={(e) => onUpdateOrderDiscount?.(orderDiscountType || 'percentage', Number(e.target.value))}
+                  className="flex-1 px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none text-slate-800 placeholder:text-slate-400"
+                />
+                {orderDiscountValue > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => onUpdateOrderDiscount?.('percentage', 0)}
+                    className="text-slate-400 hover:text-red-500 p-1 text-xs font-bold cursor-pointer"
+                    title="Eliminar descuento general"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+              <p className="text-[9px] text-slate-400 font-medium italic mt-1">
+                💡 En planilla se registra como <strong>Descuento Compra Mayorista</strong> y los artículos van a precio de lista.
+              </p>
             </div>
 
-            {/* CART FOOTER WITH SUBTOTAL AND CONFIRM BUTTON */}
-            <div className="p-3.5 border-t border-slate-200 bg-white shrink-0 space-y-3">
+            <div className="space-y-1 text-xs">
+              {orderDiscountAmount > 0 && (
+                <div className="flex items-center justify-between text-slate-500 font-bold">
+                  <span>Subtotal Artículos:</span>
+                  <span>{fmt(itemsGrossSubtotal)}</span>
+                </div>
+              )}
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-                  Subtotal Artículos:
+                <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                  {orderDiscountAmount > 0 ? "Subtotal Neto:" : "Subtotal Artículos:"}
                 </span>
                 <span className="text-base font-black text-slate-900">
                   {fmt(subtotal)}
                 </span>
               </div>
-
-              <button
-                type="button"
-                onClick={handleClose}
-                className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-md hover:shadow-emerald-600/20 transition-all flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <Check className="w-4 h-4" />
-                <span>Confirmar Productos y Volver al Pedido</span>
-              </button>
             </div>
+
+            <button
+              type="button"
+              onClick={handleClose}
+              className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-md hover:shadow-emerald-600/20 transition-all flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <Check className="w-4 h-4" />
+              <span>Confirmar Productos y Volver al Pedido</span>
+            </button>
+          </div>
 
           </div>
 

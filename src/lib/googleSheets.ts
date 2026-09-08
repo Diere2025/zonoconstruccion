@@ -344,8 +344,157 @@ function normalizeProductNameForSheet(name: string, sku?: string): string {
   if (lowerName.includes('descuento combo biodigestor') || lowerName.includes('descuento combo bio')) {
     return 'Descuento Combo Biodigestor';
   }
+  if (lowerName.includes('descuento') && lowerName.includes('bomba')) {
+    return 'Descuento - Bombas';
+  }
+  if (lowerName.includes('descuento') && (lowerName.includes('mayorista') || lowerName.includes('general') || lowerName.includes('pedido') || lowerName.includes('compra'))) {
+    return 'Descuento Compra Mayorista';
+  }
+  if (lowerName.includes('descuento') && lowerName.includes('mep')) {
+    if (lowerName.includes('x12') || lowerName.includes('12')) return 'Descuento - MEP x12';
+    if (lowerName.includes('x6') || lowerName.includes('6')) return 'Descuento - MEP x6';
+    if (lowerName.includes('x3') || lowerName.includes('3')) return 'Descuento - MEP x3';
+    if (lowerName.includes('x2') || lowerName.includes('2')) return 'Descuento - MEP x2';
+  }
 
   return name;
+}
+
+export function buildSheetOrderItems(
+  orderItems: Array<{
+    id?: string;
+    name?: string;
+    product_name?: string;
+    sku?: string;
+    quantity?: number;
+    customPrice?: number;
+    unit_price?: number;
+    price?: number;
+    basePrice?: number;
+    discountType?: 'percentage' | 'fixed';
+    discountValue?: number;
+  }>,
+  orderDiscountAmount: number = 0,
+  productsCatalog?: Array<{ id: string; price: number; name?: string; sku?: string }>
+): SheetOrderItem[] {
+  if (!orderItems || orderItems.length === 0) {
+    if (orderDiscountAmount > 0) {
+      return [{
+        name: 'Descuento Compra Mayorista',
+        sku: 'Descuento Compra Mayorista',
+        quantity: 1,
+        unitPrice: -Math.round(orderDiscountAmount)
+      }];
+    }
+    return [];
+  }
+
+  const resultItems: SheetOrderItem[] = [];
+  let bioFortSavings = 0;
+  let mayoristaSavings = Math.max(0, orderDiscountAmount || 0);
+
+  for (const item of orderItems) {
+    const rawName = item.product_name || item.name || '';
+    const rawSku = item.sku || '';
+    const nameLower = rawName.toLowerCase();
+    const skuLower = rawSku.toLowerCase();
+    const qty = item.quantity || 1;
+    const currentPrice = item.customPrice !== undefined ? item.customPrice : (item.unit_price !== undefined ? item.unit_price : 0);
+
+    const isExplicitDiscount = nameLower.includes('descuento') || 
+                               skuLower.includes('descuento') || 
+                               nameLower.includes('bonificaci') || 
+                               skuLower.includes('bonificaci') ||
+                               currentPrice < 0;
+
+    if (isExplicitDiscount) {
+      // Si ya viene un "Descuento Combo Biodigestor" como ítem explícito, acumular su ahorro
+      if (nameLower.includes('combo') && (nameLower.includes('bio') || nameLower.includes('biodigestor'))) {
+        bioFortSavings += Math.abs(currentPrice) * qty;
+        continue;
+      }
+
+      // Si ya viene un "Descuento Compra Mayorista" o "Descuento General", acumular al descuento mayorista
+      if (nameLower.includes('mayorista') || nameLower.includes('general') || nameLower.includes('compra')) {
+        mayoristaSavings += Math.abs(currentPrice) * qty;
+        continue;
+      }
+
+      // Otras bonificaciones oficiales de planilla (MEP x2, x3, x6, x12, Bombas, Escaleras, etc.)
+      resultItems.push({
+        name: normalizeProductNameForSheet(rawName, rawSku),
+        sku: rawSku || undefined,
+        quantity: qty,
+        unitPrice: -Math.abs(currentPrice)
+      });
+      continue;
+    }
+
+    // Para productos normales: determinar precio de lista
+    let listPrice = (item.basePrice !== undefined && item.basePrice > 0) ? item.basePrice : 0;
+    if (!listPrice && productsCatalog && productsCatalog.length > 0) {
+      const found = productsCatalog.find(p => p.id === item.id || (item.sku && p.sku === item.sku) || (rawName && p.name === rawName));
+      if (found && found.price) {
+        listPrice = found.price;
+      }
+    }
+    if (!listPrice) {
+      listPrice = Math.max(0, currentPrice);
+    }
+
+    // Calcular ahorro si el producto tiene precio con descuento
+    const priceDiff = listPrice - currentPrice;
+    if (priceDiff > 0) {
+      // Verificar si es parte de un combo BioFort (15% OFF en equipos y accesorios de saneamiento)
+      const isBioComponent = nameLower.includes('biodigestor') || 
+                             nameLower.includes('autolimpiable') || 
+                             nameLower.includes('séptica') || 
+                             nameLower.includes('septica') || 
+                             nameLower.includes('lodos') || 
+                             nameLower.includes('inspección') || 
+                             nameLower.includes('inspeccion') || 
+                             nameLower.includes('cii') || 
+                             nameLower.includes('biolam') || 
+                             nameLower.includes('desengrasadora') || 
+                             nameLower.includes('desgrasadora');
+      
+      if (isBioComponent && item.discountValue === 15) {
+        bioFortSavings += priceDiff * qty;
+      } else {
+        mayoristaSavings += priceDiff * qty;
+      }
+    }
+
+    // En planilla SIEMPRE se registra el producto con su precio de lista
+    resultItems.push({
+      name: normalizeProductNameForSheet(rawName, rawSku),
+      sku: rawSku || undefined,
+      quantity: qty,
+      unitPrice: listPrice
+    });
+  }
+
+  // Si hay ahorro por Combo BioFort, agregar la línea consolidada 'Descuento Combo Biodigestor'
+  if (bioFortSavings > 0) {
+    resultItems.push({
+      name: 'Descuento Combo Biodigestor',
+      sku: 'Descuento Combo Biodigestor',
+      quantity: 1,
+      unitPrice: -Math.round(bioFortSavings)
+    });
+  }
+
+  // Si hay ahorro negociado (al total del pedido o por productos personalizados), agregar 'Descuento Compra Mayorista'
+  if (mayoristaSavings > 0) {
+    resultItems.push({
+      name: 'Descuento Compra Mayorista',
+      sku: 'Descuento Compra Mayorista',
+      quantity: 1,
+      unitPrice: -Math.round(mayoristaSavings)
+    });
+  }
+
+  return resultItems;
 }
 
 export function normalizeSellerNameForSheet(sellerName?: string | null): string {

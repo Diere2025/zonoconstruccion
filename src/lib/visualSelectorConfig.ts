@@ -11,6 +11,9 @@ export interface VisualComboItem {
   productId: string;
   quantity: number;
   customPrice?: number;
+  basePrice?: number;
+  discountType?: 'percentage' | 'fixed';
+  discountValue?: number;
 }
 
 export interface VisualItemOption {
@@ -305,7 +308,7 @@ export function generateDefaultVisualConfig(products: Product[]): VisualCatalogC
     return isBio && !text.includes('kit instalaci') && !text.includes('combo') && !text.includes('adicionales');
   });
 
-  const pDesengrasadora = products.find(p => p.is_active !== false && p.name.toLowerCase().includes('desengrasadora') && p.name.toLowerCase().includes('canasto'));
+  const pDesengrasadora = products.find(p => p.is_active !== false && (p.name.toLowerCase().includes('desengrasadora') || p.name.toLowerCase().includes('desgrasadora')));
   const pInspeccion = products.find(p => p.is_active !== false && (p.name.toLowerCase().includes('cámara de inspección') || p.name.toLowerCase().includes('camara de inspeccion') || p.name.toLowerCase().includes('cii')));
   const pCano110 = products.find(p => p.is_active !== false && p.name.toLowerCase().includes('awaduct') && p.name.toLowerCase().includes('110') && p.name.toLowerCase().includes('4mts'));
   const pRamalT = products.find(p => p.is_active !== false && p.name.toLowerCase().includes('ramal t') && p.name.toLowerCase().includes('110'));
@@ -315,6 +318,20 @@ export function generateDefaultVisualConfig(products: Product[]): VisualCatalogC
   const pSombrero = products.find(p => p.is_active !== false && p.name.toLowerCase().includes('sombrero') && p.name.toLowerCase().includes('110'));
   const pLusqtoff = products.find(p => p.is_active !== false && p.name.toLowerCase().includes('lusqtoff') && p.name.toLowerCase().includes('lubricante'));
   const pDescuento = products.find(p => p.is_active !== false && p.name.toLowerCase().includes('descuento combo biodigestor'));
+
+  const createDiscountedComboItem = (prod?: Product, defaultPrice?: number, discountPct: number = 15): VisualComboItem[] => {
+    if (!prod) return [];
+    const base = prod.price || defaultPrice || 0;
+    const custom = Math.round(base * (1 - discountPct / 100));
+    return [{
+      productId: prod.id,
+      quantity: 1,
+      customPrice: custom,
+      basePrice: base,
+      discountType: 'percentage',
+      discountValue: discountPct
+    }];
+  };
 
   const pBio500 = products.find(p => p.is_active !== false && p.name.toLowerCase().includes('biodigestor') && p.name.toLowerCase().includes('500'));
   const pSep500 = products.find(p => p.is_active !== false && (p.name.toLowerCase().includes('séptica') || p.name.toLowerCase().includes('septica')) && p.name.toLowerCase().includes('500'));
@@ -414,8 +431,8 @@ export function generateDefaultVisualConfig(products: Product[]): VisualCatalogC
     },
     {
       id: 'combos_biofort',
-      name: 'Combos BioFort (Equipos y Accesorios)',
-      description: 'Sistemas sépticos completos con accesorios e insumos bonificados',
+      name: 'Combos Estándar',
+      description: 'Sistemas sépticos completos BioFort sin desengrasadora (15% OFF)',
       badgeColor: 'bg-blue-600 text-white',
       imageUrl: 'https://ckvbyfgsbjbfaqotmeld.supabase.co/storage/v1/object/public/product-images/0.4963342225093239.webp',
       isActive: true,
@@ -423,88 +440,209 @@ export function generateDefaultVisualConfig(products: Product[]): VisualCatalogC
         {
           id: 'combo_bio_500_sin_desengrasante',
           label: 'Combo Bio 500L (Sin desengrasante)',
-          description: 'Biodigestor 500L + Séptica 500L + Kit Cámara Inspección + Biolam',
-          badge: 'Combo',
+          description: 'Biodigestor 500L + Séptica 500L + Kit Cámara Inspección + Biolam (15% OFF)',
+          badge: 'Combo 15% OFF',
           imageUrl: 'https://ckvbyfgsbjbfaqotmeld.supabase.co/storage/v1/object/public/product-images/0.4963342225093239.webp',
           isActive: true,
           price: 391850,
           isCombo: true,
           comboItems: [
-            ...(pBio500 ? [{ productId: pBio500.id, quantity: 1, customPrice: 258600 }] : []),
-            ...(pSep500 ? [{ productId: pSep500.id, quantity: 1, customPrice: 129900 }] : []),
-            ...(pInspeccion ? [{ productId: pInspeccion.id, quantity: 1, customPrice: 54000 }] : []),
-            ...(pBiolam ? [{ productId: pBiolam.id, quantity: 1, customPrice: 18500 }] : []),
-            ...(pDescuento ? [{ productId: pDescuento.id, quantity: 1, customPrice: -69150 }] : [])
-          ]
-        },
-        {
-          id: 'combo_bio_500_con_desengrasante',
-          label: 'Combo Bio 500L (Con desengrasante)',
-          description: 'Biodigestor 500L + Séptica 500L + Kit Cámara + Biolam + Desgrasadora c/canasto',
-          badge: 'Combo',
-          imageUrl: 'https://ckvbyfgsbjbfaqotmeld.supabase.co/storage/v1/object/public/product-images/0.4963342225093239.webp',
-          isActive: true,
-          price: 481100,
-          isCombo: true,
-          comboItems: [
-            ...(pBio500 ? [{ productId: pBio500.id, quantity: 1, customPrice: 258600 }] : []),
-            ...(pSep500 ? [{ productId: pSep500.id, quantity: 1, customPrice: 129900 }] : []),
-            ...(pInspeccion ? [{ productId: pInspeccion.id, quantity: 1, customPrice: 54000 }] : []),
-            ...(pBiolam ? [{ productId: pBiolam.id, quantity: 1, customPrice: 18500 }] : []),
-            ...(pDesengrasadora ? [{ productId: pDesengrasadora.id, quantity: 1, customPrice: 105000 }] : []),
-            ...(pDescuento ? [{ productId: pDescuento.id, quantity: 1, customPrice: -84900 }] : [])
+            ...createDiscountedComboItem(pBio500, 258600, 15),
+            ...createDiscountedComboItem(pSep500, 129900, 15),
+            ...createDiscountedComboItem(pInspeccion, 54000, 15),
+            ...createDiscountedComboItem(pBiolam, 18500, 15)
           ]
         },
         {
           id: 'combo_bio_600_sin_desengrasante',
           label: 'Combo Bio 600L (Sin desengrasante)',
-          description: 'Biodigestor 600L + Séptica 600L + Kit Cámara Inspección + Biolam',
-          badge: 'Combo',
+          description: 'Biodigestor 600L + Séptica 600L + Kit Cámara Inspección + Biolam (15% OFF)',
+          badge: 'Combo 15% OFF',
           imageUrl: 'https://ckvbyfgsbjbfaqotmeld.supabase.co/storage/v1/object/public/product-images/0.4963342225093239.webp',
           isActive: true,
           price: 424405,
           isCombo: true,
           comboItems: [
-            ...(pBio600 ? [{ productId: pBio600.id, quantity: 1, customPrice: 274900 }] : []),
-            ...(pSep600 ? [{ productId: pSep600.id, quantity: 1, customPrice: 151900 }] : []),
-            ...(pInspeccion ? [{ productId: pInspeccion.id, quantity: 1, customPrice: 54000 }] : []),
-            ...(pBiolam ? [{ productId: pBiolam.id, quantity: 1, customPrice: 18500 }] : []),
-            ...(pDescuento ? [{ productId: pDescuento.id, quantity: 1, customPrice: -74895 }] : [])
+            ...createDiscountedComboItem(pBio600, 274900, 15),
+            ...createDiscountedComboItem(pSep600, 151900, 15),
+            ...createDiscountedComboItem(pInspeccion, 54000, 15),
+            ...createDiscountedComboItem(pBiolam, 18500, 15)
           ]
         },
         {
-          id: 'combo_bio_600_con_desengrasante',
-          label: 'Combo Bio 600L (Con desengrasante)',
-          description: 'Biodigestor 600L + Séptica 600L + Kit Cámara + Biolam + Desgrasadora c/canasto',
-          badge: 'Combo',
+          id: 'combo_bio_750_sin_desengrasante',
+          label: 'Combo Bio 750L (Sin desengrasante)',
+          description: 'Biodigestor 750L + Séptica 750L + Kit Cámara Inspección + Biolam (15% OFF)',
+          badge: 'Combo 15% OFF',
           imageUrl: 'https://ckvbyfgsbjbfaqotmeld.supabase.co/storage/v1/object/public/product-images/0.4963342225093239.webp',
           isActive: true,
-          price: 513655,
+          price: 461550,
           isCombo: true,
           comboItems: [
-            ...(pBio600 ? [{ productId: pBio600.id, quantity: 1, customPrice: 274900 }] : []),
-            ...(pSep600 ? [{ productId: pSep600.id, quantity: 1, customPrice: 151900 }] : []),
-            ...(pInspeccion ? [{ productId: pInspeccion.id, quantity: 1, customPrice: 54000 }] : []),
-            ...(pBiolam ? [{ productId: pBiolam.id, quantity: 1, customPrice: 18500 }] : []),
-            ...(pDesengrasadora ? [{ productId: pDesengrasadora.id, quantity: 1, customPrice: 105000 }] : []),
-            ...(pDescuento ? [{ productId: pDescuento.id, quantity: 1, customPrice: -90645 }] : [])
+            ...createDiscountedComboItem(pBio750, 303800, 15),
+            ...createDiscountedComboItem(pSep750, 166700, 15),
+            ...createDiscountedComboItem(pInspeccion, 54000, 15),
+            ...createDiscountedComboItem(pBiolam, 18500, 15)
+          ]
+        },
+        {
+          id: 'combo_bio_1000_sin_desengrasante',
+          label: 'Combo Bio 1000L (Sin desengrasante)',
+          description: 'Biodigestor 1000L + Séptica 1000L + Kit Cámara Inspección + Biolam (15% OFF)',
+          badge: 'Combo 15% OFF',
+          imageUrl: 'https://ckvbyfgsbjbfaqotmeld.supabase.co/storage/v1/object/public/product-images/0.4963342225093239.webp',
+          isActive: true,
+          price: 535330,
+          isCombo: true,
+          comboItems: [
+            ...createDiscountedComboItem(pBio1000, 336300, 15),
+            ...createDiscountedComboItem(pSep1000, 221000, 15),
+            ...createDiscountedComboItem(pInspeccion, 54000, 15),
+            ...createDiscountedComboItem(pBiolam, 18500, 15)
+          ]
+        },
+        {
+          id: 'combo_bio_3000_sin_desengrasante',
+          label: 'Combo Bio 3000L (Sin desengrasante)',
+          description: 'Biodigestor 3000L + Séptica 3000L + Kit Cámara Inspección + Biolam (15% OFF)',
+          badge: 'Combo 15% OFF',
+          imageUrl: 'https://ckvbyfgsbjbfaqotmeld.supabase.co/storage/v1/object/public/product-images/0.4963342225093239.webp',
+          isActive: true,
+          price: 1291405,
+          isCombo: true,
+          comboItems: [
+            ...createDiscountedComboItem(pBio3000, 851800, 15),
+            ...createDiscountedComboItem(pSep3000, 595000, 15),
+            ...createDiscountedComboItem(pInspeccion, 54000, 15),
+            ...createDiscountedComboItem(pBiolam, 18500, 15)
           ]
         },
         {
           id: 'combo_autolimpiante_completo',
-          label: 'Autolimpiante + Inspección + Lodos + Biolam',
-          description: 'Biodigestor Autolimpiante 700L + Reg. Lodos + Kit Cámara + Biolam',
-          badge: 'Combo',
+          label: 'Combo Autolimpiable 700L (Sin desengrasante)',
+          description: 'Biodigestor Autolimpiante 700L + Reg. Lodos + Kit Cámara + Biolam (15% OFF)',
+          badge: 'Combo 15% OFF',
           imageUrl: 'https://ckvbyfgsbjbfaqotmeld.supabase.co/storage/v1/object/public/product-images/0.4963342225093239.webp',
           isActive: true,
           price: 525980,
           isCombo: true,
           comboItems: [
-            ...(pBioAuto700 ? [{ productId: pBioAuto700.id, quantity: 1, customPrice: 489600 }] : []),
-            ...(pRegLodos ? [{ productId: pRegLodos.id, quantity: 1, customPrice: 56700 }] : []),
-            ...(pInspeccion ? [{ productId: pInspeccion.id, quantity: 1, customPrice: 54000 }] : []),
-            ...(pBiolam ? [{ productId: pBiolam.id, quantity: 1, customPrice: 18500 }] : []),
-            ...(pDescuento ? [{ productId: pDescuento.id, quantity: 1, customPrice: -92820 }] : [])
+            ...createDiscountedComboItem(pBioAuto700, 489600, 15),
+            ...createDiscountedComboItem(pRegLodos, 56700, 15),
+            ...createDiscountedComboItem(pInspeccion, 54000, 15),
+            ...createDiscountedComboItem(pBiolam, 18500, 15)
+          ]
+        }
+      ]
+    },
+    {
+      id: 'combos_desengrasadora',
+      name: 'Combos con Desengrasadora',
+      description: 'Kits completos BioFort con Cámara Desengrasante c/ Canasto (15% OFF)',
+      badgeColor: 'bg-emerald-600 text-white',
+      imageUrl: 'https://ckvbyfgsbjbfaqotmeld.supabase.co/storage/v1/object/public/product-images/0.4963342225093239.webp',
+      isActive: true,
+      items: [
+        {
+          id: 'combo_bio_500_con_desengrasante',
+          label: 'Combo Bio 500L (Con desengrasadora)',
+          description: 'Biodigestor 500L + Séptica 500L + Kit Cámara + Cám. Desengrasante c/canasto + Biolam (15% OFF)',
+          badge: 'Combo 15% OFF',
+          imageUrl: 'https://ckvbyfgsbjbfaqotmeld.supabase.co/storage/v1/object/public/product-images/0.4963342225093239.webp',
+          isActive: true,
+          price: 481100,
+          isCombo: true,
+          comboItems: [
+            ...createDiscountedComboItem(pBio500, 258600, 15),
+            ...createDiscountedComboItem(pSep500, 129900, 15),
+            ...createDiscountedComboItem(pInspeccion, 54000, 15),
+            ...createDiscountedComboItem(pBiolam, 18500, 15),
+            ...createDiscountedComboItem(pDesengrasadora, 105000, 15)
+          ]
+        },
+        {
+          id: 'combo_bio_600_con_desengrasante',
+          label: 'Combo Bio 600L (Con desengrasadora)',
+          description: 'Biodigestor 600L + Séptica 600L + Kit Cámara + Cám. Desengrasante c/canasto + Biolam (15% OFF)',
+          badge: 'Combo 15% OFF',
+          imageUrl: 'https://ckvbyfgsbjbfaqotmeld.supabase.co/storage/v1/object/public/product-images/0.4963342225093239.webp',
+          isActive: true,
+          price: 513655,
+          isCombo: true,
+          comboItems: [
+            ...createDiscountedComboItem(pBio600, 274900, 15),
+            ...createDiscountedComboItem(pSep600, 151900, 15),
+            ...createDiscountedComboItem(pInspeccion, 54000, 15),
+            ...createDiscountedComboItem(pBiolam, 18500, 15),
+            ...createDiscountedComboItem(pDesengrasadora, 105000, 15)
+          ]
+        },
+        {
+          id: 'combo_bio_750_con_desengrasante',
+          label: 'Combo Bio 750L (Con desengrasadora)',
+          description: 'Biodigestor 750L + Séptica 750L + Kit Cámara + Cám. Desengrasante c/canasto + Biolam (15% OFF)',
+          badge: 'Combo 15% OFF',
+          imageUrl: 'https://ckvbyfgsbjbfaqotmeld.supabase.co/storage/v1/object/public/product-images/0.4963342225093239.webp',
+          isActive: true,
+          price: 550800,
+          isCombo: true,
+          comboItems: [
+            ...createDiscountedComboItem(pBio750, 303800, 15),
+            ...createDiscountedComboItem(pSep750, 166700, 15),
+            ...createDiscountedComboItem(pInspeccion, 54000, 15),
+            ...createDiscountedComboItem(pBiolam, 18500, 15),
+            ...createDiscountedComboItem(pDesengrasadora, 105000, 15)
+          ]
+        },
+        {
+          id: 'combo_bio_1000_con_desengrasante',
+          label: 'Combo Bio 1000L (Con desengrasadora)',
+          description: 'Biodigestor 1000L + Séptica 1000L + Kit Cámara + Cám. Desengrasante c/canasto + Biolam (15% OFF)',
+          badge: 'Combo 15% OFF',
+          imageUrl: 'https://ckvbyfgsbjbfaqotmeld.supabase.co/storage/v1/object/public/product-images/0.4963342225093239.webp',
+          isActive: true,
+          price: 624580,
+          isCombo: true,
+          comboItems: [
+            ...createDiscountedComboItem(pBio1000, 336300, 15),
+            ...createDiscountedComboItem(pSep1000, 221000, 15),
+            ...createDiscountedComboItem(pInspeccion, 54000, 15),
+            ...createDiscountedComboItem(pBiolam, 18500, 15),
+            ...createDiscountedComboItem(pDesengrasadora, 105000, 15)
+          ]
+        },
+        {
+          id: 'combo_bio_3000_con_desengrasante',
+          label: 'Combo Bio 3000L (Con desengrasadora)',
+          description: 'Biodigestor 3000L + Séptica 3000L + Kit Cámara + Cám. Desengrasante c/canasto + Biolam (15% OFF)',
+          badge: 'Combo 15% OFF',
+          imageUrl: 'https://ckvbyfgsbjbfaqotmeld.supabase.co/storage/v1/object/public/product-images/0.4963342225093239.webp',
+          isActive: true,
+          price: 1380655,
+          isCombo: true,
+          comboItems: [
+            ...createDiscountedComboItem(pBio3000, 851800, 15),
+            ...createDiscountedComboItem(pSep3000, 595000, 15),
+            ...createDiscountedComboItem(pInspeccion, 54000, 15),
+            ...createDiscountedComboItem(pBiolam, 18500, 15),
+            ...createDiscountedComboItem(pDesengrasadora, 105000, 15)
+          ]
+        },
+        {
+          id: 'combo_autolimpiable_700_con_desengrasante',
+          label: 'Combo Autolimpiable 700L (Con desengrasadora)',
+          description: 'Biodigestor Autolimpiante 700L + Reg. Lodos + Kit Cámara + Cám. Desengrasante c/canasto + Biolam (15% OFF)',
+          badge: 'Combo 15% OFF',
+          imageUrl: 'https://ckvbyfgsbjbfaqotmeld.supabase.co/storage/v1/object/public/product-images/0.4963342225093239.webp',
+          isActive: true,
+          price: 615230,
+          isCombo: true,
+          comboItems: [
+            ...createDiscountedComboItem(pBioAuto700, 489600, 15),
+            ...createDiscountedComboItem(pRegLodos, 56700, 15),
+            ...createDiscountedComboItem(pInspeccion, 54000, 15),
+            ...createDiscountedComboItem(pBiolam, 18500, 15),
+            ...createDiscountedComboItem(pDesengrasadora, 105000, 15)
           ]
         }
       ]

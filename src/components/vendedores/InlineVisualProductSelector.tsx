@@ -208,14 +208,22 @@ export default function InlineVisualProductSelector({
         const ci = item.comboItems[idx];
         const prod = products.find(p => p.id === ci.productId);
         if (prod) {
+          const effectiveBase = ci.basePrice !== undefined ? ci.basePrice : prod.price;
+          const effectiveCustom = ci.customPrice !== undefined ? ci.customPrice : prod.price;
+          const discType = ci.discountType || (effectiveCustom < effectiveBase ? 'percentage' : undefined);
+          const discVal = ci.discountValue !== undefined ? ci.discountValue : (discType === 'percentage' && effectiveBase > 0 ? Math.round(((effectiveBase - effectiveCustom) / effectiveBase) * 100) : undefined);
+
           itemsToAdd.push({
             ...prod,
             quantity: ci.quantity || 1,
-            customPrice: ci.customPrice !== undefined ? ci.customPrice : prod.price,
+            customPrice: effectiveCustom,
+            basePrice: effectiveBase,
+            discountType: discType,
+            discountValue: discVal,
             bundleParentId: (isKit && idx > 0) ? parentId : undefined,
             isIncludedInKit: isKit && idx > 0,
             baseQuantity: ci.quantity || 1
-          });
+          } as any);
         }
       }
       if (itemsToAdd.length > 0) {
