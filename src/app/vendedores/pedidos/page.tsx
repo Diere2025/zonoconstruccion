@@ -5821,6 +5821,10 @@ export default function PedidosPage() {
                   setPostponementReasonType('cliente');
                   setOrderItems([]);
                   setOrderCategory("auto");
+                  const effectiveSeller = (role === 'admin' && selectedSellerId) ? selectedSellerId : currentUserId;
+                  if (effectiveSeller) {
+                    generateNextLegacyCode(effectiveSeller);
+                  }
                   setActiveTab('form');
                 }}
                 className="px-3.5 py-1.5 bg-brand-600 hover:bg-brand-700 text-white font-black rounded-lg text-xs shadow-sm transition-all flex items-center gap-1.5 shrink-0 cursor-pointer self-start sm:self-auto"

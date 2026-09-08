@@ -305,6 +305,46 @@ function normalizeProductNameForSheet(name: string, sku?: string): string {
     return 'TurboFlex 3/4" x 60cm con rosca normal - Macho fijo';
   }
 
+  // 4. BioFort equipment normalization to exact DATABASE!A:A strings
+  if (lowerName.includes('biodigestor') && !lowerName.includes('kit')) {
+    if (lowerName.includes('500')) return 'BioFort - Biodigestor 500L';
+    if (lowerName.includes('600')) return 'BioFort - Biodigestor 600L';
+    if (lowerName.includes('750')) return 'BioFort - Biodigestor 750L';
+    if (lowerName.includes('1000')) return 'BioFort - Biodigestor 1000L';
+    if (lowerName.includes('3000')) return 'BioFort - Biodigestor 3000L';
+  }
+  if (lowerName.includes('autolimpiable') && lowerName.includes('700') && !lowerName.includes('kit')) {
+    return 'BioFort - Autolimpiable 700L';
+  }
+  if (lowerName.includes('lodos')) {
+    return 'BioFort - Registro Lodos';
+  }
+  if ((lowerName.includes('séptica') || lowerName.includes('septica')) && !lowerName.includes('kit')) {
+    if (lowerName.includes('500')) return 'BioFort - Séptica 500L';
+    if (lowerName.includes('600')) return 'BioFort - Séptica 600L';
+    if (lowerName.includes('750')) return 'BioFort - Séptica 750L';
+    if (lowerName.includes('1000')) return 'BioFort - Séptica 1000L';
+    if (lowerName.includes('3000')) return 'BioFort - Séptica 3000L';
+  }
+  if (lowerName.includes('desengrasadora') && lowerName.includes('canasto')) {
+    return 'WP - Camara Desengrasadora C/canasto';
+  }
+  if (lowerName.includes('cámara de inspección') || lowerName.includes('camara de inspeccion') || lowerName.includes('cii')) {
+    return 'WP Kit cámara de inspección CII';
+  }
+  if (lowerName.includes('biolam')) {
+    return 'Biolam - Concentrado Enzimático 500g';
+  }
+  if (lowerName.includes('lusqtoff') && lowerName.includes('lubricante')) {
+    return 'Lusqtoff - Aerosol lubricante';
+  }
+  if (lowerName.includes('sombrero') && lowerName.includes('110')) {
+    return 'Awaduct - Sombrero 110';
+  }
+  if (lowerName.includes('descuento combo biodigestor') || lowerName.includes('descuento combo bio')) {
+    return 'Descuento Combo Biodigestor';
+  }
+
   return name;
 }
 

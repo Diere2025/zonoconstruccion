@@ -278,7 +278,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     } else if (
       isRestrictedSeller && 
       pathname && 
-      !pathname.startsWith('/vendedores/presupuestos') && 
+      pathname !== '/vendedores/presupuestos' && 
       !pathname.startsWith('/vendedores/pedidos') && 
       pathname !== '/admin/cobros-mp'
     ) {
@@ -514,9 +514,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                 if (isRestrictedSeller) {
                   return (
                     link.href === "/vendedores/presupuestos" ||
-                    link.href === "/vendedores/presupuestos-mayorista" ||
                     link.href === "/vendedores/pedidos?client_type=minoristas" ||
-                    link.href === "/vendedores/pedidos?list_type=todos&status=Todos&client_type=mayoristas" ||
                     link.href === "/admin/cobros-mp"
                   );
                 }
