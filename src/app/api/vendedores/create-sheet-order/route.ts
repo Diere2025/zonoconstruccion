@@ -109,6 +109,11 @@ export async function POST(req: NextRequest) {
       order.status = '🔸 Validado';
     }
 
+    // Procedencia por defecto si viene vacía
+    if (!order.source || order.source.trim() === '') {
+      order.source = 'Publicidad Meta';
+    }
+
     const result = await appendOrderToSellerSheet(
       config.spreadsheetId,
       config.sheetName,
