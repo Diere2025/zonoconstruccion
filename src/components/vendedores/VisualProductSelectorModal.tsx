@@ -227,14 +227,30 @@ export default function VisualProductSelectorModal({
   const handleQuickAdd = (item: VisualItemOption) => {
     // 1. If it is a combo with bundled products
     if (item.isCombo && item.comboItems && item.comboItems.length > 0) {
-      const itemsToAdd: (Product & { customPrice?: number; quantity?: number })[] = [];
-      for (const ci of item.comboItems) {
+      const itemsToAdd: (Product & { 
+        customPrice?: number; 
+        quantity?: number; 
+        bundleParentId?: string; 
+        isIncludedInKit?: boolean; 
+        baseQuantity?: number; 
+      })[] = [];
+
+      const isKit = (item.label || "").toLowerCase().includes("kit") || (item.badge || "").toLowerCase().includes("kit");
+      const primaryItem = item.comboItems[0];
+      const primaryProd = products.find(p => p.id === primaryItem.productId);
+      const parentId = primaryProd?.id;
+
+      for (let idx = 0; idx < item.comboItems.length; idx++) {
+        const ci = item.comboItems[idx];
         const prod = products.find(p => p.id === ci.productId);
         if (prod) {
           itemsToAdd.push({
             ...prod,
             quantity: ci.quantity || 1,
-            customPrice: ci.customPrice !== undefined ? ci.customPrice : prod.price
+            customPrice: ci.customPrice !== undefined ? ci.customPrice : prod.price,
+            bundleParentId: (isKit && idx > 0) ? parentId : undefined,
+            isIncludedInKit: isKit && idx > 0,
+            baseQuantity: ci.quantity || 1
           });
         }
       }
