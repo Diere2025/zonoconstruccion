@@ -447,7 +447,7 @@ export async function appendOrderToSellerSheet(
       },
       {
         range: `'${sheetName}'!I${rowNumber}:K${rowNumber}`,
-        values: [[order.whaticketLink || '', order.source || '', notes]]
+        values: [[order.whaticketLink || '', order.source || 'Publicidad Meta', notes]]
       },
       {
         range: `'${sheetName}'!L${rowNumber}:M${rowNumber}`,

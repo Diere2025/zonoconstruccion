@@ -1031,6 +1031,16 @@ export default function PedidosPage() {
     }
   }, [orderMediums, selectedOrderMediumId]);
 
+  // Default Advertising Source to Publicidad Meta
+  useEffect(() => {
+    if (advertisingSources.length > 0 && !selectedAdvertisingSourceId) {
+      const metaAdv = advertisingSources.find(a => a.name.toLowerCase() === 'publicidad meta');
+      if (metaAdv) {
+        setSelectedAdvertisingSourceId(metaAdv.id);
+      }
+    }
+  }, [advertisingSources, selectedAdvertisingSourceId]);
+
   useEffect(() => {
     const matched = orderMediums.find(m => m.id === selectedOrderMediumId);
     if (matched) {
@@ -2447,7 +2457,7 @@ export default function PedidosPage() {
         const { data: sRow } = await supabase.from('sellers').select('full_name').eq('id', sellerId).maybeSingle();
         sellerFullName = sRow?.full_name || 'Vendedor';
       }
-      const advName = advertisingSources.find(a => a.id === order.advertising_source_id)?.name || '';
+      const advName = advertisingSources.find(a => a.id === order.advertising_source_id)?.name || 'Publicidad Meta';
       const mediumName = orderMediums.find(m => m.id === order.order_medium_id)?.name || 'WhatsApp';
 
       const sheetOrderPayload = {
@@ -3285,7 +3295,7 @@ export default function PedidosPage() {
           if (!sellerFullName) {
             sellerFullName = (seller_id === loggedInUserId ? (currentSeller?.full_name || userData.user.user_metadata?.full_name) : '') || 'Vendedor';
           }
-          const advName = advertisingSources.find(a => a.id === selectedAdvertisingSourceId)?.name || '';
+          const advName = advertisingSources.find(a => a.id === selectedAdvertisingSourceId)?.name || 'Publicidad Meta';
           const mediumName = orderMediums.find(m => m.id === selectedOrderMediumId)?.name || 'WhatsApp';
 
           const sheetOrderPayload = {
@@ -3296,7 +3306,7 @@ export default function PedidosPage() {
             phonePrimary: clientPhone,
             phoneSecondary: clientPhone2,
             whaticketLink: whaticketLink || '',
-            source: sellerType === 'mayorista' ? 'Mayorista' : advName,
+            source: sellerType === 'mayorista' ? 'Mayorista' : (advName || 'Publicidad Meta'),
             deliveryNotes: [
               aclaraciones, 
               deliveryDetail, 
@@ -4361,7 +4371,7 @@ export default function PedidosPage() {
                 <Target className="w-4 h-4 text-brand-500" /> Origen y Canal de Venta
               </h3>
               
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4 items-start">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 items-start">
                 {/* Código de Pedido Legacy */}
                 <div className="space-y-1">
                   <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Código de Pedido (Anterior)</label>
@@ -4403,6 +4413,47 @@ export default function PedidosPage() {
                       className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-100 text-slate-700 font-bold text-xs outline-none cursor-not-allowed select-all h-[34px]"
                     />
                   )}
+                </div>
+
+                {/* Procedencia (Publicidad Meta por defecto) */}
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">
+                    📢 Procedencia
+                  </label>
+                  <select
+                    value={selectedAdvertisingSourceId}
+                    onChange={(e) => setSelectedAdvertisingSourceId(e.target.value)}
+                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-800 font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 transition-all cursor-pointer h-[34px]"
+                  >
+                    {advertisingSources.filter(a => a.is_active !== false).map((source) => (
+                      <option key={source.id} value={source.id}>
+                        {source.name}
+                      </option>
+                    ))}
+                  </select>
+                  {/* Atajos rápidos de procedencia */}
+                  <div className="flex flex-wrap gap-1 pt-0.5">
+                    {['Publicidad Meta', 'Cliente', 'Estados de WB', 'Recomendado', 'Otro'].map(name => {
+                      const src = advertisingSources.find(a => a.name.toLowerCase() === name.toLowerCase());
+                      const isSelected = src ? selectedAdvertisingSourceId === src.id : false;
+                      return (
+                        <button
+                          key={name}
+                          type="button"
+                          onClick={() => {
+                            if (src) setSelectedAdvertisingSourceId(src.id);
+                          }}
+                          className={`px-1.5 py-0.5 rounded text-[9px] font-extrabold transition-all cursor-pointer ${
+                            isSelected
+                              ? 'bg-brand-600 text-white shadow-2xs'
+                              : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                          }`}
+                        >
+                          {name}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
 
