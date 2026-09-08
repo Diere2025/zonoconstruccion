@@ -398,54 +398,75 @@ function formatDateForSheet(val?: string | null): string {
   return clean;
 }
 
-export async function getNextAvailableSheetCode(
+export async function getNextAvailableSheetSlots(
   spreadsheetId: string,
-  sheetName: string = 'Pendientes'
-): Promise<{ code: string; rowNumber: number }> {
+  sheetName: string = 'Pendientes',
+  count: number = 1
+): Promise<Array<{ code: string; rowNumber: number }>> {
   // Fetch columns B to F (all rows dynamically)
   const rows = await fetchSpreadsheetValues(spreadsheetId, `'${sheetName}'!B2:F`);
-  let emptyRowIndex = -1;
-  let code = '';
-  let lastKnownCode = '';
+  const results: Array<{ code: string; rowNumber: number }> = [];
+  let lastAssignedNum = -1;
+  let lastPrefix = '';
+  let lastPadding = 4;
 
+  const defaultPrefix = SPREADSHEET_DEFAULT_PREFIX[spreadsheetId] || 'DB';
+
+  // 1. Scan rows to find existing codes and any free rows (Col F / client name empty)
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i] || [];
     const currentCode = (row[0] || '').trim();
     const clientName = (row[4] || '').trim();
 
     if (currentCode) {
-      lastKnownCode = currentCode;
-    }
-
-    // Row is considered available if client name (Col F, index 4) is empty
-    if (!clientName) {
-      emptyRowIndex = i;
-      code = currentCode;
-      break;
-    }
-  }
-
-  // Row number in 1-based index (row 2 is index 0)
-  const rowNumber = emptyRowIndex !== -1 ? emptyRowIndex + 2 : rows.length + 2;
-  const defaultPrefix = SPREADSHEET_DEFAULT_PREFIX[spreadsheetId] || 'DB';
-
-  if (!code) {
-    if (lastKnownCode) {
-      const match = lastKnownCode.match(/^([A-Za-z-]+)(\d+)$/);
+      const match = currentCode.match(/^([A-Za-z-]+)(\d+)$/);
       if (match) {
-        const prefix = match[1];
-        const numStr = match[2];
-        const nextNum = parseInt(numStr, 10) + 1;
-        code = `${prefix}${String(nextNum).padStart(numStr.length, '0')}`;
-      } else {
-        code = `${defaultPrefix}${String(rowNumber).padStart(4, '0')}`;
+        lastPrefix = match[1];
+        lastAssignedNum = parseInt(match[2], 10);
+        lastPadding = match[2].length;
       }
-    } else {
-      code = `${defaultPrefix}${String(rowNumber).padStart(4, '0')}`;
+    }
+
+    // A row is considered available if client name (Col F, index 4) is empty
+    if (!clientName && results.length < count) {
+      const rowNumber = i + 2;
+      let slotCode = currentCode;
+      if (!slotCode) {
+        if (lastAssignedNum !== -1) {
+          lastAssignedNum += 1;
+          slotCode = `${lastPrefix || defaultPrefix}${String(lastAssignedNum).padStart(lastPadding, '0')}`;
+        } else {
+          slotCode = `${defaultPrefix}${String(rowNumber).padStart(4, '0')}`;
+        }
+      }
+      results.push({ code: slotCode, rowNumber });
     }
   }
 
-  return { code, rowNumber };
+  // 2. If we still need more slots beyond existing rows
+  let extraIndex = rows.length;
+  while (results.length < count) {
+    const rowNumber = extraIndex + 2;
+    extraIndex++;
+    let slotCode = '';
+    if (lastAssignedNum !== -1) {
+      lastAssignedNum += 1;
+      slotCode = `${lastPrefix || defaultPrefix}${String(lastAssignedNum).padStart(lastPadding, '0')}`;
+    } else {
+      slotCode = `${defaultPrefix}${String(rowNumber).padStart(4, '0')}`;
+    }
+    results.push({ code: slotCode, rowNumber });
+  }
+
+  return results;
+}
+
+export async function getNextAvailableSheetCode(
+  spreadsheetId: string,
+  sheetName: string = 'Pendientes'
+): Promise<{ code: string; rowNumber: number }> {
+  const slots = await getNextAvailableSheetSlots(spreadsheetId, sheetName, 1);
+  return slots[0] || { code: 'DB0001', rowNumber: 2 };
 }
 
 export async function appendOrderToSellerSheet(
@@ -467,27 +488,39 @@ export async function appendOrderToSellerSheet(
     }
   }
 
-  const assignedCodes: string[] = [];
-  let firstRowNumber = 0;
+  // Obtener todos los slots y códigos de antemano para poder cruzarlos entre líneas hermanas
+  const slots = await getNextAvailableSheetSlots(spreadsheetId, sheetName, itemChunks.length);
+  const assignedCodes: string[] = slots.map(s => s.code);
+  const firstRowNumber = slots[0]?.rowNumber || 2;
+  const isMultiChunk = itemChunks.length > 1;
 
   for (let chunkIdx = 0; chunkIdx < itemChunks.length; chunkIdx++) {
     const chunk = itemChunks[chunkIdx];
     const isFirstChunk = chunkIdx === 0;
-
-    const { code, rowNumber } = await getNextAvailableSheetCode(spreadsheetId, sheetName);
-    if (isFirstChunk) {
-      firstRowNumber = rowNumber;
-    }
-    assignedCodes.push(code);
+    const { code, rowNumber } = slots[chunkIdx];
 
     const formattedDeliveryDate = formatDateForSheet(order.deliveryDate);
     const formattedOrderDate = formatDateForSheet(order.orderDate);
     const formattedMaxDeliveryDate = formatDateForSheet(order.maxDeliveryDate);
 
-    // If second chunk, append continuation note and don't duplicate freight/deposit
-    const notes = isFirstChunk 
-      ? (order.deliveryNotes || '')
-      : (order.deliveryNotes ? `${order.deliveryNotes} (Continuación pedido ${assignedCodes[0]})` : `(Continuación pedido ${assignedCodes[0]})`);
+    // Cuando se carga un pedido en 2 líneas (o más), expresar antes de las indicaciones:
+    // "VA CON EL PEDIDO [Código pedido hermano]"
+    const brotherCodes = assignedCodes.filter((_, idx) => idx !== chunkIdx);
+    const brotherPrefix = (isMultiChunk && brotherCodes.length > 0)
+      ? `VA CON EL PEDIDO ${brotherCodes.join(' / ')}`
+      : '';
+
+    // Limpiar notas de cualquier prefijo anterior
+    let cleanNotes = (order.deliveryNotes || '').trim();
+    cleanNotes = cleanNotes.replace(/\(Continuación pedido [^)]+\)/gi, '').trim();
+    cleanNotes = cleanNotes.replace(/^VA CON EL PEDIDO\s+[A-Za-z0-9\-\/,\s]+?(\/|-|$)/i, '').trim();
+    cleanNotes = cleanNotes.replace(/^[\/\-\s]+|[\/\-\s]+$/g, '').trim();
+
+    let notes = cleanNotes;
+    if (brotherPrefix) {
+      notes = cleanNotes ? `${brotherPrefix} / ${cleanNotes}` : brotherPrefix;
+    }
+
     const depositAmount = isFirstChunk ? (order.depositOrPaidAmount ?? 0) : 0;
     const freightCost = isFirstChunk ? (order.freightCost ?? 0) : 0;
     const paymentStatus = isFirstChunk ? (order.paymentStatus || 'No Abonado') : 'Abonado';
