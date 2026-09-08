@@ -9,6 +9,19 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT
 
 const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 
+// In-memory cache for master reference data (products, sellers, localities, etc.)
+// Prevents re-fetching the entire catalog hundreds of times across batch chunks
+let masterCache: {
+  products: any[];
+  sellers: any[];
+  localities: any[];
+  advSources: any[];
+  orderMediums: any[];
+  paymentMethods: any[];
+  phoneLines: any[];
+  cachedAt: number;
+} | null = null;
+
 // Helper normalizers/parsers for import
 const normalizeText = (text: any): string => {
   if (!text) return "";
@@ -109,7 +122,72 @@ export async function POST(request: Request) {
 
     addLog(`Iniciando procesamiento de ${rows.length} pedidos en el servidor para ${sheetName}...`);
 
-    // 1. Fetch Master Data with minimum subrequests
+    // 1. Fetch Master Data (use cache if available to prevent burning Cloudflare subrequests)
+    let dbProducts: any[] = [];
+    let dbSellers: any[] = [];
+    let dbLocalities: any[] = [];
+    let dbAdvSources: any[] = [];
+    let dbOrderMediums: any[] = [];
+    let dbPaymentMethods: any[] = [];
+    let dbPhoneLines: any[] = [];
+
+    const isCacheValid = masterCache && (Date.now() - masterCache.cachedAt < 10 * 60 * 1000);
+    if (isCacheValid && masterCache) {
+      dbProducts = masterCache.products;
+      dbSellers = masterCache.sellers;
+      dbLocalities = masterCache.localities;
+      dbAdvSources = masterCache.advSources;
+      dbOrderMediums = masterCache.orderMediums;
+      dbPaymentMethods = masterCache.paymentMethods;
+      dbPhoneLines = masterCache.phoneLines;
+    } else {
+      const [
+        productsRes,
+        sellersRes,
+        localitiesRes,
+        advSourcesRes,
+        orderMediumsRes,
+        paymentMethodsRes,
+        phoneLinesRes
+      ] = await Promise.all([
+        supabaseAdmin.from('products').select('id, name, sku, price').limit(2000),
+        supabaseAdmin.from('sellers').select('id, full_name, is_organic'),
+        supabaseAdmin.from('localities').select('id, name, zone_id'),
+        supabaseAdmin.from('advertising_sources').select('id, name'),
+        supabaseAdmin.from('order_mediums').select('id, name'),
+        supabaseAdmin.from('payment_methods').select('id, name, surcharge_percentage, installments'),
+        supabaseAdmin.from('phone_lines').select('id, phone_number')
+      ]);
+
+      if (productsRes.error) throw productsRes.error;
+      if (sellersRes.error) throw sellersRes.error;
+      if (localitiesRes.error) throw localitiesRes.error;
+      if (advSourcesRes.error) throw advSourcesRes.error;
+      if (orderMediumsRes.error) throw orderMediumsRes.error;
+      if (paymentMethodsRes.error) throw paymentMethodsRes.error;
+      if (phoneLinesRes.error) throw phoneLinesRes.error;
+
+      dbProducts = productsRes.data || [];
+      dbSellers = sellersRes.data || [];
+      dbLocalities = localitiesRes.data || [];
+      dbAdvSources = advSourcesRes.data || [];
+      dbOrderMediums = orderMediumsRes.data || [];
+      dbPaymentMethods = paymentMethodsRes.data || [];
+      dbPhoneLines = phoneLinesRes.data || [];
+
+      masterCache = {
+        products: dbProducts,
+        sellers: dbSellers,
+        localities: dbLocalities,
+        advSources: dbAdvSources,
+        orderMediums: dbOrderMediums,
+        paymentMethods: dbPaymentMethods,
+        phoneLines: dbPhoneLines,
+        cachedAt: Date.now()
+      };
+    }
+
+    // 2. Fetch existing orders for this specific chunk
     const targetCodes: string[] = [];
     for (const row of rows) {
       const rawCode = (row[1] || "").trim().toUpperCase();
@@ -119,8 +197,8 @@ export async function POST(request: Request) {
       }
     }
 
-    async function fetchOrdersForChunk() {
-      if (targetCodes.length === 0) return [];
+    let dbOrders: any[] = [];
+    if (targetCodes.length > 0) {
       const orConditions = targetCodes.map(c => `legacy_code.ilike.%${c}%`).join(',');
       const { data, error } = await supabaseAdmin
         .from('orders')
@@ -128,46 +206,59 @@ export async function POST(request: Request) {
         .or(orConditions)
         .limit(1000);
       if (error) throw error;
-      return data || [];
+      dbOrders = data || [];
     }
 
-    const [
-      productsRes,
-      sellersRes,
-      localitiesRes,
-      advSourcesRes,
-      orderMediumsRes,
-      paymentMethodsRes,
-      phoneLinesRes,
-      dbOrders
-    ] = await Promise.all([
-      supabaseAdmin.from('products').select('id, name, sku, price').limit(2000),
-      supabaseAdmin.from('sellers').select('id, full_name, is_organic'),
-      supabaseAdmin.from('localities').select('id, name, zone_id'),
-      supabaseAdmin.from('advertising_sources').select('id, name'),
-      supabaseAdmin.from('order_mediums').select('id, name'),
-      supabaseAdmin.from('payment_methods').select('id, name, surcharge_percentage, installments'),
-      supabaseAdmin.from('phone_lines').select('id, phone_number'),
-      fetchOrdersForChunk()
-    ]);
+    // 2.5 Batch-preload Clients and Addresses for all phones in this chunk (saves ~30+ subrequests)
+    const allPhones = Array.from(
+      new Set(
+        rows.flatMap((r: any) => [cleanPhone(r[6]), cleanPhone(r[7])]).filter(Boolean)
+      )
+    );
 
-    if (productsRes.error) throw productsRes.error;
-    if (sellersRes.error) throw sellersRes.error;
-    if (localitiesRes.error) throw localitiesRes.error;
-    if (advSourcesRes.error) throw advSourcesRes.error;
-    if (orderMediumsRes.error) throw orderMediumsRes.error;
-    if (paymentMethodsRes.error) throw paymentMethodsRes.error;
-    if (phoneLinesRes.error) throw phoneLinesRes.error;
+    let preloadedClients: any[] = [];
+    if (allPhones.length > 0) {
+      const { data: clientsData, error: errClients } = await supabaseAdmin
+        .from('clients')
+        .select('id, business_name, phone_primary, phone_secondary, is_wholesale')
+        .or(`phone_primary.in.(${allPhones.join(',')}),phone_secondary.in.(${allPhones.join(',')})`);
+      if (errClients) {
+        addLog(`Advertencia al buscar clientes agrupados: ${errClients.message}`);
+      } else {
+        preloadedClients = clientsData || [];
+      }
+    }
 
-    const dbProducts = productsRes.data || [];
-    const dbSellers = sellersRes.data || [];
-    const dbLocalities = localitiesRes.data || [];
-    const dbAdvSources = advSourcesRes.data || [];
-    const dbOrderMediums = orderMediumsRes.data || [];
-    const dbPaymentMethods = paymentMethodsRes.data || [];
-    const dbPhoneLines = phoneLinesRes.data || [];
+    const preloadedClientIds = preloadedClients.map(c => c.id);
+    let preloadedAddresses: any[] = [];
+    if (preloadedClientIds.length > 0) {
+      const { data: addressesData, error: errAddresses } = await supabaseAdmin
+        .from('addresses')
+        .select('id, client_id, full_address, locality_id, map_link')
+        .in('client_id', preloadedClientIds);
+      if (errAddresses) {
+        addLog(`Advertencia al buscar direcciones agrupadas: ${errAddresses.message}`);
+      } else {
+        preloadedAddresses = addressesData || [];
+      }
+    }
 
-    // 2. Build Maps
+    // Preload dummy orders (ORIG-*) in a single batch query for this chunk
+    const dummyCodesToCheck = rows
+      .map((r: any) => (r[1] || '').trim().toUpperCase())
+      .filter((c: string) => c && !c.startsWith('CAMB') && !c.startsWith('REC'))
+      .map((c: string) => `ORIG-${c}`);
+
+    let preloadedDummyOrders: any[] = [];
+    if (dummyCodesToCheck.length > 0) {
+      const { data: dummyData } = await supabaseAdmin
+        .from('orders')
+        .select('id, legacy_code')
+        .in('legacy_code', dummyCodesToCheck);
+      preloadedDummyOrders = dummyData || [];
+    }
+
+    // 3. Build Maps
     const sellersMap = new Map();
     dbSellers.forEach(r => sellersMap.set(normalizeText(r.full_name), { id: r.id, is_organic: r.is_organic, full_name: r.full_name }));
 
@@ -334,7 +425,7 @@ export async function POST(request: Request) {
       const paymentMethodObj = payMethodsMap.get(normalizeText(rawPayMethod)) || null;
       const paymentMethodId = paymentMethodObj ? paymentMethodObj.id : null;
       
-      let localityId = null;
+      let localityId: string | null = null;
       if (rawLocality) {
         const normLoc = normalizeLocalityFuzzy(rawLocality);
         if (localitiesMap.has(normLoc)) {
@@ -360,7 +451,7 @@ export async function POST(request: Request) {
       const matchedLocObj = dbLocalities.find(l => l.id === localityId);
       const logisticsZoneId = matchedLocObj ? matchedLocObj.zone_id : null;
 
-      let phoneLineId = null;
+      let phoneLineId: string | null = null;
       const digitsMatch = rawMedium.match(/\d+/);
       if (digitsMatch) {
         const digits = digitsMatch[0];
@@ -368,22 +459,19 @@ export async function POST(request: Request) {
         if (matchedLine) phoneLineId = matchedLine.id;
       }
 
-      let clientId = null;
-      let shippingAddressId = null;
+      let clientId: string | null = null;
+      let shippingAddressId: string | null = null;
 
-      const phonesToQuery = [];
+      const phonesToQuery: string[] = [];
       if (rawPhone1) phonesToQuery.push(rawPhone1);
       if (rawPhone2) phonesToQuery.push(rawPhone2);
 
-      let existingClient = null;
+      let existingClient: any = null;
       if (phonesToQuery.length > 0) {
-        const { data: clientsFound } = await supabaseAdmin
-          .from('clients')
-          .select('id, business_name, phone_primary, phone_secondary, is_wholesale')
-          .or(`phone_primary.in.(${phonesToQuery.join(',')}),phone_secondary.in.(${phonesToQuery.join(',')})`);
-        if (clientsFound && clientsFound.length > 0) {
-          existingClient = clientsFound[0];
-        }
+        existingClient = preloadedClients.find(c => 
+          (rawPhone1 && (c.phone_primary === rawPhone1 || c.phone_secondary === rawPhone1)) ||
+          (rawPhone2 && (c.phone_primary === rawPhone2 || c.phone_secondary === rawPhone2))
+        ) || null;
       }
 
       if (existingClient) {
@@ -397,20 +485,16 @@ export async function POST(request: Request) {
           existingClient.is_wholesale = true;
         }
 
-        const { data: clientAddresses } = await supabaseAdmin
-          .from('addresses')
-          .select('id, full_address, locality_id')
-          .eq('client_id', clientId);
-        
         const normRawAddress = normalizeText(rawAddress);
-        const matchedAddr = clientAddresses?.find(addr => 
-          addr.locality_id === localityId && normalizeText(addr.full_address) === normRawAddress
+        const matchedAddr = preloadedAddresses.find(addr => 
+          addr.client_id === clientId && addr.locality_id === localityId && normalizeText(addr.full_address) === normRawAddress
         );
 
         if (matchedAddr) {
           shippingAddressId = matchedAddr.id;
         } else {
-          const addrIndex = (clientAddresses?.length || 0) + 1;
+          const clientAddressesCount = preloadedAddresses.filter(a => a.client_id === clientId).length;
+          const addrIndex = clientAddressesCount + 1;
           const { data: newAddr, error: errNa } = await supabaseAdmin
             .from('addresses')
             .insert({
@@ -425,8 +509,16 @@ export async function POST(request: Request) {
             .single();
           if (errNa) throw errNa;
           shippingAddressId = newAddr.id;
+          preloadedAddresses.push({
+            id: newAddr.id,
+            client_id: clientId,
+            full_address: rawAddress,
+            locality_id: localityId,
+            map_link: rawMapsLink
+          });
         }
       } else {
+        const isWholesaleCode = orderCode.toUpperCase().startsWith("AQU") || orderCode.toUpperCase().startsWith("POW") || orderCode.toUpperCase().startsWith("AQ-");
         const { data: newClient, error: errNc } = await supabaseAdmin
           .from('clients')
           .insert({
@@ -436,12 +528,19 @@ export async function POST(request: Request) {
             email: rawEmail || null,
             tax_id: rawTaxId || null,
             credit_limit: 0,
-            is_wholesale: orderCode.toUpperCase().startsWith("AQU") || orderCode.toUpperCase().startsWith("POW") || orderCode.toUpperCase().startsWith("AQ-")
+            is_wholesale: isWholesaleCode
           })
           .select('id')
           .single();
         if (errNc) throw errNc;
         clientId = newClient.id;
+        preloadedClients.push({
+          id: clientId,
+          business_name: rawClientName,
+          phone_primary: rawPhone1 || rawPhone2 || "Sin teléfono",
+          phone_secondary: rawPhone2 || null,
+          is_wholesale: isWholesaleCode
+        });
 
         const { data: newAddr, error: errNa } = await supabaseAdmin
           .from('addresses')
@@ -457,6 +556,13 @@ export async function POST(request: Request) {
           .single();
         if (errNa) throw errNa;
         shippingAddressId = newAddr.id;
+        preloadedAddresses.push({
+          id: newAddr.id,
+          client_id: clientId,
+          full_address: rawAddress,
+          locality_id: localityId,
+          map_link: rawMapsLink
+        });
       }
 
       let channel = defaultChannel;
@@ -885,18 +991,10 @@ export async function POST(request: Request) {
         }
 
       } else {
-        // VALIDACIÓN ANTI-DUPLICADOS: Verificar directamente en DB antes de insertar
-        if (orderCode) {
-          const { data: directExisting } = await supabaseAdmin
-            .from('orders')
-            .select('id')
-            .eq('legacy_code', orderCode.trim().toUpperCase())
-            .maybeSingle();
-
-          if (directExisting) {
-            addLog(`  ⚠️ Pedido ${orderCode} ya existe en el sistema (ID: ${directExisting.id.substring(0, 8)}). Omitiendo inserción duplicada.`);
-            continue;
-          }
+        // Validación anti-duplicados usando existingOrdersMap (cargado al inicio del lote)
+        if (orderCode && existingOrdersMap.has(orderCode.trim().toUpperCase())) {
+          addLog(`  ⚠️ Pedido ${orderCode} ya existe en el sistema. Omitiendo inserción duplicada.`);
+          continue;
         }
 
         addLog(`  ✍ Creando pedido en la base de datos (${orderCode})...`);
@@ -952,25 +1050,19 @@ export async function POST(request: Request) {
 
         if (!orderCode.toUpperCase().startsWith("CAMB") && !orderCode.toUpperCase().startsWith("REC")) {
           const potentialDummyCode = `ORIG-${orderCode}`;
-          const { data: matchedDummyOrders } = await supabaseAdmin
-            .from('orders')
-            .select('id')
-            .eq('legacy_code', potentialDummyCode);
-            
-          if (matchedDummyOrders && matchedDummyOrders.length > 0) {
-            for (const dummyOrd of matchedDummyOrders) {
-              addLog(`  🔄 Encontrado pedido base temporal (${potentialDummyCode}). Relacionando reclamos al pedido real y eliminando temporal...`);
-              const { error: errRelink } = await supabaseAdmin
-                .from('returns_exchanges')
-                .update({ order_id: orderId })
-                .eq('order_id', dummyOrd.id);
-                
-              if (errRelink) {
-                addLog(`  ❌ Error al re-vincular reclamos: ${errRelink.message}`);
-              } else {
-                await supabaseAdmin.from('orders').delete().eq('id', dummyOrd.id);
-                addLog(`  ✅ Pedido temporal eliminado con éxito y reclamos re-vinculados.`);
-              }
+          const matchedDummy = preloadedDummyOrders.find(d => d.legacy_code === potentialDummyCode);
+          if (matchedDummy) {
+            addLog(`  🔄 Encontrado pedido base temporal (${potentialDummyCode}). Relacionando reclamos al pedido real y eliminando temporal...`);
+            const { error: errRelink } = await supabaseAdmin
+              .from('returns_exchanges')
+              .update({ order_id: orderId })
+              .eq('order_id', matchedDummy.id);
+              
+            if (errRelink) {
+              addLog(`  ❌ Error al re-vincular reclamos: ${errRelink.message}`);
+            } else {
+              await supabaseAdmin.from('orders').delete().eq('id', matchedDummy.id);
+              addLog(`  ✅ Pedido temporal eliminado con éxito y reclamos re-vinculados.`);
             }
           }
         }
@@ -1015,14 +1107,13 @@ export async function POST(request: Request) {
           }
         }
 
-        let deliveryStatus = 'pendiente_ruteo';
-        if (dbOrderStatus === 'Entregado') deliveryStatus = 'entregado';
-        else if (dbOrderStatus === 'Cancelado') deliveryStatus = 'fallido';
-
-        await supabaseAdmin
-          .from('deliveries')
-          .update({ status: deliveryStatus, delivery_date: initDelDate.toISOString() })
-          .eq('order_id', orderId);
+        if (dbOrderStatus === 'Entregado' || dbOrderStatus === 'Cancelado') {
+          const deliveryStatus = dbOrderStatus === 'Entregado' ? 'entregado' : 'fallido';
+          await supabaseAdmin
+            .from('deliveries')
+            .update({ status: deliveryStatus, delivery_date: initDelDate.toISOString() })
+            .eq('order_id', orderId);
+        }
 
         if (dbOrderStatus === 'Entregado' && orderCode.toUpperCase().startsWith("CAMB")) {
           const { data: matchedClaims } = await supabaseAdmin

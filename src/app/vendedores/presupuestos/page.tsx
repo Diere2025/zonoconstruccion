@@ -433,14 +433,29 @@ export default function PresupuestosPage() {
     return searchTerms.every(term => searchableText.includes(term));
   }).slice(0, 15); // Limit search results
 
-  const addItem = (product: Product) => {
-    const existing = quoteItems.find(i => i.id === product.id);
-    if (existing) {
-      setQuoteItems(quoteItems.map(i => i.id === product.id ? { ...i, quantity: i.quantity + 1 } : i));
-    } else {
-      setQuoteItems([...quoteItems, { ...product, quantity: 1, customPrice: product.price }]);
-    }
+  const addItems = (newProducts: Product[]) => {
+    setQuoteItems(prev => {
+      const next = [...prev];
+      newProducts.forEach(prod => {
+        const qtyToAdd = (prod as any).quantity || 1;
+        const targetPrice = (prod as any).customPrice !== undefined ? (prod as any).customPrice : prod.price;
+        const existing = next.find(i => i.id === prod.id);
+        if (existing) {
+          existing.quantity += qtyToAdd;
+          if ((prod as any).customPrice !== undefined) {
+            existing.customPrice = targetPrice;
+          }
+        } else {
+          next.push({ ...prod, quantity: qtyToAdd, customPrice: targetPrice });
+        }
+      });
+      return next;
+    });
     setSearchTerm("");
+  };
+
+  const addItem = (product: Product) => {
+    addItems([product]);
     
     // Guardar uso en localStorage
     try {
@@ -449,22 +464,6 @@ export default function PresupuestosPage() {
       localStorage.setItem('product_usage_counts', JSON.stringify(counts));
       setUsageCounts(counts);
     } catch (e) {}
-  };
-
-  const addItems = (newProducts: Product[]) => {
-    setQuoteItems(prev => {
-      const next = [...prev];
-      newProducts.forEach(prod => {
-        const existing = next.find(i => i.id === prod.id);
-        if (existing) {
-          existing.quantity += 1;
-        } else {
-          next.push({ ...prod, quantity: 1, customPrice: prod.price });
-        }
-      });
-      return next;
-    });
-    setSearchTerm("");
   };
 
   const handleSaveKit = async () => {

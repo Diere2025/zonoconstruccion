@@ -62,8 +62,14 @@ export default function ImportarPedidosPage() {
 
   const sanitizeErrorMessage = (err: any): string => {
     if (!err) return "Error desconocido";
-    const message = typeof err === "string" ? err : err?.message || String(err);
-    if (message.includes("<!DOCTYPE") || message.includes("<html") || message.includes("Cloudflare")) {
+    let message = typeof err === "string" ? err : err?.message || String(err);
+    try {
+      if (message.startsWith('{') && message.endsWith('}')) {
+        const parsed = JSON.parse(message);
+        if (parsed.error) message = parsed.error;
+      }
+    } catch (_) {}
+    if (message.includes("<!DOCTYPE") || message.includes("<html") || message.includes("Error 1027") || message.includes("Error 1101") || (message.includes("Cloudflare") && message.includes("Timeout"))) {
       return "Error de conexión con la base de datos Supabase (Cloudflare / Tiempo de espera agotado). Por favor reintenta en unos instantes.";
     }
     return message;
@@ -454,9 +460,9 @@ export default function ImportarPedidosPage() {
         });
 
         if (targetRows.length > 0) {
-          const CHUNK_SIZE = 5;
+          const CHUNK_SIZE = 10;
           const totalChunks = Math.ceil(targetRows.length / CHUNK_SIZE);
-          addLog(`📄 ${sheet.name}: Procesando ${targetRows.length} pedidos en ${totalChunks} lote(s) ultra-rápidos...`);
+          addLog(`📄 ${sheet.name}: Procesando ${targetRows.length} pedidos en ${totalChunks} lote(s) optimizados...`);
 
           for (let chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++) {
             if (cancelImportRef.current) break;
@@ -465,7 +471,7 @@ export default function ImportarPedidosPage() {
             const startProc = Date.now();
 
             let importRes: any = null;
-            for (let retry = 1; retry <= 3; retry++) {
+            for (let retry = 1; retry <= 4; retry++) {
               try {
                 importRes = await fetch("/api/admin/import-sheet", {
                   method: "POST",
@@ -482,14 +488,16 @@ export default function ImportarPedidosPage() {
                   })
                 });
                 if (importRes && importRes.ok) break;
-                if (retry < 3) {
-                  addLog(`⏳ Reintentando lote ${chunkIdx + 1} de ${sheet.name} (intento ${retry + 1}/3)...`);
-                  await new Promise(r => setTimeout(r, 2000));
+                if (retry < 4) {
+                  const delay = retry * 2000;
+                  addLog(`⏳ Reintentando lote ${chunkIdx + 1} de ${sheet.name} (intento ${retry + 1}/4 en ${delay/1000}s)...`);
+                  await new Promise(r => setTimeout(r, delay));
                 }
               } catch (e: any) {
-                if (retry < 3) {
-                  addLog(`⏳ Reintentando lote ${chunkIdx + 1} de ${sheet.name} por microcorte (intento ${retry + 1}/3)...`);
-                  await new Promise(r => setTimeout(r, 2000));
+                if (retry < 4) {
+                  const delay = retry * 2000;
+                  addLog(`⏳ Reintentando lote ${chunkIdx + 1} de ${sheet.name} por microcorte (intento ${retry + 1}/4 en ${delay/1000}s)...`);
+                  await new Promise(r => setTimeout(r, delay));
                 }
               }
             }
