@@ -671,8 +671,8 @@ export function generateDefaultVisualConfig(products: Product[]): VisualCatalogC
   return {
     version: 2,
     updatedAt: new Date().toISOString(),
-    showItemImages: false,
-    itemsViewMode: 'list',
+    showItemImages: true,
+    itemsViewMode: 'grid',
     families: [
       {
         id: 'tanques',
