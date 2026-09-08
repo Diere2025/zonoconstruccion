@@ -4878,9 +4878,10 @@ export default function PedidosPage() {
                         const isKitService = (nameLower.includes("kit instalaci") || nameLower.includes("kit de instalaci") || nameLower.startsWith("kit ")) && item.customPrice > 0;
                         const isIncludedZero = item.customPrice === 0 || item.isIncludedInKit;
 
-                        // Limpiar SKU para no repetir el nombre si son iguales
+                        // Mostrar prioritariamente el SKU si existe (salvo AUTO-); si no, usar el nombre
                         const rawSku = (item.sku || "").trim();
-                        const showSku = rawSku && rawSku.toLowerCase() !== nameLower && !nameLower.includes(rawSku.toLowerCase());
+                        const isAutoSku = rawSku.toUpperCase().startsWith("AUTO-") || rawSku.toUpperCase().startsWith("AUTO_");
+                        const displayName = (rawSku && !isAutoSku) ? rawSku : item.name;
 
                         return (
                           <div 
@@ -4893,7 +4894,7 @@ export default function PedidosPage() {
                                   : 'bg-white border-slate-200 hover:border-slate-300'
                             }`}
                           >
-                            {/* Nombre + Tags en una sola línea limpia */}
+                            {/* SKU/Nombre + Tags en una sola línea limpia */}
                             <div className="flex-1 min-w-0 flex items-center gap-1.5">
                               {isKitService && (
                                 <span className="inline-flex items-center gap-0.5 text-[7.5px] font-black uppercase tracking-wider px-1 py-0.2 bg-emerald-100 text-emerald-800 rounded border border-emerald-200 shrink-0">
@@ -4905,13 +4906,8 @@ export default function PedidosPage() {
                                   $0
                                 </span>
                               )}
-                              {showSku && (
-                                <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider shrink-0">
-                                  [{rawSku}]
-                                </span>
-                              )}
-                              <p className="font-bold text-slate-800 text-xs truncate" title={item.name}>
-                                {item.name}
+                              <p className="font-bold text-slate-800 text-xs truncate" title={displayName}>
+                                {displayName}
                               </p>
                             </div>
 
@@ -6296,15 +6292,20 @@ export default function PedidosPage() {
                <div>
                   <h3 className="font-black text-slate-900 mb-3 border-b border-slate-100 pb-2">Artículos a Reservar ({orderItems.length})</h3>
                   <div className="space-y-3">
-                    {orderItems.map((item, idx) => (
-                      <div key={`${item.id}-${idx}`} className="flex justify-between items-center text-sm">
-                        <div className="flex items-center gap-2">
-                           <span className="font-black text-slate-400">{item.quantity}x</span>
-                           <span className="font-bold text-slate-700">{item.sku || item.name}</span>
+                    {orderItems.map((item, idx) => {
+                      const rawSku = (item.sku || "").trim();
+                      const isAutoSku = rawSku.toUpperCase().startsWith("AUTO-") || rawSku.toUpperCase().startsWith("AUTO_");
+                      const displayName = (rawSku && !isAutoSku) ? rawSku : item.name;
+                      return (
+                        <div key={`${item.id}-${idx}`} className="flex justify-between items-center text-sm">
+                          <div className="flex items-center gap-2">
+                             <span className="font-black text-slate-400">{item.quantity}x</span>
+                             <span className="font-bold text-slate-700">{displayName}</span>
+                          </div>
+                          <span className="font-bold text-slate-900">{formatPrice(item.customPrice * item.quantity)}</span>
                         </div>
-                        <span className="font-bold text-slate-900">{formatPrice(item.customPrice * item.quantity)}</span>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                </div>
 
