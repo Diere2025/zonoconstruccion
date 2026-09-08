@@ -122,6 +122,27 @@ export default function VisualProductSelectorModal({
   // Feedback banner
   const [addedFeedback, setAddedFeedback] = useState<string | null>(null);
 
+  // View mode: defaults to 'grid' (Fotos)
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('zonoconstruccion_selector_view_mode');
+      if (saved === 'list' || saved === 'grid') {
+        setViewMode(saved);
+      } else {
+        setViewMode('grid');
+      }
+    } catch (e) {}
+  }, []);
+
+  const handleToggleViewMode = (mode: 'grid' | 'list') => {
+    setViewMode(mode);
+    try {
+      localStorage.setItem('zonoconstruccion_selector_view_mode', mode);
+    } catch (e) {}
+  };
+
   // Load configuration from site_settings or fallback
   useEffect(() => {
     if (!isOpen) return;
@@ -847,9 +868,9 @@ export default function VisualProductSelectorModal({
                         <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200">
                           <button
                             type="button"
-                            onClick={() => setConfig(prev => prev ? { ...prev, itemsViewMode: 'list', showItemImages: false } : prev)}
+                            onClick={() => handleToggleViewMode('list')}
                             className={`px-2 py-0.5 rounded text-[10.5px] font-bold flex items-center gap-1 transition-all cursor-pointer ${
-                              config?.itemsViewMode === 'list' || !config?.showItemImages
+                              viewMode === 'list'
                                 ? 'bg-white text-brand-600 shadow-2xs font-black'
                                 : 'text-slate-600 hover:text-slate-900'
                             }`}
@@ -859,9 +880,9 @@ export default function VisualProductSelectorModal({
                           </button>
                           <button
                             type="button"
-                            onClick={() => setConfig(prev => prev ? { ...prev, itemsViewMode: 'grid', showItemImages: true } : prev)}
+                            onClick={() => handleToggleViewMode('grid')}
                             className={`px-2 py-0.5 rounded text-[10.5px] font-bold flex items-center gap-1 transition-all cursor-pointer ${
-                              config?.itemsViewMode === 'grid' && config?.showItemImages
+                              viewMode === 'grid'
                                 ? 'bg-white text-brand-600 shadow-2xs font-black'
                                 : 'text-slate-600 hover:text-slate-900'
                             }`}
@@ -876,7 +897,7 @@ export default function VisualProductSelectorModal({
                         <div className="p-8 text-center text-slate-400 text-xs">
                           No hay opciones disponibles en este subgrupo actualmente.
                         </div>
-                      ) : config?.itemsViewMode === 'list' || !config?.showItemImages ? (
+                      ) : viewMode === 'list' ? (
                         /* HIGH DENSITY LIST VIEW */
                         <div className="divide-y divide-slate-100 bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
                           {activeItems.map(item => {
@@ -949,12 +970,13 @@ export default function VisualProductSelectorModal({
                           })}
                         </div>
                       ) : (
-                        /* GRID CARDS VIEW WITH PHOTOS */
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                        /* GRID CARDS VIEW WITH ENHANCED PHOTOS */
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                           {activeItems.map(item => {
                             const prodMatch = products.find(p => p.id === item.productId);
                             const isAvailable = Boolean(prodMatch) || Boolean(item.isCombo && item.comboItems && item.comboItems.length > 0);
                             const calculatedPrice = getItemPrice(item, prodMatch);
+                            const imgSrc = prodMatch?.image_url || item.imageUrl || currentSubgroup.imageUrl;
 
                             return (
                               <div
@@ -966,41 +988,78 @@ export default function VisualProductSelectorModal({
                                     handleQuickAdd(item);
                                   }
                                 }}
-                                className={`p-2.5 rounded-xl border transition-all text-center flex flex-col justify-between ${
+                                className={`p-3 rounded-2xl border transition-all flex flex-col justify-between relative group ${
                                   isAvailable 
-                                    ? 'border-slate-200 hover:border-brand-500 hover:shadow-md cursor-pointer bg-white group hover:-translate-y-0.5' 
+                                    ? 'border-slate-200 hover:border-brand-500 hover:shadow-lg cursor-pointer bg-white hover:-translate-y-1' 
                                     : 'border-slate-100 bg-slate-50/60 opacity-60'
                                 }`}
                               >
                                 <div>
-                                  {item.badge && (
-                                    <span className="inline-block px-1.5 py-0.2 rounded text-[7.5px] font-black uppercase tracking-wide bg-amber-100 text-amber-800 mb-1">
-                                      {item.badge}
-                                    </span>
-                                  )}
-                                  <div className="w-14 h-14 mx-auto mb-1 flex items-center justify-center p-1 overflow-hidden">
-                                    <img 
-                                      src={prodMatch?.image_url || item.imageUrl || currentSubgroup.imageUrl} 
-                                      alt={item.label}
-                                      className="max-h-full max-w-full object-contain group-hover:scale-110 transition-transform"
-                                    />
+                                  {/* Contenedor amplio de fotografía */}
+                                  <div className="h-32 sm:h-38 w-full rounded-xl bg-slate-50/80 group-hover:bg-slate-50 border border-slate-100 flex items-center justify-center p-2.5 relative overflow-hidden transition-colors mb-2">
+                                    {item.badge && (
+                                      <span className="absolute top-2 left-2 z-10 px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-wider bg-amber-500 text-white shadow-xs">
+                                        {item.badge}
+                                      </span>
+                                    )}
+                                    {imgSrc ? (
+                                      <img 
+                                        src={imgSrc} 
+                                        alt={item.label}
+                                        className="max-h-full max-w-full object-contain drop-shadow-xs group-hover:scale-105 transition-transform duration-300"
+                                      />
+                                    ) : (
+                                      <div className="w-10 h-10 rounded-lg bg-slate-200/60 flex items-center justify-center text-slate-400">
+                                        <Package className="w-5 h-5" />
+                                      </div>
+                                    )}
                                   </div>
-                                  <h6 className="font-black text-[11px] text-slate-800 group-hover:text-brand-600 transition-colors">
+
+                                  <h6 className="font-black text-xs sm:text-sm text-slate-900 group-hover:text-brand-600 transition-colors leading-tight line-clamp-1">
                                     {item.label}
                                   </h6>
+                                  {item.description ? (
+                                    <p className="text-[10px] text-slate-500 font-medium line-clamp-2 mt-0.5 leading-snug min-h-[1.6rem]" title={item.description}>
+                                      {item.description}
+                                    </p>
+                                  ) : prodMatch?.name ? (
+                                    <p className="text-[10px] text-slate-500 font-medium truncate mt-0.5 leading-snug" title={prodMatch.name}>
+                                      {prodMatch.name}
+                                    </p>
+                                  ) : null}
                                 </div>
 
-                                <div className="mt-2 pt-1.5 border-t border-slate-100">
-                                  {calculatedPrice !== undefined ? (
-                                    <>
-                                      <p className="font-black text-xs text-brand-600">{fmt(calculatedPrice)}</p>
-                                      <span className="text-[8.5px] font-bold text-slate-400">
-                                        {item.allowCiego || item.recommendedBaseCm ? 'Configurar' : 'Agregar'}
-                                      </span>
-                                    </>
-                                  ) : (
-                                    <p className="text-[9px] font-bold text-slate-400">Consultar</p>
-                                  )}
+                                <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+                                  <div>
+                                    {calculatedPrice !== undefined ? (
+                                      <>
+                                        <p className="font-black text-xs sm:text-sm text-brand-600 tracking-tight leading-none">
+                                          {fmt(calculatedPrice)}
+                                        </p>
+                                        {item.isCombo && item.comboItems && item.comboItems.length > 0 && (
+                                          <span className="text-[8px] font-extrabold text-slate-400 block mt-0.5">
+                                            {item.comboItems.length} componentes
+                                          </span>
+                                        )}
+                                      </>
+                                    ) : (
+                                      <p className="text-[10px] font-bold text-slate-400">Consultar</p>
+                                    )}
+                                  </div>
+
+                                  <div className="flex items-center gap-1 bg-brand-600 group-hover:bg-brand-700 text-white text-[10px] font-black px-2.5 py-1 rounded-lg shadow-xs transition-all shrink-0">
+                                    {item.allowCiego || item.recommendedBaseCm ? (
+                                      <>
+                                        <span>Configurar</span>
+                                        <ChevronRight className="w-3 h-3 stroke-[2.5]" />
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Plus className="w-3 h-3 stroke-[3]" />
+                                        <span>Agregar</span>
+                                      </>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
                             );

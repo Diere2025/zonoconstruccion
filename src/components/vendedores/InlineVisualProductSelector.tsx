@@ -9,7 +9,8 @@ import {
   Plus, 
   Layers, 
   List, 
-  Grid 
+  Grid,
+  Package 
 } from "lucide-react";
 import { Product } from "@/types";
 import { 
@@ -47,6 +48,27 @@ export default function InlineVisualProductSelector({
 
   // Feedback banner
   const [addedFeedback, setAddedFeedback] = useState<string | null>(null);
+
+  // View mode: defaults to 'grid' (Fotos)
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('zonoconstruccion_selector_view_mode');
+      if (saved === 'list' || saved === 'grid') {
+        setViewMode(saved);
+      } else {
+        setViewMode('grid');
+      }
+    } catch (e) {}
+  }, []);
+
+  const handleToggleViewMode = (mode: 'grid' | 'list') => {
+    setViewMode(mode);
+    try {
+      localStorage.setItem('zonoconstruccion_selector_view_mode', mode);
+    } catch (e) {}
+  };
 
   // Load configuration from site_settings or fallback
   useEffect(() => {
@@ -436,11 +458,9 @@ export default function InlineVisualProductSelector({
               <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200">
                 <button
                   type="button"
-                  onClick={() => {
-                    setConfig(prev => prev ? { ...prev, itemsViewMode: 'list', showItemImages: false } : prev);
-                  }}
+                  onClick={() => handleToggleViewMode('list')}
                   className={`px-1.5 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 transition-all ${
-                    config?.itemsViewMode === 'list' || !config?.showItemImages
+                    viewMode === 'list'
                       ? 'bg-white text-brand-600 shadow-xs font-black'
                       : 'text-slate-500 hover:text-slate-800'
                   }`}
@@ -451,11 +471,9 @@ export default function InlineVisualProductSelector({
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    setConfig(prev => prev ? { ...prev, itemsViewMode: 'grid', showItemImages: true } : prev);
-                  }}
+                  onClick={() => handleToggleViewMode('grid')}
                   className={`px-1.5 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 transition-all ${
-                    config?.itemsViewMode === 'grid' && config?.showItemImages
+                    viewMode === 'grid'
                       ? 'bg-white text-brand-600 shadow-xs font-black'
                       : 'text-slate-500 hover:text-slate-800'
                   }`}
@@ -471,9 +489,9 @@ export default function InlineVisualProductSelector({
               <div className="p-6 text-center text-slate-400 text-xs">
                 No hay opciones disponibles en este subgrupo actualmente.
               </div>
-            ) : config?.itemsViewMode === 'list' || !config?.showItemImages ? (
+            ) : viewMode === 'list' ? (
               /* MODO LISTA COMPACTA (ALTA DENSIDAD, SIN FOTOS REPETITIVAS) */
-              <div className="divide-y divide-slate-100 border border-slate-200 rounded-lg overflow-hidden max-h-[280px] overflow-y-auto">
+              <div className="divide-y divide-slate-100 border border-slate-200 rounded-lg overflow-hidden max-h-[320px] overflow-y-auto">
                 {activeItems.map(item => {
                   const prodMatch = products.find(p => p.id === item.productId);
                   const isAvailable = Boolean(prodMatch) || Boolean(item.isCombo && item.comboItems && item.comboItems.length > 0);
@@ -536,12 +554,13 @@ export default function InlineVisualProductSelector({
                 })}
               </div>
             ) : (
-              /* MODO CUADRÍCULA CON FOTOS */
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-[300px] overflow-y-auto p-0.5">
+              /* MODO CUADRÍCULA CON FOTOS AMPLIAS */
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 max-h-[380px] overflow-y-auto p-0.5">
                 {activeItems.map(item => {
                   const prodMatch = products.find(p => p.id === item.productId);
                   const isAvailable = Boolean(prodMatch) || Boolean(item.isCombo && item.comboItems && item.comboItems.length > 0);
                   const calculatedPrice = getItemPrice(item, prodMatch);
+                  const imgSrc = prodMatch?.image_url || item.imageUrl || currentSubgroup.imageUrl;
 
                   return (
                     <div
@@ -553,36 +572,71 @@ export default function InlineVisualProductSelector({
                           handleQuickAdd(item);
                         }
                       }}
-                      className={`p-2 rounded-xl border transition-all text-center flex flex-col justify-between ${
+                      className={`p-2.5 rounded-xl border transition-all flex flex-col justify-between relative group ${
                         isAvailable 
-                          ? 'border-slate-200 hover:border-brand-500 hover:shadow-xs cursor-pointer bg-white group' 
+                          ? 'border-slate-200 hover:border-brand-500 hover:shadow-md cursor-pointer bg-white hover:-translate-y-0.5' 
                           : 'border-slate-100 bg-slate-50/60 opacity-60'
                       }`}
                     >
                       <div>
-                        {item.badge && (
-                          <span className="inline-block px-1.5 py-0.2 rounded text-[7px] font-black uppercase bg-amber-100 text-amber-800 mb-1">
-                            {item.badge}
-                          </span>
-                        )}
-                        <div className="w-12 h-12 mx-auto mb-1 flex items-center justify-center p-0.5 overflow-hidden">
-                          <img 
-                            src={prodMatch?.image_url || item.imageUrl || currentSubgroup.imageUrl} 
-                            alt={item.label}
-                            className="max-h-full max-w-full object-contain group-hover:scale-105 transition-transform"
-                          />
+                        {/* Contenedor amplio de foto */}
+                        <div className="h-28 sm:h-32 w-full rounded-lg bg-slate-50/80 group-hover:bg-slate-50 border border-slate-100 flex items-center justify-center p-2 relative overflow-hidden transition-colors mb-1.5">
+                          {item.badge && (
+                            <span className="absolute top-1.5 left-1.5 z-10 px-1.5 py-0.2 rounded text-[7.5px] font-black uppercase tracking-wider bg-amber-500 text-white shadow-xs">
+                              {item.badge}
+                            </span>
+                          )}
+                          {imgSrc ? (
+                            <img 
+                              src={imgSrc} 
+                              alt={item.label}
+                              className="max-h-full max-w-full object-contain drop-shadow-xs group-hover:scale-105 transition-transform"
+                            />
+                          ) : (
+                            <div className="w-8 h-8 rounded bg-slate-200/60 flex items-center justify-center text-slate-400">
+                              <Package className="w-4 h-4" />
+                            </div>
+                          )}
                         </div>
-                        <h6 className="font-black text-[11px] text-slate-800 group-hover:text-brand-600 transition-colors leading-tight">
+
+                        <h6 className="font-black text-xs text-slate-900 group-hover:text-brand-600 transition-colors leading-tight line-clamp-1">
                           {item.label}
                         </h6>
+                        {item.description ? (
+                          <p className="text-[9.5px] text-slate-400 line-clamp-2 mt-0.5 leading-tight" title={item.description}>
+                            {item.description}
+                          </p>
+                        ) : prodMatch?.name ? (
+                          <p className="text-[9.5px] text-slate-400 truncate mt-0.5" title={prodMatch.name}>
+                            {prodMatch.name}
+                          </p>
+                        ) : null}
                       </div>
 
-                      <div className="mt-1.5 pt-1 border-t border-slate-100">
-                        {calculatedPrice !== undefined ? (
-                          <p className="font-black text-xs text-brand-600">{fmt(calculatedPrice)}</p>
-                        ) : (
-                          <p className="text-[9px] font-bold text-slate-400">Consultar</p>
-                        )}
+                      <div className="mt-2 pt-1.5 border-t border-slate-100 flex items-center justify-between gap-1">
+                        <div>
+                          {calculatedPrice !== undefined ? (
+                            <p className="font-black text-xs text-brand-600 tracking-tight leading-none">
+                              {fmt(calculatedPrice)}
+                            </p>
+                          ) : (
+                            <p className="text-[9px] font-bold text-slate-400">Consultar</p>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-0.5 bg-brand-600 group-hover:bg-brand-700 text-white text-[9.5px] font-black px-2 py-0.5 rounded shadow-xs transition-all shrink-0">
+                          {item.allowCiego || item.recommendedBaseCm ? (
+                            <>
+                              <span>Ver</span>
+                              <ChevronRight className="w-2.5 h-2.5" />
+                            </>
+                          ) : (
+                            <>
+                              <Plus className="w-2.5 h-2.5" />
+                              <span>Sumar</span>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </div>
                   );
