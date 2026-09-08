@@ -609,6 +609,12 @@ export default function PresupuestosPage() {
       if (isDisc) {
         const discAmount = Math.abs(item.customPrice * item.quantity);
         text += `🏷️ *${item.name || internalName}*: -${formatPrice(discAmount)}\n`;
+      } else if (item.customPrice === 0) {
+        if (item.quantity > 1) {
+          text += `🔸 ${item.quantity}x *${internalName}* (Incluido en el Kit)\n`;
+        } else {
+          text += `🔸 1x *${internalName}* (Incluido en el Kit)\n`;
+        }
       } else {
         if (item.quantity > 1) {
           text += `🔸 ${item.quantity}x *${internalName}* a ${formatPrice(item.customPrice)} c/u\n`;
