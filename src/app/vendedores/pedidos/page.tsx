@@ -36,10 +36,11 @@ import {
   Home,
   DollarSign,
   CheckCircle2,
-  Copy,
+  Percent,
   Download,
   Database,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Copy
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { supabase } from "@/lib/supabase";
@@ -48,10 +49,15 @@ import VisualProductSelectorModal from "@/components/vendedores/VisualProductSel
 import { cn, formatPrice } from "@/lib/utils";
 import { calculateBulkPrices } from "@/lib/erp/prices";
 import { createBulkStockTransactions } from "@/lib/erp/stock";
+import { evaluateDiscountSuggestions, DiscountSuggestion } from "@/lib/discountRules";
+import { buildSheetOrderItems } from "@/lib/googleSheets";
 
 interface OrderItem extends Product {
   quantity: number;
   customPrice: number;
+  basePrice?: number;
+  discountType?: 'percentage' | 'fixed';
+  discountValue?: number;
   bundleParentId?: string;
   isIncludedInKit?: boolean;
   baseQuantity?: number;
@@ -559,6 +565,16 @@ export default function PedidosPage() {
   const [isOrderSummaryExpanded, setIsOrderSummaryExpanded] = useState(true);
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
   const [orderCategory, setOrderCategory] = useState<string>("auto");
+
+  // Order Discount States (Global)
+  const [orderDiscountType, setOrderDiscountType] = useState<'percentage' | 'fixed'>('percentage');
+  const [orderDiscountValue, setOrderDiscountValue] = useState<number>(0);
+
+  // Item Discounts Accordion State in Page Summary
+  const [openItemDiscountIds, setOpenItemDiscountIds] = useState<Record<string, boolean>>({});
+  const toggleItemDiscount = (id: string) => {
+    setOpenItemDiscountIds(prev => ({ ...prev, [id]: !prev[id] }));
+  };
 
   const detectedCategory = useMemo(() => {
     if (orderItems.length === 0) return "OTRO";
@@ -2185,17 +2201,23 @@ export default function PedidosPage() {
       // 2. Map order items to OrderItem state
       const mappedItems: OrderItem[] = (itemsData || []).map(item => {
         const prod = products.find(p => p.id === item.product_id);
+        const basePrice = prod?.price || item.unit_price;
+        const discountType = (item.discount_percentage && item.discount_percentage > 0) ? 'percentage' : undefined;
+        const discountValue = (item.discount_percentage && item.discount_percentage > 0) ? item.discount_percentage : undefined;
         return {
           id: item.product_id,
           sku: prod?.sku || "",
           name: item.product_name,
-          price: prod?.price || item.unit_price,
+          price: basePrice,
           customPrice: item.unit_price,
           quantity: item.quantity,
           category: prod?.category || "",
           stock_current: prod?.stock_current !== undefined ? prod?.stock_current : 999,
           description: prod?.description || "",
-          image_url: prod?.image_url || ""
+          image_url: prod?.image_url || "",
+          basePrice: basePrice,
+          discountType: discountType,
+          discountValue: discountValue
         } as OrderItem;
       });
       
@@ -2328,6 +2350,19 @@ export default function PedidosPage() {
       setIsFreeShipping(!hasFreightCost);
       setShippingCost(totalsObj.freight || 0);
       setIncludeIVA(totalsObj.tax > 0);
+      
+      if (totalsObj.order_discount_type) {
+        setOrderDiscountType(totalsObj.order_discount_type);
+      } else {
+        setOrderDiscountType('fixed');
+      }
+      if (totalsObj.order_discount_value !== undefined) {
+        setOrderDiscountValue(totalsObj.order_discount_value);
+      } else if (totalsObj.order_discount_amount !== undefined) {
+        setOrderDiscountValue(totalsObj.order_discount_amount);
+      } else {
+        setOrderDiscountValue(0);
+      }
       
       const payStatus = order.payment_status;
       if (payStatus === 'Abonado') {
@@ -2519,12 +2554,7 @@ export default function PedidosPage() {
         depositOrPaidAmount: totalsObj.deposit_amount || (totalsObj.payment_timing === 'paid' ? order.total_amount : 0),
         freightType: order.freight_type || '⚪ Flete Regular',
         freightCost: totalsObj.freight || 0,
-        items: items.map((item: any) => ({
-          name: item.product_name || item.name || '',
-          sku: item.sku || '',
-          quantity: item.quantity || 1,
-          unitPrice: item.unit_price || item.price || 0
-        }))
+        items: buildSheetOrderItems(items, totalsObj.order_discount_amount || 0, products)
       };
 
       const sheetRes = await fetch('/api/vendedores/create-sheet-order', {
@@ -2677,11 +2707,26 @@ export default function PedidosPage() {
           continue;
         }
 
+        const effectiveBase = (product as any).basePrice !== undefined 
+          ? (product as any).basePrice 
+          : product.price;
+        const discountType = (product as any).discountType !== undefined 
+          ? (product as any).discountType 
+          : (targetCustomPrice < effectiveBase ? 'percentage' : undefined);
+        const discountValue = (product as any).discountValue !== undefined 
+          ? (product as any).discountValue 
+          : (discountType === 'percentage' && effectiveBase > 0 
+              ? Math.round(((effectiveBase - targetCustomPrice) / effectiveBase) * 100) 
+              : undefined);
+
         if (existingIndex >= 0) {
           current[existingIndex] = {
             ...current[existingIndex],
             quantity: current[existingIndex].quantity + qtyToAdd,
             customPrice: (product as any).customPrice !== undefined ? targetCustomPrice : current[existingIndex].customPrice,
+            basePrice: effectiveBase,
+            discountType: discountType || current[existingIndex].discountType,
+            discountValue: discountValue !== undefined ? discountValue : current[existingIndex].discountValue,
             bundleParentId: bundleParentId || current[existingIndex].bundleParentId,
             isIncludedInKit: isIncludedInKit !== undefined ? isIncludedInKit : current[existingIndex].isIncludedInKit,
             baseQuantity: baseQuantity || current[existingIndex].baseQuantity
@@ -2691,6 +2736,9 @@ export default function PedidosPage() {
             ...product, 
             quantity: qtyToAdd, 
             customPrice: targetCustomPrice,
+            basePrice: effectiveBase,
+            discountType: discountType,
+            discountValue: discountValue,
             bundleParentId,
             isIncludedInKit,
             baseQuantity: baseQuantity || qtyToAdd
@@ -2718,7 +2766,7 @@ export default function PedidosPage() {
   };
 
   const removeItem = (id: string) => {
-    setOrderItems(orderItems.filter(i => i.id !== id));
+    setOrderItems(prev => prev.filter(i => i.id !== id));
   };
 
   const addKitToOrder = (kit: Kit) => {
@@ -2828,11 +2876,69 @@ export default function PedidosPage() {
       return;
     }
 
-    setOrderItems(orderItems.map(i => i.id === id ? { ...i, quantity: qty } : i));
+    setOrderItems(prev => prev.map(i => i.id === id ? { ...i, quantity: qty } : i));
   };
 
   const updateCustomPrice = (id: string, price: number) => {
-    setOrderItems(orderItems.map(i => i.id === id ? { ...i, customPrice: price } : i));
+    setOrderItems(prev => prev.map(i => i.id === id ? { ...i, customPrice: price } : i));
+  };
+
+  const updateItemDiscount = (id: string, discountType: 'percentage' | 'fixed', discountValue: number) => {
+    setOrderItems(prev => prev.map(i => {
+      if (i.id !== id) return i;
+      const base = i.basePrice !== undefined ? i.basePrice : (i.price || i.customPrice || 0);
+      const val = Math.max(0, discountValue || 0);
+      let newPrice = base;
+      if (val > 0) {
+        if (discountType === 'percentage') {
+          const disc = Math.round(base * (Math.min(100, val) / 100));
+          newPrice = Math.max(0, base - disc);
+        } else {
+          newPrice = Math.max(0, base - val);
+        }
+      }
+      return {
+        ...i,
+        basePrice: base,
+        discountType: val > 0 ? discountType : undefined,
+        discountValue: val > 0 ? val : undefined,
+        customPrice: newPrice
+      };
+    }));
+  };
+
+  const updateMultipleItemDiscounts = (
+    itemDiscounts: Array<{ id: string; discountType: 'percentage' | 'fixed'; discountValue: number }>,
+    itemIdsToRemove?: string[]
+  ) => {
+    setOrderItems(prev => {
+      let filtered = prev;
+      if (itemIdsToRemove && itemIdsToRemove.length > 0) {
+        filtered = filtered.filter(i => !itemIdsToRemove.includes(i.id));
+      }
+      return filtered.map(i => {
+        const match = itemDiscounts.find(d => d.id === i.id);
+        if (!match) return i;
+        const base = i.basePrice !== undefined ? i.basePrice : (i.price || i.customPrice || 0);
+        const val = Math.max(0, match.discountValue || 0);
+        let newPrice = base;
+        if (val > 0) {
+          if (match.discountType === 'percentage') {
+            const disc = Math.round(base * (Math.min(100, val) / 100));
+            newPrice = Math.max(0, base - disc);
+          } else {
+            newPrice = Math.max(0, base - val);
+          }
+        }
+        return {
+          ...i,
+          basePrice: base,
+          discountType: val > 0 ? match.discountType : undefined,
+          discountValue: val > 0 ? val : undefined,
+          customPrice: newPrice
+        };
+      });
+    });
   };
 
   const [expandedKits, setExpandedKits] = useState<Record<string, boolean>>({});
@@ -2855,8 +2961,8 @@ export default function PedidosPage() {
       if (item.id === kitId) {
         return { ...item, quantity: newQty };
       }
-      if (incIds.has(item.id) || item.bundleParentId === kitId) {
-        const baseQty = item.baseQuantity || Math.max(1, Math.round(item.quantity / oldQty));
+      if (incIds.has(item.id) && item.bundleParentId === kitId) {
+        const baseQty = item.baseQuantity || Math.round(item.quantity / oldQty) || 1;
         return { ...item, quantity: baseQty * newQty };
       }
       return item;
@@ -2889,16 +2995,68 @@ export default function PedidosPage() {
     };
   }, [orderItems]);
 
-  const subtotal = orderItems.reduce((acc, item) => {
+  const itemsGrossSubtotal = orderItems.reduce((acc, item) => {
     const name = (item.name || "").toLowerCase();
     const sku = (item.sku || "").toLowerCase();
     const isDisc = name.includes("descuento") || sku.includes("descuento") || name.includes("bonificaci") || sku.includes("bonificaci");
     const itemVal = isDisc ? -Math.abs(item.customPrice) : item.customPrice;
     return acc + itemVal * item.quantity;
   }, 0);
+
+  const orderDiscountAmount = useMemo(() => {
+    if (!orderDiscountValue || orderDiscountValue <= 0) return 0;
+    if (orderDiscountType === 'percentage') {
+      return Math.round(itemsGrossSubtotal * (Math.min(100, orderDiscountValue) / 100));
+    }
+    return Math.min(itemsGrossSubtotal, Math.max(0, orderDiscountValue));
+  }, [itemsGrossSubtotal, orderDiscountType, orderDiscountValue]);
+
+  const subtotal = Math.max(0, itemsGrossSubtotal - orderDiscountAmount);
   const shippingAmount = isFreeShipping ? 0 : shippingCost;
 
   const orderBaseAmount = Math.max(0, subtotal + shippingAmount);
+
+  // Evaluar sugerencias automáticas de bonificaciones por cantidad (ej: MEP x2, x3, x6, x12)
+  const discountSuggestions = useMemo(() => {
+    return evaluateDiscountSuggestions(orderItems, products);
+  }, [orderItems, products]);
+
+  const handleApplyDiscountSuggestion = (sug: DiscountSuggestion) => {
+    setOrderItems(prev => {
+      let filtered = prev;
+      if (sug.existingDiscountItemId) {
+        filtered = filtered.filter(i => i.id !== sug.existingDiscountItemId);
+      }
+
+      if (sug.itemDiscountAction) {
+        const { itemIds, discountPct } = sug.itemDiscountAction;
+        return filtered.map(item => {
+          if (!itemIds.includes(item.id)) return item;
+          const base = item.basePrice !== undefined ? item.basePrice : (item.price || item.customPrice || 0);
+          const newPrice = Math.max(0, Math.round(base * (1 - discountPct / 100)));
+          return {
+            ...item,
+            basePrice: base,
+            discountType: 'percentage',
+            discountValue: discountPct,
+            customPrice: newPrice
+          };
+        });
+      }
+
+      if (sug.targetProduct) {
+        const newDiscountItem: OrderItem = {
+          ...sug.targetProduct,
+          quantity: sug.suggestedQty,
+          customPrice: -sug.unitDiscount,
+          basePrice: -sug.unitDiscount
+        };
+        return [...filtered, newDiscountItem];
+      }
+
+      return filtered;
+    });
+  };
 
   // Calculate surcharges and totals dynamically per payment item (Proportional Surcharges)
   const paymentsWithSurcharges = paymentsList.map(p => {
@@ -3283,6 +3441,10 @@ export default function PedidosPage() {
             freight_type: flete,
             total_amount: total,
             totals: {
+              items_subtotal: itemsGrossSubtotal,
+              order_discount_type: orderDiscountType,
+              order_discount_value: orderDiscountValue,
+              order_discount_amount: orderDiscountAmount,
               subtotal,
               freight: shippingAmount,
               tax: ivaAmount,
@@ -3432,12 +3594,7 @@ export default function PedidosPage() {
             depositOrPaidAmount: hasDeposit ? depositAmount : (paymentTiming === 'paid' ? total : 0),
             freightType: flete || '⚪ Flete Regular',
             freightCost: shippingAmount || 0,
-            items: orderItems.map(item => ({
-              name: item.name,
-              sku: item.sku,
-              quantity: item.quantity,
-              unitPrice: item.customPrice
-            }))
+            items: buildSheetOrderItems(orderItems, orderDiscountAmount, products)
           };
 
           const sheetRes = await fetch('/api/vendedores/create-sheet-order', {
@@ -3507,6 +3664,10 @@ export default function PedidosPage() {
             total_amount: total,
             status: orderStatus,
             totals: {
+              items_subtotal: itemsGrossSubtotal,
+              order_discount_type: orderDiscountType,
+              order_discount_value: orderDiscountValue,
+              order_discount_amount: orderDiscountAmount,
               subtotal,
               freight: shippingAmount,
               tax: ivaAmount,
@@ -3556,7 +3717,7 @@ export default function PedidosPage() {
         quantity: item.quantity,
         unit_price: item.customPrice,
         historical_unit_cost: (item as any).cost || 0, // Costo dinámico guardado
-        discount_percentage: 0
+        discount_percentage: item.discountType === 'percentage' ? (item.discountValue || 0) : 0
       }));
 
       const { error: itemsError } = await supabase.from('order_items').insert(itemsToInsert);
@@ -3647,6 +3808,8 @@ export default function PedidosPage() {
       setWhaticketLink("");
       setLocalidadId("");
       setOrderItems([]);
+      setOrderDiscountType('fixed');
+      setOrderDiscountValue(0);
       setOrderCategory("auto");
       
       generateNextLegacyCode(seller_id);
@@ -3782,6 +3945,8 @@ export default function PedidosPage() {
                   setWhaticketLink("");
                   setLocalidadId("");
                   setOrderItems([]);
+                  setOrderDiscountType('fixed');
+                  setOrderDiscountValue(0);
                   setOrderCategory("auto");
                   setSelectedSellerId(currentUserId);
                   generateNextLegacyCode(currentUserId);
@@ -4660,8 +4825,11 @@ export default function PedidosPage() {
                         <>
                           <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Detalle de Recepción</label>
                           <input 
+                            key="medium-unselected"
                             type="text" 
                             disabled 
+                            value=""
+                            readOnly
                             placeholder="Seleccione medio..." 
                             className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-400 font-bold text-xs outline-none cursor-not-allowed" 
                           />
@@ -4677,8 +4845,9 @@ export default function PedidosPage() {
                               Link de Whaticket
                             </label>
                             <input 
+                              key="medium-whaticket"
                               type="url" 
-                              value={whaticketLink} 
+                              value={whaticketLink || ""} 
                               onChange={e => setWhaticketLink(e.target.value)} 
                               placeholder="Pegar enlace de conversación..." 
                               className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 transition-all cursor-pointer text-slate-800" 
@@ -4690,8 +4859,11 @@ export default function PedidosPage() {
                         <>
                           <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Detalle de Recepción</label>
                           <input 
+                            key="medium-no-data"
                             type="text" 
                             disabled 
+                            value=""
+                            readOnly
                             placeholder="No requiere datos" 
                             className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-400 font-bold text-xs outline-none cursor-not-allowed" 
                           />
@@ -4872,6 +5044,46 @@ export default function PedidosPage() {
                   ) : isOrderSummaryExpanded ? (
                     /* Lista de productos seleccionados cuando está expandida (diseño compacto sin redundancia) */
                     <div className="flex flex-col gap-1.5 max-h-[380px] overflow-y-auto pr-1">
+                      {/* BANNER DE SUGERENCIAS AUTOMÁTICAS DE BONIFICACIÓN (MEP x2, x3, x6, x12, etc.) */}
+                      {discountSuggestions.length > 0 && (
+                        <div className="space-y-1.5 mb-1">
+                          {discountSuggestions.map((sug) => (
+                            <div 
+                              key={sug.ruleId} 
+                              className="bg-gradient-to-r from-amber-500/10 via-amber-100 to-amber-50 border border-amber-300 rounded-xl p-2.5 flex items-center justify-between gap-2 shadow-xs animate-in slide-in-from-top duration-200"
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className="w-7 h-7 rounded-lg bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-2xs">
+                                  <Sparkles className="w-3.5 h-3.5" />
+                                </span>
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-[8px] font-black uppercase tracking-wider bg-amber-200 text-amber-900 px-1 py-0.2 rounded">
+                                      Beneficio
+                                    </span>
+                                    <p className="font-extrabold text-xs text-amber-950 truncate">
+                                      {sug.ruleName} ({sug.suggestedQty} unid.)
+                                    </p>
+                                  </div>
+                                  <p className="text-[10.5px] text-amber-800 font-medium truncate">
+                                    {sug.description} → Ahorro: <strong>{formatPrice(sug.totalDiscount)}</strong>
+                                  </p>
+                                </div>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => handleApplyDiscountSuggestion(sug)}
+                                className="px-2.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[11px] font-black shrink-0 flex items-center gap-1 shadow-xs transition-all cursor-pointer hover:scale-102"
+                              >
+                                <Check className="w-3 h-3" />
+                                {sug.action === 'upgrade' ? 'Actualizar' : 'Aplicar'}
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
                       {/* LISTA COMPACTA DE ARTÍCULOS Y SERVICIOS */}
                       {standardItems.map((item, idx) => {
                         const nameLower = (item.name || "").toLowerCase();
@@ -4884,81 +5096,159 @@ export default function PedidosPage() {
                         const displayName = (rawSku && !isAutoSku) ? rawSku : item.name;
 
                         return (
-                          <div 
-                            key={`${item.id}-${idx}`} 
-                            className={`rounded-lg py-1.5 px-2.5 border transition-all flex items-center justify-between gap-2 ${
-                              isKitService 
-                                ? 'bg-emerald-50/50 border-emerald-300' 
-                                : isIncludedZero 
-                                  ? 'bg-slate-50/70 border-slate-200' 
-                                  : 'bg-white border-slate-200 hover:border-slate-300'
-                            }`}
-                          >
-                            {/* SKU/Nombre + Tags en una sola línea limpia */}
-                            <div className="flex-1 min-w-0 flex items-center gap-1.5">
-                              {isKitService && (
-                                <span className="inline-flex items-center gap-0.5 text-[7.5px] font-black uppercase tracking-wider px-1 py-0.2 bg-emerald-100 text-emerald-800 rounded border border-emerald-200 shrink-0">
-                                  Kit
-                                </span>
-                              )}
-                              {isIncludedZero && (
-                                <span className="inline-flex items-center gap-0.5 text-[7.5px] font-extrabold uppercase tracking-wider px-1 py-0.2 bg-emerald-50 text-emerald-700 rounded border border-emerald-200 shrink-0">
-                                  $0
-                                </span>
-                              )}
-                              <p className="font-bold text-slate-800 text-xs truncate" title={displayName}>
-                                {displayName}
-                              </p>
-                            </div>
-
-                            {/* Controles en línea compacta: [-] {qty} [+] | $ {precio} | 🗑️ */}
-                            <div className="flex items-center gap-1.5 shrink-0">
-                              {/* Stepper compacto */}
-                              <div className="flex items-center bg-slate-100 border border-slate-200 rounded-md overflow-hidden h-6.5">
-                                <button 
-                                  type="button" 
-                                  onClick={() => updateQuantity(item.id, item.quantity - 1)} 
-                                  className="px-1.5 font-black text-slate-500 hover:bg-slate-200 text-xs h-full cursor-pointer transition-colors"
-                                  title="Restar 1 unidad"
-                                >
-                                  -
-                                </button>
-                                <span className="px-1.5 font-black text-xs min-w-[1.2rem] text-center text-slate-800">
-                                  {item.quantity}
-                                </span>
-                                <button 
-                                  type="button" 
-                                  onClick={() => updateQuantity(item.id, item.quantity + 1)} 
-                                  className="px-1.5 font-black text-slate-500 hover:bg-slate-200 text-xs h-full cursor-pointer transition-colors"
-                                  title="Sumar 1 unidad"
-                                >
-                                  +
-                                </button>
+                          <React.Fragment key={`${item.id}-${idx}`}>
+                            <div 
+                              className={`rounded-lg py-1.5 px-2.5 border transition-all flex items-center justify-between gap-2 ${
+                                isKitService 
+                                  ? 'bg-emerald-50/50 border-emerald-300' 
+                                  : isIncludedZero 
+                                    ? 'bg-slate-50/70 border-slate-200' 
+                                    : 'bg-white border-slate-200 hover:border-slate-300'
+                              }`}
+                            >
+                              {/* SKU/Nombre + Tags en una sola línea limpia */}
+                              <div className="flex-1 min-w-0 flex items-center gap-1.5">
+                                {isKitService && (
+                                  <span className="inline-flex items-center gap-0.5 text-[7.5px] font-black uppercase tracking-wider px-1 py-0.2 bg-emerald-100 text-emerald-800 rounded border border-emerald-200 shrink-0">
+                                    Kit
+                                  </span>
+                                )}
+                                {isIncludedZero && (
+                                  <span className="inline-flex items-center gap-0.5 text-[7.5px] font-extrabold uppercase tracking-wider px-1 py-0.2 bg-emerald-50 text-emerald-700 rounded border border-emerald-200 shrink-0">
+                                    $0
+                                  </span>
+                                )}
+                                {Boolean(item.discountValue && item.discountValue > 0) && (
+                                  <span className="inline-flex items-center gap-0.5 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded border border-amber-300 shrink-0">
+                                    {item.discountType === 'percentage' ? `${item.discountValue}% OFF` : `-$${formatPrice(item.discountValue || 0)}`}
+                                  </span>
+                                )}
+                                <p className="font-bold text-slate-800 text-xs truncate" title={displayName}>
+                                  {displayName}
+                                </p>
+                                {item.basePrice && item.basePrice > item.customPrice && (
+                                  <span className="text-[10px] text-slate-400 line-through shrink-0">
+                                    {formatPrice(item.basePrice)}
+                                  </span>
+                                )}
                               </div>
 
-                              {/* Precio unitario editable compacto */}
-                              <div className="flex items-center bg-slate-50 border border-slate-200 rounded-md px-1.5 h-6.5">
-                                <span className="text-[9.5px] font-bold text-slate-400 mr-0.5">$</span>
-                                <input 
-                                  type="number" 
-                                  value={item.customPrice}
-                                  onChange={(e) => updateCustomPrice(item.id, Number(e.target.value))}
-                                  className="w-16 text-xs font-bold text-right outline-none bg-transparent text-slate-800"
-                                  title="Precio unitario (editable)"
-                                />
-                              </div>
+                              {/* Controles en línea compacta: [-] {qty} [+] | $ {precio} | %/$ | 🗑️ */}
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                {/* Stepper compacto */}
+                                <div className="flex items-center bg-slate-100 border border-slate-200 rounded-md overflow-hidden h-6.5">
+                                  <button 
+                                    type="button" 
+                                    onClick={() => updateQuantity(item.id, item.quantity - 1)} 
+                                    className="px-1.5 font-black text-slate-500 hover:bg-slate-200 text-xs h-full cursor-pointer transition-colors"
+                                    title="Restar 1 unidad"
+                                  >
+                                    -
+                                  </button>
+                                  <span className="px-1.5 font-black text-xs min-w-[1.2rem] text-center text-slate-800">
+                                    {item.quantity}
+                                  </span>
+                                  <button 
+                                    type="button" 
+                                    onClick={() => updateQuantity(item.id, item.quantity + 1)} 
+                                    className="px-1.5 font-black text-slate-500 hover:bg-slate-200 text-xs h-full cursor-pointer transition-colors"
+                                    title="Sumar 1 unidad"
+                                  >
+                                    +
+                                  </button>
+                                </div>
 
-                              {/* Botón para SACAR producto */}
-                              <button 
-                                type="button"
-                                onClick={() => removeItem(item.id)}
-                                className="text-slate-300 hover:text-red-500 p-1 rounded hover:bg-red-50 transition-colors cursor-pointer"
-                                title="Sacar del pedido"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+                                {/* Precio unitario editable compacto */}
+                                <div className="flex items-center bg-slate-50 border border-slate-200 rounded-md px-1.5 h-6.5">
+                                  <span className="text-[9.5px] font-bold text-slate-400 mr-0.5">$</span>
+                                  <input 
+                                    type="number" 
+                                    value={item.customPrice}
+                                    onChange={(e) => updateCustomPrice(item.id, Number(e.target.value))}
+                                    className="w-16 text-xs font-bold text-right outline-none bg-transparent text-slate-800"
+                                    title="Precio unitario (editable)"
+                                  />
+                                </div>
+
+                                {/* Botón para aplicar o editar descuento por producto */}
+                                <button
+                                  type="button"
+                                  onClick={() => toggleItemDiscount(item.id)}
+                                  className={`h-6.5 px-1.5 rounded-md border text-[10px] font-bold flex items-center gap-0.5 transition-colors cursor-pointer ${
+                                    Boolean(item.discountValue && item.discountValue > 0)
+                                      ? 'bg-amber-100 border-amber-300 text-amber-800'
+                                      : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-amber-50 hover:text-amber-700 hover:border-amber-200'
+                                  }`}
+                                  title="Aplicar descuento a este producto"
+                                >
+                                  <Percent className="w-2.5 h-2.5" />
+                                  {Boolean(item.discountValue && item.discountValue > 0) && (
+                                    <span>{item.discountType === 'percentage' ? `${item.discountValue}%` : `$`}</span>
+                                  )}
+                                </button>
+
+                                {/* Botón para SACAR producto */}
+                                <button 
+                                  type="button"
+                                  onClick={() => removeItem(item.id)}
+                                  className="text-slate-300 hover:text-red-500 p-1 rounded hover:bg-red-50 transition-colors cursor-pointer"
+                                  title="Sacar del pedido"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
                             </div>
-                          </div>
+
+                            {/* Sub-fila expandida para configurar descuento de este producto */}
+                            {openItemDiscountIds[item.id] && (
+                              <div className="bg-amber-50/70 border border-amber-200/90 rounded-md px-2 py-1.5 flex items-center justify-between gap-2 text-xs animate-in fade-in duration-150">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[10px] font-bold text-amber-900">Desc. producto:</span>
+                                  <div className="flex items-center bg-white border border-amber-300 rounded overflow-hidden text-[10px]">
+                                    <button
+                                      type="button"
+                                      onClick={() => updateItemDiscount(item.id, 'percentage', item.discountValue || 0)}
+                                      className={`px-1.5 py-0.5 font-black cursor-pointer ${item.discountType === 'percentage' || !item.discountType ? 'bg-amber-500 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+                                    >
+                                      %
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => updateItemDiscount(item.id, 'fixed', item.discountValue || 0)}
+                                      className={`px-1.5 py-0.5 font-black cursor-pointer ${item.discountType === 'fixed' ? 'bg-amber-500 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+                                    >
+                                      $
+                                    </button>
+                                  </div>
+                                  <input
+                                    type="number"
+                                    value={item.discountValue || ""}
+                                    placeholder="0"
+                                    onChange={(e) => updateItemDiscount(item.id, item.discountType || 'percentage', Number(e.target.value))}
+                                    className="w-16 px-1.5 py-0.5 bg-white border border-amber-300 rounded text-xs font-bold text-right outline-none text-slate-800"
+                                  />
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[10.5px] text-amber-800 font-bold">
+                                    {item.discountType === 'percentage'
+                                      ? `(-${formatPrice(Math.round(((item.basePrice || item.price) * (item.discountValue || 0)) / 100))}/u)`
+                                      : `(-${formatPrice(item.discountValue || 0)}/u)`}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      updateItemDiscount(item.id, 'percentage', 0);
+                                      toggleItemDiscount(item.id);
+                                    }}
+                                    className="text-[10px] font-extrabold text-red-500 hover:text-red-700 cursor-pointer"
+                                  >
+                                    Limpiar
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </React.Fragment>
                         );
                       })}
 
@@ -4976,9 +5266,46 @@ export default function PedidosPage() {
                           </div>
 
                           <div className="flex items-center gap-1.5 shrink-0">
-                            <span className="font-black text-xs text-amber-700 bg-amber-100/60 px-1.5 py-0.5 rounded border border-amber-200/60">
+                            {/* Selector de cantidad compacto para bonificaciones */}
+                            <div className="flex items-center bg-white border border-amber-200 rounded-md overflow-hidden h-6.5">
+                              <button 
+                                type="button" 
+                                onClick={() => updateQuantity(item.id, item.quantity - 1)} 
+                                className="px-1.5 font-black text-slate-500 hover:bg-amber-100 text-xs h-full cursor-pointer transition-colors"
+                                title="Restar 1 unidad"
+                              >
+                                -
+                              </button>
+                              <span className="px-1.5 font-black text-xs min-w-[1.2rem] text-center text-slate-800">
+                                {item.quantity}
+                              </span>
+                              <button 
+                                type="button" 
+                                onClick={() => updateQuantity(item.id, item.quantity + 1)} 
+                                className="px-1.5 font-black text-slate-500 hover:bg-amber-100 text-xs h-full cursor-pointer transition-colors"
+                                title="Sumar 1 unidad"
+                              >
+                                +
+                              </button>
+                            </div>
+
+                            {/* Precio editable con -$ */}
+                            <div className="flex items-center bg-white border border-amber-300 rounded-md px-1.5 h-6.5">
+                              <span className="text-[9.5px] font-bold text-amber-700 mr-0.5">-$</span>
+                              <input 
+                                type="number" 
+                                value={Math.abs(item.customPrice) || ""}
+                                placeholder="0"
+                                onChange={(e) => updateCustomPrice(item.id, -Math.abs(Number(e.target.value)))}
+                                className="w-16 text-xs font-bold text-right outline-none bg-transparent text-amber-900"
+                                title="Monto del descuento unitario (editable)"
+                              />
+                            </div>
+
+                            <span className="font-black text-xs text-amber-700 bg-amber-100/60 px-1.5 py-0.5 rounded border border-amber-200/60 min-w-[3.5rem] text-right">
                               -{formatPrice(Math.abs(item.customPrice * item.quantity))}
                             </span>
+
                             <button 
                               type="button"
                               onClick={() => removeItem(item.id)}
@@ -5025,15 +5352,106 @@ export default function PedidosPage() {
                         <Plus className="w-3 h-3" /> Agregar más productos
                       </button>
                       <div className="text-right">
-                        <span className="text-[10px] font-bold text-slate-400 mr-1.5 uppercase">Subtotal Artículos:</span>
+                        <span className="text-[10px] font-bold text-slate-400 mr-1.5 uppercase">
+                          {orderDiscountAmount > 0 ? "Subtotal Neto:" : "Subtotal Artículos:"}
+                        </span>
                         <span className="font-black text-sm text-slate-900">{formatPrice(subtotal)}</span>
                       </div>
                     </div>
                   )}
                 </div>
 
-                {/* Opciones de Flete e IVA */}
+                {/* Descuento al Total del Pedido, Flete e IVA */}
                 <div className="space-y-2.5 pt-3 border-t border-slate-200/60">
+                  
+                  {/* Bloque Descuento al Total del Pedido */}
+                  <div className="flex flex-col gap-2 p-2.5 bg-white rounded-xl border border-slate-200">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[9.5px] font-black text-slate-700 uppercase tracking-wide flex items-center gap-1">
+                        <Tag className="w-3.5 h-3.5 text-amber-600" /> Descuento al Total del Pedido
+                      </span>
+                      {orderDiscountAmount > 0 && (
+                        <span className="text-[10.5px] font-black text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md">
+                          -{formatPrice(orderDiscountAmount)}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      {/* Switch % / $ */}
+                      <div className="flex items-center bg-slate-100 border border-slate-200 rounded-lg overflow-hidden text-xs shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setOrderDiscountType('percentage')}
+                          className={`px-2.5 py-1.5 font-black cursor-pointer transition-colors ${
+                            orderDiscountType === 'percentage' ? 'bg-amber-500 text-white' : 'text-slate-600 hover:bg-slate-200'
+                          }`}
+                        >
+                          %
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setOrderDiscountType('fixed')}
+                          className={`px-2.5 py-1.5 font-black cursor-pointer transition-colors ${
+                            orderDiscountType === 'fixed' ? 'bg-amber-500 text-white' : 'text-slate-600 hover:bg-slate-200'
+                          }`}
+                        >
+                          $
+                        </button>
+                      </div>
+
+                      {/* Input numérico */}
+                      <div className="relative flex-1">
+                        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">
+                          {orderDiscountType === 'percentage' ? '%' : '$'}
+                        </span>
+                        <input
+                          type="number"
+                          value={orderDiscountValue === 0 ? "" : orderDiscountValue}
+                          onChange={(e) => setOrderDiscountValue(Math.max(0, Number(e.target.value)))}
+                          placeholder={orderDiscountType === 'percentage' ? "Ej: 10 para 10%" : "Ej: 15000"}
+                          className="w-full pl-6 pr-2.5 py-1.5 border border-slate-200 rounded-lg text-xs font-bold outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500"
+                        />
+                      </div>
+
+                      {orderDiscountValue > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setOrderDiscountValue(0)}
+                          className="text-xs font-bold text-slate-400 hover:text-red-500 px-1.5 py-1 rounded transition-colors cursor-pointer"
+                          title="Quitar descuento"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Botones rápidos */}
+                    <div className="flex items-center gap-1.5 pt-0.5">
+                      <span className="text-[9px] font-bold text-slate-400 uppercase">Rápido:</span>
+                      {[5, 10, 15, 20].map((pct) => (
+                        <button
+                          key={pct}
+                          type="button"
+                          onClick={() => {
+                            setOrderDiscountType('percentage');
+                            setOrderDiscountValue(pct);
+                          }}
+                          className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-colors cursor-pointer ${
+                            orderDiscountType === 'percentage' && orderDiscountValue === pct
+                              ? 'bg-amber-500 text-white border-amber-600'
+                              : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-amber-50 hover:border-amber-300'
+                          }`}
+                        >
+                          {pct}%
+                        </button>
+                      ))}
+                    </div>
+
+                    <p className="text-[9.5px] text-slate-400 font-medium italic pt-0.5">
+                      💡 En planilla se registra como <strong>Descuento Compra Mayorista</strong> y los artículos van a precio de lista.
+                    </p>
+                  </div>
                   
                   {/* Costo de Envío / Flete */}
                   <div className="flex flex-col gap-1.5 p-2.5 bg-white rounded-xl border border-slate-200">
@@ -5445,8 +5863,20 @@ export default function PedidosPage() {
                 <div className="bg-white p-3 rounded-xl border border-slate-200/60 space-y-2 mt-4">
                   <div className="flex justify-between text-xs font-bold text-slate-600">
                     <span>Subtotal Artículos</span>
-                    <span>{formatPrice(subtotal)}</span>
+                    <span>{formatPrice(itemsGrossSubtotal)}</span>
                   </div>
+                  {orderDiscountAmount > 0 && (
+                    <div className="flex justify-between text-xs font-black text-amber-600 bg-amber-50/70 p-1.5 rounded-lg border border-amber-200/70">
+                      <span>Descuento Pedido ({orderDiscountType === 'percentage' ? `${orderDiscountValue}%` : 'Monto Fijo'})</span>
+                      <span>-{formatPrice(orderDiscountAmount)}</span>
+                    </div>
+                  )}
+                  {orderDiscountAmount > 0 && (
+                    <div className="flex justify-between text-xs font-bold text-slate-700">
+                      <span>Subtotal Neto</span>
+                      <span>{formatPrice(subtotal)}</span>
+                    </div>
+                  )}
                   {totalSurcharges > 0 && (
                     <div className="flex justify-between text-xs font-bold text-red-600">
                       <span>Recargo Financiero</span>
@@ -5947,6 +6377,8 @@ export default function PedidosPage() {
                   setPostponementMotive("");
                   setPostponementReasonType('cliente');
                   setOrderItems([]);
+                  setOrderDiscountType('fixed');
+                  setOrderDiscountValue(0);
                   setOrderCategory("auto");
                   const effectiveSeller = (role === 'admin' && selectedSellerId) ? selectedSellerId : currentUserId;
                   if (effectiveSeller) {
@@ -6312,9 +6744,21 @@ export default function PedidosPage() {
                {/* Resumen Totales */}
                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-2">
                  <div className="flex justify-between text-sm font-bold text-slate-600">
-                   <span>Subtotal Neto</span>
-                   <span>{formatPrice(subtotal)}</span>
+                   <span>Subtotal Artículos</span>
+                   <span>{formatPrice(itemsGrossSubtotal)}</span>
                  </div>
+                 {orderDiscountAmount > 0 && (
+                   <div className="flex justify-between text-sm font-black text-amber-600 bg-amber-50 p-1.5 rounded-lg border border-amber-200">
+                     <span>Descuento Pedido ({orderDiscountType === 'percentage' ? `${orderDiscountValue}%` : 'Monto Fijo'})</span>
+                     <span>-{formatPrice(orderDiscountAmount)}</span>
+                   </div>
+                 )}
+                 {orderDiscountAmount > 0 && (
+                   <div className="flex justify-between text-sm font-bold text-slate-700">
+                     <span>Subtotal Neto</span>
+                     <span>{formatPrice(subtotal)}</span>
+                   </div>
+                 )}
                  {surcharge > 0 && (
                    <div className="flex justify-between text-sm font-bold text-red-500">
                      <span>Recargo Financiero ({selectedPaymentMethod?.surcharge_percentage}%)</span>
@@ -6923,6 +7367,14 @@ export default function PedidosPage() {
         onRemoveKit={handleRemoveKit}
         onClearOrderItems={() => setOrderItems([])}
         isAdmin={role === 'admin'}
+        orderDiscountType={orderDiscountType}
+        orderDiscountValue={orderDiscountValue}
+        onUpdateOrderDiscount={(type, value) => {
+          setOrderDiscountType(type);
+          setOrderDiscountValue(value);
+        }}
+        onUpdateItemDiscount={updateItemDiscount}
+        onApplyDiscountSuggestion={handleApplyDiscountSuggestion}
       />
     </div>
   );

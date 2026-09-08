@@ -41,7 +41,8 @@ import {
   XCircle,
   Edit,
   RefreshCw,
-  RotateCcw
+  RotateCcw,
+  Sparkles
 } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
@@ -409,6 +410,11 @@ export default function ComprasAdminPage() {
   const [showStaggeredModal, setShowStaggeredModal] = useState(false);
   const [staggeredInterval, setStaggeredInterval] = useState("15");
   const [staggeredDeliveriesCount, setStaggeredDeliveriesCount] = useState("4");
+  const [unimportedStats, setUnimportedStats] = useState<{
+    ordersCount: number;
+    reservedUnits: number;
+    salesUnits: number;
+  } | null>(null);
 
   // Selection states
   const [selectedSupplierId, setSelectedSupplierId] = useState("");
@@ -2449,6 +2455,66 @@ export default function ComprasAdminPage() {
         }
       });
 
+      // 1b. Fetch unimported seller orders from spreadsheets to include in sales and reserves
+      const unimportedReservesMap: Record<string, number> = {};
+      const unimportedReservesNormMap: Record<string, number> = {};
+      try {
+        const unRes = await fetch('/api/admin/unimported-orders');
+        if (unRes.ok) {
+          const unimportedData = await unRes.json();
+          if (unimportedData && unimportedData.unimportedOrders) {
+            const cutoffDateStr = calcHistoryType === 'days' 
+              ? (() => { const d = new Date(); d.setDate(d.getDate() - days); return d.toISOString().split('T')[0]; })()
+              : (calcStartDate || '1970-01-01');
+            const endCutoffStr = calcHistoryType === 'days' ? '9999-12-31' : (calcEndDate || '9999-12-31');
+
+            let totalUnRes = 0;
+            let totalUnSales = 0;
+
+            unimportedData.unimportedOrders.forEach((order: any) => {
+              const isWithinPeriod = order.orderDate >= cutoffDateStr && order.orderDate <= endCutoffStr;
+
+              order.items?.forEach((it: any) => {
+                const qty = Number(it.quantity) || 0;
+                if (qty <= 0) return;
+
+                // Add to sales if within period
+                if (isWithinPeriod) {
+                  if (it.productId) {
+                    salesMap[it.productId] = (salesMap[it.productId] || 0) + qty;
+                  }
+                  if (it.normalizedName) {
+                    const norm = normalizeText(it.normalizedName);
+                    salesNormalizedMap[norm] = (salesNormalizedMap[norm] || 0) + qty;
+                  }
+                  totalUnSales += qty;
+                }
+
+                // Add to reserves if order is active/pending
+                if (order.isReserved) {
+                  if (it.productId) {
+                    unimportedReservesMap[it.productId] = (unimportedReservesMap[it.productId] || 0) + qty;
+                  }
+                  if (it.normalizedName) {
+                    const norm = normalizeText(it.normalizedName);
+                    unimportedReservesNormMap[norm] = (unimportedReservesNormMap[norm] || 0) + qty;
+                  }
+                  totalUnRes += qty;
+                }
+              });
+            });
+
+            setUnimportedStats({
+              ordersCount: unimportedData.unimportedOrders.length,
+              reservedUnits: totalUnRes,
+              salesUnits: totalUnSales
+            });
+          }
+        }
+      } catch (err) {
+        console.warn("No se pudieron cargar pedidos no importados para reposición:", err);
+      }
+
       // 2. Fetch fresh stock levels from active, non-discontinued products
       const { data: latestProducts, error: prodErr } = await supabase
         .from('products')
@@ -2544,8 +2610,12 @@ export default function ComprasAdminPage() {
         const vpd = (totalQtySold / days) * seasonalityMult;
 
         const stockPhys = Math.max(0, Number(p.stock_physical) || 0);
-        const stockRes = Math.max(0, Number(p.stock_reserved) || 0);
-        const stockDisp = typeof p.stock_current === 'number' ? p.stock_current : (stockPhys - stockRes);
+        const dbRes = Math.max(0, Number(p.stock_reserved) || 0);
+        const unimportedRes = (p.id && unimportedReservesMap[p.id]) || unimportedReservesNormMap[normPName] || 0;
+        const stockRes = dbRes + unimportedRes;
+        const stockDisp = typeof p.stock_current === 'number'
+          ? Math.max(0, p.stock_current - unimportedRes)
+          : Math.max(0, stockPhys - stockRes);
 
         let transit = transitMap[p.id] || 0;
         for (const [tNorm, tQty] of Object.entries(transitNormMap)) {
@@ -2601,6 +2671,8 @@ export default function ComprasAdminPage() {
           sku: p.sku,
           stockPhysical: stockPhys,
           stockReserved: stockRes,
+          dbReserved: dbRes,
+          unimportedReserved: unimportedRes,
           stockAvailable: stockDisp,
           transit: transit,
           vpd: vpd,
@@ -5303,8 +5375,8 @@ export default function ComprasAdminPage() {
 
           {/* Modal PO Detail */}
           {selectedPO && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm overflow-y-auto">
-              <div className="bg-white rounded-3xl w-full max-w-3xl shadow-2xl p-6 space-y-6 my-8 animate-in fade-in duration-200">
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/40 backdrop-blur-sm overflow-y-auto">
+              <div className="bg-white rounded-3xl w-full max-w-3xl shadow-2xl p-4 sm:p-6 space-y-5 sm:space-y-6 my-4 sm:my-8 animate-in fade-in duration-200">
                 <div className="flex justify-between items-center border-b pb-4">
                   <div>
                     <h3 className="text-lg font-black text-slate-900">Orden de Compra: {selectedPO.oc_code}</h3>
@@ -5327,16 +5399,16 @@ export default function ComprasAdminPage() {
                       {selectedPO.notes && <p className="col-span-2 font-normal">Notas: {selectedPO.notes}</p>}
                     </div>
 
-                    <div className="border rounded-2xl overflow-hidden">
-                      <table className="w-full text-left text-xs">
+                    <div className="border border-slate-200 rounded-2xl overflow-x-auto shadow-sm">
+                      <table className="w-full text-left text-xs min-w-[540px]">
                         <thead>
                           <tr className="bg-slate-50 border-b text-slate-400 font-bold uppercase tracking-wider">
-                            <th className="p-3">Artículo / Detalle</th>
-                            <th className="p-3 text-right">Pedido</th>
-                            <th className="p-3 text-right">Recibido</th>
-                            <th className="p-3 text-right">Costo Unit.</th>
-                            <th className="p-3 text-right">Subtotal</th>
-                            <th className="p-3 text-center">Estado</th>
+                            <th className="p-3 whitespace-nowrap">Artículo / Detalle</th>
+                            <th className="p-3 text-right whitespace-nowrap">Pedido</th>
+                            <th className="p-3 text-right whitespace-nowrap">Recibido</th>
+                            <th className="p-3 text-right whitespace-nowrap">Costo Unit.</th>
+                            <th className="p-3 text-right whitespace-nowrap">Subtotal</th>
+                            <th className="p-3 text-center whitespace-nowrap">Estado</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 font-bold text-slate-700">
@@ -5346,12 +5418,12 @@ export default function ComprasAdminPage() {
                                 <div>{item.raw_product_name} {item.product?.sku && item.product.sku !== item.raw_product_name && !item.product.sku.endsWith('_OLD') && !item.product.sku.startsWith('AUTO-') ? `(${item.product.sku})` : ''}</div>
                                 {item.notes && <div className="text-[10px] text-slate-400 font-normal italic mt-0.5">Nota: {item.notes}</div>}
                               </td>
-                              <td className="p-3 text-right">{item.quantity_ordered}</td>
-                              <td className="p-3 text-right text-brand-600">{item.quantity_received}</td>
-                              <td className="p-3 text-right">{formatPrice(item.unit_cost)}</td>
-                              <td className="p-3 text-right">{formatPrice(item.subtotal)}</td>
-                              <td className="p-3 text-center">
-                                <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-black ${
+                              <td className="p-3 text-right whitespace-nowrap font-mono">{item.quantity_ordered}</td>
+                              <td className="p-3 text-right text-brand-600 whitespace-nowrap font-mono">{item.quantity_received}</td>
+                              <td className="p-3 text-right whitespace-nowrap font-mono">{formatPrice(item.unit_cost)}</td>
+                              <td className="p-3 text-right whitespace-nowrap font-mono">{formatPrice(item.subtotal)}</td>
+                              <td className="p-3 text-center whitespace-nowrap">
+                                <span className={`px-2 py-0.5 rounded-full text-[9px] font-black ${
                                   item.status === 'Cumplido' ? 'bg-green-50 text-green-700 border border-green-200' :
                                   item.status === 'Parcial' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
                                   item.status === 'Cancelado' ? 'bg-rose-50 text-rose-700 border border-rose-200' :
@@ -5370,12 +5442,12 @@ export default function ComprasAdminPage() {
                             const totAmt = poItemsDetail.reduce((acc, it) => acc + (Number(it.subtotal) || (Number(it.quantity_ordered) * Number(it.unit_cost)) || 0), 0);
                             return (
                               <tr>
-                                <td className="p-3 uppercase text-slate-500">TOTALES ORDEN</td>
-                                <td className="p-3 text-right">{totOrd}</td>
-                                <td className="p-3 text-right text-brand-600">{totRec}</td>
-                                <td className="p-3 text-right text-slate-400">-</td>
-                                <td className="p-3 text-right text-slate-900 text-sm font-black">{formatPrice(totAmt)}</td>
-                                <td className="p-3 text-center text-[10px] text-slate-500">
+                                <td className="p-3 uppercase text-slate-500 whitespace-nowrap">TOTALES ORDEN</td>
+                                <td className="p-3 text-right whitespace-nowrap font-mono">{totOrd}</td>
+                                <td className="p-3 text-right text-brand-600 whitespace-nowrap font-mono">{totRec}</td>
+                                <td className="p-3 text-right text-slate-400 whitespace-nowrap">-</td>
+                                <td className="p-3 text-right text-slate-900 text-sm font-black whitespace-nowrap font-mono">{formatPrice(totAmt)}</td>
+                                <td className="p-3 text-center text-[10px] text-slate-500 whitespace-nowrap">
                                   {totRec >= totOrd && totOrd > 0 ? '100% Recibido' : `${Math.round((totRec / (totOrd || 1)) * 100)}% Recibido`}
                                 </td>
                               </tr>
@@ -5512,14 +5584,14 @@ export default function ComprasAdminPage() {
                 </div>
 
                 {/* Combined Items Table */}
-                <div className="border rounded-2xl overflow-hidden max-h-64 overflow-y-auto">
-                  <table className="w-full text-left text-xs">
+                <div className="border rounded-2xl overflow-x-auto max-h-64 overflow-y-auto">
+                  <table className="w-full text-left text-xs min-w-[500px]">
                     <thead className="bg-slate-50 border-b text-slate-400 font-bold uppercase tracking-wider sticky top-0">
                       <tr>
-                        <th className="p-3">Artículo Consolidado</th>
-                        <th className="p-3 text-right">Cant. Total</th>
-                        <th className="p-3 text-right">Costo Unit.</th>
-                        <th className="p-3 text-right">Subtotal</th>
+                        <th className="p-3 whitespace-nowrap">Artículo Consolidado</th>
+                        <th className="p-3 text-right whitespace-nowrap">Cant. Total</th>
+                        <th className="p-3 text-right whitespace-nowrap">Costo Unit.</th>
+                        <th className="p-3 text-right whitespace-nowrap">Subtotal</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 font-bold text-slate-700">
@@ -5834,15 +5906,15 @@ export default function ComprasAdminPage() {
                     </div>
                   </div>
 
-                  <div className="border rounded-2xl overflow-hidden bg-white max-h-60 overflow-y-auto">
-                    <table className="w-full text-left text-xs border-collapse">
+                  <div className="border border-slate-200 rounded-2xl overflow-x-auto bg-white max-h-60 overflow-y-auto">
+                    <table className="w-full text-left text-xs min-w-[540px] border-collapse">
                       <thead>
                         <tr className="bg-slate-50 border-b text-slate-400 font-bold uppercase tracking-wider">
-                          <th className="p-3">Artículo / Detalle</th>
-                          <th className="p-3 text-right" style={{ width: '120px' }}>Cant. Pedida</th>
-                          <th className="p-3 text-right" style={{ width: '150px' }}>Costo Unitario ($)</th>
-                          <th className="p-3 text-right">Subtotal</th>
-                          <th className="p-3 text-center" style={{ width: '60px' }}>Acciones</th>
+                          <th className="p-3 whitespace-nowrap">Artículo / Detalle</th>
+                          <th className="p-3 text-right whitespace-nowrap" style={{ width: '120px' }}>Cant. Pedida</th>
+                          <th className="p-3 text-right whitespace-nowrap" style={{ width: '150px' }}>Costo Unitario ($)</th>
+                          <th className="p-3 text-right whitespace-nowrap">Subtotal</th>
+                          <th className="p-3 text-center whitespace-nowrap" style={{ width: '60px' }}>Acciones</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 font-bold text-slate-700">
@@ -6013,14 +6085,14 @@ export default function ComprasAdminPage() {
                       {selectedReception.notes && <p className="col-span-2 font-normal">Notas: {selectedReception.notes}</p>}
                     </div>
 
-                    <div className="border rounded-2xl overflow-hidden">
-                      <table className="w-full text-left text-xs">
+                    <div className="border border-slate-200 rounded-2xl overflow-x-auto shadow-sm">
+                      <table className="w-full text-left text-xs min-w-[500px]">
                         <thead>
                           <tr className="bg-slate-50 border-b text-slate-400 font-bold uppercase tracking-wider">
-                            <th className="p-3">Artículo / Detalle</th>
-                            <th className="p-3 text-right">Cant. Recibida</th>
-                            <th className="p-3 text-right">Costo Unitario ($)</th>
-                            <th className="p-3 text-right">Subtotal</th>
+                            <th className="p-3 whitespace-nowrap">Artículo / Detalle</th>
+                            <th className="p-3 text-right whitespace-nowrap">Cant. Recibida</th>
+                            <th className="p-3 text-right whitespace-nowrap">Costo Unitario ($)</th>
+                            <th className="p-3 text-right whitespace-nowrap">Subtotal</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 font-bold text-slate-700">
@@ -6448,17 +6520,17 @@ export default function ComprasAdminPage() {
                     )}
                   </div>
 
-                  <div className="border rounded-2xl overflow-hidden bg-white max-h-60 overflow-y-auto">
-                    <table className="w-full text-left text-xs border-collapse">
+                  <div className="border border-slate-200 rounded-2xl overflow-x-auto bg-white max-h-60 overflow-y-auto">
+                    <table className="w-full text-left text-xs min-w-[620px] border-collapse">
                       <thead>
                         <tr className="bg-slate-50 border-b text-slate-400 font-bold uppercase tracking-wider">
-                          <th className="p-3">Artículo / Detalle</th>
-                          <th className="p-3 text-right" style={{ width: '80px' }}>Pedido</th>
-                          <th className="p-3 text-right" style={{ width: '90px' }}>Recibido Prev.</th>
-                          <th className="p-3 text-right" style={{ width: '130px' }}>Cant. Nueva Recibida</th>
-                          <th className="p-3 text-right" style={{ width: '120px' }}>Costo Unitario ($)</th>
-                          <th className="p-3 text-right">Subtotal</th>
-                          <th className="p-3 text-center" style={{ width: '60px' }}>Acción</th>
+                          <th className="p-3 whitespace-nowrap">Artículo / Detalle</th>
+                          <th className="p-3 text-right whitespace-nowrap" style={{ width: '80px' }}>Pedido</th>
+                          <th className="p-3 text-right whitespace-nowrap" style={{ width: '90px' }}>Recibido Prev.</th>
+                          <th className="p-3 text-right whitespace-nowrap" style={{ width: '130px' }}>Cant. Nueva Recibida</th>
+                          <th className="p-3 text-right whitespace-nowrap" style={{ width: '120px' }}>Costo Unitario ($)</th>
+                          <th className="p-3 text-right whitespace-nowrap">Subtotal</th>
+                          <th className="p-3 text-center whitespace-nowrap" style={{ width: '60px' }}>Acción</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 font-bold text-slate-700">
@@ -6776,6 +6848,28 @@ export default function ComprasAdminPage() {
           {/* Results section */}
           {calcResults.length > 0 && (
             <div className="space-y-4">
+              {/* Unimported orders real-time integration notice */}
+              {unimportedStats && unimportedStats.ordersCount > 0 && (
+                <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 text-amber-900 px-5 py-3 rounded-3xl text-xs flex flex-wrap items-center justify-between gap-3 shadow-sm">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-300 flex items-center justify-center shrink-0">
+                      <Sparkles className="w-4 h-4 text-amber-700" />
+                    </div>
+                    <div>
+                      <p className="font-bold text-slate-900">
+                        Integración en tiempo real de planillas de vendedores
+                      </p>
+                      <p className="text-[11px] text-amber-800">
+                        Se detectaron <strong>{unimportedStats.ordersCount} pedidos</strong> no importados aún en el sistema ({unimportedStats.reservedUnits} un. reservadas sumadas a reservas y {unimportedStats.salesUnits} un. sumadas a ventas para el cálculo de VPD y cobertura).
+                      </p>
+                    </div>
+                  </div>
+                  <span className="px-3 py-1 rounded-full text-[10px] font-black tracking-wider uppercase bg-amber-200/60 text-amber-900 border border-amber-300">
+                    Demanda al día
+                  </span>
+                </div>
+              )}
+
               {/* Summary Stats Panel */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 bg-slate-900 text-white p-6 rounded-3xl border border-slate-800 shadow-md">
                 <div className="space-y-1 border-r border-slate-800 pr-4">
@@ -6866,6 +6960,9 @@ export default function ComprasAdminPage() {
                               <p className="text-slate-900">{item.stockAvailable}</p>
                               {item.stockReserved > 0 && (
                                 <span className="text-[10px] text-red-500 font-normal">Res: {item.stockReserved}</span>
+                              )}
+                              {item.unimportedReserved > 0 && (
+                                <span className="text-[9px] text-amber-700 font-semibold block">+{item.unimportedReserved} de planillas</span>
                               )}
                             </td>
                             <td className="p-4 text-right font-normal text-slate-400">{item.transit}</td>

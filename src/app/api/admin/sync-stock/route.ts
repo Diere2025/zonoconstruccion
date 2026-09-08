@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getArgentinaDaysAgoString } from '@/lib/utils';
 import { fetchSpreadsheetCsv } from '@/lib/googleSheets';
+import { getUnimportedSellerOrders } from '@/lib/unimportedOrders';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.dummy';
@@ -74,12 +75,23 @@ async function fetchPendingOrderItems(dateLimitStr: string) {
   return allItems;
 }
 
+function normalizeRowKey(header: string): string {
+  const cleaned = header.replace(/^"|"$/g, '').trim().toLowerCase();
+  if (cleaned.startsWith('producto')) return 'Producto';
+  if (cleaned.startsWith('stock actual')) return 'Stock Actual';
+  if (cleaned.startsWith('reservado')) return 'Reservado';
+  if (cleaned.startsWith('stock disponible')) return 'Stock Disponible';
+  if (cleaned.startsWith('marca')) return 'MARCA';
+  if (cleaned.startsWith('pedido')) return 'Pedido a Proveedor';
+  return header.replace(/^"|"$/g, '').trim();
+}
+
 function parseCSV(text: string): any[] {
   const lines = text.split('\n');
   const results: any[] = [];
   if (lines.length === 0) return results;
   
-  const headers = lines[0].split(',').map(h => h.replace(/^"|"$/g, '').trim());
+  const headers = lines[0].split(',').map(normalizeRowKey);
   
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i].trim();
@@ -120,10 +132,11 @@ export async function GET() {
     // 30-day window (matching spreadsheet operational cutoff)
     const dateLimitStr = getArgentinaDaysAgoString(30);
 
-    // 2. Fetch products and active orders from database within 30-day window
-    const [dbProducts, rawPendingItems] = await Promise.all([
+    // 2. Fetch products, active orders from database within 30-day window, and unimported seller orders
+    const [dbProducts, rawPendingItems, unimportedData] = await Promise.all([
       fetchProductsAll(),
-      fetchPendingOrderItems(dateLimitStr)
+      fetchPendingOrderItems(dateLimitStr),
+      getUnimportedSellerOrders().catch(() => null)
     ]);
 
     // Deduplicate pending items by order legacy_code + product_id to prevent double counting
@@ -166,6 +179,35 @@ export async function GET() {
       if (normSku) dbCalculatedReservesMap.set(`norm_${normSku}`, (dbCalculatedReservesMap.get(`norm_${normSku}`) || 0) + qty);
       if (normCleanSku && normCleanSku !== normSku) dbCalculatedReservesMap.set(`norm_${normCleanSku}`, (dbCalculatedReservesMap.get(`norm_${normCleanSku}`) || 0) + qty);
     });
+
+    // Also include pending unimported seller orders in calculated reserves
+    if (unimportedData && unimportedData.unimportedOrders) {
+      unimportedData.unimportedOrders.forEach(order => {
+        if (!order.isReserved) return;
+        order.items.forEach(item => {
+          const qty = item.quantity || 0;
+          if (qty <= 0) return;
+          let targetId = item.productId;
+          const prod = targetId ? productByIdMap.get(targetId) : null;
+          if (prod && prod.is_generic && prod.mapped_real_product_id) {
+            targetId = prod.mapped_real_product_id;
+          }
+          if (targetId) {
+            dbCalculatedReservesMap.set(targetId, (dbCalculatedReservesMap.get(targetId) || 0) + qty);
+          }
+          const realProd = (targetId ? productByIdMap.get(targetId) : null) || prod;
+          const normName = normalizeText(realProd ? realProd.name : (item.productName || ''));
+          const normCleanName = normName.replace(/^interno\s*/i, "").trim();
+          const normSku = normalizeText(realProd ? (realProd.sku || '') : '');
+          const normCleanSku = normSku.replace(/^interno\s*/i, "").trim();
+
+          if (normName) dbCalculatedReservesMap.set(`norm_${normName}`, (dbCalculatedReservesMap.get(`norm_${normName}`) || 0) + qty);
+          if (normCleanName && normCleanName !== normName) dbCalculatedReservesMap.set(`norm_${normCleanName}`, (dbCalculatedReservesMap.get(`norm_${normCleanName}`) || 0) + qty);
+          if (normSku) dbCalculatedReservesMap.set(`norm_${normSku}`, (dbCalculatedReservesMap.get(`norm_${normSku}`) || 0) + qty);
+          if (normCleanSku && normCleanSku !== normSku) dbCalculatedReservesMap.set(`norm_${normCleanSku}`, (dbCalculatedReservesMap.get(`norm_${normCleanSku}`) || 0) + qty);
+        });
+      });
+    }
 
     const comparisonList: any[] = [];
     const unmatchedSheetProducts: any[] = [];
@@ -278,10 +320,11 @@ export async function POST() {
     // 30-day window (matching spreadsheet operational cutoff)
     const dateLimitStr = getArgentinaDaysAgoString(30);
 
-    // 2. Fetch products and active orders from database within 30-day window
-    const [dbProducts, rawPostPendingItems] = await Promise.all([
+    // 2. Fetch products, active orders from database within 30-day window, and unimported seller orders
+    const [dbProducts, rawPostPendingItems, unimportedData] = await Promise.all([
       fetchProductsAll(),
-      fetchPendingOrderItems(dateLimitStr)
+      fetchPendingOrderItems(dateLimitStr),
+      getUnimportedSellerOrders().catch(() => null)
     ]);
 
     // Deduplicate pending items by order legacy_code + product_id to prevent double counting
@@ -324,6 +367,35 @@ export async function POST() {
       if (normSku) dbCalculatedReservesMap.set(`norm_${normSku}`, (dbCalculatedReservesMap.get(`norm_${normSku}`) || 0) + qty);
       if (normCleanSku && normCleanSku !== normSku) dbCalculatedReservesMap.set(`norm_${normCleanSku}`, (dbCalculatedReservesMap.get(`norm_${normCleanSku}`) || 0) + qty);
     });
+
+    // Also include pending unimported seller orders in calculated reserves
+    if (unimportedData && unimportedData.unimportedOrders) {
+      unimportedData.unimportedOrders.forEach(order => {
+        if (!order.isReserved) return;
+        order.items.forEach(item => {
+          const qty = item.quantity || 0;
+          if (qty <= 0) return;
+          let targetId = item.productId;
+          const prod = targetId ? productByIdMap.get(targetId) : null;
+          if (prod && prod.is_generic && prod.mapped_real_product_id) {
+            targetId = prod.mapped_real_product_id;
+          }
+          if (targetId) {
+            dbCalculatedReservesMap.set(targetId, (dbCalculatedReservesMap.get(targetId) || 0) + qty);
+          }
+          const realProd = (targetId ? productByIdMap.get(targetId) : null) || prod;
+          const normName = normalizeText(realProd ? realProd.name : (item.productName || ''));
+          const normCleanName = normName.replace(/^interno\s*/i, "").trim();
+          const normSku = normalizeText(realProd ? (realProd.sku || '') : '');
+          const normCleanSku = normSku.replace(/^interno\s*/i, "").trim();
+
+          if (normName) dbCalculatedReservesMap.set(`norm_${normName}`, (dbCalculatedReservesMap.get(`norm_${normName}`) || 0) + qty);
+          if (normCleanName && normCleanName !== normName) dbCalculatedReservesMap.set(`norm_${normCleanName}`, (dbCalculatedReservesMap.get(`norm_${normCleanName}`) || 0) + qty);
+          if (normSku) dbCalculatedReservesMap.set(`norm_${normSku}`, (dbCalculatedReservesMap.get(`norm_${normSku}`) || 0) + qty);
+          if (normCleanSku && normCleanSku !== normSku) dbCalculatedReservesMap.set(`norm_${normCleanSku}`, (dbCalculatedReservesMap.get(`norm_${normCleanSku}`) || 0) + qty);
+        });
+      });
+    }
 
     let updatedCount = 0;
     const sheetProductNames = new Set<string>();

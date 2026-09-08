@@ -30,7 +30,10 @@ import {
   Award,
   Clock,
   Gauge,
-  Calculator
+  Calculator,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown
 } from "lucide-react";
 import { formatPrice } from "@/lib/utils";
 
@@ -208,6 +211,8 @@ export default function MetaAdsPage() {
   const [liveSearchQuery, setLiveSearchQuery] = useState("");
   const [liveLineFilter, setLiveLineFilter] = useState("all");
   const [liveStatusFilter, setLiveStatusFilter] = useState<string>("all");
+  const [liveSortField, setLiveSortField] = useState<'cpr' | 'spend' | 'messages' | 'budget' | 'consumption'>('cpr');
+  const [liveSortOrder, setLiveSortOrder] = useState<'asc' | 'desc'>('desc');
 
   // Live Pacing & Forecasting State
   const [currentTime, setCurrentTime] = useState<Date>(new Date());
@@ -494,9 +499,9 @@ export default function MetaAdsPage() {
     setRefreshing(false);
   };
 
-  // Filtered Live Campaigns
+  // Filtered & Sorted Live Campaigns
   const filteredLiveCampaigns = useMemo(() => {
-    return liveCampaigns.filter(c => {
+    const list = liveCampaigns.filter(c => {
       const matchesSearch = !liveSearchQuery || 
         c.campaignName.toLowerCase().includes(liveSearchQuery.toLowerCase()) ||
         c.commercialOffer.toLowerCase().includes(liveSearchQuery.toLowerCase()) ||
@@ -513,7 +518,36 @@ export default function MetaAdsPage() {
 
       return matchesSearch && matchesLine && matchesStatus;
     });
-  }, [liveCampaigns, liveSearchQuery, liveLineFilter, liveStatusFilter]);
+
+    return [...list].sort((a, b) => {
+      let comparison = 0;
+      if (liveSortField === 'cpr') {
+        // Campañas con CPR 0 (sin mensajes o sin gasto) al final
+        if (a.cprArs === 0 && b.cprArs > 0) return 1;
+        if (b.cprArs === 0 && a.cprArs > 0) return -1;
+        comparison = (b.cprArs || 0) - (a.cprArs || 0); // De más caro a más barato
+      } else if (liveSortField === 'spend') {
+        comparison = (b.spendArs || 0) - (a.spendArs || 0);
+      } else if (liveSortField === 'messages') {
+        comparison = (b.messages || 0) - (a.messages || 0);
+      } else if (liveSortField === 'budget') {
+        comparison = (b.budgetArs || 0) - (a.budgetArs || 0);
+      } else if (liveSortField === 'consumption') {
+        comparison = (b.budgetConsumedPercent || 0) - (a.budgetConsumedPercent || 0);
+      }
+
+      return liveSortOrder === 'desc' ? comparison : -comparison;
+    });
+  }, [liveCampaigns, liveSearchQuery, liveLineFilter, liveStatusFilter, liveSortField, liveSortOrder]);
+
+  const handleLiveSort = (field: 'cpr' | 'spend' | 'messages' | 'budget' | 'consumption') => {
+    if (liveSortField === field) {
+      setLiveSortOrder(prev => prev === 'desc' ? 'asc' : 'desc');
+    } else {
+      setLiveSortField(field);
+      setLiveSortOrder('desc');
+    }
+  };
 
   // Filtered History Records
   const filteredHistoryRecords = useMemo(() => {
@@ -1546,9 +1580,16 @@ export default function MetaAdsPage() {
                   </div>
                 </div>
 
-                <span className="text-xs font-bold text-slate-500">
-                  Mostrando {filteredLiveCampaigns.length} de {liveCampaigns.length} campañas
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-500">
+                    Mostrando {filteredLiveCampaigns.length} de {liveCampaigns.length} campañas
+                  </span>
+                  {liveSortField === 'cpr' && (
+                    <span className="text-[10.5px] font-black px-2.5 py-0.5 rounded-lg bg-rose-50 text-rose-700 border border-rose-200 flex items-center gap-1">
+                      {liveSortOrder === 'desc' ? '🔴 Más caro a más barato' : '🟢 Más barato a más caro'}
+                    </span>
+                  )}
+                </div>
               </div>
 
               {/* Live Campaigns Table */}
@@ -1556,16 +1597,89 @@ export default function MetaAdsPage() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse text-xs">
                     <thead>
-                      <tr className="bg-slate-50 border-b border-slate-200 text-slate-400 font-black uppercase tracking-wider text-[9px]">
+                      <tr className="bg-slate-50 border-b border-slate-200 text-slate-400 font-black uppercase tracking-wider text-[9px] select-none">
                         <th className="p-4">Estado</th>
                         <th className="p-4">Campaña / Oferta</th>
                         <th className="p-4 text-center">Línea WhatsApp</th>
-                        <th className="p-4 text-right">Mensajes Hoy</th>
+                        <th 
+                          className={`p-4 text-right cursor-pointer hover:bg-slate-100 transition-colors ${liveSortField === 'messages' ? 'text-indigo-600 font-black bg-indigo-50/40' : ''}`}
+                          onClick={() => handleLiveSort('messages')}
+                          title="Ordenar por Mensajes"
+                        >
+                          <div className="inline-flex items-center gap-1 justify-end">
+                            <span>Mensajes Hoy</span>
+                            {liveSortField === 'messages' ? (
+                              liveSortOrder === 'desc' ? <ArrowDown className="w-3 h-3 text-indigo-600" /> : <ArrowUp className="w-3 h-3 text-indigo-600" />
+                            ) : (
+                              <ArrowUpDown className="w-2.5 h-2.5 opacity-30" />
+                            )}
+                          </div>
+                        </th>
                         <th className="p-4 text-right">Gasto Hoy (USD)</th>
-                        <th className="p-4 text-right">Gasto Hoy (ARS)</th>
-                        <th className="p-4 text-right">CPR Hoy (ARS)</th>
-                        <th className="p-4 text-right">Presupuesto Diario</th>
-                        <th className="p-4 text-center">% Consumo</th>
+                        <th 
+                          className={`p-4 text-right cursor-pointer hover:bg-slate-100 transition-colors ${liveSortField === 'spend' ? 'text-indigo-600 font-black bg-indigo-50/40' : ''}`}
+                          onClick={() => handleLiveSort('spend')}
+                          title="Ordenar por Gasto en ARS"
+                        >
+                          <div className="inline-flex items-center gap-1 justify-end">
+                            <span>Gasto Hoy (ARS)</span>
+                            {liveSortField === 'spend' ? (
+                              liveSortOrder === 'desc' ? <ArrowDown className="w-3 h-3 text-indigo-600" /> : <ArrowUp className="w-3 h-3 text-indigo-600" />
+                            ) : (
+                              <ArrowUpDown className="w-2.5 h-2.5 opacity-30" />
+                            )}
+                          </div>
+                        </th>
+                        <th 
+                          className={`p-4 text-right cursor-pointer hover:bg-rose-50/50 transition-colors ${liveSortField === 'cpr' ? 'text-rose-600 font-black bg-rose-50/60' : ''}`}
+                          onClick={() => handleLiveSort('cpr')}
+                          title="Ordenar por CPR (Costo por Mensaje). Actualmente: Más caro a más barato"
+                        >
+                          <div className="inline-flex items-center gap-1.5 justify-end">
+                            <span>CPR Hoy (ARS)</span>
+                            {liveSortField === 'cpr' ? (
+                              liveSortOrder === 'desc' ? (
+                                <span className="inline-flex items-center gap-0.5 text-rose-600 font-black" title="De más caro a más barato">
+                                  <ArrowDown className="w-3.5 h-3.5" />
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-0.5 text-emerald-600 font-black" title="De más barato a más caro">
+                                  <ArrowUp className="w-3.5 h-3.5" />
+                                </span>
+                              )
+                            ) : (
+                              <ArrowUpDown className="w-2.5 h-2.5 opacity-30" />
+                            )}
+                          </div>
+                        </th>
+                        <th 
+                          className={`p-4 text-right cursor-pointer hover:bg-slate-100 transition-colors ${liveSortField === 'budget' ? 'text-indigo-600 font-black bg-indigo-50/40' : ''}`}
+                          onClick={() => handleLiveSort('budget')}
+                          title="Ordenar por Presupuesto Diario"
+                        >
+                          <div className="inline-flex items-center gap-1 justify-end">
+                            <span>Presupuesto Diario</span>
+                            {liveSortField === 'budget' ? (
+                              liveSortOrder === 'desc' ? <ArrowDown className="w-3 h-3 text-indigo-600" /> : <ArrowUp className="w-3 h-3 text-indigo-600" />
+                            ) : (
+                              <ArrowUpDown className="w-2.5 h-2.5 opacity-30" />
+                            )}
+                          </div>
+                        </th>
+                        <th 
+                          className={`p-4 text-center cursor-pointer hover:bg-slate-100 transition-colors ${liveSortField === 'consumption' ? 'text-indigo-600 font-black bg-indigo-50/40' : ''}`}
+                          onClick={() => handleLiveSort('consumption')}
+                          title="Ordenar por % Consumo"
+                        >
+                          <div className="inline-flex items-center gap-1 justify-center">
+                            <span>% Consumo</span>
+                            {liveSortField === 'consumption' ? (
+                              liveSortOrder === 'desc' ? <ArrowDown className="w-3 h-3 text-indigo-600" /> : <ArrowUp className="w-3 h-3 text-indigo-600" />
+                            ) : (
+                              <ArrowUpDown className="w-2.5 h-2.5 opacity-30" />
+                            )}
+                          </div>
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 font-bold text-slate-700">

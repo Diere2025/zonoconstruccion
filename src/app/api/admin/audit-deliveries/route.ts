@@ -930,7 +930,17 @@ export async function POST() {
       const csvStockText = await fetchSpreadsheetCsv(STOCK_SHEET_URL);
       const stockLines = csvStockText.split('\n');
       if (stockLines.length > 0) {
-        const stockHeaders = stockLines[0].split(',').map(h => h.replace(/^"|"$/g, '').trim());
+        const normalizeRowKey = (header: string): string => {
+          const cleaned = header.replace(/^"|"$/g, '').trim().toLowerCase();
+          if (cleaned.startsWith('producto')) return 'Producto';
+          if (cleaned.startsWith('stock actual')) return 'Stock Actual';
+          if (cleaned.startsWith('reservado')) return 'Reservado';
+          if (cleaned.startsWith('stock disponible')) return 'Stock Disponible';
+          if (cleaned.startsWith('marca')) return 'MARCA';
+          if (cleaned.startsWith('pedido')) return 'Pedido a Proveedor';
+          return header.replace(/^"|"$/g, '').trim();
+        };
+        const stockHeaders = stockLines[0].split(',').map(normalizeRowKey);
         const stockRows: any[] = [];
         for (let j = 1; j < stockLines.length; j++) {
           const l = stockLines[j].trim();
