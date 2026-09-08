@@ -29,6 +29,9 @@ import {
   Globe,
   Edit2,
   ChevronDown,
+  ChevronUp,
+  Layers,
+  Tag,
   Sparkles,
   Home,
   DollarSign,
@@ -50,6 +53,9 @@ import { createBulkStockTransactions } from "@/lib/erp/stock";
 interface OrderItem extends Product {
   quantity: number;
   customPrice: number;
+  bundleParentId?: string;
+  isIncludedInKit?: boolean;
+  baseQuantity?: number;
 }
 
 interface AdvertisingSource {
@@ -2655,7 +2661,15 @@ export default function PedidosPage() {
         const targetCustomPrice = (product as any).customPrice !== undefined ? (product as any).customPrice : product.price;
         const isDiscontinued = (product as any).is_discontinued || false;
         const currentStock = (product as any).stock_current !== undefined ? (product as any).stock_current : 999;
-        const existingIndex = current.findIndex(i => i.id === product.id);
+        const bundleParentId = (product as any).bundleParentId;
+        const isIncludedInKit = (product as any).isIncludedInKit;
+        const baseQuantity = (product as any).baseQuantity;
+
+        const existingIndex = current.findIndex(i => 
+          i.id === product.id && 
+          i.bundleParentId === bundleParentId && 
+          Boolean(i.isIncludedInKit) === Boolean(isIncludedInKit)
+        );
         const currentQtyInCart = existingIndex >= 0 ? current[existingIndex].quantity : 0;
 
         if (isDiscontinued && currentQtyInCart + qtyToAdd > currentStock) {
@@ -2667,10 +2681,20 @@ export default function PedidosPage() {
           current[existingIndex] = {
             ...current[existingIndex],
             quantity: current[existingIndex].quantity + qtyToAdd,
-            customPrice: (product as any).customPrice !== undefined ? targetCustomPrice : current[existingIndex].customPrice
+            customPrice: (product as any).customPrice !== undefined ? targetCustomPrice : current[existingIndex].customPrice,
+            bundleParentId: bundleParentId || current[existingIndex].bundleParentId,
+            isIncludedInKit: isIncludedInKit !== undefined ? isIncludedInKit : current[existingIndex].isIncludedInKit,
+            baseQuantity: baseQuantity || current[existingIndex].baseQuantity
           };
         } else {
-          current.push({ ...product, quantity: qtyToAdd, customPrice: targetCustomPrice });
+          current.push({ 
+            ...product, 
+            quantity: qtyToAdd, 
+            customPrice: targetCustomPrice,
+            bundleParentId,
+            isIncludedInKit,
+            baseQuantity: baseQuantity || qtyToAdd
+          });
         }
       }
       return current;
@@ -2810,6 +2834,84 @@ export default function PedidosPage() {
   const updateCustomPrice = (id: string, price: number) => {
     setOrderItems(orderItems.map(i => i.id === id ? { ...i, customPrice: price } : i));
   };
+
+  const [expandedKits, setExpandedKits] = useState<Record<string, boolean>>({});
+
+  const toggleKitExpand = (kitId: string) => {
+    setExpandedKits(prev => ({ ...prev, [kitId]: !prev[kitId] }));
+  };
+
+  const handleUpdateKitQuantity = (kitId: string, newQty: number, includedItems: OrderItem[]) => {
+    if (newQty < 1) {
+      handleRemoveKit(kitId, includedItems);
+      return;
+    }
+    const currentKit = orderItems.find(i => i.id === kitId);
+    if (!currentKit) return;
+    const oldQty = currentKit.quantity || 1;
+    const incIds = new Set(includedItems.map(i => i.id));
+
+    setOrderItems(prev => prev.map(item => {
+      if (item.id === kitId) {
+        return { ...item, quantity: newQty };
+      }
+      if (incIds.has(item.id) || item.bundleParentId === kitId) {
+        const baseQty = item.baseQuantity || Math.max(1, Math.round(item.quantity / oldQty));
+        return { ...item, quantity: baseQty * newQty };
+      }
+      return item;
+    }));
+  };
+
+  const handleRemoveKit = (kitId: string, includedItems: OrderItem[]) => {
+    const idsToRemove = new Set([kitId, ...includedItems.map(i => i.id)]);
+    setOrderItems(prev => prev.filter(item => {
+      if (idsToRemove.has(item.id)) return false;
+      if (item.bundleParentId === kitId) return false;
+      return true;
+    }));
+  };
+
+  const { kitGroups, discountItems, standardItems, totalOrderCount } = useMemo(() => {
+    const isDisc = (i: OrderItem) => {
+      const name = (i.name || "").toLowerCase();
+      const sku = (i.sku || "").toLowerCase();
+      return name.includes("descuento") || sku.includes("descuento") || name.includes("bonificaci") || sku.includes("bonificaci") || (i.customPrice < 0);
+    };
+    const isKit = (i: OrderItem) => {
+      const name = (i.name || "").toLowerCase();
+      return (name.includes("kit instalaci") || name.includes("kit de instalaci") || name.startsWith("kit ")) && !isDisc(i);
+    };
+
+    const kits = orderItems.filter(isKit);
+    const claimed = new Set<string>();
+
+    const kitGroupsList = kits.map(kit => {
+      claimed.add(kit.id);
+      const included = orderItems.filter(i => {
+        if (claimed.has(i.id)) return false;
+        if (i.bundleParentId && i.bundleParentId === kit.id) return true;
+        if (i.isIncludedInKit) return true;
+        // Fallback: items with $0 price
+        if (i.customPrice === 0) return true;
+        return false;
+      });
+      included.forEach(inc => claimed.add(inc.id));
+      return { kit, included };
+    });
+
+    const remaining = orderItems.filter(i => !claimed.has(i.id));
+    const discounts = remaining.filter(isDisc);
+    const discountIds = new Set(discounts.map(d => d.id));
+    const standards = remaining.filter(i => !discountIds.has(i.id));
+
+    return {
+      kitGroups: kitGroupsList,
+      discountItems: discounts,
+      standardItems: standards,
+      totalOrderCount: orderItems.length
+    };
+  }, [orderItems]);
 
   const subtotal = orderItems.reduce((acc, item) => {
     const name = (item.name || "").toLowerCase();
@@ -5165,64 +5267,274 @@ export default function PedidosPage() {
 
             {/* Columna Derecha: Detalle de Ítems, Flete, IVA, Seña y Totales */}
               <div className="space-y-4 bg-slate-50/90 p-4 rounded-xl border border-slate-200/95 h-fit">
-                <div className="flex items-center justify-between border-b border-slate-200/60 pb-1.5 mb-3">
-                  <h3 className="flex items-center gap-1.5 font-black text-slate-800 text-xs uppercase tracking-wider">
-                    <Truck className="w-4 h-4 text-brand-500" /> Detalle del Pedido
-                  </h3>
+                <div className="flex items-center justify-between border-b border-slate-200/60 pb-2 mb-3">
+                  <div className="flex items-center gap-2">
+                    <h3 className="flex items-center gap-1.5 font-black text-slate-800 text-xs uppercase tracking-wider">
+                      <Truck className="w-4 h-4 text-brand-500" /> Detalle del Pedido
+                    </h3>
+                    {totalOrderCount > 0 && (
+                      <span className="text-[10px] font-bold bg-white text-slate-600 px-2 py-0.5 rounded-full border border-slate-200 shadow-2xs">
+                        {kitGroups.length > 0 ? (
+                          <>
+                            <span className="text-emerald-700 font-black">{kitGroups.length} {kitGroups.length === 1 ? 'Kit' : 'Kits'}</span>
+                            {standardItems.length > 0 && ` + ${standardItems.length} ind.`}
+                            <span className="text-slate-400 font-normal ml-1">({totalOrderCount} ítems)</span>
+                          </>
+                        ) : (
+                          <>{totalOrderCount} {totalOrderCount === 1 ? 'ítem' : 'ítems'}</>
+                        )}
+                      </span>
+                    )}
+                  </div>
                   {orderItems.length > 0 && (
                     <button 
                       type="button"
-                      onClick={() => setOrderItems([])}
-                      className="text-[9px] font-black text-slate-400 hover:text-red-500 transition-colors flex items-center gap-1 uppercase tracking-wider"
+                      onClick={() => {
+                        if (confirm("¿Vaciar todos los artículos del pedido?")) {
+                          setOrderItems([]);
+                        }
+                      }}
+                      className="text-[10px] font-bold text-slate-400 hover:text-red-500 transition-colors flex items-center gap-1 uppercase tracking-wider"
                     >
-                      <Trash2 className="w-3 h-3" /> Limpiar Todo
+                      <Trash2 className="w-3 h-3" /> Vaciar
                     </button>
                   )}
                 </div>
 
-                {/* Lista de productos seleccionados */}
+                {/* Lista de productos seleccionados organizados */}
                 {orderItems.length > 0 ? (
-                  <div className="flex flex-col gap-1.5 max-h-64 overflow-y-auto pr-1">
-                    {orderItems.map(item => {
+                  <div className="flex flex-col gap-2 max-h-[460px] overflow-y-auto pr-1">
+                    
+                    {/* 1. KITS COMPLETOS AGRUPADOS */}
+                    {kitGroups.map(({ kit, included }) => {
+                      const isExpanded = expandedKits[kit.id] ?? false;
+                      const kitTotal = kit.customPrice * kit.quantity;
                       return (
-                        <div key={item.id} className="p-1.5 bg-slate-900 border border-slate-800 rounded-lg relative group flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 animate-in fade-in zoom-in-95 duration-150" title={item.name}>
-                          <button 
-                            type="button"
-                            onClick={() => removeItem(item.id)}
-                            className="absolute top-1.5 right-1.5 bg-red-950/40 text-red-400 p-1.5 rounded-md opacity-0 group-hover:opacity-100 transition-opacity z-10 hover:bg-red-900/60"
-                            title="Eliminar artículo"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
+                        <div 
+                          key={kit.id} 
+                          className="bg-white border-2 border-emerald-200/90 hover:border-emerald-300 rounded-xl p-3 shadow-xs transition-all animate-in fade-in zoom-in-95 duration-150"
+                        >
+                          {/* Header del Kit: Etiqueta y botón eliminar */}
+                          <div className="flex items-center justify-between gap-2 mb-1.5">
+                            <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 bg-emerald-100/80 text-emerald-800 rounded-md border border-emerald-200">
+                              <Package className="w-3 h-3 text-emerald-600" /> Kit Completo de Instalación
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveKit(kit.id, included)}
+                              className="text-slate-400 hover:text-red-500 p-1 rounded hover:bg-red-50 transition-colors"
+                              title="Eliminar kit completo y sus insumos incluidos"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
 
-                          <div className="flex-1 min-w-0 pr-6">
-                            <p className="font-bold text-slate-200 text-xs truncate leading-tight select-none">{item.sku || item.name}</p>
-                          </div>
-                          
-                          <div className="flex items-center gap-1.5 sm:shrink-0 mt-0.5 sm:mt-0">
-                            <div className="flex items-center bg-slate-950 border border-slate-800 rounded overflow-hidden h-6">
-                              <button type="button" onClick={() => updateQuantity(item.id, item.quantity - 1)} className="px-2 font-black text-slate-400 hover:bg-slate-800 leading-none text-xs">-</button>
-                              <span className="px-1.5 font-bold text-xs min-w-[1rem] text-center text-slate-100">{item.quantity}</span>
-                              <button type="button" onClick={() => updateQuantity(item.id, item.quantity + 1)} className="px-2 font-black text-slate-400 hover:bg-slate-800 leading-none text-xs">+</button>
+                          {/* Fila Principal: Nombre del Kit, Total y Controles */}
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <div className="flex-1 min-w-0">
+                              <p className="font-black text-slate-800 text-xs leading-snug">
+                                {kit.name}
+                              </p>
+                              <span className="text-[11px] font-extrabold text-emerald-600 block mt-0.5">
+                                {formatPrice(kitTotal)}
+                              </span>
                             </div>
-                            
-                            <div className="flex items-center gap-0.5 bg-slate-950 border border-slate-800 rounded px-1.5 h-6">
-                               <span className="text-[10px] font-bold text-slate-500">$</span>
-                               <input 
-                                 type="number" 
-                                 value={item.customPrice}
-                                 onChange={(e) => updateCustomPrice(item.id, Number(e.target.value))}
-                                 className="w-16 px-0.5 text-xs font-bold text-right outline-none bg-transparent text-slate-200"
-                               />
+
+                            {/* Stepper + Input de Precio */}
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <div className="flex items-center bg-slate-100 border border-slate-200 rounded-lg overflow-hidden h-7">
+                                <button 
+                                  type="button" 
+                                  onClick={() => handleUpdateKitQuantity(kit.id, kit.quantity - 1, included)} 
+                                  className="px-2 font-black text-slate-500 hover:bg-slate-200 leading-none text-xs h-full transition-colors"
+                                >
+                                  -
+                                </button>
+                                <span className="px-2 font-black text-xs min-w-[1.5rem] text-center text-slate-800">
+                                  {kit.quantity}
+                                </span>
+                                <button 
+                                  type="button" 
+                                  onClick={() => handleUpdateKitQuantity(kit.id, kit.quantity + 1, included)} 
+                                  className="px-2 font-black text-slate-500 hover:bg-slate-200 leading-none text-xs h-full transition-colors"
+                                >
+                                  +
+                                </button>
+                              </div>
+
+                              <div className="flex items-center bg-slate-100 border border-slate-200 rounded-lg px-2 h-7">
+                                <span className="text-[10px] font-bold text-slate-400 mr-0.5">$</span>
+                                <input 
+                                  type="number" 
+                                  value={kit.customPrice}
+                                  onChange={(e) => updateCustomPrice(kit.id, Number(e.target.value))}
+                                  className="w-20 text-xs font-bold text-right outline-none bg-transparent text-slate-800"
+                                  title="Precio total del Kit"
+                                />
+                              </div>
                             </div>
                           </div>
+
+                          {/* Plegable con detalle de insumos incluidos */}
+                          {included.length > 0 && (
+                            <div className="mt-2.5 pt-2 border-t border-emerald-100/80">
+                              <button
+                                type="button"
+                                onClick={() => toggleKitExpand(kit.id)}
+                                className="w-full flex items-center justify-between text-[10px] font-bold text-emerald-800 bg-emerald-50/70 hover:bg-emerald-100/70 py-1.5 px-2.5 rounded-lg transition-colors border border-emerald-200/60"
+                              >
+                                <span className="flex items-center gap-1.5">
+                                  <Layers className="w-3.5 h-3.5 text-emerald-600" />
+                                  <span>{included.length} insumos y equipos incluidos (sin cargo adicional)</span>
+                                </span>
+                                <span className="flex items-center gap-0.5 text-[9px] uppercase tracking-wider font-black text-emerald-700">
+                                  {isExpanded ? "Ocultar" : "Ver detalle"}
+                                  {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                                </span>
+                              </button>
+
+                              {isExpanded && (
+                                <div className="mt-2 bg-slate-50/90 rounded-lg border border-slate-200/90 divide-y divide-slate-100 overflow-hidden animate-in fade-in duration-150">
+                                  {included.map(inc => (
+                                    <div key={inc.id} className="p-1.5 px-2.5 flex items-center justify-between gap-2 text-xs group hover:bg-white transition-colors">
+                                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                                        <span className="w-4 h-4 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center text-[9px] font-black shrink-0">
+                                          ✓
+                                        </span>
+                                        <span className="font-black text-slate-700 text-[11px] shrink-0">
+                                          {inc.quantity}x
+                                        </span>
+                                        <span className="text-slate-600 text-[11px] truncate" title={inc.name}>
+                                          {inc.name}
+                                        </span>
+                                        <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1 py-0.5 rounded border border-emerald-100 shrink-0">
+                                          Incluido $0
+                                        </span>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() => removeItem(inc.id)}
+                                        className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity p-0.5"
+                                        title="Quitar este insumo del kit"
+                                      >
+                                        <Trash2 className="w-3 h-3" />
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                       );
                     })}
+
+                    {/* 2. PRODUCTOS ESTÁNDAR / INDIVIDUALES */}
+                    {standardItems.map(item => (
+                      <div 
+                        key={item.id} 
+                        className="bg-white border border-slate-200 hover:border-brand-300 rounded-xl p-2.5 shadow-xs transition-all relative group flex flex-col sm:flex-row sm:items-center justify-between gap-2 animate-in fade-in zoom-in-95 duration-150"
+                        title={item.name}
+                      >
+                        <div className="flex-1 min-w-0 pr-2">
+                          {item.sku && (
+                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block leading-tight">
+                              {item.sku}
+                            </span>
+                          )}
+                          <p className="font-bold text-slate-800 text-xs truncate leading-snug">
+                            {item.name}
+                          </p>
+                          <span className="text-[10px] font-bold text-slate-500">
+                            Total: {formatPrice(item.customPrice * item.quantity)}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {/* Stepper */}
+                          <div className="flex items-center bg-slate-100 border border-slate-200 rounded-lg overflow-hidden h-7">
+                            <button 
+                              type="button" 
+                              onClick={() => updateQuantity(item.id, item.quantity - 1)} 
+                              className="px-2 font-black text-slate-500 hover:bg-slate-200 leading-none text-xs h-full transition-colors"
+                            >
+                              -
+                            </button>
+                            <span className="px-2 font-black text-xs min-w-[1.25rem] text-center text-slate-800">
+                              {item.quantity}
+                            </span>
+                            <button 
+                              type="button" 
+                              onClick={() => updateQuantity(item.id, item.quantity + 1)} 
+                              className="px-2 font-black text-slate-500 hover:bg-slate-200 leading-none text-xs h-full transition-colors"
+                            >
+                              +
+                            </button>
+                          </div>
+
+                          {/* Precio editable */}
+                          <div className="flex items-center bg-slate-100 border border-slate-200 rounded-lg px-2 h-7">
+                            <span className="text-[10px] font-bold text-slate-400 mr-0.5">$</span>
+                            <input 
+                              type="number" 
+                              value={item.customPrice}
+                              onChange={(e) => updateCustomPrice(item.id, Number(e.target.value))}
+                              className="w-18 text-xs font-bold text-right outline-none bg-transparent text-slate-800"
+                            />
+                          </div>
+
+                          {/* Eliminar */}
+                          <button 
+                            type="button"
+                            onClick={() => removeItem(item.id)}
+                            className="text-slate-300 hover:text-red-500 p-1 rounded-lg hover:bg-red-50 transition-colors"
+                            title="Eliminar artículo"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+
+                    {/* 3. BONIFICACIONES Y DESCUENTOS */}
+                    {discountItems.map(item => (
+                      <div 
+                        key={item.id} 
+                        className="bg-amber-50/40 border border-amber-200/80 rounded-xl p-2.5 shadow-xs transition-all relative flex items-center justify-between gap-2 animate-in fade-in zoom-in-95 duration-150"
+                      >
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded border border-amber-200 shrink-0">
+                            <Tag className="w-3 h-3 text-amber-600" /> Descuento
+                          </span>
+                          <p className="font-bold text-slate-800 text-xs truncate">
+                            {item.name}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="font-black text-xs text-amber-700 bg-amber-100/60 px-2 py-1 rounded-lg border border-amber-200/60">
+                            -{formatPrice(Math.abs(item.customPrice * item.quantity))}
+                          </span>
+                          <button 
+                            type="button"
+                            onClick={() => removeItem(item.id)}
+                            className="text-slate-400 hover:text-red-500 p-1 rounded hover:bg-red-50 transition-colors"
+                            title="Quitar bonificación"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+
                   </div>
                 ) : (
-                  <div className="p-6 border border-dashed border-slate-200 rounded-xl text-center bg-white text-slate-400 font-bold text-xs">
-                    No seleccionaste ningún artículo aún.
+                  <div className="p-8 border-2 border-dashed border-slate-200 rounded-xl text-center bg-white space-y-1.5">
+                    <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center mx-auto text-slate-400">
+                      <Package className="w-5 h-5" />
+                    </div>
+                    <p className="font-black text-slate-600 text-xs">No seleccionaste ningún artículo aún.</p>
+                    <p className="text-[11px] text-slate-400 font-medium">Usá el selector visual o el buscador arriba para agregar productos o kits.</p>
                   </div>
                 )}
 
