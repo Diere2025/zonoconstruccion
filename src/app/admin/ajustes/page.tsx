@@ -1428,15 +1428,15 @@ export default function AjustesPage() {
               </div>
             </div>
 
-            {/* SECCIÓN ADICIONAL: CONFIGURACIONES EN DESUSO */}
+            {/* SECCIÓN: PROCEDENCIAS DE ATRIBUCIÓN */}
             <div className="bg-slate-50 p-8 rounded-[2rem] border border-slate-200 mt-6 space-y-6">
               <div>
                 <h3 className="text-2xl font-black text-slate-800 flex items-center gap-2">
-                  <Megaphone className="w-6 h-6 text-slate-500" />
-                  Procedencias de Atribución (En desuso)
+                  <Megaphone className="w-6 h-6 text-brand-600" />
+                  Procedencias de Pedidos
                 </h3>
                 <p className="text-slate-500 font-medium mt-1 text-sm">
-                  Parámetros de procedencia publicitaria que ya no se utilizan en la carga diaria de pedidos pero se conservan para registros históricos.
+                  Parámetros de procedencia publicitaria y comercial obligatorios para los vendedores al cargar un pedido.
                 </p>
               </div>
 

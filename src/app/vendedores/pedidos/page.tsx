@@ -1064,15 +1064,7 @@ export default function PedidosPage() {
     }
   }, [orderMediums, selectedOrderMediumId]);
 
-  // Default Advertising Source to Publicidad Meta
-  useEffect(() => {
-    if (advertisingSources.length > 0 && !selectedAdvertisingSourceId) {
-      const metaAdv = advertisingSources.find(a => a.name.toLowerCase() === 'publicidad meta');
-      if (metaAdv) {
-        setSelectedAdvertisingSourceId(metaAdv.id);
-      }
-    }
-  }, [advertisingSources, selectedAdvertisingSourceId]);
+
 
   useEffect(() => {
     const matched = orderMediums.find(m => m.id === selectedOrderMediumId);
@@ -3290,10 +3282,18 @@ export default function PedidosPage() {
       alert("Seleccioná el tipo de entrega.");
       return;
     }
+    if (!selectedAdvertisingSourceId) {
+      alert("Seleccioná la procedencia del pedido (campo obligatorio).");
+      return;
+    }
     setShowSummaryModal(true);
   };
 
   const confirmAndSubmit = async () => {
+    if (!selectedAdvertisingSourceId) {
+      alert("Seleccioná la procedencia del pedido (campo obligatorio).");
+      return;
+    }
     const isPostponed = editingOrderId && originalDeliveryDate && (new Date(entregaInicial) > new Date(originalDeliveryDate));
     if (isPostponed && !hasDeclaredPostponementReason) {
       setShowSummaryModal(false);
@@ -4683,16 +4683,30 @@ export default function PedidosPage() {
                   )}
                 </div>
 
-                {/* Procedencia (Publicidad Meta por defecto) */}
+                {/* Procedencia (Obligatorio, por defecto vacío) */}
                 <div className="space-y-1">
-                  <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">
-                    📢 Procedencia
-                  </label>
+                  <div className="flex items-center justify-between">
+                    <label className="text-[9px] font-black uppercase tracking-wider text-slate-500 flex items-center gap-1">
+                      📢 Procedencia <span className="text-rose-600 font-black">* (Obligatorio)</span>
+                    </label>
+                    {!selectedAdvertisingSourceId && (
+                      <span className="text-[9px] font-extrabold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">
+                        Requerido
+                      </span>
+                    )}
+                  </div>
                   <select
                     value={selectedAdvertisingSourceId}
                     onChange={(e) => setSelectedAdvertisingSourceId(e.target.value)}
-                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-800 font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 transition-all cursor-pointer h-[34px]"
+                    required
+                    className={cn(
+                      "w-full px-2.5 py-1.5 rounded-lg border font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 transition-all cursor-pointer h-[34px]",
+                      !selectedAdvertisingSourceId
+                        ? "border-amber-400 bg-amber-50/30 text-slate-400"
+                        : "border-slate-200 bg-white text-slate-800"
+                    )}
                   >
+                    <option value="">-- Seleccionar procedencia (Obligatorio) --</option>
                     {advertisingSources.filter(a => a.is_active !== false).map((source) => (
                       <option key={source.id} value={source.id}>
                         {source.name}
@@ -4701,23 +4715,21 @@ export default function PedidosPage() {
                   </select>
                   {/* Atajos rápidos de procedencia */}
                   <div className="flex flex-wrap gap-1 pt-0.5">
-                    {['Publicidad Meta', 'Cliente', 'Estados de WB', 'Recomendado', 'Otro'].map(name => {
-                      const src = advertisingSources.find(a => a.name.toLowerCase() === name.toLowerCase());
-                      const isSelected = src ? selectedAdvertisingSourceId === src.id : false;
+                    {advertisingSources.filter(a => a.is_active !== false).map((source) => {
+                      const isSelected = selectedAdvertisingSourceId === source.id;
                       return (
                         <button
-                          key={name}
+                          key={source.id}
                           type="button"
-                          onClick={() => {
-                            if (src) setSelectedAdvertisingSourceId(src.id);
-                          }}
-                          className={`px-1.5 py-0.5 rounded text-[9px] font-extrabold transition-all cursor-pointer ${
+                          onClick={() => setSelectedAdvertisingSourceId(source.id)}
+                          className={cn(
+                            "px-2 py-0.5 rounded text-[9px] font-extrabold transition-all cursor-pointer",
                             isSelected
-                              ? 'bg-brand-600 text-white shadow-2xs'
-                              : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-                          }`}
+                              ? "bg-brand-600 text-white shadow-2xs"
+                              : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
+                          )}
                         >
-                          {name}
+                          {source.name}
                         </button>
                       );
                     })}
