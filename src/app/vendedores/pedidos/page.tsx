@@ -69,6 +69,15 @@ interface AdvertisingSource {
   is_active: boolean;
 }
 
+export const ALLOWED_ADVERTISING_SOURCES = [
+  "Meta - Tanques Aquafort",
+  "Meta - Termotanques Universal",
+  "Meta - Termotanques Cooper",
+  "Meta - Biodigestores Biofort",
+  "Meta - MEPS / Equilibrio",
+  "Orgánico / Cliente Habitual / Recomendado"
+];
+
 interface OrderMedium {
   id: string;
   name: string;
@@ -1041,6 +1050,15 @@ export default function PedidosPage() {
   const [whaticketLink, setWhaticketLink] = useState("");
 
   const [advertisingSources, setAdvertisingSources] = useState<AdvertisingSource[]>([]);
+  const filteredAdvertisingSources = useMemo(() => {
+    return advertisingSources
+      .filter(a => a && a.is_active !== false && ALLOWED_ADVERTISING_SOURCES.includes(a.name))
+      .sort((a, b) => {
+        const idxA = ALLOWED_ADVERTISING_SOURCES.indexOf(a.name);
+        const idxB = ALLOWED_ADVERTISING_SOURCES.indexOf(b.name);
+        return (idxA !== -1 ? idxA : 999) - (idxB !== -1 ? idxB : 999);
+      });
+  }, [advertisingSources]);
   const [orderMediums, setOrderMediums] = useState<OrderMedium[]>([]);
   const [phoneLines, setPhoneLines] = useState<PhoneLine[]>([]);
   const [topAdvertisingSources, setTopAdvertisingSources] = useState<AdvertisingSource[]>([]);
@@ -1504,7 +1522,7 @@ export default function PedidosPage() {
         setCurrentUserId(userId);
         setSelectedSellerId(userId);
 
-        const PEDIDOS_CACHE_VER = "zc_pedidos_v14_sellers_and_pricing";
+        const PEDIDOS_CACHE_VER = "zc_pedidos_v15_clean_adv_sources";
         const cachedUserId = sessionStorage.getItem("cached_pedidos_user_id");
         if (sessionStorage.getItem("cached_pedidos_ver") !== PEDIDOS_CACHE_VER || (cachedUserId && cachedUserId !== userId)) {
           sessionStorage.clear();
@@ -1546,7 +1564,15 @@ export default function PedidosPage() {
           setLocalities(JSON.parse(cachedLocalities));
           setDeliveryTimes(JSON.parse(cachedDt));
           if (cachedKits) setKits(JSON.parse(cachedKits));
-          setAdvertisingSources(JSON.parse(cachedAdv));
+          try {
+            const parsedAdv = JSON.parse(cachedAdv);
+            const cleanAdv = Array.isArray(parsedAdv)
+              ? parsedAdv.filter((a: any) => a && a.is_active !== false && ALLOWED_ADVERTISING_SOURCES.includes(a.name))
+              : [];
+            setAdvertisingSources(cleanAdv);
+          } catch (e) {
+            setAdvertisingSources([]);
+          }
           setOrderMediums(JSON.parse(cachedMediums));
           setPhoneLines(JSON.parse(cachedLines));
           setIsOrganic(cachedOrganic === 'true');
@@ -1652,8 +1678,9 @@ export default function PedidosPage() {
         setListType(payload.role === 'admin' ? 'todos' : 'mis_pedidos');
 
         if (payload.advertisingSources) {
-          setAdvertisingSources(payload.advertisingSources);
-          sessionStorage.setItem("cached_pedidos_adv", JSON.stringify(payload.advertisingSources));
+          const cleanAdv = (payload.advertisingSources || []).filter((a: any) => a && a.is_active !== false && ALLOWED_ADVERTISING_SOURCES.includes(a.name));
+          setAdvertisingSources(cleanAdv);
+          sessionStorage.setItem("cached_pedidos_adv", JSON.stringify(cleanAdv));
         }
         if (payload.orderMediums) {
           setOrderMediums(payload.orderMediums);
@@ -4709,7 +4736,7 @@ export default function PedidosPage() {
                     )}
                   >
                     <option value="">-- Seleccionar procedencia (Obligatorio) --</option>
-                    {advertisingSources.filter(a => a.is_active !== false).map((source) => (
+                    {filteredAdvertisingSources.map((source) => (
                       <option key={source.id} value={source.id}>
                         {source.name}
                       </option>
@@ -4717,7 +4744,7 @@ export default function PedidosPage() {
                   </select>
                   {/* Atajos rápidos de procedencia */}
                   <div className="flex flex-wrap gap-1 pt-0.5">
-                    {advertisingSources.filter(a => a.is_active !== false).map((source) => {
+                    {filteredAdvertisingSources.map((source) => {
                       const isSelected = selectedAdvertisingSourceId === source.id;
                       return (
                         <button
