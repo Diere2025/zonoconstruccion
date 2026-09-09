@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { fetchSpreadsheetCsv } from '@/lib/googleSheets';
+import { syncScheduledPricesFromSheet } from '@/lib/erp/scheduledPrices';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.dummy';
@@ -454,6 +455,20 @@ export async function POST() {
       }
     }
 
+    // 4b. Sincronizar precios programados a futuro desde hoja 'PVP por Fecha'
+    let scheduledSyncResult = { futureRowsCount: 0, newScheduledCreated: 0, appliedCount: 0 };
+    try {
+      scheduledSyncResult = await syncScheduledPricesFromSheet(supabaseAdmin);
+      if (scheduledSyncResult.newScheduledCreated > 0) {
+        addLog(`  📅 ${scheduledSyncResult.newScheduledCreated} precios programados a futuro detectados y agendados.`);
+      }
+      if (scheduledSyncResult.appliedCount > 0) {
+        addLog(`  ⏰ ${scheduledSyncResult.appliedCount} precios programados cuya fecha venció hoy fueron aplicados automáticamente.`);
+      }
+    } catch (schedErr: any) {
+      addLog(`Aviso: No se pudo sincronizar precios programados: ${schedErr.message}`);
+    }
+
     addLog(`Sincronización finalizada con éxito:`);
     addLog(`  - ${pricesUpdatedCount} precios actualizados`);
     addLog(`  - ${insertedCount} productos nuevos creados`);
@@ -464,6 +479,8 @@ export async function POST() {
     return NextResponse.json({
       success: true,
       pricesUpdatedCount,
+      scheduledPricesApplied: scheduledSyncResult.appliedCount,
+      newScheduledCreated: scheduledSyncResult.newScheduledCreated,
       insertedCount,
       suppliersCreatedCount,
       relationsLinkedCount,

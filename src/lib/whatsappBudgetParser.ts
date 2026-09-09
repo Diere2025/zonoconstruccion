@@ -170,7 +170,14 @@ export const parseWhatsAppBudget = (text: string): ParsedWhatsAppBudget => {
       continue;
     }
 
-    if (lowerLine.startsWith('*total a abonar:*') || lowerLine.startsWith('total a abonar:') || lowerLine.startsWith('total:')) {
+    if (
+      lowerLine.startsWith('*total a abonar:*') || 
+      lowerLine.startsWith('total a abonar:') || 
+      lowerLine.startsWith('*total estimado:*') || 
+      lowerLine.startsWith('total estimado:') || 
+      lowerLine.startsWith('*total:*') || 
+      lowerLine.startsWith('total:')
+    ) {
       const m = line.match(/\$?([\d.,]+)/);
       if (m) totalAnnounced = parsePrice(m[1]);
       continue;

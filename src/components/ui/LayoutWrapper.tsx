@@ -12,8 +12,13 @@ interface LayoutWrapperProps {
 export function LayoutWrapper({ children }: LayoutWrapperProps) {
   const pathname = usePathname();
   
-  // Detect if we are inside administrative or seller portals
-  const isPortal = pathname.startsWith("/admin") || pathname.startsWith("/vendedores") || pathname.startsWith("/reset-password");
+  // Detect if we are inside administrative or seller portals, or dedicated cotizador
+  const isPortal = 
+    pathname.startsWith("/admin") || 
+    pathname.startsWith("/vendedores") || 
+    pathname.startsWith("/reset-password") ||
+    pathname.startsWith("/presupuesto") ||
+    pathname.startsWith("/cotizador");
 
   if (isPortal) {
     // Return children directly without public store header, footer or drawers

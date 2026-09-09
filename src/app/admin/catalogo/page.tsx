@@ -2,13 +2,15 @@
 
 import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/Button";
-import { Plus, Edit2, Trash2, Save, X, Image as ImageIcon, Search, Loader2, Upload, Settings, LogOut, CheckCircle2, Download, Menu, RefreshCw, Eye, EyeOff, AlertTriangle, FileText, Sparkles, Check, Coins, Database, Package } from "lucide-react";
+import { Plus, Edit2, Trash2, Save, X, Image as ImageIcon, Search, Loader2, Upload, Settings, LogOut, CheckCircle2, Download, Menu, RefreshCw, Eye, EyeOff, AlertTriangle, FileText, Sparkles, Check, Coins, Database, Package, CalendarClock } from "lucide-react";
 import { cn, formatPrice } from "@/lib/utils";
 import { Product } from "@/types";
 import { supabase } from "@/lib/supabase";
 import Image from "next/image";
 import { ProductFormModal } from "@/components/ui/ProductFormModal";
 import { LinkOrphanModal } from "@/components/ui/LinkOrphanModal";
+import { ScheduledPricesManager } from "@/components/admin/ScheduledPricesManager";
+import { QuickScheduleModal } from "@/components/admin/QuickScheduleModal";
 
 export default function AdminPage() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -19,6 +21,8 @@ export default function AdminPage() {
   const [savingSettings, setSavingSettings] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [schedulingProduct, setSchedulingProduct] = useState<Product | null>(null);
+  const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
   
 
   
@@ -59,7 +63,7 @@ export default function AdminPage() {
   const [autoLinking, setAutoLinking] = useState(false);
 
   // Tab State
-  const [activeTab, setActiveTab] = useState<'products' | 'import' | 'orphans' | 'settings' | 'profitability' | 'taxonomy'>('products');
+  const [activeTab, setActiveTab] = useState<'products' | 'import' | 'orphans' | 'settings' | 'profitability' | 'taxonomy' | 'scheduled'>('products');
 
   // Taxonomy State
   const [taxonomyParents, setTaxonomyParents] = useState<any[]>([]);
@@ -1459,6 +1463,16 @@ export default function AdminPage() {
           <Menu className="w-4 h-4 text-brand-600" />
           Jerarquía de Categorías
         </button>
+        <button
+          onClick={() => setActiveTab('scheduled')}
+          className={cn(
+            "px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap",
+            activeTab === 'scheduled' ? "bg-white text-brand-600 shadow-sm font-black" : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
+          )}
+        >
+          <CalendarClock className="w-4 h-4 text-amber-500" />
+          Precios Programados
+        </button>
       </div>
 
       {activeTab === 'products' ? (
@@ -1570,6 +1584,13 @@ export default function AdminPage() {
                       </td>
                       <td className="px-4 py-4 text-right">
                         <div className="flex items-center justify-end gap-2">
+                          <button 
+                            onClick={() => { setSchedulingProduct(product); setIsScheduleModalOpen(true); }} 
+                            className="p-2 text-slate-300 hover:text-amber-600 hover:bg-amber-50 rounded-xl transition-all" 
+                            title="Programar actualización de precio"
+                          >
+                            <CalendarClock className="w-4 h-4" />
+                          </button>
                           <button onClick={() => handleOpenForm(product)} className="p-2 text-slate-300 hover:text-brand-600 hover:bg-brand-50 rounded-xl transition-all" title="Editar todo"><Edit2 className="w-4 h-4" /></button>
                           <button onClick={() => handleDelete(product.id)} className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all" title="Eliminar"><Trash2 className="w-4 h-4" /></button>
                         </div>
@@ -2711,6 +2732,8 @@ export default function AdminPage() {
             </div>
           </div>
         </div>
+      ) : activeTab === 'scheduled' ? (
+        <ScheduledPricesManager products={products} onPricesUpdated={fetchProducts} />
       ) : null}
 
       {/* REUSABLE MODALS */}
@@ -2729,6 +2752,13 @@ export default function AdminPage() {
         onClose={() => setIsLinkModalOpen(false)}
         onSuccess={handleProductSuccess}
         allProducts={products}
+      />
+
+      <QuickScheduleModal
+        product={schedulingProduct}
+        isOpen={isScheduleModalOpen}
+        onClose={() => setIsScheduleModalOpen(false)}
+        onSuccess={fetchProducts}
       />
     </div>
   );
