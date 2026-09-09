@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/Button";
 import { cn, formatPrice } from "@/lib/utils";
 import InlineVisualProductSelector from "@/components/vendedores/InlineVisualProductSelector";
 import { evaluateDiscountSuggestions, DiscountSuggestion } from "@/lib/discountRules";
+import { parseWhatsAppBudget, matchParsedItemsToProducts, parsePrice } from "@/lib/whatsappBudgetParser";
 
 export const isDiscountItem = (item: { name?: string; sku?: string }) => {
   if (!item) return false;
@@ -83,160 +84,6 @@ const normalizeForMatching = (text: string): string => {
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .replace(/[^a-z0-9]/g, "");
-};
-
-const parsePrice = (val: string | number): number => {
-  if (!val) return 0;
-  let clean = val.toString().trim().replace(/[^0-9.,-]/g, '');
-  if (!clean) return 0;
-  
-  const hasComma = clean.includes(',');
-  const hasDot = clean.includes('.');
-  
-  if (hasComma && hasDot) {
-    clean = clean.replace(/\./g, '').replace(/,/g, '.');
-  } else if (hasComma) {
-    clean = clean.replace(/,/g, '.');
-  } else if (hasDot) {
-    clean = clean.replace(/\./g, '');
-  }
-  
-  const parsed = parseFloat(clean);
-  return isNaN(parsed) ? 0 : parsed;
-};
-
-interface ParsedBudgetItem {
-  name: string;
-  quantity: number;
-  price: number;
-}
-
-interface ParsedBudget {
-  items: ParsedBudgetItem[];
-  isFreeShipping: boolean;
-  shippingCost: number;
-  paymentType: 'efectivo' | 'tarjeta';
-  cardInstallments: number;
-  cardSurcharge: number;
-  includeIVA: boolean;
-  kitDetailText: string;
-}
-
-const parseWhatsAppBudget = (text: string): ParsedBudget => {
-  const lines = text.split('\n');
-  const items: ParsedBudgetItem[] = [];
-  let isFreeShipping = true;
-  let shippingCost = 0;
-  let paymentType: 'efectivo' | 'tarjeta' = 'efectivo';
-  let cardInstallments = 1;
-  let cardSurcharge = 34;
-  let includeIVA = false;
-  let kitDetailText = '';
-
-  const itemRegex = /(?:🔸|•|\*|-)?\s*(\d+)\s*[xX]\s*\*([^*]+)\*\s*a\s*\$?\s*([\d.,]+)/;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line) continue;
-
-    const itemMatch = line.match(itemRegex);
-    if (itemMatch) {
-      const quantity = parseInt(itemMatch[1], 10);
-      const productName = itemMatch[2].trim();
-      const unitPrice = parsePrice(itemMatch[3]);
-      items.push({
-        name: productName,
-        quantity,
-        price: unitPrice
-      });
-      continue;
-    }
-
-    if (line.toLowerCase().includes('descuento') || line.toLowerCase().includes('bonificaci')) {
-      const matchAmount = line.match(/(?:-\$|\$|-)\s*([\d.,]+)/) || line.match(/a\s*(?:-\$|\$)?\s*([\d.,]+)/);
-      let price = 0;
-      if (matchAmount) {
-        price = parsePrice(matchAmount[1]);
-      } else {
-        const anyNumber = line.match(/\$?([\d.,]+)/);
-        if (anyNumber) price = parsePrice(anyNumber[1]);
-      }
-      
-      let label = "Descuento";
-      const labelMatch = line.match(/\*([^*]+)\*/);
-      if (labelMatch) label = labelMatch[1].trim();
-
-      items.push({
-        name: label,
-        quantity: 1,
-        price
-      });
-      continue;
-    }
-
-    if (line.toLowerCase().includes('*envio:*') || line.toLowerCase().includes('*envío:*')) {
-      if (line.toLowerCase().includes('gratis')) {
-        isFreeShipping = true;
-        shippingCost = 0;
-      } else {
-        isFreeShipping = false;
-        const match = line.match(/\$?([\d.,]+)/);
-        if (match) {
-          shippingCost = parsePrice(match[1]);
-        }
-      }
-    }
-
-    if (line.toLowerCase().includes('*medio de pago:*')) {
-      if (line.toLowerCase().includes('tarjeta')) {
-        paymentType = 'tarjeta';
-      } else {
-        paymentType = 'efectivo';
-      }
-
-      const installmentsMatch = line.match(/(\d+)\s*cuotas/i);
-      if (installmentsMatch) {
-        cardInstallments = parseInt(installmentsMatch[1], 10);
-      }
-    }
-
-    if (line.toLowerCase().includes('*recargo por pago en cuotas:*') || line.toLowerCase().includes('*recargo:*')) {
-      const percentMatch = line.match(/\((\d+)%\)/);
-      if (percentMatch) {
-        cardSurcharge = parseInt(percentMatch[1], 10);
-      }
-    }
-
-    if (line.toLowerCase().includes('*iva (21%):*') || line.toLowerCase().includes('*iva:*')) {
-      includeIVA = true;
-    }
-
-    if (line.toLowerCase().includes('*aclaracion:*') || line.toLowerCase().includes('*aclaración:*')) {
-      const match = line.match(/\*aclaraci[oó]n:\*\s*(.*)/i);
-      if (match) {
-        kitDetailText = match[1].trim();
-      }
-    }
-  }
-
-  const textLower = text.toLowerCase();
-  if (paymentType === 'tarjeta' && cardInstallments === 1) {
-    const cuotasMatch = textLower.match(/(\d+)\s*cuotas\s*fijas/);
-    if (cuotasMatch) {
-      cardInstallments = parseInt(cuotasMatch[1], 10);
-    }
-  }
-
-  return {
-    items,
-    isFreeShipping,
-    shippingCost,
-    paymentType,
-    cardInstallments,
-    cardSurcharge,
-    includeIVA,
-    kitDetailText
-  };
 };
 
 export default function PresupuestosPage() {
@@ -991,8 +838,8 @@ export default function PresupuestosPage() {
             id: `discount-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
             name: parsedItem.name || "Descuento",
             description: "Descuento aplicado",
-            price: parsedItem.price,
-            customPrice: parsedItem.price,
+            price: parsedItem.unitPrice || 0,
+            customPrice: parsedItem.unitPrice || 0,
             image_url: "",
             category: "Descuento",
             sku: "DESCUENTO",
@@ -1024,7 +871,7 @@ export default function PresupuestosPage() {
           newItems.push({
             ...matchedProduct,
             quantity: parsedItem.quantity,
-            customPrice: parsedItem.price,
+            customPrice: parsedItem.unitPrice || 0,
             cost: (matchedProduct as QuoteItem).cost || 0
           });
         } else {

@@ -46,6 +46,7 @@ import { Button } from "@/components/ui/Button";
 import { supabase } from "@/lib/supabase";
 import { Product } from "@/types";
 import VisualProductSelectorModal from "@/components/vendedores/VisualProductSelectorModal";
+import ImportWhatsAppBudgetModal from "@/components/vendedores/ImportWhatsAppBudgetModal";
 import { cn, formatPrice } from "@/lib/utils";
 import { calculateBulkPrices } from "@/lib/erp/prices";
 import { createBulkStockTransactions } from "@/lib/erp/stock";
@@ -571,6 +572,7 @@ export default function PedidosPage() {
 
   const [searchTerm, setSearchTerm] = useState("");
   const [isVisualModalOpen, setIsVisualModalOpen] = useState(false);
+  const [isImportWhatsAppOpen, setIsImportWhatsAppOpen] = useState(false);
   const [isOrderSummaryExpanded, setIsOrderSummaryExpanded] = useState(true);
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
   const [orderCategory, setOrderCategory] = useState<string>("auto");
@@ -2790,6 +2792,41 @@ export default function PedidosPage() {
     setOrderItems(prev => prev.filter(i => i.id !== id));
   };
 
+  const handleApplyWhatsAppBudget = (budgetData: {
+    items: OrderItem[];
+    orderDiscountType?: 'percentage' | 'fixed';
+    orderDiscountValue?: number;
+    paymentType?: 'efectivo' | 'tarjeta';
+    paymentMethodName?: string;
+    cardInstallments?: number;
+    cardSurcharge?: number;
+    shippingCost?: number;
+    isFreeShipping?: boolean;
+    aclaraciones?: string;
+  }, mode: 'replace' | 'append') => {
+    if (mode === 'replace') {
+      setOrderItems(budgetData.items);
+    } else {
+      setOrderItems(prev => [...prev, ...budgetData.items]);
+    }
+
+    if (budgetData.orderDiscountType) setOrderDiscountType(budgetData.orderDiscountType);
+    if (budgetData.orderDiscountValue !== undefined) setOrderDiscountValue(budgetData.orderDiscountValue);
+
+    if (budgetData.paymentType) setPaymentType(budgetData.paymentType);
+    if (budgetData.cardInstallments) setCardInstallments(budgetData.cardInstallments);
+    if (budgetData.cardSurcharge !== undefined) setCardSurcharge(budgetData.cardSurcharge);
+
+    if (budgetData.shippingCost !== undefined) setShippingCost(budgetData.shippingCost);
+
+    if (budgetData.aclaraciones) {
+      setAclaraciones(prev => prev ? `${prev}\n${budgetData.aclaraciones}` : budgetData.aclaraciones!);
+    }
+
+    setIsOrderSummaryExpanded(true);
+    alert("¡Presupuesto de WhatsApp importado con éxito al pedido!");
+  };
+
   const addKitToOrder = (kit: Kit) => {
     let newItems = [...orderItems];
     const warnings: string[] = [];
@@ -3336,7 +3373,7 @@ export default function PedidosPage() {
       const { data: userData } = await supabase.auth.getUser();
       if (!userData.user) throw new Error("No user authenticated");
       const loggedInUserId = userData.user.id;
-      const seller_id = (role === 'admin' && selectedSellerId) ? selectedSellerId : loggedInUserId;
+      const seller_id = selectedSellerId || loggedInUserId;
 
       let finalClientId = selectedClientId;
       let finalAddressId = selectedAddressId;
@@ -4684,9 +4721,9 @@ export default function PedidosPage() {
                 {/* Vendedor Asignado */}
                 <div className="space-y-1">
                   <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">
-                    {role === 'admin' ? '👤 Vendedor Asignado' : '👤 Vendedor'}
+                    👤 Vendedor Asignado
                   </label>
-                  {role === 'admin' && sellersList.length > 0 ? (
+                  {sellersList.length > 0 ? (
                     <select
                       value={selectedSellerId || currentUserId}
                       onChange={(e) => {
@@ -4912,7 +4949,7 @@ export default function PedidosPage() {
                       );
                     }
                     
-                    const effectiveSellerId = (role === 'admin' && selectedSellerId) ? selectedSellerId : currentUserId;
+                    const effectiveSellerId = selectedSellerId || currentUserId;
                     const facundoIds = ['3820a0fe-bb0a-4a84-ad85-79e49868cad7', '54b9ce55-7354-4b39-9886-314aa79f6aa6'];
                     const ludmilaIds = ['54b2d319-8f6f-47ff-b794-b7731978410a', '8207801b-b6cb-48cc-af0f-d2f9f2c98032'];
                     const targetSellerIds = facundoIds.includes(effectiveSellerId)
@@ -5025,6 +5062,15 @@ export default function PedidosPage() {
                     <div className="flex items-center gap-1.5">
                       <button
                         type="button"
+                        onClick={() => setIsImportWhatsAppOpen(true)}
+                        className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-lg text-[10.5px] font-black uppercase tracking-wider flex items-center gap-1 transition-colors border border-emerald-200/80 cursor-pointer shadow-2xs"
+                        title="Pegar e importar presupuesto desde mensaje de WhatsApp"
+                      >
+                        <Download className="w-3 h-3 text-emerald-600" /> Pegar WhatsApp
+                      </button>
+
+                      <button
+                        type="button"
                         onClick={() => setIsVisualModalOpen(true)}
                         className="px-2.5 py-1 bg-brand-50 hover:bg-brand-100 text-brand-700 rounded-lg text-[10.5px] font-black uppercase tracking-wider flex items-center gap-1 transition-colors border border-brand-200/60 cursor-pointer"
                         title="Abrir modal para agregar o modificar productos"
@@ -5072,15 +5118,24 @@ export default function PedidosPage() {
                       </div>
                       <div>
                         <p className="font-black text-slate-800 text-xs uppercase tracking-wide">No seleccionaste productos aún</p>
-                        <p className="text-[11px] text-slate-400 mt-0.5">Abrí el selector para armar el pedido con kits y productos</p>
+                        <p className="text-[11px] text-slate-400 mt-0.5">Abrí el selector para armar el pedido con kits o pegá un presupuesto de WhatsApp</p>
                       </div>
-                      <button 
-                        type="button" 
-                        onClick={(e) => { e.stopPropagation(); setIsVisualModalOpen(true); }}
-                        className="inline-flex items-center gap-1.5 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-black transition-all shadow-sm cursor-pointer"
-                      >
-                        <Plus className="w-3.5 h-3.5" /> Seleccionar Productos y Kits
-                      </button>
+                      <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                        <button 
+                          type="button" 
+                          onClick={(e) => { e.stopPropagation(); setIsVisualModalOpen(true); }}
+                          className="inline-flex items-center gap-1.5 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-black transition-all shadow-sm cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" /> Seleccionar Productos y Kits
+                        </button>
+                        <button 
+                          type="button" 
+                          onClick={(e) => { e.stopPropagation(); setIsImportWhatsAppOpen(true); }}
+                          className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black transition-all shadow-sm cursor-pointer"
+                        >
+                          <Download className="w-3.5 h-3.5" /> Pegar Presupuesto WhatsApp
+                        </button>
+                      </div>
                     </div>
                   ) : isOrderSummaryExpanded ? (
                     /* Lista de productos seleccionados cuando está expandida (diseño compacto sin redundancia) */
@@ -6421,7 +6476,7 @@ export default function PedidosPage() {
                   setOrderDiscountType('fixed');
                   setOrderDiscountValue(0);
                   setOrderCategory("auto");
-                  const effectiveSeller = (role === 'admin' && selectedSellerId) ? selectedSellerId : currentUserId;
+                  const effectiveSeller = selectedSellerId || currentUserId;
                   if (effectiveSeller) {
                     generateNextLegacyCode(effectiveSeller);
                   }
@@ -7416,6 +7471,15 @@ export default function PedidosPage() {
         }}
         onUpdateItemDiscount={updateItemDiscount}
         onApplyDiscountSuggestion={handleApplyDiscountSuggestion}
+      />
+
+      {/* MODAL IMPORTADOR DE PRESUPUESTO DESDE WHATSAPP */}
+      <ImportWhatsAppBudgetModal
+        isOpen={isImportWhatsAppOpen}
+        onClose={() => setIsImportWhatsAppOpen(false)}
+        products={products}
+        currentItemsCount={orderItems.length}
+        onApplyBudget={handleApplyWhatsAppBudget}
       />
     </div>
   );
