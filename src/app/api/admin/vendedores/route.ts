@@ -169,6 +169,7 @@ export async function POST(request: Request) {
         email,
         password,
         role = 'seller',
+        roles: inputRoles,
         sellerType = 'minorista',
         isOrganic = false,
         commissionRate = 8,
@@ -185,6 +186,10 @@ export async function POST(request: Request) {
 
       const emailClean = email.trim().toLowerCase();
       const nameClean = fullName.trim();
+      const finalRoles = Array.isArray(inputRoles) && inputRoles.length > 0
+        ? Array.from(new Set(inputRoles.filter(Boolean)))
+        : [role];
+      const primaryRole = finalRoles[0] || role || 'seller';
 
       // Check if user already exists in Auth
       const { data: listData } = await supabaseAdmin.auth.admin.listUsers();
@@ -200,7 +205,8 @@ export async function POST(request: Request) {
           email_confirm: true,
           user_metadata: {
             full_name: nameClean,
-            role: role
+            role: primaryRole,
+            roles: finalRoles
           }
         });
         if (updErr) {
@@ -214,7 +220,8 @@ export async function POST(request: Request) {
           email_confirm: true,
           user_metadata: {
             full_name: nameClean,
-            role: role
+            role: primaryRole,
+            roles: finalRoles
           }
         });
 
@@ -232,7 +239,8 @@ export async function POST(request: Request) {
           id: authUserId,
           full_name: nameClean,
           email: emailClean,
-          role: role,
+          role: primaryRole,
+          roles: finalRoles,
           seller_type: sellerType,
           is_organic: Boolean(isOrganic),
           commission_rate: Number(commissionRate) || 0,
@@ -270,6 +278,7 @@ export async function POST(request: Request) {
         fullName,
         email,
         role,
+        roles: inputRoles,
         sellerType,
         isOrganic,
         commissionRate,
@@ -287,7 +296,20 @@ export async function POST(request: Request) {
       const updateData: any = {};
       if (nameClean !== undefined) updateData.full_name = nameClean;
       if (emailClean !== undefined) updateData.email = emailClean;
-      if (role !== undefined) updateData.role = role;
+      if (inputRoles !== undefined) {
+        const finalRoles = Array.isArray(inputRoles)
+          ? Array.from(new Set(inputRoles.filter(Boolean)))
+          : (role ? [role] : []);
+        updateData.roles = finalRoles;
+        if (role !== undefined) {
+          updateData.role = role;
+        } else if (finalRoles.length > 0) {
+          updateData.role = finalRoles[0];
+        }
+      } else if (role !== undefined) {
+        updateData.role = role;
+      }
+
       if (sellerType !== undefined) updateData.seller_type = sellerType;
       if (isOrganic !== undefined) updateData.is_organic = Boolean(isOrganic);
       if (commissionRate !== undefined) updateData.commission_rate = Number(commissionRate);
@@ -311,10 +333,11 @@ export async function POST(request: Request) {
           authUpdates.email = emailClean;
           authUpdates.email_confirm = true;
         }
-        if (nameClean || role) {
+        if (nameClean || updateData.role || updateData.roles) {
           authUpdates.user_metadata = {
             ...(nameClean && { full_name: nameClean }),
-            ...(role && { role: role })
+            ...(updateData.role && { role: updateData.role }),
+            ...(updateData.roles && { roles: updateData.roles })
           };
         }
         if (Object.keys(authUpdates).length > 0) {

@@ -4,7 +4,7 @@ import React, { useState, useEffect } from "react";
 import { Product } from "@/types";
 import { supabase } from "@/lib/supabase";
 import { Button } from "./Button";
-import { X, Search, CheckCircle2, Plus, Image as ImageIcon, Loader2, Trash2 } from "lucide-react";
+import { X, Search, CheckCircle2, Plus, Image as ImageIcon, Loader2, Trash2, CalendarClock } from "lucide-react";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
 
@@ -49,6 +49,14 @@ export function ProductFormModal({ product, isOpen, onClose, onSuccess, allProdu
   });
 
   const [priceInput, setPriceInput] = useState("");
+  const getTomorrowStr = () => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().split("T")[0];
+  };
+  const [isSchedulingPrice, setIsSchedulingPrice] = useState(false);
+  const [scheduledEffectiveDate, setScheduledEffectiveDate] = useState(getTomorrowStr());
+  const [scheduledNotes, setScheduledNotes] = useState("");
   const [categorySearch, setCategorySearch] = useState("");
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
   const [upsellSearch, setUpsellSearch] = useState("");
@@ -98,6 +106,9 @@ export function ProductFormModal({ product, isOpen, onClose, onSuccess, allProdu
         mapped_real_product_id: product.mapped_real_product_id || null
       });
       setPriceInput(product.price ? product.price.toLocaleString('es-AR', { minimumFractionDigits: 0 }) : "");
+      setIsSchedulingPrice(false);
+      setScheduledEffectiveDate(getTomorrowStr());
+      setScheduledNotes("");
 
       // Cargar proveedor principal actual del producto
       if (product.id) {
@@ -214,9 +225,12 @@ export function ProductFormModal({ product, isOpen, onClose, onSuccess, allProdu
       }
       setUploading(false);
     }
-    const payload = { 
+    const todayStr = new Date().toISOString().split("T")[0];
+    const isFutureSchedule = isSchedulingPrice && scheduledEffectiveDate > todayStr && !isNaN(finalPriceVal) && finalPriceVal > 0;
+
+    const payload = { 
       ...formData, 
-      price: isNaN(finalPriceVal) ? 0 : finalPriceVal, 
+      price: isFutureSchedule && product?.id ? (product.price || 0) : (isNaN(finalPriceVal) ? 0 : finalPriceVal), 
       image_url: finalImageUrl,
       settings: {
         ...formData.settings,
@@ -256,9 +270,12 @@ export function ProductFormModal({ product, isOpen, onClose, onSuccess, allProdu
       targetSupplierId = null;
     }
 
+    let savedProductId: string | null = null;
+
     if (product?.id) {
       const { error } = await supabase.from('products').update(payload).eq('id', product.id);
       if (!error) { 
+        savedProductId = product.id;
         if (targetSupplierId) {
           // Desmarcar primario anterior y guardar nueva relación primaria
           await supabase
@@ -277,8 +294,6 @@ export function ProductFormModal({ product, isOpen, onClose, onSuccess, allProdu
               { onConflict: 'product_id,supplier_id' }
             );
         }
-        onSuccess(); 
-        onClose();
       } else { 
         console.warn("Update error:", error); 
         alert("Error al actualizar: " + error.message); 
@@ -291,6 +306,7 @@ export function ProductFormModal({ product, isOpen, onClose, onSuccess, allProdu
         .single();
 
       if (!error && insertedProduct) { 
+        savedProductId = insertedProduct.id;
         if (targetSupplierId) {
           await supabase
             .from('product_supplier_relations')
@@ -303,8 +319,6 @@ export function ProductFormModal({ product, isOpen, onClose, onSuccess, allProdu
               { onConflict: 'product_id,supplier_id' }
             );
         }
-        onSuccess(); 
-        onClose();
       } else { 
         console.warn("Insert error:", error); 
         if (error?.message?.includes("unique constraint") || error?.code === "23505") {
@@ -313,6 +327,31 @@ export function ProductFormModal({ product, isOpen, onClose, onSuccess, allProdu
           alert("Error al crear: " + (error?.message || "Ocurrió un error desconocido.")); 
         }
       }
+    }
+
+    if (savedProductId) {
+      if (isFutureSchedule) {
+        try {
+          await fetch('/api/admin/scheduled-prices', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              item: {
+                product_id: savedProductId,
+                product_name: formData.name,
+                sku: formData.sku || null,
+                price: finalPriceVal,
+                effective_date: scheduledEffectiveDate,
+                notes: scheduledNotes.trim() || 'Programado desde edición de producto'
+              }
+            })
+          });
+        } catch (schedErr) {
+          console.error("Error al registrar precio programado:", schedErr);
+        }
+      }
+      onSuccess(); 
+      onClose();
     }
     setSubmitting(false);
   };
@@ -484,6 +523,47 @@ export function ProductFormModal({ product, isOpen, onClose, onSuccess, allProdu
               value={priceInput} 
               onChange={e => setPriceInput(e.target.value)} 
             />
+
+            {/* Opciones de programación a futuro */}
+            <div className="pt-1.5">
+              <label className="flex items-center gap-2 cursor-pointer select-none text-xs font-bold text-slate-600 hover:text-brand-600">
+                <input
+                  type="checkbox"
+                  checked={isSchedulingPrice}
+                  onChange={(e) => setIsSchedulingPrice(e.target.checked)}
+                  className="w-4 h-4 rounded text-brand-600 focus:ring-brand-500 cursor-pointer"
+                />
+                <CalendarClock className="w-4 h-4 text-amber-500" />
+                <span>Programar para fecha futura</span>
+              </label>
+
+              {isSchedulingPrice && (
+                <div className="mt-2 p-3 bg-amber-50/80 border border-amber-200/80 rounded-2xl space-y-2 animate-in fade-in">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-amber-900">
+                      Fecha de vigencia:
+                    </span>
+                    <span className="text-[10px] text-amber-700">
+                      (El precio actual queda intacto hasta entonces)
+                    </span>
+                  </div>
+                  <input
+                    type="date"
+                    min={getTomorrowStr()}
+                    value={scheduledEffectiveDate}
+                    onChange={(e) => setScheduledEffectiveDate(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-amber-200 bg-white text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Nota / Motivo (opcional, ej: Aumento proveedor)"
+                    value={scheduledNotes}
+                    onChange={(e) => setScheduledNotes(e.target.value)}
+                    className="w-full px-3 py-1.5 rounded-xl border border-amber-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                  />
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="space-y-2">

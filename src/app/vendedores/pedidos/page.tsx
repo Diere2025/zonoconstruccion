@@ -79,6 +79,22 @@ export const ALLOWED_ADVERTISING_SOURCES = [
   "Orgánico / Cliente Habitual / Recomendado"
 ];
 
+export const DEFAULT_ADVERTISING_SOURCES: AdvertisingSource[] = [
+  { id: "a4df04ca-29aa-4328-b2ec-a35a53a5caeb", name: "Meta - Tanques Aquafort", is_active: true },
+  { id: "afb44df7-4252-4a06-8581-6d2002fb67be", name: "Meta - Termotanques Universal", is_active: true },
+  { id: "6a07b438-0b85-48d8-ad80-a8e567683f66", name: "Meta - Termotanques Cooper", is_active: true },
+  { id: "2e43372c-ab9b-4fb9-904a-bb14f67f25f7", name: "Meta - Biodigestores Biofort", is_active: true },
+  { id: "f29edda0-a7d6-4731-b865-cd9b335f755b", name: "Meta - MEPS / Equilibrio", is_active: true },
+  { id: "71b1f7f7-0bc5-4ed4-9ebd-5b9383f00571", name: "Orgánico / Cliente Habitual / Recomendado", is_active: true }
+];
+
+export const ALLOWED_ORDER_MEDIUMS = [
+  "Whaticket",
+  "WhatsApp",
+  "Llamado",
+  "Otro"
+];
+
 interface OrderMedium {
   id: string;
   name: string;
@@ -659,11 +675,13 @@ export default function PedidosPage() {
   const [sellerType, setSellerType] = useState<'minorista' | 'mayorista'>('minorista');
   const [listType, setListType] = useState<'mis_pedidos' | 'todos'>('mis_pedidos');
   const [sellerFilter, setSellerFilter] = useState<string>('todos');
-  const [sellersList, setSellersList] = useState<{ id: string; full_name: string; email: string; role?: string }[]>([]);
-  const [currentSeller, setCurrentSeller] = useState<{ id: string; full_name: string; email: string; role?: string } | null>(null);
+  const [sellersList, setSellersList] = useState<{ id: string; full_name: string; email: string; role?: string; roles?: string[] }[]>([]);
+  const [currentSeller, setCurrentSeller] = useState<{ id: string; full_name: string; email: string; role?: string; roles?: string[] } | null>(null);
   const [selectedSellerId, setSelectedSellerId] = useState<string>("");
   const [orders, setOrders] = useState<any[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
+  const [ordersError, setOrdersError] = useState<string | null>(null);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [orderSearchQuery, setOrderSearchQuery] = useState("");
   const [sortField, setSortField] = useState<'order_date' | 'seller'>('order_date');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
@@ -1051,7 +1069,21 @@ export default function PedidosPage() {
   });
   const [whaticketLink, setWhaticketLink] = useState("");
 
-  const [advertisingSources, setAdvertisingSources] = useState<AdvertisingSource[]>([]);
+  const [advertisingSources, setAdvertisingSources] = useState<AdvertisingSource[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const cached = localStorage.getItem("cached_pedidos_adv") || sessionStorage.getItem("cached_pedidos_adv");
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            const clean = parsed.filter((a: any) => a && a.is_active !== false && ALLOWED_ADVERTISING_SOURCES.includes(a.name));
+            if (clean.length > 0) return clean;
+          }
+        }
+      } catch (e) {}
+    }
+    return DEFAULT_ADVERTISING_SOURCES;
+  });
   const filteredAdvertisingSources = useMemo(() => {
     return advertisingSources
       .filter(a => a && a.is_active !== false && ALLOWED_ADVERTISING_SOURCES.includes(a.name))
@@ -1061,7 +1093,22 @@ export default function PedidosPage() {
         return (idxA !== -1 ? idxA : 999) - (idxB !== -1 ? idxB : 999);
       });
   }, [advertisingSources]);
-  const [orderMediums, setOrderMediums] = useState<OrderMedium[]>([]);
+  const [orderMediums, setOrderMediums] = useState<OrderMedium[]>([
+    { id: "e9654dad-9352-4f31-8f01-b12c57289993", name: "Whaticket", requires_phone_line: false, is_active: true },
+    { id: "8111f489-b970-40f8-9754-4636df1ab7ed", name: "WhatsApp", requires_phone_line: true, is_active: true },
+    { id: "8f4782f2-64a7-484f-b775-2fd5df380309", name: "Llamado", requires_phone_line: true, is_active: true },
+    { id: "7c7aa19c-802d-462e-856c-e0bd92023938", name: "Otro", requires_phone_line: false, is_active: true }
+  ]);
+  const filteredOrderMediums = useMemo(() => {
+    return orderMediums
+      .filter(m => m && m.is_active !== false && ALLOWED_ORDER_MEDIUMS.includes(m.name))
+      .sort((a, b) => {
+        const idxA = ALLOWED_ORDER_MEDIUMS.indexOf(a.name);
+        const idxB = ALLOWED_ORDER_MEDIUMS.indexOf(b.name);
+        return (idxA !== -1 ? idxA : 999) - (idxB !== -1 ? idxB : 999);
+      });
+  }, [orderMediums]);
+
   const [phoneLines, setPhoneLines] = useState<PhoneLine[]>([]);
   const [topAdvertisingSources, setTopAdvertisingSources] = useState<AdvertisingSource[]>([]);
   const [topOrderMediums, setTopOrderMediums] = useState<OrderMedium[]>([]);
@@ -1070,30 +1117,34 @@ export default function PedidosPage() {
   
   const [legacyCode, setLegacyCode] = useState("");
   const [selectedAdvertisingSourceId, setSelectedAdvertisingSourceId] = useState("");
-  const [selectedOrderMediumId, setSelectedOrderMediumId] = useState("");
-  const [orderMediumSearchQuery, setOrderMediumSearchQuery] = useState("");
-  const [showOrderMediumDropdown, setShowOrderMediumDropdown] = useState(false);
+  const [selectedOrderMediumId, setSelectedOrderMediumId] = useState("e9654dad-9352-4f31-8f01-b12c57289993");
+
+  const assignableSellers = useMemo(() => {
+    return sellersList.filter(s => {
+      // 1. Si está asignado en el pedido actual, mantenerlo siempre
+      if (selectedSellerId && s.id === selectedSellerId) return true;
+
+      // 2. Si el usuario es vendedor (rol seller/vendedor o lo tiene en roles)
+      const isSeller = s.role === 'seller' || s.role === 'vendedor' || (Array.isArray(s.roles) && (s.roles.includes('seller') || s.roles.includes('vendedor')));
+      if (isSeller) return true;
+
+      // 3. Los administradores sí pueden verse a sí mismos como vendedores aunque no lo sean
+      const isCurrentAdmin = role === 'admin' || currentSeller?.role === 'admin' || (Array.isArray(currentSeller?.roles) && currentSeller.roles.includes('admin'));
+      if (isCurrentAdmin && s.id === currentUserId) return true;
+
+      return false;
+    });
+  }, [sellersList, selectedSellerId, role, currentSeller, currentUserId]);
 
   // Default Order Medium to Whaticket
   useEffect(() => {
-    if (orderMediums.length > 0 && !selectedOrderMediumId) {
-      const whaticketMedium = orderMediums.find(m => m.name.toLowerCase() === 'whaticket');
+    if (filteredOrderMediums.length > 0 && !selectedOrderMediumId) {
+      const whaticketMedium = filteredOrderMediums.find(m => m.name.toLowerCase() === 'whaticket');
       if (whaticketMedium) {
         setSelectedOrderMediumId(whaticketMedium.id);
       }
     }
-  }, [orderMediums, selectedOrderMediumId]);
-
-
-
-  useEffect(() => {
-    const matched = orderMediums.find(m => m.id === selectedOrderMediumId);
-    if (matched) {
-      setOrderMediumSearchQuery(matched.name);
-    } else {
-      setOrderMediumSearchQuery("");
-    }
-  }, [selectedOrderMediumId, orderMediums]);
+  }, [filteredOrderMediums, selectedOrderMediumId]);
 
   const [selectedPhoneLineId, setSelectedPhoneLineId] = useState("");
   const [deliveryDetail, setDeliveryDetail] = useState("");
@@ -1524,7 +1575,7 @@ export default function PedidosPage() {
         setCurrentUserId(userId);
         setSelectedSellerId(userId);
 
-        const PEDIDOS_CACHE_VER = "zc_pedidos_v15_clean_adv_sources";
+        const PEDIDOS_CACHE_VER = "zc_pedidos_v18_pills_recepcion_whaticket";
         const cachedUserId = sessionStorage.getItem("cached_pedidos_user_id");
         if (sessionStorage.getItem("cached_pedidos_ver") !== PEDIDOS_CACHE_VER || (cachedUserId && cachedUserId !== userId)) {
           sessionStorage.clear();
@@ -1571,11 +1622,21 @@ export default function PedidosPage() {
             const cleanAdv = Array.isArray(parsedAdv)
               ? parsedAdv.filter((a: any) => a && a.is_active !== false && ALLOWED_ADVERTISING_SOURCES.includes(a.name))
               : [];
-            setAdvertisingSources(cleanAdv);
+            if (cleanAdv.length > 0) {
+              setAdvertisingSources(cleanAdv);
+            }
           } catch (e) {
-            setAdvertisingSources([]);
+            // Mantener DEFAULT_ADVERTISING_SOURCES
           }
-          setOrderMediums(JSON.parse(cachedMediums));
+          try {
+            const parsedMed = JSON.parse(cachedMediums);
+            const cleanMed = Array.isArray(parsedMed)
+              ? parsedMed.filter((m: any) => m && m.is_active !== false && ALLOWED_ORDER_MEDIUMS.includes(m.name))
+              : [];
+            setOrderMediums(cleanMed);
+          } catch (e) {
+            setOrderMediums([]);
+          }
           setPhoneLines(JSON.parse(cachedLines));
           setIsOrganic(cachedOrganic === 'true');
           setDbPaymentMethods(JSON.parse(cachedPayMethods));
@@ -1586,8 +1647,8 @@ export default function PedidosPage() {
           // Asegurar que sellersList y currentSeller estén disponibles
           if (!cachedSellers || !cachedCurrentSeller) {
             const [sellersRes, curSellerRes] = await Promise.all([
-              supabase.from('sellers').select('id, full_name, email, role').eq('is_active', true).order('full_name'),
-              supabase.from('sellers').select('id, full_name, email, role, seller_type, is_organic').eq('id', userId).maybeSingle()
+              supabase.from('sellers').select('id, full_name, email, role, roles').eq('is_active', true).order('full_name'),
+              supabase.from('sellers').select('id, full_name, email, role, roles, seller_type, is_organic').eq('id', userId).maybeSingle()
             ]);
             if (sellersRes.data) {
               setSellersList(sellersRes.data);
@@ -1681,12 +1742,18 @@ export default function PedidosPage() {
 
         if (payload.advertisingSources) {
           const cleanAdv = (payload.advertisingSources || []).filter((a: any) => a && a.is_active !== false && ALLOWED_ADVERTISING_SOURCES.includes(a.name));
-          setAdvertisingSources(cleanAdv);
-          sessionStorage.setItem("cached_pedidos_adv", JSON.stringify(cleanAdv));
+          if (cleanAdv.length > 0) {
+            setAdvertisingSources(cleanAdv);
+            sessionStorage.setItem("cached_pedidos_adv", JSON.stringify(cleanAdv));
+            try {
+              localStorage.setItem("cached_pedidos_adv", JSON.stringify(cleanAdv));
+            } catch (e) {}
+          }
         }
         if (payload.orderMediums) {
-          setOrderMediums(payload.orderMediums);
-          sessionStorage.setItem("cached_pedidos_mediums", JSON.stringify(payload.orderMediums));
+          const cleanMed = (payload.orderMediums || []).filter((m: any) => m && m.is_active !== false && ALLOWED_ORDER_MEDIUMS.includes(m.name));
+          setOrderMediums(cleanMed);
+          sessionStorage.setItem("cached_pedidos_mediums", JSON.stringify(cleanMed));
         }
         if (payload.phoneLines) {
           setPhoneLines(payload.phoneLines);
@@ -2070,8 +2137,13 @@ export default function PedidosPage() {
       if (activeTab === 'list') {
         setLoadingOrders(true);
         try {
-          const { data: userData } = await supabase.auth.getUser();
-          if (!userData.user) return;
+          const { data: sessionData } = await supabase.auth.getSession();
+          let currentUid = sessionData?.session?.user?.id || currentUserId;
+          if (!currentUid) {
+            const { data: userData } = await supabase.auth.getUser();
+            currentUid = userData?.user?.id || '';
+          }
+          if (!currentUid) return;
           
           let query = supabase
             .from('orders')
@@ -2085,9 +2157,9 @@ export default function PedidosPage() {
             
           const facundoIds = ['3820a0fe-bb0a-4a84-ad85-79e49868cad7', '54b9ce55-7354-4b39-9886-314aa79f6aa6'];
           const ludmilaIds = ['54b2d319-8f6f-47ff-b794-b7731978410a', '8207801b-b6cb-48cc-af0f-d2f9f2c98032'];
-          const effectiveUserSellerIds = facundoIds.includes(userData.user.id)
+          const effectiveUserSellerIds = facundoIds.includes(currentUid)
             ? facundoIds
-            : (ludmilaIds.includes(userData.user.id) ? ludmilaIds : [userData.user.id]);
+            : (ludmilaIds.includes(currentUid) ? ludmilaIds : [currentUid]);
 
           if (listType === 'mis_pedidos' || role !== 'admin') {
             if (clientTypeFilter !== 'mayoristas') {
@@ -2161,26 +2233,34 @@ export default function PedidosPage() {
           
           const { data, error } = await query;
           if (error) {
-            console.error("Error fetching orders:", error);
+            console.error("Error fetching orders:", error.message || error.details || JSON.stringify(error) || error);
+            setOrdersError(error.message || "Error al cargar pedidos");
           } else if (data) {
+            setOrdersError(null);
             setOrders(data);
           }
-        } catch (err) {
+        } catch (err: any) {
           console.error("Error in fetchOrders:", err);
+          setOrdersError(err?.message || "Error al cargar pedidos");
         } finally {
           setLoadingOrders(false);
         }
       }
     }
     fetchOrders();
-  }, [activeTab, listType, role, debouncedOrderSearch, statusFilter, selectedProducts, expandedSelectedProductIds, products, clientTypeFilter, dateFrom, dateTo]);
+  }, [activeTab, listType, role, debouncedOrderSearch, statusFilter, selectedProducts, expandedSelectedProductIds, products, clientTypeFilter, dateFrom, dateTo, refreshTrigger]);
 
   // Fetch recent orders for the "Cargar desde BD" modal
   const fetchOrdersForModal = async () => {
     setLoadingDbOrders(true);
     try {
-      const { data: userData } = await supabase.auth.getUser();
-      if (!userData.user) return;
+      const { data: sessionData } = await supabase.auth.getSession();
+      let currentUid = sessionData?.session?.user?.id || currentUserId;
+      if (!currentUid) {
+        const { data: userData } = await supabase.auth.getUser();
+        currentUid = userData?.user?.id || '';
+      }
+      if (!currentUid) return;
 
       let q = supabase
         .from('orders')
@@ -2191,9 +2271,9 @@ export default function PedidosPage() {
       if (role !== 'admin') {
         const facundoIds = ['3820a0fe-bb0a-4a84-ad85-79e49868cad7', '54b9ce55-7354-4b39-9886-314aa79f6aa6'];
         const ludmilaIds = ['54b2d319-8f6f-47ff-b794-b7731978410a', '8207801b-b6cb-48cc-af0f-d2f9f2c98032'];
-        const effectiveUserSellerIds = facundoIds.includes(userData.user.id)
+        const effectiveUserSellerIds = facundoIds.includes(currentUid)
           ? facundoIds
-          : (ludmilaIds.includes(userData.user.id) ? ludmilaIds : [userData.user.id]);
+          : (ludmilaIds.includes(currentUid) ? ludmilaIds : [currentUid]);
         q = q.in('seller_id', effectiveUserSellerIds);
       }
 
@@ -4034,6 +4114,282 @@ export default function PedidosPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             
+            {/* Origen y Canal de Venta (Mostrado en primer lugar) */}
+            <div className="space-y-4 md:col-span-2 lg:col-span-3 bg-slate-50/90 p-4 rounded-xl border border-slate-200/95">
+              <h3 className="flex items-center gap-1.5 font-black text-slate-800 border-b border-slate-200/60 pb-1.5 mb-3 text-xs uppercase tracking-wider">
+                <Target className="w-4 h-4 text-brand-500" /> Origen y Canal de Venta
+              </h3>
+              
+              {/* Fila Superior: Códigos y Datos Generales */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-start pb-3 border-b border-slate-200/70">
+                {/* Código de Pedido Legacy */}
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Código de Pedido (Anterior)</label>
+                  <input
+                    type="text"
+                    value={legacyCode}
+                    readOnly
+                    placeholder="Generando..."
+                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-100 text-slate-500 font-bold text-xs outline-none cursor-not-allowed select-all h-[34px]"
+                  />
+                </div>
+
+                {/* Vendedor Asignado */}
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">
+                    👤 Vendedor Asignado
+                  </label>
+                  {assignableSellers.length > 0 ? (
+                    <select
+                      value={selectedSellerId || currentUserId}
+                      onChange={(e) => {
+                        const newId = e.target.value;
+                        setSelectedSellerId(newId);
+                        generateNextLegacyCode(newId);
+                      }}
+                      className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-800 font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 transition-all cursor-pointer h-[34px]"
+                    >
+                      {assignableSellers.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          👤 {s.full_name || s.email}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      value={currentSeller?.full_name || assignableSellers.find(s => s.id === (selectedSellerId || currentUserId))?.full_name || "Vendedor"}
+                      readOnly
+                      className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-100 text-slate-700 font-bold text-xs outline-none cursor-not-allowed select-all h-[34px]"
+                    />
+                  )}
+                </div>
+
+                {/* Categoría del Pedido para Atribución de Marketing */}
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Categoría del Pedido</label>
+                  <select
+                    value={orderCategory}
+                    onChange={e => setOrderCategory(e.target.value)}
+                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 transition-all cursor-pointer text-slate-800 h-[34px]"
+                  >
+                    <option value="auto">Auto-detectar ({detectedCategory})</option>
+                    <option value="TANQUES">TANQUES</option>
+                    <option value="TERMOTANQUES">TERMOTANQUES</option>
+                    <option value="BIODIGESTOR">BIODIGESTOR</option>
+                    <option value="BASE">BASE</option>
+                    <option value="LATEX">LATEX</option>
+                    <option value="ROLLO MEMBRANA">ROLLO MEMBRANA</option>
+                    <option value="MEP">MEP</option>
+                    <option value="ESCALERAS">ESCALERAS</option>
+                    <option value="COLOMBRARO">COLOMBRARO</option>
+                    <option value="HERRAMIENTAS ELÉCTRICAS">HERRAMIENTAS ELÉCTRICAS</option>
+                    <option value="INSTALACIÓN BIOFORT">INSTALACIÓN BIOFORT</option>
+                    <option value="OTRO">OTRO</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Fila Principal: Procedencia y Medio de Recepción en Fichas de Selección Única */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start pt-1">
+                {/* Columna Izquierda: Procedencia */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-black uppercase tracking-wider text-slate-600 flex items-center gap-1">
+                      📢 Procedencia <span className="text-rose-600 font-black">* (Obligatorio)</span>
+                    </label>
+                    {!selectedAdvertisingSourceId ? (
+                      <span className="text-[9.5px] font-extrabold text-rose-600 bg-rose-50 px-2 py-0.5 rounded border border-rose-200 animate-pulse">
+                        Requerido
+                      </span>
+                    ) : (
+                      <span className="text-[9.5px] font-extrabold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                        Seleccionado
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-1.5 items-start">
+                    {filteredAdvertisingSources.map((source) => {
+                      const isSelected = selectedAdvertisingSourceId === source.id;
+                      return (
+                        <button
+                          key={source.id}
+                          type="button"
+                          onClick={() => setSelectedAdvertisingSourceId(source.id)}
+                          className={cn(
+                            "w-full sm:w-auto px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer text-left border shadow-2xs",
+                            isSelected
+                              ? "bg-brand-600 text-white border-brand-600 ring-2 ring-brand-500/20 shadow-sm"
+                              : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50 hover:border-slate-300"
+                          )}
+                        >
+                          {source.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Columna Derecha: Medio de Recepción y Detalle */}
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-wider text-slate-600 flex items-center gap-1">
+                      💬 Medio de Recepción
+                    </label>
+                    <div className="flex flex-wrap gap-2 items-center">
+                      {filteredOrderMediums.map((med) => {
+                        const isSelected = selectedOrderMediumId === med.id;
+                        return (
+                          <button
+                            key={med.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedOrderMediumId(med.id);
+                              setSelectedPhoneLineId("");
+                            }}
+                            className={cn(
+                              "px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer border shadow-2xs",
+                              isSelected
+                                ? "bg-brand-600 text-white border-brand-600 ring-2 ring-brand-500/20 shadow-sm"
+                                : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50 hover:border-slate-300"
+                            )}
+                          >
+                            {med.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Detalle Dependiente del Medio: Link de Whaticket o Línea Telefónica */}
+                  <div className="pt-2 border-t border-slate-200/60">
+                    {(() => {
+                      const selectedMedium = filteredOrderMediums.find(m => m.id === selectedOrderMediumId) || orderMediums.find(m => m.id === selectedOrderMediumId);
+                      
+                      if (!selectedMedium) {
+                        return (
+                          <div className="space-y-1">
+                            <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Detalle de Recepción</label>
+                            <input 
+                              key="medium-unselected"
+                              type="text" 
+                              disabled 
+                              value=""
+                              readOnly
+                              placeholder="Seleccione medio de recepción..." 
+                              className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-400 font-bold text-xs outline-none cursor-not-allowed h-[34px]" 
+                            />
+                          </div>
+                        );
+                      }
+                      
+                      if (selectedMedium.name.toLowerCase() === 'whaticket') {
+                        return (
+                          <div className="space-y-1 animate-in fade-in duration-150">
+                            <label className="text-[9.5px] font-black uppercase tracking-wider text-slate-500 flex items-center justify-between">
+                              <span>🔗 Link de Whaticket</span>
+                              <span className="text-[9px] text-slate-400 font-normal">Pegar link de la conversación</span>
+                            </label>
+                            <input 
+                              key="medium-whaticket"
+                              type="url" 
+                              value={whaticketLink || ""} 
+                              onChange={e => setWhaticketLink(e.target.value)} 
+                              placeholder="https://whaticket... o pegar enlace de conversación" 
+                              className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 transition-all text-slate-800 h-[36px]" 
+                            />
+                          </div>
+                        );
+                      }
+
+                      if (selectedMedium.requires_phone_line || ['whatsapp', 'llamado'].includes(selectedMedium.name.toLowerCase())) {
+                        const effectiveSellerId = selectedSellerId || currentUserId;
+                        const facundoIds = ['3820a0fe-bb0a-4a84-ad85-79e49868cad7', '54b9ce55-7354-4b39-9886-314aa79f6aa6'];
+                        const ludmilaIds = ['54b2d319-8f6f-47ff-b794-b7731978410a', '8207801b-b6cb-48cc-af0f-d2f9f2c98032'];
+                        const targetSellerIds = facundoIds.includes(effectiveSellerId)
+                          ? facundoIds
+                          : (ludmilaIds.includes(effectiveSellerId) ? ludmilaIds : [effectiveSellerId]);
+
+                        const filteredLines = phoneLines.filter(line => {
+                          if (role === 'admin') return true;
+                          const associatedSellerIds = (line.seller_phone_lines || []).map((spl: any) => spl.seller_id);
+                          const isMine = associatedSellerIds.some(id => targetSellerIds.includes(id)) || (line.seller_id && targetSellerIds.includes(line.seller_id));
+                          const isUnassigned = associatedSellerIds.length === 0 && !line.seller_id;
+                          return isMine || isUnassigned;
+                        });
+
+                        return (
+                          <div className="space-y-1 animate-in fade-in duration-150 relative">
+                            <div className="flex items-center justify-between">
+                              <label className="text-[9.5px] font-black uppercase tracking-wider text-slate-500">📞 Línea Telefónica</label>
+                              {isOrganic && (
+                                <button
+                                  type="button"
+                                  onClick={() => setShowLineManagerModal(true)}
+                                  className="text-[9px] font-bold text-brand-600 hover:text-brand-700 underline flex items-center gap-0.5 cursor-pointer"
+                                >
+                                  ⚙️ Administrar
+                                </button>
+                              )}
+                            </div>
+                            <select
+                              value={selectedPhoneLineId}
+                              onChange={e => setSelectedPhoneLineId(e.target.value)}
+                              className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 transition-all cursor-pointer text-slate-800 h-[36px]"
+                              required
+                            >
+                              <option value="">-- Seleccionar línea telefónica --</option>
+                              {filteredLines.map(line => (
+                                <option key={line.id} value={line.id}>{line.name} ({line.phone_number})</option>
+                              ))}
+                              <option value="otro">Otro</option>
+                            </select>
+                            {topPhoneLines.length > 0 && (
+                              <div className="flex flex-wrap gap-1.5 pt-1">
+                                {topPhoneLines
+                                  .filter(line => filteredLines.some(fl => fl.id === line.id))
+                                  .map(line => (
+                                    <button
+                                      key={line.id}
+                                      type="button"
+                                      onClick={() => setSelectedPhoneLineId(line.id)}
+                                      className={`px-2 py-0.5 rounded-md border text-[9.5px] font-extrabold transition-all duration-150 active:scale-95 cursor-pointer ${
+                                        selectedPhoneLineId === line.id
+                                          ? 'bg-brand-600 text-white border-brand-600 shadow-sm'
+                                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-slate-800'
+                                      }`}
+                                    >
+                                      {line.name}
+                                    </button>
+                                  ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      }
+
+                      // Caso 'Otro'
+                      return (
+                        <div className="space-y-1 animate-in fade-in duration-150">
+                          <label className="text-[9.5px] font-black uppercase tracking-wider text-slate-500">
+                            📝 Detalle de Recepción (Opcional)
+                          </label>
+                          <input 
+                            key="medium-otro-detail"
+                            type="text" 
+                            value={deliveryDetail || ""} 
+                            onChange={e => setDeliveryDetail(e.target.value)} 
+                            placeholder="Detalle adicional sobre cómo ingresó el contacto..." 
+                            className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 transition-all text-slate-800 h-[36px]" 
+                          />
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* 1. Datos del Cliente */}
             <div className="space-y-4 md:col-span-2 lg:col-span-1 bg-slate-50/90 p-4 rounded-xl border border-slate-200/95">
               <div className="flex justify-between items-center mb-1">
@@ -4698,346 +5054,6 @@ export default function PedidosPage() {
                 </div>
               </div>
             )}
-
-            {/* Origen y Canal de Venta */}
-            <div className="space-y-4 md:col-span-2 lg:col-span-3 bg-slate-50/90 p-4 rounded-xl border border-slate-200/95">
-              <h3 className="flex items-center gap-1.5 font-black text-slate-800 border-b border-slate-200/60 pb-1.5 mb-3 text-xs uppercase tracking-wider">
-                <Target className="w-4 h-4 text-brand-500" /> Origen y Canal de Venta
-              </h3>
-              
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 items-start">
-                {/* Código de Pedido Legacy */}
-                <div className="space-y-1">
-                  <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Código de Pedido (Anterior)</label>
-                  <input
-                    type="text"
-                    value={legacyCode}
-                    readOnly
-                    placeholder="Generando..."
-                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-100 text-slate-500 font-bold text-xs outline-none cursor-not-allowed select-all h-[34px]"
-                  />
-                </div>
-
-                {/* Vendedor Asignado */}
-                <div className="space-y-1">
-                  <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">
-                    👤 Vendedor Asignado
-                  </label>
-                  {sellersList.length > 0 ? (
-                    <select
-                      value={selectedSellerId || currentUserId}
-                      onChange={(e) => {
-                        const newId = e.target.value;
-                        setSelectedSellerId(newId);
-                        generateNextLegacyCode(newId);
-                      }}
-                      className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-800 font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 transition-all cursor-pointer h-[34px]"
-                    >
-                      {sellersList.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          👤 {s.full_name || s.email}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <input
-                      type="text"
-                      value={currentSeller?.full_name || sellersList.find(s => s.id === (selectedSellerId || currentUserId))?.full_name || "Vendedor"}
-                      readOnly
-                      className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-100 text-slate-700 font-bold text-xs outline-none cursor-not-allowed select-all h-[34px]"
-                    />
-                  )}
-                </div>
-
-                {/* Procedencia (Obligatorio, por defecto vacío) */}
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between">
-                    <label className="text-[9px] font-black uppercase tracking-wider text-slate-500 flex items-center gap-1">
-                      📢 Procedencia <span className="text-rose-600 font-black">* (Obligatorio)</span>
-                    </label>
-                    {!selectedAdvertisingSourceId && (
-                      <span className="text-[9px] font-extrabold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">
-                        Requerido
-                      </span>
-                    )}
-                  </div>
-                  <select
-                    value={selectedAdvertisingSourceId}
-                    onChange={(e) => setSelectedAdvertisingSourceId(e.target.value)}
-                    required
-                    className={cn(
-                      "w-full px-2.5 py-1.5 rounded-lg border font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 transition-all cursor-pointer h-[34px]",
-                      !selectedAdvertisingSourceId
-                        ? "border-amber-400 bg-amber-50/30 text-slate-400"
-                        : "border-slate-200 bg-white text-slate-800"
-                    )}
-                  >
-                    <option value="">-- Seleccionar procedencia (Obligatorio) --</option>
-                    {filteredAdvertisingSources.map((source) => (
-                      <option key={source.id} value={source.id}>
-                        {source.name}
-                      </option>
-                    ))}
-                  </select>
-                  {/* Atajos rápidos de procedencia */}
-                  <div className="flex flex-wrap gap-1 pt-0.5">
-                    {filteredAdvertisingSources.map((source) => {
-                      const isSelected = selectedAdvertisingSourceId === source.id;
-                      return (
-                        <button
-                          key={source.id}
-                          type="button"
-                          onClick={() => setSelectedAdvertisingSourceId(source.id)}
-                          className={cn(
-                            "px-2 py-0.5 rounded text-[9px] font-extrabold transition-all cursor-pointer",
-                            isSelected
-                              ? "bg-brand-600 text-white shadow-2xs"
-                              : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
-                          )}
-                        >
-                          {source.name}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-
-
-                {/* Medio de Recepción Combobox */}
-                <div className="space-y-1 relative" onClick={e => e.stopPropagation()}>
-                  <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Medio de Recepción</label>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      placeholder="Buscar medio de recepción..."
-                      value={orderMediumSearchQuery}
-                      onChange={e => {
-                        setOrderMediumSearchQuery(e.target.value);
-                        setShowOrderMediumDropdown(true);
-                      }}
-                      onFocus={() => {
-                        setShowOrderMediumDropdown(true);
-                        setOrderMediumSearchQuery("");
-                      }}
-                      onBlur={() => {
-                        setTimeout(() => {
-                          setShowOrderMediumDropdown(false);
-                          const matched = orderMediums.find(m => m.id === selectedOrderMediumId);
-                          if (matched) {
-                            setOrderMediumSearchQuery(matched.name);
-                          } else {
-                            setOrderMediumSearchQuery("");
-                          }
-                        }, 200);
-                      }}
-                      className="w-full pl-2.5 pr-8 py-1.5 rounded-lg border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 transition-all cursor-pointer text-slate-800"
-                    />
-                    <Search className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
-                    
-                    {showOrderMediumDropdown && (
-                      <div className="absolute left-0 right-0 mt-1 max-h-48 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg z-50 py-1">
-                        {orderMediums.filter(med =>
-                          med.name.toLowerCase().includes(orderMediumSearchQuery.toLowerCase())
-                        ).length === 0 ? (
-                          <p className="text-[10px] text-slate-400 font-bold p-2 text-center">No se encontraron medios</p>
-                        ) : (
-                          orderMediums
-                            .filter(med =>
-                              med.name.toLowerCase().includes(orderMediumSearchQuery.toLowerCase())
-                            )
-                            .map(med => (
-                              <button
-                                key={med.id}
-                                type="button"
-                                onMouseDown={() => {
-                                  setSelectedOrderMediumId(med.id);
-                                  setOrderMediumSearchQuery(med.name);
-                                  setSelectedPhoneLineId("");
-                                  setShowOrderMediumDropdown(false);
-                                }}
-                                className={`w-full px-2.5 py-1.5 text-left text-[10px] font-bold transition-all block ${
-                                  selectedOrderMediumId === med.id
-                                    ? 'bg-brand-50 text-brand-700 font-black'
-                                    : 'text-slate-700 hover:bg-slate-50'
-                                }`}
-                              >
-                                {med.name}
-                              </button>
-                            ))
-                        )}
-                      </div>
-                    )}
-                  </div>
-                  {topOrderMediums.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 pt-1">
-                      {topOrderMediums.map(med => (
-                        <button
-                          key={med.id}
-                          type="button"
-                          onClick={() => {
-                            setSelectedOrderMediumId(med.id);
-                            setOrderMediumSearchQuery(med.name);
-                            setSelectedPhoneLineId(""); // Reset phone line
-                          }}
-                          className={`px-2 py-0.5 rounded-md border text-[9.5px] font-extrabold transition-all duration-150 active:scale-95 cursor-pointer ${
-                            selectedOrderMediumId === med.id
-                              ? 'bg-brand-600 text-white border-brand-600 shadow-sm'
-                              : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-slate-800'
-                          }`}
-                        >
-                          {med.name}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Línea Telefónica / Link de Whaticket (Estable) */}
-                <div className="space-y-1 animate-in fade-in duration-200 relative">
-                  {(() => {
-                    const selectedMedium = orderMediums.find(m => m.id === selectedOrderMediumId);
-                    
-                    if (!selectedMedium) {
-                      return (
-                        <>
-                          <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Detalle de Recepción</label>
-                          <input 
-                            key="medium-unselected"
-                            type="text" 
-                            disabled 
-                            value=""
-                            readOnly
-                            placeholder="Seleccione medio..." 
-                            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-400 font-bold text-xs outline-none cursor-not-allowed" 
-                          />
-                        </>
-                      );
-                    }
-                    
-                    if (!selectedMedium.requires_phone_line) {
-                      if (selectedMedium.name.toLowerCase() === 'whaticket') {
-                        return (
-                          <>
-                            <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">
-                              Link de Whaticket
-                            </label>
-                            <input 
-                              key="medium-whaticket"
-                              type="url" 
-                              value={whaticketLink || ""} 
-                              onChange={e => setWhaticketLink(e.target.value)} 
-                              placeholder="Pegar enlace de conversación..." 
-                              className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 transition-all cursor-pointer text-slate-800" 
-                            />
-                          </>
-                        );
-                      }
-                      return (
-                        <>
-                          <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Detalle de Recepción</label>
-                          <input 
-                            key="medium-no-data"
-                            type="text" 
-                            disabled 
-                            value=""
-                            readOnly
-                            placeholder="No requiere datos" 
-                            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-400 font-bold text-xs outline-none cursor-not-allowed" 
-                          />
-                        </>
-                      );
-                    }
-                    
-                    const effectiveSellerId = selectedSellerId || currentUserId;
-                    const facundoIds = ['3820a0fe-bb0a-4a84-ad85-79e49868cad7', '54b9ce55-7354-4b39-9886-314aa79f6aa6'];
-                    const ludmilaIds = ['54b2d319-8f6f-47ff-b794-b7731978410a', '8207801b-b6cb-48cc-af0f-d2f9f2c98032'];
-                    const targetSellerIds = facundoIds.includes(effectiveSellerId)
-                      ? facundoIds
-                      : (ludmilaIds.includes(effectiveSellerId) ? ludmilaIds : [effectiveSellerId]);
-
-                    const filteredLines = phoneLines.filter(line => {
-                      if (role === 'admin') return true;
-                      const associatedSellerIds = (line.seller_phone_lines || []).map((spl: any) => spl.seller_id);
-                      const isMine = associatedSellerIds.some(id => targetSellerIds.includes(id)) || (line.seller_id && targetSellerIds.includes(line.seller_id));
-                      const isUnassigned = associatedSellerIds.length === 0 && !line.seller_id;
-                      return isMine || isUnassigned;
-                    });
-
-                    return (
-                      <>
-                        <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Línea Telefónica</label>
-                        {isOrganic && (
-                          <button
-                            type="button"
-                            onClick={() => setShowLineManagerModal(true)}
-                            className="absolute right-0 top-0 text-[9px] font-bold text-brand-600 hover:text-brand-700 underline flex items-center gap-0.5 cursor-pointer"
-                          >
-                            ⚙️ Administrar
-                          </button>
-                        )}
-                        <select
-                          value={selectedPhoneLineId}
-                          onChange={e => setSelectedPhoneLineId(e.target.value)}
-                          className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 transition-all cursor-pointer text-slate-800"
-                          required
-                        >
-                          <option value="">Seleccionar línea...</option>
-                          {filteredLines.map(line => (
-                            <option key={line.id} value={line.id}>{line.name} ({line.phone_number})</option>
-                          ))}
-                          <option value="otro">Otro</option>
-                        </select>
-                        {topPhoneLines.length > 0 && (
-                          <div className="flex flex-wrap gap-1.5 pt-1">
-                            {topPhoneLines
-                              .filter(line => filteredLines.some(fl => fl.id === line.id))
-                              .map(line => (
-                                <button
-                                  key={line.id}
-                                  type="button"
-                                  onClick={() => setSelectedPhoneLineId(line.id)}
-                                  className={`px-2 py-0.5 rounded-md border text-[9.5px] font-extrabold transition-all duration-150 active:scale-95 cursor-pointer ${
-                                    selectedPhoneLineId === line.id
-                                      ? 'bg-brand-600 text-white border-brand-600 shadow-sm'
-                                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-slate-800'
-                                  }`}
-                                >
-                                  {line.name}
-                                </button>
-                              ))}
-                          </div>
-                        )}
-                      </>
-                    );
-                  })()}
-                </div>
-
-                {/* Categoría del Pedido para Atribución de Marketing */}
-                <div className="space-y-1">
-                  <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Categoría del Pedido</label>
-                  <select
-                    value={orderCategory}
-                    onChange={e => setOrderCategory(e.target.value)}
-                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 transition-all cursor-pointer text-slate-800"
-                  >
-                    <option value="auto">Auto-detectar ({detectedCategory})</option>
-                    <option value="TANQUES">TANQUES</option>
-                    <option value="TERMOTANQUES">TERMOTANQUES</option>
-                    <option value="BIODIGESTOR">BIODIGESTOR</option>
-                    <option value="BASE">BASE</option>
-                    <option value="LATEX">LATEX</option>
-                    <option value="ROLLO MEMBRANA">ROLLO MEMBRANA</option>
-                    <option value="MEP">MEP</option>
-                    <option value="ESCALERAS">ESCALERAS</option>
-                    <option value="COLOMBRARO">COLOMBRARO</option>
-                    <option value="HERRAMIENTAS ELÉCTRICAS">HERRAMIENTAS ELÉCTRICAS</option>
-                    <option value="INSTALACIÓN BIOFORT">INSTALACIÓN BIOFORT</option>
-                    <option value="OTRO">OTRO</option>
-                  </select>
-                </div>
-              </div>
-            </div>
 
             {/* Sección Inferior de Dos Columnas Invertidas (Izquierda: Ítems y Flete | Derecha: Pagos y Totales) */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:col-span-2 lg:col-span-3 pt-4 border-t border-slate-200/60">
@@ -6108,7 +6124,7 @@ export default function PedidosPage() {
               </div>
 
               {/* Filtro de Vendedor */}
-              {(role === 'admin' || sellersList.length > 0) && (
+              {(role === 'admin' || assignableSellers.length > 0) && (
                 <div className="relative shrink-0 w-full sm:w-48">
                   <select
                     value={sellerFilter}
@@ -6120,7 +6136,7 @@ export default function PedidosPage() {
                     }`}
                   >
                     <option value="todos">👤 Todos los Vendedores</option>
-                    {sellersList.map((s) => (
+                    {assignableSellers.map((s) => (
                       <option key={s.id} value={s.id}>
                         👤 {s.full_name || s.email}
                       </option>
@@ -6722,7 +6738,24 @@ export default function PedidosPage() {
                       </div>
                     </td>
                   </tr>
-                )) : (
+                )) : ordersError ? (
+                  <tr>
+                    <td colSpan={7} className="px-4 py-8 text-center text-red-500 font-medium text-xs">
+                      <div className="flex flex-col items-center justify-center gap-2">
+                        <span>Hubo un problema al cargar los pedidos: {ordersError}</span>
+                        <button
+                          onClick={() => {
+                            setOrdersError(null);
+                            setRefreshTrigger(prev => prev + 1);
+                          }}
+                          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                        >
+                          Reintentar
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
                   <tr>
                     <td colSpan={7} className="px-4 py-8 text-center text-slate-400 font-bold text-xs">No se encontraron pedidos.</td>
                   </tr>

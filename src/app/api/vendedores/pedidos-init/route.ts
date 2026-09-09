@@ -109,7 +109,7 @@ export async function GET(request: Request) {
         .limit(100),
       supabaseAdmin
         .from('sellers')
-        .select('id, full_name, email, role')
+        .select('id, full_name, email, role, roles')
         .eq('is_active', true)
         .order('full_name')
     ]);
