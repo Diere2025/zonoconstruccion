@@ -4,10 +4,11 @@ import React, { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { Product, PaymentMethod } from "@/types";
-import { Search, Plus, Trash2, Copy, Check, Calculator, ArrowRight, Save, Package, Globe, Edit2, ShoppingBag, Download, ChevronDown, ChevronUp, Layers, Tag } from "lucide-react";
+import { Search, Plus, Trash2, Copy, Check, Calculator, ArrowRight, Save, Package, Globe, Edit2, ShoppingBag, Download, ChevronDown, ChevronUp, Layers, Tag, Percent, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { cn, formatPrice } from "@/lib/utils";
 import InlineVisualProductSelector from "@/components/vendedores/InlineVisualProductSelector";
+import { evaluateDiscountSuggestions, DiscountSuggestion } from "@/lib/discountRules";
 
 export const isDiscountItem = (item: { name?: string; sku?: string }) => {
   if (!item) return false;
@@ -19,6 +20,9 @@ export const isDiscountItem = (item: { name?: string; sku?: string }) => {
 interface QuoteItem extends Product {
   quantity: number;
   customPrice: number;
+  basePrice?: number;
+  discountType?: 'percentage' | 'fixed';
+  discountValue?: number;
   cost?: number;
   bundleParentId?: string;
   isIncludedInKit?: boolean;
@@ -271,6 +275,39 @@ export default function PresupuestosPage() {
   const [isFreeShipping, setIsFreeShipping] = useState(true);
   const [shippingCost, setShippingCost] = useState<number>(0);
   const [includeIVA, setIncludeIVA] = useState(false);
+
+  // Global Budget Discount States
+  const [orderDiscountType, setOrderDiscountType] = useState<'percentage' | 'fixed'>('percentage');
+  const [orderDiscountValue, setOrderDiscountValue] = useState<number>(0);
+
+  // Item Discounts Accordion State in Budget Preview
+  const [openItemDiscountIds, setOpenItemDiscountIds] = useState<Record<string, boolean>>({});
+  const toggleItemDiscount = (id: string) => {
+    setOpenItemDiscountIds(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const updateItemDiscount = (id: string, discountType: 'percentage' | 'fixed', discountValue: number) => {
+    setQuoteItems(prev => prev.map(item => {
+      if (item.id !== id) return item;
+      const base = item.basePrice !== undefined ? item.basePrice : (item.price || item.customPrice || 0);
+      const val = Math.max(0, discountValue);
+      let newPrice = base;
+      if (val > 0) {
+        if (discountType === 'percentage') {
+          newPrice = Math.round(base * (1 - Math.min(100, val) / 100));
+        } else {
+          newPrice = Math.max(0, base - val);
+        }
+      }
+      return {
+        ...item,
+        basePrice: base,
+        discountType,
+        discountValue: val,
+        customPrice: newPrice
+      };
+    }));
+  };
   
   const [copied, setCopied] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
@@ -442,6 +479,18 @@ export default function PresupuestosPage() {
       newProducts.forEach(prod => {
         const qtyToAdd = (prod as any).quantity || 1;
         const targetPrice = (prod as any).customPrice !== undefined ? (prod as any).customPrice : prod.price;
+        const effectiveBase = (prod as any).basePrice !== undefined 
+          ? (prod as any).basePrice 
+          : prod.price;
+        const discountType = (prod as any).discountType !== undefined 
+          ? (prod as any).discountType 
+          : (targetPrice < effectiveBase ? 'percentage' : undefined);
+        const discountValue = (prod as any).discountValue !== undefined 
+          ? (prod as any).discountValue 
+          : (discountType === 'percentage' && effectiveBase > 0 
+              ? Math.round(((effectiveBase - targetPrice) / effectiveBase) * 100) 
+              : undefined);
+
         const bundleParentId = (prod as any).bundleParentId;
         const isIncludedInKit = (prod as any).isIncludedInKit;
         const baseQuantity = (prod as any).baseQuantity;
@@ -456,6 +505,9 @@ export default function PresupuestosPage() {
           if ((prod as any).customPrice !== undefined) {
             existing.customPrice = targetPrice;
           }
+          existing.basePrice = effectiveBase;
+          existing.discountType = discountType || existing.discountType;
+          existing.discountValue = discountValue !== undefined ? discountValue : existing.discountValue;
           if (bundleParentId) existing.bundleParentId = bundleParentId;
           if (isIncludedInKit !== undefined) existing.isIncludedInKit = isIncludedInKit;
           if (baseQuantity) existing.baseQuantity = baseQuantity;
@@ -464,6 +516,9 @@ export default function PresupuestosPage() {
             ...prod, 
             quantity: qtyToAdd, 
             customPrice: targetPrice,
+            basePrice: effectiveBase,
+            discountType,
+            discountValue,
             bundleParentId,
             isIncludedInKit,
             baseQuantity: baseQuantity || qtyToAdd
@@ -604,7 +659,26 @@ export default function PresupuestosPage() {
   };
 
   const updateCustomPrice = (id: string, price: number) => {
-    setQuoteItems(quoteItems.map(i => i.id === id ? { ...i, customPrice: price } : i));
+    setQuoteItems(prev => prev.map(item => {
+      if (item.id !== id) return item;
+      const isDisc = isDiscountItem(item) || price < 0;
+      if (isDisc) {
+        return {
+          ...item,
+          customPrice: -Math.abs(price)
+        };
+      }
+      const base = item.basePrice !== undefined ? item.basePrice : (item.price || price);
+      const isDiscounted = base > price && price > 0;
+      const discVal = isDiscounted ? Math.round(((base - price) / base) * 100) : 0;
+      return {
+        ...item,
+        basePrice: base,
+        discountType: isDiscounted ? 'percentage' : undefined,
+        discountValue: isDiscounted ? discVal : 0,
+        customPrice: price
+      };
+    }));
   };
 
   const [expandedKits, setExpandedKits] = useState<Record<string, boolean>>({});
@@ -644,6 +718,48 @@ export default function PresupuestosPage() {
     }));
   };
 
+  // Automatic discount suggestions (e.g. MEP x2, x3, x6, etc.)
+  const discountSuggestions = useMemo(() => {
+    return evaluateDiscountSuggestions(quoteItems, products);
+  }, [quoteItems, products]);
+
+  const handleApplyDiscountSuggestion = (sug: DiscountSuggestion) => {
+    setQuoteItems(prev => {
+      let filtered = prev;
+      if (sug.existingDiscountItemId) {
+        filtered = filtered.filter(i => i.id !== sug.existingDiscountItemId);
+      }
+
+      if (sug.itemDiscountAction) {
+        const { itemIds, discountPct } = sug.itemDiscountAction;
+        return filtered.map(item => {
+          if (!itemIds.includes(item.id)) return item;
+          const base = item.basePrice !== undefined ? item.basePrice : (item.price || item.customPrice || 0);
+          const newPrice = Math.max(0, Math.round(base * (1 - discountPct / 100)));
+          return {
+            ...item,
+            basePrice: base,
+            discountType: 'percentage',
+            discountValue: discountPct,
+            customPrice: newPrice
+          };
+        });
+      }
+
+      if (sug.targetProduct) {
+        const newDiscountItem: QuoteItem = {
+          ...sug.targetProduct,
+          quantity: sug.suggestedQty,
+          customPrice: -sug.unitDiscount,
+          basePrice: -sug.unitDiscount
+        };
+        return [...filtered, newDiscountItem];
+      }
+
+      return filtered;
+    });
+  };
+
   const { kitGroups, discountItems, standardItems, totalQuoteCount } = useMemo(() => {
     const isDisc = (i: QuoteItem) => isDiscountItem(i) || (i.customPrice < 0);
     const isKit = (i: QuoteItem) => {
@@ -681,17 +797,62 @@ export default function PresupuestosPage() {
   }, [quoteItems]);
 
   // Calculations
-  const subtotal = quoteItems.reduce((acc, item) => {
-    const isDisc = isDiscountItem(item);
-    const itemVal = isDisc ? -Math.abs(item.customPrice) : item.customPrice;
-    return acc + itemVal * item.quantity;
-  }, 0);
+  const itemsGrossSubtotal = useMemo(() => {
+    return quoteItems.reduce((acc, item) => {
+      const isDisc = isDiscountItem(item);
+      const itemVal = isDisc ? -Math.abs(item.customPrice) : item.customPrice;
+      return acc + itemVal * item.quantity;
+    }, 0);
+  }, [quoteItems]);
+
+  const { totalListPrice, totalItemDiscountAmount, hasAnyItemDiscount } = useMemo(() => {
+    let listPrice = 0;
+    let itemDiscounts = 0;
+    let hasDisc = false;
+
+    quoteItems.forEach(item => {
+      const isDisc = isDiscountItem(item) || item.customPrice < 0;
+      if (isDisc) {
+        const discVal = Math.abs(item.customPrice * item.quantity);
+        if (discVal > 0) {
+          hasDisc = true;
+          itemDiscounts += discVal;
+        }
+        return;
+      }
+      const base = item.basePrice !== undefined ? item.basePrice : (item.price || item.customPrice);
+      if (base > item.customPrice && item.customPrice > 0) {
+        hasDisc = true;
+        listPrice += base * item.quantity;
+        itemDiscounts += (base - item.customPrice) * item.quantity;
+      } else {
+        listPrice += item.customPrice * item.quantity;
+      }
+    });
+
+    return {
+      totalListPrice: listPrice,
+      totalItemDiscountAmount: itemDiscounts,
+      hasAnyItemDiscount: hasDisc && itemDiscounts > 0
+    };
+  }, [quoteItems]);
+
+  const orderDiscountAmount = useMemo(() => {
+    if (!orderDiscountValue || orderDiscountValue <= 0) return 0;
+    if (orderDiscountType === 'percentage') {
+      return Math.round(itemsGrossSubtotal * (Math.min(100, orderDiscountValue) / 100));
+    }
+    return Math.min(itemsGrossSubtotal, Math.max(0, orderDiscountValue));
+  }, [itemsGrossSubtotal, orderDiscountType, orderDiscountValue]);
+
+  const subtotal = Math.max(0, itemsGrossSubtotal - orderDiscountAmount);
   const shippingAmount = isFreeShipping ? 0 : shippingCost;
   const surcharge = subtotal * (selectedPaymentMethod.surcharge_percentage / 100);
   const subtotalWithSurchargeAndShipping = subtotal + surcharge + shippingAmount;
   const ivaAmount = includeIVA ? subtotalWithSurchargeAndShipping * 0.21 : 0;
   const total = Math.max(0, subtotalWithSurchargeAndShipping + ivaAmount);
   const installmentValue = selectedPaymentMethod.installments > 1 ? total / selectedPaymentMethod.installments : 0;
+  const totalSavings = totalItemDiscountAmount + orderDiscountAmount;
 
   const generateWhatsAppText = () => {
     let text = `*Zono Construcción y Hogar*\n`;
@@ -700,6 +861,9 @@ export default function PresupuestosPage() {
     quoteItems.forEach(item => {
       const internalName = item.sku || item.name;
       const isDisc = isDiscountItem(item);
+      const base = item.basePrice !== undefined ? item.basePrice : (item.price || item.customPrice);
+      const isDiscounted = !isDisc && base > item.customPrice && item.customPrice > 0;
+
       if (isDisc) {
         const discAmount = Math.abs(item.customPrice * item.quantity);
         text += `🏷️ *${item.name || internalName}*: -${formatPrice(discAmount)}\n`;
@@ -708,6 +872,14 @@ export default function PresupuestosPage() {
           text += `🔸 ${item.quantity}x *${internalName}* (Incluido en el Kit)\n`;
         } else {
           text += `🔸 1x *${internalName}* (Incluido en el Kit)\n`;
+        }
+      } else if (isDiscounted) {
+        const discPct = item.discountValue || (base > 0 ? Math.round(((base - item.customPrice) / base) * 100) : 0);
+        if (item.quantity > 1) {
+          text += `🔸 ${item.quantity}x *${internalName}* a ${formatPrice(item.customPrice)} c/u (~${formatPrice(base)}~ | *${discPct}% OFF*)\n`;
+          text += `   Subtotal: ${formatPrice(item.customPrice * item.quantity)}\n`;
+        } else {
+          text += `🔸 1x *${internalName}* a ${formatPrice(item.customPrice)} (~${formatPrice(base)}~ | *${discPct}% OFF*)\n`;
         }
       } else {
         if (item.quantity > 1) {
@@ -720,7 +892,19 @@ export default function PresupuestosPage() {
     });
     
     text += `➖\n`;
-    text += `*Subtotal Productos:* ${formatPrice(subtotal)}\n`;
+    if (hasAnyItemDiscount && totalItemDiscountAmount > 0) {
+      text += `*Precio de Lista:* ${formatPrice(totalListPrice)}\n`;
+      text += `🏷️ *Descuento Aplicado:* -${formatPrice(totalItemDiscountAmount)}\n`;
+      text += `*Subtotal Productos:* ${formatPrice(itemsGrossSubtotal)}\n`;
+    } else {
+      text += `*Subtotal Productos:* ${formatPrice(itemsGrossSubtotal)}\n`;
+    }
+
+    if (orderDiscountAmount > 0) {
+      text += `🏷️ *Descuento Presupuesto (${orderDiscountType === 'percentage' ? `${orderDiscountValue}%` : 'Monto Fijo'}):* -${formatPrice(orderDiscountAmount)}\n`;
+      text += `*Subtotal con Descuento:* ${formatPrice(subtotal)}\n`;
+    }
+
     if (isFreeShipping) {
       text += `*Envío:* Gratis\n`;
     } else if (shippingCost > 0) {
@@ -739,6 +923,10 @@ export default function PresupuestosPage() {
     text += `➖\n`;
     text += `*TOTAL A ABONAR:* ${formatPrice(total)}\n`;
     
+    if (totalSavings > 0) {
+      text += `🎉 *¡Ahorro Total en este presupuesto: ${formatPrice(totalSavings)}!*\n`;
+    }
+
     if (selectedPaymentMethod.installments > 1) {
       text += `\n💳 Podes pagarlo en *${selectedPaymentMethod.installments} cuotas fijas de ${formatPrice(installmentValue)}*\n`;
     }
@@ -762,12 +950,17 @@ export default function PresupuestosPage() {
           sku: item.sku || (isDisc ? 'DESCUENTO' : ''),
           quantity: item.quantity,
           customPrice: isDisc ? -Math.abs(item.customPrice) : item.customPrice,
+          basePrice: item.basePrice !== undefined ? item.basePrice : (item.price || item.customPrice),
+          discountType: item.discountType,
+          discountValue: item.discountValue,
           cost: item.cost || 0,
           bundleParentId: item.bundleParentId,
           isIncludedInKit: item.isIncludedInKit,
           baseQuantity: item.baseQuantity
         };
       }),
+      orderDiscountType,
+      orderDiscountValue,
       paymentType,
       cardInstallments,
       cardSurcharge
@@ -1227,70 +1420,206 @@ export default function PresupuestosPage() {
                   );
                 })}
 
+                {/* BANNER DE SUGERENCIAS AUTOMÁTICAS DE BONIFICACIÓN */}
+                {discountSuggestions.length > 0 && (
+                  <div className="space-y-1.5 mb-2">
+                    {discountSuggestions.map((sug) => (
+                      <div 
+                        key={sug.ruleId} 
+                        className="bg-gradient-to-r from-amber-500/10 via-amber-100 to-amber-50 border border-amber-300 rounded-xl p-2.5 flex items-center justify-between gap-2 shadow-xs animate-in slide-in-from-top duration-200"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="w-7 h-7 rounded-lg bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-2xs">
+                            <Sparkles className="w-3.5 h-3.5" />
+                          </span>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[8px] font-black uppercase tracking-wider bg-amber-200 text-amber-900 px-1 py-0.2 rounded">
+                                Beneficio
+                              </span>
+                              <p className="font-extrabold text-xs text-amber-950 truncate">
+                                {sug.ruleName} ({sug.suggestedQty} unid.)
+                              </p>
+                            </div>
+                            <p className="text-[10.5px] text-amber-800 font-medium truncate">
+                              {sug.description} → Ahorro: <strong>{formatPrice(sug.totalDiscount)}</strong>
+                            </p>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleApplyDiscountSuggestion(sug)}
+                          className="px-2.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[11px] font-black shrink-0 flex items-center gap-1 shadow-xs transition-all cursor-pointer hover:scale-102"
+                        >
+                          <Check className="w-3 h-3" />
+                          {sug.action === 'upgrade' ? 'Actualizar' : 'Aplicar'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 {/* 2. PRODUCTOS ESTÁNDAR / INDIVIDUALES */}
                 {standardItems.map(item => (
                   <div 
                     key={item.id} 
-                    className="bg-white border border-slate-200 hover:border-brand-300 rounded-xl p-2.5 shadow-xs transition-all relative group flex flex-col sm:flex-row sm:items-center justify-between gap-2 animate-in fade-in zoom-in-95 duration-150"
+                    className="bg-white border border-slate-200 hover:border-brand-300 rounded-xl p-2.5 shadow-xs transition-all relative group flex flex-col justify-between gap-2 animate-in fade-in zoom-in-95 duration-150"
                     title={item.name}
                   >
-                    <div className="flex-1 min-w-0 pr-2">
-                      {item.sku && (
-                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block leading-tight">
-                          {item.sku}
-                        </span>
-                      )}
-                      <p className="font-bold text-slate-800 text-xs truncate leading-snug">
-                        {item.name}
-                      </p>
-                      <span className="text-[10px] font-bold text-slate-500">
-                        Total: {formatPrice(item.customPrice * item.quantity)}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      {/* Stepper */}
-                      <div className="flex items-center bg-slate-100 border border-slate-200 rounded-lg overflow-hidden h-7">
-                        <button 
-                          type="button" 
-                          onClick={() => updateQuantity(item.id, item.quantity - 1)} 
-                          className="px-2 font-black text-slate-500 hover:bg-slate-200 leading-none text-xs h-full transition-colors"
-                        >
-                          -
-                        </button>
-                        <span className="px-2 font-black text-xs min-w-[1.25rem] text-center text-slate-800">
-                          {item.quantity}
-                        </span>
-                        <button 
-                          type="button" 
-                          onClick={() => updateQuantity(item.id, item.quantity + 1)} 
-                          className="px-2 font-black text-slate-500 hover:bg-slate-200 leading-none text-xs h-full transition-colors"
-                        >
-                          +
-                        </button>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="flex-1 min-w-0 pr-2">
+                        {item.sku && (
+                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block leading-tight">
+                            {item.sku}
+                          </span>
+                        )}
+                        <p className="font-bold text-slate-800 text-xs truncate leading-snug">
+                          {item.name}
+                        </p>
+                        <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                          <span className="text-[11px] font-black text-slate-800">
+                            Total: {formatPrice(item.customPrice * item.quantity)}
+                          </span>
+                          {item.basePrice && item.basePrice > item.customPrice && (
+                            <>
+                              <span className="text-[10px] text-slate-400 line-through font-semibold">
+                                {formatPrice(item.basePrice * item.quantity)}
+                              </span>
+                              <span className="text-[9px] font-black text-amber-700 bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200">
+                                {item.discountValue || Math.round(((item.basePrice - item.customPrice) / item.basePrice) * 100)}% OFF
+                              </span>
+                            </>
+                          )}
+                        </div>
                       </div>
 
-                      {/* Precio editable */}
-                      <div className="flex items-center bg-slate-100 border border-slate-200 rounded-lg px-2 h-7">
-                        <span className="text-[10px] font-bold text-slate-400 mr-0.5">$</span>
-                        <input 
-                          type="number" 
-                          value={item.customPrice}
-                          onChange={(e) => updateCustomPrice(item.id, Number(e.target.value))}
-                          className="w-18 text-xs font-bold text-right outline-none bg-transparent text-slate-800"
-                        />
-                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {/* Stepper */}
+                        <div className="flex items-center bg-slate-100 border border-slate-200 rounded-lg overflow-hidden h-7">
+                          <button 
+                            type="button" 
+                            onClick={() => updateQuantity(item.id, item.quantity - 1)} 
+                            className="px-2 font-black text-slate-500 hover:bg-slate-200 leading-none text-xs h-full transition-colors"
+                          >
+                            -
+                          </button>
+                          <span className="px-2 font-black text-xs min-w-[1.25rem] text-center text-slate-800">
+                            {item.quantity}
+                          </span>
+                          <button 
+                            type="button" 
+                            onClick={() => updateQuantity(item.id, item.quantity + 1)} 
+                            className="px-2 font-black text-slate-500 hover:bg-slate-200 leading-none text-xs h-full transition-colors"
+                          >
+                            +
+                          </button>
+                        </div>
 
-                      {/* Eliminar */}
-                      <button 
-                        type="button"
-                        onClick={() => removeItem(item.id)}
-                        className="text-slate-300 hover:text-red-500 p-1 rounded-lg hover:bg-red-50 transition-colors"
-                        title="Eliminar artículo"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                        {/* Precio editable */}
+                        <div className="flex items-center bg-slate-100 border border-slate-200 rounded-lg px-2 h-7">
+                          <span className="text-[10px] font-bold text-slate-400 mr-0.5">$</span>
+                          <input 
+                            type="number" 
+                            value={item.customPrice}
+                            onChange={(e) => updateCustomPrice(item.id, Number(e.target.value))}
+                            className="w-18 text-xs font-bold text-right outline-none bg-transparent text-slate-800"
+                            title="Precio unitario (editable)"
+                          />
+                        </div>
+
+                        {/* Botón para aplicar o editar descuento por producto */}
+                        <button
+                          type="button"
+                          onClick={() => toggleItemDiscount(item.id)}
+                          className={`h-7 px-1.5 rounded-lg border text-[10px] font-bold flex items-center gap-0.5 transition-colors cursor-pointer ${
+                            Boolean(item.discountValue && item.discountValue > 0) || (item.basePrice && item.basePrice > item.customPrice)
+                              ? 'bg-amber-100 border-amber-300 text-amber-800'
+                              : 'bg-slate-100 border-slate-200 text-slate-500 hover:bg-amber-50 hover:text-amber-700 hover:border-amber-200'
+                          }`}
+                          title="Configurar descuento para este producto"
+                        >
+                          <Percent className="w-2.5 h-2.5" />
+                          {Boolean(item.discountValue && item.discountValue > 0) ? (
+                            <span>{item.discountType === 'percentage' || !item.discountType ? `${item.discountValue}%` : `$`}</span>
+                          ) : (item.basePrice && item.basePrice > item.customPrice ? (
+                            <span>{Math.round(((item.basePrice - item.customPrice) / item.basePrice) * 100)}%</span>
+                          ) : null)}
+                        </button>
+
+                        {/* Eliminar */}
+                        <button 
+                          type="button"
+                          onClick={() => removeItem(item.id)}
+                          className="text-slate-300 hover:text-red-500 p-1 rounded-lg hover:bg-red-50 transition-colors cursor-pointer"
+                          title="Eliminar artículo"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
+
+                    {/* Sub-fila expandida para configurar descuento de este producto */}
+                    {openItemDiscountIds[item.id] && (
+                      <div className="w-full mt-1 bg-amber-50/80 border border-amber-200/90 rounded-lg p-2 flex flex-wrap items-center justify-between gap-2 text-xs animate-in fade-in duration-150">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] font-bold text-amber-900">Descuento:</span>
+                          <div className="flex items-center bg-white border border-amber-300 rounded overflow-hidden text-[10px]">
+                            <button
+                              type="button"
+                              onClick={() => updateItemDiscount(item.id, 'percentage', item.discountValue || 0)}
+                              className={`px-1.5 py-0.5 font-black cursor-pointer ${item.discountType === 'percentage' || !item.discountType ? 'bg-amber-500 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+                            >
+                              %
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => updateItemDiscount(item.id, 'fixed', item.discountValue || 0)}
+                              className={`px-1.5 py-0.5 font-black cursor-pointer ${item.discountType === 'fixed' ? 'bg-amber-500 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+                            >
+                              $
+                            </button>
+                          </div>
+                          <input
+                            type="number"
+                            value={item.discountValue || ""}
+                            placeholder="0"
+                            onChange={(e) => updateItemDiscount(item.id, item.discountType || 'percentage', Number(e.target.value))}
+                            className="w-16 px-1.5 py-0.5 bg-white border border-amber-300 rounded text-xs font-bold text-right outline-none text-slate-800"
+                          />
+                          <span className="text-[10px] text-amber-800 font-bold">
+                            {item.discountType === 'percentage' || !item.discountType ? '%' : '$'}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-1">
+                          {[5, 10, 15, 20].map((pct) => (
+                            <button
+                              key={pct}
+                              type="button"
+                              onClick={() => updateItemDiscount(item.id, 'percentage', pct)}
+                              className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold border transition-colors cursor-pointer ${
+                                (item.discountType === 'percentage' || !item.discountType) && item.discountValue === pct
+                                  ? 'bg-amber-500 text-white border-amber-600'
+                                  : 'bg-white text-slate-600 border-amber-200 hover:bg-amber-100'
+                              }`}
+                            >
+                              {pct}%
+                            </button>
+                          ))}
+                          {Boolean(item.discountValue || (item.basePrice && item.basePrice > item.customPrice)) && (
+                            <button
+                              type="button"
+                              onClick={() => updateItemDiscount(item.id, 'percentage', 0)}
+                              className="px-1.5 py-0.5 rounded text-[9.5px] font-bold text-rose-600 hover:bg-rose-50 border border-rose-200 cursor-pointer"
+                              title="Quitar descuento y volver a precio de lista"
+                            >
+                              Quitar
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ))}
 
@@ -1298,25 +1627,53 @@ export default function PresupuestosPage() {
                 {discountItems.map(item => (
                   <div 
                     key={item.id} 
-                    className="bg-amber-50/40 border border-amber-200/80 rounded-xl p-2.5 shadow-xs transition-all relative flex items-center justify-between gap-2 animate-in fade-in zoom-in-95 duration-150"
+                    className="bg-amber-50/60 border border-amber-300 rounded-xl p-2.5 shadow-xs transition-all relative flex flex-col sm:flex-row sm:items-center justify-between gap-2 animate-in fade-in zoom-in-95 duration-150"
                   >
                     <div className="flex items-center gap-2 min-w-0 flex-1">
-                      <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded border border-amber-200 shrink-0">
-                        <Tag className="w-3 h-3 text-amber-600" /> Descuento
+                      <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 bg-amber-200 text-amber-900 rounded border border-amber-300 shrink-0">
+                        <Tag className="w-3 h-3 text-amber-700" /> Descuento
                       </span>
                       <p className="font-bold text-slate-800 text-xs truncate">
                         {item.name}
                       </p>
                     </div>
 
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span className="font-black text-xs text-amber-700 bg-amber-100/60 px-2 py-1 rounded-lg border border-amber-200/60">
-                        -{formatPrice(Math.abs(item.customPrice * item.quantity))}
-                      </span>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {/* Botón rápido 15% (calcula 15% del total de productos) */}
+                      {itemsGrossSubtotal > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const disc15 = Math.round(itemsGrossSubtotal * 0.15);
+                            updateCustomPrice(item.id, -disc15);
+                          }}
+                          className="px-1.5 py-1 bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 rounded text-[10px] font-black cursor-pointer transition-all"
+                          title="Calcular 15% del total de productos"
+                        >
+                          15%
+                        </button>
+                      )}
+
+                      {/* Input editable de monto de descuento */}
+                      <div className="flex items-center bg-white border border-amber-400 rounded-lg px-2 h-7 shadow-2xs">
+                        <span className="text-[10px] font-black text-amber-600 mr-0.5">-$</span>
+                        <input 
+                          type="number" 
+                          value={Math.abs(item.customPrice) === 0 ? "" : Math.abs(item.customPrice)}
+                          onChange={(e) => {
+                            const val = Math.abs(Number(e.target.value));
+                            updateCustomPrice(item.id, -val);
+                          }}
+                          placeholder="Monto..."
+                          className="w-22 text-xs font-black text-right outline-none bg-transparent text-amber-900"
+                          title="Ingresá el monto de descuento"
+                        />
+                      </div>
+
                       <button 
                         type="button"
                         onClick={() => removeItem(item.id)}
-                        className="text-slate-400 hover:text-red-500 p-1 rounded hover:bg-red-50 transition-colors"
+                        className="text-slate-400 hover:text-red-500 p-1 rounded hover:bg-red-50 transition-colors cursor-pointer"
                         title="Quitar bonificación"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -1328,11 +1685,116 @@ export default function PresupuestosPage() {
             )}
           </div>
 
-          <div className="border-t border-slate-100 pt-4 space-y-2 mb-4">
-            <div className="flex justify-between text-xs font-medium text-slate-500">
-              <span>Subtotal Productos</span>
-              <span>{formatPrice(subtotal)}</span>
+          <div className="border-t border-slate-100 pt-4 space-y-2.5 mb-4">
+            {/* Si hay descuentos por producto / combo */}
+            {hasAnyItemDiscount && (
+              <>
+                <div className="flex justify-between text-xs font-medium text-slate-400">
+                  <span>Precio de Lista:</span>
+                  <span className="line-through">{formatPrice(totalListPrice)}</span>
+                </div>
+                <div className="flex justify-between text-xs font-bold text-amber-800 bg-amber-50/90 px-2.5 py-1.5 rounded-lg border border-amber-200">
+                  <span className="flex items-center gap-1">
+                    <Tag className="w-3.5 h-3.5 text-amber-600" /> Descuento Productos / Combo:
+                  </span>
+                  <span>-{formatPrice(totalItemDiscountAmount)}</span>
+                </div>
+              </>
+            )}
+
+            <div className="flex justify-between text-xs font-medium text-slate-700">
+              <span>{orderDiscountAmount > 0 ? "Subtotal Neto:" : "Subtotal Productos:"}</span>
+              <span className="font-bold">{formatPrice(itemsGrossSubtotal)}</span>
             </div>
+
+            {/* Descuento global al total del presupuesto */}
+            <div className="flex flex-col gap-2 p-2.5 bg-slate-50 rounded-xl border border-slate-200">
+              <div className="flex items-center justify-between">
+                <span className="text-[9.5px] font-black text-slate-700 uppercase tracking-wide flex items-center gap-1">
+                  <Tag className="w-3.5 h-3.5 text-amber-600" /> Descuento al Total del Presupuesto
+                </span>
+                {orderDiscountAmount > 0 && (
+                  <span className="text-[10.5px] font-black text-amber-700 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-md">
+                    -{formatPrice(orderDiscountAmount)}
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <div className="flex items-center bg-white border border-slate-200 rounded-lg overflow-hidden text-xs shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setOrderDiscountType('percentage')}
+                    className={`px-2.5 py-1.5 font-black cursor-pointer transition-colors ${
+                      orderDiscountType === 'percentage' ? 'bg-amber-500 text-white' : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    %
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOrderDiscountType('fixed')}
+                    className={`px-2.5 py-1.5 font-black cursor-pointer transition-colors ${
+                      orderDiscountType === 'fixed' ? 'bg-amber-500 text-white' : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    $
+                  </button>
+                </div>
+
+                <div className="relative flex-1">
+                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">
+                    {orderDiscountType === 'percentage' ? '%' : '$'}
+                  </span>
+                  <input
+                    type="number"
+                    value={orderDiscountValue === 0 ? "" : orderDiscountValue}
+                    onChange={(e) => setOrderDiscountValue(Math.max(0, Number(e.target.value)))}
+                    placeholder={orderDiscountType === 'percentage' ? "Ej: 10 para 10%" : "Ej: 15000"}
+                    className="w-full pl-6 pr-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500"
+                  />
+                </div>
+
+                {orderDiscountValue > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setOrderDiscountValue(0)}
+                    className="text-xs font-bold text-slate-400 hover:text-red-500 px-1.5 py-1 rounded transition-colors cursor-pointer"
+                    title="Quitar descuento"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-1.5 pt-0.5">
+                <span className="text-[9px] font-bold text-slate-400 uppercase">Rápido:</span>
+                {[5, 10, 15, 20].map((pct) => (
+                  <button
+                    key={pct}
+                    type="button"
+                    onClick={() => {
+                      setOrderDiscountType('percentage');
+                      setOrderDiscountValue(pct);
+                    }}
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-colors cursor-pointer ${
+                      orderDiscountType === 'percentage' && orderDiscountValue === pct
+                        ? 'bg-amber-500 text-white border-amber-600'
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-amber-50 hover:border-amber-300'
+                    }`}
+                  >
+                    {pct}%
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {orderDiscountAmount > 0 && (
+              <div className="flex justify-between text-xs font-bold text-amber-700 bg-amber-50 px-2.5 py-1.5 rounded-lg border border-amber-200">
+                <span>Descuento Presupuesto ({orderDiscountType === 'percentage' ? `${orderDiscountValue}%` : 'Monto Fijo'}):</span>
+                <span>-{formatPrice(orderDiscountAmount)}</span>
+              </div>
+            )}
             
             <div className="flex justify-between items-center text-xs font-medium text-slate-500">
               <label className="flex items-center gap-1.5 cursor-pointer">

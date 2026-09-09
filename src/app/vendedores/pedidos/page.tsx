@@ -1371,6 +1371,8 @@ export default function PedidosPage() {
           if (data.paymentType) setPaymentType(data.paymentType);
           if (data.cardInstallments) setCardInstallments(data.cardInstallments);
           if (data.cardSurcharge) setCardSurcharge(data.cardSurcharge);
+          if (data.orderDiscountType) setOrderDiscountType(data.orderDiscountType);
+          if (data.orderDiscountValue !== undefined) setOrderDiscountValue(data.orderDiscountValue);
           
           sessionStorage.removeItem("preloaded_budget");
           setActiveTab('form');
