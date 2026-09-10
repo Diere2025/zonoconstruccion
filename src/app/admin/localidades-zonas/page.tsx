@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 
-export const getZoneClassForValue = (val?: string | null) => {
+const getZoneClassForValue = (val?: string | null) => {
   switch (val) {
     case 'emerald': return 'bg-emerald-600 text-white border-emerald-700';
     case 'blue': return 'bg-blue-600 text-white border-blue-700';
@@ -35,7 +35,7 @@ export const getZoneClassForValue = (val?: string | null) => {
   }
 };
 
-export const ZONE_COLORS = [
+const ZONE_COLORS = [
   { name: 'Esmeralda (Verde)', value: 'emerald' },
   { name: 'Azul', value: 'blue' },
   { name: 'Gris', value: 'slate' },

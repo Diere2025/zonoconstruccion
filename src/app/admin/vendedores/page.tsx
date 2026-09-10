@@ -58,7 +58,7 @@ interface Seller {
   } | null;
 }
 
-export const AVAILABLE_ROLES = [
+const AVAILABLE_ROLES = [
   { id: "seller", label: "Vendedor", badgeColor: "bg-emerald-50 text-emerald-700 border-emerald-200" },
   { id: "admin", label: "Administrador", badgeColor: "bg-purple-50 text-purple-700 border-purple-200" },
   { id: "logistica", label: "Logística", badgeColor: "bg-cyan-50 text-cyan-700 border-cyan-200" },

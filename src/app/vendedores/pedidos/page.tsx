@@ -70,7 +70,7 @@ interface AdvertisingSource {
   is_active: boolean;
 }
 
-export const ALLOWED_ADVERTISING_SOURCES = [
+const ALLOWED_ADVERTISING_SOURCES = [
   "Meta - Tanques Aquafort",
   "Meta - Termotanques Universal",
   "Meta - Termotanques Cooper",
@@ -79,7 +79,7 @@ export const ALLOWED_ADVERTISING_SOURCES = [
   "Orgánico / Cliente Habitual / Recomendado"
 ];
 
-export const DEFAULT_ADVERTISING_SOURCES: AdvertisingSource[] = [
+const DEFAULT_ADVERTISING_SOURCES: AdvertisingSource[] = [
   { id: "a4df04ca-29aa-4328-b2ec-a35a53a5caeb", name: "Meta - Tanques Aquafort", is_active: true },
   { id: "afb44df7-4252-4a06-8581-6d2002fb67be", name: "Meta - Termotanques Universal", is_active: true },
   { id: "6a07b438-0b85-48d8-ad80-a8e567683f66", name: "Meta - Termotanques Cooper", is_active: true },
@@ -88,7 +88,7 @@ export const DEFAULT_ADVERTISING_SOURCES: AdvertisingSource[] = [
   { id: "71b1f7f7-0bc5-4ed4-9ebd-5b9383f00571", name: "Orgánico / Cliente Habitual / Recomendado", is_active: true }
 ];
 
-export const ALLOWED_ORDER_MEDIUMS = [
+const ALLOWED_ORDER_MEDIUMS = [
   "Whaticket",
   "WhatsApp",
   "Llamado",
