@@ -4,10 +4,11 @@ import React, { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { Product, PaymentMethod } from "@/types";
-import { Search, Plus, Trash2, Copy, Check, Calculator, ArrowRight, Save, Package, Globe, Edit2, ShoppingBag, Download, ChevronDown, ChevronUp, Layers, Tag, Percent, Sparkles } from "lucide-react";
+import { Search, Plus, Trash2, Copy, Check, Calculator, ArrowRight, Save, Package, Globe, Edit2, ShoppingBag, Download, ChevronDown, ChevronUp, Layers, Tag, Percent, Sparkles, Printer, FileText, Image as ImageIcon } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { cn, formatPrice } from "@/lib/utils";
 import InlineVisualProductSelector from "@/components/vendedores/InlineVisualProductSelector";
+import PrintableBudgetModal from "@/components/vendedores/PrintableBudgetModal";
 import { evaluateDiscountSuggestions, DiscountSuggestion } from "@/lib/discountRules";
 import { parseWhatsAppBudget, matchParsedItemsToProducts, parsePrice } from "@/lib/whatsappBudgetParser";
 
@@ -160,6 +161,13 @@ export default function PresupuestosPage() {
   const [showImportModal, setShowImportModal] = useState(false);
   const [importText, setImportText] = useState("");
 
+  // Printable and Export Modal States
+  const [clientName, setClientName] = useState<string>("");
+  const [clientPhone, setClientPhone] = useState<string>("");
+  const [sellerName, setSellerName] = useState<string>("Asesor Comercial Zono");
+  const [budgetNumber, setBudgetNumber] = useState<string>(() => `ZC-${Math.floor(100000 + Math.random() * 900000)}`);
+  const [showPrintModal, setShowPrintModal] = useState<boolean>(false);
+
   useEffect(() => {
     async function loadInitialData() {
       try {
@@ -171,7 +179,7 @@ export default function PresupuestosPage() {
         // Cargar productos, rol de vendedor y kits en paralelo
         const [productsRes, sellerRes, kitsRes] = await Promise.all([
           supabase.from("products").select("*").eq("is_active", true).order("name"),
-          supabase.from('sellers').select('role').eq('id', userId).single(),
+          supabase.from('sellers').select('role, full_name').eq('id', userId).single(),
           supabase.from('kits').select(`
             *,
             kit_items (
@@ -202,6 +210,9 @@ export default function PresupuestosPage() {
         
         const isUserAdmin = sellerRes.data?.role === 'admin';
         setIsAdmin(isUserAdmin);
+        if (sellerRes.data?.full_name) {
+          setSellerName(sellerRes.data.full_name);
+        }
 
         if (kitsRes.data) {
           const mappedKits: Kit[] = kitsRes.data.map((k: any) => ({
@@ -1702,36 +1713,62 @@ export default function PresupuestosPage() {
               </div>
             )}
             
-            <div className="mt-3 space-y-1">
-              <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Aclaraciones / Detalle del Combo</label>
-              <textarea 
-                value={kitDetailText}
-                onChange={(e) => setKitDetailText(e.target.value)}
-                placeholder="Ej. Con 15% de descuento aplicado en el total."
-                className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 focus:ring-2 focus:ring-brand-500/10 bg-slate-50 text-xs font-bold outline-none resize-none h-14"
-              />
+            <div className="mt-3 space-y-2 pt-2 border-t border-slate-100">
+              <div className="space-y-1">
+                <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Nombre del Cliente (Opcional)</label>
+                <input 
+                  type="text" 
+                  value={clientName}
+                  onChange={(e) => setClientName(e.target.value)}
+                  placeholder="Ej. Juan Pérez"
+                  className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 focus:ring-2 focus:ring-brand-500/10 bg-slate-50 text-xs font-bold outline-none"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Aclaraciones / Detalle del Combo</label>
+                <textarea 
+                  value={kitDetailText}
+                  onChange={(e) => setKitDetailText(e.target.value)}
+                  placeholder="Ej. Con 15% de descuento aplicado en el total."
+                  className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 focus:ring-2 focus:ring-brand-500/10 bg-slate-50 text-xs font-bold outline-none resize-none h-14"
+                />
+              </div>
             </div>
           </div>
 
-          <Button 
-            onClick={handleCopy} 
-            disabled={quoteItems.length === 0}
-            className="w-full py-2.5 rounded-xl text-xs font-black flex items-center justify-center gap-1.5"
-          >
-            {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-            {copied ? "¡Copiado al portapapeles!" : "Copiar Resumen para WhatsApp"}
-          </Button>
+          <div className="space-y-2 mt-3">
+            <Button 
+              onClick={handleCopy} 
+              disabled={quoteItems.length === 0}
+              className="w-full py-2.5 rounded-xl text-xs font-black flex items-center justify-center gap-1.5"
+            >
+              {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+              {copied ? "¡Copiado al portapapeles!" : "Copiar Resumen para WhatsApp"}
+            </Button>
 
-          {quoteItems.length > 0 && (
             <button 
               type="button"
-              onClick={handleConvertToOrder}
-              className="w-full mt-2 py-2.5 px-4 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all shadow-sm"
+              onClick={() => setShowPrintModal(true)}
+              disabled={quoteItems.length === 0}
+              className="w-full py-2.5 px-4 bg-slate-800 hover:bg-slate-900 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-xs font-black flex items-center justify-center gap-2 transition-all shadow-sm cursor-pointer"
+              title="Abrir vista previa para descargar PDF, guardar o copiar imagen o imprimir"
             >
-              <ShoppingBag className="w-3.5 h-3.5" />
-              Crear Pedido con este Presupuesto
+              <FileText className="w-4 h-4 text-blue-400" />
+              <span>Imprimir / Exportar a PDF o Imagen</span>
             </button>
-          )}
+
+            {quoteItems.length > 0 && (
+              <button 
+                type="button"
+                onClick={handleConvertToOrder}
+                className="w-full py-2.5 px-4 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all shadow-sm"
+              >
+                <ShoppingBag className="w-3.5 h-3.5" />
+                Crear Pedido con este Presupuesto
+              </button>
+            )}
+          </div>
           
           {quoteItems.length > 0 && (
              <div className="mt-3 p-3 bg-slate-900 rounded-lg">
@@ -1880,13 +1917,45 @@ export default function PresupuestosPage() {
                >
                  Cancelar
                </button>
-               <Button onClick={handleImportFromText} className="px-4 py-1.5 rounded-lg font-black text-xs">
-                 Importar Presupuesto
-               </Button>
-            </div>
+                <Button onClick={handleImportFromText} className="px-4 py-1.5 rounded-lg font-black text-xs">
+                  Importar Presupuesto
+                </Button>
+             </div>
           </div>
         </div>
       )}
+
+      {/* Modal Imprimir / Exportar Presupuesto */}
+      <PrintableBudgetModal
+        isOpen={showPrintModal}
+        onClose={() => setShowPrintModal(false)}
+        quoteItems={quoteItems}
+        clientName={clientName}
+        setClientName={setClientName}
+        clientPhone={clientPhone}
+        setClientPhone={setClientPhone}
+        sellerName={sellerName}
+        setSellerName={setSellerName}
+        budgetNumber={budgetNumber}
+        orderDiscountType={orderDiscountType}
+        orderDiscountValue={orderDiscountValue}
+        orderDiscountAmount={orderDiscountAmount}
+        itemsGrossSubtotal={itemsGrossSubtotal}
+        subtotal={subtotal}
+        isFreeShipping={isFreeShipping}
+        shippingCost={shippingCost}
+        selectedPaymentMethod={selectedPaymentMethod}
+        surcharge={surcharge}
+        includeIVA={includeIVA}
+        ivaAmount={ivaAmount}
+        total={total}
+        installmentValue={installmentValue}
+        totalSavings={totalSavings}
+        hasAnyItemDiscount={hasAnyItemDiscount}
+        totalItemDiscountAmount={totalItemDiscountAmount}
+        totalListPrice={totalListPrice}
+        kitDetailText={kitDetailText}
+      />
     </div>
   );
 }
