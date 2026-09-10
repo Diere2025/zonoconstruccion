@@ -1,10 +1,15 @@
 import { NextResponse } from 'next/server';
 import { fetchSpreadsheetValues } from '@/lib/googleSheets';
+import { createClient } from '@supabase/supabase-js';
 
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 
 const SPREADSHEET_ID = '1YFJcTYKjoP7uE1_LxKPNIC-7esxRY-1qn5y-4NKoaa0';
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
+const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 
 interface CachedData {
   timestamp: number;
@@ -60,6 +65,69 @@ export async function GET(request: Request) {
         dayHeaders.push(h);
         dayColIndices.push(c);
       }
+    }
+
+    // Parse target month and year from dayHeaders (e.g. "1/9" -> month 9)
+    let targetMonth = new Date().getMonth() + 1;
+    let targetYear = new Date().getFullYear();
+    for (const dh of dayHeaders) {
+      const match = dh.match(/^(\d+)\/(\d+)$/);
+      if (match) {
+        targetMonth = parseInt(match[2], 10);
+        break;
+      }
+    }
+    const lastDayOfMonth = new Date(targetYear, targetMonth, 0).getDate();
+    const startIso = `${targetYear}-${String(targetMonth).padStart(2, '0')}-01`;
+    const endIso = `${targetYear}-${String(targetMonth).padStart(2, '0')}-${String(lastDayOfMonth).padStart(2, '0')}T23:59:59`;
+
+    // Query orders and payment methods from Supabase for card surcharges
+    let surchargesByOrderDate: Record<string, number> = {};
+    let surchargesByDeliveryDate: Record<string, number> = {};
+
+    try {
+      const [ordersRes, pmsRes] = await Promise.all([
+        supabaseAdmin
+          .from('orders')
+          .select('id, legacy_code, payment_method_id, total_amount, totals, order_date, initial_delivery_date, status')
+          .gte('order_date', startIso)
+          .lte('order_date', endIso)
+          .neq('status', 'Cancelado')
+          .limit(3000),
+        supabaseAdmin
+          .from('payment_methods')
+          .select('id, name, surcharge_percentage')
+      ]);
+
+      const orders = ordersRes.data || [];
+      const pms = pmsRes.data || [];
+      const pmMap = new Map(pms.map((p: any) => [p.id, p]));
+
+      orders.forEach((o: any) => {
+        let sur = Number(o.totals?.payment_surcharges) || 0;
+        const pm = pmMap.get(o.payment_method_id);
+        const pmPct = Number(pm?.surcharge_percentage) || 0;
+        const tot = Number(o.total_amount) || 0;
+
+        if (sur <= 0 && pmPct > 0 && tot > 0) {
+          sur = Math.round(tot - (tot / (1 + pmPct / 100)));
+        }
+
+        if (sur > 0) {
+          if (o.order_date) {
+            const [y, m, d] = o.order_date.split('T')[0].split('-');
+            const k = `${parseInt(d)}/${parseInt(m)}`;
+            surchargesByOrderDate[k] = (surchargesByOrderDate[k] || 0) + sur;
+          }
+          if (o.initial_delivery_date) {
+            const [y, m, d] = o.initial_delivery_date.split('T')[0].split('-');
+            const k = `${parseInt(d)}/${parseInt(m)}`;
+            surchargesByDeliveryDate[k] = (surchargesByDeliveryDate[k] || 0) + sur;
+          }
+        }
+      });
+    } catch (dbErr) {
+      console.error('[API EERR] Error querying Supabase surcharges:', dbErr);
     }
 
     // Map rows by concept name
@@ -214,9 +282,53 @@ export async function GET(request: Request) {
       });
     }
 
+    // Surcharge calculations
+    const recargoRow = findRow('recargo tarjeta') || findRow('recargo por tarjeta') || findRow('recargo cliente') || findRow('recargo');
+    const hasSheetRecargo = recargoRow.length > 0 && dayColIndices.some(col => parseMoney(recargoRow[col]) > 0);
+
+    const dailyRecargosCliente = dayHeaders.map((dh, idx) =>
+      hasSheetRecargo ? parseMoney(recargoRow[dayColIndices[idx]]) : (surchargesByOrderDate[dh] || 0)
+    );
+    const totalRecargoCliente = dailyRecargosCliente.reduce((acc, v) => acc + v, 0);
+
+    const dailyRecargosDelivery = dayHeaders.map(dh => surchargesByDeliveryDate[dh] || 0);
+    const totalRecargoDelivery = dailyRecargosDelivery.reduce((acc, v) => acc + v, 0);
+
     // STRUCTURED & LOGICAL GROUPS
     // 1. Ingresos
-    const rowFacturacion = createRow(facturacionRow);
+    const rowFacturacion = createRow(facturacionRow, 'Facturación Total');
+
+    // Venta Base (sin recargo)
+    const totalVentaBase = Math.max(0, totalFacturacion - totalRecargoCliente);
+    const dailyVentaBase = dayColIndices.map((col, idx) => {
+      const dayFact = parseMoney(facturacionRow[col]);
+      const daySur = dailyRecargosCliente[idx] || 0;
+      return Math.max(0, dayFact - daySur);
+    });
+
+    const rowVentaBase = {
+      concept: 'Venta de Mercadería (Base sin recargos)',
+      pctTot: totalFacturacion > 0 ? `${((totalVentaBase / totalFacturacion) * 100).toFixed(1)}%` : '-',
+      ingresos: totalVentaBase,
+      egresos: 0,
+      pctUnit: '',
+      total: totalVentaBase,
+      dailyValues: dailyVentaBase,
+      tag: 'base'
+    };
+
+    const rowRecargoCliente = {
+      concept: 'Recargo por Tarjeta (Abonado por Clientes)',
+      pctTot: totalFacturacion > 0 ? `${((totalRecargoCliente / totalFacturacion) * 100).toFixed(1)}%` : '-',
+      ingresos: totalRecargoCliente,
+      egresos: 0,
+      pctUnit: '',
+      total: totalRecargoCliente,
+      dailyValues: dailyRecargosCliente,
+      tag: 'surcharge'
+    };
+
+    const ingresosRows = [rowFacturacion, rowVentaBase, rowRecargoCliente].filter(Boolean);
 
     // 2. Costos Directos & Mercadería (CMV, Insumo de Producto, Insumo GLP)
     const rowCmv = createRow(costoMercaderiaRow);
@@ -267,12 +379,42 @@ export async function GET(request: Request) {
     };
 
     // 7. Impuestos, Gravámenes y Costos de Cobranza (MercadoPago, IVA, IIBB)
-    const rowMp = createRow(mpRow);
+    const rowMp = createRow(mpRow, 'Costos MercadoPago (Bruto)');
     const rowImpuestos = createRow(impuestosRow);
-    const taxRows = [rowMp, rowImpuestos].filter(Boolean);
+
+    const netAbsorbedMp = Math.max(0, totalMp - totalRecargoCliente);
+    const dailyNetAbsorbedMp = dayColIndices.map((col, idx) => {
+      const dayMp = parseMoney(mpRow[col]);
+      const daySur = dailyRecargosCliente[idx] || 0;
+      return Math.max(0, dayMp - daySur);
+    });
+
+    const rowRecuperoMp = {
+      concept: '(-) Recargos Cobrados a Clientes (Recupero)',
+      pctTot: totalFacturacion > 0 ? `${((totalRecargoCliente / totalFacturacion) * 100).toFixed(2)}%` : '-',
+      ingresos: 0,
+      egresos: totalRecargoCliente,
+      pctUnit: '',
+      total: totalRecargoCliente,
+      dailyValues: dailyRecargosCliente,
+      tag: 'recupero'
+    };
+
+    const rowMpNeto = {
+      concept: 'Costo MercadoPago Neto (Absorbido por Zono)',
+      pctTot: totalFacturacion > 0 ? `${((netAbsorbedMp / totalFacturacion) * 100).toFixed(2)}%` : '-',
+      ingresos: 0,
+      egresos: netAbsorbedMp,
+      pctUnit: '',
+      total: netAbsorbedMp,
+      dailyValues: dailyNetAbsorbedMp,
+      tag: 'net_absorbed'
+    };
+
+    const taxRows = [rowMp, rowRecuperoMp, rowMpNeto, rowImpuestos].filter(Boolean);
     const subtotalTax = {
-      total: taxRows.reduce((acc, r) => acc + (r?.total || 0), 0),
-      dailyValues: sumDaily(taxRows)
+      total: (rowMp?.total || 0) + (rowImpuestos?.total || 0),
+      dailyValues: sumDaily([rowMp, rowImpuestos])
     };
 
     // 8. Resultados
@@ -310,13 +452,13 @@ export async function GET(request: Request) {
       {
         id: 'ingresos',
         title: '1. Ingresos Operativos',
-        badge: 'Facturación',
+        badge: 'Facturación y Recargos',
         color: '#4f46e5', // indigo
         subtotal: {
           total: totalFacturacion,
           dailyValues: rowFacturacion ? rowFacturacion.dailyValues : []
         },
-        rows: [rowFacturacion].filter(Boolean)
+        rows: ingresosRows
       },
       {
         id: 'costos_directos',
@@ -379,6 +521,52 @@ export async function GET(request: Request) {
       }
     ];
 
+    const coveragePercentage = totalMp > 0 ? Math.min(100, Number(((totalRecargoCliente / totalMp) * 100).toFixed(1))) : 0;
+    const absorbedPercentage = totalMp > 0 ? Number(((netAbsorbedMp / totalMp) * 100).toFixed(1)) : 0;
+
+    const buildAnalysisTimeline = (dailySurcharges: number[]) => {
+      return dayHeaders.map((dh, idx) => {
+        const col = dayColIndices[idx];
+        const mpCost = parseMoney(mpRow[col]);
+        const clientSurcharge = dailySurcharges[idx] || 0;
+        const netAbsorbed = Math.max(0, mpCost - clientSurcharge);
+        const difference = clientSurcharge - mpCost;
+        const coveragePct = mpCost > 0 ? Number(((clientSurcharge / mpCost) * 100).toFixed(1)) : (clientSurcharge > 0 ? 100 : 0);
+        let status: 'cubierto' | 'absorbido' | 'sin_costo' = 'sin_costo';
+        if (mpCost > 0) {
+          status = clientSurcharge >= mpCost ? 'cubierto' : 'absorbido';
+        } else if (clientSurcharge > 0) {
+          status = 'cubierto';
+        }
+        return {
+          day: dh,
+          mpCost,
+          clientSurcharge,
+          netAbsorbed,
+          difference,
+          coveragePct,
+          status
+        };
+      });
+    };
+
+    const cardSurchargeAnalysis = {
+      totalMp,
+      totalSurcharge: totalRecargoCliente,
+      netAbsorbed: netAbsorbedMp,
+      coveragePercentage,
+      absorbedPercentage,
+      criteria: 'order_date',
+      source: hasSheetRecargo ? 'Google Sheets' : 'Supabase Orders',
+      dailyTimeline: buildAnalysisTimeline(dailyRecargosCliente),
+      byDeliveryDate: {
+        totalSurcharge: totalRecargoDelivery,
+        netAbsorbed: Math.max(0, totalMp - totalRecargoDelivery),
+        coveragePercentage: totalMp > 0 ? Math.min(100, Number(((totalRecargoDelivery / totalMp) * 100).toFixed(1))) : 0,
+        dailyTimeline: buildAnalysisTimeline(dailyRecargosDelivery)
+      }
+    };
+
     const result = {
       success: true,
       lastUpdated: new Date().toISOString(),
@@ -396,6 +584,10 @@ export async function GET(request: Request) {
         pctFlete: Number(pctFlete.toFixed(2)),
         totalSueldos,
         totalMp,
+        totalSurcharge: totalRecargoCliente,
+        netAbsorbedMp,
+        pctMpCovered: coveragePercentage,
+        pctMpAbsorbed: absorbedPercentage,
         utilidadNetaActual,
         pctUtilidadActual: totalFacturacion > 0 ? Number(((utilidadNetaActual / totalFacturacion) * 100).toFixed(2)) : 0,
         utilidadNetaProyectada,
@@ -404,6 +596,7 @@ export async function GET(request: Request) {
       },
       expensesByCategory,
       dailyTimeline,
+      cardSurchargeAnalysis,
       matrix: {
         days: dayHeaders,
         groups
