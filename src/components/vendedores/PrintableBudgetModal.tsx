@@ -16,7 +16,7 @@ import {
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 import { formatPrice } from "@/lib/utils";
-import { isDiscountItem } from "@/app/vendedores/presupuestos/page";
+import { isDiscountItem } from "@/lib/whatsappBudgetParser";
 
 interface QuoteItem {
   id: string;

@@ -276,7 +276,8 @@ export interface AccountReconciliation {
   appNet: number;
 }
 
-export const INITIAL_BALANCES_2026: Record<string, number> = {
+// Saldos iniciales consolidados al 01/01/2026
+const INITIAL_BALANCES_2026: Record<string, number> = {
   'Caja Efectivo Pesos': 6917524,
   'Cuenta MP1': 894163,
   'Cuenta MP2': 673945,

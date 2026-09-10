@@ -10,14 +10,7 @@ import { cn, formatPrice } from "@/lib/utils";
 import InlineVisualProductSelector from "@/components/vendedores/InlineVisualProductSelector";
 import PrintableBudgetModal from "@/components/vendedores/PrintableBudgetModal";
 import { evaluateDiscountSuggestions, DiscountSuggestion } from "@/lib/discountRules";
-import { parseWhatsAppBudget, matchParsedItemsToProducts, parsePrice } from "@/lib/whatsappBudgetParser";
-
-export const isDiscountItem = (item: { name?: string; sku?: string }) => {
-  if (!item) return false;
-  const name = (item.name || "").toLowerCase();
-  const sku = (item.sku || "").toLowerCase();
-  return name.includes("descuento") || sku.includes("descuento") || name.includes("bonificaci") || sku.includes("bonificaci");
-};
+import { parseWhatsAppBudget, matchParsedItemsToProducts, parsePrice, isDiscountItem } from "@/lib/whatsappBudgetParser";
 
 interface QuoteItem extends Product {
   quantity: number;

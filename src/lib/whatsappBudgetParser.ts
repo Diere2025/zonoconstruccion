@@ -81,6 +81,13 @@ export const isDiscountItemText = (nameOrLine: string): boolean => {
   );
 };
 
+export const isDiscountItem = (item: { name?: string; sku?: string }): boolean => {
+  if (!item) return false;
+  const name = (item.name || "").toLowerCase();
+  const sku = (item.sku || "").toLowerCase();
+  return name.includes("descuento") || sku.includes("descuento") || name.includes("bonificaci") || sku.includes("bonificaci");
+};
+
 /**
  * Parsea un texto de presupuesto de WhatsApp en formato actual o anterior.
  */
