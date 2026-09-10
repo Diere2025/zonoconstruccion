@@ -34,11 +34,6 @@ const SELLER_SHEET_CONFIG: Record<string, { spreadsheetId: string; sheetName: st
     enabled: true
   },
   // Facundo Paz
-  '54b9ce55-7354-4b39-9886-314aa79f6aa6': {
-    spreadsheetId: '1c0iswWt2GAv8NhXfNgIlaOul9wanpZHaeMFeN2Pr0ns',
-    sheetName: 'Pendientes',
-    enabled: true
-  },
   '3820a0fe-bb0a-4a84-ad85-79e49868cad7': {
     spreadsheetId: '1c0iswWt2GAv8NhXfNgIlaOul9wanpZHaeMFeN2Pr0ns',
     sheetName: 'Pendientes',

@@ -68,69 +68,80 @@ export async function GET(request: Request) {
     if (action === 'transactions') {
       const endDate = searchParams.get('endDate') || new Date().toISOString().split('T')[0];
       const startDate = searchParams.get('startDate') || '';
+      const startIso = startDate ? `${startDate}T00:00:00.000Z` : '';
+      const endIso = `${endDate}T23:59:59.999Z`;
 
-      let allData: any[] = [];
-      let page = 0;
-      const pageSize = 1000;
-      let hasMore = true;
+      const accountBalances: Record<string, number> = {};
 
-      while (hasMore) {
-        const { data, error } = await supabaseAdmin
-          .from('cash_transactions')
-          .select(`
-            *,
-            financial_accounts(name, type),
-            cost_centers(name, code),
-            employees(full_name),
-            route_sheets!cash_transactions_route_sheet_id_fkey(
-              id,
-              delivery_date,
-              run_number,
-              carriers(name)
-            ),
-            client_payments(
-              id,
-              order_id,
-              amount,
-              orders(
-                id,
-                legacy_code,
-                customer_name
-              )
-            ),
-            supplier_payments(
-              id,
-              purchase_id,
-              amount,
-              supplier_purchases(
-                id,
-                invoice_number
-              ),
-              suppliers(
-                id,
-                name
-              )
-            )
-          `)
-          .lte('created_at', `${endDate}T23:59:59.999Z`)
-          .order('created_at', { ascending: true })
-          .range(page * pageSize, (page + 1) * pageSize - 1);
-
-        if (error) throw error;
-        if (data && data.length > 0) {
-          allData = [...allData, ...data];
-          if (data.length < pageSize) {
-            hasMore = false;
-          } else {
-            page++;
+      // 1. If startDate is provided, get exact initial balance of each account prior to startDate via optimized RPC
+      if (startIso) {
+        try {
+          const { data: priorBalances, error: rpcErr } = await supabaseAdmin
+            .rpc('get_account_balances_prior_to', { cutoff_date: startIso });
+          if (!rpcErr && Array.isArray(priorBalances)) {
+            priorBalances.forEach((r: any) => {
+              accountBalances[r.account_id] = Number(r.balance) || 0;
+            });
           }
-        } else {
-          hasMore = false;
+        } catch (e) {
+          console.error("Error fetching prior balances:", e);
         }
       }
 
-      // Compute running balance
-      const accountBalances: Record<string, number> = {};
+      // 2. Query transactions directly filtered by date range on the database
+      let query = supabaseAdmin
+        .from('cash_transactions')
+        .select(`
+          *,
+          financial_accounts(name, type),
+          cost_centers(name, code),
+          employees(full_name),
+          route_sheets!cash_transactions_route_sheet_id_fkey(
+            id,
+            delivery_date,
+            run_number,
+            carriers(name)
+          ),
+          client_payments(
+            id,
+            order_id,
+            amount,
+            orders(
+              id,
+              legacy_code,
+              customer_name
+            )
+          ),
+          supplier_payments(
+            id,
+            purchase_id,
+            amount,
+            supplier_purchases(
+              id,
+              invoice_number
+            ),
+            suppliers(
+              id,
+              name
+            )
+          )
+        `)
+        .lte('created_at', endIso)
+        .order('created_at', { ascending: true });
+
+      if (startIso) {
+        query = query.gte('created_at', startIso);
+      }
+
+      // Limit to 3000 rows to prevent edge timeout
+      query = query.limit(3000);
+
+      const { data, error } = await query;
+      if (error) throw error;
+
+      const allData = data || [];
+
+      // 3. Compute running balance
       const txsWithRunningBalance = allData.map(t => {
         const accId = t.financial_account_id || 'cash_register';
         const amt = Number(t.amount) || 0;
@@ -148,17 +159,10 @@ export async function GET(request: Request) {
         };
       });
 
-      // Filter by startDate on server if provided
-      let result = txsWithRunningBalance;
-      if (startDate) {
-        const startLimit = new Date(`${startDate}T00:00:00.000Z`).getTime();
-        result = result.filter(t => new Date(t.created_at).getTime() >= startLimit);
-      }
-
       // Reverse to display newest first
-      result.reverse();
+      txsWithRunningBalance.reverse();
 
-      return NextResponse.json({ transactions: result });
+      return NextResponse.json({ transactions: txsWithRunningBalance });
     }
 
     if (action === 'balances') {

@@ -565,13 +565,16 @@ export default function AdminFinanzasPage() {
     setLoading(true);
     try {
       const res = await fetch(`/api/admin/finanzas-data?action=transactions&startDate=${startDate}&endDate=${endDate}`);
-      if (!res.ok) throw new Error("Error loading transactions");
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Error loading transactions (${res.status}): ${errText}`);
+      }
       const payload = await res.json();
       if (payload.transactions) {
         setTransactions(payload.transactions);
       }
-    } catch (err) {
-      console.error("Error al cargar transacciones generales:", err);
+    } catch (err: any) {
+      console.error("Error al cargar transacciones generales:", err?.message || err);
     } finally {
       setLoading(false);
     }

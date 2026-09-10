@@ -335,7 +335,7 @@ export default function ImportarPedidosPage() {
       const defaultJazminSellerId = "13430e05-b61a-4a3f-9fc3-152d377c4b0c";
       const defaultDiegoSellerId = "381df0d1-183f-4ccb-aaf2-8147c76159a9";
       const defaultLudmilaSellerId = "54b2d319-8f6f-47ff-b794-b7731978410a";
-      const defaultFacundoSellerId = "54b9ce55-7354-4b39-9886-314aa79f6aa6";
+      const defaultFacundoSellerId = "3820a0fe-bb0a-4a84-ad85-79e49868cad7";
 
       const sheets = [
         {

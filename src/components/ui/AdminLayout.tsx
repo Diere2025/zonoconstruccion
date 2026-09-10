@@ -240,8 +240,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
             user.id === "13430e05-b61a-4a3f-9fc3-152d377c4b0c" ||   // Jazmin
             user.id === "54b2d319-8f6f-47ff-b794-b7731978410a" ||   // Ludmila
             user.id === "8207801b-b6cb-48cc-af0f-d2f9f2c98032" ||   // Ludmila Old
-            user.id === "3820a0fe-bb0a-4a84-ad85-79e49868cad7" ||   // Facundo Paz
-            user.id === "54b9ce55-7354-4b39-9886-314aa79f6aa6"     // Facundo Paz Alt
+            user.id === "3820a0fe-bb0a-4a84-ad85-79e49868cad7"     // Facundo Paz
           );
         } catch (e) {
           console.warn("Error checking seller role in AdminLayout:", e);
