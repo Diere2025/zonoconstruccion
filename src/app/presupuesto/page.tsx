@@ -8,7 +8,6 @@ import {
   X,
   ShoppingCart,
   Copy,
-  Send,
   Plus,
   Minus,
   Trash2,
@@ -49,29 +48,43 @@ interface CartItem {
   quantity: number;
 }
 
-// Categorías principales
-const MAIN_CATEGORIES = [
-  { id: "termofusion", label: "🔥 Termofusión", filter: (cat: string) => cat.toLowerCase().includes("termofusi") },
-  { id: "tanques", label: "💧 Tanques de Agua", filter: (cat: string) => cat.toLowerCase().includes("tanque") },
-  { id: "biodigestores", label: "🌱 Biodigestores y Cámaras", filter: (cat: string) => cat.toLowerCase().includes("biodigestor") || cat.toLowerCase().includes("séptica") || cat.toLowerCase().includes("septica") || cat.toLowerCase().includes("desengrasadora") },
-  { id: "termotanques", label: "🚿 Termotanques", filter: (cat: string) => cat.toLowerCase().includes("termotanque") },
-  { id: "todos", label: "📦 Todos los Productos", filter: () => true },
+// Orden prioritario de familias en el cotizador (todas las cuplas juntas al inicio, luego codos, tees, caños, etc.)
+const TF_GROUP_ORDER = [
+  "Cuplas",
+  "Cupla Inserto Hembra",
+  "Cupla Inserto Macho",
+  "Codos 90°",
+  "Codo Inserto Hembra 90°",
+  "Tee",
+  "Tee Inserto Hembra",
+  "Caño fusión",
+  "Buje de reducción",
+  "Curvas 90°",
+  "Sobrepaso",
+  "Tapas",
+  "Unión doble",
+  "Llaves de Paso",
+  "Llave esférica manija corta",
 ];
 
 // Subcategorías / Grupos de Termofusión para filtro rápido
 const TF_GROUP_FILTERS = [
   { id: "all", label: "Todos los Accesorios" },
-  { id: "Buje de reducción", label: "Bujes" },
-  { id: "Caño fusión", label: "Caños" },
-  { id: "Codos 90°", label: "Codos 90°" },
   { id: "Cuplas", label: "Cuplas" },
+  { id: "Cupla Inserto Hembra", label: "Cuplas Hembra" },
+  { id: "Cupla Inserto Macho", label: "Cuplas Macho" },
+  { id: "Codos 90°", label: "Codos" },
+  { id: "Codo Inserto Hembra 90°", label: "Codos Hembra" },
   { id: "Tee", label: "Tee" },
-  { id: "Llaves de Paso", label: "Llaves de Paso" },
-  { id: "Llave esférica manija corta", label: "Llaves Esféricas" },
-  { id: "Unión doble", label: "Uniones Dobles" },
-  { id: "Tapas", label: "Tapas" },
+  { id: "Tee Inserto Hembra", label: "Tee Hembra" },
+  { id: "Caño fusión", label: "Caños" },
+  { id: "Buje de reducción", label: "Bujes" },
   { id: "Curvas 90°", label: "Curvas 90°" },
   { id: "Sobrepaso", label: "Sobrepasos" },
+  { id: "Tapas", label: "Tapas" },
+  { id: "Unión doble", label: "Uniones Dobles" },
+  { id: "Llaves de Paso", label: "Llaves de Paso" },
+  { id: "Llave esférica manija corta", label: "Llaves Esféricas" },
 ];
 
 /**
@@ -99,7 +112,7 @@ function getTfGroupAndMeasure(p: DbProduct): { group: string; measure: string } 
   if (lower.includes("codo")) {
     if (lower.includes("inserto") || lower.includes("cim")) {
       const m = name.match(/(1\/2|3\/4)\s*x\s*(\d+\s*mm)/i);
-      return { group: "Codos 90°", measure: m ? "Inserto Hembra " + m[2] + " x " + m[1] + '"' : name };
+      return { group: "Codo Inserto Hembra 90°", measure: m ? m[2] + " x " + m[1] + '"' : name };
     }
     const m = name.match(/(\d+\s*mm)/i);
     return { group: "Codos 90°", measure: m ? m[1] : name };
@@ -109,11 +122,11 @@ function getTfGroupAndMeasure(p: DbProduct): { group: string; measure: string } 
   if (lower.includes("cupla")) {
     if (lower.includes("macho") || lower.includes("cuimm")) {
       const m = name.match(/(1\/2|3\/4|3\/8)\s*x\s*(\d+\s*mm)/i);
-      return { group: "Cuplas", measure: m ? "Inserto Macho " + m[2] + " x " + m[1] + '"' : name };
+      return { group: "Cupla Inserto Macho", measure: m ? m[2] + " x " + m[1] + '"' : name };
     }
     if (lower.includes("hembra") || lower.includes("cuimh")) {
       const m = name.match(/(1\/2|3\/4|3\/8)\s*x\s*(\d+\s*mm)/i);
-      return { group: "Cuplas", measure: m ? "Inserto Hembra " + m[2] + " x " + m[1] + '"' : name };
+      return { group: "Cupla Inserto Hembra", measure: m ? m[2] + " x " + m[1] + '"' : name };
     }
     const m = name.match(/(\d+\s*mm)/i);
     return { group: "Cuplas", measure: m ? m[1] : name };
@@ -150,7 +163,7 @@ function getTfGroupAndMeasure(p: DbProduct): { group: string; measure: string } 
   if (lower.includes("tee")) {
     if (lower.includes("inserto") || lower.includes("teeim") || lower.includes("tim")) {
       const m = name.match(/(1\/2|3\/4)\s*x\s*(\d+\s*mm)/i);
-      return { group: "Tee", measure: m ? "Inserto Hembra " + m[2] + " x " + m[1] + '"' : name };
+      return { group: "Tee Inserto Hembra", measure: m ? m[2] + " x " + m[1] + '"' : name };
     }
     const m = name.match(/(\d+\s*mm)/i);
     return { group: "Tee", measure: m ? m[1] : name };
@@ -177,13 +190,12 @@ export default function PresupuestadorPublico() {
   const [loading, setLoading] = useState(true);
   const [cart, setCart] = useState<{ [productId: string]: number }>({});
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeMainCategory, setActiveMainCategory] = useState("termofusion");
   const [activeTfGroup, setActiveTfGroup] = useState("all");
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [customerName, setCustomerName] = useState("");
   const [copied, setCopied] = useState(false);
 
-  // Cargar productos desde Supabase
+  // Cargar únicamente productos de Termofusión activos desde Supabase
   const loadProducts = async () => {
     setLoading(true);
     try {
@@ -191,6 +203,7 @@ export default function PresupuestadorPublico() {
         .from("products")
         .select("id, name, sku, category, price, image_url, is_active")
         .eq("is_active", true)
+        .eq("category", "Caños Termofusión")
         .gt("price", 0)
         .order("price", { ascending: true });
 
@@ -209,34 +222,16 @@ export default function PresupuestadorPublico() {
     loadProducts();
   }, []);
 
-  // Agrupamiento inteligente de productos en familias/tarjetas únicas
+  // Agrupamiento inteligente de productos en familias/tarjetas únicas con orden prioritario
   const groupedProducts: ProductGroup[] = useMemo(() => {
-    const mainCat = MAIN_CATEGORIES.find(c => c.id === activeMainCategory);
     const query = searchQuery.trim().toLowerCase();
-
-    // 1. Filtrar por categoría principal
-    const filtered = products.filter(p => {
-      if (mainCat && !mainCat.filter(p.category)) return false;
-      return true;
-    });
-
     const groupsMap = new Map<string, ProductGroup>();
 
-    filtered.forEach(p => {
-      const isTf = p.category === "Caños Termofusión";
-      let groupName: string;
-      let measureLabel: string;
-      let imageUrl = p.image_url;
-
-      if (isTf) {
-        const tfData = getTfGroupAndMeasure(p);
-        groupName = tfData.group;
-        measureLabel = tfData.measure;
-      } else {
-        // Para otras categorías, limpiar nombre base
-        groupName = p.name.replace(/\s*\([A-Z0-9]+\)\s*$/i, "").replace(/\s*-\s*\d+L.*$/i, "").trim();
-        measureLabel = p.name;
-      }
+    products.forEach(p => {
+      const tfData = getTfGroupAndMeasure(p);
+      const groupName = tfData.group;
+      const measureLabel = tfData.measure;
+      const imageUrl = p.image_url;
 
       if (!groupsMap.has(groupName)) {
         groupsMap.set(groupName, {
@@ -262,19 +257,28 @@ export default function PresupuestadorPublico() {
       });
     });
 
-    // Convertir a lista y ordenar ítems dentro de cada grupo
+    // Convertir a lista y ordenar medidas dentro de cada grupo por precio ascendente
     let result = Array.from(groupsMap.values()).map(grp => {
-      // Ordenar medidas por precio ascendente
       grp.items.sort((a, b) => a.price - b.price);
       return grp;
     });
 
-    // 2. Filtro de grupo Termofusión si está activo
-    if (activeMainCategory === "termofusion" && activeTfGroup !== "all") {
+    // Ordenar las tarjetas: todas las cuplas juntas al inicio, luego codos, tees, etc.
+    result.sort((a, b) => {
+      const idxA = TF_GROUP_ORDER.indexOf(a.name);
+      const idxB = TF_GROUP_ORDER.indexOf(b.name);
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    // Filtro de accesorio específico si no es 'all'
+    if (activeTfGroup !== "all") {
       result = result.filter(grp => grp.name.toLowerCase() === activeTfGroup.toLowerCase());
     }
 
-    // 3. Filtro de búsqueda por texto
+    // Filtro de búsqueda por texto
     if (query) {
       result = result
         .map(grp => {
@@ -296,7 +300,7 @@ export default function PresupuestadorPublico() {
     }
 
     return result;
-  }, [products, activeMainCategory, activeTfGroup, searchQuery]);
+  }, [products, activeTfGroup, searchQuery]);
 
   // Manejo de cantidades en el carrito
   const handleUpdateQty = (productId: string, delta: number) => {
@@ -373,13 +377,6 @@ export default function PresupuestadorPublico() {
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 3000);
-  };
-
-  // Enviar por WhatsApp
-  const handleSendWhatsApp = () => {
-    const text = generateBudgetMessage();
-    const encoded = encodeURIComponent(text);
-    window.open(`https://api.whatsapp.com/send?text=${encoded}`, "_blank");
   };
 
   // Iconos SVG para cuando no hay foto aún
@@ -477,44 +474,22 @@ export default function PresupuestadorPublico() {
           </div>
         </div>
 
-        {/* Categorías Principales (Scroll Horizontal) */}
-        <div className="max-w-4xl mx-auto px-4 pb-2.5 overflow-x-auto scrollbar-none flex gap-2">
-          {MAIN_CATEGORIES.map(cat => (
+        {/* Filtros Rápidos de Accesorios de Termofusión (Scroll Horizontal) */}
+        <div className="max-w-4xl mx-auto px-4 py-2 border-t border-slate-100 overflow-x-auto scrollbar-none flex gap-1.5 bg-slate-50/50">
+          {TF_GROUP_FILTERS.map(sub => (
             <button
-              key={cat.id}
-              onClick={() => {
-                setActiveMainCategory(cat.id);
-                if (cat.id !== "termofusion") setActiveTfGroup("all");
-              }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 ${
-                activeMainCategory === cat.id
-                  ? "bg-emerald-600 text-white shadow-sm shadow-emerald-600/30"
-                  : "bg-slate-100 text-slate-600 hover:bg-slate-200/80"
+              key={sub.id}
+              onClick={() => setActiveTfGroup(sub.id)}
+              className={`px-2.5 py-1 rounded-md text-[11px] font-medium whitespace-nowrap transition-all ${
+                activeTfGroup === sub.id
+                  ? "bg-slate-900 text-white font-semibold shadow-sm"
+                  : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
               }`}
             >
-              {cat.label}
+              {sub.label}
             </button>
           ))}
         </div>
-
-        {/* Subcategorías / Grupos de Termofusión */}
-        {activeMainCategory === "termofusion" && (
-          <div className="max-w-4xl mx-auto px-4 py-2 border-t border-slate-100 overflow-x-auto scrollbar-none flex gap-1.5 bg-slate-50/50">
-            {TF_GROUP_FILTERS.map(sub => (
-              <button
-                key={sub.id}
-                onClick={() => setActiveTfGroup(sub.id)}
-                className={`px-2.5 py-1 rounded-md text-[11px] font-medium whitespace-nowrap transition-all ${
-                  activeTfGroup === sub.id
-                    ? "bg-slate-900 text-white font-semibold"
-                    : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
-                }`}
-              >
-                {sub.label}
-              </button>
-            ))}
-          </div>
-        )}
       </header>
 
       {/* Contenido Principal */}
@@ -578,7 +553,6 @@ export default function PresupuestadorPublico() {
                           src={group.image_url}
                           alt={group.name}
                           className="w-full h-full object-contain"
-                          loading="lazy"
                         />
                       ) : (
                         renderGroupPlaceholder(group)
@@ -830,49 +804,38 @@ export default function PresupuestadorPublico() {
               </div>
             </div>
 
-            {/* Footer con Acciones */}
-            <div className="p-4 pb-7 sm:pb-4 bg-slate-50 border-t border-slate-100 flex flex-col gap-2.5">
+            {/* Footer con Acciones (Únicamente Copiar Mensaje) */}
+            <div className="p-4 pb-7 sm:pb-4 bg-slate-50 border-t border-slate-100 flex items-center gap-2">
               <button
-                onClick={handleSendWhatsApp}
+                onClick={handleCopyBudget}
                 disabled={cartItems.length === 0}
-                className="w-full py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/25 active:scale-98 transition-all disabled:opacity-50"
+                className={`flex-1 py-3.5 px-4 rounded-xl font-bold text-sm flex items-center justify-center gap-2 shadow-lg transition-all active:scale-98 disabled:opacity-50 cursor-pointer ${
+                  copied
+                    ? "bg-emerald-700 text-white shadow-emerald-700/25"
+                    : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/25"
+                }`}
               >
-                <Send className="w-4 h-4" />
-                <span>Enviar Presupuesto por WhatsApp</span>
+                {copied ? (
+                  <>
+                    <CheckCircle2 className="w-5 h-5 text-white" />
+                    <span>¡Copiado al portapapeles!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-5 h-5" />
+                    <span>Copiar Mensaje</span>
+                  </>
+                )}
               </button>
 
-              <div className="flex gap-2">
-                <button
-                  onClick={handleCopyBudget}
-                  disabled={cartItems.length === 0}
-                  className={`flex-1 py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 border transition-all active:scale-98 disabled:opacity-50 ${
-                    copied
-                      ? "bg-emerald-100 border-emerald-300 text-emerald-800"
-                      : "bg-white border-slate-300 text-slate-700 hover:bg-slate-100"
-                  }`}
-                >
-                  {copied ? (
-                    <>
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                      <span>¡Copiado al portapapeles!</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-4 h-4 text-slate-500" />
-                      <span>Copiar Mensaje</span>
-                    </>
-                  )}
-                </button>
-
-                <button
-                  onClick={handleClearCart}
-                  disabled={cartItems.length === 0}
-                  className="py-2.5 px-3 rounded-xl bg-white border border-slate-200 text-slate-500 hover:text-red-600 text-xs font-semibold hover:bg-red-50 transition-colors disabled:opacity-50"
-                  title="Vaciar todo"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
+              <button
+                onClick={handleClearCart}
+                disabled={cartItems.length === 0}
+                className="py-3.5 px-3.5 rounded-xl bg-white border border-slate-200 text-slate-400 hover:text-red-600 text-xs font-semibold hover:bg-red-50 transition-colors disabled:opacity-50 cursor-pointer"
+                title="Vaciar lista"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
             </div>
           </div>
         </div>
