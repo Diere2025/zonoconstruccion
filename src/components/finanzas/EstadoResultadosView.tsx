@@ -20,7 +20,13 @@ import {
   Maximize2,
   Minimize2,
   HelpCircle,
-  FileSpreadsheet
+  FileSpreadsheet,
+  CheckCircle2,
+  AlertTriangle,
+  ArrowRightLeft,
+  ShieldCheck,
+  Scale,
+  Percent
 } from 'lucide-react';
 
 interface ExpenseCategory {
@@ -46,6 +52,33 @@ interface DayData {
   hasData: boolean;
 }
 
+export interface CardSurchargeDailyItem {
+  day: string;
+  mpCost: number;
+  clientSurcharge: number;
+  netAbsorbed: number;
+  difference: number;
+  coveragePct: number;
+  status: 'cubierto' | 'absorbido' | 'sin_costo';
+}
+
+export interface CardSurchargeAnalysis {
+  totalMp: number;
+  totalSurcharge: number;
+  netAbsorbed: number;
+  coveragePercentage: number;
+  absorbedPercentage: number;
+  criteria: string;
+  source: string;
+  dailyTimeline: CardSurchargeDailyItem[];
+  byDeliveryDate: {
+    totalSurcharge: number;
+    netAbsorbed: number;
+    coveragePercentage: number;
+    dailyTimeline: CardSurchargeDailyItem[];
+  };
+}
+
 interface MatrixItem {
   concept: string;
   pctTot: string;
@@ -54,6 +87,11 @@ interface MatrixItem {
   pctUnit: string;
   total: number;
   dailyValues: number[];
+  tag?: string;
+  isBaseSales?: boolean;
+  isSurcharge?: boolean;
+  isRecupero?: boolean;
+  isNetAbsorbed?: boolean;
 }
 
 interface MatrixGroup {
@@ -85,6 +123,10 @@ interface EERRResponse {
     pctFlete: number;
     totalSueldos: number;
     totalMp: number;
+    totalSurcharge?: number;
+    netAbsorbedMp?: number;
+    pctMpCovered?: number;
+    pctMpAbsorbed?: number;
     utilidadNetaActual: number;
     pctUtilidadActual: number;
     utilidadNetaProyectada: number;
@@ -93,6 +135,7 @@ interface EERRResponse {
   };
   expensesByCategory: ExpenseCategory[];
   dailyTimeline: DayData[];
+  cardSurchargeAnalysis?: CardSurchargeAnalysis;
   matrix: {
     days: string[];
     groups: MatrixGroup[];
@@ -107,6 +150,8 @@ export default function EstadoResultadosView() {
   const [activeSegment, setActiveSegment] = useState<number | null>(null);
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [surchargeCriteria, setSurchargeCriteria] = useState<'order_date' | 'delivery_date'>('order_date');
+  const [showAbsorptionAudit, setShowAbsorptionAudit] = useState(true);
 
   // Expand / collapse state for matrix groups (default: all collapsed)
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
@@ -205,6 +250,36 @@ export default function EstadoResultadosView() {
     const ingresosGroup = data?.matrix?.groups?.find(g => g.id === 'ingresos');
     return ingresosGroup?.subtotal?.dailyValues || [];
   }, [data]);
+
+  const activeSurchargeAnalysis = useMemo(() => {
+    if (!data?.cardSurchargeAnalysis) return null;
+    if (surchargeCriteria === 'delivery_date' && data.cardSurchargeAnalysis.byDeliveryDate) {
+      const del = data.cardSurchargeAnalysis.byDeliveryDate;
+      const totalMp = data.cardSurchargeAnalysis.totalMp;
+      const totalSurcharge = del.totalSurcharge;
+      const netAbsorbed = del.netAbsorbed;
+      const coveragePercentage = del.coveragePercentage;
+      const absorbedPercentage = totalMp > 0 ? Number(((netAbsorbed / totalMp) * 100).toFixed(1)) : 0;
+      return {
+        totalMp,
+        totalSurcharge,
+        netAbsorbed,
+        coveragePercentage,
+        absorbedPercentage,
+        dailyTimeline: del.dailyTimeline,
+        source: data.cardSurchargeAnalysis.source
+      };
+    }
+    return {
+      totalMp: data.cardSurchargeAnalysis.totalMp,
+      totalSurcharge: data.cardSurchargeAnalysis.totalSurcharge,
+      netAbsorbed: data.cardSurchargeAnalysis.netAbsorbed,
+      coveragePercentage: data.cardSurchargeAnalysis.coveragePercentage,
+      absorbedPercentage: data.cardSurchargeAnalysis.absorbedPercentage,
+      dailyTimeline: data.cardSurchargeAnalysis.dailyTimeline,
+      source: data.cardSurchargeAnalysis.source
+    };
+  }, [data, surchargeCriteria]);
 
   if (loading && !data) {
     return (
@@ -374,12 +449,234 @@ export default function EstadoResultadosView() {
           <div className="p-1.5 bg-cyan-50 dark:bg-cyan-950/40 text-cyan-600 rounded-lg">
             <CreditCard className="w-3.5 h-3.5" />
           </div>
-          <div>
-            <div className="text-slate-400 font-medium">Costos MercadoPago</div>
-            <div className="font-bold text-slate-800 dark:text-slate-200">{formatCurrency(kpis.totalMp)}</div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5 text-slate-400 font-medium">
+              <span>Costos MercadoPago</span>
+              {kpis.netAbsorbedMp !== undefined && (
+                <span className="text-[10px] px-1.5 py-0.2 rounded font-bold bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400">
+                  {kpis.pctMpAbsorbed}% abs.
+                </span>
+              )}
+            </div>
+            <div className="flex items-baseline gap-1.5">
+              <span className="font-bold text-slate-800 dark:text-slate-200">
+                {formatCurrency(kpis.totalMp)}
+              </span>
+              {kpis.totalSurcharge !== undefined && (
+                <span className="text-[10px] text-slate-400 hidden sm:inline">
+                  (Neto: <strong className="text-amber-600 dark:text-amber-400 font-semibold">{formatCurrency(kpis.netAbsorbedMp || 0)}</strong>)
+                </span>
+              )}
+            </div>
           </div>
         </div>
       </div>
+
+      {/* Executive Surcharge & Absorption Control Card */}
+      {activeSurchargeAnalysis && (
+        <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-sm overflow-hidden p-6 space-y-6">
+          {/* Header & Controls */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800/80 pb-5">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400">
+                  <Scale className="w-5 h-5" />
+                </div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  Control de Absorción: MercadoPago vs Recargo por Tarjeta
+                </h3>
+                <span className="hidden md:inline-flex text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                  Auditoría Financiera
+                </span>
+              </div>
+              <p className="text-xs text-slate-500">
+                Monitoreo de comisiones retenidas por cobranzas vs. lo abonado por clientes como recargo para conocer el costo exacto absorbido.
+              </p>
+            </div>
+
+            {/* Right Toggle Controls */}
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200/80 dark:border-slate-700/80 text-xs">
+                <button
+                  onClick={() => setSurchargeCriteria('order_date')}
+                  className={`px-3 py-1.5 rounded-lg font-medium transition ${
+                    surchargeCriteria === 'order_date'
+                      ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs font-semibold'
+                      : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                  }`}
+                >
+                  Por Fecha de Pedido
+                </button>
+                <button
+                  onClick={() => setSurchargeCriteria('delivery_date')}
+                  className={`px-3 py-1.5 rounded-lg font-medium transition ${
+                    surchargeCriteria === 'delivery_date'
+                      ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs font-semibold'
+                      : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                  }`}
+                >
+                  Por Fecha de Entrega
+                </button>
+              </div>
+
+              <button
+                onClick={() => setShowAbsorptionAudit(!showAbsorptionAudit)}
+                className="px-3 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 transition flex items-center gap-1.5"
+              >
+                {showAbsorptionAudit ? 'Ocultar Detalle Diario' : 'Ver Detalle Diario'}
+              </button>
+            </div>
+          </div>
+
+          {/* 4 Summary Stat Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Card 1: Costo MP Bruto */}
+            <div className="p-4 rounded-2xl bg-rose-50/50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/30">
+              <div className="text-xs font-semibold text-rose-600 dark:text-rose-400 mb-1 flex items-center justify-between">
+                <span>Comisión MercadoPago (Bruto)</span>
+                <CreditCard className="w-4 h-4" />
+              </div>
+              <div className="text-xl font-black text-slate-900 dark:text-white">
+                {formatCurrency(activeSurchargeAnalysis.totalMp)}
+              </div>
+              <p className="text-[11px] text-slate-500 mt-1">
+                Egresos registrados por pasarela
+              </p>
+            </div>
+
+            {/* Card 2: Recargos Abonados por Clientes */}
+            <div className="p-4 rounded-2xl bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/30">
+              <div className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 mb-1 flex items-center justify-between">
+                <span>Recargos Abonados por Clientes</span>
+                <CheckCircle2 className="w-4 h-4" />
+              </div>
+              <div className="text-xl font-black text-emerald-600 dark:text-emerald-400">
+                {formatCurrency(activeSurchargeAnalysis.totalSurcharge)}
+              </div>
+              <p className="text-[11px] text-slate-500 mt-1">
+                Recupero trasladado al cliente ({activeSurchargeAnalysis.coveragePercentage}%)
+              </p>
+            </div>
+
+            {/* Card 3: Costo Neto Absorbido */}
+            <div className="p-4 rounded-2xl bg-amber-50/50 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900/30">
+              <div className="text-xs font-semibold text-amber-600 dark:text-amber-400 mb-1 flex items-center justify-between">
+                <span>Costo Neto Absorbido por Zono</span>
+                <AlertTriangle className="w-4 h-4" />
+              </div>
+              <div className="text-xl font-black text-amber-700 dark:text-amber-300">
+                {formatCurrency(activeSurchargeAnalysis.netAbsorbed)}
+              </div>
+              <p className="text-[11px] text-slate-500 mt-1">
+                {activeSurchargeAnalysis.absorbedPercentage}% absorbido del margen propio
+              </p>
+            </div>
+
+            {/* Card 4: Ratio de Cobertura */}
+            <div className="p-4 rounded-2xl bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/30 flex flex-col justify-between">
+              <div>
+                <div className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 mb-1 flex items-center justify-between">
+                  <span>Eficacia de Traslado</span>
+                  <Percent className="w-4 h-4" />
+                </div>
+                <div className="text-xl font-black text-indigo-600 dark:text-indigo-400">
+                  {activeSurchargeAnalysis.coveragePercentage}%
+                </div>
+              </div>
+              <div className="mt-2">
+                <div className="w-full bg-slate-200 dark:bg-slate-700 h-2 rounded-full overflow-hidden flex">
+                  <div
+                    className="bg-emerald-500 h-full transition-all duration-500"
+                    style={{ width: `${Math.min(100, activeSurchargeAnalysis.coveragePercentage)}%` }}
+                    title={`Cubierto: ${activeSurchargeAnalysis.coveragePercentage}%`}
+                  />
+                  <div
+                    className="bg-amber-500 h-full transition-all duration-500"
+                    style={{ width: `${Math.min(100, activeSurchargeAnalysis.absorbedPercentage)}%` }}
+                    title={`Absorbido: ${activeSurchargeAnalysis.absorbedPercentage}%`}
+                  />
+                </div>
+                <div className="flex justify-between text-[10px] text-slate-400 mt-1 font-medium">
+                  <span className="text-emerald-600 font-semibold">{activeSurchargeAnalysis.coveragePercentage}% Cubierto</span>
+                  <span className="text-amber-600 font-semibold">{activeSurchargeAnalysis.absorbedPercentage}% Absorbido</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Daily Reconciliation Table */}
+          {showAbsorptionAudit && (
+            <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden pt-1">
+              <div className="bg-slate-50 dark:bg-slate-800/50 px-4 py-2.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                  Conciliación Día a Día: Costos MP vs. Recargos de Tarjeta
+                </span>
+                <span className="text-[11px] text-slate-400">
+                  Criterio: {surchargeCriteria === 'order_date' ? 'Fecha de Carga del Pedido' : 'Fecha de Entrega Programada'}
+                </span>
+              </div>
+              <div className="overflow-x-auto max-h-80 overflow-y-auto">
+                <table className="w-full text-left text-xs whitespace-nowrap">
+                  <thead className="bg-white dark:bg-slate-900 text-slate-500 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-10">
+                    <tr>
+                      <th className="py-2.5 px-4 font-semibold">Día</th>
+                      <th className="py-2.5 px-4 text-right font-semibold">Costo MercadoPago</th>
+                      <th className="py-2.5 px-4 text-right font-semibold">Recargo Cliente</th>
+                      <th className="py-2.5 px-4 text-right font-semibold">Diferencia</th>
+                      <th className="py-2.5 px-4 text-center font-semibold">% Cobertura</th>
+                      <th className="py-2.5 px-4 text-center font-semibold">Diagnóstico</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                    {activeSurchargeAnalysis.dailyTimeline.filter(d => d.mpCost > 0 || d.clientSurcharge > 0).map((dayRow, idx) => {
+                      const isCovered = dayRow.status === 'cubierto';
+                      const hasCost = dayRow.mpCost > 0;
+                      return (
+                        <tr key={idx} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
+                          <td className="py-2 px-4 font-bold text-slate-700 dark:text-slate-300">
+                            {dayRow.day}
+                          </td>
+                          <td className="py-2 px-4 text-right text-rose-600 font-semibold">
+                            {dayRow.mpCost > 0 ? formatCurrency(dayRow.mpCost) : '-'}
+                          </td>
+                          <td className="py-2 px-4 text-right text-emerald-600 font-semibold">
+                            {dayRow.clientSurcharge > 0 ? formatCurrency(dayRow.clientSurcharge) : '-'}
+                          </td>
+                          <td className={`py-2 px-4 text-right font-bold ${
+                            dayRow.difference >= 0 ? 'text-emerald-600' : 'text-amber-600'
+                          }`}>
+                            {dayRow.difference >= 0 ? `+${formatCurrency(dayRow.difference)}` : `-${formatCurrency(Math.abs(dayRow.difference))}`}
+                          </td>
+                          <td className="py-2 px-4 text-center font-medium text-slate-600 dark:text-slate-400">
+                            {hasCost ? `${dayRow.coveragePct}%` : '-'}
+                          </td>
+                          <td className="py-2 px-4 text-center">
+                            {hasCost ? (
+                              isCovered ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+                                  <CheckCircle2 className="w-3 h-3" /> Cubierto al 100%
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
+                                  <AlertTriangle className="w-3 h-3" /> Absorbe Zono ({formatCurrency(dayRow.netAbsorbed)})
+                                </span>
+                              )
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+                                Sin costo MP
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Structured P&L Matrix Table */}
       <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-sm overflow-hidden">
@@ -544,6 +841,10 @@ export default function EstadoResultadosView() {
                         const isMainUtilidad = row.concept.includes('dsp de Impuestos');
                         const isAcumulado = row.concept.includes('Acumulada');
                         const isContribucion = row.concept.includes('Contribución Marginal');
+                        const isSurcharge = row.isSurcharge || row.tag === 'surcharge' || row.concept.includes('Recargo por Tarjeta');
+                        const isBaseSales = row.isBaseSales || row.tag === 'base' || row.concept.includes('Base sin recargos');
+                        const isMpNeto = row.isNetAbsorbed || row.tag === 'net_absorbed' || row.concept.includes('MercadoPago Neto');
+                        const isRecupero = row.isRecupero || row.tag === 'recupero' || row.concept.includes('Recargos Cobrados');
 
                         return (
                           <tr
@@ -555,13 +856,42 @@ export default function EstadoResultadosView() {
                                 ? 'bg-purple-50/20 dark:bg-purple-950/10 text-purple-950 dark:text-purple-200'
                                 : isContribucion
                                 ? 'bg-blue-50/20 dark:bg-blue-950/10'
+                                : isSurcharge
+                                ? 'bg-indigo-50/30 dark:bg-indigo-950/20'
+                                : isMpNeto
+                                ? 'bg-amber-50/35 dark:bg-amber-950/20 font-semibold'
+                                : isRecupero
+                                ? 'bg-emerald-50/15 dark:bg-emerald-950/10'
                                 : ''
                             }`}
                           >
                             <td className="py-2.5 px-2.5 sm:px-4 pl-6 sm:pl-9 sticky left-0 bg-white dark:bg-slate-900 z-10 w-[170px] sm:w-[240px] min-w-[170px] sm:min-w-[240px] max-w-[170px] sm:max-w-none text-slate-700 dark:text-slate-300 border-r border-slate-200 dark:border-slate-800 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)] font-medium">
                               <div className="flex items-center gap-1.5 min-w-0">
-                                <span className="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600 shrink-0" />
+                                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                                  isSurcharge
+                                    ? 'bg-indigo-500'
+                                    : isMpNeto
+                                    ? 'bg-amber-500'
+                                    : isRecupero
+                                    ? 'bg-emerald-500'
+                                    : 'bg-slate-300 dark:bg-slate-600'
+                                }`} />
                                 <span className="truncate" title={row.concept}>{row.concept}</span>
+                                {isSurcharge && (
+                                  <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
+                                    Abonado
+                                  </span>
+                                )}
+                                {isMpNeto && (
+                                  <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                                    Absorbido
+                                  </span>
+                                )}
+                                {isRecupero && (
+                                  <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                                    Recupero
+                                  </span>
+                                )}
                               </div>
                             </td>
                             <td
@@ -570,6 +900,12 @@ export default function EstadoResultadosView() {
                                   ? 'text-emerald-600 font-black text-sm'
                                   : isAcumulado
                                   ? 'text-purple-600 font-bold'
+                                  : isSurcharge
+                                  ? 'text-indigo-600 dark:text-indigo-400 font-bold'
+                                  : isMpNeto
+                                  ? 'text-amber-700 dark:text-amber-400 font-bold'
+                                  : isRecupero
+                                  ? 'text-emerald-600 dark:text-emerald-400 font-semibold'
                                   : 'text-slate-800 dark:text-slate-200 font-semibold'
                               }`}
                             >
@@ -580,7 +916,7 @@ export default function EstadoResultadosView() {
                             </td>
                             {row.dailyValues.map((val, vIdx) => {
                               const dayRev = dailyFacturaciones[vIdx] || 0;
-                              const showPct = !isIngresos && dayRev > 0 && val > 0;
+                              const showPct = (isSurcharge || isBaseSales || isMpNeto || !isIngresos) && dayRev > 0 && val > 0;
                               const pctOfDay = showPct ? ((val / dayRev) * 100).toFixed(1) : null;
 
                               return (
@@ -592,6 +928,12 @@ export default function EstadoResultadosView() {
                                         ? 'text-emerald-600 font-bold'
                                         : isAcumulado
                                         ? 'text-purple-600 font-semibold'
+                                        : isSurcharge
+                                        ? 'text-indigo-600 dark:text-indigo-400 font-semibold'
+                                        : isMpNeto
+                                        ? 'text-amber-700 dark:text-amber-400 font-semibold'
+                                        : isRecupero
+                                        ? 'text-emerald-600 dark:text-emerald-400'
                                         : 'text-slate-700 dark:text-slate-300'
                                       : 'text-slate-300 dark:text-slate-600'
                                   }`}
@@ -604,6 +946,12 @@ export default function EstadoResultadosView() {
                                           className={`text-[9px] font-medium tracking-tight ${
                                             isMainUtilidad
                                               ? 'text-emerald-600/70'
+                                              : isSurcharge
+                                              ? 'text-indigo-600/70 dark:text-indigo-400/70'
+                                              : isMpNeto
+                                              ? 'text-amber-700/80 dark:text-amber-400/80'
+                                              : isRecupero
+                                              ? 'text-emerald-600/70 dark:text-emerald-400/70'
                                               : 'text-slate-400/80 dark:text-slate-500'
                                           }`}
                                         >

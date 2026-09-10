@@ -105,13 +105,19 @@ export default function PresupuestosPage() {
   const [editKitId, setEditKitId] = useState("");
   const [editKitNameValue, setEditKitNameValue] = useState("");
   
+  const [dbPaymentMethods, setDbPaymentMethods] = useState<{ id: string; name: string; surcharge_percentage: number; installments: number }[]>([]);
   const [paymentType, setPaymentType] = useState<'efectivo' | 'tarjeta'>('efectivo');
   const [cardInstallments, setCardInstallments] = useState<number>(6);
-  const [cardSurcharge, setCardSurcharge] = useState<number>(34);
+  const [cardSurcharge, setCardSurcharge] = useState<number>(42);
+
+  const matchedMethod = dbPaymentMethods.find(m => m.surcharge_percentage === cardSurcharge && m.installments === cardInstallments);
+  const paymentMethodName = paymentType === 'efectivo' 
+    ? "Efectivo / Transferencia" 
+    : (matchedMethod ? matchedMethod.name : (cardInstallments === 1 ? "Tarjeta de Crédito (1 Pago)" : `Tarjeta de Crédito (${cardInstallments} Cuotas)`));
 
   const selectedPaymentMethod = paymentType === 'efectivo' 
     ? { id: "1", name: "Efectivo / Transferencia", surcharge_percentage: 0, installments: 1, is_active: true }
-    : { id: "2", name: cardInstallments === 1 ? "Tarjeta de Crédito (1 Pago)" : `Tarjeta de Crédito (${cardInstallments} Cuotas)`, surcharge_percentage: cardSurcharge, installments: cardInstallments, is_active: true };
+    : { id: matchedMethod?.id || "2", name: paymentMethodName, surcharge_percentage: cardSurcharge, installments: cardInstallments, is_active: true };
   
   const [isFreeShipping, setIsFreeShipping] = useState(true);
   const [shippingCost, setShippingCost] = useState<number>(0);
@@ -169,8 +175,8 @@ export default function PresupuestosPage() {
         const userId = userData.user.id;
         setCurrentUserId(userId);
 
-        // Cargar productos, rol de vendedor y kits en paralelo
-        const [productsRes, sellerRes, kitsRes] = await Promise.all([
+        // Cargar productos, rol de vendedor, kits y medios de pago en paralelo
+        const [productsRes, sellerRes, kitsRes, payMethodsRes] = await Promise.all([
           supabase.from("products").select("*").eq("is_active", true).order("name"),
           supabase.from('sellers').select('role, full_name').eq('id', userId).single(),
           supabase.from('kits').select(`
@@ -181,8 +187,13 @@ export default function PresupuestosPage() {
               custom_price,
               products (*)
             )
-          `).order('created_at', { ascending: false })
+          `).order('created_at', { ascending: false }),
+          supabase.from('payment_methods').select('id, name, surcharge_percentage, installments').eq('is_active', true).order('surcharge_percentage', { ascending: false })
         ]);
+
+        if (payMethodsRes.data) {
+          setDbPaymentMethods(payMethodsRes.data);
+        }
 
         if (productsRes.data) {
           const rawProducts = productsRes.data;
@@ -1039,6 +1050,53 @@ export default function PresupuestosPage() {
              <h2 className="font-black text-xs text-slate-800 mb-3 flex items-center gap-1.5 uppercase tracking-wider">
               <Calculator className="w-4 h-4 text-brand-500" /> Método de Pago
             </h2>
+
+            {/* Selector Desplegable de Medio de Pago / Plan */}
+            <div className="mb-3">
+              <label className="block text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1">
+                Elegir Plan de Pago / Recargo
+              </label>
+              <select
+                value={
+                  paymentType === 'efectivo'
+                    ? 'efectivo'
+                    : (dbPaymentMethods.find(m => m.surcharge_percentage === cardSurcharge && m.installments === cardInstallments)?.id || 'custom')
+                }
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val === 'efectivo') {
+                    setPaymentType('efectivo');
+                  } else if (val === 'custom') {
+                    setPaymentType('tarjeta');
+                  } else {
+                    const pm = dbPaymentMethods.find(m => m.id === val);
+                    if (pm) {
+                      setPaymentType('tarjeta');
+                      setCardSurcharge(pm.surcharge_percentage);
+                      setCardInstallments(pm.installments || 6);
+                    }
+                  }
+                }}
+                className="w-full px-2.5 py-1.5 text-xs font-bold border border-slate-200 rounded-lg outline-none bg-slate-50 text-slate-700 focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 cursor-pointer"
+              >
+                <option value="efectivo">💵 Efectivo / Transferencia (0% Recargo)</option>
+                {dbPaymentMethods
+                  .filter(m => m.surcharge_percentage > 0)
+                  .map(pm => (
+                    <option key={pm.id} value={pm.id}>
+                      💳 {pm.name} (+{pm.surcharge_percentage}% Recargo{pm.installments > 1 ? ` - ${pm.installments} cuotas` : ''})
+                    </option>
+                  ))}
+                {dbPaymentMethods.filter(m => m.surcharge_percentage > 0).length === 0 && (
+                  <>
+                    <option value="cuota-42">💳 Cuota Simple (Sep-26) (+42% Recargo - 6 cuotas)</option>
+                    <option value="cuota-34">💳 Cuota Simple (Mar-26) (+34% Recargo - 6 cuotas)</option>
+                  </>
+                )}
+                <option value="custom">⚙️ Personalizado (Ingresar recargo manual)</option>
+              </select>
+            </div>
+
             <div className="space-y-2">
               <label className={`flex items-center justify-between p-2.5 rounded-lg border-2 cursor-pointer transition-colors ${paymentType === 'efectivo' ? 'border-brand-500 bg-brand-50' : 'border-slate-100 hover:border-slate-200'}`}>
                 <div className="flex items-center gap-2.5">
@@ -1051,6 +1109,9 @@ export default function PresupuestosPage() {
                   />
                   <span className="font-bold text-slate-800 text-xs">Efectivo / Transferencia</span>
                 </div>
+                <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
+                  0% Recargo
+                </span>
               </label>
 
               <label className={`flex flex-col p-2.5 rounded-lg border-2 cursor-pointer transition-colors ${paymentType === 'tarjeta' ? 'border-brand-500 bg-brand-50' : 'border-slate-100 hover:border-slate-200'}`}>
@@ -1063,17 +1124,43 @@ export default function PresupuestosPage() {
                       checked={paymentType === 'tarjeta'}
                       onChange={() => setPaymentType('tarjeta')}
                     />
-                    <span className="font-bold text-slate-800 text-xs">Tarjeta de Crédito</span>
+                    <span className="font-bold text-slate-800 text-xs">Tarjeta / Financiación</span>
                   </div>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                     <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Recargo %</span>
                     <input 
-                      type="number"
-                      value={cardSurcharge}
-                      onChange={(e) => setCardSurcharge(Number(e.target.value))}
-                      onClick={(e) => e.stopPropagation()}
-                      className="w-12 px-1.5 py-0.5 text-xs font-bold border border-slate-200 rounded text-center focus:ring-2 focus:ring-brand-500/10 outline-none bg-white text-red-500"
+                      type="number" 
+                      value={cardSurcharge} 
+                      onChange={(e) => {
+                        setCardSurcharge(Number(e.target.value));
+                        setPaymentType('tarjeta');
+                      }} 
+                      className="w-12 px-1.5 py-0.5 text-xs font-bold border border-slate-200 rounded text-center focus:ring-2 focus:ring-brand-500/10 outline-none bg-white text-red-500" 
                     />
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPaymentType('tarjeta');
+                          setCardSurcharge(42);
+                        }}
+                        className={`px-1.5 py-0.5 text-[9px] font-bold rounded border transition-colors cursor-pointer ${cardSurcharge === 42 && paymentType === 'tarjeta' ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
+                        title="Aplicar 42%"
+                      >
+                        42%
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPaymentType('tarjeta');
+                          setCardSurcharge(34);
+                        }}
+                        className={`px-1.5 py-0.5 text-[9px] font-bold rounded border transition-colors cursor-pointer ${cardSurcharge === 34 && paymentType === 'tarjeta' ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
+                        title="Aplicar 34%"
+                      >
+                        34%
+                      </button>
+                    </div>
                   </div>
                 </div>
                 

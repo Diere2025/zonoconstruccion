@@ -3925,7 +3925,7 @@ export default function PedidosPage() {
       } else {
         setSelectedPaymentMethodId("");
         setCardInstallments(6);
-        setCardSurcharge(34);
+        setCardSurcharge(42);
       }
       setIsFreeShipping(true);
       setShippingCost(0);
@@ -4063,7 +4063,7 @@ export default function PedidosPage() {
                   setFlete("");
                   setPaymentType('efectivo');
                   setCardInstallments(6);
-                  setCardSurcharge(34);
+                  setCardSurcharge(42);
                   setIsFreeShipping(true);
                   setShippingCost(0);
                   setIncludeIVA(false);
@@ -5846,6 +5846,28 @@ export default function PedidosPage() {
                                 }}
                                 className="w-12 px-1 py-0.5 text-[10px] font-bold border border-slate-200 rounded text-center outline-none bg-white text-slate-700"
                               />
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setPaymentsList(prev => prev.map(item => item.id === p.id ? { ...item, card_surcharge: 42 } : item));
+                                  }}
+                                  className={`px-1.5 py-0.5 text-[9px] font-bold rounded border transition-colors cursor-pointer ${p.card_surcharge === 42 ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
+                                  title="Aplicar recargo 42%"
+                                >
+                                  42%
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setPaymentsList(prev => prev.map(item => item.id === p.id ? { ...item, card_surcharge: 34 } : item));
+                                  }}
+                                  className={`px-1.5 py-0.5 text-[9px] font-bold rounded border transition-colors cursor-pointer ${p.card_surcharge === 34 ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
+                                  title="Aplicar recargo anterior 34%"
+                                >
+                                  34%
+                                </button>
+                              </div>
                             </div>
                             <div className="flex items-center gap-1.5">
                               <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider whitespace-nowrap">Cuotas</span>
