@@ -472,6 +472,28 @@ function triggerActualizarListado() {
 }
 
 function startMonitoring() {
+  let lastRefreshTime = Date.now();
+
+  function checkRefresh() {
+    if (!config.autoRefresh) return;
+
+    const now = Date.now();
+    const elapsedSeconds = (now - lastRefreshTime) / 1000;
+    const remaining = Math.max(0, Math.ceil(config.pollInterval - elapsedSeconds));
+
+    const countdownEl = document.getElementById("zono-countdown");
+    if (countdownEl) {
+      countdownEl.innerText = `${remaining}s`;
+    }
+
+    if (elapsedSeconds >= config.pollInterval) {
+      lastRefreshTime = now;
+      if (window.location.href.includes("mercadopago.com.ar/activities") || window.location.href.includes("mercadopago.com.ar/home")) {
+        triggerActualizarListado();
+      }
+    }
+  }
+
   // First scan after 1.5 seconds
   setTimeout(() => {
     scanDOMActivities();
@@ -480,22 +502,38 @@ function startMonitoring() {
     showToast(`🟢 Monitor iniciado: monitoreando cobros entrantes`, "success");
   }, 1500);
 
-  setInterval(scanDOMActivities, 4000);
+  // Fast interval scan
+  setInterval(scanDOMActivities, 3000);
+  setInterval(checkRefresh, 1000);
 
-  setInterval(() => {
-    if (!config.autoRefresh) return;
-
-    secondsUntilRefresh--;
-    const countdownEl = document.getElementById("zono-countdown");
-    if (countdownEl) {
-      countdownEl.innerText = `${Math.max(0, secondsUntilRefresh)}s`;
+  // Listen to background service worker wakeup pulse (bypasses browser tab throttling!)
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg.action === "TRIGGER_POLL") {
+      checkRefresh();
+      scanDOMActivities();
     }
+  });
 
-    if (secondsUntilRefresh <= 0) {
-      secondsUntilRefresh = config.pollInterval;
-      if (window.location.href.includes("mercadopago.com.ar/activities") || window.location.href.includes("mercadopago.com.ar/home")) {
-        triggerActualizarListado();
-      }
+  // Instant refresh when user switches to or focuses the tab
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      checkRefresh();
+      scanDOMActivities();
     }
-  }, 1000);
+  });
+
+  window.addEventListener("focus", () => {
+    checkRefresh();
+    scanDOMActivities();
+  });
+
+  // DOM MutationObserver to detect when Mercado Pago injects new activities immediately
+  try {
+    const observer = new MutationObserver(() => {
+      scanDOMActivities();
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  } catch (e) {
+    console.warn("[Zono MP Monitor] Observer error:", e);
+  }
 }

@@ -1,7 +1,31 @@
 // background.js - Service worker with full CORS bypass
 chrome.runtime.onInstalled.addListener(() => {
   console.log("[Zono MP Monitor] Extension installed successfully");
+  setupAlarms();
 });
+
+// Broadcast poll pulse to all Mercado Pago tabs every 10-12 seconds
+function pingAllTabs() {
+  chrome.tabs.query({ url: "*://*.mercadopago.com.ar/*" }, (tabs) => {
+    if (chrome.runtime.lastError || !tabs) return;
+    tabs.forEach(tab => {
+      chrome.tabs.sendMessage(tab.id, { action: "TRIGGER_POLL" }).catch(() => {});
+    });
+  });
+}
+
+function setupAlarms() {
+  chrome.alarms.create("POLL_PULSE", { periodInMinutes: 0.25 });
+}
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === "POLL_PULSE") {
+    pingAllTabs();
+  }
+});
+
+// Periodic ping while service worker is active
+setInterval(pingAllTabs, 10000);
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "REPORT_PAYMENT") {
