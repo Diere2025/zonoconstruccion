@@ -1744,12 +1744,33 @@ export default function CobrosMercadoPagoPage() {
                       <span className="text-xs font-black text-slate-900 block">{acc.name}</span>
                       <span className="text-[11px] text-slate-500 font-medium">ID Interno: {acc.id}</span>
                     </div>
-                    <span 
-                      className="px-2.5 py-0.5 rounded-full text-[10px] font-black text-white"
-                      style={{ backgroundColor: acc.color || '#0069ff' }}
-                    >
-                      {acc.alias || acc.name}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span 
+                        className="px-2.5 py-0.5 rounded-full text-[10px] font-black text-white"
+                        style={{ backgroundColor: acc.color || '#0069ff' }}
+                      >
+                        {acc.alias || acc.name}
+                      </span>
+                      {accounts.length > 2 && (
+                        <button
+                          onClick={async () => {
+                            if (confirm(`¿Eliminar la cuenta "${acc.name}"?`)) {
+                              await fetch('/api/admin/cobros-mp-data?action=delete-account', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ id: acc.id })
+                              });
+                              loadAccounts();
+                              loadPayments();
+                            }
+                          }}
+                          className="p-1 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors"
+                          title="Eliminar cuenta"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">

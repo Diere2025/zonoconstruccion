@@ -518,6 +518,21 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, data });
     }
 
+    if (action === 'delete-account') {
+      const { id } = body;
+      if (!id) return NextResponse.json({ error: 'id requerido' }, { status: 400 });
+
+      // Reassign any payments pointing to this account to diegozono_mp
+      await supabaseAdmin.from('mp_payments').update({
+        account_id: 'diegozono_mp',
+        account_name: 'diegozono.mp'
+      }).eq('account_id', id);
+
+      const { error } = await supabaseAdmin.from('mp_accounts').delete().eq('id', id);
+      if (error) throw error;
+      return NextResponse.json({ success: true });
+    }
+
     if (action === 'simulate') {
       const { title, text, account } = body;
       const testTitle = title || 'Mercado Pago';
