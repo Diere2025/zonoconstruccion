@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Zono MP Monitor</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { width: 340px; background: #001538; color: #f8fafc; padding: 16px; font-size: 13px; }
+    .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #1e293b; padding-bottom: 12px; margin-bottom: 14px; }
+    .title { font-weight: 800; font-size: 14px; display: flex; align-items: center; gap: 8px; color: #38bdf8; }
+    .badge { background: #064e3b; color: #34d399; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px; display: flex; align-items: center; gap: 4px; border: 1px solid #059669; }
+    .dot { width: 6px; height: 6px; border-radius: 50%; background: #10b981; }
+    .field { margin-bottom: 12px; }
+    label { display: block; font-size: 11px; font-weight: 600; color: #94a3b8; text-transform: uppercase; margin-bottom: 4px; letter-spacing: 0.5px; }
+    input, select { width: 100%; background: #0f172a; border: 1px solid #334155; color: white; padding: 8px 10px; border-radius: 8px; font-size: 12px; outline: none; }
+    input:focus, select:focus { border-color: #0069ff; }
+    .btn-save { width: 100%; background: #0069ff; color: white; border: none; padding: 9px; border-radius: 8px; font-weight: 700; font-size: 12px; cursor: pointer; transition: background 0.2s; margin-top: 4px; }
+    .btn-save:hover { background: #0052cc; }
+    .btn-test { width: 100%; background: transparent; color: #94a3b8; border: 1px solid #334155; padding: 7px; border-radius: 8px; font-weight: 600; font-size: 11px; cursor: pointer; margin-top: 8px; }
+    .btn-test:hover { background: #0f172a; color: white; }
+    .history { margin-top: 14px; border-top: 1px solid #1e293b; padding-top: 10px; }
+    .history-title { font-size: 11px; font-weight: 700; color: #94a3b8; margin-bottom: 6px; text-transform: uppercase; }
+    .history-list { max-height: 120px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+    .history-item { background: #0f172a; padding: 6px 10px; border-radius: 6px; font-size: 11px; border-left: 3px solid #10b981; }
+    .history-amount { font-weight: 700; color: #34d399; }
+    .history-payer { color: #cbd5e1; }
+    .history-time { font-size: 9px; color: #64748b; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="title">
+      <span>⚡</span> Zono MP Monitor
+    </div>
+    <div class="badge">
+      <span class="dot"></span> ONLINE
+    </div>
+  </div>
+
+  <div class="field">
+    <label>Cuenta Mercado Pago</label>
+    <select id="accountName">
+      <option value="diegozono.mp">diegozono.mp (Cuenta MP3)</option>
+      <option value="Cuenta MP4 (Dual)">Cuenta MP4 (Logística)</option>
+      <option value="Cuenta MP1">Cuenta MP1</option>
+      <option value="Cuenta MP2">Cuenta MP2</option>
+    </select>
+  </div>
+
+  <div class="field">
+    <label>Webhook URL (Zono ERP)</label>
+    <input type="text" id="webhookUrl" value="https://zono-erp.pages.dev/api/mp-webhook" />
+  </div>
+
+  <div class="field">
+    <label>Clave Secreta Webhook</label>
+    <input type="password" id="secretToken" value="mpchecker_secret_key_123" />
+  </div>
+
+  <div class="field">
+    <label>Intervalo de refresco (segundos)</label>
+    <input type="number" id="pollInterval" value="25" min="10" max="120" />
+  </div>
+
+  <button class="btn-save" id="btnSave">Guardar configuración</button>
+  <button class="btn-test" id="btnTest">Enviar prueba ($100 a Zono)</button>
+
+  <div class="history">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+      <div class="history-title" style="margin-bottom: 0;">Últimos Pagos Capturados</div>
+      <button id="btnClearHistory" style="background: none; border: none; color: #64748b; font-size: 10px; cursor: pointer; text-decoration: underline;">Limpiar</button>
+    </div>
+    <div class="history-list" id="historyList">
+      <div style="color: #64748b; font-size: 11px; text-align: center; padding: 8px;">Aún no se detectaron cobros</div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

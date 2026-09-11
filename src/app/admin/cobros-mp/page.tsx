@@ -303,6 +303,19 @@ export default function CobrosMercadoPagoPage() {
 
   const filteredPayments = useMemo(() => {
     return payments.filter((p) => {
+      // Account filter
+      if (selectedAccountId && selectedAccountId !== 'ALL') {
+        const display = getAccountDisplay(p.account_name);
+        const target = selectedAccountId.toLowerCase();
+        const matchesDisplay = display.displayName.toLowerCase() === target;
+        const matchesFull = display.fullName.toLowerCase() === target;
+        const matchesAccName = (p.account_name || '').toLowerCase().includes(target);
+        const matchesAccId = (p.account_id || '').toLowerCase().includes(target);
+        if (!matchesDisplay && !matchesFull && !matchesAccName && !matchesAccId) {
+          return false;
+        }
+      }
+
       if (selectedFleteroFilter === 'WITH_FLETERO') {
         if (!p.confirmed_by_fletero_name) return false;
       } else if (selectedFleteroFilter === 'WITHOUT_FLETERO') {
@@ -315,7 +328,41 @@ export default function CobrosMercadoPagoPage() {
       }
       return true;
     });
-  }, [payments, selectedFleteroFilter]);
+  }, [payments, selectedAccountId, selectedFleteroFilter, getAccountDisplay]);
+
+  // Unique accounts available for filtering (deduplicated by display name)
+  const uniqueAccounts = useMemo(() => {
+    const map = new Map<string, { value: string; label: string; color?: string }>();
+
+    // From configured accounts in database
+    accounts.forEach(acc => {
+      const label = acc.alias || acc.name;
+      if (label && !map.has(label.toLowerCase())) {
+        map.set(label.toLowerCase(), {
+          value: label,
+          label: label,
+          color: acc.color
+        });
+      }
+    });
+
+    // Also include any accounts that appear in loaded payments
+    payments.forEach(p => {
+      if (p.account_name) {
+        const display = getAccountDisplay(p.account_name);
+        const label = display.displayName;
+        if (label && !map.has(label.toLowerCase())) {
+          map.set(label.toLowerCase(), {
+            value: label,
+            label: label,
+            color: display.color
+          });
+        }
+      }
+    });
+
+    return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label));
+  }, [accounts, payments, getAccountDisplay]);
 
   const groupedPayments = useMemo(() => {
     const groups: { [key: string]: { key: string; sectionTitle: string; subTitle: string; isToday: boolean; isYesterday: boolean; isPast: boolean; payments: MPPayment[] } } = {};
@@ -1268,6 +1315,29 @@ export default function CobrosMercadoPagoPage() {
             {/* Secondary Filters */}
             <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-100 text-xs">
               <div className="flex flex-wrap items-center gap-3">
+                {/* Account Filter (Hidden for fleteros) */}
+                {!isFleteroRole && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-500 font-bold">Cuenta:</span>
+                    <select
+                      value={selectedAccountId}
+                      onChange={(e) => setSelectedAccountId(e.target.value)}
+                      className={`border rounded-xl px-2.5 py-1 font-semibold focus:outline-none transition-all ${
+                        selectedAccountId !== 'ALL'
+                          ? 'bg-blue-50 border-blue-300 text-blue-900 font-bold'
+                          : 'bg-slate-50 border-slate-200/80 text-slate-700'
+                      }`}
+                    >
+                      <option value="ALL">Todas las cuentas</option>
+                      {uniqueAccounts.map((acc) => (
+                        <option key={acc.value} value={acc.value}>
+                          {acc.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
                 {/* Type Filter (Enabled only if not seller) */}
                 {!isSellerRole ? (
                   <div className="flex items-center gap-2">
@@ -1383,11 +1453,13 @@ export default function CobrosMercadoPagoPage() {
               <div>
                 <h4 className="text-sm font-black text-slate-800">No se encontraron cobros</h4>
                 <p className="text-xs text-slate-500 max-w-sm mx-auto mt-1 font-medium">
-                  {selectedFleteroFilter !== 'ALL'
-                    ? `No hay cobros registrados con confirmación de ${selectedFleteroFilter === 'WITH_FLETERO' ? 'fleteros' : selectedFleteroFilter === 'WITHOUT_FLETERO' ? 'cobros sin fletero' : selectedFleteroFilter} para este período.`
-                    : showHidden 
-                      ? 'No hay transacciones marcadas como archivadas/ocultas.' 
-                      : 'Cuando ingrese una transferencia o cobro de Mercado Pago, aparecerá aquí automáticamente en tiempo real.'}
+                  {selectedAccountId !== 'ALL'
+                    ? `No hay cobros para la cuenta "${selectedAccountId}" en este período.`
+                    : selectedFleteroFilter !== 'ALL'
+                      ? `No hay cobros registrados con confirmación de ${selectedFleteroFilter === 'WITH_FLETERO' ? 'fleteros' : selectedFleteroFilter === 'WITHOUT_FLETERO' ? 'cobros sin fletero' : selectedFleteroFilter} para este período.`
+                      : showHidden 
+                        ? 'No hay transacciones marcadas como archivadas/ocultas.' 
+                        : 'Cuando ingrese una transferencia o cobro de Mercado Pago, aparecerá aquí automáticamente en tiempo real.'}
                 </p>
               </div>
             </div>

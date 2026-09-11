@@ -208,7 +208,7 @@ async function handleProcessNotification(
       .from('mp_payments')
       .select('id, amount, payer_name, received_at')
       .eq('amount', parsed.amount)
-      .ilike('payer_name', parsed.payerName)
+      .ilike('payer_name', parsed.payerName || '')
       .gte('received_at', tenMinBefore)
       .lte('received_at', tenMinAfter)
       .limit(1)
