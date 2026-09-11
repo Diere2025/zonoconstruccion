@@ -227,28 +227,14 @@ async function handleProcessNotification(
     console.warn('[MP Webhook] Error checking duplicate:', dupErr);
   }
 
-  // Resolve account_id from mp_accounts (or auto-ensure to prevent FK failure)
-  let resolvedAccountId = 'acc_principal';
+  // Resolve account_id from mp_accounts (diegozono_mp or pagoszono_26)
+  let resolvedAccountId = 'diegozono_mp';
   try {
-    const cleanAccount = (account || 'Cuenta MP3').trim();
-    const { data: matchedAcc } = await supabaseAdmin
-      .from('mp_accounts')
-      .select('id')
-      .or(`name.ilike.%${cleanAccount}%,alias.ilike.%${cleanAccount}%,id.ilike.%${cleanAccount.replace(/\s+/g, '_')}%`)
-      .maybeSingle();
-
-    if (matchedAcc?.id) {
-      resolvedAccountId = matchedAcc.id;
+    const cleanAccount = (account || 'diegozono.mp').trim().toLowerCase();
+    if (cleanAccount.includes('pagos') || cleanAccount.includes('mp4') || cleanAccount.includes('26')) {
+      resolvedAccountId = 'pagoszono_26';
     } else {
-      const fallbackId = cleanAccount.toLowerCase().replace(/[^a-z0-9]/g, '_');
-      await supabaseAdmin.from('mp_accounts').upsert({
-        id: fallbackId,
-        name: cleanAccount,
-        alias: cleanAccount,
-        color: '#0069ff',
-        is_active: true
-      }, { onConflict: 'id' });
-      resolvedAccountId = fallbackId;
+      resolvedAccountId = 'diegozono_mp';
     }
   } catch (e) {
     console.warn('[MP Webhook] Error resolving account_id:', e);
@@ -269,7 +255,7 @@ async function handleProcessNotification(
   const paymentRecord = {
     id: paymentId,
     account_id: resolvedAccountId,
-    account_name: account || 'Cuenta MP3',
+    account_name: resolvedAccountId === 'pagoszono_26' ? 'pagoszono.26' : 'diegozono.mp',
     amount: parsed.amount,
     formatted_amount: parsed.formattedAmount,
     payer_name: parsed.payerName,
