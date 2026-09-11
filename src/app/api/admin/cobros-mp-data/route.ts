@@ -79,6 +79,7 @@ export async function GET(request: Request) {
       const linkedStatus = searchParams.get('linkedStatus') || 'ALL';
       const fleteroFilter = searchParams.get('fleteroFilter') || 'ALL';
       const showHidden = searchParams.get('showHidden') === 'true';
+      const hideInternal = searchParams.get('hideInternal') === 'true';
 
       const isSeller = userRole === 'seller' || userRole === 'vendedora' || userRole === 'ventas';
       const isLogistica = userRole === 'logistica';
@@ -134,8 +135,8 @@ export async function GET(request: Request) {
         .select('*')
         .order('received_at', { ascending: false });
 
-      // Non-admin / non-administracion users NEVER see internal user payments
-      if (!isAdminOrAdminStaff) {
+      // Non-admin / non-administracion users NEVER see internal user payments, or if admin explicitly hides them
+      if (!isAdminOrAdminStaff || hideInternal) {
         query = query.or('is_internal.is.null,is_internal.eq.false');
       }
 
@@ -227,12 +228,18 @@ export async function GET(request: Request) {
       // Calculate stats ONLY for Admin & Administracion using exact Argentina Today boundaries
       let todayStats = null;
       if (isAdminOrAdminStaff) {
-        const { data: todayRecords } = await supabaseAdmin
+        let todayQ = supabaseAdmin
           .from('mp_payments')
           .select('amount, is_internal')
           .gte('received_at', todayBounds.startIso)
           .lte('received_at', todayBounds.endIso)
           .or('is_hidden.is.null,is_hidden.eq.false');
+
+        if (!isAdminOrAdminStaff || hideInternal) {
+          todayQ = todayQ.or('is_internal.is.null,is_internal.eq.false');
+        }
+
+        const { data: todayRecords } = await todayQ;
 
         const totalCount = todayRecords ? todayRecords.length : 0;
         const totalAmount = todayRecords ? todayRecords.reduce((acc, p) => acc + (Number(p.amount) || 0), 0) : 0;

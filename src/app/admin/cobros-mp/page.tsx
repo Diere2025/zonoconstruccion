@@ -176,6 +176,23 @@ export default function CobrosMercadoPagoPage() {
     return 'LAST_3_DAYS';
   });
   const [showHidden, setShowHidden] = useState(false);
+  const [hideInternal, setHideInternal] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('zono_mp_hide_internal');
+      if (saved !== null) return saved === 'true';
+    }
+    return false;
+  });
+
+  const toggleHideInternal = useCallback(() => {
+    setHideInternal(prev => {
+      const next = !prev;
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('zono_mp_hide_internal', String(next));
+      }
+      return next;
+    });
+  }, []);
 
   // Modals
   const [showTaskerGuide, setShowTaskerGuide] = useState(false);
@@ -316,6 +333,11 @@ export default function CobrosMercadoPagoPage() {
         }
       }
 
+      // Hide internal movements if admin enabled this filter
+      if (hideInternal && p.is_internal) {
+        return false;
+      }
+
       if (selectedFleteroFilter === 'WITH_FLETERO') {
         if (!p.confirmed_by_fletero_name) return false;
       } else if (selectedFleteroFilter === 'WITHOUT_FLETERO') {
@@ -328,7 +350,7 @@ export default function CobrosMercadoPagoPage() {
       }
       return true;
     });
-  }, [payments, selectedAccountId, selectedFleteroFilter, getAccountDisplay]);
+  }, [payments, selectedAccountId, selectedFleteroFilter, getAccountDisplay, hideInternal]);
 
   // Unique accounts available for filtering (deduplicated by display name)
   const uniqueAccounts = useMemo(() => {
@@ -558,7 +580,8 @@ export default function CobrosMercadoPagoPage() {
         linkedStatus: selectedLinkedStatus,
         fleteroFilter: selectedFleteroFilter,
         search: search,
-        showHidden: showHidden ? 'true' : 'false'
+        showHidden: showHidden ? 'true' : 'false',
+        hideInternal: hideInternal ? 'true' : 'false'
       });
       const res = await fetch(`/api/admin/cobros-mp-data?${params.toString()}`);
       const data = await res.json();
@@ -571,7 +594,7 @@ export default function CobrosMercadoPagoPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [currentUserRole, isRoleLoaded, selectedAccountId, selectedDateRange, selectedType, selectedLinkedStatus, selectedFleteroFilter, search, showHidden]);
+  }, [currentUserRole, isRoleLoaded, selectedAccountId, selectedDateRange, selectedType, selectedLinkedStatus, selectedFleteroFilter, search, showHidden, hideInternal]);
 
   useEffect(() => {
     loadAccounts();
@@ -1421,6 +1444,22 @@ export default function CobrosMercadoPagoPage() {
                   >
                     {showHidden ? <EyeOff className="w-3.5 h-3.5 text-amber-700" /> : <Eye className="w-3.5 h-3.5" />}
                     <span>{showHidden ? 'Viendo Archivadas' : 'Ver Archivadas'}</span>
+                  </button>
+                )}
+
+                {/* Internal / Propio toggle for Admin and Staff */}
+                {isAdminOrStaff && (
+                  <button
+                    onClick={toggleHideInternal}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl font-bold border transition-all cursor-pointer ${
+                      hideInternal 
+                        ? 'bg-purple-100 text-purple-900 border-purple-300 shadow-2xs' 
+                        : 'bg-slate-50 text-slate-500 border-slate-200 hover:text-purple-700 hover:bg-purple-50/50'
+                    }`}
+                    title={hideInternal ? 'Movimientos propios ocultos. Clic para verlos.' : 'Clic para ocultar transferencias de cuentas propias'}
+                  >
+                    {hideInternal ? <UserX className="w-3.5 h-3.5 text-purple-700" /> : <UserCheck className="w-3.5 h-3.5 text-purple-600" />}
+                    <span>{hideInternal ? 'Propios Ocultos' : 'Ocultar Propios'}</span>
                   </button>
                 )}
               </div>
