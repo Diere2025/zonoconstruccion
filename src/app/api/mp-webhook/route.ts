@@ -11,10 +11,14 @@ const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 
 // Comprehensive Mercado Pago Parser
 function parseMpNotification(title: string, text: string, bigText?: string) {
-  let content = `${text || ''} ${bigText || ''}`.replace(/%an[a-z]+/gi, '').trim();
+  const cleanTitle = (title || '').replace(/%(?:an[a-z]+|evtprm[0-9]+)/gi, '').trim();
+  const cleanText = (text || '').replace(/%(?:an[a-z]+|evtprm[0-9]+)/gi, '').trim();
+  const cleanBigText = (bigText || '').replace(/%(?:an[a-z]+|evtprm[0-9]+)/gi, '').trim();
+
+  const fullContent = `${cleanTitle} ${cleanText} ${cleanBigText}`.trim();
 
   // Only if 100% empty
-  if (!content) {
+  if (!fullContent) {
     return {
       isIncomingPayment: true,
       amount: 100,
@@ -24,27 +28,22 @@ function parseMpNotification(title: string, text: string, bigText?: string) {
     };
   }
 
-  const lowerContent = content.toLowerCase();
-  const lowerTitle = (title || '').toLowerCase();
+  const lower = fullContent.toLowerCase();
 
   // Rejection filter: unconditionally discard bills, loans, services, and outgoing payments
   const isExplicitOutgoingOrService =
-    lowerContent.includes('factura') ||
-    lowerContent.includes('vence hoy') ||
-    lowerContent.includes('vencimiento') ||
-    lowerContent.includes('a pagar') ||
-    lowerContent.includes('pagá ahora') ||
-    lowerContent.includes('pagaste') ||
-    lowerContent.includes('tu compra') ||
-    lowerContent.includes('pago de servicios') ||
-    lowerContent.includes('recarga') ||
-    lowerContent.includes('te prestamos') ||
-    lowerContent.includes('préstamo') ||
-    lowerContent.includes('débito automático') ||
-    lowerTitle.includes('factura') ||
-    lowerTitle.includes('vencimiento') ||
-    lowerTitle.includes('pagaste') ||
-    lowerTitle.includes('pagá');
+    lower.includes('factura') ||
+    lower.includes('vence hoy') ||
+    lower.includes('vencimiento') ||
+    lower.includes('a pagar') ||
+    lower.includes('pagá ahora') ||
+    lower.includes('pagaste') ||
+    lower.includes('tu compra') ||
+    lower.includes('pago de servicios') ||
+    lower.includes('recarga') ||
+    lower.includes('te prestamos') ||
+    lower.includes('préstamo') ||
+    lower.includes('débito automático');
 
   if (isExplicitOutgoingOrService) {
     return {
@@ -55,19 +54,20 @@ function parseMpNotification(title: string, text: string, bigText?: string) {
 
   // Incoming validation: MUST explicitly be an incoming payment / cobro
   const isExplicitIncoming = 
-    lowerContent.includes('recibiste') || 
-    lowerContent.includes('te transfirió') || 
-    lowerContent.includes('te envió dinero') || 
-    lowerContent.includes('te enviaron dinero') || 
-    lowerContent.includes('ingresó') ||
-    lowerContent.includes('ingresaron') ||
-    lowerContent.includes('cobro') ||
-    lowerContent.includes('cobraste') ||
-    lowerContent.includes('te pagaron') ||
-    lowerContent.includes('transferencia recibida') ||
-    lowerTitle.includes('recibiste') ||
-    lowerTitle.includes('cobro') ||
-    lowerTitle.includes('cobraste');
+    lower.includes('recibiste') || 
+    lower.includes('te transfiri') || 
+    lower.includes('te envió') || 
+    lower.includes('te enviaron') || 
+    lower.includes('ingresó') ||
+    lower.includes('ingresaron') ||
+    lower.includes('cobro') ||
+    lower.includes('cobraste') ||
+    lower.includes('te pagaron') ||
+    lower.includes('transferencia recibida') ||
+    lower.includes('transferencia de') ||
+    lower.includes('transferencia') ||
+    lower.includes('acredit') ||
+    lower.includes('aprobado');
 
   if (!isExplicitIncoming) {
     return {
@@ -76,8 +76,8 @@ function parseMpNotification(title: string, text: string, bigText?: string) {
     };
   }
 
-  // 1. Amount extraction
-  const amountMatch = content.match(/\$\s*([\d\.,]+)/);
+  // 1. Amount extraction: Look anywhere in fullContent
+  const amountMatch = fullContent.match(/\$\s*([\d\.,]+)/) || fullContent.match(/([\d\.,]+)\s*pesos/i);
   if (!amountMatch) {
     return {
       isIncomingPayment: false,
@@ -102,34 +102,42 @@ function parseMpNotification(title: string, text: string, bigText?: string) {
 
   // 2. Payment Type detection
   let paymentType = 'TRANSFERENCIA';
-  if (lowerContent.includes('código qr') || lowerTitle.includes('código qr') || lowerContent.includes('qr')) {
+  if (lower.includes('código qr') || lower.includes('qr')) {
     paymentType = 'QR';
-  } else if (lowerContent.includes('point') || lowerTitle.includes('point') || lowerContent.includes('tarjeta de débito') || lowerContent.includes('tarjeta de crédito')) {
+  } else if (lower.includes('point') || lower.includes('tarjeta de débito') || lower.includes('tarjeta de crédito')) {
     paymentType = 'POINT';
   }
 
   // 3. Payer Name extraction
   let payerName = 'Cliente';
 
-  // Pattern 1: "Recibiste $ 100 [Nombre] te envió dinero..."
-  const matchEnvio = content.match(/Recibiste\s+\$[\s\d\.,]+\s*(?:de\s+)?(.+?)\s+te envió dinero/i);
-  // Pattern 2: "Recibiste $ 100 De [Nombre] desde su cuenta..."
-  const matchDe = content.match(/Recibiste\s+\$[\s\d\.,]+\s+De\s+([^.]+?)(?:\s+desde su cuenta|\s+y ya está|\.|$)/i);
-  // Pattern 3: generic "de [Nombre]" or "te transfirió [Nombre]"
-  const matchGen = content.match(/(?:de|recibiste de|te transfirió)\s+([^.]+?)(?:\s+desde su cuenta|\s+y ya está|\s+por transferencia|\.|$)/i);
+  const m1 = fullContent.match(/Recibiste\s+\$[\s\d\.,]+\s*(?:de\s+)?(.+?)\s+te envió dinero/i);
+  const m2 = fullContent.match(/Recibiste\s+\$[\s\d\.,]+\s+De\s+([^.]+?)(?:\s+desde su cuenta|\s+y ya está|\.|$)/i);
+  const m3 = fullContent.match(/(?:transferencia recibida|mercado pago|^|[.\n])\s*(.+?)\s+te transfirió/i);
+  const m4 = fullContent.match(/(?:transferencia recibida|mercado pago|^|[.\n])\s*(.+?)\s+te envió/i);
+  const m5 = fullContent.match(/(?:transferencia recibida|transferencia de|recibiste de|de)\s+([^.$]+?)(?:\s+desde su cuenta|\s+por transferencia|\s+y ya está|\s+por\s+\$|\.|$)/i);
+  const m6 = fullContent.match(/\$\s*[\d\.,]+\s+(?:de\s+)?([a-záéíóúñ\s]+?)(?:\s+desde|\s+y ya está|\s+por transferencia|\.|$)/i);
 
-  if (matchEnvio && matchEnvio[1]) {
-    payerName = matchEnvio[1].replace(/,/g, ' ').replace(/\s+/g, ' ').trim();
-  } else if (matchDe && matchDe[1]) {
-    payerName = matchDe[1].replace(/,/g, ' ').replace(/\s+/g, ' ').trim();
-  } else if (matchGen && matchGen[1]) {
-    payerName = matchGen[1].replace(/,/g, ' ').replace(/\s+/g, ' ').trim();
+  let rawCandidate = '';
+  if (m1 && m1[1]) rawCandidate = m1[1];
+  else if (m2 && m2[1]) rawCandidate = m2[1];
+  else if (m3 && m3[1] && !m3[1].toLowerCase().includes('recibiste')) rawCandidate = m3[1];
+  else if (m4 && m4[1] && !m4[1].toLowerCase().includes('recibiste')) rawCandidate = m4[1];
+  else if (m5 && m5[1]) rawCandidate = m5[1];
+  else if (m6 && m6[1]) rawCandidate = m6[1];
+
+  if (rawCandidate) {
+    let cleaned = rawCandidate
+      .replace(/^(?:transferencia recibida(?:\s*de)?|mercado pago|de|recibiste de)\s+/i, '')
+      .replace(/,/g, ' ')
+      .replace(/\s+/g, ' ')
+      .replace(/\s+(desde su cuenta|y ya está|te envió dinero|en tu cuenta|por transferencia|transferencia recibida|transferencia|con mercado pago|desde mercado pago).*$/i, '')
+      .trim();
+
+    if (!cleaned.startsWith('$') && !cleaned.toLowerCase().startsWith('recibiste') && cleaned.length <= 50 && cleaned.length > 1) {
+      payerName = cleaned;
+    }
   }
-
-  // Clean up any trailing text
-  payerName = payerName
-    .replace(/\s+(desde su cuenta|y ya está|te envió dinero|en tu cuenta|por transferencia|transferencia recibida|transferencia|con mercado pago|desde mercado pago).*$/i, '')
-    .trim();
 
   return {
     isIncomingPayment: true,
@@ -309,6 +317,18 @@ export async function POST(request: Request) {
   }
 }
 
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, x-webhook-token, authorization',
+      'Access-Control-Max-Age': '86400'
+    }
+  });
+}
+
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
@@ -326,9 +346,14 @@ export async function GET(request: Request) {
       service: 'Zono Construcción MP Tasker Webhook',
       timestamp: new Date().toISOString(),
       endpoint: '/api/mp-webhook',
-      methods: ['GET', 'POST']
+      methods: ['GET', 'POST', 'OPTIONS']
+    }, {
+      headers: {
+        'Access-Control-Allow-Origin': '*'
+      }
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
+
