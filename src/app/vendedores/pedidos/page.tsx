@@ -5853,19 +5853,19 @@ export default function PedidosPage() {
                                     setPaymentsList(prev => prev.map(item => item.id === p.id ? { ...item, card_surcharge: 42 } : item));
                                   }}
                                   className={`px-1.5 py-0.5 text-[9px] font-bold rounded border transition-colors cursor-pointer ${p.card_surcharge === 42 ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
-                                  title="Aplicar recargo 42%"
+                                  title="Aplicar recargo 42% (Cuota Simple)"
                                 >
                                   42%
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => {
-                                    setPaymentsList(prev => prev.map(item => item.id === p.id ? { ...item, card_surcharge: 34 } : item));
+                                    setPaymentsList(prev => prev.map(item => item.id === p.id ? { ...item, card_surcharge: 51, card_installments: 1 } : item));
                                   }}
-                                  className={`px-1.5 py-0.5 text-[9px] font-bold rounded border transition-colors cursor-pointer ${p.card_surcharge === 34 ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
-                                  title="Aplicar recargo anterior 34%"
+                                  className={`px-1.5 py-0.5 text-[9px] font-bold rounded border transition-colors cursor-pointer ${p.card_surcharge === 51 ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
+                                  title="Aplicar recargo 51% (Tarjeta Naranja)"
                                 >
-                                  34%
+                                  51%
                                 </button>
                               </div>
                             </div>

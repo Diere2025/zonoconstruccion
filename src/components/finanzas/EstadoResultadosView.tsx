@@ -71,10 +71,18 @@ export interface CardSurchargeAnalysis {
   criteria: string;
   source: string;
   dailyTimeline: CardSurchargeDailyItem[];
-  byDeliveryDate: {
+  byDeliveryDate?: {
     totalSurcharge: number;
     netAbsorbed: number;
     coveragePercentage: number;
+    absorbedPercentage?: number;
+    dailyTimeline: CardSurchargeDailyItem[];
+  };
+  byOrderDate?: {
+    totalSurcharge: number;
+    netAbsorbed: number;
+    coveragePercentage: number;
+    absorbedPercentage?: number;
     dailyTimeline: CardSurchargeDailyItem[];
   };
 }
@@ -87,11 +95,17 @@ interface MatrixItem {
   pctUnit: string;
   total: number;
   dailyValues: number[];
+  dailyValuesByDeliveryDate?: number[];
+  dailyValuesByOrderDate?: number[];
+  totalByDeliveryDate?: number;
+  totalByOrderDate?: number;
+  pctTotByDeliveryDate?: string;
+  pctTotByOrderDate?: string;
   tag?: string;
-  isBaseSales?: boolean;
   isSurcharge?: boolean;
-  isRecupero?: boolean;
+  isBaseSales?: boolean;
   isNetAbsorbed?: boolean;
+  isRecupero?: boolean;
 }
 
 interface MatrixGroup {
@@ -150,7 +164,7 @@ export default function EstadoResultadosView() {
   const [activeSegment, setActiveSegment] = useState<number | null>(null);
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [surchargeCriteria, setSurchargeCriteria] = useState<'order_date' | 'delivery_date'>('order_date');
+  const [surchargeCriteria, setSurchargeCriteria] = useState<'order_date' | 'delivery_date'>('delivery_date');
   const [showAbsorptionAudit, setShowAbsorptionAudit] = useState(true);
 
   // Expand / collapse state for matrix groups (default: all collapsed)
@@ -253,9 +267,9 @@ export default function EstadoResultadosView() {
 
   const activeSurchargeAnalysis = useMemo(() => {
     if (!data?.cardSurchargeAnalysis) return null;
-    if (surchargeCriteria === 'delivery_date' && data.cardSurchargeAnalysis.byDeliveryDate) {
-      const del = data.cardSurchargeAnalysis.byDeliveryDate;
-      const totalMp = data.cardSurchargeAnalysis.totalMp;
+    const totalMp = data.cardSurchargeAnalysis.totalMp;
+    if (surchargeCriteria === 'delivery_date') {
+      const del = data.cardSurchargeAnalysis.byDeliveryDate || data.cardSurchargeAnalysis;
       const totalSurcharge = del.totalSurcharge;
       const netAbsorbed = del.netAbsorbed;
       const coveragePercentage = del.coveragePercentage;
@@ -269,16 +283,22 @@ export default function EstadoResultadosView() {
         dailyTimeline: del.dailyTimeline,
         source: data.cardSurchargeAnalysis.source
       };
+    } else {
+      const ord = data.cardSurchargeAnalysis.byOrderDate || data.cardSurchargeAnalysis;
+      const totalSurcharge = ord.totalSurcharge;
+      const netAbsorbed = ord.netAbsorbed;
+      const coveragePercentage = ord.coveragePercentage;
+      const absorbedPercentage = totalMp > 0 ? Number(((netAbsorbed / totalMp) * 100).toFixed(1)) : 0;
+      return {
+        totalMp,
+        totalSurcharge,
+        netAbsorbed,
+        coveragePercentage,
+        absorbedPercentage,
+        dailyTimeline: ord.dailyTimeline,
+        source: data.cardSurchargeAnalysis.source
+      };
     }
-    return {
-      totalMp: data.cardSurchargeAnalysis.totalMp,
-      totalSurcharge: data.cardSurchargeAnalysis.totalSurcharge,
-      netAbsorbed: data.cardSurchargeAnalysis.netAbsorbed,
-      coveragePercentage: data.cardSurchargeAnalysis.coveragePercentage,
-      absorbedPercentage: data.cardSurchargeAnalysis.absorbedPercentage,
-      dailyTimeline: data.cardSurchargeAnalysis.dailyTimeline,
-      source: data.cardSurchargeAnalysis.source
-    };
   }, [data, surchargeCriteria]);
 
   if (loading && !data) {
@@ -498,24 +518,26 @@ export default function EstadoResultadosView() {
             <div className="flex flex-wrap items-center gap-2">
               <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200/80 dark:border-slate-700/80 text-xs">
                 <button
-                  onClick={() => setSurchargeCriteria('order_date')}
-                  className={`px-3 py-1.5 rounded-lg font-medium transition ${
-                    surchargeCriteria === 'order_date'
-                      ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs font-semibold'
-                      : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-                  }`}
-                >
-                  Por Fecha de Pedido
-                </button>
-                <button
                   onClick={() => setSurchargeCriteria('delivery_date')}
                   className={`px-3 py-1.5 rounded-lg font-medium transition ${
                     surchargeCriteria === 'delivery_date'
                       ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs font-semibold'
                       : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
                   }`}
+                  title="Alineado con la Planilla de Entregados y el momento de cobro en destino"
                 >
-                  Por Fecha de Entrega
+                  Por Fecha de Entrega <span className="text-[10px] font-bold opacity-80">(Recomendado)</span>
+                </button>
+                <button
+                  onClick={() => setSurchargeCriteria('order_date')}
+                  className={`px-3 py-1.5 rounded-lg font-medium transition ${
+                    surchargeCriteria === 'order_date'
+                      ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs font-semibold'
+                      : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                  }`}
+                  title="Agrupado según la fecha en que la vendedora cargó el pedido"
+                >
+                  Por Fecha de Pedido
                 </button>
               </div>
 
@@ -533,138 +555,130 @@ export default function EstadoResultadosView() {
             {/* Card 1: Costo MP Bruto */}
             <div className="p-4 rounded-2xl bg-rose-50/50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/30">
               <div className="text-xs font-semibold text-rose-600 dark:text-rose-400 mb-1 flex items-center justify-between">
-                <span>Comisión MercadoPago (Bruto)</span>
-                <CreditCard className="w-4 h-4" />
+                <span>Comisión MP (Bruto)</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-100 dark:bg-rose-900/50 text-rose-700 dark:text-rose-300 font-bold">
+                  Retención
+                </span>
               </div>
-              <div className="text-xl font-black text-slate-900 dark:text-white">
-                {formatCurrency(activeSurchargeAnalysis.totalMp)}
+              <div className="text-2xl font-black text-rose-600 dark:text-rose-400">
+                {formatCurrency(activeSurchargeAnalysis?.totalMp || 0)}
               </div>
-              <p className="text-[11px] text-slate-500 mt-1">
-                Egresos registrados por pasarela
-              </p>
+              <div className="mt-1 text-[11px] text-slate-500">
+                100% de comisiones según planilla
+              </div>
             </div>
 
-            {/* Card 2: Recargos Abonados por Clientes */}
-            <div className="p-4 rounded-2xl bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/30">
-              <div className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 mb-1 flex items-center justify-between">
-                <span>Recargos Abonados por Clientes</span>
-                <CheckCircle2 className="w-4 h-4" />
+            {/* Card 2: Recargo Tarjeta Abonado por Clientes */}
+            <div className="p-4 rounded-2xl bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/30">
+              <div className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 mb-1 flex items-center justify-between">
+                <span>Recargos de Clientes</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 font-bold">
+                  {activeSurchargeAnalysis?.coveragePercentage}% cubierto
+                </span>
               </div>
-              <div className="text-xl font-black text-emerald-600 dark:text-emerald-400">
-                {formatCurrency(activeSurchargeAnalysis.totalSurcharge)}
+              <div className="text-2xl font-black text-indigo-600 dark:text-indigo-400">
+                {formatCurrency(activeSurchargeAnalysis?.totalSurcharge || 0)}
               </div>
-              <p className="text-[11px] text-slate-500 mt-1">
-                Recupero trasladado al cliente ({activeSurchargeAnalysis.coveragePercentage}%)
-              </p>
+              <div className="mt-1 text-[11px] text-slate-500">
+                Recupero trasladado al cliente
+              </div>
             </div>
 
-            {/* Card 3: Costo Neto Absorbido */}
+            {/* Card 3: Costo MP Neto Absorbido */}
             <div className="p-4 rounded-2xl bg-amber-50/50 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900/30">
               <div className="text-xs font-semibold text-amber-600 dark:text-amber-400 mb-1 flex items-center justify-between">
-                <span>Costo Neto Absorbido por Zono</span>
-                <AlertTriangle className="w-4 h-4" />
+                <span>Costo Neto Absorbido</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-300 font-bold">
+                  {activeSurchargeAnalysis?.absorbedPercentage}% absorbido
+                </span>
               </div>
-              <div className="text-xl font-black text-amber-700 dark:text-amber-300">
-                {formatCurrency(activeSurchargeAnalysis.netAbsorbed)}
+              <div className="text-2xl font-black text-amber-600 dark:text-amber-400">
+                {formatCurrency(activeSurchargeAnalysis?.netAbsorbed || 0)}
               </div>
-              <p className="text-[11px] text-slate-500 mt-1">
-                {activeSurchargeAnalysis.absorbedPercentage}% absorbido del margen propio
-              </p>
+              <div className="mt-1 text-[11px] text-slate-500">
+                Gasto no recuperado (a cargo de Zono)
+              </div>
             </div>
 
-            {/* Card 4: Ratio de Cobertura */}
-            <div className="p-4 rounded-2xl bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/30 flex flex-col justify-between">
-              <div>
-                <div className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 mb-1 flex items-center justify-between">
-                  <span>Eficacia de Traslado</span>
-                  <Percent className="w-4 h-4" />
-                </div>
-                <div className="text-xl font-black text-indigo-600 dark:text-indigo-400">
-                  {activeSurchargeAnalysis.coveragePercentage}%
-                </div>
+            {/* Card 4: Ratio de Eficacia */}
+            <div className="p-4 rounded-2xl bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/30">
+              <div className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 mb-1 flex items-center justify-between">
+                <span>Eficacia de Traslado</span>
+                <ShieldCheck className="w-4 h-4 text-emerald-500" />
               </div>
-              <div className="mt-2">
-                <div className="w-full bg-slate-200 dark:bg-slate-700 h-2 rounded-full overflow-hidden flex">
+              <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400">
+                {activeSurchargeAnalysis?.coveragePercentage}%
+              </div>
+              <div className="mt-1.5">
+                <div className="w-full bg-slate-200 dark:bg-slate-800 h-2 rounded-full overflow-hidden flex">
                   <div
                     className="bg-emerald-500 h-full transition-all duration-500"
-                    style={{ width: `${Math.min(100, activeSurchargeAnalysis.coveragePercentage)}%` }}
-                    title={`Cubierto: ${activeSurchargeAnalysis.coveragePercentage}%`}
+                    style={{ width: `${Math.min(100, activeSurchargeAnalysis?.coveragePercentage || 0)}%` }}
+                    title={`Recuperado: ${activeSurchargeAnalysis?.coveragePercentage}%`}
                   />
                   <div
                     className="bg-amber-500 h-full transition-all duration-500"
-                    style={{ width: `${Math.min(100, activeSurchargeAnalysis.absorbedPercentage)}%` }}
-                    title={`Absorbido: ${activeSurchargeAnalysis.absorbedPercentage}%`}
+                    style={{ width: `${Math.min(100, activeSurchargeAnalysis?.absorbedPercentage || 0)}%` }}
+                    title={`Absorbido: ${activeSurchargeAnalysis?.absorbedPercentage}%`}
                   />
-                </div>
-                <div className="flex justify-between text-[10px] text-slate-400 mt-1 font-medium">
-                  <span className="text-emerald-600 font-semibold">{activeSurchargeAnalysis.coveragePercentage}% Cubierto</span>
-                  <span className="text-amber-600 font-semibold">{activeSurchargeAnalysis.absorbedPercentage}% Absorbido</span>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Daily Reconciliation Table */}
-          {showAbsorptionAudit && (
-            <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden pt-1">
-              <div className="bg-slate-50 dark:bg-slate-800/50 px-4 py-2.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                  Conciliación Día a Día: Costos MP vs. Recargos de Tarjeta
+          {/* Collapsible Daily Reconciliation Table */}
+          {showAbsorptionAudit && activeSurchargeAnalysis?.dailyTimeline && (
+            <div className="mt-5 pt-4 border-t border-slate-200/80 dark:border-slate-800">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-indigo-500" />
+                  Auditoría Diaria: MercadoPago vs Recargos de Tarjeta
                 </span>
                 <span className="text-[11px] text-slate-400">
-                  Criterio: {surchargeCriteria === 'order_date' ? 'Fecha de Carga del Pedido' : 'Fecha de Entrega Programada'}
+                  Criterio: {surchargeCriteria === 'delivery_date' ? 'Fecha de Entrega Programada (Recomendado)' : 'Fecha de Carga del Pedido'}
                 </span>
               </div>
               <div className="overflow-x-auto max-h-80 overflow-y-auto">
                 <table className="w-full text-left text-xs whitespace-nowrap">
                   <thead className="bg-white dark:bg-slate-900 text-slate-500 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-10">
                     <tr>
-                      <th className="py-2.5 px-4 font-semibold">Día</th>
-                      <th className="py-2.5 px-4 text-right font-semibold">Costo MercadoPago</th>
-                      <th className="py-2.5 px-4 text-right font-semibold">Recargo Cliente</th>
-                      <th className="py-2.5 px-4 text-right font-semibold">Diferencia</th>
-                      <th className="py-2.5 px-4 text-center font-semibold">% Cobertura</th>
-                      <th className="py-2.5 px-4 text-center font-semibold">Diagnóstico</th>
+                      <th className="py-2 px-3 font-semibold">Día</th>
+                      <th className="py-2 px-3 text-right font-semibold">Costo MP</th>
+                      <th className="py-2 px-3 text-right font-semibold">Recargo Cliente</th>
+                      <th className="py-2 px-3 text-right font-semibold">Saldo (+Superávit / -Absorbido)</th>
+                      <th className="py-2 px-3 text-right font-semibold">% Cobertura</th>
+                      <th className="py-2 px-3 text-center font-semibold">Diagnóstico</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
-                    {activeSurchargeAnalysis.dailyTimeline.filter(d => d.mpCost > 0 || d.clientSurcharge > 0).map((dayRow, idx) => {
-                      const isCovered = dayRow.status === 'cubierto';
-                      const hasCost = dayRow.mpCost > 0;
+                    {activeSurchargeAnalysis.dailyTimeline.map((item, idx) => {
+                      if (item.mpCost === 0 && item.clientSurcharge === 0) return null;
                       return (
-                        <tr key={idx} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
-                          <td className="py-2 px-4 font-bold text-slate-700 dark:text-slate-300">
-                            {dayRow.day}
-                          </td>
-                          <td className="py-2 px-4 text-right text-rose-600 font-semibold">
-                            {dayRow.mpCost > 0 ? formatCurrency(dayRow.mpCost) : '-'}
-                          </td>
-                          <td className="py-2 px-4 text-right text-emerald-600 font-semibold">
-                            {dayRow.clientSurcharge > 0 ? formatCurrency(dayRow.clientSurcharge) : '-'}
-                          </td>
-                          <td className={`py-2 px-4 text-right font-bold ${
-                            dayRow.difference >= 0 ? 'text-emerald-600' : 'text-amber-600'
+                        <tr key={idx} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition">
+                          <td className="py-2 px-3 font-bold text-slate-700 dark:text-slate-200">{item.day}</td>
+                          <td className="py-2 px-3 text-right text-rose-600 font-semibold">{formatCurrency(item.mpCost)}</td>
+                          <td className="py-2 px-3 text-right text-indigo-600 dark:text-indigo-400 font-semibold">{formatCurrency(item.clientSurcharge)}</td>
+                          <td className={`py-2 px-3 text-right font-bold ${
+                            item.difference >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'
                           }`}>
-                            {dayRow.difference >= 0 ? `+${formatCurrency(dayRow.difference)}` : `-${formatCurrency(Math.abs(dayRow.difference))}`}
+                            {item.difference > 0 ? `+${formatCurrency(item.difference)}` : formatCurrency(item.difference)}
                           </td>
-                          <td className="py-2 px-4 text-center font-medium text-slate-600 dark:text-slate-400">
-                            {hasCost ? `${dayRow.coveragePct}%` : '-'}
+                          <td className="py-2 px-3 text-right text-slate-600 dark:text-slate-300 font-medium">
+                            {item.coveragePct}%
                           </td>
-                          <td className="py-2 px-4 text-center">
-                            {hasCost ? (
-                              isCovered ? (
-                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
-                                  <CheckCircle2 className="w-3 h-3" /> Cubierto al 100%
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
-                                  <AlertTriangle className="w-3 h-3" /> Absorbe Zono ({formatCurrency(dayRow.netAbsorbed)})
-                                </span>
-                              )
-                            ) : (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400">
-                                Sin costo MP
+                          <td className="py-2 px-3 text-center">
+                            {item.status === 'cubierto' ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/60">
+                                <CheckCircle2 className="w-3 h-3" />
+                                Cubierto al 100%
                               </span>
+                            ) : item.status === 'absorbido' ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border border-amber-200/60 dark:border-amber-800/60">
+                                <AlertTriangle className="w-3 h-3" />
+                                Absorbe Zono ({formatCurrency(item.netAbsorbed)})
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-slate-400">-</span>
                             )}
                           </td>
                         </tr>
@@ -678,55 +692,52 @@ export default function EstadoResultadosView() {
         </div>
       )}
 
-      {/* Structured P&L Matrix Table */}
+      {/* Main Table Matrix */}
       <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-sm overflow-hidden">
-        {/* Table Top Controls */}
-        <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-              <FileSpreadsheet className="w-5 h-5 text-indigo-600" />
-              Matriz Estado de Resultados Día a Día (EERR Agrupado)
-            </h3>
-            <p className="text-xs text-slate-500">
-              Rubros organizados con subtotales por categoría y detalle de los 31 días
-            </p>
-          </div>
-
+        {/* Table Toolbar */}
+        <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="relative w-full sm:w-60">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <div className="relative flex-1 sm:w-72">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
-                placeholder="Filtrar concepto..."
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                placeholder="Filtrar concepto o rubro..."
+                className="w-full pl-9 pr-4 py-2 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 transition"
               />
             </div>
 
-            <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700 shrink-0">
+            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200/80 dark:border-slate-700 text-xs">
               <button
                 onClick={expandAll}
-                className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white rounded-lg transition"
-                title="Expandir todos los grupos"
+                className="px-2.5 py-1.5 text-slate-600 dark:text-slate-300 hover:text-indigo-600 rounded-lg font-medium transition flex items-center gap-1"
+                title="Expandir todos los rubros"
               >
-                <Maximize2 className="w-3.5 h-3.5" /> Expandir
+                <Maximize2 className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Expandir</span>
               </button>
               <button
                 onClick={collapseAll}
-                className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white rounded-lg transition"
-                title="Colapsar todos los grupos"
+                className="px-2.5 py-1.5 text-slate-600 dark:text-slate-300 hover:text-indigo-600 rounded-lg font-medium transition flex items-center gap-1"
+                title="Contraer todos los rubros"
               >
-                <Minimize2 className="w-3.5 h-3.5" /> Colapsar
+                <Minimize2 className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Contraer</span>
               </button>
             </div>
           </div>
+
+          <div className="flex items-center justify-end gap-2 text-xs text-slate-400">
+            <span className="inline-block w-2 h-2 rounded-full bg-emerald-500"></span>
+            <span>Matriz Consolidada ({activeDaysWithData.length} días con actividad)</span>
+          </div>
         </div>
 
-        {/* Grouped Table */}
+        {/* Scrollable Matrix Table */}
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs whitespace-nowrap">
-            <thead className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-800">
+            <thead className="bg-slate-50/90 dark:bg-slate-800/80 text-slate-500 border-b border-slate-200 dark:border-slate-800">
               <tr>
                 <th className="py-3 px-2.5 sm:px-4 sticky left-0 bg-slate-100 dark:bg-slate-800 z-20 w-[170px] sm:w-[240px] min-w-[170px] sm:min-w-[240px] max-w-[170px] sm:max-w-none border-r border-slate-200 dark:border-slate-700 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
                   Rubro / Concepto

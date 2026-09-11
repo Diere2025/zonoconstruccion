@@ -207,6 +207,33 @@ async function handleProcessNotification(
     console.warn('[MP Webhook] Error checking internal payers:', e);
   }
 
+  // Check for duplicate payment received in the last 15 minutes with the same amount and payer
+  try {
+    const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+    const { data: existing } = await supabaseAdmin
+      .from('mp_payments')
+      .select('id, amount, payer_name, received_at')
+      .eq('account_name', account || 'Cuenta MP3')
+      .eq('amount', parsed.amount)
+      .eq('payer_name', parsed.payerName)
+      .gte('received_at', fifteenMinutesAgo)
+      .order('received_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (existing) {
+      console.log('[MP Webhook] Duplicate payment avoided:', existing);
+      return NextResponse.json({
+        success: true,
+        isDuplicate: true,
+        message: 'Cobro ya registrado previamente (duplicado evitado)',
+        payment: existing
+      });
+    }
+  } catch (dupErr) {
+    console.warn('[MP Webhook] Error checking duplicate:', dupErr);
+  }
+
   const paymentRecord = {
     id: paymentId,
     account_id: resolvedAccountId,

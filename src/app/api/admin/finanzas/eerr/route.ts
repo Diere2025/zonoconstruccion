@@ -6,6 +6,7 @@ export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 
 const SPREADSHEET_ID = '1YFJcTYKjoP7uE1_LxKPNIC-7esxRY-1qn5y-4NKoaa0';
+const LOGISTICS_SPREADSHEET_ID = '1TYeIyGbDleed1bTJyhuaxcM97KMbNbL--1OswOppROg';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -47,8 +48,14 @@ export async function GET(request: Request) {
       return NextResponse.json(cache.data);
     }
 
-    // 1. Fetch main EERR range
-    const values = await fetchSpreadsheetValues(SPREADSHEET_ID, 'EERR!A1:AK34');
+    // 1. Fetch main EERR range and Master Logistics sheet in parallel
+    const [values, masterDeliveriesSheetRows] = await Promise.all([
+      fetchSpreadsheetValues(SPREADSHEET_ID, 'EERR!A1:AK34'),
+      fetchSpreadsheetValues(LOGISTICS_SPREADSHEET_ID, "'🔴 Entregados'!A1:Z").catch(err => {
+        console.warn('[API EERR] Could not fetch master logistics sheet:', err);
+        return null;
+      })
+    ]);
 
     if (!values || values.length < 25) {
       throw new Error('EERR sheet data is empty or too short');
@@ -81,51 +88,100 @@ export async function GET(request: Request) {
     const startIso = `${targetYear}-${String(targetMonth).padStart(2, '0')}-01`;
     const endIso = `${targetYear}-${String(targetMonth).padStart(2, '0')}-${String(lastDayOfMonth).padStart(2, '0')}T23:59:59`;
 
-    // Query orders and payment methods from Supabase for card surcharges
+    // Query window to capture orders placed at month boundary
+    const prevMonthDate = new Date(targetYear, targetMonth - 1, 1 - 15);
+    const queryStartIso = prevMonthDate.toISOString().split('T')[0];
+
+    // Card surcharges: primary source is Master Logistics Sheet (🔴 Entregados)
     let surchargesByOrderDate: Record<string, number> = {};
     let surchargesByDeliveryDate: Record<string, number> = {};
+    let surchargeDataSource = 'supabase';
 
+    if (masterDeliveriesSheetRows && masterDeliveriesSheetRows.length > 1) {
+      surchargeDataSource = 'planilla_entregados';
+      for (let i = 1; i < masterDeliveriesSheetRows.length; i++) {
+        const r = masterDeliveriesSheetRows[i];
+        const deliveryDateStr = (r[1] || '').trim();
+        const orderDateStr = (r[2] || '').trim();
+        const recargoStr = (r[24] || '').trim();
+
+        if (!recargoStr) continue;
+        const recargoNum = parseFloat(recargoStr.replace(/\./g, '').replace(',', '.')) || 0;
+        if (recargoNum <= 0) continue;
+
+        if (deliveryDateStr) {
+          const parts = deliveryDateStr.split('/');
+          if (parts.length >= 2) {
+            const d = parseInt(parts[0], 10);
+            const m = parseInt(parts[1], 10);
+            if (m === targetMonth) {
+              const k = `${d}/${m}`;
+              surchargesByDeliveryDate[k] = (surchargesByDeliveryDate[k] || 0) + Math.round(recargoNum);
+            }
+          }
+        }
+
+        if (orderDateStr) {
+          const parts = orderDateStr.split('/');
+          if (parts.length >= 2) {
+            const d = parseInt(parts[0], 10);
+            const m = parseInt(parts[1], 10);
+            if (m === targetMonth) {
+              const k = `${d}/${m}`;
+              surchargesByOrderDate[k] = (surchargesByOrderDate[k] || 0) + Math.round(recargoNum);
+            }
+          }
+        }
+      }
+    }
+
+    // Query orders and payment methods from Supabase as fallback or supplement
     try {
-      const [ordersRes, pmsRes] = await Promise.all([
-        supabaseAdmin
-          .from('orders')
-          .select('id, legacy_code, payment_method_id, total_amount, totals, order_date, initial_delivery_date, status')
-          .gte('order_date', startIso)
-          .lte('order_date', endIso)
-          .neq('status', 'Cancelado')
-          .limit(3000),
-        supabaseAdmin
-          .from('payment_methods')
-          .select('id, name, surcharge_percentage')
-      ]);
+      const hasSheetDelivery = Object.keys(surchargesByDeliveryDate).length > 0;
+      const hasSheetOrder = Object.keys(surchargesByOrderDate).length > 0;
 
-      const orders = ordersRes.data || [];
-      const pms = pmsRes.data || [];
-      const pmMap = new Map(pms.map((p: any) => [p.id, p]));
+      if (!hasSheetDelivery || !hasSheetOrder) {
+        const [ordersRes, pmsRes] = await Promise.all([
+          supabaseAdmin
+            .from('orders')
+            .select('id, legacy_code, payment_method_id, total_amount, totals, order_date, initial_delivery_date, status')
+            .or(`order_date.gte.${queryStartIso},initial_delivery_date.gte.${startIso}`)
+            .neq('status', 'Cancelado')
+            .limit(3500),
+          supabaseAdmin
+            .from('payment_methods')
+            .select('id, name, surcharge_percentage')
+        ]);
 
-      orders.forEach((o: any) => {
-        let sur = Number(o.totals?.payment_surcharges) || 0;
-        const pm = pmMap.get(o.payment_method_id);
-        const pmPct = Number(pm?.surcharge_percentage) || 0;
-        const tot = Number(o.total_amount) || 0;
+        const orders = ordersRes.data || [];
+        const pms = pmsRes.data || [];
+        const pmMap = new Map(pms.map((p: any) => [p.id, p]));
+        const targetMonthPrefix = `${targetYear}-${String(targetMonth).padStart(2, '0')}`;
 
-        if (sur <= 0 && pmPct > 0 && tot > 0) {
-          sur = Math.round(tot - (tot / (1 + pmPct / 100)));
-        }
+        orders.forEach((o: any) => {
+          let sur = Number(o.totals?.payment_surcharges) || 0;
+          const pm = pmMap.get(o.payment_method_id);
+          const pmPct = Number(pm?.surcharge_percentage) || 0;
+          const tot = Number(o.total_amount) || 0;
 
-        if (sur > 0) {
-          if (o.order_date) {
-            const [y, m, d] = o.order_date.split('T')[0].split('-');
-            const k = `${parseInt(d)}/${parseInt(m)}`;
-            surchargesByOrderDate[k] = (surchargesByOrderDate[k] || 0) + sur;
+          if (sur <= 0 && pmPct > 0 && tot > 0) {
+            sur = Math.round(tot - (tot / (1 + pmPct / 100)));
           }
-          if (o.initial_delivery_date) {
-            const [y, m, d] = o.initial_delivery_date.split('T')[0].split('-');
-            const k = `${parseInt(d)}/${parseInt(m)}`;
-            surchargesByDeliveryDate[k] = (surchargesByDeliveryDate[k] || 0) + sur;
+
+          if (sur > 0) {
+            if (!hasSheetOrder && o.order_date && o.order_date.startsWith(targetMonthPrefix)) {
+              const [y, m, d] = o.order_date.split('T')[0].split('-');
+              const k = `${parseInt(d)}/${parseInt(m)}`;
+              surchargesByOrderDate[k] = (surchargesByOrderDate[k] || 0) + sur;
+            }
+            if (!hasSheetDelivery && o.initial_delivery_date && o.initial_delivery_date.startsWith(targetMonthPrefix)) {
+              const [y, m, d] = o.initial_delivery_date.split('T')[0].split('-');
+              const k = `${parseInt(d)}/${parseInt(m)}`;
+              surchargesByDeliveryDate[k] = (surchargesByDeliveryDate[k] || 0) + sur;
+            }
           }
-        }
-      });
+        });
+      }
     } catch (dbErr) {
       console.error('[API EERR] Error querying Supabase surcharges:', dbErr);
     }
@@ -283,48 +339,76 @@ export async function GET(request: Request) {
     }
 
     // Surcharge calculations
+    // Surcharge calculations
     const recargoRow = findRow('recargo tarjeta') || findRow('recargo por tarjeta') || findRow('recargo cliente') || findRow('recargo');
     const hasSheetRecargo = recargoRow.length > 0 && dayColIndices.some(col => parseMoney(recargoRow[col]) > 0);
 
-    const dailyRecargosCliente = dayHeaders.map((dh, idx) =>
+    // Delivery date surcharges (Recommended / Default because Facturación Total is from Planilla Entregados)
+    const dailyRecargosDelivery = dayHeaders.map((dh, idx) =>
+      hasSheetRecargo ? parseMoney(recargoRow[dayColIndices[idx]]) : (surchargesByDeliveryDate[dh] || 0)
+    );
+    const totalRecargoDelivery = dailyRecargosDelivery.reduce((acc, v) => acc + v, 0);
+
+    // Order date surcharges (by date when order was entered in ERP)
+    const dailyRecargosOrder = dayHeaders.map((dh, idx) =>
       hasSheetRecargo ? parseMoney(recargoRow[dayColIndices[idx]]) : (surchargesByOrderDate[dh] || 0)
     );
-    const totalRecargoCliente = dailyRecargosCliente.reduce((acc, v) => acc + v, 0);
+    const totalRecargoOrder = dailyRecargosOrder.reduce((acc, v) => acc + v, 0);
 
-    const dailyRecargosDelivery = dayHeaders.map(dh => surchargesByDeliveryDate[dh] || 0);
-    const totalRecargoDelivery = dailyRecargosDelivery.reduce((acc, v) => acc + v, 0);
+    // Default to Delivery Date for consistency with Planilla Entregados
+    const dailyRecargosCliente = dailyRecargosDelivery;
+    const totalRecargoCliente = totalRecargoDelivery;
 
     // STRUCTURED & LOGICAL GROUPS
     // 1. Ingresos
     const rowFacturacion = createRow(facturacionRow, 'Facturación Total');
 
     // Venta Base (sin recargo)
-    const totalVentaBase = Math.max(0, totalFacturacion - totalRecargoCliente);
-    const dailyVentaBase = dayColIndices.map((col, idx) => {
+    const totalVentaBaseDelivery = Math.max(0, totalFacturacion - totalRecargoDelivery);
+    const dailyVentaBaseDelivery = dayColIndices.map((col, idx) => {
       const dayFact = parseMoney(facturacionRow[col]);
-      const daySur = dailyRecargosCliente[idx] || 0;
+      const daySur = dailyRecargosDelivery[idx] || 0;
+      return Math.max(0, dayFact - daySur);
+    });
+
+    const totalVentaBaseOrder = Math.max(0, totalFacturacion - totalRecargoOrder);
+    const dailyVentaBaseOrder = dayColIndices.map((col, idx) => {
+      const dayFact = parseMoney(facturacionRow[col]);
+      const daySur = dailyRecargosOrder[idx] || 0;
       return Math.max(0, dayFact - daySur);
     });
 
     const rowVentaBase = {
       concept: 'Venta de Mercadería (Base sin recargos)',
-      pctTot: totalFacturacion > 0 ? `${((totalVentaBase / totalFacturacion) * 100).toFixed(1)}%` : '-',
-      ingresos: totalVentaBase,
+      pctTot: totalFacturacion > 0 ? `${((totalVentaBaseDelivery / totalFacturacion) * 100).toFixed(1)}%` : '-',
+      ingresos: totalVentaBaseDelivery,
       egresos: 0,
       pctUnit: '',
-      total: totalVentaBase,
-      dailyValues: dailyVentaBase,
+      total: totalVentaBaseDelivery,
+      dailyValues: dailyVentaBaseDelivery,
+      dailyValuesByDeliveryDate: dailyVentaBaseDelivery,
+      dailyValuesByOrderDate: dailyVentaBaseOrder,
+      totalByDeliveryDate: totalVentaBaseDelivery,
+      totalByOrderDate: totalVentaBaseOrder,
+      pctTotByDeliveryDate: totalFacturacion > 0 ? `${((totalVentaBaseDelivery / totalFacturacion) * 100).toFixed(1)}%` : '-',
+      pctTotByOrderDate: totalFacturacion > 0 ? `${((totalVentaBaseOrder / totalFacturacion) * 100).toFixed(1)}%` : '-',
       tag: 'base'
     };
 
     const rowRecargoCliente = {
       concept: 'Recargo por Tarjeta (Abonado por Clientes)',
-      pctTot: totalFacturacion > 0 ? `${((totalRecargoCliente / totalFacturacion) * 100).toFixed(1)}%` : '-',
-      ingresos: totalRecargoCliente,
+      pctTot: totalFacturacion > 0 ? `${((totalRecargoDelivery / totalFacturacion) * 100).toFixed(1)}%` : '-',
+      ingresos: totalRecargoDelivery,
       egresos: 0,
       pctUnit: '',
-      total: totalRecargoCliente,
-      dailyValues: dailyRecargosCliente,
+      total: totalRecargoDelivery,
+      dailyValues: dailyRecargosDelivery,
+      dailyValuesByDeliveryDate: dailyRecargosDelivery,
+      dailyValuesByOrderDate: dailyRecargosOrder,
+      totalByDeliveryDate: totalRecargoDelivery,
+      totalByOrderDate: totalRecargoOrder,
+      pctTotByDeliveryDate: totalFacturacion > 0 ? `${((totalRecargoDelivery / totalFacturacion) * 100).toFixed(1)}%` : '-',
+      pctTotByOrderDate: totalFacturacion > 0 ? `${((totalRecargoOrder / totalFacturacion) * 100).toFixed(1)}%` : '-',
       tag: 'surcharge'
     };
 
@@ -382,32 +466,51 @@ export async function GET(request: Request) {
     const rowMp = createRow(mpRow, 'Costos MercadoPago (Bruto)');
     const rowImpuestos = createRow(impuestosRow);
 
-    const netAbsorbedMp = Math.max(0, totalMp - totalRecargoCliente);
-    const dailyNetAbsorbedMp = dayColIndices.map((col, idx) => {
+    const netAbsorbedMpDelivery = Math.max(0, totalMp - totalRecargoDelivery);
+    const dailyNetAbsorbedMpDelivery = dayColIndices.map((col, idx) => {
       const dayMp = parseMoney(mpRow[col]);
-      const daySur = dailyRecargosCliente[idx] || 0;
+      const daySur = dailyRecargosDelivery[idx] || 0;
+      return Math.max(0, dayMp - daySur);
+    });
+
+    const netAbsorbedMpOrder = Math.max(0, totalMp - totalRecargoOrder);
+    const dailyNetAbsorbedMpOrder = dayColIndices.map((col, idx) => {
+      const dayMp = parseMoney(mpRow[col]);
+      const daySur = dailyRecargosOrder[idx] || 0;
       return Math.max(0, dayMp - daySur);
     });
 
     const rowRecuperoMp = {
       concept: '(-) Recargos Cobrados a Clientes (Recupero)',
-      pctTot: totalFacturacion > 0 ? `${((totalRecargoCliente / totalFacturacion) * 100).toFixed(2)}%` : '-',
+      pctTot: totalFacturacion > 0 ? `${((totalRecargoDelivery / totalFacturacion) * 100).toFixed(2)}%` : '-',
       ingresos: 0,
-      egresos: totalRecargoCliente,
+      egresos: totalRecargoDelivery,
       pctUnit: '',
-      total: totalRecargoCliente,
-      dailyValues: dailyRecargosCliente,
+      total: totalRecargoDelivery,
+      dailyValues: dailyRecargosDelivery,
+      dailyValuesByDeliveryDate: dailyRecargosDelivery,
+      dailyValuesByOrderDate: dailyRecargosOrder,
+      totalByDeliveryDate: totalRecargoDelivery,
+      totalByOrderDate: totalRecargoOrder,
+      pctTotByDeliveryDate: totalFacturacion > 0 ? `${((totalRecargoDelivery / totalFacturacion) * 100).toFixed(2)}%` : '-',
+      pctTotByOrderDate: totalFacturacion > 0 ? `${((totalRecargoOrder / totalFacturacion) * 100).toFixed(2)}%` : '-',
       tag: 'recupero'
     };
 
     const rowMpNeto = {
       concept: 'Costo MercadoPago Neto (Absorbido por Zono)',
-      pctTot: totalFacturacion > 0 ? `${((netAbsorbedMp / totalFacturacion) * 100).toFixed(2)}%` : '-',
+      pctTot: totalFacturacion > 0 ? `${((netAbsorbedMpDelivery / totalFacturacion) * 100).toFixed(2)}%` : '-',
       ingresos: 0,
-      egresos: netAbsorbedMp,
+      egresos: netAbsorbedMpDelivery,
       pctUnit: '',
-      total: netAbsorbedMp,
-      dailyValues: dailyNetAbsorbedMp,
+      total: netAbsorbedMpDelivery,
+      dailyValues: dailyNetAbsorbedMpDelivery,
+      dailyValuesByDeliveryDate: dailyNetAbsorbedMpDelivery,
+      dailyValuesByOrderDate: dailyNetAbsorbedMpOrder,
+      totalByDeliveryDate: netAbsorbedMpDelivery,
+      totalByOrderDate: netAbsorbedMpOrder,
+      pctTotByDeliveryDate: totalFacturacion > 0 ? `${((netAbsorbedMpDelivery / totalFacturacion) * 100).toFixed(2)}%` : '-',
+      pctTotByOrderDate: totalFacturacion > 0 ? `${((netAbsorbedMpOrder / totalFacturacion) * 100).toFixed(2)}%` : '-',
       tag: 'net_absorbed'
     };
 
@@ -521,8 +624,11 @@ export async function GET(request: Request) {
       }
     ];
 
-    const coveragePercentage = totalMp > 0 ? Math.min(100, Number(((totalRecargoCliente / totalMp) * 100).toFixed(1))) : 0;
-    const absorbedPercentage = totalMp > 0 ? Number(((netAbsorbedMp / totalMp) * 100).toFixed(1)) : 0;
+    const coveragePercentageDelivery = totalMp > 0 ? Math.min(100, Number(((totalRecargoDelivery / totalMp) * 100).toFixed(1))) : 0;
+    const absorbedPercentageDelivery = totalMp > 0 ? Number(((netAbsorbedMpDelivery / totalMp) * 100).toFixed(1)) : 0;
+
+    const coveragePercentageOrder = totalMp > 0 ? Math.min(100, Number(((totalRecargoOrder / totalMp) * 100).toFixed(1))) : 0;
+    const absorbedPercentageOrder = totalMp > 0 ? Number(((netAbsorbedMpOrder / totalMp) * 100).toFixed(1)) : 0;
 
     const buildAnalysisTimeline = (dailySurcharges: number[]) => {
       return dayHeaders.map((dh, idx) => {
@@ -552,18 +658,26 @@ export async function GET(request: Request) {
 
     const cardSurchargeAnalysis = {
       totalMp,
-      totalSurcharge: totalRecargoCliente,
-      netAbsorbed: netAbsorbedMp,
-      coveragePercentage,
-      absorbedPercentage,
-      criteria: 'order_date',
-      source: hasSheetRecargo ? 'Google Sheets' : 'Supabase Orders',
-      dailyTimeline: buildAnalysisTimeline(dailyRecargosCliente),
+      totalSurcharge: totalRecargoDelivery,
+      netAbsorbed: netAbsorbedMpDelivery,
+      coveragePercentage: coveragePercentageDelivery,
+      absorbedPercentage: absorbedPercentageDelivery,
+      criteria: 'delivery_date',
+      source: hasSheetRecargo ? 'Google Sheets (EERR)' : (surchargeDataSource === 'planilla_entregados' ? 'Planilla Entregados (Logística)' : 'Supabase Orders'),
+      dailyTimeline: buildAnalysisTimeline(dailyRecargosDelivery),
       byDeliveryDate: {
         totalSurcharge: totalRecargoDelivery,
-        netAbsorbed: Math.max(0, totalMp - totalRecargoDelivery),
-        coveragePercentage: totalMp > 0 ? Math.min(100, Number(((totalRecargoDelivery / totalMp) * 100).toFixed(1))) : 0,
+        netAbsorbed: netAbsorbedMpDelivery,
+        coveragePercentage: coveragePercentageDelivery,
+        absorbedPercentage: absorbedPercentageDelivery,
         dailyTimeline: buildAnalysisTimeline(dailyRecargosDelivery)
+      },
+      byOrderDate: {
+        totalSurcharge: totalRecargoOrder,
+        netAbsorbed: netAbsorbedMpOrder,
+        coveragePercentage: coveragePercentageOrder,
+        absorbedPercentage: absorbedPercentageOrder,
+        dailyTimeline: buildAnalysisTimeline(dailyRecargosOrder)
       }
     };
 
@@ -584,10 +698,10 @@ export async function GET(request: Request) {
         pctFlete: Number(pctFlete.toFixed(2)),
         totalSueldos,
         totalMp,
-        totalSurcharge: totalRecargoCliente,
-        netAbsorbedMp,
-        pctMpCovered: coveragePercentage,
-        pctMpAbsorbed: absorbedPercentage,
+        totalSurcharge: totalRecargoDelivery,
+        netAbsorbedMp: netAbsorbedMpDelivery,
+        pctMpCovered: coveragePercentageDelivery,
+        pctMpAbsorbed: absorbedPercentageDelivery,
         utilidadNetaActual,
         pctUtilidadActual: totalFacturacion > 0 ? Number(((utilidadNetaActual / totalFacturacion) * 100).toFixed(2)) : 0,
         utilidadNetaProyectada,
