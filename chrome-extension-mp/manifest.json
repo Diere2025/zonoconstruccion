@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "Zono - Mercado Pago Monitor",
+  "version": "1.0.0",
+  "description": "Monitoreo automatico de transferencias y cobros de Mercado Pago en tiempo real para Zono ERP.",
+  "permissions": [
+    "storage",
+    "alarms",
+    "notifications"
+  ],
+  "host_permissions": [
+    "*://*.mercadopago.com.ar/*",
+    "*://mercadopago.com.ar/*",
+    "*://zono-erp.pages.dev/*",
+    "http://localhost:3000/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Zono MP Monitor"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.mercadopago.com.ar/*",
+        "*://mercadopago.com.ar/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
+}

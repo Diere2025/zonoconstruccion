@@ -164,7 +164,34 @@ export async function GET(request: Request) {
       }
 
       if (accountId && accountId !== 'ALL') {
-        query = query.eq('account_id', accountId);
+        const cleanAcc = accountId.trim();
+        const { data: matchedAccounts } = await supabaseAdmin
+          .from('mp_accounts')
+          .select('id, name, alias')
+          .or(`id.ilike."%${cleanAcc}%",name.ilike."%${cleanAcc}%",alias.ilike."%${cleanAcc}%"`);
+
+        const idsToMatch = new Set<string>();
+        const namesToMatch = new Set<string>();
+        idsToMatch.add(cleanAcc);
+        namesToMatch.add(cleanAcc);
+
+        if (matchedAccounts && matchedAccounts.length > 0) {
+          matchedAccounts.forEach(a => {
+            if (a.id) idsToMatch.add(a.id);
+            if (a.name) namesToMatch.add(a.name);
+            if (a.alias) namesToMatch.add(a.alias);
+          });
+        }
+
+        const orClauses: string[] = [];
+        idsToMatch.forEach(id => {
+          orClauses.push(`account_id.eq."${id}"`);
+        });
+        namesToMatch.forEach(n => {
+          orClauses.push(`account_name.ilike."%${n}%"`);
+        });
+
+        query = query.or(orClauses.join(','));
       }
 
       if (type && type !== 'ALL') {
