@@ -1068,6 +1068,14 @@ export default function PresupuestosPage() {
                     setPaymentType('efectivo');
                   } else if (val === 'custom') {
                     setPaymentType('tarjeta');
+                  } else if (val === 'cuota-42') {
+                    setPaymentType('tarjeta');
+                    setCardSurcharge(42);
+                    setCardInstallments(6);
+                  } else if (val === 'naranja-51') {
+                    setPaymentType('tarjeta');
+                    setCardSurcharge(51);
+                    setCardInstallments(1);
                   } else {
                     const pm = dbPaymentMethods.find(m => m.id === val);
                     if (pm) {
@@ -1089,8 +1097,8 @@ export default function PresupuestosPage() {
                   ))}
                 {dbPaymentMethods.filter(m => m.surcharge_percentage > 0).length === 0 && (
                   <>
-                    <option value="cuota-42">💳 Cuota Simple (Sep-26) (+42% Recargo - 6 cuotas)</option>
-                    <option value="cuota-34">💳 Cuota Simple (Mar-26) (+34% Recargo - 6 cuotas)</option>
+                    <option value="cuota-42">💳 Cuota Simple (Sept-26) (+42% Recargo - 6 cuotas)</option>
+                    <option value="naranja-51">💳 Tarjeta Naranja (Sept-26) (+51% Recargo - 1 cuota)</option>
                   </>
                 )}
                 <option value="custom">⚙️ Personalizado (Ingresar recargo manual)</option>
@@ -1143,9 +1151,10 @@ export default function PresupuestosPage() {
                         onClick={() => {
                           setPaymentType('tarjeta');
                           setCardSurcharge(42);
+                          setCardInstallments(6);
                         }}
                         className={`px-1.5 py-0.5 text-[9px] font-bold rounded border transition-colors cursor-pointer ${cardSurcharge === 42 && paymentType === 'tarjeta' ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
-                        title="Aplicar 42%"
+                        title="Aplicar 42% (Cuota Simple)"
                       >
                         42%
                       </button>
@@ -1153,12 +1162,13 @@ export default function PresupuestosPage() {
                         type="button"
                         onClick={() => {
                           setPaymentType('tarjeta');
-                          setCardSurcharge(34);
+                          setCardSurcharge(51);
+                          setCardInstallments(1);
                         }}
-                        className={`px-1.5 py-0.5 text-[9px] font-bold rounded border transition-colors cursor-pointer ${cardSurcharge === 34 && paymentType === 'tarjeta' ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
-                        title="Aplicar 34%"
+                        className={`px-1.5 py-0.5 text-[9px] font-bold rounded border transition-colors cursor-pointer ${cardSurcharge === 51 && paymentType === 'tarjeta' ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
+                        title="Aplicar 51% (Tarjeta Naranja)"
                       >
-                        34%
+                        51%
                       </button>
                     </div>
                   </div>
