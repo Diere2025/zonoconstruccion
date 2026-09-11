@@ -153,7 +153,12 @@ async function handleProcessNotification(
   title: string,
   text: string,
   bigText: string,
-  account: string
+  account: string,
+  extraData?: {
+    id?: string;
+    received_at?: string;
+    time?: string;
+  }
 ) {
   const parsed = parseMpNotification(title, text, bigText);
 
@@ -166,8 +171,62 @@ async function handleProcessNotification(
     });
   }
 
-  const paymentId = `mp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-  
+  const paymentId = extraData?.id || `mp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+  // Calculate receivedAt timestamp
+  let receivedAt = extraData?.received_at || new Date().toISOString();
+  if (isNaN(new Date(receivedAt).getTime())) {
+    receivedAt = new Date().toISOString();
+  }
+
+  // Check for duplicate:
+  // 1. By exact ID
+  if (extraData?.id) {
+    const { data: existingId } = await supabaseAdmin
+      .from('mp_payments')
+      .select('id, amount, payer_name, received_at')
+      .eq('id', extraData.id)
+      .maybeSingle();
+
+    if (existingId) {
+      return NextResponse.json({
+        success: true,
+        isDuplicate: true,
+        message: 'Cobro ya registrado previamente (mismo ID)',
+        payment: existingId
+      });
+    }
+  }
+
+  // 2. Check for duplicate payment by amount, payer and received_at within 10 minutes
+  try {
+    const targetTime = new Date(receivedAt).getTime();
+    const tenMinBefore = new Date(targetTime - 10 * 60 * 1000).toISOString();
+    const tenMinAfter = new Date(targetTime + 10 * 60 * 1000).toISOString();
+
+    const { data: existingFuzzy } = await supabaseAdmin
+      .from('mp_payments')
+      .select('id, amount, payer_name, received_at')
+      .eq('amount', parsed.amount)
+      .eq('payer_name', parsed.payerName)
+      .gte('received_at', tenMinBefore)
+      .lte('received_at', tenMinAfter)
+      .limit(1)
+      .maybeSingle();
+
+    if (existingFuzzy) {
+      console.log('[MP Webhook] Duplicate payment avoided:', existingFuzzy);
+      return NextResponse.json({
+        success: true,
+        isDuplicate: true,
+        message: 'Cobro ya registrado previamente (mismo monto, pagador y horario)',
+        payment: existingFuzzy
+      });
+    }
+  } catch (dupErr) {
+    console.warn('[MP Webhook] Error checking duplicate:', dupErr);
+  }
+
   // Resolve account_id from mp_accounts (or auto-ensure to prevent FK failure)
   let resolvedAccountId = 'acc_principal';
   try {
@@ -207,33 +266,6 @@ async function handleProcessNotification(
     console.warn('[MP Webhook] Error checking internal payers:', e);
   }
 
-  // Check for duplicate payment received in the last 15 minutes with the same amount and payer
-  try {
-    const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
-    const { data: existing } = await supabaseAdmin
-      .from('mp_payments')
-      .select('id, amount, payer_name, received_at')
-      .eq('account_name', account || 'Cuenta MP3')
-      .eq('amount', parsed.amount)
-      .eq('payer_name', parsed.payerName)
-      .gte('received_at', fifteenMinutesAgo)
-      .order('received_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (existing) {
-      console.log('[MP Webhook] Duplicate payment avoided:', existing);
-      return NextResponse.json({
-        success: true,
-        isDuplicate: true,
-        message: 'Cobro ya registrado previamente (duplicado evitado)',
-        payment: existing
-      });
-    }
-  } catch (dupErr) {
-    console.warn('[MP Webhook] Error checking duplicate:', dupErr);
-  }
-
   const paymentRecord = {
     id: paymentId,
     account_id: resolvedAccountId,
@@ -243,7 +275,7 @@ async function handleProcessNotification(
     payer_name: parsed.payerName,
     payment_type: parsed.paymentType,
     source: 'NOTIFICATION',
-    received_at: new Date().toISOString(),
+    received_at: receivedAt,
     raw_title: title,
     raw_body: `${text} ${bigText}`.trim(),
     is_verified: true,
@@ -283,8 +315,10 @@ export async function POST(request: Request) {
 
     const contentType = (request.headers.get('content-type') || '').toLowerCase();
 
+    let rawJsonBody: any = null;
     if (contentType.includes('application/json')) {
       const body: any = await request.json().catch(() => ({}));
+      rawJsonBody = body;
       title = body.antitle || body.title || body.android_title || body.header || body.evtprm2 || '';
       text = body.antext || body.text || body.android_text || body.message || body.body || body.evtprm3 || '';
       bigText = body.anbigtext || body.bigText || body.android_big_text || '';
@@ -337,7 +371,11 @@ export async function POST(request: Request) {
       );
     }
 
-    return handleProcessNotification(request, title, text, bigText, account);
+    return handleProcessNotification(request, title, text, bigText, account, {
+      id: rawJsonBody?.id || rawJsonBody?.external_id,
+      received_at: rawJsonBody?.received_at || rawJsonBody?.date,
+      time: rawJsonBody?.time
+    });
   } catch (err: any) {
     console.error('[MP Webhook Error]:', err);
     return NextResponse.json({ success: false, error: err.message || 'Error interno' }, { status: 500 });
