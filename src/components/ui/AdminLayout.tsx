@@ -76,11 +76,18 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   const router = useRouter();
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
     if (typeof window !== 'undefined') {
+      if (window.innerWidth < 1024) return false;
       const saved = localStorage.getItem('sidebar_open');
       return saved !== null ? saved === 'true' : true;
     }
     return true;
   });
+
+  const closeSidebarOnMobile = () => {
+    if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+      setIsSidebarOpen(false);
+    }
+  };
 
   const [userEmail, setUserEmail] = useState<string>(() => {
     if (typeof window !== 'undefined') {
@@ -164,10 +171,17 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   const toggleSidebar = () => {
     setIsSidebarOpen(prev => {
       const next = !prev;
-      localStorage.setItem('sidebar_open', next.toString());
+      if (typeof window !== 'undefined' && window.innerWidth >= 1024) {
+        localStorage.setItem('sidebar_open', next.toString());
+      }
       return next;
     });
   };
+
+  // Close sidebar automatically on navigation on mobile
+  useEffect(() => {
+    closeSidebarOnMobile();
+  }, [pathname]);
 
   useEffect(() => {
     // Redirigir cualquier acceso de gestión en zono.com.ar hacia el dominio oficial del ERP
@@ -457,6 +471,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         <div className="h-16 flex items-center justify-between px-5 border-b border-slate-800/80 shrink-0 bg-slate-950/40">
           <Link 
             href={userRole === 'admin' ? "/admin/dashboard" : (userRole === 'logistica' || userRole === 'fletero' || userRole === 'administracion') ? "/admin/cobros-mp" : isRestrictedSeller ? "/vendedores/presupuestos" : "/vendedores"} 
+            onClick={closeSidebarOnMobile}
             className="flex items-center gap-3 group"
           >
             <div className="w-8 h-8 rounded-xl bg-brand-600 flex items-center justify-center font-black text-white text-base shadow-xs shadow-brand-600/30 group-hover:scale-105 transition-transform">
@@ -537,6 +552,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                         <Link 
                           key={link.href}
                           href={link.href}
+                          onClick={closeSidebarOnMobile}
                           className={`group flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all duration-150 ${
                             active 
                               ? "bg-brand-600 text-white font-semibold shadow-xs" 
@@ -565,6 +581,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
               <Link 
                 href="/" 
                 target="_blank"
+                onClick={closeSidebarOnMobile}
                 className="flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800/60 transition-all group"
               >
                 <span className="flex items-center gap-2.5">
@@ -602,6 +619,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
           {userRole !== 'fletero' && (
             <button
               onClick={() => {
+                closeSidebarOnMobile();
                 setSelfNewPassword("");
                 setSelfConfirmPassword("");
                 setSelfPwdError(null);
