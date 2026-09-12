@@ -1575,7 +1575,7 @@ export default function PedidosPage() {
         setCurrentUserId(userId);
         setSelectedSellerId(userId);
 
-        const PEDIDOS_CACHE_VER = "zc_pedidos_v18_pills_recepcion_whaticket";
+        const PEDIDOS_CACHE_VER = "zc_pedidos_v20_sept26_cuota42";
         const cachedUserId = sessionStorage.getItem("cached_pedidos_user_id");
         if (sessionStorage.getItem("cached_pedidos_ver") !== PEDIDOS_CACHE_VER || (cachedUserId && cachedUserId !== userId)) {
           sessionStorage.clear();
@@ -1659,6 +1659,19 @@ export default function PedidosPage() {
               sessionStorage.setItem("cached_pedidos_current_seller", JSON.stringify(curSellerRes.data));
             }
           }
+
+          // Refrescar SIEMPRE medios de pago para reflejar cambios inmediatos en recargos (ej. Cuota Simple 42%)
+          try {
+            const { data: freshPms, error: pmsErr } = await supabase
+              .from('payment_methods')
+              .select('*')
+              .eq('is_active', true)
+              .order('name');
+            if (!pmsErr && freshPms && freshPms.length > 0) {
+              setDbPaymentMethods(freshPms);
+              sessionStorage.setItem("cached_pedidos_payment_methods", JSON.stringify(freshPms));
+            }
+          } catch (e) {}
 
           // Si el caché de metadatos ya existe, evitamos la sobrecarga de consultas y transferencia a la base de datos
           const recentOrdersRes = await supabase
@@ -1908,15 +1921,30 @@ export default function PedidosPage() {
 
   // Pre-select default payment method once loaded
   useEffect(() => {
-    if (dbPaymentMethods.length > 0 && !selectedPaymentMethodId) {
+    if (dbPaymentMethods.length > 0 && !selectedPaymentMethodId && !editingOrderId) {
       const defaultPm = dbPaymentMethods.find(pm => pm.is_default);
       if (defaultPm) {
         setSelectedPaymentMethodId(defaultPm.id);
         setCardSurcharge(defaultPm.surcharge_percentage);
         setCardInstallments(defaultPm.installments);
+        setPaymentsList(prev => {
+          if (
+            prev.length === 1 &&
+            (!prev[0].amount || prev[0].amount === 0) &&
+            (prev[0].payment_method_id === "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3" || !prev[0].payment_method_id)
+          ) {
+            return [{
+              ...prev[0],
+              payment_method_id: defaultPm.id,
+              card_surcharge: defaultPm.surcharge_percentage,
+              card_installments: defaultPm.installments
+            }];
+          }
+          return prev;
+        });
       }
     }
-  }, [dbPaymentMethods, selectedPaymentMethodId]);
+  }, [dbPaymentMethods, selectedPaymentMethodId, editingOrderId]);
 
   const fetchPhoneLines = async () => {
     try {
@@ -3938,8 +3966,10 @@ export default function PedidosPage() {
       setPaymentsList([
         {
           id: Math.random().toString(36).substring(2, 9),
-          payment_method_id: "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3",
+          payment_method_id: defaultPm ? defaultPm.id : "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3",
           amount: 0,
+          card_surcharge: defaultPm ? defaultPm.surcharge_percentage : 42,
+          card_installments: defaultPm ? defaultPm.installments : 6,
           receipt_url: "",
           notes: ""
         }
@@ -4061,9 +4091,10 @@ export default function PedidosPage() {
                   setAclaraciones("");
                   setLinkMaps("");
                   setFlete("");
+                  const defaultPm = dbPaymentMethods.find(pm => pm.is_default);
                   setPaymentType('efectivo');
-                  setCardInstallments(6);
-                  setCardSurcharge(42);
+                  setCardInstallments(defaultPm ? defaultPm.installments : 6);
+                  setCardSurcharge(defaultPm ? defaultPm.surcharge_percentage : 42);
                   setIsFreeShipping(true);
                   setShippingCost(0);
                   setIncludeIVA(false);
@@ -4075,8 +4106,10 @@ export default function PedidosPage() {
                   setPaymentsList([
                     {
                       id: Math.random().toString(36).substring(2, 9),
-                      payment_method_id: "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3",
+                      payment_method_id: defaultPm ? defaultPm.id : "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3",
                       amount: 0,
+                      card_surcharge: defaultPm ? defaultPm.surcharge_percentage : 42,
+                      card_installments: defaultPm ? defaultPm.installments : 6,
                       receipt_url: "",
                       notes: ""
                     }
