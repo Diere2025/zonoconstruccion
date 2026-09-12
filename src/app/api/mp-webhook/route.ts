@@ -179,6 +179,16 @@ async function handleProcessNotification(
     receivedAt = new Date().toISOString();
   }
 
+  // Future timestamp safeguard:
+  // If receivedAt is more than 5 minutes ahead of server time, it cannot be from today.
+  // This occurs when yesterday's transaction is parsed right after midnight or before today's actual time.
+  const nowMs = Date.now();
+  const receivedMs = new Date(receivedAt).getTime();
+  if (receivedMs > nowMs + 5 * 60 * 1000) {
+    receivedAt = new Date(receivedMs - 24 * 60 * 60 * 1000).toISOString();
+    console.log('[MP Webhook] Adjusted future timestamp back by 24 hours:', receivedAt);
+  }
+
   // Check for duplicate:
   // 1. By exact ID
   if (extraData?.id) {
@@ -231,7 +241,7 @@ async function handleProcessNotification(
   let resolvedAccountId = 'diegozono_mp';
   try {
     const cleanAccount = (account || 'diegozono.mp').trim().toLowerCase();
-    if (cleanAccount.includes('pagos') || cleanAccount.includes('mp4') || cleanAccount.includes('26')) {
+    if (cleanAccount.includes('pagos') || cleanAccount.includes('mp4') || cleanAccount.includes('26') || cleanAccount.includes('zonopagos')) {
       resolvedAccountId = 'pagoszono_26';
     } else {
       resolvedAccountId = 'diegozono_mp';
