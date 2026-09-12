@@ -39,12 +39,26 @@ function createFloatingStatusWidget() {
     <span style="width: 10px; height: 10px; border-radius: 50%; background: #10b981; display: inline-block; box-shadow: 0 0 10px #10b981;"></span>
     <div>
       <div style="font-weight: 800; font-size: 12px; letter-spacing: 0.5px; color: #38bdf8;">ZONO ERP AUTO-SYNC</div>
-      <div style="font-size: 11px; color: #94a3b8;" id="zono-mp-status-text">Actualizando en <b id="zono-countdown" style="color: #34d399;">${config.pollInterval}s</b> (${config.accountName})</div>
+      <div style="font-size: 11px; color: #94a3b8; display: flex; align-items: center; gap: 6px;" id="zono-mp-status-text">
+        <span>Actualizando en <b id="zono-countdown" style="color: #34d399;">${config.pollInterval}s</b></span>
+        <select id="zono-quick-account" style="background: #0f172a; color: #38bdf8; border: 1px solid #334155; border-radius: 6px; font-size: 11px; font-weight: 700; padding: 2px 6px; outline: none; cursor: pointer;">
+          <option value="pagoszono.26" ${config.accountName === "pagoszono.26" ? "selected" : ""}>pagoszono.26</option>
+          <option value="diegozono.mp" ${config.accountName === "diegozono.mp" ? "selected" : ""}>diegozono.mp</option>
+        </select>
+      </div>
     </div>
     <button id="zono-force-refresh" title="Presionar Actualizar listado ahora" style="background: #0069ff; color: white; border: none; border-radius: 8px; padding: 5px 10px; font-size: 11px; font-weight: 700; cursor: pointer; margin-left: 6px;">Actualizar ya</button>
     <button id="zono-manual-sync-history" title="Importar pagos visibles en pantalla manualmente" style="background: #1e293b; color: #38bdf8; border: 1px solid #3b82f6; border-radius: 8px; padding: 5px 8px; font-size: 10px; font-weight: 700; cursor: pointer;">📥 Sincronizar visibles</button>
   `;
   document.body.appendChild(widget);
+
+  document.getElementById("zono-quick-account")?.addEventListener("change", (e) => {
+    const newAcc = e.target.value;
+    config.accountName = newAcc;
+    chrome.storage.local.set({ accountName: newAcc }, () => {
+      showToast(`Cuenta configurada: ${newAcc}`, "success");
+    });
+  });
 
   document.getElementById("zono-force-refresh")?.addEventListener("click", () => {
     triggerActualizarListado();
@@ -178,25 +192,51 @@ function getRowDate(rowElement) {
   const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   const yesterdayStr = getArgDate(yesterday);
 
+  // Extract row text to check if row time is in the future relative to current Argentina time
+  const rowText = (rowElement.innerText || "").replace(/\u00a0/g, " ").trim();
+  const timeMatch = rowText.match(/\b(\d{1,2}:\d{2})\b/);
+  const timeStr = timeMatch ? timeMatch[1] : "";
+
+  let isFutureTime = false;
+  if (timeStr) {
+    try {
+      const argTimeStr = now.toLocaleTimeString("en-GB", { timeZone: "America/Argentina/Buenos_Aires", hour: "2-digit", minute: "2-digit" });
+      const [nowH, nowM] = argTimeStr.split(":").map(Number);
+      const [txH, txM] = timeStr.split(":").map(Number);
+      const nowMinutes = nowH * 60 + nowM;
+      const txMinutes = txH * 60 + txM;
+      // If the transaction time is more than 5 minutes ahead of current Argentina clock, it CANNOT be today!
+      if (txMinutes > nowMinutes + 5) {
+        isFutureTime = true;
+      }
+    } catch (e) {
+      console.warn("[Zono MP Monitor] Error checking time comparison:", e);
+    }
+  }
+
   // Scan for date header elements in the document
   const candidates = Array.from(document.querySelectorAll("h1, h2, h3, h4, h5, h6, span, p, div, time, [role='heading']"));
   const headers = [];
 
   for (const el of candidates) {
-    if (el.children.length > 2) continue;
+    // Skip if inside navigation, search bars, or filter dropdowns
+    if (el.closest("nav, header, aside, [role='navigation'], [role='combobox'], [data-testid*='filter'], .andes-dropdown, .andes-filter, .andes-tab")) {
+      continue;
+    }
+    if (el.children.length > 3) continue;
     const txt = (el.innerText || el.textContent || "").replace(/\u00a0/g, " ").trim();
     if (!txt || txt.length > 40) continue;
 
     const lower = txt.toLowerCase();
     // Exclude if it contains currency, amount, or action words
-    if (lower.includes("$") || lower.includes("aprobado") || lower.includes("transferencia") || lower.includes("disponible") || lower.includes("filtr") || lower.includes("buscar") || lower.includes("tu dinero") || lower.includes("actividad")) {
+    if (lower.includes("$") || lower.includes("aprobado") || lower.includes("transferencia") || lower.includes("disponible") || lower.includes("filtr") || lower.includes("buscar") || lower.includes("tu dinero") || lower.includes("actividad") || lower.includes("resumen")) {
       continue;
     }
 
-    const isToday = lower === "hoy";
-    const isYesterday = lower === "ayer" || lower === "antier" || lower === "anteayer";
+    const isToday = lower === "hoy" || lower.startsWith("hoy ") || lower.startsWith("hoy·") || lower.startsWith("hoy,") || lower.startsWith("hoy -");
+    const isYesterday = lower === "ayer" || lower.startsWith("ayer ") || lower.startsWith("ayer·") || lower.startsWith("ayer,") || lower.startsWith("ayer -") || lower.includes("ayer") || lower === "antier" || lower === "anteayer";
     const dateMatch = lower.match(new RegExp(`(?:(\\d{1,2})\\s+de\\s+(${monthsRegex})(?:\\s+de\\s+(\\d{4}))?)`));
-    const weekdayMatch = lower.match(/^(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)$/);
+    const weekdayMatch = lower.match(/(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)/);
 
     if (isToday || isYesterday || dateMatch || weekdayMatch) {
       headers.push({
@@ -205,8 +245,8 @@ function getRowDate(rowElement) {
         isToday,
         isYesterday,
         dateMatch,
-        weekdayMatch: !!weekdayMatch,
-        weekdayStr: weekdayMatch ? lower : null
+        weekdayMatch: !isToday && !isYesterday && !dateMatch && !!weekdayMatch,
+        weekdayStr: weekdayMatch ? weekdayMatch[0] : null
       });
     }
   }
@@ -225,15 +265,8 @@ function getRowDate(rowElement) {
     }
   }
 
-  if (!matchedHeader || matchedHeader.isToday) {
-    return {
-      dateStr: todayStr,
-      sectionLabel: "Hoy",
-      isToday: true
-    };
-  }
-
-  if (matchedHeader.isYesterday) {
+  // Safeguard: If the row's time is in the future, it cannot be from today
+  if (isFutureTime) {
     return {
       dateStr: yesterdayStr,
       sectionLabel: "Ayer",
@@ -241,35 +274,53 @@ function getRowDate(rowElement) {
     };
   }
 
-  if (matchedHeader.dateMatch) {
-    const day = parseInt(matchedHeader.dateMatch[1], 10);
-    const mIdx = months.indexOf(matchedHeader.dateMatch[2]);
-    const year = matchedHeader.dateMatch[3] ? parseInt(matchedHeader.dateMatch[3], 10) : now.getFullYear();
-    if (mIdx !== -1 && !isNaN(day)) {
-      const pad = (n) => String(n).padStart(2, "0");
-      const dStr = `${year}-${pad(mIdx + 1)}-${pad(day)}`;
+  if (matchedHeader) {
+    if (matchedHeader.isToday) {
       return {
-        dateStr: dStr,
-        sectionLabel: matchedHeader.text,
-        isToday: dStr === todayStr
+        dateStr: todayStr,
+        sectionLabel: "Hoy",
+        isToday: true
       };
     }
-  }
 
-  if (matchedHeader.weekdayMatch && matchedHeader.weekdayStr) {
-    const daysMap = { domingo: 0, lunes: 1, martes: 2, miercoles: 3, "miércoles": 3, jueves: 4, viernes: 5, sabado: 6, "sábado": 6 };
-    const dayNum = daysMap[matchedHeader.weekdayStr];
-    if (dayNum !== undefined) {
-      const currentDayNum = now.getDay();
-      let diff = currentDayNum - dayNum;
-      if (diff <= 0) diff += 7;
-      const targetDate = new Date(now.getTime() - diff * 24 * 3600 * 1000);
-      const dStr = getArgDate(targetDate);
+    if (matchedHeader.isYesterday) {
       return {
-        dateStr: dStr,
-        sectionLabel: matchedHeader.text,
-        isToday: dStr === todayStr
+        dateStr: yesterdayStr,
+        sectionLabel: "Ayer",
+        isToday: false
       };
+    }
+
+    if (matchedHeader.dateMatch) {
+      const day = parseInt(matchedHeader.dateMatch[1], 10);
+      const mIdx = months.indexOf(matchedHeader.dateMatch[2]);
+      const year = matchedHeader.dateMatch[3] ? parseInt(matchedHeader.dateMatch[3], 10) : now.getFullYear();
+      if (mIdx !== -1 && !isNaN(day)) {
+        const pad = (n) => String(n).padStart(2, "0");
+        const dStr = `${year}-${pad(mIdx + 1)}-${pad(day)}`;
+        return {
+          dateStr: dStr,
+          sectionLabel: matchedHeader.text,
+          isToday: dStr === todayStr
+        };
+      }
+    }
+
+    if (matchedHeader.weekdayMatch && matchedHeader.weekdayStr) {
+      const daysMap = { domingo: 0, lunes: 1, martes: 2, miercoles: 3, "miércoles": 3, jueves: 4, viernes: 5, sabado: 6, "sábado": 6 };
+      const dayNum = daysMap[matchedHeader.weekdayStr];
+      if (dayNum !== undefined) {
+        const currentDayNum = now.getDay();
+        let diff = currentDayNum - dayNum;
+        if (diff <= 0) diff += 7;
+        const targetDate = new Date(now.getTime() - diff * 24 * 3600 * 1000);
+        const dStr = getArgDate(targetDate);
+        return {
+          dateStr: dStr,
+          sectionLabel: matchedHeader.text,
+          isToday: dStr === todayStr
+        };
+      }
     }
   }
 
