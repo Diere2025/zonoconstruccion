@@ -13,7 +13,7 @@ import {
   Phone, 
   ShieldCheck
 } from "lucide-react";
-import html2canvas from "html2canvas";
+import html2canvas from "html2canvas-pro";
 import jsPDF from "jspdf";
 import { formatPrice } from "@/lib/utils";
 import { isDiscountItem } from "@/lib/whatsappBudgetParser";
