@@ -246,6 +246,12 @@ async function handleProcessNotification(
     } else {
       resolvedAccountId = 'diegozono_mp';
     }
+
+    // Refresh last_seen_at timestamp
+    await supabaseAdmin.from('mp_accounts').update({
+      last_seen_at: new Date().toISOString(),
+      status: 'online'
+    }).eq('id', resolvedAccountId);
   } catch (e) {
     console.warn('[MP Webhook] Error resolving account_id:', e);
   }
@@ -315,6 +321,39 @@ export async function POST(request: Request) {
     if (contentType.includes('application/json')) {
       const body: any = await request.json().catch(() => ({}));
       rawJsonBody = body;
+
+      // Handle heartbeat ping from Chrome extension
+      if (body.type === 'HEARTBEAT' || body.action === 'HEARTBEAT') {
+        let resolvedAccountId = 'pagoszono_26';
+        const cleanAccount = (body.account || account || '').trim().toLowerCase();
+        if (cleanAccount.includes('diego')) {
+          resolvedAccountId = 'diegozono_mp';
+        } else {
+          resolvedAccountId = 'pagoszono_26';
+        }
+
+        try {
+          await supabaseAdmin
+            .from('mp_accounts')
+            .update({
+              last_seen_at: new Date().toISOString(),
+              status: 'online',
+              current_interval: body.currentInterval || 20,
+              extension_version: body.version || '1.2.0'
+            })
+            .eq('id', resolvedAccountId);
+        } catch (hbErr) {
+          console.warn('[MP Webhook] Error updating heartbeat in mp_accounts:', hbErr);
+        }
+
+        return NextResponse.json({
+          success: true,
+          type: 'HEARTBEAT_ACK',
+          account: resolvedAccountId,
+          serverTime: new Date().toISOString()
+        });
+      }
+
       title = body.antitle || body.title || body.android_title || body.header || body.evtprm2 || '';
       text = body.antext || body.text || body.android_text || body.message || body.body || body.evtprm3 || '';
       bigText = body.anbigtext || body.bigText || body.android_big_text || '';

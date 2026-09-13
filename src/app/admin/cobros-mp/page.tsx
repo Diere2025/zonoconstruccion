@@ -82,6 +82,10 @@ interface MPAccount {
   alias?: string;
   color?: string;
   is_active?: boolean;
+  last_seen_at?: string | null;
+  status?: string | null;
+  current_interval?: number | null;
+  extension_version?: string | null;
 }
 
 interface MPInternalPayer {
@@ -610,9 +614,10 @@ export default function CobrosMercadoPagoPage() {
   useEffect(() => {
     const interval = setInterval(() => {
       loadPayments();
+      loadAccounts();
     }, 12000);
     return () => clearInterval(interval);
-  }, [loadPayments]);
+  }, [loadPayments, loadAccounts]);
 
   // Supabase Realtime Subscription
   useEffect(() => {
@@ -1056,6 +1061,13 @@ export default function CobrosMercadoPagoPage() {
   const currentOrigin = typeof window !== 'undefined' ? window.location.origin : 'https://zono-erp.pages.dev';
   const webhookUrl = `${currentOrigin}/api/mp-webhook`;
 
+  // Extension Monitor Heartbeat Status calculation
+  const mainAccount = accounts.find(a => a.id === 'pagoszono_26') || accounts[0];
+  const lastSeenMs = mainAccount?.last_seen_at ? new Date(mainAccount.last_seen_at).getTime() : null;
+  const isMonitorOnline = lastSeenMs ? (Date.now() - lastSeenMs < 240000) : false; // 4 minutes threshold
+  const monitorMinutesAgo = lastSeenMs ? Math.max(0, Math.floor((Date.now() - lastSeenMs) / 60000)) : null;
+  const monitorSecondsAgo = lastSeenMs ? Math.max(0, Math.floor((Date.now() - lastSeenMs) / 1000)) : null;
+
   return (
     <div className="min-h-screen bg-[#f8fafc] text-slate-800 pb-20">
       {/* Top Navigation Bar */}
@@ -1075,6 +1087,23 @@ export default function CobrosMercadoPagoPage() {
                    currentUserRole === 'fletero' ? 'Transportista' : 'Ventas'}
                 </span>
                 <div className={`w-2 h-2 rounded-full shrink-0 ${isRealtimeActive ? 'bg-emerald-500 animate-pulse' : 'bg-amber-400'}`} title={isRealtimeActive ? 'Conectado a Realtime' : 'Conectando...'} />
+                
+                {/* Extension Monitor Heartbeat Badge */}
+                <div 
+                  className={`hidden sm:flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold border transition-colors ${
+                    isMonitorOnline 
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-300' 
+                      : 'bg-rose-50 text-rose-700 border-rose-300 animate-pulse'
+                  }`}
+                  title={
+                    isMonitorOnline 
+                      ? `Monitor Mercado Pago activo (Último pulso: hace ${monitorSecondsAgo}s)` 
+                      : `Monitor Mercado Pago desconectado (${monitorMinutesAgo !== null ? 'hace ' + monitorMinutesAgo + ' min' : 'sin señal'})`
+                  }
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full ${isMonitorOnline ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                  <span>{isMonitorOnline ? 'Monitor MP Online' : 'Monitor MP Offline'}</span>
+                </div>
               </div>
               <p className="text-xs text-slate-500 font-medium truncate sm:whitespace-normal">
                 {isSellerRole ? 'Transferencias entrantes (Últimos 3 días)' :
@@ -1150,6 +1179,31 @@ export default function CobrosMercadoPagoPage() {
           </div>
         </div>
       </header>
+
+      {/* Extension Offline Warning Alert Banner */}
+      {isAdminOrStaff && !isMonitorOnline && (
+        <div className="bg-gradient-to-r from-rose-600 to-red-600 text-white px-4 py-3 text-xs font-semibold shadow-md border-b border-rose-700">
+          <div className="max-w-7xl mx-auto w-full flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
+                <AlertCircle className="w-5 h-5 text-white animate-bounce" />
+              </div>
+              <div>
+                <span className="font-black tracking-wide uppercase">⚠️ ALERTA: MONITOR MERCADO PAGO DESCONECTADO</span>
+                <p className="text-[11px] text-rose-100 font-normal mt-0.5">
+                  La extensión en la cuenta <b>{mainAccount?.name || 'pagoszono.26'}</b> no envía señal de vida {monitorMinutesAgo !== null ? `hace ${monitorMinutesAgo} minutos` : 'hace unos momentos'}. Verifique que la PC de monitoreo tenga la pestaña de Mercado Pago abierta y la sesión activa.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => { loadAccounts(); loadPayments(); }}
+              className="self-start sm:self-auto px-3.5 py-1.5 rounded-xl bg-white text-rose-700 hover:bg-rose-50 text-xs font-bold shrink-0 shadow-sm transition-all cursor-pointer"
+            >
+              Reintentar verificación
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Main Container */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 space-y-6">
