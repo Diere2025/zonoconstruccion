@@ -5,50 +5,108 @@ console.log("[Zono MP Monitor] Content script initialized on", window.location.h
 let config = {
   webhookUrl: "https://zono-erp.pages.dev/api/mp-webhook",
   secretToken: "mpchecker_secret_key_123",
-  accountName: "diegozono.mp",
-  pollInterval: 15,
+  accountName: "pagoszono.26",
+  // Office hours / schedule configuration
+  workInterval: 20,              // Segundos en horario laboral (ej: 20s)
+  offInterval: 300,              // Segundos fuera de horario laboral (ej: 300s = 5 minutos)
+  workStart: "07:30",            // Hora inicio oficina (HH:mm)
+  workEnd: "18:30",              // Hora fin oficina (HH:mm)
+  workDays: [1, 2, 3, 4, 5, 6],  // 1=Lunes a 6=Sábado
   autoRefresh: true
 };
 
-let secondsUntilRefresh = config.pollInterval;
+let isConnectedToErp = true;
+
+function isWorkHours() {
+  try {
+    const now = new Date();
+    // Format in Argentina timezone
+    const argTimeStr = now.toLocaleTimeString("en-GB", { timeZone: "America/Argentina/Buenos_Aires", hour: "2-digit", minute: "2-digit" });
+    const [hh, mm] = argTimeStr.split(":").map(Number);
+    const currentMinutes = hh * 60 + mm;
+
+    const argDate = new Date(now.toLocaleString("en-US", { timeZone: "America/Argentina/Buenos_Aires" }));
+    const dayOfWeek = argDate.getDay(); // 0 = Domingo, 1 = Lunes, ..., 6 = Sábado
+
+    const days = config.workDays || [1, 2, 3, 4, 5, 6];
+    if (!days.includes(dayOfWeek)) {
+      return false;
+    }
+
+    const [startH, startM] = (config.workStart || "07:30").split(":").map(Number);
+    const [endH, endM] = (config.workEnd || "18:30").split(":").map(Number);
+    const startMin = startH * 60 + startM;
+    const endMin = endH * 60 + endM;
+
+    return currentMinutes >= startMin && currentMinutes <= endMin;
+  } catch (e) {
+    return true;
+  }
+}
+
+function getActiveInterval() {
+  return isWorkHours()
+    ? Math.max(8, Number(config.workInterval) || 20)
+    : Math.max(30, Number(config.offInterval) || 300);
+}
+
+function formatCountdown(sec) {
+  if (sec < 60) return `${sec}s`;
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}m ${s > 0 ? s + 's' : ''}`;
+}
+
 let isInitialized = false;
 
 // Load saved config
-chrome.storage.local.get(["webhookUrl", "secretToken", "accountName", "pollInterval", "autoRefresh"], (res) => {
-  if (res.webhookUrl) config.webhookUrl = res.webhookUrl;
-  if (res.secretToken) config.secretToken = res.secretToken;
-  if (res.accountName) config.accountName = res.accountName;
-  if (res.pollInterval) {
-    config.pollInterval = Math.max(8, Number(res.pollInterval));
-    secondsUntilRefresh = config.pollInterval;
+chrome.storage.local.get(
+  ["webhookUrl", "secretToken", "accountName", "workInterval", "offInterval", "workStart", "workEnd", "workDays", "autoRefresh", "pollInterval"],
+  (res) => {
+    if (res.webhookUrl) config.webhookUrl = res.webhookUrl;
+    if (res.secretToken) config.secretToken = res.secretToken;
+    if (res.accountName) config.accountName = res.accountName;
+    if (res.workInterval) config.workInterval = Math.max(8, Number(res.workInterval));
+    else if (res.pollInterval) config.workInterval = Math.max(8, Number(res.pollInterval));
+    if (res.offInterval) config.offInterval = Math.max(30, Number(res.offInterval));
+    if (res.workStart) config.workStart = res.workStart;
+    if (res.workEnd) config.workEnd = res.workEnd;
+    if (res.workDays) config.workDays = res.workDays;
+    if (res.autoRefresh !== undefined) config.autoRefresh = res.autoRefresh;
+
+    console.log("[Zono MP Monitor] Active config:", config);
+    createFloatingStatusWidget();
+    startMonitoring();
   }
-  if (res.autoRefresh !== undefined) config.autoRefresh = res.autoRefresh;
-  console.log("[Zono MP Monitor] Active config:", config);
-  createFloatingStatusWidget();
-  startMonitoring();
-});
+);
 
 let toastContainer = null;
 function createFloatingStatusWidget() {
   if (document.getElementById("zono-mp-widget") || !document.body) return;
   
+  const inOffice = isWorkHours();
   const widget = document.createElement("div");
   widget.id = "zono-mp-widget";
-  widget.style.cssText = "position: fixed; bottom: 20px; right: 20px; z-index: 2147483647; background: #001538; color: white; padding: 12px 18px; border-radius: 14px; box-shadow: 0 6px 25px rgba(0,0,0,0.5); font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif; font-size: 13px; display: flex; align-items: center; gap: 12px; border: 2px solid #0069ff; user-select: none;";
+  widget.style.cssText = "position: fixed; bottom: 20px; right: 20px; z-index: 2147483647; background: #001538; color: white; padding: 12px 18px; border-radius: 14px; box-shadow: 0 6px 25px rgba(0,0,0,0.5); font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif; font-size: 13px; display: flex; align-items: center; gap: 12px; border: 2px solid " + (isConnectedToErp ? "#0069ff" : "#ef4444") + "; user-select: none;";
   widget.innerHTML = `
-    <span style="width: 10px; height: 10px; border-radius: 50%; background: #10b981; display: inline-block; box-shadow: 0 0 10px #10b981;"></span>
+    <span id="zono-status-dot" style="width: 10px; height: 10px; border-radius: 50%; background: ${isConnectedToErp ? '#10b981' : '#ef4444'}; display: inline-block; box-shadow: 0 0 10px ${isConnectedToErp ? '#10b981' : '#ef4444'};"></span>
     <div>
-      <div style="font-weight: 800; font-size: 12px; letter-spacing: 0.5px; color: #38bdf8;">ZONO ERP AUTO-SYNC</div>
-      <div style="font-size: 11px; color: #94a3b8; display: flex; align-items: center; gap: 6px;" id="zono-mp-status-text">
-        <span>Actualizando en <b id="zono-countdown" style="color: #34d399;">${config.pollInterval}s</b></span>
+      <div style="display: flex; align-items: center; gap: 6px;">
+        <span style="font-weight: 800; font-size: 12px; letter-spacing: 0.5px; color: #38bdf8;">ZONO ERP AUTO-SYNC</span>
+        <span id="zono-schedule-badge" style="font-size: 9px; font-weight: 700; padding: 1px 6px; border-radius: 4px; background: ${inOffice ? '#064e3b' : '#312e81'}; color: ${inOffice ? '#34d399' : '#a5b4fc'}; border: 1px solid ${inOffice ? '#059669' : '#4338ca'};">
+          ${inOffice ? '🟢 OFICINA (' + config.workStart + '-' + config.workEnd + ')' : '🌙 FUERA DE HORARIO'}
+        </span>
+      </div>
+      <div style="font-size: 11px; color: #94a3b8; display: flex; align-items: center; gap: 6px; margin-top: 2px;" id="zono-mp-status-text">
+        <span>Próximo refresco: <b id="zono-countdown" style="color: #34d399;">${formatCountdown(getActiveInterval())}</b></span>
         <select id="zono-quick-account" style="background: #0f172a; color: #38bdf8; border: 1px solid #334155; border-radius: 6px; font-size: 11px; font-weight: 700; padding: 2px 6px; outline: none; cursor: pointer;">
           <option value="pagoszono.26" ${config.accountName === "pagoszono.26" ? "selected" : ""}>pagoszono.26</option>
           <option value="diegozono.mp" ${config.accountName === "diegozono.mp" ? "selected" : ""}>diegozono.mp</option>
         </select>
       </div>
     </div>
-    <button id="zono-force-refresh" title="Presionar Actualizar listado ahora" style="background: #0069ff; color: white; border: none; border-radius: 8px; padding: 5px 10px; font-size: 11px; font-weight: 700; cursor: pointer; margin-left: 6px;">Actualizar ya</button>
-    <button id="zono-manual-sync-history" title="Importar pagos visibles en pantalla manualmente" style="background: #1e293b; color: #38bdf8; border: 1px solid #3b82f6; border-radius: 8px; padding: 5px 8px; font-size: 10px; font-weight: 700; cursor: pointer;">📥 Sincronizar visibles</button>
+    <button id="zono-force-refresh" title="Presionar Actualizar listado ahora" style="background: #0069ff; color: white; border: none; border-radius: 8px; padding: 6px 11px; font-size: 11px; font-weight: 700; cursor: pointer; margin-left: 4px;">Actualizar ya</button>
+    <button id="zono-manual-sync-history" title="Importar pagos visibles en pantalla manualmente" style="background: #1e293b; color: #38bdf8; border: 1px solid #3b82f6; border-radius: 8px; padding: 6px 9px; font-size: 10px; font-weight: 700; cursor: pointer;">📥 Sincronizar visibles</button>
   `;
   document.body.appendChild(widget);
 
@@ -57,12 +115,12 @@ function createFloatingStatusWidget() {
     config.accountName = newAcc;
     chrome.storage.local.set({ accountName: newAcc }, () => {
       showToast(`Cuenta configurada: ${newAcc}`, "success");
+      sendHeartbeat();
     });
   });
 
   document.getElementById("zono-force-refresh")?.addEventListener("click", () => {
     triggerActualizarListado();
-    secondsUntilRefresh = config.pollInterval;
   });
 
   document.getElementById("zono-manual-sync-history")?.addEventListener("click", () => {
@@ -522,40 +580,100 @@ function triggerActualizarListado() {
   }
 }
 
+function setConnectionStatus(isOnline) {
+  isConnectedToErp = isOnline;
+  const dot = document.getElementById("zono-status-dot");
+  const widget = document.getElementById("zono-mp-widget");
+  if (dot) {
+    dot.style.background = isOnline ? "#10b981" : "#ef4444";
+    dot.style.boxShadow = isOnline ? "0 0 10px #10b981" : "0 0 10px #ef4444";
+  }
+  if (widget) {
+    widget.style.borderColor = isOnline ? "#0069ff" : "#ef4444";
+  }
+}
+
+function sendHeartbeat() {
+  const inOffice = isWorkHours();
+  const interval = getActiveInterval();
+
+  const payload = {
+    type: "HEARTBEAT",
+    account: config.accountName,
+    isWorkHours: inOffice,
+    currentInterval: interval,
+    version: "1.2.0",
+    url: window.location.href,
+    timestamp: new Date().toISOString()
+  };
+
+  const url = new URL(config.webhookUrl);
+  url.searchParams.set("account", config.accountName);
+  url.searchParams.set("token", config.secretToken);
+
+  chrome.runtime.sendMessage({
+    action: "SEND_HEARTBEAT",
+    url: url.toString(),
+    token: config.secretToken,
+    payload: payload
+  }, (response) => {
+    if (chrome.runtime.lastError || !response || !response.ok) {
+      console.warn("[Zono MP Monitor] Fallo de heartbeat:", chrome.runtime.lastError || response);
+      setConnectionStatus(false);
+    } else {
+      setConnectionStatus(true);
+    }
+  });
+}
+
 function startMonitoring() {
   let lastRefreshTime = Date.now();
 
   function checkRefresh() {
     if (!config.autoRefresh) return;
 
+    const inOffice = isWorkHours();
+    const currentInterval = getActiveInterval();
     const now = Date.now();
     const elapsedSeconds = (now - lastRefreshTime) / 1000;
-    const remaining = Math.max(0, Math.ceil(config.pollInterval - elapsedSeconds));
+    const remaining = Math.max(0, Math.ceil(currentInterval - elapsedSeconds));
 
     const countdownEl = document.getElementById("zono-countdown");
     if (countdownEl) {
-      countdownEl.innerText = `${remaining}s`;
+      countdownEl.innerText = formatCountdown(remaining);
     }
 
-    if (elapsedSeconds >= config.pollInterval) {
+    const badgeEl = document.getElementById("zono-schedule-badge");
+    if (badgeEl) {
+      badgeEl.innerText = inOffice ? `🟢 OFICINA (${config.workStart}-${config.workEnd})` : "🌙 FUERA DE HORARIO";
+      badgeEl.style.background = inOffice ? "#064e3b" : "#312e81";
+      badgeEl.style.color = inOffice ? "#34d399" : "#a5b4fc";
+      badgeEl.style.borderColor = inOffice ? "#059669" : "#4338ca";
+    }
+
+    if (elapsedSeconds >= currentInterval) {
       lastRefreshTime = now;
       if (window.location.href.includes("mercadopago.com.ar/activities") || window.location.href.includes("mercadopago.com.ar/home")) {
         triggerActualizarListado();
       }
+      sendHeartbeat();
     }
   }
 
   // First scan after 1.5 seconds
   setTimeout(() => {
     scanDOMActivities();
+    sendHeartbeat();
     isInitialized = true;
     console.log("[Zono MP Monitor] Monitor activado.");
     showToast(`🟢 Monitor iniciado: monitoreando cobros entrantes`, "success");
   }, 1500);
 
-  // Fast interval scan
+  // Fast interval scan for visible items
   setInterval(scanDOMActivities, 3000);
   setInterval(checkRefresh, 1000);
+  // Send heartbeat every 45 seconds to keep ERP updated
+  setInterval(sendHeartbeat, 45000);
 
   // Listen to background service worker wakeup pulse (bypasses browser tab throttling!)
   chrome.runtime.onMessage.addListener((msg) => {
@@ -570,12 +688,14 @@ function startMonitoring() {
     if (document.visibilityState === "visible") {
       checkRefresh();
       scanDOMActivities();
+      sendHeartbeat();
     }
   });
 
   window.addEventListener("focus", () => {
     checkRefresh();
     scanDOMActivities();
+    sendHeartbeat();
   });
 
   // DOM MutationObserver to detect when Mercado Pago injects new activities immediately

@@ -62,4 +62,36 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
     return true; // keep channel open for async sendResponse
   }
+
+  if (request.action === "SEND_HEARTBEAT") {
+    const { url, payload, token } = request;
+
+    fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-webhook-token": token
+      },
+      body: JSON.stringify(payload)
+    })
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        sendResponse({ ok: res.ok, status: res.status, data });
+      })
+      .catch((err) => {
+        console.warn("[Zono MP Monitor] Heartbeat failed:", err);
+        try {
+          chrome.notifications.create("ZONO_OFFLINE_ALERT", {
+            type: "basic",
+            iconUrl: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23ef4444'><circle cx='12' cy='12' r='10'/></svg>",
+            title: "⚠️ Alerta: Monitor Mercado Pago Desconectado",
+            message: "No se pudo conectar con el ERP Zono (" + (err.message || "Error de red") + "). Verifique su conexión a Internet.",
+            priority: 2
+          });
+        } catch (notifErr) {}
+        sendResponse({ ok: false, error: err.message });
+      });
+
+    return true;
+  }
 });
