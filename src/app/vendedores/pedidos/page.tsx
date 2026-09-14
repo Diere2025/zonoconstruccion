@@ -5362,16 +5362,6 @@ export default function PedidosPage() {
           <div className="flex items-center gap-2 flex-wrap">
             <button
               type="button"
-              onClick={() => { fetchOrdersForModal(); setShowLoadFromDbModal(true); }}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/80 rounded-xl text-xs font-bold transition-all shadow-2xs hover:shadow-xs active:scale-95 cursor-pointer"
-              title="Cargar datos de un pedido existente en la base de datos (reintentar o duplicar)"
-            >
-              <Database className="w-3.5 h-3.5 text-indigo-600" />
-              <span>Cargar desde BD</span>
-            </button>
-
-            <button
-              type="button"
               onClick={handleCancelOrExitForm}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200/80 rounded-xl text-xs font-bold transition-all shadow-2xs hover:shadow-xs active:scale-95 cursor-pointer"
               title="Cancelar y volver al listado de pedidos"
@@ -5394,16 +5384,6 @@ export default function PedidosPage() {
           </div>
           
           <div className="flex items-center gap-2 flex-wrap">
-            <button
-              type="button"
-              onClick={() => { fetchOrdersForModal(); setShowLoadFromDbModal(true); }}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/80 rounded-xl text-xs font-bold transition-all shadow-2xs hover:shadow-xs active:scale-95 cursor-pointer"
-              title="Cargar datos de un pedido existente en la base de datos (reintentar o duplicar)"
-            >
-              <Database className="w-3.5 h-3.5 text-indigo-600" />
-              <span>Cargar desde BD</span>
-            </button>
-
             <button
               type="button"
               onClick={handleStartNewOrder}
