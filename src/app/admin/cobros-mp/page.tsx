@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { 
   ShieldCheck, 
@@ -42,7 +42,8 @@ import {
   Unlock,
   Settings,
   Truck,
-  ThumbsUp
+  ThumbsUp,
+  Bell
 } from 'lucide-react';
 
 interface MPPayment {
@@ -205,6 +206,18 @@ export default function CobrosMercadoPagoPage() {
   const [showMaintenanceModal, setShowMaintenanceModal] = useState(false);
   const [showInternalPayersModal, setShowInternalPayersModal] = useState(false);
   const [showAccountsModal, setShowAccountsModal] = useState(false);
+  const [showTelegramModal, setShowTelegramModal] = useState(false);
+
+  // Mobile & Telegram Alerts State
+  const [tgEnabled, setTgEnabled] = useState(false);
+  const [tgBotToken, setTgBotToken] = useState('');
+  const [tgChatId, setTgChatId] = useState('');
+  const [tgHasToken, setTgHasToken] = useState(false);
+  const [isSavingTg, setIsSavingTg] = useState(false);
+  const [isTestingTg, setIsTestingTg] = useState(false);
+  const [tgFeedback, setTgFeedback] = useState<{ success: boolean; message: string } | null>(null);
+  const [pushPermission, setPushPermission] = useState<string>('default');
+  const hasFiredOfflineNotificationRef = useRef(false);
 
   // Internal Payers Management State
   const [newInternalName, setNewInternalName] = useState('');
@@ -531,6 +544,147 @@ export default function CobrosMercadoPagoPage() {
       // Audio not permitted or supported
     }
   }, [soundEnabled]);
+
+  // Play dual-tone warning alarm for monitor offline
+  const playWarningAlarm = useCallback(() => {
+    if (!soundEnabled) return;
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(440, ctx.currentTime); // A4
+      osc.frequency.setValueAtTime(880, ctx.currentTime + 0.15); // A5
+      osc.frequency.setValueAtTime(440, ctx.currentTime + 0.3); // A4
+      osc.frequency.setValueAtTime(880, ctx.currentTime + 0.45); // A5
+
+      gain.gain.setValueAtTime(0.2, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.65);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start();
+      osc.stop(ctx.currentTime + 0.65);
+    } catch {
+      // Audio not permitted or supported
+    }
+  }, [soundEnabled]);
+
+  // Check push notification permission on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      setPushPermission(Notification.permission);
+    }
+  }, []);
+
+  const handleRequestPushPermission = async () => {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      alert('Tu navegador no soporta notificaciones push nativas.');
+      return;
+    }
+    try {
+      const perm = await Notification.requestPermission();
+      setPushPermission(perm);
+      if (perm === 'granted') {
+        new Notification("🔔 Notificaciones Activadas - Zono ERP", {
+          body: "Recibirás alertas inmediatas en este celular o equipo si el monitor de Mercado Pago se desconecta.",
+          icon: "/favicon.ico"
+        });
+      }
+    } catch (e: any) {
+      alert('Error al solicitar permisos: ' + e.message);
+    }
+  };
+
+  const handleTestPushNotification = () => {
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+      new Notification("⚡ PRUEBA DE ALERTA PUSH - ZONO ERP", {
+        body: "Las notificaciones push locales en este dispositivo funcionan correctamente.",
+        icon: "/favicon.ico"
+      });
+    } else {
+      handleRequestPushPermission();
+    }
+  };
+
+  // Load Telegram configuration
+  const loadTelegramConfig = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/mp-telegram-alert');
+      const data = await res.json();
+      if (data.success && data.config) {
+        setTgEnabled(Boolean(data.config.enabled));
+        setTgChatId(data.config.chat_id || '');
+        setTgHasToken(Boolean(data.config.has_token));
+        setTgBotToken(data.config.bot_token_masked || '');
+      }
+    } catch (e) {
+      console.warn('Error loading Telegram alert config:', e);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (showTelegramModal) {
+      loadTelegramConfig();
+      setTgFeedback(null);
+    }
+  }, [showTelegramModal, loadTelegramConfig]);
+
+  const handleSaveTelegram = async () => {
+    setIsSavingTg(true);
+    setTgFeedback(null);
+    try {
+      const res = await fetch('/api/admin/mp-telegram-alert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'save-config',
+          enabled: tgEnabled,
+          bot_token: tgBotToken,
+          chat_id: tgChatId
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setTgFeedback({ success: true, message: 'Configuración de Telegram guardada correctamente.' });
+        loadTelegramConfig();
+      } else {
+        setTgFeedback({ success: false, message: data.error || 'Error al guardar configuración.' });
+      }
+    } catch (e: any) {
+      setTgFeedback({ success: false, message: e.message || 'Error de conexión.' });
+    } finally {
+      setIsSavingTg(false);
+    }
+  };
+
+  const handleTestTelegram = async () => {
+    setIsTestingTg(true);
+    setTgFeedback(null);
+    try {
+      const res = await fetch('/api/admin/mp-telegram-alert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'test-alert',
+          bot_token: tgBotToken,
+          chat_id: tgChatId
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setTgFeedback({ success: true, message: data.message || '¡Mensaje de prueba enviado con éxito a tu Telegram!' });
+      } else {
+        setTgFeedback({ success: false, message: data.error || 'Error al enviar prueba.' });
+      }
+    } catch (e: any) {
+      setTgFeedback({ success: false, message: e.message || 'Error al enviar prueba.' });
+    } finally {
+      setIsTestingTg(false);
+    }
+  };
 
   // Load Accounts
   const loadAccounts = useCallback(async () => {
@@ -1102,6 +1256,38 @@ export default function CobrosMercadoPagoPage() {
   const monitorMinutesAgo = lastSeenMs ? Math.max(0, Math.floor((Date.now() - lastSeenMs) / 60000)) : null;
   const monitorSecondsAgo = lastSeenMs ? Math.max(0, Math.floor((Date.now() - lastSeenMs) / 1000)) : null;
 
+  // Trigger offline alerts (Web Push + Audio Alarm + Telegram Check)
+  useEffect(() => {
+    if (!isRoleLoaded) return;
+    if (!isMonitorOnline && lastSeenMs) {
+      if (!hasFiredOfflineNotificationRef.current) {
+        hasFiredOfflineNotificationRef.current = true;
+        // Native Web Push Notification
+        if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+          try {
+            new Notification("⚠️ ALERTA: Monitor Mercado Pago Desconectado", {
+              body: `La cuenta ${mainAccount?.name || 'pagoszono.26'} no envía señal hace ${monitorMinutesAgo} minutos. Verifique la PC de monitoreo.`,
+              icon: "/favicon.ico",
+              tag: "mp-monitor-offline-alert"
+            });
+          } catch (e) {
+            console.warn("Could not fire notification:", e);
+          }
+        }
+        playWarningAlarm();
+
+        // Background check and send Telegram alert
+        fetch('/api/admin/mp-telegram-alert', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'check-and-alert' })
+        }).catch(() => {});
+      }
+    } else if (isMonitorOnline) {
+      hasFiredOfflineNotificationRef.current = false;
+    }
+  }, [isMonitorOnline, lastSeenMs, monitorMinutesAgo, mainAccount, playWarningAlarm, isRoleLoaded]);
+
   return (
     <div className="min-h-screen bg-[#f8fafc] text-slate-800 pb-20">
       {/* Top Navigation Bar */}
@@ -1173,6 +1359,15 @@ export default function CobrosMercadoPagoPage() {
                   <Users2 className="w-4 h-4 text-purple-600" />
                   <span>Personas Ocultas ({internalPayers.length})</span>
                 </button>
+
+                <button
+                  onClick={() => setShowTelegramModal(true)}
+                  className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-sky-50 border border-sky-200 text-sky-700 text-xs font-bold hover:bg-sky-100 shadow-xs transition-all cursor-pointer"
+                  title="Configurar Alertas al Celular (Telegram y Notificaciones Push)"
+                >
+                  <Bell className="w-4 h-4 text-sky-600" />
+                  <span>Alertas Celular</span>
+                </button>
               </>
             )}
 
@@ -1233,12 +1428,21 @@ export default function CobrosMercadoPagoPage() {
                 </p>
               </div>
             </div>
-            <button
-              onClick={() => { loadAccounts(); loadPayments(); }}
-              className="self-start sm:self-auto px-3.5 py-1.5 rounded-xl bg-white text-rose-700 hover:bg-rose-50 text-xs font-bold shrink-0 shadow-sm transition-all cursor-pointer"
-            >
-              Reintentar verificación
-            </button>
+            <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
+              <button
+                onClick={() => setShowTelegramModal(true)}
+                className="px-3.5 py-1.5 rounded-xl bg-rose-800 hover:bg-rose-900 text-white text-xs font-bold shadow-sm transition-all cursor-pointer flex items-center gap-1.5"
+              >
+                <Bell className="w-3.5 h-3.5" />
+                <span>Alertas Celular</span>
+              </button>
+              <button
+                onClick={() => { loadAccounts(); loadPayments(); }}
+                className="px-3.5 py-1.5 rounded-xl bg-white text-rose-700 hover:bg-rose-50 text-xs font-bold shadow-sm transition-all cursor-pointer"
+              >
+                Reintentar verificación
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -2039,6 +2243,166 @@ export default function CobrosMercadoPagoPage() {
                       </button>
                     </div>
                   ))
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Alertas al Celular (Telegram y Push) */}
+      {showTelegramModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white border border-slate-200 rounded-3xl max-w-lg w-full p-6 sm:p-7 shadow-2xl relative max-h-[92vh] overflow-y-auto space-y-6">
+            <button
+              onClick={() => setShowTelegramModal(false)}
+              className="absolute top-5 right-5 p-1.5 text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            {/* Modal Header */}
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-sky-50 border border-sky-200 text-sky-600 flex items-center justify-center font-bold shadow-xs">
+                <Bell className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-[#001538]">Alertas de Desconexión al Celular</h3>
+                <p className="text-xs text-slate-500 font-medium">Configuración de avisos por Telegram y Notificaciones Push</p>
+              </div>
+            </div>
+
+            {/* Section 1: Telegram Bot (Opción B) */}
+            <div className="p-4 bg-sky-50/50 border border-sky-100 rounded-2xl space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">✈️</span>
+                  <div>
+                    <h4 className="text-xs font-black text-sky-950 uppercase tracking-wide">Opción B: Bot de Telegram</h4>
+                    <p className="text-[11px] text-sky-700 font-medium">Avisos automáticos e inmediatos directo a tu celular</p>
+                  </div>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={tgEnabled}
+                    onChange={(e) => setTgEnabled(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-10 h-5.5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4.5 after:w-4.5 after:transition-all peer-checked:bg-sky-600"></div>
+                </label>
+              </div>
+
+              <div className="space-y-3 pt-1 text-xs">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    Token del Bot de Telegram (obtenido de @BotFather):
+                  </label>
+                  <input
+                    type="text"
+                    value={tgBotToken}
+                    onChange={(e) => setTgBotToken(e.target.value)}
+                    placeholder="ej: 123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    Tu Chat ID de Telegram:
+                  </label>
+                  <input
+                    type="text"
+                    value={tgChatId}
+                    onChange={(e) => setTgChatId(e.target.value)}
+                    placeholder="ej: 987654321"
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500"
+                  />
+                </div>
+
+                {/* Instructions helper */}
+                <div className="bg-white/90 p-3 rounded-xl border border-sky-100 text-[11px] text-slate-600 space-y-1.5">
+                  <div className="font-bold text-sky-900">¿Cómo obtener estos 2 datos en 2 minutos?</div>
+                  <ol className="list-decimal list-inside space-y-1 text-slate-600">
+                    <li>En Telegram busca a <b className="text-sky-700">@BotFather</b> y dale a Iniciar.</li>
+                    <li>Envía el comando <code className="bg-slate-100 px-1.5 py-0.5 rounded text-sky-800 font-bold">/newbot</code>, asignale un nombre y copia el <b>Token</b>.</li>
+                    <li>Busca tu nuevo bot en Telegram por su nombre y dale a <b>Iniciar (Start)</b>.</li>
+                    <li>Busca al bot <b className="text-sky-700">@userinfobot</b> y envíale un saludo para ver tu <b>Id</b> (este es tu Chat ID).</li>
+                  </ol>
+                </div>
+
+                {/* Feedback message */}
+                {tgFeedback && (
+                  <div className={`p-2.5 rounded-xl text-xs font-bold border ${tgFeedback.success ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-rose-50 text-rose-800 border-rose-200'}`}>
+                    {tgFeedback.message}
+                  </div>
+                )}
+
+                {/* Action buttons */}
+                <div className="flex items-center gap-2 pt-1">
+                  <button
+                    disabled={isSavingTg}
+                    onClick={handleSaveTelegram}
+                    className="flex-1 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-1.5 shadow-sm shadow-sky-600/20 cursor-pointer"
+                  >
+                    {isSavingTg ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                    <span>Guardar Configuración</span>
+                  </button>
+
+                  <button
+                    disabled={isTestingTg || (!tgBotToken && !tgHasToken) || !tgChatId}
+                    onClick={handleTestTelegram}
+                    className="py-2 px-3.5 bg-white hover:bg-sky-50 border border-sky-300 text-sky-800 rounded-xl text-xs font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    {isTestingTg ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5 text-sky-600" />}
+                    <span>Probar Alerta</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Section 2: Push Notifications (Opción C) */}
+            <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">📱</span>
+                  <div>
+                    <h4 className="text-xs font-black text-slate-800 uppercase tracking-wide">Opción C: Notificaciones en este Dispositivo</h4>
+                    <p className="text-[11px] text-slate-500 font-medium">Avisos emergentes nativos de Chrome / Android / PC</p>
+                  </div>
+                </div>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black border ${
+                  pushPermission === 'granted' 
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-300' 
+                    : pushPermission === 'denied' 
+                    ? 'bg-rose-50 text-rose-700 border-rose-300' 
+                    : 'bg-amber-50 text-amber-700 border-amber-300'
+                }`}>
+                  {pushPermission === 'granted' ? 'Habilitadas ✓' : pushPermission === 'denied' ? 'Bloqueadas ✗' : 'Sin activar'}
+                </span>
+              </div>
+
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Al activar las notificaciones en este navegador o celular, recibirás un aviso emergente en pantalla y una alarma sonora cada vez que el monitor pierda conexión fuera de los límites tolerados (4 min en oficina / 15 min de noche).
+              </p>
+
+              <div className="flex items-center gap-2 pt-1">
+                {pushPermission !== 'granted' ? (
+                  <button
+                    onClick={handleRequestPushPermission}
+                    className="flex-1 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+                  >
+                    <Bell className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Activar Notificaciones Push</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleTestPushNotification}
+                    className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Probar Notificación en Pantalla</span>
+                  </button>
                 )}
               </div>
             </div>

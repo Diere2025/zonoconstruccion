@@ -18,10 +18,20 @@ export async function GET() {
       throw error;
     }
 
+    // Also check Mercado Pago monitor heartbeat and dispatch Telegram alert if offline
+    let monitorAlertResult = null;
+    try {
+      const { checkAndDispatchTelegramAlert } = await import('@/app/api/admin/mp-telegram-alert/route');
+      monitorAlertResult = await checkAndDispatchTelegramAlert();
+    } catch (mErr) {
+      console.warn('[KeepAlive] Monitor alert check skipped:', mErr);
+    }
+
     const duration = Date.now() - start;
     return NextResponse.json({
       status: 'success',
       message: 'Database is awake and active',
+      monitor_check: monitorAlertResult,
       duration: `${duration}ms`,
       timestamp: new Date().toISOString()
     });
