@@ -3068,12 +3068,7 @@ export default function PedidosPage() {
         source: order.channel === 'mayorista' ? 'Mayorista' : advName,
         deliveryNotes: [
           order.delivery_notes, 
-          order.delivery_detail, 
-          totalsObj.payment_timing === 'contra_entrega' 
-            ? `Cobrar al entregar: ${formatPrice(order.total_amount || 0)} (${selectedPayMethodName})` 
-            : (totalsObj.payment_timing === 'partial' 
-                ? `Seña: ${formatPrice(totalsObj.deposit_amount || 0)} - Saldo al entregar: ${formatPrice(totalsObj.pending_balance || 0)}` 
-                : '')
+          order.delivery_detail
         ].filter(Boolean).map((s: string) => s.trim()).join(' / '),
         medium: mediumName,
         sellerName: normalizeSellerName(sellerFullName),
@@ -4176,12 +4171,7 @@ export default function PedidosPage() {
             source: sellerType === 'mayorista' ? 'Mayorista' : (advName || 'Publicidad Meta'),
             deliveryNotes: [
               aclaraciones, 
-              deliveryDetail, 
-              paymentTiming === 'contra_entrega' 
-                ? `Cobrar al entregar: ${formatPrice(total)} (${selectedPayMethodName})` 
-                : (paymentTiming === 'partial' 
-                    ? `Seña: ${formatPrice(customDepositAmount)} - Saldo al entregar: ${formatPrice(pendingBalance)}` 
-                    : '')
+              deliveryDetail
             ].filter(Boolean).map((s: string) => s.trim()).join(' / '),
             medium: mediumName,
             sellerName: normalizeSellerName(sellerFullName),
@@ -4420,12 +4410,7 @@ export default function PedidosPage() {
             source: sellerType === 'mayorista' ? 'Mayorista' : (advName || 'Publicidad Meta'),
             deliveryNotes: [
               aclaraciones, 
-              deliveryDetail, 
-              paymentTiming === 'contra_entrega' 
-                ? `Cobrar al entregar: ${formatPrice(total)} (${selectedPayMethodName})` 
-                : (paymentTiming === 'partial' 
-                    ? `Seña: ${formatPrice(customDepositAmount)} - Saldo al entregar: ${formatPrice(pendingBalance)}` 
-                    : '')
+              deliveryDetail
             ].filter(Boolean).map((s: string) => s.trim()).join(' / '),
             medium: mediumName,
             sellerName: normalizeSellerName(sellerFullName),

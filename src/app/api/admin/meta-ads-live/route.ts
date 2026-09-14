@@ -205,6 +205,8 @@ export async function GET(request: Request) {
 
       if (ins.spendUsd >= 5 && ins.messages === 0) {
         adAlerts.push('🛑 Gasto sin mensajes');
+      } else if (ins.spendUsd >= 3 && ins.messages === 0) {
+        adAlerts.push('⏳ Sin mensajes');
       } else if (ins.spendUsd >= 6 && adCprUsd > 3.50) {
         adAlerts.push(`🚨 CPR Alto (US$ ${adCprUsd.toFixed(2)})`);
       } else if (ins.messages >= 10 && adCprUsd <= 2.00) {
