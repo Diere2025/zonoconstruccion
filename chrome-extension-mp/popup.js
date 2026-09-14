@@ -88,7 +88,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (res.workEnd) workEndEl.value = res.workEnd;
       else workEndEl.value = "21:00";
       if (res.workInterval) workIntervalEl.value = String(res.workInterval);
-      else workIntervalEl.value = "45";
+      else workIntervalEl.value = "60";
       if (res.offInterval) offIntervalEl.value = String(res.offInterval);
       else offIntervalEl.value = "600";
       if (Array.isArray(res.workDays)) {
@@ -143,11 +143,11 @@ document.addEventListener("DOMContentLoaded", () => {
       accountName: accountNameEl.value,
       webhookUrl: webhookUrlEl.value.trim(),
       secretToken: secretTokenEl.value.trim(),
-      workStart: workStartEl.value || "07:30",
-      workEnd: workEndEl.value || "18:30",
+      workStart: workStartEl.value || "06:00",
+      workEnd: workEndEl.value || "21:00",
       workDays: selectedDays,
-      workInterval: Number(workIntervalEl.value) || 20,
-      offInterval: Number(offIntervalEl.value) || 300
+      workInterval: Number(workIntervalEl.value) || 60,
+      offInterval: Number(offIntervalEl.value) || 600
     };
 
     chrome.storage.local.set(config, () => {

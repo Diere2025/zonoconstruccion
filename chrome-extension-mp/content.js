@@ -7,7 +7,7 @@ let config = {
   secretToken: "mpchecker_secret_key_123",
   accountName: "pagoszono.26",
   // Office hours / schedule configuration
-  workInterval: 45,              // Segundos en horario laboral (45s)
+  workInterval: 60,              // Segundos en horario laboral (60s = 1 minuto)
   offInterval: 600,              // Segundos fuera de horario laboral (600s = 10 minutos)
   workStart: "06:00",            // Hora inicio oficina (06:00 am)
   workEnd: "21:00",              // Hora fin oficina (21:00 hs)
@@ -46,7 +46,7 @@ function isWorkHours() {
 
 function getActiveInterval() {
   return isWorkHours()
-    ? Math.max(8, Number(config.workInterval) || 45)
+    ? Math.max(8, Number(config.workInterval) || 60)
     : Math.max(30, Number(config.offInterval) || 600);
 }
 
