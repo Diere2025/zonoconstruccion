@@ -15,6 +15,7 @@ import {
   Trash2, 
   X, 
   Check, 
+  ArrowLeft,
   PlusCircle, 
   UserPlus, 
   AlertTriangle,
@@ -737,6 +738,12 @@ export default function PedidosPage() {
       }
 
       const params = new URLSearchParams(window.location.search);
+      const urlTab = params.get("tab");
+      if (urlTab === 'form' || urlTab === 'nuevo') {
+        setActiveTab('form');
+      } else if (urlTab === 'list') {
+        setActiveTab('list');
+      }
       const urlStatus = params.get("status");
       if (urlStatus) {
         if (urlStatus === 'Todos') {
@@ -793,6 +800,12 @@ export default function PedidosPage() {
 
     const params = new URLSearchParams(window.location.search);
 
+    if (activeTab === 'form') {
+      params.set("tab", "form");
+    } else {
+      params.delete("tab");
+    }
+
     if (selectedStatuses.length === 1 && selectedStatuses[0] === 'Pendientes') {
       params.delete("status");
     } else if (selectedStatuses.length === 4 || selectedStatuses.length === 0) {
@@ -845,12 +858,19 @@ export default function PedidosPage() {
       : window.location.pathname;
 
     window.history.replaceState(null, "", newPath);
-  }, [selectedStatuses, selectedChannels, selectedProducts, orderSearchQuery, listType, dateFrom, dateTo]);
+  }, [activeTab, selectedStatuses, selectedChannels, selectedProducts, orderSearchQuery, listType, dateFrom, dateTo]);
 
-  // Support browser back/forward buttons (popstate)
+  // Support browser back/forward buttons (popstate) and sidebar navigation (zono_nav_pedidos)
   useEffect(() => {
     const handlePopState = () => {
       const params = new URLSearchParams(window.location.search);
+      const urlTab = params.get("tab");
+      if (urlTab === 'form' || urlTab === 'nuevo') {
+        setActiveTab('form');
+      } else {
+        setActiveTab('list');
+      }
+
       const urlStatus = params.get("status");
       if (urlStatus === 'Todos') {
         setSelectedStatuses(['Pendientes', 'En Revisión', 'Entregados', 'Anulados']);
@@ -878,8 +898,32 @@ export default function PedidosPage() {
       setDateTo(params.get("date_to") || '');
     };
 
+    const handleCustomNav = (e: any) => {
+      const url = e?.detail?.href;
+      if (!url) return;
+      const search = url.includes('?') ? url.split('?')[1] : '';
+      const params = new URLSearchParams(search);
+      const urlTab = params.get("tab");
+      if (urlTab === 'form' || urlTab === 'nuevo') {
+        setActiveTab('form');
+      } else if (urlTab === 'list') {
+        setActiveTab('list');
+      }
+      const urlClientType = params.get("client_type");
+      if (urlClientType === 'todos') {
+        setSelectedChannels(['minoristas', 'mayoristas']);
+      } else if (urlClientType) {
+        const parsed = urlClientType.split(',').map((s: string) => s.trim()).filter((s: string) => ['minoristas', 'mayoristas'].includes(s)) as ('minoristas' | 'mayoristas')[];
+        if (parsed.length > 0) setSelectedChannels(parsed);
+      }
+    };
+
     window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
+    window.addEventListener("zono_nav_pedidos", handleCustomNav);
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+      window.removeEventListener("zono_nav_pedidos", handleCustomNav);
+    };
   }, []);
 
   const saveCustomView = (name: string) => {
@@ -3276,6 +3320,114 @@ export default function PedidosPage() {
   const handleEditOrder = (order: any) => handleLoadOrderIntoForm(order, false);
   const handleCloneOrder = (order: any) => handleLoadOrderIntoForm(order, true);
 
+  const resetAllFormFields = () => {
+    setEditingOrderId(null);
+    setOriginalDeliveryDate("");
+    setHasDeclaredPostponementReason(false);
+    setPostponementMotive("");
+    setPostponementReasonType('cliente');
+    setEntregaInicial("");
+    setEntregaMaxima("");
+    setFechaPedido(() => {
+      const today = new Date();
+      const yyyy = today.getFullYear();
+      const mm = String(today.getMonth() + 1).padStart(2, '0');
+      const dd = String(today.getDate()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
+    });
+    setCliente("");
+    setDireccion("");
+    setAclaraciones("");
+    setLinkMaps("");
+    setFlete("");
+    const defaultPm = dbPaymentMethods.find(pm => 
+      pm.id === "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3" || 
+      (pm.name && pm.name.toLowerCase().includes("efectivo"))
+    ) || dbPaymentMethods.find(pm => pm.is_default) || dbPaymentMethods[0];
+    setPaymentType('efectivo');
+    setCardInstallments(defaultPm ? (defaultPm.installments || 1) : 1);
+    setCardSurcharge(defaultPm ? (defaultPm.surcharge_percentage || 0) : 0);
+    setIsFreeShipping(true);
+    setShippingCost(0);
+    setIncludeIVA(false);
+    setPaymentTiming('contra_entrega');
+    setCustomDepositAmount(0);
+    setPaymentState('unpaid');
+    setDepositAmountInput(0);
+    setDepositReceiptUrl("");
+    setPaymentsList([
+      {
+        id: Math.random().toString(36).substring(2, 9),
+        payment_method_id: defaultPm ? defaultPm.id : "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3",
+        amount: 0,
+        card_surcharge: defaultPm ? (defaultPm.surcharge_percentage || 0) : 0,
+        card_installments: defaultPm ? (defaultPm.installments || 1) : 1,
+        receipt_url: "",
+        notes: ""
+      }
+    ]);
+    setSelectedClientId("");
+    setSelectedAddressId("");
+    setClientSearchQuery("");
+    setNewClientName("");
+    setNewClientTaxId("");
+    setShowTaxIdField(false);
+    setNewClientPhone("");
+    setWhaticketLink("");
+    setLocalidadId("");
+    setOrderItems([]);
+    setOrderDiscountType('fixed');
+    setOrderDiscountValue(0);
+    setOrderCategory("auto");
+    setSelectedSellerId(currentUserId);
+    if (currentUserId) {
+      generateNextLegacyCode(currentUserId);
+    }
+    setSelectedAdvertisingSourceId("");
+    setSelectedOrderMediumId("");
+    setSelectedPhoneLineId("");
+    setDeliveryDetail("");
+    setOrderStatus("Pendiente");
+    setHoldReason("");
+    setHoldProductId("");
+  };
+
+  const handleCancelOrExitForm = () => {
+    const isDirty = Boolean(editingOrderId || orderItems.length > 0 || cliente.trim() || direccion.trim());
+    if (isDirty) {
+      const confirmMsg = editingOrderId
+        ? "¿Deseás cancelar la edición de este pedido y volver al listado? Se descartarán los cambios no guardados."
+        : "¿Deseás cancelar y salir al listado de pedidos? Se descartarán los datos ingresados.";
+      if (!window.confirm(confirmMsg)) {
+        return;
+      }
+    }
+    resetAllFormFields();
+    setActiveTab('list');
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      params.delete("tab");
+      const newPath = params.toString() ? `${window.location.pathname}?${params.toString()}` : window.location.pathname;
+      window.history.replaceState(null, "", newPath);
+    }
+  };
+
+  const handleStartNewOrder = () => {
+    if (editingOrderId || orderItems.length > 0 || cliente.trim() || direccion.trim()) {
+      if (!window.confirm("¿Deseás iniciar una nueva carga de pedido en blanco? Se descartarán los datos ingresados actualmente.")) {
+        return;
+      }
+    }
+    resetAllFormFields();
+    setActiveTab('form');
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      params.set("tab", "form");
+      window.history.replaceState(null, "", `${window.location.pathname}?${params.toString()}`);
+    }
+  };
+
+
   // Helper para convertir cualquier objeto de pedido (de la tabla o del form) a PrintableOrderData
   const formatOrderForPrintable = async (rawOrder: any): Promise<PrintableOrderData> => {
     // 1. Obtener los ítems si faltan datos de precios o cantidades
@@ -5024,59 +5176,58 @@ export default function PedidosPage() {
 
         const unsentReceipts = paymentsList.filter(p => Boolean(p.receipt_url) && !p.telegram_sent);
         if (unsentReceipts.length > 0) {
-          let anySent = false;
-          for (const r of unsentReceipts) {
-            try {
-              const receiptAmount = r.amount > 0 ? r.amount : (paymentTiming === 'paid' ? total : customDepositAmount);
-              const tgRes = await fetch('/api/vendedores/telegram-notify', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  type: 'receipt',
-                  legacyCode: orderCodeForTelegram,
-                  customerName: clientNameForTelegram,
-                  taxId: clientTaxIdForTelegram,
-                  sellerName: currentSeller?.full_name || '',
-                  status: paymentStatusLabel,
-                  amount: receiptAmount,
-                  pendingBalance: pendingBalance,
-                  photoUrl: r.receipt_url,
-                  reference: r.notes || ''
-                })
-              });
-              const tgData = await tgRes.json();
-              if (tgData.ok) {
-                r.telegram_sent = true;
-                anySent = true;
-              }
-            } catch (tgErr) {
-              console.warn('[Telegram Dispatch] Error enviando comprobante a Telegram:', tgErr);
-            }
-          }
-
-          if (anySent && orderData?.id) {
-            const updatedBreakdown = paymentsWithSurcharges.map(p => ({
-              id: p.id,
-              payment_method_id: p.payment_method_id,
-              amount: p.baseAmount,
-              surcharge: p.surchargeValue,
-              total: p.totalAmount,
-              card_installments: p.installments,
-              card_surcharge: p.surchargePercentage,
-              receipt_url: p.receipt_url,
-              notes: p.notes,
-              telegram_sent: p.telegram_sent || false
+          try {
+            const receiptsPayload = unsentReceipts.map(r => ({
+              url: r.receipt_url!,
+              amount: r.amount > 0 ? r.amount : (paymentTiming === 'paid' ? total : customDepositAmount),
+              notes: r.notes || ''
             }));
 
-            await supabase
-              .from('orders')
-              .update({
-                totals: {
-                  ...orderData.totals,
-                  payments_breakdown: updatedBreakdown
-                }
+            const tgRes = await fetch('/api/vendedores/telegram-notify', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                type: 'receipt',
+                legacyCode: orderCodeForTelegram,
+                customerName: clientNameForTelegram,
+                taxId: clientTaxIdForTelegram,
+                sellerName: currentSeller?.full_name || '',
+                status: paymentStatusLabel,
+                receipts: receiptsPayload,
+                pendingBalance: pendingBalance
               })
-              .eq('id', orderData.id);
+            });
+            const tgData = await tgRes.json();
+            if (tgData.ok) {
+              unsentReceipts.forEach(r => { r.telegram_sent = true; });
+
+              if (orderData?.id) {
+                const updatedBreakdown = paymentsWithSurcharges.map(p => ({
+                  id: p.id,
+                  payment_method_id: p.payment_method_id,
+                  amount: p.baseAmount,
+                  surcharge: p.surchargeValue,
+                  total: p.totalAmount,
+                  card_installments: p.installments,
+                  card_surcharge: p.surchargePercentage,
+                  receipt_url: p.receipt_url,
+                  notes: p.notes,
+                  telegram_sent: p.telegram_sent || false
+                }));
+
+                await supabase
+                  .from('orders')
+                  .update({
+                    totals: {
+                      ...orderData.totals,
+                      payments_breakdown: updatedBreakdown
+                    }
+                  })
+                  .eq('id', orderData.id);
+              }
+            }
+          } catch (tgErr) {
+            console.warn('[Telegram Dispatch] Error enviando comprobantes a Telegram:', tgErr);
           }
         }
       } catch (receiptErr) {
@@ -5173,11 +5324,71 @@ export default function PedidosPage() {
 
   return (
     <div className="space-y-4">
+      {activeTab === 'form' ? (
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-3.5 px-4 rounded-2xl border border-slate-200/80 shadow-xs">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={handleCancelOrExitForm}
+              className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900 rounded-xl transition-all cursor-pointer shadow-2xs group shrink-0"
+              title="Volver al listado de pedidos"
+            >
+              <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
+            </button>
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-lg font-black text-slate-900 tracking-tight">
+                  {editingOrderId ? "Modificar Pedido" : "Carga de Nuevo Pedido"}
+                </h1>
+                {editingOrderId && (
+                  <span className="bg-amber-100 text-amber-800 text-[10px] px-2 py-0.5 rounded-full font-bold border border-amber-200">
+                    Modo Edición
+                  </span>
+                )}
+                {sellerType === 'mayorista' && (
+                  <span className="bg-emerald-100 text-emerald-800 text-[10px] px-2 py-0.5 rounded-full font-bold">
+                    Modo Mayorista
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-slate-400 font-medium">
+                {editingOrderId 
+                  ? "Modificá los datos del pedido y actualizá la reserva de stock."
+                  : "Ingresá los datos del cliente, productos y logística con reserva automática de stock."}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={() => { fetchOrdersForModal(); setShowLoadFromDbModal(true); }}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/80 rounded-xl text-xs font-bold transition-all shadow-2xs hover:shadow-xs active:scale-95 cursor-pointer"
+              title="Cargar datos de un pedido existente en la base de datos (reintentar o duplicar)"
+            >
+              <Database className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Cargar desde BD</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleCancelOrExitForm}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200/80 rounded-xl text-xs font-bold transition-all shadow-2xs hover:shadow-xs active:scale-95 cursor-pointer"
+              title="Cancelar y volver al listado de pedidos"
+            >
+              <X className="w-3.5 h-3.5 text-rose-600" />
+              <span>Cancelar y Salir</span>
+            </button>
+          </div>
+        </div>
+      ) : (
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
-            <h1 className="text-lg font-black text-slate-900 tracking-tight">Carga de Pedidos</h1>
+            <h1 className="text-lg font-black text-slate-900 tracking-tight">
+              {selectedChannels.length === 1 && selectedChannels[0] === 'mayoristas' ? 'Pedidos Mayoristas' : 'Pedidos Minoristas'}
+            </h1>
             <p className="text-[11px] text-slate-400 font-semibold">
-              Ventas orgánicas (minoristas y mayoristas) con reserva automática de stock.
+              Listado y seguimiento de pedidos, estados de entrega y cobranzas.
               {sellerType === 'mayorista' && <span className="ml-2 bg-emerald-100 text-emerald-800 text-[10px] px-2 py-0.5 rounded-full font-bold">Modo Mayorista</span>}
             </p>
           </div>
@@ -5193,23 +5404,27 @@ export default function PedidosPage() {
               <span>Cargar desde BD</span>
             </button>
 
+            <button
+              type="button"
+              onClick={handleStartNewOrder}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer"
+              title="Iniciar la carga de un nuevo pedido"
+            >
+              <PlusCircle className="w-3.5 h-3.5" />
+              <span>+ Nuevo Pedido</span>
+            </button>
+
             <div className="flex bg-slate-200/50 p-0.5 rounded-xl">
               <button 
-                onClick={() => setActiveTab('form')}
-                className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${activeTab === 'form' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-              >
-                {editingOrderId ? "✏️ Editar Pedido" : "Nuevo Pedido"}
-              </button>
-              <button 
-                onClick={() => { setActiveTab('list'); setListType('mis_pedidos'); }}
-                className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${activeTab === 'list' && listType === 'mis_pedidos' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                onClick={() => setListType('mis_pedidos')}
+                className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${listType === 'mis_pedidos' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
               >
                 Mis Pedidos
               </button>
               {role === 'admin' && (
                 <button 
-                  onClick={() => { setActiveTab('list'); setListType('todos'); }}
-                  className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${activeTab === 'list' && listType === 'todos' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                  onClick={() => setListType('todos')}
+                  className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${listType === 'todos' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                 >
                   Todos los Pedidos
                 </button>
@@ -5217,6 +5432,7 @@ export default function PedidosPage() {
             </div>
           </div>
         </div>
+      )}
 
       {activeTab === 'form' ? (
         <form onSubmit={handleInitialSubmit} className="bg-white p-5 rounded-xl border border-slate-200/60 shadow-sm relative">
@@ -5232,76 +5448,7 @@ export default function PedidosPage() {
               </div>
               <button
                 type="button"
-                onClick={() => {
-                  setEditingOrderId(null);
-                  setOriginalDeliveryDate("");
-                  setHasDeclaredPostponementReason(false);
-                  setPostponementMotive("");
-                  setPostponementReasonType('cliente');
-                  setEntregaInicial("");
-                  setEntregaMaxima("");
-                  setFechaPedido(() => {
-                    const today = new Date();
-                    const yyyy = today.getFullYear();
-                    const mm = String(today.getMonth() + 1).padStart(2, '0');
-                    const dd = String(today.getDate()).padStart(2, '0');
-                    return `${yyyy}-${mm}-${dd}`;
-                  });
-                  setCliente("");
-                  setDireccion("");
-                  setAclaraciones("");
-                  setLinkMaps("");
-                  setFlete("");
-                  const defaultPm = dbPaymentMethods.find(pm => 
-                    pm.id === "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3" || 
-                    (pm.name && pm.name.toLowerCase().includes("efectivo"))
-                  ) || dbPaymentMethods.find(pm => pm.is_default) || dbPaymentMethods[0];
-                  setPaymentType('efectivo');
-                  setCardInstallments(defaultPm ? (defaultPm.installments || 1) : 1);
-                  setCardSurcharge(defaultPm ? (defaultPm.surcharge_percentage || 0) : 0);
-                  setIsFreeShipping(true);
-                  setShippingCost(0);
-                  setIncludeIVA(false);
-                  setPaymentTiming('contra_entrega');
-                  setCustomDepositAmount(0);
-                  setPaymentState('unpaid');
-                  setDepositAmountInput(0);
-                  setDepositReceiptUrl("");
-                  setPaymentsList([
-                    {
-                      id: Math.random().toString(36).substring(2, 9),
-                      payment_method_id: defaultPm ? defaultPm.id : "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3",
-                      amount: 0,
-                      card_surcharge: defaultPm ? (defaultPm.surcharge_percentage || 0) : 0,
-                      card_installments: defaultPm ? (defaultPm.installments || 1) : 1,
-                      receipt_url: "",
-                      notes: ""
-                    }
-                  ]);
-                  setSelectedClientId("");
-                  setSelectedAddressId("");
-                  setClientSearchQuery("");
-                  setNewClientName("");
-                  setNewClientTaxId("");
-                  setShowTaxIdField(false);
-                  setNewClientPhone("");
-                  setWhaticketLink("");
-                  setLocalidadId("");
-                  setOrderItems([]);
-                  setOrderDiscountType('fixed');
-                  setOrderDiscountValue(0);
-                  setOrderCategory("auto");
-                  setSelectedSellerId(currentUserId);
-                  generateNextLegacyCode(currentUserId);
-                  setSelectedAdvertisingSourceId("");
-                  setSelectedOrderMediumId("");
-                  setSelectedPhoneLineId("");
-                  setDeliveryDetail("");
-                  setOrderStatus("Pendiente");
-                  setHoldReason("");
-                  setHoldProductId("");
-                  setActiveTab('list');
-                }}
+                onClick={handleCancelOrExitForm}
                 className="px-3 py-1.5 bg-white hover:bg-slate-50 border border-amber-200 text-amber-800 font-black rounded-lg text-[10px] shadow-sm transition-all uppercase tracking-wider shrink-0 cursor-pointer"
               >
                 Cancelar Edición
@@ -7373,16 +7520,29 @@ export default function PedidosPage() {
                     <Save className="w-4 h-4" /> Ver Resumen y Reservar Stock
                   </Button>
 
-                  {orderItems.length > 0 && (
+                  <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={handleOpenCurrentFormPrintable}
-                      className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer border border-slate-200"
+                      onClick={handleCancelOrExitForm}
+                      className="flex-1 py-2 bg-slate-100 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 text-slate-600 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer border border-slate-200 shadow-2xs"
+                      title="Cancelar y volver al listado de pedidos"
                     >
-                      <Printer className="w-3.5 h-3.5 text-slate-500" />
-                      <span>Ver / Imprimir Comprobante</span>
+                      <X className="w-3.5 h-3.5 text-rose-500" />
+                      <span>Cancelar y Salir</span>
                     </button>
-                  )}
+
+                    {orderItems.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleOpenCurrentFormPrintable}
+                        className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer border border-slate-200"
+                        title="Ver o imprimir comprobante de este pedido"
+                      >
+                        <Printer className="w-3.5 h-3.5 text-slate-500" />
+                        <span>Comprobante</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -7959,22 +8119,7 @@ export default function PedidosPage() {
 
               <button
                 type="button"
-                onClick={() => {
-                  setEditingOrderId(null);
-                  setOriginalDeliveryDate("");
-                  setHasDeclaredPostponementReason(false);
-                  setPostponementMotive("");
-                  setPostponementReasonType('cliente');
-                  setOrderItems([]);
-                  setOrderDiscountType('fixed');
-                  setOrderDiscountValue(0);
-                  setOrderCategory("auto");
-                  const effectiveSeller = selectedSellerId || currentUserId;
-                  if (effectiveSeller) {
-                    generateNextLegacyCode(effectiveSeller);
-                  }
-                  setActiveTab('form');
-                }}
+                onClick={handleStartNewOrder}
                 className="px-3.5 py-1.5 bg-brand-600 hover:bg-brand-700 text-white font-black rounded-lg text-xs shadow-sm transition-all flex items-center gap-1.5 shrink-0 cursor-pointer self-start sm:self-auto"
               >
                 <Plus className="w-3.5 h-3.5" /> Nuevo Pedido
