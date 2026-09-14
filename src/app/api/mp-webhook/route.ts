@@ -344,7 +344,7 @@ export async function POST(request: Request) {
             })
             .eq('id', resolvedAccountId);
 
-          const { getTelegramConfig, sendTelegramMessage, getArgentinaDateTime } = await import('@/app/api/admin/mp-telegram-alert/route');
+          const { getTelegramConfig, saveTelegramConfig, sendTelegramMessage, getArgentinaDateTime } = await import('@/app/api/admin/mp-telegram-alert/route');
           const tgConfig = await getTelegramConfig();
           if (tgConfig.enabled && tgConfig.bot_token && tgConfig.chat_id) {
             const arg = getArgentinaDateTime();
@@ -360,7 +360,17 @@ ${body.url ? `🔗 *URL:* \`${body.url}\`\n` : ''}
 ${body.clientTime ? `🕒 *Reloj extensión:* ${body.clientTime} hs\n` : ''}
 🔄 _La extensión intentará refrescar la hoja completa. Por favor revise la PC de monitoreo si persiste._`;
 
-            await sendTelegramMessage(tgConfig.bot_token, tgConfig.chat_id, errorMsg);
+            const sendRes = await sendTelegramMessage(tgConfig.bot_token, tgConfig.chat_id, errorMsg);
+            if (sendRes.ok) {
+              if (!tgConfig.accounts_state) tgConfig.accounts_state = {};
+              tgConfig.accounts_state[resolvedAccountId] = {
+                last_alert_at: new Date().toISOString(),
+                was_offline: true
+              };
+              tgConfig.was_offline = true;
+              tgConfig.last_alert_at = new Date().toISOString();
+              await saveTelegramConfig(tgConfig);
+            }
           }
         } catch (err) {
           console.warn('[MP Webhook] Error handling ALERT_PAGE_ERROR:', err);
