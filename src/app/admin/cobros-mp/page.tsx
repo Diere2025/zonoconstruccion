@@ -572,10 +572,53 @@ export default function CobrosMercadoPagoPage() {
     }
   }, [soundEnabled]);
 
-  // Check push notification permission on mount
+  // Pre-register Service Worker and check push notification permission on mount
   useEffect(() => {
-    if (typeof window !== 'undefined' && 'Notification' in window) {
-      setPushPermission(Notification.permission);
+    if (typeof window !== 'undefined') {
+      if ('Notification' in window) {
+        setPushPermission(Notification.permission);
+      }
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
+      }
+    }
+  }, []);
+
+  // Safe helper to trigger notification on Mobile (Android Chrome via SW) or Desktop
+  const showMobileOrDesktopNotification = useCallback(async (title: string, options?: NotificationOptions) => {
+    if (typeof window === 'undefined' || !('Notification' in window) || Notification.permission !== 'granted') {
+      return;
+    }
+
+    // 1. Service Worker showNotification (Mandatory for Android Chrome)
+    if ('serviceWorker' in navigator) {
+      try {
+        let reg = await navigator.serviceWorker.getRegistration();
+        if (!reg) {
+          reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+        }
+        if (reg) {
+          if (reg.installing) {
+            await new Promise<void>((resolve) => {
+              reg!.installing!.addEventListener('statechange', (e: any) => {
+                if (e.target.state === 'activated') resolve();
+              });
+              setTimeout(resolve, 400);
+            });
+          }
+          await reg.showNotification(title, options);
+          return;
+        }
+      } catch (swErr) {
+        console.warn('[Notification] ServiceWorker showNotification fallback:', swErr);
+      }
+    }
+
+    // 2. Desktop fallback via standard constructor
+    try {
+      new Notification(title, options);
+    } catch (nErr) {
+      console.warn('[Notification] Constructor error:', nErr);
     }
   }, []);
 
@@ -585,10 +628,14 @@ export default function CobrosMercadoPagoPage() {
       return;
     }
     try {
+      if ('serviceWorker' in navigator) {
+        await navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
+      }
+
       const perm = await Notification.requestPermission();
       setPushPermission(perm);
       if (perm === 'granted') {
-        new Notification("🔔 Notificaciones Activadas - Zono ERP", {
+        await showMobileOrDesktopNotification("🔔 Notificaciones Activadas - Zono ERP", {
           body: "Recibirás alertas inmediatas en este celular o equipo si el monitor de Mercado Pago se desconecta.",
           icon: "/favicon.ico"
         });
@@ -598,9 +645,9 @@ export default function CobrosMercadoPagoPage() {
     }
   };
 
-  const handleTestPushNotification = () => {
+  const handleTestPushNotification = async () => {
     if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-      new Notification("⚡ PRUEBA DE ALERTA PUSH - ZONO ERP", {
+      await showMobileOrDesktopNotification("⚡ PRUEBA DE ALERTA PUSH - ZONO ERP", {
         body: "Las notificaciones push locales en este dispositivo funcionan correctamente.",
         icon: "/favicon.ico"
       });
@@ -1262,18 +1309,12 @@ export default function CobrosMercadoPagoPage() {
     if (!isMonitorOnline && lastSeenMs) {
       if (!hasFiredOfflineNotificationRef.current) {
         hasFiredOfflineNotificationRef.current = true;
-        // Native Web Push Notification
-        if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-          try {
-            new Notification("⚠️ ALERTA: Monitor Mercado Pago Desconectado", {
-              body: `La cuenta ${mainAccount?.name || 'pagoszono.26'} no envía señal hace ${monitorMinutesAgo} minutos. Verifique la PC de monitoreo.`,
-              icon: "/favicon.ico",
-              tag: "mp-monitor-offline-alert"
-            });
-          } catch (e) {
-            console.warn("Could not fire notification:", e);
-          }
-        }
+        // Native Web Push Notification (Mobile Android SW + Desktop)
+        showMobileOrDesktopNotification("⚠️ ALERTA: Monitor Mercado Pago Desconectado", {
+          body: `La cuenta ${mainAccount?.name || 'pagoszono.26'} no envía señal hace ${monitorMinutesAgo} minutos. Verifique la PC de monitoreo.`,
+          icon: "/favicon.ico",
+          tag: "mp-monitor-offline-alert"
+        });
         playWarningAlarm();
 
         // Background check and send Telegram alert
