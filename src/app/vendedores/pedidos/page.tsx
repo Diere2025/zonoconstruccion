@@ -134,8 +134,10 @@ interface CustomView {
   name: string;
   isDefault?: boolean;
   filters: {
-    statusFilter: 'Pendientes' | 'En Revisión' | 'Entregados' | 'Anulados' | 'Todos';
-    clientTypeFilter: 'todos' | 'minoristas' | 'mayoristas';
+    statusFilter?: 'Pendientes' | 'En Revisión' | 'Entregados' | 'Anulados' | 'Todos';
+    selectedStatuses?: string[];
+    clientTypeFilter?: 'todos' | 'minoristas' | 'mayoristas';
+    selectedChannels?: ('minoristas' | 'mayoristas')[];
     selectedProducts: string[];
     orderSearchQuery: string;
     listType: 'mis_pedidos' | 'todos';
@@ -559,8 +561,10 @@ export default function PedidosPage() {
   };
 
   const [activeTab, setActiveTab] = useState<'form' | 'list'>('list');
-  const [statusFilter, setStatusFilter] = useState<'Pendientes' | 'En Revisión' | 'Entregados' | 'Anulados' | 'Todos'>('Pendientes');
-  const [clientTypeFilter, setClientTypeFilter] = useState<'todos' | 'minoristas' | 'mayoristas'>('minoristas');
+  const [selectedStatuses, setSelectedStatuses] = useState<string[]>(['Pendientes']);
+  const [showStatusDropdown, setShowStatusDropdown] = useState(false);
+  const [selectedChannels, setSelectedChannels] = useState<('minoristas' | 'mayoristas')[]>(['minoristas']);
+  const [showChannelDropdown, setShowChannelDropdown] = useState(false);
   const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
   const [showProductDropdown, setShowProductDropdown] = useState(false);
   const [productSearchTerm, setProductSearchTerm] = useState("");
@@ -733,12 +737,26 @@ export default function PedidosPage() {
 
       const params = new URLSearchParams(window.location.search);
       const urlStatus = params.get("status");
-      if (urlStatus && ['Pendientes', 'En Revisión', 'Entregados', 'Anulados', 'Todos'].includes(urlStatus)) {
-        setStatusFilter(urlStatus as any);
+      if (urlStatus) {
+        if (urlStatus === 'Todos') {
+          setSelectedStatuses(['Pendientes', 'En Revisión', 'Entregados', 'Anulados']);
+        } else {
+          const parsedStatuses = urlStatus.split(',').map(s => s.trim()).filter(s => ['Pendientes', 'En Revisión', 'Entregados', 'Anulados'].includes(s));
+          if (parsedStatuses.length > 0) {
+            setSelectedStatuses(parsedStatuses);
+          }
+        }
       }
       const urlClientType = params.get("client_type");
-      if (urlClientType && ['todos', 'minoristas', 'mayoristas'].includes(urlClientType)) {
-        setClientTypeFilter(urlClientType as any);
+      if (urlClientType) {
+        if (urlClientType === 'todos') {
+          setSelectedChannels(['minoristas', 'mayoristas']);
+        } else {
+          const parsedChannels = urlClientType.split(',').map(s => s.trim()).filter(s => ['minoristas', 'mayoristas'].includes(s)) as ('minoristas' | 'mayoristas')[];
+          if (parsedChannels.length > 0) {
+            setSelectedChannels(parsedChannels);
+          }
+        }
       }
       const urlProducts = params.get("products");
       if (urlProducts) {
@@ -774,16 +792,20 @@ export default function PedidosPage() {
 
     const params = new URLSearchParams(window.location.search);
 
-    if (statusFilter !== 'Pendientes') {
-      params.set("status", statusFilter);
-    } else {
+    if (selectedStatuses.length === 1 && selectedStatuses[0] === 'Pendientes') {
       params.delete("status");
+    } else if (selectedStatuses.length === 4 || selectedStatuses.length === 0) {
+      params.set("status", "Todos");
+    } else {
+      params.set("status", selectedStatuses.join(","));
     }
 
-    if (clientTypeFilter !== 'todos') {
-      params.set("client_type", clientTypeFilter);
-    } else {
+    if (selectedChannels.length === 1 && selectedChannels[0] === 'minoristas') {
       params.delete("client_type");
+    } else if (selectedChannels.length === 2 || selectedChannels.length === 0) {
+      params.set("client_type", "todos");
+    } else {
+      params.set("client_type", selectedChannels.join(","));
     }
 
     if (selectedProducts.length > 0) {
@@ -822,14 +844,32 @@ export default function PedidosPage() {
       : window.location.pathname;
 
     window.history.replaceState(null, "", newPath);
-  }, [statusFilter, clientTypeFilter, selectedProducts, orderSearchQuery, listType, dateFrom, dateTo]);
+  }, [selectedStatuses, selectedChannels, selectedProducts, orderSearchQuery, listType, dateFrom, dateTo]);
 
   // Support browser back/forward buttons (popstate)
   useEffect(() => {
     const handlePopState = () => {
       const params = new URLSearchParams(window.location.search);
-      setStatusFilter((params.get("status") as any) || 'Pendientes');
-      setClientTypeFilter((params.get("client_type") as any) || 'minoristas');
+      const urlStatus = params.get("status");
+      if (urlStatus === 'Todos') {
+        setSelectedStatuses(['Pendientes', 'En Revisión', 'Entregados', 'Anulados']);
+      } else if (urlStatus) {
+        const parsed = urlStatus.split(',').map(s => s.trim()).filter(s => ['Pendientes', 'En Revisión', 'Entregados', 'Anulados'].includes(s));
+        setSelectedStatuses(parsed.length > 0 ? parsed : ['Pendientes']);
+      } else {
+        setSelectedStatuses(['Pendientes']);
+      }
+
+      const urlClientType = params.get("client_type");
+      if (urlClientType === 'todos') {
+        setSelectedChannels(['minoristas', 'mayoristas']);
+      } else if (urlClientType) {
+        const parsed = urlClientType.split(',').map(s => s.trim()).filter(s => ['minoristas', 'mayoristas'].includes(s)) as ('minoristas' | 'mayoristas')[];
+        setSelectedChannels(parsed.length > 0 ? parsed : ['minoristas']);
+      } else {
+        setSelectedChannels(['minoristas']);
+      }
+
       setSelectedProducts(params.get("products") ? params.get("products")!.split(',').filter(Boolean) : []);
       setOrderSearchQuery(params.get("search") || '');
       setListType((params.get("list_type") as any) || 'mis_pedidos');
@@ -847,8 +887,10 @@ export default function PedidosPage() {
       id: 'view_' + Date.now(),
       name: name.trim(),
       filters: {
-        statusFilter,
-        clientTypeFilter,
+        selectedStatuses,
+        selectedChannels,
+        statusFilter: selectedStatuses.length === 1 ? (selectedStatuses[0] as any) : (selectedStatuses.length === 4 || selectedStatuses.length === 0 ? 'Todos' : 'Pendientes'),
+        clientTypeFilter: selectedChannels.length === 1 ? selectedChannels[0] : 'todos',
         selectedProducts,
         orderSearchQuery,
         listType,
@@ -878,8 +920,30 @@ export default function PedidosPage() {
   };
 
   const applyCustomView = (view: CustomView) => {
-    setStatusFilter(view.filters.statusFilter);
-    setClientTypeFilter(view.filters.clientTypeFilter);
+    if (view.filters.selectedStatuses && view.filters.selectedStatuses.length > 0) {
+      setSelectedStatuses(view.filters.selectedStatuses);
+    } else if (view.filters.statusFilter) {
+      if (view.filters.statusFilter === 'Todos') {
+        setSelectedStatuses(['Pendientes', 'En Revisión', 'Entregados', 'Anulados']);
+      } else {
+        setSelectedStatuses([view.filters.statusFilter]);
+      }
+    } else {
+      setSelectedStatuses(['Pendientes']);
+    }
+
+    if (view.filters.selectedChannels && view.filters.selectedChannels.length > 0) {
+      setSelectedChannels(view.filters.selectedChannels);
+    } else if (view.filters.clientTypeFilter) {
+      if (view.filters.clientTypeFilter === 'todos') {
+        setSelectedChannels(['minoristas', 'mayoristas']);
+      } else {
+        setSelectedChannels([view.filters.clientTypeFilter]);
+      }
+    } else {
+      setSelectedChannels(['minoristas']);
+    }
+
     setSelectedProducts(view.filters.selectedProducts || []);
     setOrderSearchQuery(view.filters.orderSearchQuery || "");
     if (view.filters.listType) {
@@ -891,8 +955,8 @@ export default function PedidosPage() {
   };
 
   const resetAllFilters = () => {
-    setStatusFilter('Pendientes');
-    setClientTypeFilter('todos');
+    setSelectedStatuses(['Pendientes']);
+    setSelectedChannels(['minoristas', 'mayoristas']);
     setSelectedProducts([]);
     setOrderSearchQuery("");
     setListType('mis_pedidos');
@@ -902,27 +966,31 @@ export default function PedidosPage() {
   };
 
   const currentActiveViewName = useMemo(() => {
-    const matched = customViews.find(v => 
-      v.filters.statusFilter === statusFilter &&
-      v.filters.clientTypeFilter === clientTypeFilter &&
-      JSON.stringify((v.filters.selectedProducts || []).slice().sort()) === JSON.stringify(selectedProducts.slice().sort()) &&
-      v.filters.orderSearchQuery === orderSearchQuery &&
-      (v.filters.listType || 'mis_pedidos') === listType &&
-      (v.filters.dateFrom || "") === dateFrom &&
-      (v.filters.dateTo || "") === dateTo
-    );
+    const matched = customViews.find(v => {
+      const vStatuses = v.filters.selectedStatuses || (v.filters.statusFilter === 'Todos' ? ['Pendientes', 'En Revisión', 'Entregados', 'Anulados'] : [v.filters.statusFilter || 'Pendientes']);
+      const vChannels = v.filters.selectedChannels || (v.filters.clientTypeFilter === 'todos' ? ['minoristas', 'mayoristas'] : [v.filters.clientTypeFilter || 'minoristas']);
+      return JSON.stringify(vStatuses.slice().sort()) === JSON.stringify(selectedStatuses.slice().sort()) &&
+        JSON.stringify(vChannels.slice().sort()) === JSON.stringify(selectedChannels.slice().sort()) &&
+        JSON.stringify((v.filters.selectedProducts || []).slice().sort()) === JSON.stringify(selectedProducts.slice().sort()) &&
+        v.filters.orderSearchQuery === orderSearchQuery &&
+        (v.filters.listType || 'mis_pedidos') === listType &&
+        (v.filters.dateFrom || "") === dateFrom &&
+        (v.filters.dateTo || "") === dateTo;
+    });
     return matched ? matched.name : null;
-  }, [customViews, statusFilter, clientTypeFilter, selectedProducts, orderSearchQuery, listType, dateFrom, dateTo]);
+  }, [customViews, selectedStatuses, selectedChannels, selectedProducts, orderSearchQuery, listType, dateFrom, dateTo]);
 
   const hasActiveCustomFilters = useMemo(() => {
-    return statusFilter !== 'Pendientes' || 
-           clientTypeFilter !== 'todos' || 
+    const isDefaultStatus = selectedStatuses.length === 1 && selectedStatuses[0] === 'Pendientes';
+    const isDefaultChannel = selectedChannels.length === 2 || selectedChannels.length === 0;
+    return !isDefaultStatus ||
+           !isDefaultChannel ||
            selectedProducts.length > 0 || 
            orderSearchQuery.trim() !== '' ||
            listType !== 'mis_pedidos' ||
            dateFrom !== '' ||
            dateTo !== '';
-  }, [statusFilter, clientTypeFilter, selectedProducts, orderSearchQuery, listType, dateFrom, dateTo]);
+  }, [selectedStatuses, selectedChannels, selectedProducts, orderSearchQuery, listType, dateFrom, dateTo]);
 
   // Kits & Payment States
   const [kits, setKits] = useState<Kit[]>([]);
@@ -1530,6 +1598,8 @@ export default function PedidosPage() {
   const [generatedCancelMessage, setGeneratedCancelMessage] = useState("");
   const [copiedCancelMessage, setCopiedCancelMessage] = useState(false);
   const [notifiedLogistics, setNotifiedLogistics] = useState(false);
+  const [isLogisticallyRelevant, setIsLogisticallyRelevant] = useState(false);
+  const [notifiedCancelTelegram, setNotifiedCancelTelegram] = useState(false);
 
   const formatDateDisplay = (d?: string | null) => {
     if (!d) return "Sin fecha";
@@ -1858,16 +1928,24 @@ export default function PedidosPage() {
         reason: trimmedReason
       });
 
-      fetch('/api/vendedores/telegram-notify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'cancellation',
-          message: copyMsg,
-          legacyCode: cancelingOrder.legacy_code || ''
-        })
-      }).catch(err => console.warn('Error sending Telegram cancellation notification:', err));
+      let cancelTgSuccess = false;
+      try {
+        const tgRes = await fetch('/api/vendedores/telegram-notify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'cancellation',
+            message: copyMsg,
+            legacyCode: cancelingOrder.legacy_code || ''
+          })
+        });
+        const tgData = await tgRes.json().catch(() => ({}));
+        cancelTgSuccess = !!(tgRes.ok && tgData.ok);
+      } catch (err) {
+        console.warn('Error sending Telegram cancellation notification:', err);
+      }
 
+      setNotifiedCancelTelegram(cancelTgSuccess);
       setGeneratedCancelMessage(copyMsg);
       setCopiedCancelMessage(false);
 
@@ -2633,28 +2711,53 @@ export default function PedidosPage() {
             ? facundoIds
             : (ludmilaIds.includes(currentUid) ? ludmilaIds : [currentUid]);
 
+          const isOnlyWholesale = selectedChannels.length === 1 && selectedChannels[0] === 'mayoristas';
           if (listType === 'mis_pedidos' || role !== 'admin') {
-            if (clientTypeFilter !== 'mayoristas') {
+            if (!isOnlyWholesale) {
               query = query.in('seller_id', effectiveUserSellerIds);
             }
           }
 
           // Apply client type filter at query level
-          if (clientTypeFilter === 'mayoristas') {
+          const hasMinoristas = selectedChannels.includes('minoristas');
+          const hasMayoristas = selectedChannels.includes('mayoristas');
+          if (hasMayoristas && !hasMinoristas) {
             query = query.or('channel.eq.mayorista,legacy_code.ilike.AQ%,legacy_code.ilike.POW%');
-          } else if (clientTypeFilter === 'minoristas') {
+          } else if (hasMinoristas && !hasMayoristas) {
             query = query.neq('channel', 'mayorista').not('legacy_code', 'ilike', 'AQU%').not('legacy_code', 'ilike', 'POW%');
           }
           
           // Apply status filter
-          if (statusFilter === 'Pendientes') {
-            query = query.not('status', 'in', '("Entregado","Cancelado","En Revisión")');
-          } else if (statusFilter === 'En Revisión') {
-            query = query.eq('status', 'En Revisión');
-          } else if (statusFilter === 'Entregados') {
-            query = query.eq('status', 'Entregado');
-          } else if (statusFilter === 'Anulados') {
-            query = query.eq('status', 'Cancelado');
+          const hasPending = selectedStatuses.includes('Pendientes');
+          const hasReview = selectedStatuses.includes('En Revisión');
+          const hasDelivered = selectedStatuses.includes('Entregados');
+          const hasCancelled = selectedStatuses.includes('Anulados');
+          const statusCount = [hasPending, hasReview, hasDelivered, hasCancelled].filter(Boolean).length;
+
+          if (statusCount > 0 && statusCount < 4) {
+            if (hasPending) {
+              const excludedNonPending: string[] = [];
+              if (!hasReview) excludedNonPending.push('En Revisión');
+              if (!hasDelivered) excludedNonPending.push('Entregado');
+              if (!hasCancelled) excludedNonPending.push('Cancelado');
+
+              if (excludedNonPending.length === 1) {
+                query = query.neq('status', excludedNonPending[0]);
+              } else if (excludedNonPending.length > 1) {
+                query = query.not('status', 'in', `(${excludedNonPending.map(s => `"${s}"`).join(',')})`);
+              }
+            } else {
+              const inStatuses: string[] = [];
+              if (hasReview) inStatuses.push('En Revisión');
+              if (hasDelivered) inStatuses.push('Entregado');
+              if (hasCancelled) inStatuses.push('Cancelado');
+
+              if (inStatuses.length === 1) {
+                query = query.eq('status', inStatuses[0]);
+              } else if (inStatuses.length > 1) {
+                query = query.in('status', inStatuses);
+              }
+            }
           }
           
           if (debouncedOrderSearch.trim()) {
@@ -2697,7 +2800,8 @@ export default function PedidosPage() {
           }
           
           // Limit to 500 for active states and wholesale history to display comprehensive history
-          if (statusFilter === 'Pendientes' || statusFilter === 'En Revisión' || clientTypeFilter === 'mayoristas') {
+          const isExtendedLimit = hasPending || hasReview || hasMayoristas || statusCount === 0 || statusCount === 4;
+          if (isExtendedLimit) {
             query = query.limit(500);
           } else {
             query = query.limit(100);
@@ -2720,7 +2824,7 @@ export default function PedidosPage() {
       }
     }
     fetchOrders();
-  }, [activeTab, listType, role, debouncedOrderSearch, statusFilter, selectedProducts, expandedSelectedProductIds, products, clientTypeFilter, dateFrom, dateTo, refreshTrigger]);
+  }, [activeTab, listType, role, debouncedOrderSearch, selectedStatuses, selectedProducts, expandedSelectedProductIds, products, selectedChannels, dateFrom, dateTo, refreshTrigger]);
 
   // Fetch recent orders for the "Cargar desde BD" modal
   const fetchOrdersForModal = async () => {
@@ -4007,8 +4111,31 @@ export default function PedidosPage() {
 
   const filteredOrders = sortedOrders.filter(p => {
     const isWholesale = isOrderWholesale(p);
-    if (clientTypeFilter === 'minoristas' && isWholesale) return false;
-    if (clientTypeFilter === 'mayoristas' && !isWholesale) return false;
+    const hasMinoristas = selectedChannels.includes('minoristas');
+    const hasMayoristas = selectedChannels.includes('mayoristas');
+
+    if (hasMinoristas && !hasMayoristas && isWholesale) return false;
+    if (hasMayoristas && !hasMinoristas && !isWholesale) return false;
+
+    const hasPending = selectedStatuses.includes('Pendientes');
+    const hasReview = selectedStatuses.includes('En Revisión');
+    const hasDelivered = selectedStatuses.includes('Entregados');
+    const hasCancelled = selectedStatuses.includes('Anulados');
+    const statusCount = [hasPending, hasReview, hasDelivered, hasCancelled].filter(Boolean).length;
+
+    if (statusCount > 0 && statusCount < 4) {
+      const isCancelled = p.status === 'Cancelado';
+      const isDelivered = p.status === 'Entregado';
+      const isReview = p.status === 'En Revisión';
+      const isPending = !isCancelled && !isDelivered && !isReview;
+
+      let match = false;
+      if (hasPending && isPending) match = true;
+      if (hasReview && isReview) match = true;
+      if (hasDelivered && isDelivered) match = true;
+      if (hasCancelled && isCancelled) match = true;
+      if (!match) return false;
+    }
     
     if (selectedProducts.length > 0) {
       const items = p.order_items || [];
@@ -4744,20 +4871,28 @@ export default function PedidosPage() {
 
         // Enviar automáticamente a Telegram SOLO si hay cambios que afectan a Logística
         const shouldNotifyLogistics = isLogisticallyRelevantChange(editChangesSummary, logisticsObservation);
-        setNotifiedLogistics(shouldNotifyLogistics);
+        setIsLogisticallyRelevant(shouldNotifyLogistics);
 
+        let telegramSuccess = false;
         if (shouldNotifyLogistics) {
-          fetch('/api/vendedores/telegram-notify', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              type: 'modification',
-              message: copyMsg,
-              legacyCode: legacyCode || orderData.legacy_code || ''
-            })
-          }).catch(err => console.warn('Error sending automatic Telegram alert:', err));
+          try {
+            const tgRes = await fetch('/api/vendedores/telegram-notify', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                type: 'modification',
+                message: copyMsg,
+                legacyCode: legacyCode || orderData.legacy_code || ''
+              })
+            });
+            const tgData = await tgRes.json().catch(() => ({}));
+            telegramSuccess = !!(tgRes.ok && tgData.ok);
+          } catch (err) {
+            console.warn('Error sending automatic Telegram alert:', err);
+          }
         }
 
+        setNotifiedLogistics(telegramSuccess);
         setGeneratedModificationMessage(copyMsg);
         setCopiedModificationMessage(false);
         setShowModificationSuccessModal(true);
@@ -7008,44 +7143,187 @@ export default function PedidosPage() {
                 )}
               </div>
 
-              {/* Filtro de Estado */}
-              <div className="flex bg-slate-200/60 p-0.5 rounded-xl border border-slate-300/30 self-start sm:self-auto shrink-0 flex-wrap">
-                {(['Pendientes', 'En Revisión', 'Entregados', 'Anulados', 'Todos'] as const).map((filter) => (
-                  <button
-                    key={filter}
-                    type="button"
-                    onClick={() => setStatusFilter(filter)}
-                    className={`px-3 py-1.5 rounded-lg font-black text-[10px] uppercase tracking-wider transition-all cursor-pointer ${
-                      statusFilter === filter
-                        ? "bg-white text-brand-600 shadow-sm"
-                        : "text-slate-500 hover:text-slate-800"
-                    }`}
-                  >
-                    {filter}
-                  </button>
-                ))}
+              {/* Filtro de Estado (Menú Multi-selección) */}
+              <div className="relative shrink-0 w-full sm:w-44">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowStatusDropdown(prev => !prev);
+                    setShowChannelDropdown(false);
+                    setShowProductDropdown(false);
+                    setShowCustomViewsDropdown(false);
+                  }}
+                  className={`w-full px-3 py-1.5 rounded-xl border font-bold text-[10px] uppercase tracking-wider focus:ring-2 focus:ring-brand-500/10 outline-none cursor-pointer transition-all flex items-center justify-between gap-1.5 h-[28px] ${
+                    selectedStatuses.length > 0 && selectedStatuses.length < 4
+                      ? "bg-brand-50 border-brand-200 text-brand-700 shadow-xs"
+                      : "bg-white border-slate-200 text-slate-600 hover:text-slate-800"
+                  }`}
+                >
+                  <span className="truncate flex items-center gap-1.5">
+                    <span className="inline-block w-2 h-2 rounded-full bg-brand-500 shrink-0" />
+                    {selectedStatuses.length === 0 || selectedStatuses.length === 4
+                      ? "Todos los Estados"
+                      : selectedStatuses.length === 1
+                      ? selectedStatuses[0]
+                      : `Estados (${selectedStatuses.length})`}
+                  </span>
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                </button>
+
+                {showStatusDropdown && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => setShowStatusDropdown(false)}
+                    />
+                    <div className="absolute left-0 mt-1 w-56 bg-white rounded-xl border border-slate-200 shadow-lg z-50 overflow-hidden flex flex-col">
+                      <div className="px-3 py-2 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+                        <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">Estados</span>
+                        <div className="flex items-center gap-2 text-[10px] font-bold">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedStatuses(['Pendientes', 'En Revisión', 'Entregados', 'Anulados'])}
+                            className="text-brand-600 hover:text-brand-700 cursor-pointer"
+                          >
+                            Todos
+                          </button>
+                          <span className="text-slate-300">|</span>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedStatuses([])}
+                            className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                          >
+                            Limpiar
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="py-1 divide-y divide-slate-50">
+                        {[
+                          { id: 'Pendientes', label: 'Pendientes', dot: 'bg-amber-500' },
+                          { id: 'En Revisión', label: 'En Revisión', dot: 'bg-blue-500' },
+                          { id: 'Entregados', label: 'Entregados', dot: 'bg-emerald-500' },
+                          { id: 'Anulados', label: 'Anulados', dot: 'bg-rose-500' }
+                        ].map((item) => {
+                          const isSelected = selectedStatuses.includes(item.id);
+                          return (
+                            <label
+                              key={item.id}
+                              className="flex items-center gap-2.5 px-3 py-2 hover:bg-slate-50 cursor-pointer select-none transition-colors"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => {
+                                  if (isSelected) {
+                                    setSelectedStatuses(prev => prev.filter(s => s !== item.id));
+                                  } else {
+                                    setSelectedStatuses(prev => [...prev, item.id]);
+                                  }
+                                }}
+                                className="w-3.5 h-3.5 rounded border-slate-300 text-brand-600 focus:ring-brand-500/10 cursor-pointer"
+                              />
+                              <span className={`w-2 h-2 rounded-full ${item.dot} shrink-0`} />
+                              <span className={`text-xs font-semibold ${isSelected ? 'text-slate-900 font-bold' : 'text-slate-600'}`}>
+                                {item.label}
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
 
-              {/* Filtro de Tipo de Cliente / Canal */}
-              <div className="flex bg-slate-200/60 p-0.5 rounded-xl border border-slate-300/30 self-start sm:self-auto shrink-0">
-                {([
-                  { id: 'minoristas', label: 'Minoristas (B2C)' },
-                  { id: 'mayoristas', label: 'Mayoristas (B2B) 👑' },
-                  { id: 'todos', label: 'Todos los Canales' }
-                ] as const).map((filter) => (
-                  <button
-                    key={filter.id}
-                    type="button"
-                    onClick={() => setClientTypeFilter(filter.id)}
-                    className={`px-3 py-1.5 rounded-lg font-black text-[10px] uppercase tracking-wider transition-all cursor-pointer ${
-                      clientTypeFilter === filter.id
-                        ? "bg-white text-violet-700 shadow-sm"
-                        : "text-slate-500 hover:text-slate-800"
-                    }`}
-                  >
-                    {filter.label}
-                  </button>
-                ))}
+              {/* Filtro de Tipo de Cliente / Canal (Menú Multi-selección) */}
+              <div className="relative shrink-0 w-full sm:w-48">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowChannelDropdown(prev => !prev);
+                    setShowStatusDropdown(false);
+                    setShowProductDropdown(false);
+                    setShowCustomViewsDropdown(false);
+                  }}
+                  className={`w-full px-3 py-1.5 rounded-xl border font-bold text-[10px] uppercase tracking-wider focus:ring-2 focus:ring-violet-500/10 outline-none cursor-pointer transition-all flex items-center justify-between gap-1.5 h-[28px] ${
+                    selectedChannels.length === 1
+                      ? "bg-violet-50 border-violet-200 text-violet-700 shadow-xs"
+                      : "bg-white border-slate-200 text-slate-600 hover:text-slate-800"
+                  }`}
+                >
+                  <span className="truncate flex items-center gap-1.5">
+                    <span>🛍️</span>
+                    {selectedChannels.length === 0 || selectedChannels.length === 2
+                      ? "Todos los Canales"
+                      : selectedChannels.includes('minoristas')
+                      ? "Minoristas (B2C)"
+                      : "Mayoristas (B2B) 👑"}
+                  </span>
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                </button>
+
+                {showChannelDropdown && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => setShowChannelDropdown(false)}
+                    />
+                    <div className="absolute left-0 mt-1 w-56 bg-white rounded-xl border border-slate-200 shadow-lg z-50 overflow-hidden flex flex-col">
+                      <div className="px-3 py-2 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+                        <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">Canales</span>
+                        <div className="flex items-center gap-2 text-[10px] font-bold">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedChannels(['minoristas', 'mayoristas'])}
+                            className="text-violet-600 hover:text-violet-700 cursor-pointer"
+                          >
+                            Todos
+                          </button>
+                          <span className="text-slate-300">|</span>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedChannels([])}
+                            className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                          >
+                            Limpiar
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="py-1 divide-y divide-slate-50">
+                        {[
+                          { id: 'minoristas' as const, label: 'Minoristas (B2C)' },
+                          { id: 'mayoristas' as const, label: 'Mayoristas (B2B) 👑' }
+                        ].map((item) => {
+                          const isSelected = selectedChannels.includes(item.id);
+                          return (
+                            <label
+                              key={item.id}
+                              className="flex items-center gap-2.5 px-3 py-2 hover:bg-slate-50 cursor-pointer select-none transition-colors"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => {
+                                  if (isSelected) {
+                                    setSelectedChannels(prev => prev.filter(c => c !== item.id));
+                                  } else {
+                                    setSelectedChannels(prev => [...prev, item.id]);
+                                  }
+                                }}
+                                className="w-3.5 h-3.5 rounded border-slate-300 text-violet-600 focus:ring-violet-500/10 cursor-pointer"
+                              />
+                              <span className={`text-xs font-semibold ${isSelected ? 'text-slate-900 font-bold' : 'text-slate-600'}`}>
+                                {item.label}
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
 
               {/* Filtro de Vendedor */}
@@ -8082,11 +8360,18 @@ export default function PedidosPage() {
                     <Copy className="w-3.5 h-3.5 text-slate-500" />
                     Mensaje de Modificación
                   </span>
-                  {notifiedLogistics ? (
-                    <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100/90 border border-emerald-200 px-2 py-0.5 rounded-full flex items-center gap-1 shadow-2xs">
-                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                      Enviado a Telegram
-                    </span>
+                  {isLogisticallyRelevant ? (
+                    notifiedLogistics ? (
+                      <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100/90 border border-emerald-200 px-2 py-0.5 rounded-full flex items-center gap-1 shadow-2xs">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                        Enviado a Telegram
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-bold text-amber-800 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-full flex items-center gap-1 shadow-2xs">
+                        <AlertTriangle className="w-3 h-3 text-amber-600" />
+                        No enviado a Telegram (Copiar abajo)
+                      </span>
+                    )
                   ) : (
                     <span className="text-[10px] font-bold text-slate-600 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-full flex items-center gap-1">
                       ℹ️ Sin alerta a Logística (Cambio administrativo)
@@ -8427,10 +8712,17 @@ export default function PedidosPage() {
                     <Copy className="w-3.5 h-3.5 text-slate-500" />
                     Aviso de Anulación
                   </span>
-                  <span className="text-[10px] font-bold text-rose-800 bg-rose-100/90 border border-rose-200 px-2 py-0.5 rounded-full flex items-center gap-1 shadow-2xs">
-                    <CheckCircle2 className="w-3 h-3 text-rose-600" />
-                    Enviado a Telegram
-                  </span>
+                  {notifiedCancelTelegram ? (
+                    <span className="text-[10px] font-bold text-rose-800 bg-rose-100/90 border border-rose-200 px-2 py-0.5 rounded-full flex items-center gap-1 shadow-2xs">
+                      <CheckCircle2 className="w-3 h-3 text-rose-600" />
+                      Enviado a Telegram
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-bold text-amber-800 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-full flex items-center gap-1 shadow-2xs">
+                      <AlertTriangle className="w-3 h-3 text-amber-600" />
+                      No enviado a Telegram (Copiar abajo)
+                    </span>
+                  )}
                 </div>
                 <div className="bg-white rounded-xl border border-slate-200 p-3.5 text-xs font-mono text-slate-800 whitespace-pre-wrap select-all max-h-64 overflow-y-auto leading-relaxed">
                   {generatedCancelMessage}
@@ -8794,8 +9086,8 @@ export default function PedidosPage() {
 
               <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-100 text-[10px] text-slate-500 space-y-1">
                 <div className="font-bold text-slate-700 mb-1 uppercase tracking-wider">Filtros incluidos:</div>
-                <div>• Estado: <span className="font-semibold text-slate-800">{statusFilter}</span></div>
-                <div>• Cliente: <span className="font-semibold text-slate-800">{clientTypeFilter}</span></div>
+                <div>• Estado: <span className="font-semibold text-slate-800">{selectedStatuses.length === 0 || selectedStatuses.length === 4 ? "Todos los Estados" : selectedStatuses.join(", ")}</span></div>
+                <div>• Cliente: <span className="font-semibold text-slate-800">{selectedChannels.length === 0 || selectedChannels.length === 2 ? "Todos los Canales" : (selectedChannels.includes('minoristas') ? 'Minoristas' : 'Mayoristas')}</span></div>
                 {selectedProducts.length > 0 && (
                   <div>• Productos: <span className="font-semibold text-slate-800">{selectedProducts.length} seleccionados</span></div>
                 )}
