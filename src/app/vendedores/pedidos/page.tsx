@@ -725,6 +725,29 @@ export default function PedidosPage() {
   const [showDateDropdown, setShowDateDropdown] = useState<boolean>(false);
   const isInitialMount = useRef(true);
 
+  const isRestrictedSeller = useMemo(() => {
+    if (role === 'admin') return false;
+    const emailLower = (currentSeller?.email || "").toLowerCase();
+    const nameLower = (currentSeller?.full_name || "").toLowerCase();
+    const isExplicitAdmin = currentSeller?.role === 'admin' || (Array.isArray(currentSeller?.roles) && currentSeller.roles.includes('admin'));
+    if (isExplicitAdmin) return false;
+    return (
+      emailLower.includes("jazmin") || 
+      emailLower.includes("jazmín") || 
+      nameLower.includes("jazmin") || 
+      nameLower.includes("jazmín") || 
+      emailLower.includes("ludmila") ||
+      emailLower.includes("ludmilakrenz") ||
+      nameLower.includes("ludmila")
+    );
+  }, [currentSeller, role]);
+
+  useEffect(() => {
+    if (isRestrictedSeller) {
+      setSelectedChannels(['minoristas']);
+    }
+  }, [isRestrictedSeller]);
+
   // Load custom views from localStorage and parse URL query params on initial mount
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -1538,10 +1561,14 @@ export default function PedidosPage() {
           if (p.id === id) {
             let assignedAmount = p.amount;
             if (!assignedAmount || assignedAmount === 0) {
-              if (customDepositAmount > 0) {
-                assignedAmount = customDepositAmount;
-              } else if (paymentTiming === 'paid' && total > 0) {
-                assignedAmount = total;
+              if (prev.length === 1) {
+                if (customDepositAmount > 0) {
+                  assignedAmount = customDepositAmount;
+                } else if (paymentTiming === 'paid' && total > 0) {
+                  assignedAmount = total;
+                }
+              } else {
+                assignedAmount = 0;
               }
             }
             return {
@@ -5179,7 +5206,7 @@ export default function PedidosPage() {
           try {
             const receiptsPayload = unsentReceipts.map(r => ({
               url: r.receipt_url!,
-              amount: r.amount > 0 ? r.amount : (paymentTiming === 'paid' ? total : customDepositAmount),
+              amount: r.amount > 0 ? r.amount : (paymentsList.length === 1 ? (paymentTiming === 'paid' ? total : customDepositAmount) : 0),
               notes: r.notes || ''
             }));
 
@@ -7650,95 +7677,97 @@ export default function PedidosPage() {
                 )}
               </div>
 
-              {/* Filtro de Tipo de Cliente / Canal (Menú Multi-selección) */}
-              <div className="relative shrink-0 w-full sm:w-48">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowChannelDropdown(prev => !prev);
-                    setShowStatusDropdown(false);
-                    setShowProductDropdown(false);
-                    setShowCustomViewsDropdown(false);
-                  }}
-                  className={`w-full px-3 py-1.5 rounded-xl border font-bold text-[10px] uppercase tracking-wider focus:ring-2 focus:ring-violet-500/10 outline-none cursor-pointer transition-all flex items-center justify-between gap-1.5 h-[28px] ${
-                    selectedChannels.length === 1
-                      ? "bg-violet-50 border-violet-200 text-violet-700 shadow-xs"
-                      : "bg-white border-slate-200 text-slate-600 hover:text-slate-800"
-                  }`}
-                >
-                  <span className="truncate flex items-center gap-1.5">
-                    <span>🛍️</span>
-                    {selectedChannels.length === 0 || selectedChannels.length === 2
-                      ? "Todos los Canales"
-                      : selectedChannels.includes('minoristas')
-                      ? "Minoristas (B2C)"
-                      : "Mayoristas (B2B) 👑"}
-                  </span>
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                </button>
+              {/* Filtro de Tipo de Cliente / Canal (Menú Multi-selección) - Oculto para vendedoras minoristas restringidas */}
+              {!isRestrictedSeller && (
+                <div className="relative shrink-0 w-full sm:w-48">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowChannelDropdown(prev => !prev);
+                      setShowStatusDropdown(false);
+                      setShowProductDropdown(false);
+                      setShowCustomViewsDropdown(false);
+                    }}
+                    className={`w-full px-3 py-1.5 rounded-xl border font-bold text-[10px] uppercase tracking-wider focus:ring-2 focus:ring-violet-500/10 outline-none cursor-pointer transition-all flex items-center justify-between gap-1.5 h-[28px] ${
+                      selectedChannels.length === 1
+                        ? "bg-violet-50 border-violet-200 text-violet-700 shadow-xs"
+                        : "bg-white border-slate-200 text-slate-600 hover:text-slate-800"
+                    }`}
+                  >
+                    <span className="truncate flex items-center gap-1.5">
+                      <span>🛍️</span>
+                      {selectedChannels.length === 0 || selectedChannels.length === 2
+                        ? "Todos los Canales"
+                        : selectedChannels.includes('minoristas')
+                        ? "Minoristas (B2C)"
+                        : "Mayoristas (B2B) 👑"}
+                    </span>
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  </button>
 
-                {showChannelDropdown && (
-                  <>
-                    <div
-                      className="fixed inset-0 z-40"
-                      onClick={() => setShowChannelDropdown(false)}
-                    />
-                    <div className="absolute left-0 mt-1 w-56 bg-white rounded-xl border border-slate-200 shadow-lg z-50 overflow-hidden flex flex-col">
-                      <div className="px-3 py-2 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
-                        <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">Canales</span>
-                        <div className="flex items-center gap-2 text-[10px] font-bold">
-                          <button
-                            type="button"
-                            onClick={() => setSelectedChannels(['minoristas', 'mayoristas'])}
-                            className="text-violet-600 hover:text-violet-700 cursor-pointer"
-                          >
-                            Todos
-                          </button>
-                          <span className="text-slate-300">|</span>
-                          <button
-                            type="button"
-                            onClick={() => setSelectedChannels([])}
-                            className="text-slate-400 hover:text-slate-600 cursor-pointer"
-                          >
-                            Limpiar
-                          </button>
+                  {showChannelDropdown && (
+                    <>
+                      <div
+                        className="fixed inset-0 z-40"
+                        onClick={() => setShowChannelDropdown(false)}
+                      />
+                      <div className="absolute left-0 mt-1 w-56 bg-white rounded-xl border border-slate-200 shadow-lg z-50 overflow-hidden flex flex-col">
+                        <div className="px-3 py-2 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+                          <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">Canales</span>
+                          <div className="flex items-center gap-2 text-[10px] font-bold">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedChannels(['minoristas', 'mayoristas'])}
+                              className="text-violet-600 hover:text-violet-700 cursor-pointer"
+                            >
+                              Todos
+                            </button>
+                            <span className="text-slate-300">|</span>
+                            <button
+                              type="button"
+                              onClick={() => setSelectedChannels([])}
+                              className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                            >
+                              Limpiar
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="py-1 divide-y divide-slate-50">
+                          {[
+                            { id: 'minoristas' as const, label: 'Minoristas (B2C)' },
+                            { id: 'mayoristas' as const, label: 'Mayoristas (B2B) 👑' }
+                          ].map((item) => {
+                            const isSelected = selectedChannels.includes(item.id);
+                            return (
+                              <label
+                                key={item.id}
+                                className="flex items-center gap-2.5 px-3 py-2 hover:bg-slate-50 cursor-pointer select-none transition-colors"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => {
+                                    if (isSelected) {
+                                      setSelectedChannels(prev => prev.filter(c => c !== item.id));
+                                    } else {
+                                      setSelectedChannels(prev => [...prev, item.id]);
+                                    }
+                                  }}
+                                  className="w-3.5 h-3.5 rounded border-slate-300 text-violet-600 focus:ring-violet-500/10 cursor-pointer"
+                                />
+                                <span className={`text-xs font-semibold ${isSelected ? 'text-slate-900 font-bold' : 'text-slate-600'}`}>
+                                  {item.label}
+                                </span>
+                              </label>
+                            );
+                          })}
                         </div>
                       </div>
-
-                      <div className="py-1 divide-y divide-slate-50">
-                        {[
-                          { id: 'minoristas' as const, label: 'Minoristas (B2C)' },
-                          { id: 'mayoristas' as const, label: 'Mayoristas (B2B) 👑' }
-                        ].map((item) => {
-                          const isSelected = selectedChannels.includes(item.id);
-                          return (
-                            <label
-                              key={item.id}
-                              className="flex items-center gap-2.5 px-3 py-2 hover:bg-slate-50 cursor-pointer select-none transition-colors"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={isSelected}
-                                onChange={() => {
-                                  if (isSelected) {
-                                    setSelectedChannels(prev => prev.filter(c => c !== item.id));
-                                  } else {
-                                    setSelectedChannels(prev => [...prev, item.id]);
-                                  }
-                                }}
-                                className="w-3.5 h-3.5 rounded border-slate-300 text-violet-600 focus:ring-violet-500/10 cursor-pointer"
-                              />
-                              <span className={`text-xs font-semibold ${isSelected ? 'text-slate-900 font-bold' : 'text-slate-600'}`}>
-                                {item.label}
-                              </span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
+                    </>
+                  )}
+                </div>
+              )}
 
               {/* Filtro de Vendedor */}
               {(role === 'admin' || assignableSellers.length > 0) && (
