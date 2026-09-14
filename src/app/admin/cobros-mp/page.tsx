@@ -1362,11 +1362,11 @@ export default function CobrosMercadoPagoPage() {
 
                 <button
                   onClick={() => setShowTelegramModal(true)}
-                  className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-sky-50 border border-sky-200 text-sky-700 text-xs font-bold hover:bg-sky-100 shadow-xs transition-all cursor-pointer"
+                  className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-sky-50 border border-sky-200 text-sky-700 text-xs font-bold hover:bg-sky-100 shadow-xs transition-all cursor-pointer"
                   title="Configurar Alertas al Celular (Telegram y Notificaciones Push)"
                 >
-                  <Bell className="w-4 h-4 text-sky-600" />
-                  <span>Alertas Celular</span>
+                  <Bell className="w-4 h-4 text-sky-600 shrink-0" />
+                  <span className="hidden sm:inline">Alertas Celular</span>
                 </button>
               </>
             )}
@@ -1450,6 +1450,40 @@ export default function CobrosMercadoPagoPage() {
       {/* Main Container */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 space-y-6">
         
+        {/* Mobile Quick Actions & Status Strip */}
+        {isAdminOrStaff && (
+          <div className="sm:hidden flex items-center justify-between gap-2 p-3 bg-white border border-slate-200/80 rounded-2xl shadow-xs">
+            <button
+              onClick={() => setShowTelegramModal(true)}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border transition-colors cursor-pointer ${
+                isMonitorOnline 
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-300' 
+                  : 'bg-rose-50 text-rose-700 border-rose-300 animate-pulse'
+              }`}
+            >
+              <span className={`w-2 h-2 rounded-full ${isMonitorOnline ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+              <span>{isMonitorOnline ? `Monitor Online${mainAccount?.client_time ? ` (${mainAccount.client_time})` : ''}` : 'Monitor Offline'}</span>
+            </button>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setShowTelegramModal(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-sky-50 border border-sky-200 text-sky-700 text-xs font-bold shadow-2xs cursor-pointer"
+              >
+                <Bell className="w-3.5 h-3.5 text-sky-600" />
+                <span>Alertas</span>
+              </button>
+              <button
+                onClick={() => setShowAccountsModal(true)}
+                className="p-1.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-600 cursor-pointer"
+                title="Cuentas"
+              >
+                <Settings className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* KPI Summary Cards (Hidden for sellers, logistica, and fleteros) */}
         {isAdminOrStaff && stats && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
