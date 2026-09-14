@@ -44,7 +44,8 @@ import {
   AlertCircle,
   Loader2,
   FileSpreadsheet,
-  Lock
+  Lock,
+  PlusCircle
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
@@ -318,7 +319,8 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       links: [
         { name: "Dashboard Minorista", href: "/admin/dashboard", icon: BarChart3, adminOnly: true },
         { name: "Dashboard Vendedor", href: "/vendedores", icon: BarChart3, sellerOnly: true },
-        { name: "Pedidos Minoristas", href: "/vendedores/pedidos?client_type=minoristas", icon: ShoppingCart },
+        { name: "Cargar Pedido", href: "/vendedores/pedidos?tab=form&client_type=minoristas", icon: PlusCircle },
+        { name: "Pedidos Minoristas", href: "/vendedores/pedidos?tab=list&client_type=minoristas", icon: ShoppingCart },
         { name: "Cotizador Minorista", href: "/vendedores/presupuestos", icon: Calculator },
         { name: "Clientes Minoristas", href: "/vendedores/clientes", icon: Users },
         { name: "Meta Ads Performance", href: "/admin/meta-ads", icon: Target, adminOnly: true },
@@ -402,12 +404,14 @@ export function AdminLayout({ children }: AdminLayoutProps) {
 
       if (cleanPathname === "/vendedores/pedidos") {
         const currentClientType = searchParams.get('client_type') || 'minoristas';
+        const currentTab = searchParams.get('tab') || 'list';
         if (queryOnly) {
           const linkParams = new URLSearchParams(queryOnly);
           const linkClientType = linkParams.get('client_type') || 'minoristas';
-          return pathOnly === "/vendedores/pedidos" && currentClientType === linkClientType;
+          const linkTab = linkParams.get('tab') || 'list';
+          return pathOnly === "/vendedores/pedidos" && currentClientType === linkClientType && currentTab === linkTab;
         } else {
-          return pathOnly === "/vendedores/pedidos" && currentClientType === 'minoristas';
+          return pathOnly === "/vendedores/pedidos" && currentClientType === 'minoristas' && currentTab === 'list';
         }
       }
 
@@ -550,7 +554,12 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                         <Link 
                           key={link.href}
                           href={link.href}
-                          onClick={closeSidebarOnMobile}
+                          onClick={() => {
+                            closeSidebarOnMobile();
+                            if (link.href.includes('/vendedores/pedidos')) {
+                              window.dispatchEvent(new CustomEvent('zono_nav_pedidos', { detail: { href: link.href } }));
+                            }
+                          }}
                           className={`group flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all duration-150 ${
                             active 
                               ? "bg-brand-600 text-white font-semibold shadow-xs" 
