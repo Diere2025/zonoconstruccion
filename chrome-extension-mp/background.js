@@ -69,7 +69,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     try {
       chrome.notifications.create("ZONO_PAGE_ALERT_" + Date.now(), {
         type: "basic",
-        iconUrl: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23ef4444'><path d='M12 2L1 21h22L12 2zm0 3.5L20.5 19h-17L12 5.5zM11 10v4h2v-4h-2zm0 6v2h2v-2h-2z'/></svg>",
+        iconUrl: chrome.runtime.getURL("icon.png"),
         title: alertTitle || "⚠️ ALERTA: Monitor Mercado Pago",
         message: alertMessage || "Se detectó una falla en la pestaña de Mercado Pago.",
         priority: 2
@@ -116,7 +116,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         try {
           chrome.notifications.create("ZONO_OFFLINE_ALERT", {
             type: "basic",
-            iconUrl: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23ef4444'><circle cx='12' cy='12' r='10'/></svg>",
+            iconUrl: chrome.runtime.getURL("icon.png"),
             title: "⚠️ Alerta: Monitor Mercado Pago Desconectado",
             message: "No se pudo conectar con el ERP Zono (" + (err.message || "Error de red") + "). Verifique su conexión a Internet.",
             priority: 2
