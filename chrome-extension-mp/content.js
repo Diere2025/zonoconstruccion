@@ -93,6 +93,7 @@ function createFloatingStatusWidget() {
     <div>
       <div style="display: flex; align-items: center; gap: 6px;">
         <span style="font-weight: 800; font-size: 12px; letter-spacing: 0.5px; color: #38bdf8;">ZONO ERP AUTO-SYNC</span>
+        <span id="zono-clock" style="font-size: 10px; font-weight: 700; color: #cbd5e1; background: #0f172a; border: 1px solid #334155; padding: 1px 6px; border-radius: 4px;" title="Hora detectada por la extensión (Argentina)">🕒 --:--:--</span>
         <span id="zono-schedule-badge" style="font-size: 9px; font-weight: 700; padding: 1px 6px; border-radius: 4px; background: ${inOffice ? '#064e3b' : '#312e81'}; color: ${inOffice ? '#34d399' : '#a5b4fc'}; border: 1px solid ${inOffice ? '#059669' : '#4338ca'};">
           ${inOffice ? '🟢 OFICINA (' + config.workStart + '-' + config.workEnd + ')' : '🌙 FUERA DE HORARIO'}
         </span>
@@ -596,6 +597,14 @@ function setConnectionStatus(isOnline) {
 function sendHeartbeat() {
   const inOffice = isWorkHours();
   const interval = getActiveInterval();
+  const now = new Date();
+  const clientTime = now.toLocaleTimeString("es-AR", {
+    timeZone: "America/Argentina/Buenos_Aires",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  });
 
   const payload = {
     type: "HEARTBEAT",
@@ -603,8 +612,9 @@ function sendHeartbeat() {
     isWorkHours: inOffice,
     currentInterval: interval,
     version: "1.2.0",
+    clientTime: clientTime,
     url: window.location.href,
-    timestamp: new Date().toISOString()
+    timestamp: now.toISOString()
   };
 
   const url = new URL(config.webhookUrl);
@@ -630,12 +640,26 @@ function startMonitoring() {
   let lastRefreshTime = Date.now();
 
   function checkRefresh() {
+    const now = new Date();
+    const clientTime = now.toLocaleTimeString("es-AR", {
+      timeZone: "America/Argentina/Buenos_Aires",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false
+    });
+
+    const clockEl = document.getElementById("zono-clock");
+    if (clockEl) {
+      clockEl.innerText = `🕒 ${clientTime} hs`;
+    }
+
     if (!config.autoRefresh) return;
 
     const inOffice = isWorkHours();
     const currentInterval = getActiveInterval();
-    const now = Date.now();
-    const elapsedSeconds = (now - lastRefreshTime) / 1000;
+    const nowMs = now.getTime();
+    const elapsedSeconds = (nowMs - lastRefreshTime) / 1000;
     const remaining = Math.max(0, Math.ceil(currentInterval - elapsedSeconds));
 
     const countdownEl = document.getElementById("zono-countdown");
@@ -652,7 +676,7 @@ function startMonitoring() {
     }
 
     if (elapsedSeconds >= currentInterval) {
-      lastRefreshTime = now;
+      lastRefreshTime = nowMs;
       if (window.location.href.includes("mercadopago.com.ar/activities") || window.location.href.includes("mercadopago.com.ar/home")) {
         triggerActualizarListado();
       }

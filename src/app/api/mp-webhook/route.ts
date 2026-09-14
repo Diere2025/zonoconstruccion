@@ -339,7 +339,8 @@ export async function POST(request: Request) {
               last_seen_at: new Date().toISOString(),
               status: 'online',
               current_interval: body.currentInterval || 20,
-              extension_version: body.version || '1.2.0'
+              extension_version: body.version || '1.2.0',
+              client_time: body.clientTime || null
             })
             .eq('id', resolvedAccountId);
         } catch (hbErr) {

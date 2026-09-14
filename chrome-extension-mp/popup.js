@@ -14,7 +14,23 @@ document.addEventListener("DOMContentLoaded", () => {
   const connBadge = document.getElementById("connBadge");
   const connDot = document.getElementById("connDot");
   const connText = document.getElementById("connText");
+  const popupClock = document.getElementById("popupClock");
   const dayButtons = document.querySelectorAll(".day-btn");
+
+  function updateClock() {
+    if (popupClock) {
+      const now = new Date();
+      popupClock.innerText = `🕒 ${now.toLocaleTimeString("es-AR", {
+        timeZone: "America/Argentina/Buenos_Aires",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false
+      })} hs`;
+    }
+  }
+  updateClock();
+  setInterval(updateClock, 1000);
 
   let selectedDays = [1, 2, 3, 4, 5, 6];
 
