@@ -170,6 +170,7 @@ export default function EstadoResultadosView() {
   const [showAbsorptionAudit, setShowAbsorptionAudit] = useState(true);
   const [fullscreenModal, setFullscreenModal] = useState<'matrix' | 'absorption' | null>(null);
   const [mounted, setMounted] = useState(false);
+  const [lastSync, setLastSync] = useState<Date | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -224,13 +225,13 @@ export default function EstadoResultadosView() {
     setCollapsedGroups(all);
   };
 
-  const fetchData = async (force = false) => {
+  const fetchData = async (force = false, silent = false) => {
     try {
       if (force) setRefreshing(true);
-      else setLoading(true);
+      else if (!silent) setLoading(true);
 
-      const url = `/api/admin/finanzas/eerr${force ? '?refresh=true' : ''}`;
-      const res = await fetch(url);
+      const url = `/api/admin/finanzas/eerr?_t=${Date.now()}${force ? '&refresh=true' : ''}`;
+      const res = await fetch(url, { cache: 'no-store' });
       const json = await res.json();
 
       if (!res.ok || !json.success) {
@@ -239,9 +240,10 @@ export default function EstadoResultadosView() {
 
       setData(json);
       setError(null);
+      setLastSync(new Date());
     } catch (err: any) {
       console.error('Error fetching EERR:', err);
-      setError(err.message || 'Error de conexión con la planilla');
+      if (!silent) setError(err.message || 'Error de conexión con la planilla');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -250,6 +252,22 @@ export default function EstadoResultadosView() {
 
   useEffect(() => {
     fetchData();
+
+    // Auto-sync when user returns / focuses the tab
+    const handleFocus = () => {
+      fetchData(true, true);
+    };
+    window.addEventListener('focus', handleFocus);
+
+    // Periodic silent background sync every 45 seconds
+    const interval = setInterval(() => {
+      fetchData(false, true);
+    }, 45000);
+
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      clearInterval(interval);
+    };
   }, []);
 
   const formatCurrency = (val: number) => {
@@ -761,10 +779,18 @@ export default function EstadoResultadosView() {
         </div>
 
         <div className="flex items-center gap-3">
+          {lastSync && (
+            <div className="text-right hidden sm:block">
+              <span className="text-[11px] text-slate-300 flex items-center gap-1.5 font-medium">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                En vivo ({lastSync.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })})
+              </span>
+            </div>
+          )}
           <button
             onClick={() => fetchData(true)}
             disabled={refreshing}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 active:scale-95 text-white font-medium text-sm transition backdrop-blur-sm border border-white/10 disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 active:scale-95 text-white font-medium text-sm transition backdrop-blur-sm border border-white/10 disabled:opacity-50 cursor-pointer"
           >
             <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
             {refreshing ? 'Sincronizando...' : 'Actualizar Datos'}

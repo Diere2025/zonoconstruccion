@@ -38,9 +38,12 @@ import {
   CheckCircle2,
   Percent,
   Download,
-  Database,
   FileSpreadsheet,
-  Copy
+  Copy,
+  History,
+  MessageSquare,
+  CheckCheck,
+  Database
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { supabase } from "@/lib/supabase";
@@ -1463,6 +1466,222 @@ export default function PedidosPage() {
   const [postponementMotive, setPostponementMotive] = useState("");
   const [hasDeclaredPostponementReason, setHasDeclaredPostponementReason] = useState(false);
 
+  // Order Modification & History States
+  interface OrderSnapshot {
+    id: string;
+    legacy_code?: string;
+    customer_name: string;
+    locality: string;
+    address: string;
+    google_maps_link?: string;
+    delivery_notes?: string;
+    delivery_detail?: string;
+    whaticket_link?: string;
+    initial_delivery_date?: string;
+    max_delivery_date?: string;
+    order_date?: string;
+    seller_id?: string;
+    status?: string;
+    total_amount?: number;
+    payment_method_id?: string;
+    payment_status?: string;
+    freight_type?: string;
+    items: Array<{
+      product_id?: string;
+      name?: string;
+      sku?: string;
+      quantity: number;
+      price: number;
+    }>;
+    totals?: any;
+  }
+
+  const [originalOrderSnapshot, setOriginalOrderSnapshot] = useState<OrderSnapshot | null>(null);
+  const [showEditConfirmModal, setShowEditConfirmModal] = useState(false);
+  const [logisticsObservation, setLogisticsObservation] = useState("");
+  const [editChangesSummary, setEditChangesSummary] = useState<string[]>([]);
+  const [showModificationSuccessModal, setShowModificationSuccessModal] = useState(false);
+  const [generatedModificationMessage, setGeneratedModificationMessage] = useState("");
+  const [copiedModificationMessage, setCopiedModificationMessage] = useState(false);
+
+  const [showOrderHistoryModal, setShowOrderHistoryModal] = useState(false);
+  const [selectedOrderForHistory, setSelectedOrderForHistory] = useState<any>(null);
+  const [orderHistoryRecords, setOrderHistoryRecords] = useState<any[]>([]);
+  const [loadingOrderHistory, setLoadingOrderHistory] = useState(false);
+
+  const formatDateDisplay = (d?: string | null) => {
+    if (!d) return "Sin fecha";
+    const clean = d.split('T')[0];
+    const parts = clean.split('-');
+    if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    return clean;
+  };
+
+  const computeOrderDiff = (
+    original: OrderSnapshot | null,
+    current: {
+      customer_name: string;
+      locality: string;
+      direccion: string;
+      initial_delivery_date: string;
+      total: number;
+      items: OrderItem[];
+      flete: string;
+      payment_method_name: string;
+      payment_status: string;
+      delivery_notes: string;
+    }
+  ): string[] => {
+    if (!original) return ["Se modificaron los datos del pedido."];
+    const diffs: string[] = [];
+
+    // 1. Fecha de entrega
+    const origDate = original.initial_delivery_date ? original.initial_delivery_date.split('T')[0] : '';
+    const newDate = current.initial_delivery_date ? current.initial_delivery_date.split('T')[0] : '';
+    if (origDate && newDate && origDate !== newDate) {
+      diffs.push(`📅 Fecha de Entrega: cambiada de ${formatDateDisplay(origDate)} a ${formatDateDisplay(newDate)}`);
+    }
+
+    // 2. Productos
+    const origItems = original.items || [];
+    const newItems = current.items || [];
+
+    const origMap = new Map<string, { name: string; qty: number; price: number }>();
+    origItems.forEach(it => {
+      const key = it.product_id || it.name || '';
+      const existing = origMap.get(key);
+      if (existing) {
+        existing.qty += it.quantity;
+      } else {
+        origMap.set(key, { name: it.name || 'Producto', qty: it.quantity, price: it.price || 0 });
+      }
+    });
+
+    const newMap = new Map<string, { name: string; qty: number; price: number }>();
+    newItems.forEach(it => {
+      const key = it.id || it.name;
+      const existing = newMap.get(key);
+      const pr = it.customPrice !== undefined ? it.customPrice : (it.price || 0);
+      if (existing) {
+        existing.qty += it.quantity;
+      } else {
+        newMap.set(key, { name: it.name, qty: it.quantity, price: pr });
+      }
+    });
+
+    newMap.forEach((val, key) => {
+      const orig = origMap.get(key);
+      if (!orig) {
+        diffs.push(`➕ Producto agregado: ${val.qty}x ${val.name} (${formatPrice(val.price)})`);
+      } else if (orig.qty !== val.qty) {
+        diffs.push(`📦 Cantidad cambiada: ${val.name} (de ${orig.qty} a ${val.qty})`);
+      } else if (Math.abs(orig.price - val.price) > 1) {
+        diffs.push(`💲 Precio cambiado: ${val.name} (de ${formatPrice(orig.price)} a ${formatPrice(val.price)})`);
+      }
+    });
+
+    origMap.forEach((val, key) => {
+      if (!newMap.has(key)) {
+        diffs.push(`➖ Producto quitado: ${val.qty}x ${val.name}`);
+      }
+    });
+
+    // 3. Dirección y localidad
+    if (original.locality && current.locality && original.locality.trim().toLowerCase() !== current.locality.trim().toLowerCase()) {
+      diffs.push(`📍 Localidad: cambiada de "${original.locality}" a "${current.locality}"`);
+    }
+    if (original.address && current.direccion && original.address.trim().toLowerCase() !== current.direccion.trim().toLowerCase()) {
+      diffs.push(`🏠 Dirección: cambiada de "${original.address}" a "${current.direccion}"`);
+    }
+
+    // 4. Monto total
+    if (original.total_amount !== undefined && Math.abs(original.total_amount - current.total) > 1) {
+      diffs.push(`💰 Monto Total: de ${formatPrice(original.total_amount)} a ${formatPrice(current.total)}`);
+    }
+
+    // 5. Flete
+    if (original.freight_type && current.flete && original.freight_type !== current.flete) {
+      diffs.push(`🚚 Flete: de "${original.freight_type}" a "${current.flete}"`);
+    }
+
+    // 6. Aclaraciones
+    const origNotes = (original.delivery_notes || '').trim();
+    const newNotes = (current.delivery_notes || '').trim();
+    if (origNotes !== newNotes && newNotes) {
+      diffs.push(`📝 Detalle Entrega: "${newNotes}"`);
+    }
+
+    if (diffs.length === 0) {
+      diffs.push("ℹ️ Actualización general de información del pedido.");
+    }
+
+    return diffs;
+  };
+
+  const buildCopyableModificationMessage = (params: {
+    legacyCode: string;
+    customerName: string;
+    phone?: string;
+    sellerName?: string;
+    locality?: string;
+    address?: string;
+    deliveryDate?: string;
+    changes: string[];
+    currentItems: OrderItem[];
+    total: number;
+    paymentMethod?: string;
+    paymentStatus?: string;
+    logisticsObservation?: string;
+  }): string => {
+    const lines: string[] = [];
+    lines.push(`📝 *PEDIDO MODIFICADO: ${params.legacyCode}*`);
+    lines.push(`👤 *Cliente:* ${params.customerName}`);
+    if (params.phone) lines.push(`📞 *Teléfono:* ${params.phone}`);
+    if (params.sellerName) lines.push(`🧑‍💼 *Vendedor:* ${params.sellerName}`);
+    lines.push(`📍 *Localidad / Dirección:* ${params.locality || 'Sin localidad'} - ${params.address || 'Sin dirección'}`);
+    lines.push(`📅 *Fecha de Entrega:* ${formatDateDisplay(params.deliveryDate)}`);
+    lines.push(``);
+    lines.push(`🔄 *CAMBIOS REALIZADOS:*`);
+    params.changes.forEach(c => lines.push(`• ${c}`));
+    lines.push(``);
+    lines.push(`📦 *PRODUCTOS ACTUALES:*`);
+    params.currentItems.forEach(it => {
+      const pr = it.customPrice !== undefined ? it.customPrice : it.price;
+      lines.push(`• ${it.quantity}x ${it.name} (${formatPrice(pr)})`);
+    });
+    lines.push(``);
+    lines.push(`💰 *TOTAL:* ${formatPrice(params.total)}`);
+    if (params.paymentMethod) {
+      lines.push(`💳 *Pago:* ${params.paymentMethod} (${params.paymentStatus || 'Pendiente'})`);
+    }
+    lines.push(``);
+    lines.push(`💬 *Observación para Logística:*`);
+    lines.push(params.logisticsObservation ? params.logisticsObservation.trim() : `(Sin observaciones adicionales para logística)`);
+
+    return lines.join('\n');
+  };
+
+  const handleOpenOrderHistory = async (order: any) => {
+    setSelectedOrderForHistory(order);
+    setShowOrderHistoryModal(true);
+    setLoadingOrderHistory(true);
+    try {
+      const { data, error } = await supabase
+        .from('order_history')
+        .select('*')
+        .eq('order_id', order.id)
+        .order('changed_at', { ascending: false });
+
+      if (error) throw error;
+      setOrderHistoryRecords(data || []);
+    } catch (err: any) {
+      console.error('Error fetching order history:', err);
+      alert('Error al consultar historial de modificaciones: ' + (err.message || err));
+    } finally {
+      setLoadingOrderHistory(false);
+    }
+  };
+
   // Helper to generate next sequential legacy code for a seller
   const generateNextLegacyCode = async (userId: string) => {
     if (!userId) return;
@@ -2554,6 +2773,7 @@ export default function PedidosPage() {
       // 6. Origen y Recepción
       if (isClone) {
         setEditingOrderId(null);
+        setOriginalOrderSnapshot(null);
         setSelectedSellerId(currentUserId);
         if (currentUserId) {
           generateNextLegacyCode(currentUserId);
@@ -2566,6 +2786,34 @@ export default function PedidosPage() {
           setSelectedSellerId(order.seller_id);
         }
         setLegacyCode(order.legacy_code || "");
+        setOriginalOrderSnapshot({
+          id: order.id,
+          legacy_code: order.legacy_code || "",
+          customer_name: order.customer_name || "",
+          locality: order.locality || "",
+          address: order.address || "",
+          google_maps_link: order.google_maps_link || "",
+          delivery_notes: order.delivery_notes || "",
+          delivery_detail: order.delivery_detail || "",
+          whaticket_link: order.whaticket_link || "",
+          initial_delivery_date: order.initial_delivery_date ? order.initial_delivery_date.split('T')[0] : "",
+          max_delivery_date: order.max_delivery_date ? order.max_delivery_date.split('T')[0] : "",
+          order_date: order.order_date ? order.order_date.split('T')[0] : "",
+          seller_id: order.seller_id,
+          status: order.status,
+          total_amount: order.total_amount,
+          payment_method_id: order.payment_method_id,
+          payment_status: order.payment_status,
+          freight_type: order.freight_type,
+          items: mappedItems.map(it => ({
+            product_id: it.id,
+            name: it.name,
+            sku: it.sku,
+            quantity: it.quantity,
+            price: it.customPrice !== undefined ? it.customPrice : it.price
+          })),
+          totals: order.totals
+        });
       }
       
       setSelectedAdvertisingSourceId(order.advertising_source_id || "");
@@ -3460,6 +3708,28 @@ export default function PedidosPage() {
       alert("Seleccioná la procedencia del pedido (campo obligatorio).");
       return;
     }
+
+    if (editingOrderId) {
+      const locName = localities.find(l => l.id === localidadId)?.name || "";
+      const selectedPayMethodName = dbPaymentMethods.find(m => m.id === paymentsList[0]?.payment_method_id)?.name || 'Efectivo';
+      const payStatusName = paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? 'Señado' : 'Contra Entrega');
+      const diffs = computeOrderDiff(originalOrderSnapshot, {
+        customer_name: isNewClient ? newClientName : cliente,
+        locality: locName,
+        direccion: direccion,
+        initial_delivery_date: entregaInicial,
+        total: total,
+        items: orderItems,
+        flete: flete,
+        payment_method_name: selectedPayMethodName,
+        payment_status: payStatusName,
+        delivery_notes: aclaraciones
+      });
+      setEditChangesSummary(diffs);
+      setShowEditConfirmModal(true);
+      return;
+    }
+
     setShowSummaryModal(true);
   };
 
@@ -3609,7 +3879,10 @@ export default function PedidosPage() {
             locality: locName,
             address: direccion,
             google_maps_link: linkMaps,
-            delivery_notes: aclaraciones || null,
+            delivery_notes: [
+              aclaraciones,
+              logisticsObservation ? `⚠️ OBS. LOGÍSTICA: ${logisticsObservation.trim()}` : ''
+            ].filter(Boolean).map((s: string) => s.trim()).join(' / ') || null,
             whaticket_link: whaticketLink || null,
             payment_method_id: paymentsList[0]?.payment_method_id || 'a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3',
             freight_type: flete,
@@ -3648,7 +3921,7 @@ export default function PedidosPage() {
             received_phone_line_id: (selectedPhoneLineId && selectedPhoneLineId !== 'otro') ? selectedPhoneLineId : null,
             delivery_detail: deliveryDetail || null,
             legacy_code: legacyCode || null,
-            status: orderStatus,
+            status: 'Modificado',
             hold_reason: orderStatus === 'En Espera' ? holdReason : null,
             hold_product_id: orderStatus === 'En Espera' && holdProductId ? holdProductId : null,
             category: orderCategory === 'auto' ? detectedCategory : orderCategory
@@ -3913,8 +4186,165 @@ export default function PedidosPage() {
       }
 
       if (editingOrderId) {
-        alert("Pedido actualizado con éxito. Las reservas de stock han sido actualizadas.");
-        setEditingOrderId(null);
+        // 1. Guardar historial de modificación en order_history
+        try {
+          let sellerFullName = sellersList.find(s => s.id === seller_id)?.full_name;
+          if (!sellerFullName) {
+            sellerFullName = (seller_id === loggedInUserId ? (currentSeller?.full_name || userData.user.user_metadata?.full_name) : '') || 'Vendedor';
+          }
+
+          const modifiedSnapshot = {
+            id: editingOrderId,
+            legacy_code: legacyCode || orderData.legacy_code,
+            customer_name: isNewClient ? newClientName : cliente,
+            locality: locName,
+            address: direccion,
+            google_maps_link: linkMaps,
+            delivery_notes: [
+              aclaraciones,
+              logisticsObservation ? `⚠️ OBS. LOGÍSTICA: ${logisticsObservation.trim()}` : ''
+            ].filter(Boolean).join(' / '),
+            delivery_detail: deliveryDetail,
+            whaticket_link: whaticketLink,
+            initial_delivery_date: entregaInicial,
+            max_delivery_date: entregaMaxima,
+            order_date: fechaPedido,
+            seller_id: seller_id,
+            status: 'Modificado',
+            total_amount: total,
+            payment_method_id: paymentsList[0]?.payment_method_id,
+            payment_status: paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? 'Seniado' : 'Pendiente'),
+            freight_type: flete,
+            items: orderItems.map(it => ({
+              product_id: it.id,
+              name: it.name,
+              sku: it.sku,
+              quantity: it.quantity,
+              price: it.customPrice !== undefined ? it.customPrice : it.price
+            })),
+            totals: { total, freight: shippingAmount, subtotal }
+          };
+
+          await supabase.from('order_history').insert({
+            order_id: editingOrderId,
+            changed_by_id: userData.user.id,
+            changed_by_name: sellerFullName,
+            change_reason: logisticsObservation.trim() || 'Modificación de pedido',
+            original_data: originalOrderSnapshot,
+            modified_data: modifiedSnapshot,
+            changed_at: new Date().toISOString()
+          });
+        } catch (histErr) {
+          console.error("Error guardando en order_history:", histErr);
+        }
+
+        // 2. Sincronizar actualización con la planilla de Google Sheets
+        try {
+          const clientPhone = isNewClient 
+            ? (newClientPhones.map(cleanPhoneForSaving).filter(Boolean)[0] || '')
+            : (clients.find(c => c.id === selectedClientId)?.phone_primary || '');
+          const clientPhone2 = isNewClient
+            ? (newClientPhones.map(cleanPhoneForSaving).filter(Boolean)[1] || '')
+            : '';
+          let sellerFullName = sellersList.find(s => s.id === seller_id)?.full_name;
+          if (!sellerFullName) {
+            sellerFullName = (seller_id === loggedInUserId ? (currentSeller?.full_name || userData.user.user_metadata?.full_name) : '') || 'Vendedor';
+          }
+          const advName = advertisingSources.find(a => a.id === selectedAdvertisingSourceId)?.name || 'Publicidad Meta';
+          const mediumName = orderMediums.find(m => m.id === selectedOrderMediumId)?.name || 'WhatsApp';
+          const selectedPayMethodName = dbPaymentMethods.find(m => m.id === paymentsList[0]?.payment_method_id)?.name || 'Efectivo';
+
+          const sheetOrderPayload = {
+            deliveryDate: entregaInicial,
+            orderDate: fechaPedido,
+            maxDeliveryDate: entregaMaxima,
+            clientName: isNewClient ? newClientName : (cliente || ''),
+            phonePrimary: clientPhone,
+            phoneSecondary: clientPhone2,
+            whaticketLink: whaticketLink || '',
+            source: sellerType === 'mayorista' ? 'Mayorista' : (advName || 'Publicidad Meta'),
+            deliveryNotes: [
+              aclaraciones, 
+              deliveryDetail, 
+              paymentTiming === 'contra_entrega' 
+                ? `Cobrar al entregar: ${formatPrice(total)} (${selectedPayMethodName})` 
+                : (paymentTiming === 'partial' 
+                    ? `Seña: ${formatPrice(customDepositAmount)} - Saldo al entregar: ${formatPrice(pendingBalance)}` 
+                    : '')
+            ].filter(Boolean).map((s: string) => s.trim()).join(' / '),
+            medium: mediumName,
+            sellerName: normalizeSellerName(sellerFullName),
+            status: 'Modificado',
+            locality: locName,
+            address: direccion,
+            mapsLink: linkMaps || '',
+            category: orderCategory === 'auto' ? detectedCategory : orderCategory,
+            paymentMethod: selectedPayMethodName,
+            identification: newClientTaxId || '',
+            paymentStatus: paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? 'Señado' : 'No Abonado'),
+            depositOrPaidAmount: hasDeposit ? depositAmount : (paymentTiming === 'paid' ? total : 0),
+            freightType: flete || '⚪ Flete Regular',
+            freightCost: shippingAmount || 0,
+            items: buildSheetOrderItems(orderItems, orderDiscountAmount, products)
+          };
+
+          const sheetUpdateRes = await fetch('/api/vendedores/update-sheet-order', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sellerId: seller_id,
+              legacyCode: legacyCode || orderData.legacy_code || '',
+              order: sheetOrderPayload,
+              logisticsObservation: logisticsObservation.trim()
+            })
+          });
+
+          if (sheetUpdateRes.ok) {
+            const sheetData = await sheetUpdateRes.json();
+            if (sheetData.synced) {
+              console.log(`Planilla actualizada en fila ${sheetData.rowNumber}`);
+            }
+          } else {
+            const errData = await sheetUpdateRes.json().catch(() => ({}));
+            console.warn('Error syncing update to sheet:', errData);
+          }
+        } catch (sUpdErr) {
+          console.error('Error in sheet update:', sUpdErr);
+        }
+
+        // 3. Construir mensaje formateado para copiar y pegar (listo para WhatsApp o bot de Telegram)
+        let sellerFullName = sellersList.find(s => s.id === seller_id)?.full_name;
+        if (!sellerFullName) {
+          sellerFullName = (seller_id === loggedInUserId ? (currentSeller?.full_name || userData.user.user_metadata?.full_name) : '') || 'Vendedor';
+        }
+        const selectedPayMethodName = dbPaymentMethods.find(m => m.id === paymentsList[0]?.payment_method_id)?.name || 'Efectivo';
+        const payStatusName = paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? `Señado (${formatPrice(depositAmount)})` : 'Contra Entrega');
+        const clientPhone = isNewClient 
+          ? (newClientPhones.map(cleanPhoneForSaving).filter(Boolean)[0] || '')
+          : (clients.find(c => c.id === selectedClientId)?.phone_primary || '');
+
+        const copyMsg = buildCopyableModificationMessage({
+          legacyCode: legacyCode || orderData.legacy_code || 'S/C',
+          customerName: isNewClient ? newClientName : cliente,
+          phone: clientPhone,
+          sellerName: sellerFullName,
+          locality: locName,
+          address: direccion,
+          deliveryDate: entregaInicial,
+          changes: editChangesSummary,
+          currentItems: orderItems,
+          total: total,
+          paymentMethod: selectedPayMethodName,
+          paymentStatus: payStatusName,
+          logisticsObservation: logisticsObservation.trim()
+        });
+
+        setGeneratedModificationMessage(copyMsg);
+        setCopiedModificationMessage(false);
+        setShowModificationSuccessModal(true);
+
+        // Actualizar estado local
+        setOrders(prev => prev.map(o => o.id === orderData.id ? { ...o, ...orderData, status: 'Modificado' } : o));
       } else {
         if (sheetSyncSuccess && finalLegacyCode) {
           alert(`¡Pedido ${finalLegacyCode} guardado y registrado en la planilla con éxito!`);
@@ -6686,6 +7116,7 @@ export default function PedidosPage() {
                         p.status === 'Entregado' ? 'text-emerald-700 bg-emerald-50 border border-emerald-200' : 
                         p.status === 'Entregando' ? 'text-amber-700 bg-amber-50 border border-amber-200' :
                         p.status === 'Pendiente' ? 'text-orange-700 bg-orange-50 border border-orange-200' : 
+                        p.status === 'Modificado' ? 'text-purple-700 bg-purple-50 border border-purple-300 font-black' :
                         p.status === 'En Espera' ? 'text-amber-700 bg-amber-50 border border-amber-200 font-extrabold animate-pulse' : 
                         p.status === 'En Revisión' ? 'text-rose-700 bg-rose-50 border border-rose-200 font-black animate-pulse' :
                         'text-blue-700 bg-blue-50 border border-blue-200'
@@ -6709,6 +7140,14 @@ export default function PedidosPage() {
                           title="Editar Pedido"
                         >
                           <Edit className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenOrderHistory(p)}
+                          className="p-1.5 bg-slate-50 hover:bg-purple-600 text-slate-500 hover:text-white rounded-lg border border-slate-200 hover:border-purple-600 transition-all duration-150 active:scale-90 shadow-2xs cursor-pointer"
+                          title="Ver Historial de Modificaciones"
+                        >
+                          <History className="w-3.5 h-3.5" />
                         </button>
                         <button
                           type="button"
@@ -6998,6 +7437,317 @@ export default function PedidosPage() {
                  {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Check className="w-5 h-5" />}
                  {submitting ? "Confirmando y Reservando..." : "Enviar a Preparación"}
                </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal 1: Confirmar Modificación de Pedido */}
+      {showEditConfirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-xl max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200 border border-slate-100 overflow-hidden">
+            {/* Header */}
+            <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-gradient-to-r from-purple-50 via-indigo-50 to-slate-50">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-purple-600 text-white rounded-xl shadow-sm">
+                  <Edit2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-base font-black text-slate-900 flex items-center gap-2">
+                    Confirmar Modificación
+                    {legacyCode && (
+                      <span className="text-xs font-mono bg-purple-100 text-purple-800 px-2 py-0.5 rounded-md border border-purple-200">
+                        {legacyCode}
+                      </span>
+                    )}
+                  </h2>
+                  <p className="text-xs font-medium text-slate-500">
+                    {isNewClient ? newClientName : cliente} • {localities.find(l => l.id === localidadId)?.name || 'Sin localidad'}
+                  </p>
+                </div>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => setShowEditConfirmModal(false)}
+                className="p-1.5 hover:bg-slate-200 rounded-full transition-colors text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-5 overflow-y-auto space-y-4 flex-1">
+              {/* Resumen de cambios detectados */}
+              <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200/80">
+                <h3 className="text-xs font-black text-slate-700 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-purple-600" />
+                  Cambios Detectados
+                </h3>
+                <div className="space-y-1.5 text-xs text-slate-700">
+                  {editChangesSummary.map((diff, idx) => (
+                    <div key={idx} className="flex items-start gap-2 bg-white p-2 rounded-lg border border-slate-100 shadow-2xs font-medium">
+                      <span>{diff}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Campo para Observación de Logística (Opcional) */}
+              <div className="bg-amber-50/70 rounded-2xl p-4 border border-amber-200/80 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-black text-amber-900 uppercase tracking-wider flex items-center gap-1.5">
+                    <MessageSquare className="w-3.5 h-3.5 text-amber-600" />
+                    Observación para el Equipo Logístico
+                  </label>
+                  <span className="text-[10px] font-bold text-amber-700 bg-amber-100/70 px-2 py-0.5 rounded-full">
+                    Opcional
+                  </span>
+                </div>
+                <p className="text-[11px] text-amber-800 font-medium">
+                  Cualquier indicación que deba tener en cuenta el equipo de logística sobre este cambio (horario, acceso, motivo, etc.):
+                </p>
+                <textarea
+                  value={logisticsObservation}
+                  onChange={e => setLogisticsObservation(e.target.value)}
+                  placeholder="Ej: El cliente solicitó entregar por la tarde, cambió modelo de tanque..."
+                  rows={3}
+                  className="w-full text-xs p-3 rounded-xl border border-amber-200 bg-white focus:ring-2 focus:ring-amber-500/20 focus:border-amber-400 outline-none transition-all placeholder:text-slate-400"
+                />
+              </div>
+
+              {/* Aviso sobre planilla */}
+              <div className="p-3 bg-purple-50/60 rounded-xl border border-purple-100 flex items-center gap-2 text-[11px] text-purple-800">
+                <FileSpreadsheet className="w-4 h-4 text-purple-600 shrink-0" />
+                <span>
+                  Al confirmar, el pedido se actualizará en el sistema, <strong>impactará en la planilla de Google</strong> con estado <strong>"Modificado"</strong> y se guardará el historial de cambios.
+                </span>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 border-t border-slate-100 bg-slate-50/50 flex justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setShowEditConfirmModal(false)}
+                className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
+              >
+                Volver
+              </button>
+              <Button
+                type="button"
+                onClick={confirmAndSubmit}
+                disabled={submitting}
+                className="px-6 py-2 bg-purple-600 hover:bg-purple-700 text-white font-black text-xs rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer"
+              >
+                {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                {submitting ? "Guardando y Sincronizando..." : "Confirmar Modificación"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal 2: Éxito de Modificación y Mensaje Copiable para WhatsApp / Telegram */}
+      {showModificationSuccessModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-xl max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200 border border-slate-100 overflow-hidden">
+            {/* Header */}
+            <div className="p-5 border-b border-emerald-100 flex justify-between items-center bg-gradient-to-r from-emerald-50 via-teal-50 to-slate-50">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-emerald-600 text-white rounded-xl shadow-sm">
+                  <CheckCircle2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-base font-black text-slate-900">
+                    ¡Pedido Modificado con Éxito!
+                  </h2>
+                  <p className="text-xs font-medium text-emerald-700 flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse" />
+                    Impactado en Planilla (Estado: Modificado) e Historial ERP
+                  </p>
+                </div>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => {
+                  setShowModificationSuccessModal(false);
+                  setEditingOrderId(null);
+                  setOriginalOrderSnapshot(null);
+                  setActiveTab('list');
+                }}
+                className="p-1.5 hover:bg-slate-200 rounded-full transition-colors text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-5 overflow-y-auto space-y-4 flex-1">
+              <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200/80 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                    <Copy className="w-3.5 h-3.5 text-slate-500" />
+                    Mensaje de Modificación para Copiar y Pegar
+                  </span>
+                  <span className="text-[10px] font-bold text-slate-500 bg-slate-200/70 px-2 py-0.5 rounded-full">
+                    WhatsApp / Telegram
+                  </span>
+                </div>
+                <div className="bg-white rounded-xl border border-slate-200 p-3.5 text-xs font-mono text-slate-800 whitespace-pre-wrap select-all max-h-64 overflow-y-auto leading-relaxed">
+                  {generatedModificationMessage}
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 border-t border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row justify-between items-center gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowModificationSuccessModal(false);
+                  setEditingOrderId(null);
+                  setOriginalOrderSnapshot(null);
+                  setActiveTab('list');
+                }}
+                className="w-full sm:w-auto px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
+              >
+                Cerrar y Ver Pedidos
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (navigator?.clipboard) {
+                    navigator.clipboard.writeText(generatedModificationMessage);
+                    setCopiedModificationMessage(true);
+                    setTimeout(() => setCopiedModificationMessage(false), 2500);
+                  }
+                }}
+                className="w-full sm:w-auto px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-xs flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 cursor-pointer"
+              >
+                {copiedModificationMessage ? <CheckCheck className="w-4 h-4 text-emerald-200" /> : <Copy className="w-4 h-4" />}
+                {copiedModificationMessage ? "¡Mensaje Copiado al Portapapeles!" : "Copiar Mensaje para Logística / WhatsApp"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal 3: Historial de Modificaciones del Pedido */}
+      {showOrderHistoryModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200 border border-slate-100 overflow-hidden">
+            {/* Header */}
+            <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-purple-600 text-white rounded-xl shadow-sm">
+                  <History className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-base font-black text-slate-900 flex items-center gap-2">
+                    Historial de Modificaciones
+                    {selectedOrderForHistory?.legacy_code && (
+                      <span className="text-xs font-mono bg-purple-100 text-purple-800 px-2 py-0.5 rounded-md border border-purple-200">
+                        {selectedOrderForHistory.legacy_code}
+                      </span>
+                    )}
+                  </h2>
+                  <p className="text-xs font-medium text-slate-500">
+                    Cliente: {selectedOrderForHistory?.customer_name}
+                  </p>
+                </div>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => setShowOrderHistoryModal(false)}
+                className="p-1.5 hover:bg-slate-200 rounded-full transition-colors text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-5 overflow-y-auto space-y-4 flex-1">
+              {loadingOrderHistory ? (
+                <div className="py-12 flex flex-col items-center justify-center gap-2 text-slate-400">
+                  <Loader2 className="w-6 h-6 animate-spin text-purple-600" />
+                  <span className="text-xs font-bold">Cargando historial de cambios...</span>
+                </div>
+              ) : orderHistoryRecords.length === 0 ? (
+                <div className="py-12 text-center text-slate-400 text-xs font-bold">
+                  No hay modificaciones registradas para este pedido.
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {orderHistoryRecords.map((record, index) => {
+                    const diffs = computeOrderDiff(record.original_data, {
+                      customer_name: record.modified_data?.customer_name || '',
+                      locality: record.modified_data?.locality || '',
+                      direccion: record.modified_data?.address || '',
+                      initial_delivery_date: record.modified_data?.initial_delivery_date || '',
+                      total: record.modified_data?.total_amount || 0,
+                      items: (record.modified_data?.items || []).map((it: any) => ({
+                        id: it.product_id,
+                        name: it.name,
+                        sku: it.sku,
+                        quantity: it.quantity,
+                        price: it.price,
+                        customPrice: it.price
+                      })),
+                      flete: record.modified_data?.freight_type || '',
+                      payment_method_name: '',
+                      payment_status: record.modified_data?.payment_status || '',
+                      delivery_notes: record.modified_data?.delivery_notes || ''
+                    });
+
+                    return (
+                      <div key={record.id || index} className="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200/60 pb-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-black text-slate-800">
+                              👤 {record.changed_by_name || 'Vendedor'}
+                            </span>
+                          </div>
+                          <span className="text-[10px] font-bold text-slate-500 bg-white px-2 py-0.5 rounded-md border border-slate-200">
+                            {new Date(record.changed_at).toLocaleString('es-AR')}
+                          </span>
+                        </div>
+
+                        {record.change_reason && (
+                          <div className="bg-amber-50 border border-amber-200/60 rounded-xl p-2.5 text-xs text-amber-900">
+                            <span className="font-bold">💬 Observación: </span>
+                            <span>{record.change_reason}</span>
+                          </div>
+                        )}
+
+                        <div className="space-y-1">
+                          <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">
+                            Detalle de Cambios:
+                          </span>
+                          <div className="space-y-1 text-xs text-slate-700">
+                            {diffs.map((d, dIdx) => (
+                              <div key={dIdx} className="bg-white p-2 rounded-lg border border-slate-100 text-xs font-medium">
+                                {d}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 border-t border-slate-100 bg-slate-50/50 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowOrderHistoryModal(false)}
+                className="px-5 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
+              >
+                Cerrar
+              </button>
             </div>
           </div>
         </div>

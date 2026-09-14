@@ -1,6 +1,6 @@
-import { NextResponse } from 'next/server';
-
+export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
+import { NextResponse } from 'next/server';
 
 const DEFAULT_ACCOUNT_ID = 'act_1077861488005193';
 const DEFAULT_EXCHANGE_RATE = 1704; // Dólar tarjeta/publicidad en Argentina con percepciones
