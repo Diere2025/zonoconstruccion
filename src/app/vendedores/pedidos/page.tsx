@@ -55,7 +55,7 @@ import VisualProductSelectorModal from "@/components/vendedores/VisualProductSel
 import ImportWhatsAppBudgetModal from "@/components/vendedores/ImportWhatsAppBudgetModal";
 import PrintableOrderModal, { PrintableOrderData } from "@/components/vendedores/PrintableOrderModal";
 import ViewOrderModal from "@/components/vendedores/ViewOrderModal";
-import { cn, formatPrice } from "@/lib/utils";
+import { cn, formatPrice, cleanDeliveryNotes } from "@/lib/utils";
 import { calculateBulkPrices } from "@/lib/erp/prices";
 import { createBulkStockTransactions } from "@/lib/erp/stock";
 import { evaluateDiscountSuggestions, DiscountSuggestion } from "@/lib/discountRules";
@@ -2860,13 +2860,23 @@ export default function PedidosPage() {
       
       setDireccion(order.address || "");
       setLinkMaps(order.google_maps_link || "");
-      setAclaraciones(order.delivery_notes || "");
+      setAclaraciones(cleanDeliveryNotes(order.delivery_notes));
       
       let locId = "";
       if (order.shipping_address_snapshot && order.shipping_address_snapshot.locality_id) {
         locId = order.shipping_address_snapshot.locality_id;
-      } else if (order.locality) {
-        const foundLoc = localities.find(l => l.name.toLowerCase() === order.locality.toLowerCase());
+      }
+      
+      if (!locId && order.locality) {
+        // 1. Coincidencia exacta insensible a mayúsculas
+        let foundLoc = localities.find(l => l.name.toLowerCase() === order.locality.toLowerCase());
+        
+        // 2. Coincidencia normalizada (sin paréntesis ni tildes, ej: "Caballito" matchea con "Caballito (CABA)")
+        if (!foundLoc) {
+          const norm = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s*\(.*?\)/g, "").trim();
+          const targetNorm = norm(order.locality);
+          foundLoc = localities.find(l => norm(l.name) === targetNorm);
+        }
         if (foundLoc) locId = foundLoc.id;
       }
       
@@ -3018,8 +3028,8 @@ export default function PedidosPage() {
           locality: order.locality || "",
           address: order.address || "",
           google_maps_link: order.google_maps_link || "",
-          delivery_notes: order.delivery_notes || "",
-          delivery_detail: order.delivery_detail || "",
+          delivery_notes: cleanDeliveryNotes(order.delivery_notes),
+          delivery_detail: cleanDeliveryNotes(order.delivery_detail),
           whaticket_link: order.whaticket_link || "",
           initial_delivery_date: order.initial_delivery_date ? order.initial_delivery_date.split('T')[0] : "",
           max_delivery_date: order.max_delivery_date ? order.max_delivery_date.split('T')[0] : "",
@@ -3053,7 +3063,7 @@ export default function PedidosPage() {
           setSelectedPhoneLineId("");
         }
       }
-      setDeliveryDetail(order.delivery_detail || "");
+      setDeliveryDetail(cleanDeliveryNotes(order.delivery_detail));
       
       setOrderStatus(order.status || "Pendiente");
       setHoldReason(order.hold_reason || "");
@@ -3161,8 +3171,8 @@ export default function PedidosPage() {
       freight_type: rawOrder.freight_type || "Flete Regular",
       initial_delivery_date: rawOrder.initial_delivery_date || "",
       max_delivery_date: rawOrder.max_delivery_date || "",
-      delivery_notes: rawOrder.delivery_notes || "",
-      delivery_detail: rawOrder.delivery_detail || "",
+      delivery_notes: cleanDeliveryNotes(rawOrder.delivery_notes) || "",
+      delivery_detail: cleanDeliveryNotes(rawOrder.delivery_detail) || "",
       payment_method_name: pmName,
       payment_status: rawOrder.payment_status || "Impago",
       total_amount: rawOrder.total_amount || totalsObj.total || 0,
@@ -3242,8 +3252,8 @@ export default function PedidosPage() {
       freight_type: flete || "Flete Regular",
       initial_delivery_date: entregaInicial || "",
       max_delivery_date: entregaMaxima || "",
-      delivery_notes: aclaraciones || "",
-      delivery_detail: deliveryDetail || "",
+      delivery_notes: cleanDeliveryNotes(aclaraciones) || "",
+      delivery_detail: cleanDeliveryNotes(deliveryDetail) || "",
       payment_method_name: pmObj?.name || "Efectivo / Transferencia",
       payment_status: paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? 'Seniado' : 'Impago'),
       total_amount: total,
