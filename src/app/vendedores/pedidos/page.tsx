@@ -1016,6 +1016,8 @@ export default function PedidosPage() {
       id: Math.random().toString(36).substring(2, 9),
       payment_method_id: "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3", // default cash/transfer ID
       amount: 0,
+      card_surcharge: 0,
+      card_installments: 1,
       receipt_url: "",
       notes: ""
     }
@@ -1409,11 +1411,11 @@ export default function PedidosPage() {
   const [cardInstallments, setCardInstallments] = useState<number>(1);
   const [cardSurcharge, setCardSurcharge] = useState<number>(0);
   const [dbPaymentMethods, setDbPaymentMethods] = useState<any[]>([]);
-  const [selectedPaymentMethodId, setSelectedPaymentMethodId] = useState<string>("");
+  const [selectedPaymentMethodId, setSelectedPaymentMethodId] = useState<string>("a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3");
 
   const activePaymentMethods = useMemo(() => {
     const seen = new Set<string>();
-    return (dbPaymentMethods || [])
+    const list = (dbPaymentMethods || [])
       .filter(pm => pm.is_active !== false)
       .filter(pm => {
         const key = (pm.name || '').trim().toLowerCase();
@@ -1421,6 +1423,14 @@ export default function PedidosPage() {
         seen.add(key);
         return true;
       });
+
+    return list.sort((a, b) => {
+      const isCashA = a.id === "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3" || (a.name || "").toLowerCase().includes("efectivo");
+      const isCashB = b.id === "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3" || (b.name || "").toLowerCase().includes("efectivo");
+      if (isCashA && !isCashB) return -1;
+      if (!isCashA && isCashB) return 1;
+      return (a.name || "").localeCompare(b.name || "");
+    });
   }, [dbPaymentMethods]);
   const [isFreeShipping, setIsFreeShipping] = useState(true);
   const [shippingCost, setShippingCost] = useState<number>(0);
@@ -2097,7 +2107,7 @@ export default function PedidosPage() {
         setCurrentUserId(userId);
         setSelectedSellerId(userId);
 
-        const PEDIDOS_CACHE_VER = "zc_pedidos_v20_sept26_cuota42";
+        const PEDIDOS_CACHE_VER = "zc_pedidos_v21_default_efectivo";
         const cachedUserId = sessionStorage.getItem("cached_pedidos_user_id");
         if (sessionStorage.getItem("cached_pedidos_ver") !== PEDIDOS_CACHE_VER || (cachedUserId && cachedUserId !== userId)) {
           sessionStorage.clear();
@@ -2443,12 +2453,18 @@ export default function PedidosPage() {
 
   // Pre-select default payment method once loaded
   useEffect(() => {
-    if (dbPaymentMethods.length > 0 && !selectedPaymentMethodId && !editingOrderId) {
-      const defaultPm = dbPaymentMethods.find(pm => pm.is_default);
+    if (dbPaymentMethods.length > 0 && !editingOrderId) {
+      const defaultPm = dbPaymentMethods.find(pm => 
+        pm.id === "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3" || 
+        (pm.name && pm.name.toLowerCase().includes("efectivo"))
+      ) || dbPaymentMethods.find(pm => pm.is_default) || dbPaymentMethods[0];
+
       if (defaultPm) {
-        setSelectedPaymentMethodId(defaultPm.id);
-        setCardSurcharge(defaultPm.surcharge_percentage);
-        setCardInstallments(defaultPm.installments);
+        if (!selectedPaymentMethodId || selectedPaymentMethodId === "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3") {
+          setSelectedPaymentMethodId(defaultPm.id);
+          setCardSurcharge(defaultPm.surcharge_percentage || 0);
+          setCardInstallments(defaultPm.installments || 1);
+        }
         setPaymentsList(prev => {
           if (
             prev.length === 1 &&
@@ -2458,15 +2474,15 @@ export default function PedidosPage() {
             return [{
               ...prev[0],
               payment_method_id: defaultPm.id,
-              card_surcharge: defaultPm.surcharge_percentage,
-              card_installments: defaultPm.installments
+              card_surcharge: defaultPm.surcharge_percentage || 0,
+              card_installments: defaultPm.installments || 1
             }];
           }
           return prev;
         });
       }
     }
-  }, [dbPaymentMethods, selectedPaymentMethodId, editingOrderId]);
+  }, [dbPaymentMethods, editingOrderId]);
 
   const fetchPhoneLines = async () => {
     try {
@@ -3287,16 +3303,27 @@ export default function PedidosPage() {
       deposit_amount: totalsObj.deposit_amount,
       deposit_receipt_url: totalsObj.deposit_receipt_url,
       pending_balance: totalsObj.pending_balance,
-      order_items: (items || []).map((it: any) => ({
-        id: it.id,
-        product_id: it.product_id,
-        product_name: it.product_name || it.name,
-        name: it.product_name || it.name,
-        sku: it.sku || "",
-        quantity: it.quantity || 1,
-        unit_price: it.unit_price !== undefined ? it.unit_price : it.customPrice,
-        customPrice: it.customPrice !== undefined ? it.customPrice : it.unit_price
-      }))
+      order_items: (items || []).map((it: any) => {
+        let sku = it.sku || "";
+        if ((!sku || sku.startsWith("AUTO-")) && it.product_id) {
+          const prod = products.find(p => p.id === it.product_id);
+          if (prod?.sku && !prod.sku.startsWith("AUTO-")) sku = prod.sku;
+        }
+        if (!sku && it.product_name) {
+          const prod = products.find(p => p.name === it.product_name || p.sku === it.product_name);
+          if (prod?.sku && !prod.sku.startsWith("AUTO-")) sku = prod.sku;
+        }
+        return {
+          id: it.id,
+          product_id: it.product_id,
+          product_name: it.product_name || it.name,
+          name: it.product_name || it.name,
+          sku: sku,
+          quantity: it.quantity || 1,
+          unit_price: it.unit_price !== undefined ? it.unit_price : it.customPrice,
+          customPrice: it.customPrice !== undefined ? it.customPrice : it.unit_price
+        };
+      })
     };
   };
 
@@ -3368,16 +3395,27 @@ export default function PedidosPage() {
       deposit_amount: paymentTiming === 'partial' ? customDepositAmount : (paymentTiming === 'paid' ? total : 0),
       deposit_receipt_url: depositReceiptUrl || "",
       pending_balance: pendingBalance,
-      order_items: orderItems.map(it => ({
-        id: it.id,
-        product_id: it.id,
-        product_name: it.name,
-        name: it.name,
-        sku: it.sku || "",
-        quantity: it.quantity,
-        unit_price: it.customPrice,
-        customPrice: it.customPrice
-      }))
+      order_items: orderItems.map(it => {
+        let sku = it.sku || "";
+        if ((!sku || sku.startsWith("AUTO-")) && it.id) {
+          const prod = products.find(p => p.id === it.id);
+          if (prod?.sku && !prod.sku.startsWith("AUTO-")) sku = prod.sku;
+        }
+        if (!sku && it.name) {
+          const prod = products.find(p => p.name === it.name || p.sku === it.name);
+          if (prod?.sku && !prod.sku.startsWith("AUTO-")) sku = prod.sku;
+        }
+        return {
+          id: it.id,
+          product_id: it.id,
+          product_name: it.name,
+          name: it.name,
+          sku: sku,
+          quantity: it.quantity,
+          unit_price: it.customPrice,
+          customPrice: it.customPrice
+        };
+      })
     };
 
     setSelectedOrderForPrint(currentFormData);
@@ -4929,15 +4967,18 @@ export default function PedidosPage() {
       setLinkMaps("");
       setFlete("");
       setPaymentType('efectivo');
-      const defaultPm = dbPaymentMethods.find(pm => pm.is_default);
+      const defaultPm = dbPaymentMethods.find(pm => 
+        pm.id === "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3" || 
+        (pm.name && pm.name.toLowerCase().includes("efectivo"))
+      ) || dbPaymentMethods.find(pm => pm.is_default) || dbPaymentMethods[0];
       if (defaultPm) {
         setSelectedPaymentMethodId(defaultPm.id);
-        setCardSurcharge(defaultPm.surcharge_percentage);
-        setCardInstallments(defaultPm.installments);
+        setCardSurcharge(defaultPm.surcharge_percentage || 0);
+        setCardInstallments(defaultPm.installments || 1);
       } else {
-        setSelectedPaymentMethodId("");
-        setCardInstallments(6);
-        setCardSurcharge(42);
+        setSelectedPaymentMethodId("a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3");
+        setCardInstallments(1);
+        setCardSurcharge(0);
       }
       setIsFreeShipping(true);
       setShippingCost(0);
@@ -4952,8 +4993,8 @@ export default function PedidosPage() {
           id: Math.random().toString(36).substring(2, 9),
           payment_method_id: defaultPm ? defaultPm.id : "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3",
           amount: 0,
-          card_surcharge: defaultPm ? defaultPm.surcharge_percentage : 42,
-          card_installments: defaultPm ? defaultPm.installments : 6,
+          card_surcharge: defaultPm ? (defaultPm.surcharge_percentage || 0) : 0,
+          card_installments: defaultPm ? (defaultPm.installments || 1) : 1,
           receipt_url: "",
           notes: ""
         }
@@ -5075,10 +5116,13 @@ export default function PedidosPage() {
                   setAclaraciones("");
                   setLinkMaps("");
                   setFlete("");
-                  const defaultPm = dbPaymentMethods.find(pm => pm.is_default);
+                  const defaultPm = dbPaymentMethods.find(pm => 
+                    pm.id === "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3" || 
+                    (pm.name && pm.name.toLowerCase().includes("efectivo"))
+                  ) || dbPaymentMethods.find(pm => pm.is_default) || dbPaymentMethods[0];
                   setPaymentType('efectivo');
-                  setCardInstallments(defaultPm ? defaultPm.installments : 6);
-                  setCardSurcharge(defaultPm ? defaultPm.surcharge_percentage : 42);
+                  setCardInstallments(defaultPm ? (defaultPm.installments || 1) : 1);
+                  setCardSurcharge(defaultPm ? (defaultPm.surcharge_percentage || 0) : 0);
                   setIsFreeShipping(true);
                   setShippingCost(0);
                   setIncludeIVA(false);
@@ -5092,8 +5136,8 @@ export default function PedidosPage() {
                       id: Math.random().toString(36).substring(2, 9),
                       payment_method_id: defaultPm ? defaultPm.id : "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3",
                       amount: 0,
-                      card_surcharge: defaultPm ? defaultPm.surcharge_percentage : 42,
-                      card_installments: defaultPm ? defaultPm.installments : 6,
+                      card_surcharge: defaultPm ? (defaultPm.surcharge_percentage || 0) : 0,
+                      card_installments: defaultPm ? (defaultPm.installments || 1) : 1,
                       receipt_url: "",
                       notes: ""
                     }

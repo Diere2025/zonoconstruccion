@@ -746,8 +746,9 @@ export default function RuteoPage() {
       const payData = (payRes.data || []) as PaymentMethod[];
       setPaymentMethods(payData);
       if (payData.length > 0) {
-        setSelectedMethodId(payData.find((p) => p.is_default)?.id || payData[0].id);
-        setTakeAwayMethodId(payData.find((p) => p.is_default)?.id || payData[0].id);
+        const defaultMethodId = payData.find(p => p.id === "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3" || (p.name && p.name.toLowerCase().includes("efectivo")))?.id || payData.find((p) => p.is_default)?.id || payData[0].id;
+        setSelectedMethodId(defaultMethodId);
+        setTakeAwayMethodId(defaultMethodId);
       }
 
       setAllLocalities((locRes.data || []) as Locality[]);
@@ -8011,7 +8012,7 @@ export default function RuteoPage() {
                     <div>
                       <h1 className="text-lg font-black tracking-tight text-slate-900">ZONO CONSTRUCCIÓN</h1>
                       <p className="text-[9px] text-slate-650 font-bold uppercase tracking-wider">Venta de Materiales y Logística</p>
-                      <p className="text-[8px] text-slate-500 font-semibold">Panamericana y Ruta 197, Tigre | Tel: 11-3294-6500</p>
+                      <p className="text-[8px] text-slate-500 font-semibold">Quilmes 4541, Paso del Rey | Tel: 11-5769-4181</p>
                     </div>
                     <div className="text-right">
                       <span className="inline-block px-2 py-0.5 bg-slate-900 text-white rounded text-[9px] font-black tracking-wider uppercase">

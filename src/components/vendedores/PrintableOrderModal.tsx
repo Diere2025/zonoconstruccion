@@ -442,7 +442,7 @@ export default function PrintableOrderModal({
                     </div>
                   </div>
                   <div style={{ fontSize: "9px", color: "#64748b", marginTop: "4px" }}>
-                    Panamericana y R197, Tigre • Tel: 11-3294-6500 • www.zono.com.ar
+                    Quilmes 4541, Paso del Rey • Tel: 11-5769-4181 • www.zono.com.ar
                   </div>
                 </div>
 
@@ -454,19 +454,19 @@ export default function PrintableOrderModal({
                       color: "#ffffff",
                       fontSize: "10px",
                       fontWeight: 900,
-                      padding: "3px 10px",
+                      letterSpacing: "1px",
+                      padding: "4px 10px",
                       borderRadius: "6px",
-                      letterSpacing: "0.5px",
                       textTransform: "uppercase"
                     }}
                   >
                     COMPROBANTE DE PEDIDO
                   </div>
-                  <div style={{ fontSize: "14px", fontWeight: 900, color: "#001538", marginTop: "4px", fontFamily: "monospace" }}>
+                  <div style={{ fontSize: "14px", fontWeight: 900, color: "#001538", marginTop: "4px" }}>
                     Nº {orderNumber}
                   </div>
-                  <div style={{ fontSize: "10px", color: "#475569", marginTop: "2px" }}>
-                    Fecha: <strong>{orderDateFormatted}</strong>
+                  <div style={{ fontSize: "9.5px", color: "#64748b", marginTop: "1px" }}>
+                    Fecha: <strong style={{ color: "#0f172a" }}>{orderDateFormatted}</strong>
                   </div>
                 </div>
               </div>
@@ -566,7 +566,7 @@ export default function PrintableOrderModal({
                 <thead>
                   <tr style={{ backgroundColor: "#001538", color: "#ffffff", textAlign: "left", fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
                     <th style={{ padding: "7px 10px", textAlign: "center", width: "50px", borderTopLeftRadius: "6px" }}>Cant.</th>
-                    <th style={{ padding: "7px 12px" }}>Descripción del Producto</th>
+                    <th style={{ padding: "7px 12px" }}>SKU</th>
                     <th style={{ padding: "7px 10px", textAlign: "right", width: "110px" }}>Precio Unitario</th>
                     <th style={{ padding: "7px 12px", textAlign: "right", width: "120px", borderTopRightRadius: "6px" }}>Subtotal</th>
                   </tr>
@@ -577,7 +577,9 @@ export default function PrintableOrderModal({
                     const unitPrice = item.unit_price ?? item.customPrice ?? 0;
                     const subtotal = qty * unitPrice;
                     const rowBg = index % 2 === 0 ? "#ffffff" : "#f8fafc";
-                    const displayName = item.product_name || item.name || item.sku || "Producto";
+                    const displaySku = (item.sku && !item.sku.startsWith("AUTO-")) 
+                      ? item.sku 
+                      : (item.sku || item.product_name || item.name || "Producto");
 
                     return (
                       <tr key={index} style={{ backgroundColor: rowBg, borderBottom: "1px solid #e2e8f0", fontSize: "10.5px" }}>
@@ -586,13 +588,8 @@ export default function PrintableOrderModal({
                         </td>
                         <td style={{ padding: "7px 12px" }}>
                           <div style={{ fontWeight: 800, color: "#0f172a" }}>
-                            {displayName}
+                            {displaySku}
                           </div>
-                          {item.sku && item.sku !== displayName && !item.sku.startsWith("AUTO-") && (
-                            <div style={{ fontSize: "8.5px", color: "#64748b" }}>
-                              SKU: {item.sku}
-                            </div>
-                          )}
                         </td>
                         <td style={{ padding: "7px 10px", textAlign: "right", color: "#475569", fontFamily: "monospace" }}>
                           {formatPrice(unitPrice)}
