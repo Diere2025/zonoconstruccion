@@ -49,6 +49,7 @@ export default function VendedoresDashboard() {
   const [refreshing, setRefreshing] = useState(false);
   const [sellerName, setSellerName] = useState<string>("Vendedor");
   const [recentOrders, setRecentOrders] = useState<any[]>([]);
+  const [isRestricted, setIsRestricted] = useState<boolean>(false);
   const [stats, setStats] = useState<SellerStats>({
     totalSales: 0,
     totalOrders: 0,
@@ -87,6 +88,20 @@ export default function VendedoresDashboard() {
 
       const fullName = seller?.full_name || userData.user.user_metadata?.full_name || userEmail.split("@")[0] || "Vendedor";
       setSellerName(fullName);
+
+      const emailLower = userEmail.toLowerCase();
+      const nameLower = (seller?.full_name || "").toLowerCase();
+      const isExplicitAdmin = seller?.role === 'admin' || emailLower === 'diego.boveda@gmail.com' || emailLower.includes('admin') || emailLower.includes('diego') || emailLower === 'caroibarra.93@gmail.com';
+      const restricted = !isExplicitAdmin && (
+        emailLower.includes("jazmin") || 
+        emailLower.includes("jazmín") || 
+        nameLower.includes("jazmin") || 
+        nameLower.includes("jazmín") || 
+        emailLower.includes("ludmila") ||
+        emailLower.includes("ludmilakrenz") ||
+        nameLower.includes("ludmila")
+      );
+      setIsRestricted(restricted);
 
       const sellerIds = Array.from(new Set([userId, seller?.id].filter(Boolean)));
 
@@ -259,8 +274,8 @@ export default function VendedoresDashboard() {
           <span className="text-[11px] font-semibold text-slate-400">Atajos rápidos</span>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-          {/* Presupuestar */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {/* 1. Presupuestar */}
           <Link href="/vendedores/presupuestos" className="group">
             <div className="bg-white hover:bg-indigo-50/40 p-4 rounded-2xl border border-slate-200/80 hover:border-indigo-300 shadow-2xs hover:shadow-sm transition-all duration-200 flex flex-col justify-between h-full group-hover:-translate-y-0.5">
               <div className="flex items-start justify-between gap-2">
@@ -283,53 +298,7 @@ export default function VendedoresDashboard() {
             </div>
           </Link>
 
-          {/* Cotizar Mayorista */}
-          <Link href="/vendedores/presupuestos-mayorista" className="group">
-            <div className="bg-white hover:bg-emerald-50/40 p-4 rounded-2xl border border-slate-200/80 hover:border-emerald-300 shadow-2xs hover:shadow-sm transition-all duration-200 flex flex-col justify-between h-full group-hover:-translate-y-0.5">
-              <div className="flex items-start justify-between gap-2">
-                <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-100 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                  <TrendingUp className="w-5 h-5" />
-                </div>
-                <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-100/70 text-emerald-700">
-                  Mayorista
-                </span>
-              </div>
-              <div className="mt-3">
-                <h3 className="text-sm font-black text-slate-900 group-hover:text-emerald-900 transition-colors flex items-center justify-between">
-                  <span>Cotizar</span>
-                  <ArrowRight className="w-3.5 h-3.5 text-slate-300 group-hover:text-emerald-600 group-hover:translate-x-1 transition-all" />
-                </h3>
-                <p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">
-                  Presupuestos B2B y lista mayorista
-                </p>
-              </div>
-            </div>
-          </Link>
-
-          {/* Chequear Pagos */}
-          <Link href="/admin/cobros-mp" className="group">
-            <div className="bg-white hover:bg-sky-50/40 p-4 rounded-2xl border border-slate-200/80 hover:border-sky-300 shadow-2xs hover:shadow-sm transition-all duration-200 flex flex-col justify-between h-full group-hover:-translate-y-0.5">
-              <div className="flex items-start justify-between gap-2">
-                <div className="w-10 h-10 rounded-xl bg-sky-50 text-sky-600 border border-sky-100 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                  <ShieldCheck className="w-5 h-5" />
-                </div>
-                <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-sky-100/70 text-sky-700">
-                  Cobros MP
-                </span>
-              </div>
-              <div className="mt-3">
-                <h3 className="text-sm font-black text-slate-900 group-hover:text-sky-900 transition-colors flex items-center justify-between">
-                  <span>Chequear Pagos</span>
-                  <ArrowRight className="w-3.5 h-3.5 text-slate-300 group-hover:text-sky-600 group-hover:translate-x-1 transition-all" />
-                </h3>
-                <p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">
-                  Cobros en vivo y acreditaciones
-                </p>
-              </div>
-            </div>
-          </Link>
-
-          {/* Cargar Pedido */}
+          {/* 2. Cargar Pedido */}
           <Link href="/vendedores/pedidos?tab=form&client_type=minoristas" className="group">
             <div className="bg-white hover:bg-violet-50/40 p-4 rounded-2xl border border-slate-200/80 hover:border-violet-300 shadow-2xs hover:shadow-sm transition-all duration-200 flex flex-col justify-between h-full group-hover:-translate-y-0.5">
               <div className="flex items-start justify-between gap-2">
@@ -352,7 +321,7 @@ export default function VendedoresDashboard() {
             </div>
           </Link>
 
-          {/* Mis Pedidos */}
+          {/* 3. Mis Pedidos */}
           <Link href="/vendedores/pedidos?tab=list&client_type=minoristas" className="group">
             <div className="bg-white hover:bg-slate-100/70 p-4 rounded-2xl border border-slate-200/80 hover:border-slate-300 shadow-2xs hover:shadow-sm transition-all duration-200 flex flex-col justify-between h-full group-hover:-translate-y-0.5">
               <div className="flex items-start justify-between gap-2">
@@ -370,6 +339,29 @@ export default function VendedoresDashboard() {
                 </h3>
                 <p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">
                   Seguimiento de pedidos y entregas
+                </p>
+              </div>
+            </div>
+          </Link>
+
+          {/* 4. Chequear Pagos */}
+          <Link href="/admin/cobros-mp" className="group">
+            <div className="bg-white hover:bg-sky-50/40 p-4 rounded-2xl border border-slate-200/80 hover:border-sky-300 shadow-2xs hover:shadow-sm transition-all duration-200 flex flex-col justify-between h-full group-hover:-translate-y-0.5">
+              <div className="flex items-start justify-between gap-2">
+                <div className="w-10 h-10 rounded-xl bg-sky-50 text-sky-600 border border-sky-100 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-sky-100/70 text-sky-700">
+                  Cobros MP
+                </span>
+              </div>
+              <div className="mt-3">
+                <h3 className="text-sm font-black text-slate-900 group-hover:text-sky-900 transition-colors flex items-center justify-between">
+                  <span>Chequear Pagos</span>
+                  <ArrowRight className="w-3.5 h-3.5 text-slate-300 group-hover:text-sky-600 group-hover:translate-x-1 transition-all" />
+                </h3>
+                <p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">
+                  Cobros en vivo y acreditaciones
                 </p>
               </div>
             </div>
@@ -479,7 +471,7 @@ export default function VendedoresDashboard() {
           <div className="flex items-center justify-between border-b border-slate-100 pb-3">
             <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
               <Users className="w-4 h-4 text-brand-600" />
-              Canales de Venta
+              {(!isRestricted && stats.wholesaleCount > 0) ? "Canales de Venta" : "Canal de Venta"}
             </h3>
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
               {currentMonthName}
@@ -503,21 +495,23 @@ export default function VendedoresDashboard() {
               </div>
             </div>
 
-            {/* Mayorista */}
-            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-100 space-y-1">
-              <div className="flex items-center justify-between text-xs font-bold text-slate-700">
-                <span className="flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                  Mayoristas (B2B)
-                </span>
-                <span className="text-slate-500 text-[11px]">
-                  {stats.wholesaleCount} {stats.wholesaleCount === 1 ? "pedido" : "pedidos"}
-                </span>
+            {/* Mayorista - Oculto para vendedores restringidos o sin pedidos B2B */}
+            {!isRestricted && stats.wholesaleCount > 0 && (
+              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-100 space-y-1">
+                <div className="flex items-center justify-between text-xs font-bold text-slate-700">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                    Mayoristas (B2B)
+                  </span>
+                  <span className="text-slate-500 text-[11px]">
+                    {stats.wholesaleCount} {stats.wholesaleCount === 1 ? "pedido" : "pedidos"}
+                  </span>
+                </div>
+                <div className="text-base font-black text-slate-900">
+                  {formatPrice(stats.wholesaleSales)}
+                </div>
               </div>
-              <div className="text-base font-black text-slate-900">
-                {formatPrice(stats.wholesaleSales)}
-              </div>
-            </div>
+            )}
           </div>
 
           <div className="pt-2 border-t border-slate-100">

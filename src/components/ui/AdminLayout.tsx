@@ -291,11 +291,16 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     } else if (
       isRestrictedSeller && 
       pathname && 
-      pathname !== '/vendedores' &&
-      pathname !== '/vendedores/presupuestos' && 
-      pathname !== '/vendedores/presupuestos-mayorista' && 
-      !pathname.startsWith('/vendedores/pedidos') && 
-      pathname !== '/admin/cobros-mp'
+      (
+        pathname === '/vendedores/presupuestos-mayorista' ||
+        (pathname.startsWith('/vendedores/pedidos') && typeof window !== 'undefined' && window.location.search.includes('client_type=mayoristas')) ||
+        (
+          pathname !== '/vendedores' &&
+          pathname !== '/vendedores/presupuestos' && 
+          !pathname.startsWith('/vendedores/pedidos') && 
+          pathname !== '/admin/cobros-mp'
+        )
+      )
     ) {
       router.replace('/vendedores');
     } else if (
@@ -540,8 +545,8 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                   return (
                     link.href === "/vendedores" ||
                     link.href === "/vendedores/presupuestos" ||
-                    link.href === "/vendedores/presupuestos-mayorista" ||
-                    link.href.startsWith("/vendedores/pedidos") ||
+                    link.href === "/vendedores/pedidos?tab=form&client_type=minoristas" ||
+                    link.href === "/vendedores/pedidos?tab=list&client_type=minoristas" ||
                     link.href === "/admin/cobros-mp"
                   );
                 }
