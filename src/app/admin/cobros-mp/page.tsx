@@ -86,6 +86,7 @@ interface MPAccount {
   status?: string | null;
   current_interval?: number | null;
   extension_version?: string | null;
+  client_time?: string | null;
 }
 
 interface MPInternalPayer {
@@ -1097,12 +1098,16 @@ export default function CobrosMercadoPagoPage() {
                   }`}
                   title={
                     isMonitorOnline 
-                      ? `Monitor Mercado Pago activo (Último pulso: hace ${monitorSecondsAgo}s)` 
+                      ? `Monitor Mercado Pago activo (Hora ext: ${mainAccount?.client_time || 'N/A'} - Último pulso: hace ${monitorSecondsAgo}s)` 
                       : `Monitor Mercado Pago desconectado (${monitorMinutesAgo !== null ? 'hace ' + monitorMinutesAgo + ' min' : 'sin señal'})`
                   }
                 >
                   <span className={`w-1.5 h-1.5 rounded-full ${isMonitorOnline ? 'bg-emerald-500' : 'bg-rose-500'}`} />
-                  <span>{isMonitorOnline ? 'Monitor MP Online' : 'Monitor MP Offline'}</span>
+                  <span>
+                    {isMonitorOnline 
+                      ? `Monitor MP Online${mainAccount?.client_time ? ` (${mainAccount.client_time} hs)` : ''}` 
+                      : 'Monitor MP Offline'}
+                  </span>
                 </div>
               </div>
               <p className="text-xs text-slate-500 font-medium truncate sm:whitespace-normal">
