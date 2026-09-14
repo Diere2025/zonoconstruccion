@@ -116,75 +116,155 @@ export async function POST(req: Request) {
 
     const botToken = process.env.LOGISTICS_TELEGRAM_BOT_TOKEN || '8729986754:AAEHUc4WWKG2Bq-U0D8NKrrwVPm3QSzDe1c';
 
-    // Handler for Comprobantes / Receipts (Photos or PDFs)
-    if (type === 'receipt' || photoUrl) {
-      if (!photoUrl) {
+    // Handler for Comprobantes / Receipts (Single photo/doc or MediaGroup album)
+    if (type === 'receipt' || photoUrl || (body.receipts && Array.isArray(body.receipts) && body.receipts.length > 0)) {
+      const { 
+        sellerName,
+        pendingBalance,
+        receipts
+      } = body;
+
+      const receiptsList: Array<{ url: string; amount?: number; notes?: string }> = Array.isArray(receipts) && receipts.length > 0
+        ? receipts
+        : (photoUrl ? [{ url: photoUrl, amount, notes: reference }] : []);
+
+      if (receiptsList.length === 0) {
         return NextResponse.json(
-          { ok: false, error: 'photoUrl is required for receipt notification' },
+          { ok: false, error: 'photoUrl or receipts array is required' },
           { status: 400 }
         );
       }
 
-      const { 
-        sellerName,
-        pendingBalance
-      } = body;
-
       const targetChatId = await getReceiptsChatId(botToken);
+      const isPaid = status?.toLowerCase().includes('abonado') || (pendingBalance !== undefined && Number(pendingBalance) <= 0);
+      const statusEmoji = isPaid ? '🟢' : '🟡';
+      const statusText = isPaid ? 'Abonado' : 'Señado';
 
-      // Build caption if not provided (Opción 1: Estructurado tipo Ficha)
+      // Build caption
       let finalCaption = caption;
       if (!finalCaption) {
-        const isPaid = status?.toLowerCase().includes('abonado') || (pendingBalance !== undefined && Number(pendingBalance) <= 0);
-        const statusEmoji = isPaid ? '🟢' : '🟡';
-        const statusText = isPaid ? 'Abonado' : 'Señado';
-        const formattedAmount = formatArgAmount(Number(amount || 0));
+        if (receiptsList.length > 1) {
+          const totalReceived = receiptsList.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+          const lines: string[] = [
+            `🧾 <b>COMPROBANTE DE PAGO (${receiptsList.length} comprobantes)</b>`,
+            '───────────────────────',
+            `📦 <b>Pedido:</b> <code>${legacyCode || 'S/C'}</code>`,
+            `👤 <b>Cliente:</b> ${customerName || 'Consumidor Final'}`
+          ];
 
-        const lines: string[] = [
-          '🧾 <b>COMPROBANTE DE PAGO</b>',
-          '───────────────────────',
-          `📦 <b>Pedido:</b> <code>${legacyCode || 'S/C'}</code>`,
-          `👤 <b>Cliente:</b> ${customerName || 'Consumidor Final'}`
-        ];
-
-        if (taxId && taxId.trim()) {
-          lines.push(`🪪 <b>DNI/CUIT:</b> ${taxId.trim()}`);
-        }
-
-        if (sellerName && sellerName.trim()) {
-          lines.push(`💼 <b>Vendedor/a:</b> ${sellerName.trim()}`);
-        }
-
-        lines.push(`💵 <b>Monto Comprobante:</b> $${formattedAmount} (${statusEmoji} <b>${statusText}</b>)`);
-
-        if (pendingBalance !== undefined && pendingBalance !== null) {
-          const numBal = Number(pendingBalance);
-          if (numBal > 0) {
-            lines.push(`🏠 <b>Saldo en entrega:</b> $${formatArgAmount(numBal)}`);
-          } else {
-            lines.push(`🏠 <b>Saldo en entrega:</b> $0 (✓ Sin saldo pendiente)`);
+          if (taxId && taxId.trim()) {
+            lines.push(`🪪 <b>DNI/CUIT:</b> ${taxId.trim()}`);
           }
-        }
 
-        if (reference && reference.trim()) {
-          lines.push(`📝 <b>Nota:</b> ${reference.trim()}`);
-        }
+          if (sellerName && sellerName.trim()) {
+            lines.push(`💼 <b>Vendedor/a:</b> ${sellerName.trim()}`);
+          }
 
-        finalCaption = lines.join('\n');
+          lines.push(`💵 <b>Total Recibido:</b> $${formatArgAmount(totalReceived)} (${statusEmoji} <b>${statusText}</b>)`);
+          receiptsList.forEach((r, idx) => {
+            lines.push(`  • Comprobante ${idx + 1}: $${formatArgAmount(Number(r.amount) || 0)}${r.notes ? ` (${r.notes})` : ''}`);
+          });
+
+          if (pendingBalance !== undefined && pendingBalance !== null) {
+            const numBal = Number(pendingBalance);
+            if (numBal > 0) {
+              lines.push(`🏠 <b>Saldo en entrega:</b> $${formatArgAmount(numBal)}`);
+            } else {
+              lines.push(`🏠 <b>Saldo en entrega:</b> $0 (✓ Sin saldo pendiente)`);
+            }
+          }
+
+          finalCaption = lines.join('\n');
+        } else {
+          // Single receipt
+          const formattedAmount = formatArgAmount(Number(receiptsList[0]?.amount !== undefined ? receiptsList[0].amount : (amount || 0)));
+          const lines: string[] = [
+            '🧾 <b>COMPROBANTE DE PAGO</b>',
+            '───────────────────────',
+            `📦 <b>Pedido:</b> <code>${legacyCode || 'S/C'}</code>`,
+            `👤 <b>Cliente:</b> ${customerName || 'Consumidor Final'}`
+          ];
+
+          if (taxId && taxId.trim()) {
+            lines.push(`🪪 <b>DNI/CUIT:</b> ${taxId.trim()}`);
+          }
+
+          if (sellerName && sellerName.trim()) {
+            lines.push(`💼 <b>Vendedor/a:</b> ${sellerName.trim()}`);
+          }
+
+          lines.push(`💵 <b>Monto Comprobante:</b> $${formattedAmount} (${statusEmoji} <b>${statusText}</b>)`);
+
+          if (pendingBalance !== undefined && pendingBalance !== null) {
+            const numBal = Number(pendingBalance);
+            if (numBal > 0) {
+              lines.push(`🏠 <b>Saldo en entrega:</b> $${formatArgAmount(numBal)}`);
+            } else {
+              lines.push(`🏠 <b>Saldo en entrega:</b> $0 (✓ Sin saldo pendiente)`);
+            }
+          }
+
+          if (reference && reference.trim()) {
+            lines.push(`📝 <b>Nota:</b> ${reference.trim()}`);
+          }
+
+          finalCaption = lines.join('\n');
+        }
       }
 
-      const isPdf = photoUrl.toLowerCase().includes('.pdf');
+      // If multiple receipts, send them together in one message via sendMediaGroup
+      if (receiptsList.length > 1) {
+        const hasPdf = receiptsList.some(r => r.url.toLowerCase().includes('.pdf'));
+        const allPdf = receiptsList.every(r => r.url.toLowerCase().includes('.pdf'));
+
+        // If not mixed (or all photos), use sendMediaGroup
+        if (!hasPdf || allPdf) {
+          const mediaType = allPdf ? 'document' : 'photo';
+          const mediaPayload = receiptsList.map((r, i) => ({
+            type: mediaType,
+            media: r.url,
+            caption: i === 0 ? finalCaption : undefined,
+            parse_mode: i === 0 ? 'HTML' : undefined
+          }));
+
+          const res = await fetch(`https://api.telegram.org/bot${botToken.trim()}/sendMediaGroup`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: targetChatId,
+              media: mediaPayload
+            })
+          });
+
+          const data = await res.json();
+          if (!data.ok) {
+            console.warn('[Telegram Receipt] sendMediaGroup error:', data);
+            return NextResponse.json({ ok: false, description: data.description }, { status: 502 });
+          }
+
+          return NextResponse.json({
+            ok: true,
+            chatId: targetChatId,
+            caption: finalCaption,
+            count: receiptsList.length
+          });
+        }
+      }
+
+      // Single receipt send (or fallback for mixed media types)
+      const primaryReceipt = receiptsList[0];
+      const isPdf = primaryReceipt.url.toLowerCase().includes('.pdf');
       const telegramMethod = isPdf ? 'sendDocument' : 'sendPhoto';
       const telegramPayload = isPdf 
         ? {
             chat_id: targetChatId,
-            document: photoUrl,
+            document: primaryReceipt.url,
             caption: finalCaption,
             parse_mode: 'HTML'
           }
         : {
             chat_id: targetChatId,
-            photo: photoUrl,
+            photo: primaryReceipt.url,
             caption: finalCaption,
             parse_mode: 'HTML'
           };
