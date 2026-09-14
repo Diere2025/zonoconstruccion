@@ -33,9 +33,41 @@ import {
   Calculator,
   ArrowUpDown,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  ShieldAlert,
+  BellRing,
+  ChevronDown,
+  ChevronUp,
+  ChevronRight,
+  Eye,
+  X,
+  Image as ImageIcon,
+  Info
 } from "lucide-react";
 import { formatPrice } from "@/lib/utils";
+
+interface LiveAd {
+  id: string;
+  name: string;
+  status: string;
+  effectiveStatus: string;
+  adsetId?: string;
+  adsetName?: string;
+  thumbnailUrl?: string | null;
+  imageUrl?: string | null;
+  title?: string | null;
+  body?: string | null;
+  spendUsd: number;
+  spendArs: number;
+  messages: number;
+  costPerActionUsd: number;
+  cprArs: number;
+  frequency: number;
+  impressions: number;
+  ctr?: number;
+  cpm?: number;
+  alerts: string[];
+}
 
 interface LiveCampaign {
   status: string;
@@ -56,6 +88,24 @@ interface LiveCampaign {
   cpm: string;
   frequency: number;
   budgetConsumedPercent: number;
+  ads?: LiveAd[];
+}
+
+interface SmartRuleAlert {
+  id: string;
+  type: 'danger' | 'warning' | 'success';
+  category: 'high_cpr' | 'high_frequency' | 'zero_leads' | 'scale_opportunity';
+  campaignId: string;
+  campaignName: string;
+  commercialOffer: string;
+  phoneLine: string;
+  badgeText: string;
+  title: string;
+  metricLabel: string;
+  metricValue: string;
+  threshold: string;
+  description: string;
+  actionText: string;
 }
 
 interface HistoryRecord {
@@ -213,6 +263,34 @@ export default function MetaAdsPage() {
   const [liveStatusFilter, setLiveStatusFilter] = useState<string>("all");
   const [liveSortField, setLiveSortField] = useState<'cpr' | 'spend' | 'messages' | 'budget' | 'consumption'>('cpr');
   const [liveSortOrder, setLiveSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [liveAlertFilter, setLiveAlertFilter] = useState<'all' | 'with_alerts'>('all');
+  const [showAlertCards, setShowAlertCards] = useState<boolean>(true);
+
+  // Live Meta Direct API & Ad Breakdown State
+  const [liveIsCached, setLiveIsCached] = useState<boolean>(false);
+  const [liveCacheAge, setLiveCacheAge] = useState<number>(0);
+  const [expandedCampaigns, setExpandedCampaigns] = useState<Set<string>>(new Set());
+  const [previewAd, setPreviewAd] = useState<LiveAd | null>(null);
+
+  const toggleCampaignExpand = (campId: string) => {
+    setExpandedCampaigns(prev => {
+      const next = new Set(prev);
+      if (next.has(campId)) {
+        next.delete(campId);
+      } else {
+        next.add(campId);
+      }
+      return next;
+    });
+  };
+
+  const expandAllCampaigns = () => {
+    setExpandedCampaigns(new Set(liveCampaigns.map(c => c.campaignId)));
+  };
+
+  const collapseAllCampaigns = () => {
+    setExpandedCampaigns(new Set());
+  };
 
   // Live Pacing & Forecasting State
   const [currentTime, setCurrentTime] = useState<Date>(new Date());
@@ -465,17 +543,32 @@ export default function MetaAdsPage() {
     loadHistoryData(start, end);
   };
 
-  // Fetch Live Data
-  const loadLiveData = async () => {
+  // Fetch Live Data (Meta API Directa con Cache & Fallback)
+  const loadLiveData = async (force = false) => {
     try {
-      const res = await fetch('/api/admin/meta-ads-sheet?tab=live');
-      if (!res.ok) throw new Error('Error al cargar datos en vivo');
+      const url = force ? '/api/admin/meta-ads-live?force=true' : '/api/admin/meta-ads-live';
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('Error al cargar datos en vivo de Meta API');
       const data = await res.json();
       setLiveSummary(data.summary || null);
       setLiveCampaigns(data.campaigns || []);
+      setLiveIsCached(!!data.isCached);
+      setLiveCacheAge(data.cacheAgeSeconds || 0);
       setLastUpdated(new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
     } catch (err: any) {
-      console.error(err);
+      console.error('Meta API direct error, falling back to sheet:', err);
+      try {
+        const fallbackRes = await fetch('/api/admin/meta-ads-sheet?tab=live');
+        if (fallbackRes.ok) {
+          const fbData = await fallbackRes.json();
+          setLiveSummary(fbData.summary || null);
+          setLiveCampaigns(fbData.campaigns || []);
+          setLiveIsCached(false);
+          setLiveCacheAge(0);
+        }
+      } catch (fbErr) {
+        console.error('Fallback sheet error:', fbErr);
+      }
     }
   };
 
@@ -492,12 +585,119 @@ export default function MetaAdsPage() {
   const handleRefresh = async () => {
     setRefreshing(true);
     if (activeTab === 'live') {
-      await loadLiveData();
+      await loadLiveData(true);
     } else {
       await loadHistoryData(dateFrom, dateTo);
     }
     setRefreshing(false);
   };
+
+  // Real-time Smart Rules Alert Engine
+  const smartRuleAlerts = useMemo(() => {
+    const alerts: SmartRuleAlert[] = [];
+
+    liveCampaigns.forEach(c => {
+      const isActiva = c.status.toUpperCase() === 'ACTIVE' || c.status.toUpperCase() === 'ACTIVA' || c.status.toUpperCase() === 'ON';
+      if (!isActiva) return;
+
+      // 1. Regla: Costo por Mensaje Elevado (CPR > $3.50 USD y gasto acumulado >= $10 USD)
+      if (c.spendUsd >= 10 && c.costPerActionUsd > 3.50) {
+        alerts.push({
+          id: `high-cpr-${c.campaignId}`,
+          type: 'danger',
+          category: 'high_cpr',
+          campaignId: c.campaignId,
+          campaignName: c.campaignName,
+          commercialOffer: c.commercialOffer,
+          phoneLine: c.phoneLine,
+          badgeText: `🚨 CPR Alto (US$ ${c.costPerActionUsd.toFixed(2)})`,
+          title: 'Costo por Lead Disparado',
+          metricLabel: 'CPR Actual',
+          metricValue: `US$ ${c.costPerActionUsd.toFixed(2)} (${formatPrice(c.cprArs)})`,
+          threshold: 'Objetivo: ≤ US$ 2.50',
+          description: `Gasto de US$ ${c.spendUsd.toFixed(1)} con solo ${c.messages} mensaje(s). Costo por conversación significativamente superior al promedio.`,
+          actionText: 'Pausar anuncios secundarios con bajo CTR o reducir presupuesto diario temporalmente para frenar el costo.'
+        });
+      }
+
+      // 2. Regla: Frecuencia Alta / Fatiga Creativa (Frecuencia >= 1.80 y gasto >= $10 USD)
+      if (c.frequency >= 1.80 && c.spendUsd >= 10) {
+        alerts.push({
+          id: `high-freq-${c.campaignId}`,
+          type: 'warning',
+          category: 'high_frequency',
+          campaignId: c.campaignId,
+          campaignName: c.campaignName,
+          commercialOffer: c.commercialOffer,
+          phoneLine: c.phoneLine,
+          badgeText: `⚠️ Fatiga (${c.frequency.toFixed(1)}x)`,
+          title: 'Saturación de Audiencia / Fatiga',
+          metricLabel: 'Frecuencia',
+          metricValue: `${c.frequency.toFixed(2)}x`,
+          threshold: 'Límite sugerido: < 1.80x',
+          description: `La audiencia ya vio el anuncio en promedio ${c.frequency.toFixed(1)} veces. Riesgo inminente de encarecimiento y caída de CTR.`,
+          actionText: 'Rotar imágenes, subir videos a Reels/Stories o incorporar nuevos ángulos para reactivar el interés de la audiencia.'
+        });
+      }
+
+      // 3. Regla: Fuga de Presupuesto (Gasto >= $8 USD y 0 mensajes)
+      if (c.spendUsd >= 8 && c.messages === 0) {
+        alerts.push({
+          id: `zero-leads-${c.campaignId}`,
+          type: 'danger',
+          category: 'zero_leads',
+          campaignId: c.campaignId,
+          campaignName: c.campaignId,
+          commercialOffer: c.commercialOffer,
+          phoneLine: c.phoneLine,
+          badgeText: '🛑 Sin Mensajes',
+          title: 'Fuga de Presupuesto',
+          metricLabel: 'Gasto sin Resultados',
+          metricValue: `US$ ${c.spendUsd.toFixed(2)}`,
+          threshold: '0 conversaciones',
+          description: 'La campaña está consumiendo presupuesto sin registrar ninguna conversación iniciada en WhatsApp.',
+          actionText: 'Verificar funcionamiento del botón a WhatsApp, número de teléfono asignado o pausar temporalmente.'
+        });
+      }
+
+      // 4. Regla: Oportunidad de Escala (Costo Óptimo: CPR <= $1.40 USD con >= 12 mensajes)
+      if (c.costPerActionUsd > 0 && c.costPerActionUsd <= 1.40 && c.messages >= 12) {
+        alerts.push({
+          id: `scale-${c.campaignId}`,
+          type: 'success',
+          category: 'scale_opportunity',
+          campaignName: c.campaignName,
+          campaignId: c.campaignId,
+          phoneLine: c.phoneLine,
+          commercialOffer: c.commercialOffer,
+          badgeText: `🚀 Escala (US$ ${c.costPerActionUsd.toFixed(2)})`,
+          title: 'Oportunidad de Escalamiento',
+          metricLabel: 'CPR Óptimo',
+          metricValue: `US$ ${c.costPerActionUsd.toFixed(2)} (${formatPrice(c.cprArs)})`,
+          threshold: `${c.messages} mensajes logrados`,
+          description: 'Costo por lead sumamente económico con excelente tracción de conversaciones.',
+          actionText: 'Candidata prioritaria para incrementar presupuesto diario (+15% a +25%) y capturar más volumen.'
+        });
+      }
+    });
+
+    return alerts;
+  }, [liveCampaigns]);
+
+  // Map campaign ID to its alerts
+  const campaignAlertsMap = useMemo(() => {
+    const map: Record<string, SmartRuleAlert[]> = {};
+    smartRuleAlerts.forEach(a => {
+      if (!map[a.campaignId]) map[a.campaignId] = [];
+      map[a.campaignId].push(a);
+    });
+    return map;
+  }, [smartRuleAlerts]);
+
+  const dangerAlertsCount = useMemo(() => smartRuleAlerts.filter(a => a.type === 'danger').length, [smartRuleAlerts]);
+  const warningAlertsCount = useMemo(() => smartRuleAlerts.filter(a => a.type === 'warning').length, [smartRuleAlerts]);
+  const successAlertsCount = useMemo(() => smartRuleAlerts.filter(a => a.type === 'success').length, [smartRuleAlerts]);
+  const campaignsWithAlertsCount = useMemo(() => Object.keys(campaignAlertsMap).length, [campaignAlertsMap]);
 
   // Filtered & Sorted Live Campaigns
   const filteredLiveCampaigns = useMemo(() => {
@@ -516,7 +716,10 @@ export default function MetaAdsPage() {
         (liveStatusFilter === 'active' && isActiva) ||
         (liveStatusFilter === 'paused' && isPausada);
 
-      return matchesSearch && matchesLine && matchesStatus;
+      const hasAlert = (campaignAlertsMap[c.campaignId] || []).length > 0;
+      const matchesAlert = liveAlertFilter === 'all' || (liveAlertFilter === 'with_alerts' && hasAlert);
+
+      return matchesSearch && matchesLine && matchesStatus && matchesAlert;
     });
 
     return [...list].sort((a, b) => {
@@ -639,6 +842,12 @@ export default function MetaAdsPage() {
         </div>
 
         <div className="flex items-center gap-3">
+          {activeTab === 'live' && liveIsCached && (
+            <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[10.5px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200" title="Datos en memoria para no saturar la API">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+              Cache saludable ({liveCacheAge}s)
+            </span>
+          )}
           {lastUpdated && (
             <span className="text-[11px] font-semibold text-slate-400">
               Última sincronización: <span className="text-slate-600 font-mono font-bold">{lastUpdated}</span>
@@ -650,7 +859,7 @@ export default function MetaAdsPage() {
             className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl text-xs font-black flex items-center gap-2 shadow-md shadow-slate-900/10 transition-all cursor-pointer disabled:opacity-50"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
-            {refreshing ? 'Sincronizando...' : 'Sincronizar Planilla'}
+            {refreshing ? 'Consultando...' : activeTab === 'live' ? 'Actualizar Meta Ads' : 'Sincronizar Planilla'}
           </button>
         </div>
       </div>
@@ -666,7 +875,7 @@ export default function MetaAdsPage() {
           }`}
         >
           <Activity className="w-4 h-4" />
-          ⚡ En Vivo Hoy (MSG-Hoy)
+          ⚡ En Vivo Hoy (Meta API Directa)
         </button>
         <button
           onClick={() => setActiveTab('charts')}
@@ -1510,6 +1719,119 @@ export default function MetaAdsPage() {
                 </div>
               )}
 
+              {/* Centro de Alertas & Diagnóstico de Reglas */}
+              {smartRuleAlerts.length > 0 && (
+                <div className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm space-y-4">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shadow-xs">
+                        <BellRing className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-sm font-black text-slate-900 tracking-tight">
+                            Centro de Alertas & Diagnóstico de Reglas
+                          </h3>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-indigo-100 text-indigo-700">
+                            {smartRuleAlerts.length} {smartRuleAlerts.length === 1 ? 'aviso' : 'avisos'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-500 font-medium">
+                          Monitoreo en tiempo real de anomalías de costo, saturación de audiencia y oportunidades de escalamiento.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
+                      <div className="flex items-center gap-1.5 text-xs font-bold">
+                        {dangerAlertsCount > 0 && (
+                          <span className="px-2.5 py-1 rounded-xl bg-rose-50 text-rose-700 border border-rose-200 text-[11px] font-black">
+                            🚨 {dangerAlertsCount} Crítica{dangerAlertsCount > 1 ? 's' : ''}
+                          </span>
+                        )}
+                        {warningAlertsCount > 0 && (
+                          <span className="px-2.5 py-1 rounded-xl bg-amber-50 text-amber-700 border border-amber-200 text-[11px] font-black">
+                            ⚠️ {warningAlertsCount} Advertencia{warningAlertsCount > 1 ? 's' : ''}
+                          </span>
+                        )}
+                        {successAlertsCount > 0 && (
+                          <span className="px-2.5 py-1 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-black">
+                            🚀 {successAlertsCount} Escala
+                          </span>
+                        )}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setShowAlertCards(!showAlertCards)}
+                        className="p-1.5 rounded-xl hover:bg-slate-100 text-slate-500 transition-colors cursor-pointer"
+                        title={showAlertCards ? 'Minimizar avisos' : 'Expandir avisos'}
+                      >
+                        {showAlertCards ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Cards Grid */}
+                  {showAlertCards && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
+                      {smartRuleAlerts.map(alert => {
+                        const isDanger = alert.type === 'danger';
+                        const isWarning = alert.type === 'warning';
+
+                        const bgClass = isDanger ? 'bg-rose-50/50 border-rose-200/80 hover:bg-rose-50' :
+                          isWarning ? 'bg-amber-50/50 border-amber-200/80 hover:bg-amber-50' :
+                          'bg-emerald-50/50 border-emerald-200/80 hover:bg-emerald-50';
+
+                        const badgeClass = isDanger ? 'bg-rose-100 text-rose-800 border-rose-200' :
+                          isWarning ? 'bg-amber-100 text-amber-800 border-amber-200' :
+                          'bg-emerald-100 text-emerald-800 border-emerald-200';
+
+                        return (
+                          <div 
+                            key={alert.id}
+                            className={`p-3.5 rounded-2xl border transition-all shadow-xs flex flex-col justify-between gap-2.5 ${bgClass}`}
+                          >
+                            <div className="space-y-1.5">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black border ${badgeClass}`}>
+                                  {alert.badgeText}
+                                </span>
+                                {alert.phoneLine && (
+                                  <span className="text-[10px] font-bold text-slate-500 flex items-center gap-1">
+                                    <PhoneCall className="w-3 h-3" />
+                                    Línea {alert.phoneLine}
+                                  </span>
+                                )}
+                              </div>
+
+                              <div>
+                                <h4 className="text-xs font-black text-slate-900 line-clamp-1" title={alert.campaignName}>
+                                  {alert.commercialOffer || alert.campaignName}
+                                </h4>
+                                <p className="text-[11px] text-slate-600 leading-snug mt-1 font-medium">
+                                  {alert.description}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="pt-2 border-t border-slate-200/60 space-y-1.5">
+                              <div className="flex items-center justify-between text-[11px]">
+                                <span className="font-bold text-slate-500">{alert.metricLabel}:</span>
+                                <span className="font-black text-slate-900 font-mono">{alert.metricValue}</span>
+                              </div>
+                              <div className="text-[10.5px] font-semibold text-slate-600 bg-white/80 p-2 rounded-xl border border-slate-200/60">
+                                💡 <strong className="text-slate-800">Sugerencia:</strong> {alert.actionText}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Filters Bar */}
               <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
                 <div className="flex items-center gap-3 w-full sm:w-auto">
@@ -1540,13 +1862,13 @@ export default function MetaAdsPage() {
                     </div>
                   )}
 
-                  {/* Status Filter */}
-                  <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-2xl border border-slate-200 text-xs">
+                  {/* Status & Alert Filters */}
+                  <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-2xl border border-slate-200 text-xs flex-wrap">
                     <button
                       type="button"
-                      onClick={() => setLiveStatusFilter('all')}
+                      onClick={() => { setLiveStatusFilter('all'); setLiveAlertFilter('all'); }}
                       className={`px-3 py-1 rounded-xl font-bold transition-all cursor-pointer ${
-                        liveStatusFilter === 'all'
+                        liveStatusFilter === 'all' && liveAlertFilter === 'all'
                           ? 'bg-white text-slate-900 shadow-xs'
                           : 'text-slate-500 hover:text-slate-800'
                       }`}
@@ -1557,7 +1879,7 @@ export default function MetaAdsPage() {
                       type="button"
                       onClick={() => setLiveStatusFilter('active')}
                       className={`px-3 py-1 rounded-xl font-bold transition-all cursor-pointer flex items-center gap-1 ${
-                        liveStatusFilter === 'active'
+                        liveStatusFilter === 'active' && liveAlertFilter === 'all'
                           ? 'bg-emerald-600 text-white shadow-xs'
                           : 'text-emerald-700 hover:bg-emerald-50'
                       }`}
@@ -1569,7 +1891,7 @@ export default function MetaAdsPage() {
                       type="button"
                       onClick={() => setLiveStatusFilter('paused')}
                       className={`px-3 py-1 rounded-xl font-bold transition-all cursor-pointer flex items-center gap-1 ${
-                        liveStatusFilter === 'paused'
+                        liveStatusFilter === 'paused' && liveAlertFilter === 'all'
                           ? 'bg-amber-600 text-white shadow-xs'
                           : 'text-amber-700 hover:bg-amber-50'
                       }`}
@@ -1577,12 +1899,45 @@ export default function MetaAdsPage() {
                       <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
                       Pausadas ({liveSummary?.pausedCampaignsCount || liveCampaigns.filter(c => c.status === 'PAUSED').length})
                     </button>
+                    {campaignsWithAlertsCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setLiveAlertFilter(liveAlertFilter === 'all' ? 'with_alerts' : 'all')}
+                        className={`px-3 py-1 rounded-xl font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                          liveAlertFilter === 'with_alerts'
+                            ? 'bg-rose-600 text-white shadow-xs'
+                            : 'text-rose-700 hover:bg-rose-50'
+                        }`}
+                      >
+                        <ShieldAlert className="w-3.5 h-3.5" />
+                        Con Alertas ({campaignsWithAlertsCount})
+                      </button>
+                    )}
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-2xl border border-slate-200 text-xs">
+                    <button
+                      type="button"
+                      onClick={expandAllCampaigns}
+                      className="px-2.5 py-1 rounded-xl font-bold text-[10.5px] text-slate-600 hover:text-indigo-600 hover:bg-white transition-all cursor-pointer"
+                      title="Expandir anuncios de todas las campañas"
+                    >
+                      Desplegar Anuncios
+                    </button>
+                    <button
+                      type="button"
+                      onClick={collapseAllCampaigns}
+                      className="px-2.5 py-1 rounded-xl font-bold text-[10.5px] text-slate-600 hover:text-indigo-600 hover:bg-white transition-all cursor-pointer"
+                      title="Contraer anuncios de todas las campañas"
+                    >
+                      Contraer
+                    </button>
+                  </div>
+
                   <span className="text-xs font-bold text-slate-500">
-                    Mostrando {filteredLiveCampaigns.length} de {liveCampaigns.length} campañas
+                    {filteredLiveCampaigns.length} de {liveCampaigns.length} campañas
                   </span>
                   {liveSortField === 'cpr' && (
                     <span className="text-[10.5px] font-black px-2.5 py-0.5 rounded-lg bg-rose-50 text-rose-700 border border-rose-200 flex items-center gap-1">
@@ -1680,12 +2035,13 @@ export default function MetaAdsPage() {
                             )}
                           </div>
                         </th>
+                        <th className="p-4 text-center">Diagnóstico / Reglas</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 font-bold text-slate-700">
                       {filteredLiveCampaigns.length === 0 ? (
                         <tr>
-                          <td colSpan={9} className="p-8 text-center text-slate-400">
+                          <td colSpan={10} className="p-8 text-center text-slate-400">
                             No se encontraron campañas para los filtros seleccionados.
                           </td>
                         </tr>
@@ -1695,104 +2051,326 @@ export default function MetaAdsPage() {
                           const isLowCpr = c.cprArs > 0 && c.cprArs <= 2500;
                           const isActiva = c.status.toUpperCase() === 'ACTIVE' || c.status.toUpperCase() === 'ACTIVA' || c.status.toUpperCase() === 'ON';
 
+                          const isExpanded = expandedCampaigns.has(c.campaignId);
+                          // Filtrar anuncios: mostrar solo activos o pausados que tuvieron consumo hoy
+                          const visibleAds = (c.ads || []).filter(ad => {
+                            const isAdActive = ad.effectiveStatus === 'ACTIVE' || ad.status === 'ACTIVE';
+                            return isAdActive || ad.spendUsd > 0;
+                          });
+
                           return (
-                            <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
-                              <td className="p-4">
-                                {isActiva ? (
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                                    ACTIVA
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-50 text-amber-700 border border-amber-200">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-                                    PAUSADA
-                                  </span>
-                                )}
-                              </td>
-                              <td className="p-4">
-                                <div className="space-y-0.5 max-w-md">
-                                  <div className="font-bold text-slate-900 text-xs truncate" title={c.campaignName}>
-                                    {c.campaignName}
+                            <React.Fragment key={c.campaignId || idx}>
+                              <tr className="hover:bg-slate-50/50 transition-colors">
+                                <td className="p-4">
+                                  {isActiva ? (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                      ACTIVA
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-50 text-amber-700 border border-amber-200">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                                      PAUSADA
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="p-4">
+                                  <div className="flex items-center gap-2">
+                                    {visibleAds.length > 0 && (
+                                      <button
+                                        type="button"
+                                        onClick={() => toggleCampaignExpand(c.campaignId)}
+                                        className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-indigo-600 transition-colors cursor-pointer shrink-0"
+                                        title={isExpanded ? "Contraer anuncios" : `Ver ${visibleAds.length} anuncios`}
+                                      >
+                                        {isExpanded ? (
+                                          <ChevronDown className="w-4 h-4 text-indigo-600" />
+                                        ) : (
+                                          <ChevronRight className="w-4 h-4" />
+                                        )}
+                                      </button>
+                                    )}
+                                    <div className="space-y-0.5 max-w-md">
+                                      <div className="font-bold text-slate-900 text-xs truncate" title={c.campaignName}>
+                                        {c.campaignName}
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        {c.commercialOffer && (
+                                          <span className="text-[11px] text-indigo-600 font-bold">
+                                            {c.commercialOffer}
+                                          </span>
+                                        )}
+                                        {visibleAds.length > 0 && (
+                                          <button
+                                            type="button"
+                                            onClick={() => toggleCampaignExpand(c.campaignId)}
+                                            className="text-[10px] text-slate-400 hover:text-indigo-600 font-bold underline cursor-pointer"
+                                          >
+                                            {visibleAds.length} {visibleAds.length === 1 ? 'anuncio' : 'anuncios'} {isExpanded ? '(ocultar)' : '(ver)'}
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
                                   </div>
-                                  {c.commercialOffer && (
-                                    <div className="text-[11px] text-indigo-600 font-bold">
-                                      {c.commercialOffer}
+                                </td>
+                                <td className="p-4 text-center">
+                                  {c.phoneLine ? (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-xl text-[10px] font-black bg-slate-100 text-slate-700">
+                                      <PhoneCall className="w-3 h-3 text-slate-500" />
+                                      {c.phoneLine}
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-400">-</span>
+                                  )}
+                                </td>
+                                <td className="p-4 text-right">
+                                  <div className="font-black text-indigo-600 text-sm">
+                                    {c.messages}
+                                  </div>
+                                  {livePacingMetrics && isActiva && (
+                                    <div className="text-[10px] text-slate-400 font-semibold font-mono whitespace-nowrap mt-0.5">
+                                      Proy: ~{Math.round(c.messages / livePacingMetrics.elapsedDayFraction)} msgs
                                     </div>
                                   )}
-                                </div>
-                              </td>
-                              <td className="p-4 text-center">
-                                {c.phoneLine ? (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-xl text-[10px] font-black bg-slate-100 text-slate-700">
-                                    <PhoneCall className="w-3 h-3 text-slate-500" />
-                                    {c.phoneLine}
+                                </td>
+                                <td className="p-4 text-right font-mono text-slate-600">
+                                  US$ {c.spendUsd.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                </td>
+                                <td className="p-4 text-right font-mono text-slate-900 font-bold">
+                                  {formatPrice(c.spendArs)}
+                                </td>
+                                <td className="p-4 text-right">
+                                  <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-mono font-black ${
+                                    isLowCpr ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
+                                    isHighCpr ? 'bg-rose-50 text-rose-700 border border-rose-200' :
+                                    'bg-amber-50 text-amber-700 border border-amber-200'
+                                  }`}>
+                                    {formatPrice(c.cprArs)}
                                   </span>
-                                ) : (
-                                  <span className="text-slate-400">-</span>
-                                )}
-                              </td>
-                              <td className="p-4 text-right">
-                                <div className="font-black text-indigo-600 text-sm">
-                                  {c.messages}
-                                </div>
-                                {livePacingMetrics && isActiva && (
-                                  <div className="text-[10px] text-slate-400 font-semibold font-mono whitespace-nowrap mt-0.5">
-                                    Proy: ~{Math.round(c.messages / livePacingMetrics.elapsedDayFraction)} msgs
-                                  </div>
-                                )}
-                              </td>
-                              <td className="p-4 text-right font-mono text-slate-600">
-                                US$ {c.spendUsd.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                              </td>
-                              <td className="p-4 text-right font-mono text-slate-900 font-bold">
-                                {formatPrice(c.spendArs)}
-                              </td>
-                              <td className="p-4 text-right">
-                                <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-mono font-black ${
-                                  isLowCpr ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
-                                  isHighCpr ? 'bg-rose-50 text-rose-700 border border-rose-200' :
-                                  'bg-amber-50 text-amber-700 border border-amber-200'
-                                }`}>
-                                  {formatPrice(c.cprArs)}
-                                </span>
-                              </td>
-                              <td className="p-4 text-right font-mono text-slate-600">
-                                {formatPrice(c.budgetArs)}
-                              </td>
-                              <td className="p-4 text-center">
-                                <div className="flex flex-col items-center gap-1">
-                                  <div className="flex items-center justify-center gap-2">
-                                    <div className="w-12 bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                                      <div 
-                                        className={`h-full rounded-full ${
-                                          c.budgetConsumedPercent > 90 ? 'bg-rose-500' :
-                                          c.budgetConsumedPercent > 60 ? 'bg-indigo-500' : 'bg-emerald-500'
-                                        }`}
-                                        style={{ width: `${Math.min(100, c.budgetConsumedPercent)}%` }}
-                                      />
-                                    </div>
-                                    <span className="text-[11px] font-black text-slate-700 font-mono">
-                                      {c.budgetConsumedPercent}%
-                                    </span>
-                                  </div>
-                                  {livePacingMetrics && c.budgetArs > 0 && isActiva && (() => {
-                                    const campExpected = c.budgetArs * livePacingMetrics.elapsedDayFraction;
-                                    const campSpeed = campExpected > 0 ? (c.spendArs / campExpected) : 1;
-                                    return (
-                                      <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-black font-mono border ${
-                                        campSpeed >= 1.3 ? 'bg-rose-50 text-rose-700 border-rose-200' :
-                                        campSpeed >= 1.15 ? 'bg-amber-50 text-amber-700 border-amber-200' :
-                                        campSpeed >= 0.85 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
-                                        'bg-blue-50 text-blue-700 border-blue-200'
-                                      }`}>
-                                        {campSpeed.toFixed(1)}x {campSpeed >= 1.15 ? 'rápido' : campSpeed < 0.85 ? 'lento' : 'ritmo'}
+                                </td>
+                                <td className="p-4 text-right font-mono text-slate-600">
+                                  {formatPrice(c.budgetArs)}
+                                </td>
+                                <td className="p-4 text-center">
+                                  <div className="flex flex-col items-center gap-1">
+                                    <div className="flex items-center justify-center gap-2">
+                                      <div className="w-12 bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                                        <div 
+                                          className={`h-full rounded-full ${
+                                            c.budgetConsumedPercent > 90 ? 'bg-rose-500' :
+                                            c.budgetConsumedPercent > 60 ? 'bg-indigo-500' : 'bg-emerald-500'
+                                          }`}
+                                          style={{ width: `${Math.min(100, c.budgetConsumedPercent)}%` }}
+                                        />
+                                      </div>
+                                      <span className="text-[11px] font-black text-slate-700 font-mono">
+                                        {c.budgetConsumedPercent}%
                                       </span>
+                                    </div>
+                                    {livePacingMetrics && c.budgetArs > 0 && isActiva && (() => {
+                                      const campExpected = c.budgetArs * livePacingMetrics.elapsedDayFraction;
+                                      const campSpeed = campExpected > 0 ? (c.spendArs / campExpected) : 1;
+                                      return (
+                                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-black font-mono border ${
+                                          campSpeed >= 1.3 ? 'bg-rose-50 text-rose-700 border-rose-200' :
+                                          campSpeed >= 1.15 ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                                          campSpeed >= 0.85 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                                          'bg-blue-50 text-blue-700 border-blue-200'
+                                        }`}>
+                                          {campSpeed.toFixed(1)}x {campSpeed >= 1.15 ? 'rápido' : campSpeed < 0.85 ? 'lento' : 'ritmo'}
+                                        </span>
+                                      );
+                                    })()}
+                                  </div>
+                                </td>
+                                <td className="p-4 text-center">
+                                  {(() => {
+                                    const alerts = campaignAlertsMap[c.campaignId] || [];
+                                    if (alerts.length === 0) {
+                                      return (
+                                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold text-slate-500 bg-slate-50 border border-slate-200">
+                                          ✓ En Rango
+                                        </span>
+                                      );
+                                    }
+                                    return (
+                                      <div className="flex flex-col items-center gap-1">
+                                        {alerts.map(a => (
+                                          <span 
+                                            key={a.id} 
+                                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-black border ${
+                                              a.type === 'danger' ? 'bg-rose-50 text-rose-700 border-rose-200 shadow-xs' :
+                                              a.type === 'warning' ? 'bg-amber-50 text-amber-700 border-amber-200 shadow-xs' :
+                                              'bg-emerald-50 text-emerald-700 border-emerald-200 shadow-xs'
+                                            }`}
+                                            title={`${a.description} -> ${a.actionText}`}
+                                          >
+                                            {a.badgeText}
+                                          </span>
+                                        ))}
+                                      </div>
                                     );
                                   })()}
-                                </div>
-                              </td>
-                            </tr>
+                                </td>
+                              </tr>
+
+                              {/* Sub-tabla de Anuncios Expandible */}
+                              {isExpanded && visibleAds.length > 0 && (
+                                <tr className="bg-slate-50/70 border-b border-slate-200/80">
+                                  <td colSpan={10} className="p-3 pl-6 sm:pl-10">
+                                    <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden">
+                                      <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-[11px] font-black text-slate-900 uppercase tracking-wider">
+                                            Anuncios en {c.commercialOffer || c.campaignName}
+                                          </span>
+                                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                            {visibleAds.length} {visibleAds.length === 1 ? 'anuncio' : 'anuncios'}
+                                          </span>
+                                        </div>
+                                        <span className="text-[10px] font-medium text-slate-400">
+                                          Solo anuncios activos o con consumo hoy
+                                        </span>
+                                      </div>
+
+                                      <div className="overflow-x-auto">
+                                        <table className="w-full text-left border-collapse text-xs">
+                                          <thead>
+                                            <tr className="bg-slate-50/60 border-b border-slate-200 text-slate-400 font-black uppercase tracking-wider text-[8.5px]">
+                                              <th className="py-2.5 px-3 w-14 text-center">Visual</th>
+                                              <th className="py-2.5 px-3">Nombre del Anuncio</th>
+                                              <th className="py-2.5 px-3 text-center">Estado</th>
+                                              <th className="py-2.5 px-3 text-right">Msgs</th>
+                                              <th className="py-2.5 px-3 text-right">Gasto USD</th>
+                                              <th className="py-2.5 px-3 text-right">Gasto ARS</th>
+                                              <th className="py-2.5 px-3 text-right">CPR Hoy</th>
+                                              <th className="py-2.5 px-3 text-center">Frecuencia</th>
+                                              <th className="py-2.5 px-3 text-center">Diagnóstico / Alertas</th>
+                                            </tr>
+                                          </thead>
+                                          <tbody className="divide-y divide-slate-100 font-bold text-slate-700">
+                                            {visibleAds.map(ad => {
+                                              const isAdActive = ad.effectiveStatus === 'ACTIVE' || ad.status === 'ACTIVE';
+                                              const isAdHighCpr = ad.costPerActionUsd > 3.50 && ad.spendUsd >= 6;
+                                              const isAdLowCpr = ad.costPerActionUsd > 0 && ad.costPerActionUsd <= 2.00;
+
+                                              return (
+                                                <tr key={ad.id} className="hover:bg-slate-50/70 transition-colors">
+                                                  <td className="py-2.5 px-3 text-center">
+                                                    <div 
+                                                      onClick={() => setPreviewAd(ad)}
+                                                      className="group relative w-10 h-10 rounded-xl overflow-hidden bg-slate-100 border border-slate-200 mx-auto cursor-pointer shadow-2xs hover:ring-2 hover:ring-indigo-500 transition-all"
+                                                      title="Clic para previsualizar creativo"
+                                                    >
+                                                      {ad.thumbnailUrl ? (
+                                                        <img 
+                                                          src={ad.thumbnailUrl} 
+                                                          alt={ad.name} 
+                                                          className="w-full h-full object-cover group-hover:scale-110 transition-transform" 
+                                                        />
+                                                      ) : (
+                                                        <div className="w-full h-full flex items-center justify-center text-slate-300">
+                                                          <ImageIcon className="w-4 h-4" />
+                                                        </div>
+                                                      )}
+                                                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white">
+                                                        <Eye className="w-3.5 h-3.5" />
+                                                      </div>
+                                                    </div>
+                                                  </td>
+                                                  <td className="py-2.5 px-3">
+                                                    <div className="space-y-0.5 max-w-xs sm:max-w-md">
+                                                      <div className="font-bold text-slate-900 text-xs truncate" title={ad.name}>
+                                                        {ad.name}
+                                                      </div>
+                                                      <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
+                                                        {ad.adsetName && <span>{ad.adsetName}</span>}
+                                                        {ad.title && (
+                                                          <>
+                                                            <span>•</span>
+                                                            <span className="text-slate-600 font-semibold truncate max-w-[200px]">{ad.title}</span>
+                                                          </>
+                                                        )}
+                                                      </div>
+                                                    </div>
+                                                  </td>
+                                                  <td className="py-2.5 px-3 text-center">
+                                                    {isAdActive ? (
+                                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9.5px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                                        ACTIVO
+                                                      </span>
+                                                    ) : (
+                                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9.5px] font-black bg-amber-50 text-amber-800 border border-amber-200" title="Pausado hoy tras consumir presupuesto">
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                                                        PAUSADO HOY
+                                                      </span>
+                                                    )}
+                                                  </td>
+                                                  <td className="py-2.5 px-3 text-right font-black text-indigo-600">
+                                                    {ad.messages}
+                                                  </td>
+                                                  <td className="py-2.5 px-3 text-right font-mono text-slate-600">
+                                                    US$ {ad.spendUsd.toFixed(2)}
+                                                  </td>
+                                                  <td className="py-2.5 px-3 text-right font-mono text-slate-900">
+                                                    {formatPrice(ad.spendArs)}
+                                                  </td>
+                                                  <td className="py-2.5 px-3 text-right">
+                                                    {ad.messages > 0 ? (
+                                                      <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10.5px] font-mono font-black ${
+                                                        isAdLowCpr ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
+                                                        isAdHighCpr ? 'bg-rose-50 text-rose-700 border border-rose-200' :
+                                                        'bg-amber-50 text-amber-700 border border-amber-200'
+                                                      }`}>
+                                                        US$ {ad.costPerActionUsd.toFixed(2)}
+                                                      </span>
+                                                    ) : (
+                                                      <span className="text-slate-400 font-mono text-[11px]">-</span>
+                                                    )}
+                                                  </td>
+                                                  <td className="py-2.5 px-3 text-center font-mono text-slate-600 text-[11px]">
+                                                    {ad.frequency > 0 ? `${ad.frequency.toFixed(2)}x` : '-'}
+                                                  </td>
+                                                  <td className="py-2.5 px-3 text-center">
+                                                    {ad.alerts && ad.alerts.length > 0 ? (
+                                                      <div className="flex flex-col items-center gap-1">
+                                                        {ad.alerts.map((al, alIdx) => (
+                                                          <span 
+                                                            key={alIdx} 
+                                                            className={`inline-flex items-center px-2 py-0.5 rounded-lg text-[9.5px] font-black border ${
+                                                              al.includes('CPR Alto') || al.includes('Gasto sin') 
+                                                                ? 'bg-rose-50 text-rose-700 border-rose-200' 
+                                                                : al.includes('Fatiga')
+                                                                ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                                                : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                            }`}
+                                                          >
+                                                            {al}
+                                                          </span>
+                                                        ))}
+                                                      </div>
+                                                    ) : isAdHighCpr ? (
+                                                      <span className="inline-flex items-center px-2 py-0.5 rounded-lg text-[9.5px] font-black bg-rose-50 text-rose-700 border border-rose-200">
+                                                        🚨 CPR Alto (US$ {ad.costPerActionUsd.toFixed(2)})
+                                                      </span>
+                                                    ) : (
+                                                      <span className="text-[10px] text-slate-400 font-bold">
+                                                        ✓ En Rango
+                                                      </span>
+                                                    )}
+                                                  </td>
+                                                </tr>
+                                              );
+                                            })}
+                                          </tbody>
+                                        </table>
+                                      </div>
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                            </React.Fragment>
                           );
                         })
                       )}
@@ -2041,6 +2619,111 @@ export default function MetaAdsPage() {
             </div>
           )}
         </>
+      )}
+
+      {/* Modal de Previsualización de Creativo */}
+      {previewAd && (
+        <div 
+          className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150"
+          onClick={() => setPreviewAd(null)}
+        >
+          <div 
+            className="bg-white rounded-3xl max-w-lg w-full overflow-hidden shadow-2xl border border-slate-200 animate-in zoom-in-95 duration-200"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+              <div className="space-y-0.5">
+                <span className="text-[10px] font-black uppercase tracking-wider text-indigo-600">
+                  Previsualización de Anuncio
+                </span>
+                <h3 className="text-sm font-black text-slate-900 line-clamp-1">
+                  {previewAd.name}
+                </h3>
+              </div>
+              <button
+                onClick={() => setPreviewAd(null)}
+                className="p-1.5 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 max-h-[85vh] overflow-y-auto">
+              {/* Image Preview */}
+              <div className="relative w-full aspect-square max-h-80 rounded-2xl overflow-hidden bg-slate-900 border border-slate-200 flex items-center justify-center">
+                {previewAd.thumbnailUrl || previewAd.imageUrl ? (
+                  <img 
+                    src={previewAd.imageUrl || previewAd.thumbnailUrl || ''} 
+                    alt={previewAd.name} 
+                    className="w-full h-full object-contain"
+                  />
+                ) : (
+                  <div className="text-slate-400 text-xs font-bold flex flex-col items-center gap-1">
+                    <ImageIcon className="w-8 h-8 opacity-40" />
+                    <span>Sin imagen disponible</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Text content */}
+              {(previewAd.title || previewAd.body) && (
+                <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 space-y-2 text-xs">
+                  {previewAd.title && (
+                    <div className="font-black text-slate-900 text-sm">
+                      {previewAd.title}
+                    </div>
+                  )}
+                  {previewAd.body && (
+                    <p className="text-slate-600 whitespace-pre-line text-[11px] leading-relaxed font-medium">
+                      {previewAd.body}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Performance snapshot */}
+              <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-100">
+                  <span className="text-[10px] font-bold text-slate-400 block">Mensajes Hoy</span>
+                  <strong className="text-indigo-600 text-base font-black">{previewAd.messages}</strong>
+                </div>
+                <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-100">
+                  <span className="text-[10px] font-bold text-slate-400 block">Gasto Hoy</span>
+                  <strong className="text-slate-900 text-sm font-mono font-bold">US$ {previewAd.spendUsd.toFixed(2)}</strong>
+                  <span className="text-[9.5px] text-slate-400 block font-mono">{formatPrice(previewAd.spendArs)}</span>
+                </div>
+                <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-100">
+                  <span className="text-[10px] font-bold text-slate-400 block">CPR Hoy</span>
+                  <strong className="text-emerald-600 text-sm font-mono font-bold">
+                    {previewAd.messages > 0 ? `US$ ${previewAd.costPerActionUsd.toFixed(2)}` : '-'}
+                  </strong>
+                  <span className="text-[9.5px] text-slate-400 block font-mono">
+                    {previewAd.messages > 0 ? formatPrice(previewAd.cprArs) : '-'}
+                  </span>
+                </div>
+              </div>
+
+              {previewAd.alerts && previewAd.alerts.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                  {previewAd.alerts.map((al, alIdx) => (
+                    <span 
+                      key={alIdx} 
+                      className={`px-2.5 py-1 rounded-xl text-xs font-black border ${
+                        al.includes('CPR Alto') || al.includes('Gasto sin') 
+                          ? 'bg-rose-50 text-rose-700 border-rose-200' 
+                          : al.includes('Fatiga')
+                          ? 'bg-amber-50 text-amber-700 border-amber-200'
+                          : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      }`}
+                    >
+                      {al}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
