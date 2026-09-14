@@ -869,6 +869,13 @@ export default function CobrosMercadoPagoPage() {
           }
         }
       )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'mp_accounts' },
+        () => {
+          loadAccounts();
+        }
+      )
       .subscribe((status) => {
         setIsRealtimeActive(status === 'SUBSCRIBED');
       });
@@ -876,7 +883,7 @@ export default function CobrosMercadoPagoPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [playChime, stats, currentUserRole]);
+  }, [playChime, stats, currentUserRole, loadAccounts]);
 
   const handleCopy = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
@@ -1263,9 +1270,10 @@ export default function CobrosMercadoPagoPage() {
   const currentOrigin = typeof window !== 'undefined' ? window.location.origin : 'https://zono-erp.pages.dev';
   const webhookUrl = `${currentOrigin}/api/mp-webhook`;
 
-  // Extension Monitor Heartbeat Status calculation
-  const mainAccount = accounts.find(a => a.id === 'pagoszono_26') || accounts[0];
-  const lastSeenMs = mainAccount?.last_seen_at ? new Date(mainAccount.last_seen_at).getTime() : null;
+  // Extension Monitor Heartbeat Status calculation for all active accounts
+  const activeAccounts = useMemo(() => {
+    return accounts.filter(a => a.is_active !== false);
+  }, [accounts]);
 
   // Determine if current time in Argentina is Office Hours (06:00 to 21:00, Mon-Sat)
   const isOfficeHoursNow = (() => {
@@ -1299,19 +1307,47 @@ export default function CobrosMercadoPagoPage() {
 
   // Timeout limit: 4 min in office hours (06-21hs); 15 min outside office hours
   const allowedTimeoutMs = isOfficeHoursNow ? 240000 : 900000;
-  const isMonitorOnline = lastSeenMs ? (Date.now() - lastSeenMs < allowedTimeoutMs) : false;
-  const monitorMinutesAgo = lastSeenMs ? Math.max(0, Math.floor((Date.now() - lastSeenMs) / 60000)) : null;
-  const monitorSecondsAgo = lastSeenMs ? Math.max(0, Math.floor((Date.now() - lastSeenMs) / 1000)) : null;
+
+  // Account-level monitor status
+  const accountsMonitorStatus = useMemo(() => {
+    const listToMonitor = activeAccounts.length > 0 ? activeAccounts : accounts;
+    return listToMonitor.map(acc => {
+      const lastSeenMs = acc.last_seen_at ? new Date(acc.last_seen_at).getTime() : null;
+      const isOnline = lastSeenMs ? (Date.now() - lastSeenMs < allowedTimeoutMs) : false;
+      const minutesAgo = lastSeenMs ? Math.max(0, Math.floor((Date.now() - lastSeenMs) / 60000)) : null;
+      const secondsAgo = lastSeenMs ? Math.max(0, Math.floor((Date.now() - lastSeenMs) / 1000)) : null;
+      return {
+        id: acc.id,
+        name: acc.name || acc.alias || acc.id,
+        client_time: acc.client_time,
+        lastSeenMs,
+        isOnline,
+        minutesAgo,
+        secondsAgo
+      };
+    });
+  }, [activeAccounts, accounts, allowedTimeoutMs]);
+
+  const offlineAccounts = useMemo(() => {
+    return accountsMonitorStatus.filter(s => !s.isOnline);
+  }, [accountsMonitorStatus]);
+
+  // Overall monitor state: all active accounts must be online
+  const isMonitorOnline = accounts.length === 0 || offlineAccounts.length === 0;
 
   // Trigger offline alerts (Web Push + Audio Alarm + Telegram Check)
   useEffect(() => {
-    if (!isRoleLoaded) return;
-    if (!isMonitorOnline && lastSeenMs) {
+    if (!isRoleLoaded || accounts.length === 0) return;
+    if (!isMonitorOnline && offlineAccounts.length > 0) {
       if (!hasFiredOfflineNotificationRef.current) {
         hasFiredOfflineNotificationRef.current = true;
+        const offlineNames = offlineAccounts.map(a => a.name).join(', ');
+        const firstOffline = offlineAccounts[0];
+        const minAgoText = firstOffline?.minutesAgo !== null ? `hace ${firstOffline.minutesAgo} min` : 'sin señal';
+
         // Native Web Push Notification (Mobile Android SW + Desktop)
         showMobileOrDesktopNotification("⚠️ ALERTA: Monitor Mercado Pago Desconectado", {
-          body: `La cuenta ${mainAccount?.name || 'pagoszono.26'} no envía señal hace ${monitorMinutesAgo} minutos. Verifique la PC de monitoreo.`,
+          body: `Cuenta sin señal (${minAgoText}): ${offlineNames}. Verifique la PC de monitoreo.`,
           icon: "/favicon.ico",
           tag: "mp-monitor-offline-alert"
         });
@@ -1327,7 +1363,7 @@ export default function CobrosMercadoPagoPage() {
     } else if (isMonitorOnline) {
       hasFiredOfflineNotificationRef.current = false;
     }
-  }, [isMonitorOnline, lastSeenMs, monitorMinutesAgo, mainAccount, playWarningAlarm, isRoleLoaded]);
+  }, [isMonitorOnline, offlineAccounts, playWarningAlarm, isRoleLoaded, accounts.length]);
 
   return (
     <div className="min-h-screen bg-[#f8fafc] text-slate-800 pb-20">
@@ -1358,15 +1394,15 @@ export default function CobrosMercadoPagoPage() {
                   }`}
                   title={
                     isMonitorOnline 
-                      ? `Monitor Mercado Pago activo (${isOfficeHoursNow ? 'Oficina: máx 4m' : 'Nocturno: máx 15m'} - Hora ext: ${mainAccount?.client_time || 'N/A'} - Último pulso: hace ${monitorSecondsAgo}s)` 
-                      : `Monitor Mercado Pago desconectado (${monitorMinutesAgo !== null ? 'hace ' + monitorMinutesAgo + ' min' : 'sin señal'} - Límite: ${isOfficeHoursNow ? '4 min' : '15 min'})`
+                      ? `Monitor Mercado Pago activo (${isOfficeHoursNow ? 'Oficina: máx 4m' : 'Nocturno: máx 15m'})\n` + accountsMonitorStatus.map(a => `• ${a.name}: ${a.client_time ? `${a.client_time} hs` : (a.secondsAgo !== null ? `hace ${a.secondsAgo}s` : 'OK')}`).join('\n')
+                      : `Monitor Mercado Pago desconectado (${offlineAccounts.map(a => `${a.name}: ${a.minutesAgo !== null ? 'hace ' + a.minutesAgo + ' min' : 'sin señal'}`).join(', ')}) - Límite: ${isOfficeHoursNow ? '4 min' : '15 min'}`
                   }
                 >
                   <span className={`w-1.5 h-1.5 rounded-full ${isMonitorOnline ? 'bg-emerald-500' : 'bg-rose-500'}`} />
                   <span>
                     {isMonitorOnline 
-                      ? `Monitor MP Online${mainAccount?.client_time ? ` (${mainAccount.client_time} hs)` : ''}` 
-                      : 'Monitor MP Offline'}
+                      ? `Monitor MP Online${accountsMonitorStatus.length > 1 ? ` (${accountsMonitorStatus.length} ctas)` : ''}` 
+                      : `${offlineAccounts.length === 1 ? offlineAccounts[0].name : `${offlineAccounts.length} ctas`} Offline`}
                   </span>
                 </div>
               </div>
@@ -1465,8 +1501,29 @@ export default function CobrosMercadoPagoPage() {
               <div>
                 <span className="font-black tracking-wide uppercase">⚠️ ALERTA: MONITOR MERCADO PAGO DESCONECTADO</span>
                 <p className="text-[11px] text-rose-100 font-normal mt-0.5">
-                  La extensión en la cuenta <b>{mainAccount?.name || 'pagoszono.26'}</b> no envía señal de vida {monitorMinutesAgo !== null ? `hace ${monitorMinutesAgo} minutos` : 'hace unos momentos'} (tolerancia máxima: {isOfficeHoursNow ? '4 minutos en horario de oficina 06:00 a 21:00' : '15 minutos en horario nocturno / descanso'}). Verifique que la PC de monitoreo tenga la pestaña de Mercado Pago abierta y la sesión activa.
+                  {offlineAccounts.length === 1 ? (
+                    <>La cuenta <b>{offlineAccounts[0].name}</b> no envía señal de vida {offlineAccounts[0].minutesAgo !== null ? `hace ${offlineAccounts[0].minutesAgo} minutos` : 'hace unos momentos'}.</>
+                  ) : (
+                    <>Las cuentas <b>{offlineAccounts.map(a => a.name).join(', ')}</b> no envían señal de vida.</>
+                  )}
+                  {' '}(Tolerancia máxima: {isOfficeHoursNow ? '4 minutos en horario de oficina 06:00 a 21:00' : '15 minutos en horario nocturno / descanso'}). Verifique que la PC de monitoreo tenga abierta la pestaña correspondiente de Mercado Pago con la sesión activa.
                 </p>
+                {accountsMonitorStatus.length > 0 && (
+                  <div className="mt-1.5 flex flex-wrap gap-2 text-[10px]">
+                    {accountsMonitorStatus.map(acc => (
+                      <span 
+                        key={acc.id} 
+                        className={`px-2 py-0.5 rounded-md font-bold ${
+                          acc.isOnline 
+                            ? 'bg-emerald-900/60 text-emerald-200 border border-emerald-400/40' 
+                            : 'bg-rose-950/80 text-rose-200 border border-rose-300/60 animate-pulse'
+                        }`}
+                      >
+                        {acc.name}: {acc.isOnline ? `Online (${acc.client_time || 'Activo'})` : `Desconectada (${acc.minutesAgo !== null ? `hace ${acc.minutesAgo}m` : 'sin señal'})`}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
             <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
@@ -1503,7 +1560,11 @@ export default function CobrosMercadoPagoPage() {
               }`}
             >
               <span className={`w-2 h-2 rounded-full ${isMonitorOnline ? 'bg-emerald-500' : 'bg-rose-500'}`} />
-              <span>{isMonitorOnline ? `Monitor Online${mainAccount?.client_time ? ` (${mainAccount.client_time})` : ''}` : 'Monitor Offline'}</span>
+              <span>
+                {isMonitorOnline 
+                  ? `Monitor Online (${accountsMonitorStatus.length})` 
+                  : `${offlineAccounts.length === 1 ? offlineAccounts[0].name : `${offlineAccounts.length} ctas`} Offline`}
+              </span>
             </button>
 
             <div className="flex items-center gap-1.5">

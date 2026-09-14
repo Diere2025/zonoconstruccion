@@ -12,7 +12,7 @@ export default function RecursosPage() {
 
   useEffect(() => {
     async function fetchData() {
-      const { data: localitiesList } = await supabase.from('localities').select('*, zones(name)');
+      const { data: localitiesList } = await supabase.from('localities').select('*, zones(name)').eq('is_active', true);
       const { data: rulesList } = await supabase.from('zone_delivery_rules').select('*');
 
       if (localitiesList && rulesList) {

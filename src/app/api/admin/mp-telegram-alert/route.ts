@@ -14,6 +14,10 @@ interface TelegramConfig {
   chat_id: string;
   last_alert_at: string | null;
   was_offline: boolean;
+  accounts_state?: Record<string, {
+    last_alert_at: string | null;
+    was_offline: boolean;
+  }>;
 }
 
 const DEFAULT_CONFIG: TelegramConfig = {
@@ -21,7 +25,8 @@ const DEFAULT_CONFIG: TelegramConfig = {
   bot_token: '',
   chat_id: '',
   last_alert_at: null,
-  was_offline: false
+  was_offline: false,
+  accounts_state: {}
 };
 
 async function getTelegramConfig(): Promise<TelegramConfig> {
@@ -34,7 +39,7 @@ async function getTelegramConfig(): Promise<TelegramConfig> {
 
     if (data?.value) {
       const parsed = typeof data.value === 'string' ? JSON.parse(data.value) : data.value;
-      return { ...DEFAULT_CONFIG, ...parsed };
+      return { ...DEFAULT_CONFIG, ...parsed, accounts_state: parsed.accounts_state || {} };
     }
   } catch (e) {
     console.warn('[MP Telegram Alert] Error reading config:', e);
@@ -133,7 +138,8 @@ export async function GET() {
       bot_token_masked: maskedToken,
       has_token: Boolean(config.bot_token),
       last_alert_at: config.last_alert_at,
-      was_offline: config.was_offline
+      was_offline: config.was_offline,
+      accounts_state: config.accounts_state || {}
     }
   });
 }
@@ -150,10 +156,10 @@ export async function POST(request: Request) {
         ...currentConfig,
         enabled: Boolean(body.enabled),
         chat_id: (body.chat_id || currentConfig.chat_id || '').trim(),
-        // Keep existing token if not provided or only masked
         bot_token: body.bot_token && !body.bot_token.includes('...') 
           ? body.bot_token.trim() 
-          : currentConfig.bot_token
+          : currentConfig.bot_token,
+        accounts_state: currentConfig.accounts_state || {}
       };
 
       const saved = await saveTelegramConfig(updatedConfig);
@@ -203,71 +209,113 @@ export async function checkAndDispatchTelegramAlert(passedConfig?: TelegramConfi
     return { success: true, status: 'disabled_or_unconfigured' };
   }
 
-  // Fetch main account last_seen_at
-  const { data: acc } = await supabaseAdmin
+  // Fetch active accounts from mp_accounts
+  const { data: accounts, error: accError } = await supabaseAdmin
     .from('mp_accounts')
-    .select('id, name, last_seen_at, client_time')
-    .eq('id', 'pagoszono_26')
-    .maybeSingle();
+    .select('id, name, alias, last_seen_at, client_time, is_active')
+    .eq('is_active', true);
 
-  const lastSeenMs = acc?.last_seen_at ? new Date(acc.last_seen_at).getTime() : null;
+  if (accError) {
+    console.error('[MP Telegram Alert] Error fetching accounts:', accError);
+    return { success: false, error: accError.message };
+  }
+
+  let accountsToMonitor = accounts || [];
+  if (accountsToMonitor.length === 0) {
+    const { data: allAccs } = await supabaseAdmin
+      .from('mp_accounts')
+      .select('id, name, alias, last_seen_at, client_time, is_active')
+      .limit(10);
+    accountsToMonitor = (allAccs || []).filter(a => a.is_active !== false);
+  }
+
+  if (accountsToMonitor.length === 0) {
+    return { success: true, status: 'no_accounts_to_monitor' };
+  }
+
   const arg = getArgentinaDateTime();
   const allowedTimeoutMs = arg.isOfficeHours ? 240000 : 900000; // 4m office, 15m outside
   const allowedMinutes = arg.isOfficeHours ? 4 : 15;
   const officeLabel = arg.isOfficeHours ? 'Horario de Oficina (06:00 a 21:00)' : 'Horario Nocturno / Reposo';
 
-  const isOffline = lastSeenMs ? (Date.now() - lastSeenMs >= allowedTimeoutMs) : true;
-  const minutesAgo = lastSeenMs ? Math.max(0, Math.floor((Date.now() - lastSeenMs) / 60000)) : 999;
+  if (!currentConfig.accounts_state) {
+    currentConfig.accounts_state = {};
+  }
 
-  // CASE A: Monitor is OFFLINE
-  if (isOffline) {
-    // Anti-spam check: send at most once every 30 minutes
-    const lastAlertMs = currentConfig.last_alert_at ? new Date(currentConfig.last_alert_at).getTime() : 0;
-    const cooldownMs = 30 * 60 * 1000; // 30 min cooldown
-    const canSendAlert = Date.now() - lastAlertMs >= cooldownMs;
+  let configChanged = false;
+  const results: any[] = [];
 
-    if (canSendAlert) {
-      const alertMsg = 
+  for (const acc of accountsToMonitor) {
+    const accId = acc.id;
+    const accName = acc.name || acc.alias || acc.id;
+    const lastSeenMs = acc.last_seen_at ? new Date(acc.last_seen_at).getTime() : null;
+    const isOffline = lastSeenMs ? (Date.now() - lastSeenMs >= allowedTimeoutMs) : true;
+    const minutesAgo = lastSeenMs ? Math.max(0, Math.floor((Date.now() - lastSeenMs) / 60000)) : 999;
+
+    const accState = currentConfig.accounts_state[accId] || {
+      last_alert_at: null,
+      was_offline: false
+    };
+
+    // CASE A: Account is OFFLINE
+    if (isOffline) {
+      const lastAlertMs = accState.last_alert_at ? new Date(accState.last_alert_at).getTime() : 0;
+      const cooldownMs = 30 * 60 * 1000; // 30 min cooldown per account
+      const canSendAlert = Date.now() - lastAlertMs >= cooldownMs;
+
+      if (canSendAlert) {
+        const alertMsg = 
 `🚨 *ALERTA: MONITOR MERCADO PAGO DESCONECTADO*
 
-La cuenta *${acc?.name || 'pagoszono.26'}* no envía señal al ERP hace *${minutesAgo} minutos*.
+La cuenta *${accName}* no envía señal al ERP hace *${minutesAgo} minutos*.
 
 ⏱️ *Tolerancia máxima:* ${allowedMinutes} min (${officeLabel})
 🕒 *Hora actual:* ${arg.timeStr} hs
 📅 *Fecha:* ${arg.dateStr}
-${acc?.client_time ? `🕒 *Último reloj detectado:* ${acc.client_time} hs\n` : ''}
-⚠️ _Por favor verifique que la PC de monitoreo esté encendida con la pestaña de Mercado Pago abierta y la sesión activa._`;
+${acc.client_time ? `🕒 *Último reloj detectado:* ${acc.client_time} hs\n` : ''}
+⚠️ _Por favor verifique que la pestaña/ventana de *${accName}* en la PC de monitoreo esté abierta con sesión activa._`;
 
-      const tgRes = await sendTelegramMessage(currentConfig.bot_token, currentConfig.chat_id, alertMsg);
-      if (tgRes.ok) {
-        currentConfig.last_alert_at = new Date().toISOString();
-        currentConfig.was_offline = true;
-        await saveTelegramConfig(currentConfig);
-        return { success: true, status: 'alert_sent', minutesAgo };
+        const tgRes = await sendTelegramMessage(currentConfig.bot_token, currentConfig.chat_id, alertMsg);
+        if (tgRes.ok) {
+          accState.last_alert_at = new Date().toISOString();
+          accState.was_offline = true;
+          currentConfig.accounts_state[accId] = accState;
+          configChanged = true;
+          results.push({ account: accName, status: 'alert_sent', minutesAgo });
+        } else {
+          results.push({ account: accName, status: 'alert_failed', error: tgRes.description });
+        }
       } else {
-        return { success: false, error: tgRes.description };
+        results.push({ account: accName, status: 'offline_cooldown_active', minutesAgo });
       }
     }
 
-    return { success: true, status: 'offline_cooldown_active', minutesAgo };
-  }
-
-  // CASE B: Monitor is ONLINE, but was previously offline and sent alert -> Send RECOVERY message!
-  if (!isOffline && currentConfig.was_offline) {
-    const recoveryMsg = 
+    // CASE B: Account is ONLINE, but was previously offline and sent alert -> Send RECOVERY message!
+    if (!isOffline && accState.was_offline) {
+      const recoveryMsg = 
 `✅ *MONITOR MERCADO PAGO RESTABLECIDO*
 
-La cuenta *${acc?.name || 'pagoszono.26'}* volvió a sincronizar correctamente.
+La cuenta *${accName}* volvió a sincronizar correctamente.
 
 🟢 *Estado:* ONLINE
 🕒 *Hora de restablecimiento:* ${arg.timeStr} hs
-${acc?.client_time ? `🕒 *Reloj de la extensión:* ${acc.client_time} hs` : ''}`;
+${acc.client_time ? `🕒 *Reloj de la extensión:* ${acc.client_time} hs` : ''}`;
 
-    await sendTelegramMessage(currentConfig.bot_token, currentConfig.chat_id, recoveryMsg);
-    currentConfig.was_offline = false;
-    await saveTelegramConfig(currentConfig);
-    return { success: true, status: 'recovery_sent' };
+      const tgRes = await sendTelegramMessage(currentConfig.bot_token, currentConfig.chat_id, recoveryMsg);
+      if (tgRes.ok) {
+        accState.was_offline = false;
+        currentConfig.accounts_state[accId] = accState;
+        configChanged = true;
+        results.push({ account: accName, status: 'recovery_sent' });
+      }
+    }
   }
 
-  return { success: true, status: 'monitor_online_ok' };
+  if (configChanged) {
+    currentConfig.was_offline = Object.values(currentConfig.accounts_state).some(s => s.was_offline);
+    currentConfig.last_alert_at = new Date().toISOString();
+    await saveTelegramConfig(currentConfig);
+  }
+
+  return { success: true, results };
 }
