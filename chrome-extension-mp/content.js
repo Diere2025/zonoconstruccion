@@ -563,23 +563,43 @@ function manualSyncVisibleActivities() {
   }
 }
 
-// Audio alert beep
+// Audio alert beep with browser autoplay policy handling
+let audioCtx = null;
+function initAudioOnUserGesture() {
+  if (audioCtx) return;
+  try {
+    const AudioClass = window.AudioContext || window.webkitAudioContext;
+    if (AudioClass) {
+      audioCtx = new AudioClass();
+    }
+  } catch (e) {}
+}
+window.addEventListener("click", initAudioOnUserGesture, { once: true });
+window.addEventListener("keydown", initAudioOnUserGesture, { once: true });
+
 function playAlertBeep() {
   try {
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    if (!AudioCtx) return;
-    const ctx = new AudioCtx();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
+    if (!audioCtx) {
+      const AudioClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioClass) return;
+      audioCtx = new AudioClass();
+    }
+    if (audioCtx.state === "suspended") {
+      audioCtx.resume().catch(() => {});
+    }
+    if (audioCtx.state !== "running") return;
+
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
     osc.type = "sawtooth";
-    osc.frequency.setValueAtTime(880, ctx.currentTime);
-    osc.frequency.setValueAtTime(587.33, ctx.currentTime + 0.15);
-    gain.gain.setValueAtTime(0.25, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
+    osc.frequency.setValueAtTime(880, audioCtx.currentTime);
+    osc.frequency.setValueAtTime(587.33, audioCtx.currentTime + 0.15);
+    gain.gain.setValueAtTime(0.25, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
     osc.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(audioCtx.destination);
     osc.start();
-    osc.stop(ctx.currentTime + 0.4);
+    osc.stop(audioCtx.currentTime + 0.4);
   } catch (e) {}
 }
 

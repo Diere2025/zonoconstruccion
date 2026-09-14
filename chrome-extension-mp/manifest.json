@@ -18,6 +18,9 @@
     "default_popup": "popup.html",
     "default_title": "Zono MP Monitor"
   },
+  "icons": {
+    "128": "icon.png"
+  },
   "content_scripts": [
     {
       "matches": [
