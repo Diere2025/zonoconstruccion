@@ -291,11 +291,20 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     } else if (
       isRestrictedSeller && 
       pathname && 
+      pathname !== '/vendedores' &&
       pathname !== '/vendedores/presupuestos' && 
+      pathname !== '/vendedores/presupuestos-mayorista' && 
       !pathname.startsWith('/vendedores/pedidos') && 
       pathname !== '/admin/cobros-mp'
     ) {
-      router.replace('/vendedores/presupuestos');
+      router.replace('/vendedores');
+    } else if (
+      userRole === 'seller' && 
+      !isRestrictedSeller && 
+      pathname && 
+      pathname.startsWith('/admin/dashboard')
+    ) {
+      router.replace('/vendedores');
     }
   }, [isRoleLoaded, userRole, isRestrictedSeller, pathname, router]);
 
@@ -472,7 +481,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         {/* Sidebar Header / Brand */}
         <div className="h-16 flex items-center justify-between px-5 border-b border-slate-800/80 shrink-0 bg-slate-950/40">
           <Link 
-            href={userRole === 'admin' ? "/admin/dashboard" : (userRole === 'logistica' || userRole === 'fletero' || userRole === 'administracion') ? "/admin/cobros-mp" : isRestrictedSeller ? "/vendedores/presupuestos" : "/vendedores"} 
+            href={userRole === 'admin' ? "/admin/dashboard" : (userRole === 'logistica' || userRole === 'fletero' || userRole === 'administracion') ? "/admin/cobros-mp" : "/vendedores"} 
             onClick={closeSidebarOnMobile}
             className="flex items-center gap-3 group"
           >
@@ -529,8 +538,10 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                 }
                 if (isRestrictedSeller) {
                   return (
+                    link.href === "/vendedores" ||
                     link.href === "/vendedores/presupuestos" ||
-                    link.href === "/vendedores/pedidos?client_type=minoristas" ||
+                    link.href === "/vendedores/presupuestos-mayorista" ||
+                    link.href.startsWith("/vendedores/pedidos") ||
                     link.href === "/admin/cobros-mp"
                   );
                 }
