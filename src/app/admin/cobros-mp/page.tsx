@@ -1065,7 +1065,40 @@ export default function CobrosMercadoPagoPage() {
   // Extension Monitor Heartbeat Status calculation
   const mainAccount = accounts.find(a => a.id === 'pagoszono_26') || accounts[0];
   const lastSeenMs = mainAccount?.last_seen_at ? new Date(mainAccount.last_seen_at).getTime() : null;
-  const isMonitorOnline = lastSeenMs ? (Date.now() - lastSeenMs < 240000) : false; // 4 minutes threshold
+
+  // Determine if current time in Argentina is Office Hours (06:00 to 21:00, Mon-Sat)
+  const isOfficeHoursNow = (() => {
+    try {
+      const now = new Date();
+      const parts = new Intl.DateTimeFormat('es-AR', {
+        timeZone: 'America/Argentina/Buenos_Aires',
+        hour: 'numeric',
+        minute: 'numeric',
+        weekday: 'short',
+        hour12: false
+      }).formatToParts(now);
+
+      let hour = 0;
+      let minute = 0;
+      let weekday = '';
+      for (const p of parts) {
+        if (p.type === 'hour') hour = parseInt(p.value, 10);
+        if (p.type === 'minute') minute = parseInt(p.value, 10);
+        if (p.type === 'weekday') weekday = p.value.toLowerCase();
+      }
+      // Sunday is outside office hours
+      if (weekday.startsWith('do')) return false;
+
+      const currentMinutes = hour * 60 + minute;
+      return currentMinutes >= (6 * 60) && currentMinutes < (21 * 60);
+    } catch {
+      return true;
+    }
+  })();
+
+  // Timeout limit: 4 min in office hours (06-21hs); 15 min outside office hours
+  const allowedTimeoutMs = isOfficeHoursNow ? 240000 : 900000;
+  const isMonitorOnline = lastSeenMs ? (Date.now() - lastSeenMs < allowedTimeoutMs) : false;
   const monitorMinutesAgo = lastSeenMs ? Math.max(0, Math.floor((Date.now() - lastSeenMs) / 60000)) : null;
   const monitorSecondsAgo = lastSeenMs ? Math.max(0, Math.floor((Date.now() - lastSeenMs) / 1000)) : null;
 
@@ -1098,8 +1131,8 @@ export default function CobrosMercadoPagoPage() {
                   }`}
                   title={
                     isMonitorOnline 
-                      ? `Monitor Mercado Pago activo (Hora ext: ${mainAccount?.client_time || 'N/A'} - Último pulso: hace ${monitorSecondsAgo}s)` 
-                      : `Monitor Mercado Pago desconectado (${monitorMinutesAgo !== null ? 'hace ' + monitorMinutesAgo + ' min' : 'sin señal'})`
+                      ? `Monitor Mercado Pago activo (${isOfficeHoursNow ? 'Oficina: máx 4m' : 'Nocturno: máx 15m'} - Hora ext: ${mainAccount?.client_time || 'N/A'} - Último pulso: hace ${monitorSecondsAgo}s)` 
+                      : `Monitor Mercado Pago desconectado (${monitorMinutesAgo !== null ? 'hace ' + monitorMinutesAgo + ' min' : 'sin señal'} - Límite: ${isOfficeHoursNow ? '4 min' : '15 min'})`
                   }
                 >
                   <span className={`w-1.5 h-1.5 rounded-full ${isMonitorOnline ? 'bg-emerald-500' : 'bg-rose-500'}`} />
@@ -1187,7 +1220,7 @@ export default function CobrosMercadoPagoPage() {
 
       {/* Extension Offline Warning Alert Banner */}
       {isAdminOrStaff && !isMonitorOnline && (
-        <div className="bg-gradient-to-r from-rose-600 to-red-600 text-white px-4 py-3 text-xs font-semibold shadow-md border-b border-rose-700">
+        <div className="bg-gradient-to-r from-rose-600 to-red-600 text-white px-4 py-3 text-xs font-semibold shadow-md border-b border-rose-700 animate-in fade-in duration-200">
           <div className="max-w-7xl mx-auto w-full flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
@@ -1196,7 +1229,7 @@ export default function CobrosMercadoPagoPage() {
               <div>
                 <span className="font-black tracking-wide uppercase">⚠️ ALERTA: MONITOR MERCADO PAGO DESCONECTADO</span>
                 <p className="text-[11px] text-rose-100 font-normal mt-0.5">
-                  La extensión en la cuenta <b>{mainAccount?.name || 'pagoszono.26'}</b> no envía señal de vida {monitorMinutesAgo !== null ? `hace ${monitorMinutesAgo} minutos` : 'hace unos momentos'}. Verifique que la PC de monitoreo tenga la pestaña de Mercado Pago abierta y la sesión activa.
+                  La extensión en la cuenta <b>{mainAccount?.name || 'pagoszono.26'}</b> no envía señal de vida {monitorMinutesAgo !== null ? `hace ${monitorMinutesAgo} minutos` : 'hace unos momentos'} (tolerancia máxima: {isOfficeHoursNow ? '4 minutos en horario de oficina 06:00 a 21:00' : '15 minutos en horario nocturno / descanso'}). Verifique que la PC de monitoreo tenga la pestaña de Mercado Pago abierta y la sesión activa.
                 </p>
               </div>
             </div>

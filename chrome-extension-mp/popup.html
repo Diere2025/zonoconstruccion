@@ -58,11 +58,11 @@
   <div class="field-row">
     <div>
       <label>Desde (Inicio)</label>
-      <input type="time" id="workStart" value="07:30" />
+      <input type="time" id="workStart" value="06:00" />
     </div>
     <div>
       <label>Hasta (Fin)</label>
-      <input type="time" id="workEnd" value="18:30" />
+      <input type="time" id="workEnd" value="21:00" />
     </div>
   </div>
 
@@ -84,20 +84,21 @@
     <div>
       <label>Refresco Oficina</label>
       <select id="workInterval">
-        <option value="12">Cada 12 seg</option>
         <option value="15">Cada 15 seg</option>
-        <option value="20" selected>Cada 20 seg</option>
+        <option value="20">Cada 20 seg</option>
         <option value="30">Cada 30 seg</option>
-        <option value="45">Cada 45 seg</option>
+        <option value="45" selected>Cada 45 seg</option>
+        <option value="60">Cada 1 min</option>
       </select>
     </div>
     <div>
       <label>Fuera de Horario</label>
       <select id="offInterval">
         <option value="120">Cada 2 min</option>
-        <option value="300" selected>Cada 5 min</option>
-        <option value="600">Cada 10 min</option>
+        <option value="300">Cada 5 min</option>
+        <option value="600" selected>Cada 10 min</option>
         <option value="900">Cada 15 min</option>
+        <option value="1800">Cada 30 min</option>
       </select>
     </div>
   </div>

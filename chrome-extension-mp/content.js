@@ -7,10 +7,10 @@ let config = {
   secretToken: "mpchecker_secret_key_123",
   accountName: "pagoszono.26",
   // Office hours / schedule configuration
-  workInterval: 20,              // Segundos en horario laboral (ej: 20s)
-  offInterval: 300,              // Segundos fuera de horario laboral (ej: 300s = 5 minutos)
-  workStart: "07:30",            // Hora inicio oficina (HH:mm)
-  workEnd: "18:30",              // Hora fin oficina (HH:mm)
+  workInterval: 45,              // Segundos en horario laboral (45s)
+  offInterval: 600,              // Segundos fuera de horario laboral (600s = 10 minutos)
+  workStart: "06:00",            // Hora inicio oficina (06:00 am)
+  workEnd: "21:00",              // Hora fin oficina (21:00 hs)
   workDays: [1, 2, 3, 4, 5, 6],  // 1=Lunes a 6=Sábado
   autoRefresh: true
 };
@@ -33,8 +33,8 @@ function isWorkHours() {
       return false;
     }
 
-    const [startH, startM] = (config.workStart || "07:30").split(":").map(Number);
-    const [endH, endM] = (config.workEnd || "18:30").split(":").map(Number);
+    const [startH, startM] = (config.workStart || "06:00").split(":").map(Number);
+    const [endH, endM] = (config.workEnd || "21:00").split(":").map(Number);
     const startMin = startH * 60 + startM;
     const endMin = endH * 60 + endM;
 
@@ -46,8 +46,8 @@ function isWorkHours() {
 
 function getActiveInterval() {
   return isWorkHours()
-    ? Math.max(8, Number(config.workInterval) || 20)
-    : Math.max(30, Number(config.offInterval) || 300);
+    ? Math.max(8, Number(config.workInterval) || 45)
+    : Math.max(30, Number(config.offInterval) || 600);
 }
 
 function formatCountdown(sec) {
@@ -696,8 +696,16 @@ function startMonitoring() {
   // Fast interval scan for visible items
   setInterval(scanDOMActivities, 3000);
   setInterval(checkRefresh, 1000);
-  // Send heartbeat every 45 seconds to keep ERP updated
-  setInterval(sendHeartbeat, 45000);
+  // Dynamic heartbeat keeper: every 45s during office hours, every 5 min outside office
+  let lastHbTimestamp = Date.now();
+  setInterval(() => {
+    const inOffice = isWorkHours();
+    const intervalMs = inOffice ? 45000 : 300000; // 45s en oficina, 5 min fuera
+    if (Date.now() - lastHbTimestamp >= intervalMs) {
+      lastHbTimestamp = Date.now();
+      sendHeartbeat();
+    }
+  }, 10000);
 
   // Listen to background service worker wakeup pulse (bypasses browser tab throttling!)
   chrome.runtime.onMessage.addListener((msg) => {

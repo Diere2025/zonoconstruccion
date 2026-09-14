@@ -84,9 +84,13 @@ document.addEventListener("DOMContentLoaded", () => {
       if (res.webhookUrl) webhookUrlEl.value = res.webhookUrl;
       if (res.secretToken) secretTokenEl.value = res.secretToken;
       if (res.workStart) workStartEl.value = res.workStart;
+      else workStartEl.value = "06:00";
       if (res.workEnd) workEndEl.value = res.workEnd;
+      else workEndEl.value = "21:00";
       if (res.workInterval) workIntervalEl.value = String(res.workInterval);
+      else workIntervalEl.value = "45";
       if (res.offInterval) offIntervalEl.value = String(res.offInterval);
+      else offIntervalEl.value = "600";
       if (Array.isArray(res.workDays)) {
         updateDaysUI(res.workDays);
       }
