@@ -275,7 +275,7 @@ export default function ViewOrderModal({
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-black uppercase text-[10px] tracking-wider select-none">
                     <th className="py-2.5 px-3 text-center w-14">Cant.</th>
-                    <th className="py-2.5 px-3">Descripción</th>
+                    <th className="py-2.5 px-3">SKU</th>
                     <th className="py-2.5 px-3 text-right w-28">P. Unitario</th>
                     <th className="py-2.5 px-3 text-right w-32">Total</th>
                   </tr>
@@ -285,7 +285,9 @@ export default function ViewOrderModal({
                     const qty = item.quantity || 1;
                     const price = item.unit_price ?? item.customPrice ?? 0;
                     const subtotal = qty * price;
-                    const displayName = item.product_name || item.name || item.sku || "Producto";
+                    const displaySku = (item.sku && !item.sku.startsWith("AUTO-")) 
+                      ? item.sku 
+                      : (item.sku || item.product_name || item.name || "Producto");
 
                     return (
                       <tr key={idx} className="hover:bg-slate-50/50">
@@ -293,10 +295,7 @@ export default function ViewOrderModal({
                           {qty} u.
                         </td>
                         <td className="py-2.5 px-3">
-                          <div className="font-extrabold text-slate-900">{displayName}</div>
-                          {item.sku && item.sku !== displayName && !item.sku.startsWith("AUTO-") && (
-                            <span className="text-[10px] font-mono text-slate-400">SKU: {item.sku}</span>
-                          )}
+                          <div className="font-extrabold text-slate-900">{displaySku}</div>
                         </td>
                         <td className="py-2.5 px-3 text-right font-mono text-slate-600">
                           {formatPrice(price)}

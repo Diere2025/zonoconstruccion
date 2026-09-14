@@ -455,7 +455,7 @@ export default function PrintableBudgetModal({
                     </div>
                   </div>
                   <div style={{ fontSize: "9px", color: "#64748b", marginTop: "6px" }}>
-                    www.zono.com.ar • Buenos Aires, Argentina
+                    Quilmes 4541, Paso del Rey • Tel: 11-5769-4181 • www.zono.com.ar
                   </div>
                 </div>
 
@@ -539,7 +539,7 @@ export default function PrintableBudgetModal({
                 <thead>
                   <tr style={{ backgroundColor: "#001538", color: "#ffffff", textAlign: "left", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
                     <th style={{ padding: "8px 10px", textAlign: "center", width: "55px", borderTopLeftRadius: "6px" }}>Cant.</th>
-                    <th style={{ padding: "8px 12px" }}>Descripción del Producto</th>
+                    <th style={{ padding: "8px 12px" }}>SKU</th>
                     <th style={{ padding: "8px 10px", textAlign: "right", width: "110px" }}>Precio Lista</th>
                     <th style={{ padding: "8px 10px", textAlign: "center", width: "105px" }}>Bonificación</th>
                     <th style={{ padding: "8px 12px", textAlign: "right", width: "115px", borderTopRightRadius: "6px" }}>Subtotal</th>
@@ -555,6 +555,9 @@ export default function PrintableBudgetModal({
                       ? -Math.abs(item.customPrice * item.quantity) 
                       : (isKitIncluded ? 0 : item.customPrice * item.quantity);
                     const rowBg = index % 2 === 0 ? "#ffffff" : "#f8fafc";
+                    const displaySku = (item.sku && !item.sku.startsWith("AUTO-")) 
+                      ? item.sku 
+                      : (item.sku || item.name || "Producto");
 
                     return (
                       <tr key={`${item.id}-${index}`} style={{ backgroundColor: rowBg, borderBottom: "1px solid #e2e8f0", fontSize: "11px" }}>
@@ -563,16 +566,11 @@ export default function PrintableBudgetModal({
                           {item.quantity} u.
                         </td>
 
-                        {/* Descripción */}
+                        {/* SKU */}
                         <td style={{ padding: "9px 12px" }}>
                           <div style={{ fontWeight: 800, color: "#0f172a" }}>
-                            {item.name || item.sku || "Producto"}
+                            {displaySku}
                           </div>
-                          {item.sku && item.sku !== item.name && (
-                            <div style={{ fontSize: "9px", color: "#64748b", marginTop: "1px" }}>
-                              SKU: {item.sku}
-                            </div>
-                          )}
                           {isKitIncluded && (
                             <span 
                               style={{ 

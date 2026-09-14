@@ -931,21 +931,17 @@ export default function AjustesPage() {
                             />
                           </td>
                           <td className="px-3 py-2.5 text-center">
-                            {pm.id === "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3" || pm.name.toLowerCase().includes("efectivo") ? (
-                              <span className="text-[8px] font-bold text-slate-400 uppercase">Fijo Efectivo</span>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => handleSetPaymentMethodDefault(pm.id)}
-                                className={`px-2 py-1 rounded-md text-[8px] font-black uppercase tracking-wider transition-all border ${
-                                  pm.is_default 
-                                    ? 'bg-brand-50 border-brand-200 text-brand-700 font-extrabold shadow-sm' 
-                                    : 'bg-white border-slate-200 text-slate-400 hover:border-slate-300'
-                                }`}
-                              >
-                                {pm.is_default ? "Vigente default" : "Marcar default"}
-                              </button>
-                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleSetPaymentMethodDefault(pm.id)}
+                              className={`px-2 py-1 rounded-md text-[8px] font-black uppercase tracking-wider transition-all border cursor-pointer ${
+                                pm.is_default 
+                                  ? 'bg-emerald-50 border-emerald-300 text-emerald-700 font-extrabold shadow-sm' 
+                                  : 'bg-white border-slate-200 text-slate-400 hover:border-slate-300'
+                              }`}
+                            >
+                              {pm.is_default ? "✓ Por Defecto" : "Marcar default"}
+                            </button>
                           </td>
                         </tr>
                       ))}
