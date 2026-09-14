@@ -1313,12 +1313,16 @@ export default function CobrosMercadoPagoPage() {
     const listToMonitor = activeAccounts.length > 0 ? activeAccounts : accounts;
     return listToMonitor.map(acc => {
       const lastSeenMs = acc.last_seen_at ? new Date(acc.last_seen_at).getTime() : null;
-      const isOnline = lastSeenMs ? (Date.now() - lastSeenMs < allowedTimeoutMs) : false;
+      const hasTimedOut = lastSeenMs ? (Date.now() - lastSeenMs >= allowedTimeoutMs) : true;
+      const hasError = acc.status === 'error';
+      const isOnline = !hasError && !hasTimedOut;
       const minutesAgo = lastSeenMs ? Math.max(0, Math.floor((Date.now() - lastSeenMs) / 60000)) : null;
       const secondsAgo = lastSeenMs ? Math.max(0, Math.floor((Date.now() - lastSeenMs) / 1000)) : null;
       return {
         id: acc.id,
         name: acc.name || acc.alias || acc.id,
+        status: acc.status,
+        hasError,
         client_time: acc.client_time,
         lastSeenMs,
         isOnline,
@@ -1519,7 +1523,7 @@ export default function CobrosMercadoPagoPage() {
                             : 'bg-rose-950/80 text-rose-200 border border-rose-300/60 animate-pulse'
                         }`}
                       >
-                        {acc.name}: {acc.isOnline ? `Online (${acc.client_time || 'Activo'})` : `Desconectada (${acc.minutesAgo !== null ? `hace ${acc.minutesAgo}m` : 'sin señal'})`}
+                        {acc.name}: {acc.isOnline ? `Online (${acc.client_time || 'Activo'})` : (acc.hasError ? '⚠️ Error en pantalla' : `Desconectada (${acc.minutesAgo !== null ? `hace ${acc.minutesAgo}m` : 'sin señal'})`)}
                       </span>
                     ))}
                   </div>

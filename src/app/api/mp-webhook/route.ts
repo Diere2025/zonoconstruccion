@@ -322,6 +322,57 @@ export async function POST(request: Request) {
       const body: any = await request.json().catch(() => ({}));
       rawJsonBody = body;
 
+      // Handle page error alert from Chrome extension (crashed page or wrong link)
+      if (body.type === 'ALERT_PAGE_ERROR' || body.action === 'ALERT_PAGE_ERROR') {
+        let resolvedAccountId = 'pagoszono_26';
+        let resolvedAccountName = 'pagoszono.26';
+        const cleanAccount = (body.account || account || '').trim().toLowerCase();
+        if (cleanAccount.includes('diego')) {
+          resolvedAccountId = 'diegozono_mp';
+          resolvedAccountName = 'diegozono.mp';
+        } else {
+          resolvedAccountId = 'pagoszono_26';
+          resolvedAccountName = 'pagoszono.26';
+        }
+
+        try {
+          await supabaseAdmin
+            .from('mp_accounts')
+            .update({
+              status: 'error',
+              client_time: body.clientTime || null
+            })
+            .eq('id', resolvedAccountId);
+
+          const { getTelegramConfig, sendTelegramMessage, getArgentinaDateTime } = await import('@/app/api/admin/mp-telegram-alert/route');
+          const tgConfig = await getTelegramConfig();
+          if (tgConfig.enabled && tgConfig.bot_token && tgConfig.chat_id) {
+            const arg = getArgentinaDateTime();
+            const reason = body.message || 'Error en pantalla de Mercado Pago';
+            const errorMsg = 
+`🚨 *ALERTA: FALLA EN PESTAÑA MERCADO PAGO*
+
+La cuenta *${resolvedAccountName}* detectó una anomalía en el navegador:
+⚠️ *Detalle:* ${reason}
+${body.url ? `🔗 *URL:* \`${body.url}\`\n` : ''}
+🕒 *Hora:* ${arg.timeStr} hs
+📅 *Fecha:* ${arg.dateStr}
+${body.clientTime ? `🕒 *Reloj extensión:* ${body.clientTime} hs\n` : ''}
+🔄 _La extensión intentará refrescar la hoja completa. Por favor revise la PC de monitoreo si persiste._`;
+
+            await sendTelegramMessage(tgConfig.bot_token, tgConfig.chat_id, errorMsg);
+          }
+        } catch (err) {
+          console.warn('[MP Webhook] Error handling ALERT_PAGE_ERROR:', err);
+        }
+
+        return NextResponse.json({
+          success: true,
+          type: 'ALERT_PAGE_ERROR_ACK',
+          account: resolvedAccountId
+        });
+      }
+
       // Handle heartbeat ping from Chrome extension
       if (body.type === 'HEARTBEAT' || body.action === 'HEARTBEAT') {
         let resolvedAccountId = 'pagoszono_26';
