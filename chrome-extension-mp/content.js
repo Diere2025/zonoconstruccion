@@ -462,77 +462,52 @@ function parseDOMRow(row) {
 }
 
 // 2. DOM Scraper - Strictly scans ONLY top visible activities on screen (NO scrolling, NO pagination)
+// 2. DOM Scraper - Strictly scans ONLY top visible activities on screen (NO scrolling, NO pagination)
 function getVisibleRows() {
+  if (!isActivitiesPage()) return [];
+
   const timeRegex = /\b\d{1,2}:\d{2}\b/;
   const rows = [];
   const seenSignatures = new Set();
 
-  // Strategy: Find leaf labels of "Transferencia recibida" or "Recibiste" and traverse up to the row container
-  const allNodes = Array.from(document.body.querySelectorAll("*"));
-  const transferLabels = allNodes.filter(el => {
-    if (el.children.length > 2) return false;
-    const txt = (el.innerText || el.textContent || "").replace(/\u00a0/g, " ").trim().toLowerCase();
-    return txt === "transferencia recibida" || txt === "transferencia";
-  });
+  const container = document.querySelector("main, [role='main'], [data-testid*='activities']") || document.body;
+  const candidates = Array.from(container.querySelectorAll("a, li, tr, [role='listitem'], div"));
 
-  for (const label of transferLabels) {
-    let parent = label.parentElement;
-    let foundContainer = null;
-    let depth = 0;
-
-    // Walk up until we find the container having time and $ amount
-    while (parent && parent !== document.body && depth < 10) {
-      const pText = (parent.innerText || "").replace(/\u00a0/g, " ").trim();
-      if (pText.includes("$") && timeRegex.test(pText) && pText.length < 400) {
-        foundContainer = parent;
-        break;
-      }
-      parent = parent.parentElement;
-      depth++;
-    }
-
-    if (foundContainer) {
-      const pText = (foundContainer.innerText || "").replace(/\u00a0/g, " ").trim();
-      const timeMatch = pText.match(/\b(\d{1,2}:\d{2})\b/);
-      const amountMatch = pText.match(/\+\s*\$\s*([\d\.,]+)/) || pText.match(/\$\s*([\d\.,]+)/);
-      if (timeMatch && amountMatch) {
-        const dateInfo = getRowDate(foundContainer);
-        const sig = `${dateInfo.dateStr}_${amountMatch[1]}_${timeMatch[1]}`;
-        if (!seenSignatures.has(sig)) {
-          seenSignatures.add(sig);
-          rows.push(foundContainer);
-        }
-      }
-    }
-  }
-
-  // Fallback: If above didn't find rows, search for any element containing both $ and time
-  if (rows.length === 0) {
-    for (const el of allNodes) {
-      const t = (el.innerText || "").replace(/\u00a0/g, " ").trim();
-      if (t.includes("$") && timeRegex.test(t) && t.length >= 20 && t.length <= 350) {
-        const lower = t.toLowerCase();
-        if (lower.includes("transferencia") || lower.includes("aprobado") || lower.includes("recibiste")) {
-          const timeMatch = t.match(/\b(\d{1,2}:\d{2})\b/);
-          const amountMatch = t.match(/\+\s*\$\s*([\d\.,]+)/) || t.match(/\$\s*([\d\.,]+)/);
+  for (const el of candidates) {
+    if (el.children.length > 6) continue;
+    const txt = (el.textContent || "").toLowerCase();
+    if (txt.includes("transferencia recibida") || txt.includes("recibiste")) {
+      let parent = el;
+      let depth = 0;
+      while (parent && parent !== container && depth < 6) {
+        const pText = (parent.innerText || "").replace(/\u00a0/g, " ").trim();
+        if (pText.includes("$") && timeRegex.test(pText) && pText.length < 350) {
+          const timeMatch = pText.match(/\b(\d{1,2}:\d{2})\b/);
+          const amountMatch = pText.match(/\+\s*\$\s*([\d\.,]+)/) || pText.match(/\$\s*([\d\.,]+)/);
           if (timeMatch && amountMatch) {
-            const dateInfo = getRowDate(el);
+            const dateInfo = getRowDate(parent);
             const sig = `${dateInfo.dateStr}_${amountMatch[1]}_${timeMatch[1]}`;
             if (!seenSignatures.has(sig)) {
               seenSignatures.add(sig);
-              rows.push(el);
+              rows.push(parent);
             }
           }
+          break;
         }
+        parent = parent.parentElement;
+        depth++;
       }
     }
   }
 
-  console.log(`[Zono MP Monitor] Filas de transferencias detectadas: ${rows.length}`);
   return rows.slice(0, 15);
 }
 
 function scanDOMActivities() {
+  if (!isActivitiesPage()) return;
+  const err = detectMercadoPagoError();
+  if (err.hasError) return;
+
   const topRows = getVisibleRows();
   topRows.forEach(row => {
     const parsed = parseDOMRow(row);
@@ -609,92 +584,72 @@ function isActivitiesPage() {
   return path.startsWith("/activities") || path.startsWith("/movement");
 }
 
-// 2. Check if Mercado Pago crashed or is displaying an error screen
+// 2. Check if Mercado Pago crashed or is displaying an error screen (ultra-fast selector check)
 function detectMercadoPagoError() {
-  const bodyText = (document.body?.innerText || "").toLowerCase();
-
-  const hasErrorText = 
-    bodyText.includes("no fue posible cargar la información") ||
-    bodyText.includes("no fue posible cargar la informacion") ||
-    bodyText.includes("ya estamos trabajando en ello") ||
-    bodyText.includes("intenta de nuevo en unos minutos") ||
-    bodyText.includes("algo salió mal") ||
-    bodyText.includes("ups! algo salió mal") ||
-    bodyText.includes("error inesperado") ||
-    bodyText.includes("no pudimos cargar");
-
-  const buttons = Array.from(document.querySelectorAll("button, a, [role='button']"));
-  const retryBtn = buttons.find(b => {
-    const txt = (b.innerText || b.textContent || "").trim().toLowerCase();
-    return txt === "reintentar" || txt === "volver a intentar" || txt === "intentar de nuevo";
-  });
-
-  if (hasErrorText || retryBtn) {
-    return {
-      hasError: true,
-      retryBtn: retryBtn || null,
-      message: hasErrorText ? "No fue posible cargar la información" : "Pantalla con botón Reintentar"
-    };
+  const headings = document.querySelectorAll("h1, h2, h3, h4, [role='heading'], .ui-empty-state");
+  for (let i = 0; i < headings.length; i++) {
+    const txt = (headings[i].textContent || "").toLowerCase();
+    if (
+      txt.includes("no fue posible cargar") ||
+      txt.includes("ya estamos trabajando en ello") ||
+      txt.includes("intenta de nuevo en unos minutos") ||
+      txt.includes("algo salió mal")
+    ) {
+      const retryBtn = Array.from(document.querySelectorAll("button, a")).find(b => {
+        const t = (b.textContent || "").trim().toLowerCase();
+        return t === "reintentar" || t === "volver a intentar" || t === "intentar de nuevo";
+      });
+      return {
+        hasError: true,
+        retryBtn: retryBtn || null,
+        message: "No fue posible cargar la información"
+      };
+    }
   }
 
   return { hasError: false };
 }
 
+let isWrongPageActive = false;
+let wrongPageSeconds = 0;
 let wrongPageAlertSent = false;
-let wrongPageCountdown = 6;
-let wrongPageTimer = null;
 
 function handleWrongPage() {
+  wrongPageSeconds++;
   setConnectionStatus(false);
-  playAlertBeep();
 
-  const widget = document.getElementById("zono-mp-widget");
-  const statusText = document.getElementById("zono-mp-status-text");
-  if (widget) {
-    widget.style.borderColor = "#ef4444";
-    widget.style.background = "#450a0a";
-  }
-  if (statusText) {
-    statusText.innerHTML = `
-      <div style="color: #fca5a5; font-size: 11px; font-weight: 800; margin-top: 2px;">
-        ⚠️ ¡PÁGINA INCORRECTA! (${window.location.pathname})
-      </div>
-      <div style="font-size: 11px; color: #fecaca; margin-top: 2px; display: flex; align-items: center; gap: 6px;">
-        <span>Redirigiendo a Actividades en <b id="zono-redirect-count" style="color: #f87171;">${wrongPageCountdown}</b>s...</span>
-        <button id="zono-redirect-btn" style="background: #dc2626; color: white; border: none; border-radius: 4px; padding: 2px 7px; font-size: 10px; font-weight: bold; cursor: pointer;">Ir ahora</button>
-      </div>
-    `;
+  // If outside /activities for 8 seconds, send alert and show redirect button
+  if (wrongPageSeconds >= 8) {
+    if (!wrongPageAlertSent) {
+      wrongPageAlertSent = true;
+      playAlertBeep();
+      sendPageAlert(
+        "WRONG_PAGE",
+        `La ventana se encuentra fuera de Actividades (en: "${window.location.pathname}"). El monitor no puede registrar cobros aquí.`,
+        "⚠️ ALERTA: Monitor MP fuera de Actividades"
+      );
+    }
 
-    document.getElementById("zono-redirect-btn")?.addEventListener("click", () => {
-      window.location.href = "https://www.mercadopago.com.ar/activities";
-    });
-  }
-
-  // Send alert to ERP and Telegram immediately
-  if (!wrongPageAlertSent) {
-    wrongPageAlertSent = true;
-    sendPageAlert(
-      "WRONG_PAGE",
-      `La ventana se movió a una página no válida ("${window.location.pathname}"). El monitor no puede registrar cobros aquí.`,
-      "⚠️ ALERTA: Monitor MP fuera de Actividades"
-    );
-  }
-
-  // Auto-redirect countdown
-  if (!wrongPageTimer) {
-    wrongPageCountdown = 6;
-    wrongPageTimer = setInterval(() => {
-      wrongPageCountdown--;
-      const countEl = document.getElementById("zono-redirect-count");
-      if (countEl) countEl.innerText = wrongPageCountdown;
-
-      if (wrongPageCountdown <= 0) {
-        clearInterval(wrongPageTimer);
-        wrongPageTimer = null;
-        console.log("[Zono MP Monitor] Redirigiendo a https://www.mercadopago.com.ar/activities...");
-        window.location.href = "https://www.mercadopago.com.ar/activities";
+    if (!isWrongPageActive) {
+      isWrongPageActive = true;
+      const widget = document.getElementById("zono-mp-widget");
+      if (widget) {
+        widget.style.borderColor = "#ef4444";
+        widget.style.background = "#450a0a";
       }
-    }, 1000);
+      const statusText = document.getElementById("zono-mp-status-text");
+      if (statusText) {
+        statusText.innerHTML = `
+          <div style="color: #fca5a5; font-size: 11px; font-weight: 800; margin-top: 2px;">
+            ⚠️ Fuera de Actividades (${window.location.pathname})
+          </div>
+          <button id="zono-redirect-btn" style="background: #0069ff; color: white; border: none; border-radius: 4px; padding: 2px 7px; font-size: 10px; font-weight: bold; cursor: pointer; margin-top: 2px;">Ir a Actividades</button>
+        `;
+        document.getElementById("zono-redirect-btn")?.addEventListener("click", () => {
+          window.location.href = "https://www.mercadopago.com.ar/activities";
+        });
+      }
+    }
   }
 }
 
@@ -703,7 +658,6 @@ let isReloadingDueToError = false;
 
 function handleMercadoPagoError(errCheck) {
   setConnectionStatus(false);
-  playAlertBeep();
 
   const widget = document.getElementById("zono-mp-widget");
   const statusText = document.getElementById("zono-mp-status-text");
@@ -722,17 +676,15 @@ function handleMercadoPagoError(errCheck) {
     `;
   }
 
-  // If there's a Reintentar button, click it first
   if (errCheck?.retryBtn) {
     try {
-      console.log("[Zono MP Monitor] Clic en 'Reintentar'...");
       errCheck.retryBtn.click();
     } catch (e) {}
   }
 
-  // Send alert to ERP and Telegram
   if (!errorAlertSent) {
     errorAlertSent = true;
+    playAlertBeep();
     sendPageAlert(
       "PAGE_CRASH",
       "Mercado Pago se colgó con el mensaje: 'No fue posible cargar la información'. Refrescando hoja completa...",
@@ -740,7 +692,6 @@ function handleMercadoPagoError(errCheck) {
     );
   }
 
-  // Full page refresh after 3 seconds
   if (!isReloadingDueToError) {
     isReloadingDueToError = true;
     setTimeout(() => {
@@ -920,35 +871,6 @@ function startMonitoring() {
   let lastRefreshTime = Date.now();
 
   function checkRefresh() {
-    // 1. Immediate Page Validity Check
-    if (!isActivitiesPage()) {
-      handleWrongPage();
-      return;
-    }
-
-    // 2. Immediate Error Screen Check
-    const errCheck = detectMercadoPagoError();
-    if (errCheck.hasError) {
-      handleMercadoPagoError(errCheck);
-      return;
-    }
-
-    // If on activities and healthy, reset wrong-page state if it was set
-    if (wrongPageAlertSent) {
-      wrongPageAlertSent = false;
-      if (wrongPageTimer) {
-        clearInterval(wrongPageTimer);
-        wrongPageTimer = null;
-      }
-    }
-
-    // 3. Periodic preventive full reload
-    if (isWorkHours() && Date.now() - PAGE_LOAD_TIME >= FULL_RELOAD_INTERVAL_MS) {
-      console.log("[Zono MP Monitor] Recarga preventiva periódica (25 min)...");
-      window.location.reload();
-      return;
-    }
-
     const now = new Date();
     const clientTime = now.toLocaleTimeString("es-AR", {
       timeZone: "America/Argentina/Buenos_Aires",
@@ -961,6 +883,56 @@ function startMonitoring() {
     const clockEl = document.getElementById("zono-clock");
     if (clockEl) {
       clockEl.innerText = `🕒 ${clientTime} hs`;
+    }
+
+    // 1. Immediate Page Validity Check
+    if (!isActivitiesPage()) {
+      handleWrongPage();
+      return;
+    }
+
+    // If on activities and healthy, reset wrong-page state if it was set
+    if (isWrongPageActive) {
+      isWrongPageActive = false;
+      wrongPageSeconds = 0;
+      wrongPageAlertSent = false;
+      const widget = document.getElementById("zono-mp-widget");
+      if (widget) {
+        widget.style.borderColor = "#0069ff";
+        widget.style.background = "#001538";
+      }
+      const statusText = document.getElementById("zono-mp-status-text");
+      if (statusText) {
+        statusText.innerHTML = `
+          <span>Próximo refresco: <b id="zono-countdown" style="color: #34d399;">${formatCountdown(getActiveInterval())}</b></span>
+          <select id="zono-quick-account" style="background: #0f172a; color: #38bdf8; border: 1px solid #334155; border-radius: 6px; font-size: 11px; font-weight: 700; padding: 2px 6px; outline: none; cursor: pointer;">
+            <option value="pagoszono.26" ${config.accountName === "pagoszono.26" ? "selected" : ""}>pagoszono.26</option>
+            <option value="diegozono.mp" ${config.accountName === "diegozono.mp" ? "selected" : ""}>diegozono.mp</option>
+          </select>
+        `;
+        document.getElementById("zono-quick-account")?.addEventListener("change", (e) => {
+          const newAcc = e.target.value;
+          config.accountName = newAcc;
+          chrome.storage.local.set({ accountName: newAcc }, () => {
+            showToast(`Cuenta configurada: ${newAcc}`, "success");
+            sendHeartbeat();
+          });
+        });
+      }
+    }
+
+    // 2. Immediate Error Screen Check
+    const errCheck = detectMercadoPagoError();
+    if (errCheck.hasError) {
+      handleMercadoPagoError(errCheck);
+      return;
+    }
+
+    // 3. Periodic preventive full reload
+    if (isWorkHours() && Date.now() - PAGE_LOAD_TIME >= FULL_RELOAD_INTERVAL_MS) {
+      console.log("[Zono MP Monitor] Recarga preventiva periódica (25 min)...");
+      window.location.reload();
+      return;
     }
 
     if (!config.autoRefresh) return;
@@ -1041,19 +1013,4 @@ function startMonitoring() {
     scanDOMActivities();
     sendHeartbeat();
   });
-
-  // DOM MutationObserver to detect when Mercado Pago injects new activities or errors immediately
-  try {
-    const observer = new MutationObserver(() => {
-      const errCheck = detectMercadoPagoError();
-      if (errCheck.hasError) {
-        handleMercadoPagoError(errCheck);
-      } else {
-        scanDOMActivities();
-      }
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
-  } catch (e) {
-    console.warn("[Zono MP Monitor] Observer error:", e);
-  }
 }
