@@ -29,7 +29,7 @@ const DEFAULT_CONFIG: TelegramConfig = {
   accounts_state: {}
 };
 
-async function getTelegramConfig(): Promise<TelegramConfig> {
+export async function getTelegramConfig(): Promise<TelegramConfig> {
   try {
     const { data } = await supabaseAdmin
       .from('site_settings')
@@ -47,7 +47,7 @@ async function getTelegramConfig(): Promise<TelegramConfig> {
   return DEFAULT_CONFIG;
 }
 
-async function saveTelegramConfig(config: TelegramConfig): Promise<boolean> {
+export async function saveTelegramConfig(config: TelegramConfig): Promise<boolean> {
   try {
     const { error } = await supabaseAdmin
       .from('site_settings')
@@ -64,7 +64,7 @@ async function saveTelegramConfig(config: TelegramConfig): Promise<boolean> {
   }
 }
 
-async function sendTelegramMessage(botToken: string, chatId: string, text: string): Promise<{ ok: boolean; description?: string }> {
+export async function sendTelegramMessage(botToken: string, chatId: string, text: string): Promise<{ ok: boolean; description?: string }> {
   try {
     const url = `https://api.telegram.org/bot${botToken.trim()}/sendMessage`;
     const res = await fetch(url, {
@@ -83,7 +83,7 @@ async function sendTelegramMessage(botToken: string, chatId: string, text: strin
   }
 }
 
-function getArgentinaDateTime(date: Date = new Date()) {
+export function getArgentinaDateTime(date: Date = new Date()) {
   const parts = new Intl.DateTimeFormat('es-AR', {
     timeZone: 'America/Argentina/Buenos_Aires',
     hour: '2-digit',
@@ -212,7 +212,7 @@ export async function checkAndDispatchTelegramAlert(passedConfig?: TelegramConfi
   // Fetch active accounts from mp_accounts
   const { data: accounts, error: accError } = await supabaseAdmin
     .from('mp_accounts')
-    .select('id, name, alias, last_seen_at, client_time, is_active')
+    .select('id, name, alias, last_seen_at, client_time, is_active, status')
     .eq('is_active', true);
 
   if (accError) {
@@ -224,7 +224,7 @@ export async function checkAndDispatchTelegramAlert(passedConfig?: TelegramConfi
   if (accountsToMonitor.length === 0) {
     const { data: allAccs } = await supabaseAdmin
       .from('mp_accounts')
-      .select('id, name, alias, last_seen_at, client_time, is_active')
+      .select('id, name, alias, last_seen_at, client_time, is_active, status')
       .limit(10);
     accountsToMonitor = (allAccs || []).filter(a => a.is_active !== false);
   }
@@ -249,7 +249,9 @@ export async function checkAndDispatchTelegramAlert(passedConfig?: TelegramConfi
     const accId = acc.id;
     const accName = acc.name || acc.alias || acc.id;
     const lastSeenMs = acc.last_seen_at ? new Date(acc.last_seen_at).getTime() : null;
-    const isOffline = lastSeenMs ? (Date.now() - lastSeenMs >= allowedTimeoutMs) : true;
+    const isTimeout = lastSeenMs ? (Date.now() - lastSeenMs >= allowedTimeoutMs) : true;
+    const hasStatusError = acc.status === 'error';
+    const isOffline = isTimeout || hasStatusError;
     const minutesAgo = lastSeenMs ? Math.max(0, Math.floor((Date.now() - lastSeenMs) / 60000)) : 999;
 
     const accState = currentConfig.accounts_state[accId] || {
@@ -257,23 +259,28 @@ export async function checkAndDispatchTelegramAlert(passedConfig?: TelegramConfi
       was_offline: false
     };
 
-    // CASE A: Account is OFFLINE
+    // CASE A: Account is OFFLINE or in ERROR
     if (isOffline) {
       const lastAlertMs = accState.last_alert_at ? new Date(accState.last_alert_at).getTime() : 0;
       const cooldownMs = 30 * 60 * 1000; // 30 min cooldown per account
       const canSendAlert = Date.now() - lastAlertMs >= cooldownMs;
 
       if (canSendAlert) {
-        const alertMsg = 
-`🚨 *ALERTA: MONITOR MERCADO PAGO DESCONECTADO*
+        const reasonDetail = hasStatusError
+          ? `La pestaña reportó un *error en la pantalla de Mercado Pago* (ej. "No fue posible cargar la información" o navegó fuera de Actividades).`
+          : `No envía señal al ERP hace *${minutesAgo} minutos*.`;
 
-La cuenta *${accName}* no envía señal al ERP hace *${minutesAgo} minutos*.
+        const alertMsg = 
+`🚨 *ALERTA: MONITOR MERCADO PAGO EN PROBLEMAS*
+
+Cuenta: *${accName}*
+⚠️ *Motivo:* ${reasonDetail}
 
 ⏱️ *Tolerancia máxima:* ${allowedMinutes} min (${officeLabel})
 🕒 *Hora actual:* ${arg.timeStr} hs
 📅 *Fecha:* ${arg.dateStr}
 ${acc.client_time ? `🕒 *Último reloj detectado:* ${acc.client_time} hs\n` : ''}
-⚠️ _Por favor verifique que la pestaña/ventana de *${accName}* en la PC de monitoreo esté abierta con sesión activa._`;
+⚠️ _Por favor verifique que la pestaña/ventana de *${accName}* en la PC de monitoreo esté abierta con sesión activa en /activities._`;
 
         const tgRes = await sendTelegramMessage(currentConfig.bot_token, currentConfig.chat_id, alertMsg);
         if (tgRes.ok) {

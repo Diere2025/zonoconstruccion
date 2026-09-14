@@ -563,7 +563,223 @@ function manualSyncVisibleActivities() {
   }
 }
 
+// Audio alert beep
+function playAlertBeep() {
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.setValueAtTime(587.33, ctx.currentTime + 0.15);
+    gain.gain.setValueAtTime(0.25, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.4);
+  } catch (e) {}
+}
+
+// 1. Check if the tab is on the principal activities page
+function isActivitiesPage() {
+  const path = window.location.pathname.toLowerCase();
+  return path.startsWith("/activities") || path.startsWith("/movement");
+}
+
+// 2. Check if Mercado Pago crashed or is displaying an error screen
+function detectMercadoPagoError() {
+  const bodyText = (document.body?.innerText || "").toLowerCase();
+
+  const hasErrorText = 
+    bodyText.includes("no fue posible cargar la información") ||
+    bodyText.includes("no fue posible cargar la informacion") ||
+    bodyText.includes("ya estamos trabajando en ello") ||
+    bodyText.includes("intenta de nuevo en unos minutos") ||
+    bodyText.includes("algo salió mal") ||
+    bodyText.includes("ups! algo salió mal") ||
+    bodyText.includes("error inesperado") ||
+    bodyText.includes("no pudimos cargar");
+
+  const buttons = Array.from(document.querySelectorAll("button, a, [role='button']"));
+  const retryBtn = buttons.find(b => {
+    const txt = (b.innerText || b.textContent || "").trim().toLowerCase();
+    return txt === "reintentar" || txt === "volver a intentar" || txt === "intentar de nuevo";
+  });
+
+  if (hasErrorText || retryBtn) {
+    return {
+      hasError: true,
+      retryBtn: retryBtn || null,
+      message: hasErrorText ? "No fue posible cargar la información" : "Pantalla con botón Reintentar"
+    };
+  }
+
+  return { hasError: false };
+}
+
+let wrongPageAlertSent = false;
+let wrongPageCountdown = 6;
+let wrongPageTimer = null;
+
+function handleWrongPage() {
+  setConnectionStatus(false);
+  playAlertBeep();
+
+  const widget = document.getElementById("zono-mp-widget");
+  const statusText = document.getElementById("zono-mp-status-text");
+  if (widget) {
+    widget.style.borderColor = "#ef4444";
+    widget.style.background = "#450a0a";
+  }
+  if (statusText) {
+    statusText.innerHTML = `
+      <div style="color: #fca5a5; font-size: 11px; font-weight: 800; margin-top: 2px;">
+        ⚠️ ¡PÁGINA INCORRECTA! (${window.location.pathname})
+      </div>
+      <div style="font-size: 11px; color: #fecaca; margin-top: 2px; display: flex; align-items: center; gap: 6px;">
+        <span>Redirigiendo a Actividades en <b id="zono-redirect-count" style="color: #f87171;">${wrongPageCountdown}</b>s...</span>
+        <button id="zono-redirect-btn" style="background: #dc2626; color: white; border: none; border-radius: 4px; padding: 2px 7px; font-size: 10px; font-weight: bold; cursor: pointer;">Ir ahora</button>
+      </div>
+    `;
+
+    document.getElementById("zono-redirect-btn")?.addEventListener("click", () => {
+      window.location.href = "https://www.mercadopago.com.ar/activities";
+    });
+  }
+
+  // Send alert to ERP and Telegram immediately
+  if (!wrongPageAlertSent) {
+    wrongPageAlertSent = true;
+    sendPageAlert(
+      "WRONG_PAGE",
+      `La ventana se movió a una página no válida ("${window.location.pathname}"). El monitor no puede registrar cobros aquí.`,
+      "⚠️ ALERTA: Monitor MP fuera de Actividades"
+    );
+  }
+
+  // Auto-redirect countdown
+  if (!wrongPageTimer) {
+    wrongPageCountdown = 6;
+    wrongPageTimer = setInterval(() => {
+      wrongPageCountdown--;
+      const countEl = document.getElementById("zono-redirect-count");
+      if (countEl) countEl.innerText = wrongPageCountdown;
+
+      if (wrongPageCountdown <= 0) {
+        clearInterval(wrongPageTimer);
+        wrongPageTimer = null;
+        console.log("[Zono MP Monitor] Redirigiendo a https://www.mercadopago.com.ar/activities...");
+        window.location.href = "https://www.mercadopago.com.ar/activities";
+      }
+    }, 1000);
+  }
+}
+
+let errorAlertSent = false;
+let isReloadingDueToError = false;
+
+function handleMercadoPagoError(errCheck) {
+  setConnectionStatus(false);
+  playAlertBeep();
+
+  const widget = document.getElementById("zono-mp-widget");
+  const statusText = document.getElementById("zono-mp-status-text");
+  if (widget) {
+    widget.style.borderColor = "#ef4444";
+    widget.style.background = "#450a0a";
+  }
+  if (statusText) {
+    statusText.innerHTML = `
+      <div style="color: #fca5a5; font-size: 11px; font-weight: 800; margin-top: 2px;">
+        🔴 ERROR MERCADO PAGO: No cargó la información
+      </div>
+      <div style="font-size: 11px; color: #fecaca; margin-top: 2px;">
+        Refrescando la hoja completa en 3 segundos...
+      </div>
+    `;
+  }
+
+  // If there's a Reintentar button, click it first
+  if (errCheck?.retryBtn) {
+    try {
+      console.log("[Zono MP Monitor] Clic en 'Reintentar'...");
+      errCheck.retryBtn.click();
+    } catch (e) {}
+  }
+
+  // Send alert to ERP and Telegram
+  if (!errorAlertSent) {
+    errorAlertSent = true;
+    sendPageAlert(
+      "PAGE_CRASH",
+      "Mercado Pago se colgó con el mensaje: 'No fue posible cargar la información'. Refrescando hoja completa...",
+      "🚨 ALERTA: Mercado Pago no cargó la información"
+    );
+  }
+
+  // Full page refresh after 3 seconds
+  if (!isReloadingDueToError) {
+    isReloadingDueToError = true;
+    setTimeout(() => {
+      console.log("[Zono MP Monitor] Recargando hoja completa por pantalla de error...");
+      window.location.reload();
+    }, 3000);
+  }
+}
+
+function sendPageAlert(errorType, message, alertTitle) {
+  const now = new Date();
+  const clientTime = now.toLocaleTimeString("es-AR", {
+    timeZone: "America/Argentina/Buenos_Aires",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  });
+
+  const payload = {
+    type: "ALERT_PAGE_ERROR",
+    account: config.accountName,
+    errorType: errorType,
+    message: message,
+    url: window.location.href,
+    clientTime: clientTime,
+    timestamp: now.toISOString()
+  };
+
+  const url = new URL(config.webhookUrl);
+  url.searchParams.set("account", config.accountName);
+  url.searchParams.set("token", config.secretToken);
+
+  chrome.runtime.sendMessage({
+    action: "SEND_ALERT",
+    url: url.toString(),
+    token: config.secretToken,
+    payload: payload,
+    alertTitle: alertTitle,
+    alertMessage: message
+  }, (res) => {
+    console.log("[Zono MP Monitor] Respuesta de alerta en ERP:", res);
+  });
+}
+
+let consecutiveFailedRefreshes = 0;
+
 function triggerActualizarListado() {
+  if (!isActivitiesPage()) {
+    handleWrongPage();
+    return false;
+  }
+
+  const errCheck = detectMercadoPagoError();
+  if (errCheck.hasError) {
+    handleMercadoPagoError(errCheck);
+    return false;
+  }
+
   const buttons = Array.from(document.querySelectorAll("button, a, [role='button']"));
   const refreshBtn = buttons.find(b => {
     const txt = (b.innerText || b.textContent || "").trim().toLowerCase();
@@ -571,12 +787,33 @@ function triggerActualizarListado() {
   });
 
   if (refreshBtn) {
+    consecutiveFailedRefreshes = 0;
     console.log("[Zono MP Monitor] Auto-click en 'Actualizar listado'...");
     refreshBtn.click();
     setTimeout(scanDOMActivities, 1500);
     return true;
   } else {
-    scanDOMActivities();
+    // Check if rows are present
+    const rows = getVisibleRows();
+    if (rows.length > 0) {
+      consecutiveFailedRefreshes = 0;
+      scanDOMActivities();
+      return true;
+    }
+
+    consecutiveFailedRefreshes++;
+    console.warn(`[Zono MP Monitor] Sin botón de refresco ni filas visibles (intento fallido ${consecutiveFailedRefreshes})`);
+
+    // If for 2 consecutive cycles nothing is found, reload entire page
+    if (consecutiveFailedRefreshes >= 2) {
+      console.log("[Zono MP Monitor] Refrescando hoja completa por desincronización...");
+      showToast("🔄 Refrescando hoja completa...", "success");
+      setTimeout(() => {
+        window.location.reload();
+      }, 2000);
+    } else {
+      scanDOMActivities();
+    }
     return false;
   }
 }
@@ -591,10 +828,29 @@ function setConnectionStatus(isOnline) {
   }
   if (widget) {
     widget.style.borderColor = isOnline ? "#0069ff" : "#ef4444";
+    if (isOnline) {
+      widget.style.background = "#001538";
+    }
   }
 }
 
 function sendHeartbeat() {
+  // 1. DO NOT send heartbeat if not on activities page!
+  if (!isActivitiesPage()) {
+    console.warn("[Zono MP Monitor] No se envía heartbeat: fuera de /activities");
+    handleWrongPage();
+    return;
+  }
+
+  // 2. DO NOT send heartbeat if Mercado Pago crashed!
+  const errCheck = detectMercadoPagoError();
+  if (errCheck.hasError) {
+    console.warn("[Zono MP Monitor] No se envía heartbeat: pantalla de error activa");
+    handleMercadoPagoError(errCheck);
+    return;
+  }
+
+  // Healthy heartbeat
   const inOffice = isWorkHours();
   const interval = getActiveInterval();
   const now = new Date();
@@ -611,7 +867,7 @@ function sendHeartbeat() {
     account: config.accountName,
     isWorkHours: inOffice,
     currentInterval: interval,
-    version: "1.2.0",
+    version: "1.3.0",
     clientTime: clientTime,
     url: window.location.href,
     timestamp: now.toISOString()
@@ -636,10 +892,43 @@ function sendHeartbeat() {
   });
 }
 
+// Periodic full page reload every 25 minutes during office hours to prevent SPA memory leak and session freeze
+const PAGE_LOAD_TIME = Date.now();
+const FULL_RELOAD_INTERVAL_MS = 25 * 60 * 1000;
+
 function startMonitoring() {
   let lastRefreshTime = Date.now();
 
   function checkRefresh() {
+    // 1. Immediate Page Validity Check
+    if (!isActivitiesPage()) {
+      handleWrongPage();
+      return;
+    }
+
+    // 2. Immediate Error Screen Check
+    const errCheck = detectMercadoPagoError();
+    if (errCheck.hasError) {
+      handleMercadoPagoError(errCheck);
+      return;
+    }
+
+    // If on activities and healthy, reset wrong-page state if it was set
+    if (wrongPageAlertSent) {
+      wrongPageAlertSent = false;
+      if (wrongPageTimer) {
+        clearInterval(wrongPageTimer);
+        wrongPageTimer = null;
+      }
+    }
+
+    // 3. Periodic preventive full reload
+    if (isWorkHours() && Date.now() - PAGE_LOAD_TIME >= FULL_RELOAD_INTERVAL_MS) {
+      console.log("[Zono MP Monitor] Recarga preventiva periódica (25 min)...");
+      window.location.reload();
+      return;
+    }
+
     const now = new Date();
     const clientTime = now.toLocaleTimeString("es-AR", {
       timeZone: "America/Argentina/Buenos_Aires",
@@ -677,37 +966,40 @@ function startMonitoring() {
 
     if (elapsedSeconds >= currentInterval) {
       lastRefreshTime = nowMs;
-      if (window.location.href.includes("mercadopago.com.ar/activities") || window.location.href.includes("mercadopago.com.ar/home")) {
-        triggerActualizarListado();
-      }
+      triggerActualizarListado();
       sendHeartbeat();
     }
   }
 
   // First scan after 1.5 seconds
   setTimeout(() => {
-    scanDOMActivities();
-    sendHeartbeat();
-    isInitialized = true;
-    console.log("[Zono MP Monitor] Monitor activado.");
-    showToast(`🟢 Monitor iniciado: monitoreando cobros entrantes`, "success");
+    if (isActivitiesPage() && !detectMercadoPagoError().hasError) {
+      scanDOMActivities();
+      sendHeartbeat();
+      isInitialized = true;
+      console.log("[Zono MP Monitor] Monitor activado en /activities.");
+      showToast(`🟢 Monitor iniciado: monitoreando cobros entrantes`, "success");
+    } else {
+      checkRefresh();
+    }
   }, 1500);
 
   // Fast interval scan for visible items
   setInterval(scanDOMActivities, 3000);
   setInterval(checkRefresh, 1000);
+
   // Dynamic heartbeat keeper: every 45s during office hours, every 5 min outside office
   let lastHbTimestamp = Date.now();
   setInterval(() => {
     const inOffice = isWorkHours();
-    const intervalMs = inOffice ? 45000 : 300000; // 45s en oficina, 5 min fuera
+    const intervalMs = inOffice ? 45000 : 300000;
     if (Date.now() - lastHbTimestamp >= intervalMs) {
       lastHbTimestamp = Date.now();
       sendHeartbeat();
     }
   }, 10000);
 
-  // Listen to background service worker wakeup pulse (bypasses browser tab throttling!)
+  // Listen to background service worker wakeup pulse
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg.action === "TRIGGER_POLL") {
       checkRefresh();
@@ -730,10 +1022,15 @@ function startMonitoring() {
     sendHeartbeat();
   });
 
-  // DOM MutationObserver to detect when Mercado Pago injects new activities immediately
+  // DOM MutationObserver to detect when Mercado Pago injects new activities or errors immediately
   try {
     const observer = new MutationObserver(() => {
-      scanDOMActivities();
+      const errCheck = detectMercadoPagoError();
+      if (errCheck.hasError) {
+        handleMercadoPagoError(errCheck);
+      } else {
+        scanDOMActivities();
+      }
     });
     observer.observe(document.body, { childList: true, subtree: true });
   } catch (e) {
