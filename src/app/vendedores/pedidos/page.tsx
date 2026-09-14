@@ -46,7 +46,8 @@ import {
   Database,
   XCircle,
   Ban,
-  Printer
+  Printer,
+  ExternalLink
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { supabase } from "@/lib/supabase";
@@ -1009,6 +1010,7 @@ export default function PedidosPage() {
     card_surcharge?: number;
     receipt_url?: string;
     notes?: string;
+    telegram_sent?: boolean;
     created_at?: string;
   }
   const [paymentsList, setPaymentsList] = useState<PaymentBreakdownItem[]>([
@@ -1019,9 +1021,11 @@ export default function PedidosPage() {
       card_surcharge: 0,
       card_installments: 1,
       receipt_url: "",
-      notes: ""
+      notes: "",
+      telegram_sent: false
     }
   ]);
+  const [uploadingReceiptId, setUploadingReceiptId] = useState<string | null>(null);
 
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>("");
   const [adminSellerFilter, setAdminSellerFilter] = useState<string>("mis_kits");
@@ -1469,6 +1473,7 @@ export default function PedidosPage() {
 
   const handlePaymentReceiptUpload = async (id: string, file: File) => {
     setUploadingReceipt(true);
+    setUploadingReceiptId(id);
     try {
       const fileExt = file.name.split('.').pop();
       const fileName = `payment_${id}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
@@ -1484,13 +1489,74 @@ export default function PedidosPage() {
         .from('product-images')
         .getPublicUrl(filePath);
 
-      setPaymentsList(prev => prev.map(p => p.id === id ? { ...p, receipt_url: publicUrlData.publicUrl } : p));
+      setPaymentsList(prev => {
+        const next = prev.map(p => {
+          if (p.id === id) {
+            let assignedAmount = p.amount;
+            if (!assignedAmount || assignedAmount === 0) {
+              if (customDepositAmount > 0) {
+                assignedAmount = customDepositAmount;
+              } else if (paymentTiming === 'paid' && total > 0) {
+                assignedAmount = total;
+              }
+            }
+            return {
+              ...p,
+              receipt_url: publicUrlData.publicUrl,
+              amount: assignedAmount,
+              telegram_sent: false
+            };
+          }
+          return p;
+        });
+
+        const totalAllocated = next.reduce((sum, item) => sum + (item.amount || 0), 0);
+        if (totalAllocated > 0) {
+          if (totalAllocated >= total && total > 0) {
+            setPaymentTiming('paid');
+            setCustomDepositAmount(total);
+          } else {
+            setPaymentTiming('partial');
+            setCustomDepositAmount(totalAllocated);
+          }
+        } else if (paymentTiming === 'contra_entrega') {
+          setPaymentTiming('partial');
+        }
+
+        return next;
+      });
     } catch (err: any) {
       console.error("Error al subir el comprobante del pago:", err);
       alert("Error al subir el comprobante: " + err.message);
     } finally {
       setUploadingReceipt(false);
+      setUploadingReceiptId(null);
     }
+  };
+
+  const handleRemovePaymentReceipt = (id: string) => {
+    setPaymentsList(prev => prev.map(p => p.id === id ? { ...p, receipt_url: "", telegram_sent: false } : p));
+  };
+
+  const handlePaymentAmountChange = (id: string, newAmount: number) => {
+    setPaymentsList(prev => {
+      const next = prev.map(item => item.id === id ? { ...item, amount: newAmount } : item);
+      const totalAllocated = next.reduce((sum, item) => sum + (item.amount || 0), 0);
+
+      if (totalAllocated === 0) {
+        if (!next.some(item => Boolean(item.receipt_url))) {
+          setPaymentTiming('contra_entrega');
+        }
+        setCustomDepositAmount(0);
+      } else if (totalAllocated >= total && total > 0) {
+        setPaymentTiming('paid');
+        setCustomDepositAmount(total);
+      } else {
+        setPaymentTiming('partial');
+        setCustomDepositAmount(totalAllocated);
+      }
+      return next;
+    });
   };
 
   const selectedPaymentMethod = (() => {
@@ -4497,7 +4563,8 @@ export default function PedidosPage() {
                 card_installments: p.installments,
                 card_surcharge: p.surchargePercentage,
                 receipt_url: p.receipt_url,
-                notes: p.notes
+                notes: p.notes,
+                telegram_sent: p.telegram_sent || false
               })),
               payment_timing: paymentTiming
             },
@@ -4715,7 +4782,8 @@ export default function PedidosPage() {
                 card_installments: p.installments,
                 card_surcharge: p.surchargePercentage,
                 receipt_url: p.receipt_url,
-                notes: p.notes
+                notes: p.notes,
+                telegram_sent: p.telegram_sent || false
               })),
               payment_timing: paymentTiming
             },
@@ -4945,6 +5013,74 @@ export default function PedidosPage() {
         } else {
           alert("Pedido cargado con éxito en el sistema. Se ha reservado el stock de los productos.");
         }
+      }
+
+      // Enviar comprobantes a Telegram si hay comprobantes cargados no enviados
+      try {
+        const orderCodeForTelegram = finalLegacyCode || legacyCode || orderData?.legacy_code || '';
+        const clientNameForTelegram = (isNewClient ? newClientName : cliente) || '';
+        const clientTaxIdForTelegram = isNewClient ? newClientTaxId : (clients.find(c => c.id === selectedClientId)?.tax_id || '');
+        const paymentStatusLabel = paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? 'Señado' : 'Pendiente');
+
+        const unsentReceipts = paymentsList.filter(p => Boolean(p.receipt_url) && !p.telegram_sent);
+        if (unsentReceipts.length > 0) {
+          let anySent = false;
+          for (const r of unsentReceipts) {
+            try {
+              const receiptAmount = r.amount > 0 ? r.amount : (paymentTiming === 'paid' ? total : customDepositAmount);
+              const tgRes = await fetch('/api/vendedores/telegram-notify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  type: 'receipt',
+                  legacyCode: orderCodeForTelegram,
+                  customerName: clientNameForTelegram,
+                  taxId: clientTaxIdForTelegram,
+                  sellerName: currentSeller?.full_name || '',
+                  status: paymentStatusLabel,
+                  amount: receiptAmount,
+                  pendingBalance: pendingBalance,
+                  photoUrl: r.receipt_url,
+                  reference: r.notes || ''
+                })
+              });
+              const tgData = await tgRes.json();
+              if (tgData.ok) {
+                r.telegram_sent = true;
+                anySent = true;
+              }
+            } catch (tgErr) {
+              console.warn('[Telegram Dispatch] Error enviando comprobante a Telegram:', tgErr);
+            }
+          }
+
+          if (anySent && orderData?.id) {
+            const updatedBreakdown = paymentsWithSurcharges.map(p => ({
+              id: p.id,
+              payment_method_id: p.payment_method_id,
+              amount: p.baseAmount,
+              surcharge: p.surchargeValue,
+              total: p.totalAmount,
+              card_installments: p.installments,
+              card_surcharge: p.surchargePercentage,
+              receipt_url: p.receipt_url,
+              notes: p.notes,
+              telegram_sent: p.telegram_sent || false
+            }));
+
+            await supabase
+              .from('orders')
+              .update({
+                totals: {
+                  ...orderData.totals,
+                  payments_breakdown: updatedBreakdown
+                }
+              })
+              .eq('id', orderData.id);
+          }
+        }
+      } catch (receiptErr) {
+        console.warn('[handleSaveOrder] Error procesando comprobantes de Telegram:', receiptErr);
       }
       
       // Reset form
@@ -6686,7 +6822,7 @@ export default function PedidosPage() {
                 {/* Métodos de Pago / Financiación */}
                 <div className="flex items-center justify-between border-b border-slate-200/60 pb-1.5 mb-3">
                   <h3 className="flex items-center gap-1.5 font-black text-slate-800 text-xs uppercase tracking-wider">
-                    <CreditCard className="w-4 h-4 text-brand-500" /> Detalle de Pagos y Financiación
+                    <CreditCard className="w-4 h-4 text-brand-500" /> Detalle de Pagos y Comprobantes
                   </h3>
                   <button
                     type="button"
@@ -6697,12 +6833,15 @@ export default function PedidosPage() {
                           id: Math.random().toString(36).substring(2, 9),
                           payment_method_id: "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3",
                           amount: 0,
+                          card_surcharge: 0,
+                          card_installments: 1,
                           receipt_url: "",
-                          notes: ""
+                          notes: "",
+                          telegram_sent: false
                         }
                       ]);
                     }}
-                    className="text-[9px] font-black text-brand-600 hover:text-brand-700 transition-colors flex items-center gap-1 uppercase tracking-wider cursor-pointer"
+                    className="text-[9px] font-black text-brand-600 hover:text-brand-700 bg-brand-50 hover:bg-brand-100/80 px-2.5 py-1 rounded-lg border border-brand-200 transition-colors flex items-center gap-1 uppercase tracking-wider cursor-pointer"
                   >
                     <Plus className="w-3 h-3" /> Agregar Pago
                   </button>
@@ -6737,6 +6876,9 @@ export default function PedidosPage() {
                       onClick={() => {
                         setPaymentTiming('contra_entrega');
                         setCustomDepositAmount(0);
+                        if (paymentsList.length === 1 && !paymentsList[0].receipt_url) {
+                          setPaymentsList(prev => prev.map(item => ({ ...item, amount: 0 })));
+                        }
                       }}
                       className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
                         paymentTiming === 'contra_entrega'
@@ -6778,6 +6920,9 @@ export default function PedidosPage() {
                       onClick={() => {
                         setPaymentTiming('paid');
                         setCustomDepositAmount(total);
+                        if (paymentsList.length === 1) {
+                          setPaymentsList(prev => prev.map(item => ({ ...item, amount: total })));
+                        }
                       }}
                       className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
                         paymentTiming === 'paid'
@@ -6810,7 +6955,13 @@ export default function PedidosPage() {
                         <input
                           type="number"
                           value={customDepositAmount === 0 ? "" : customDepositAmount}
-                          onChange={(e) => setCustomDepositAmount(Math.max(0, Number(e.target.value)))}
+                          onChange={(e) => {
+                            const val = Math.max(0, Number(e.target.value));
+                            setCustomDepositAmount(val);
+                            if (paymentsList.length === 1) {
+                              setPaymentsList(prev => prev.map(p => ({ ...p, amount: val })));
+                            }
+                          }}
                           placeholder="Monto de seña..."
                           className="w-full pl-6 pr-2.5 py-1.5 border border-amber-300 rounded-lg text-xs font-black text-amber-900 outline-none focus:ring-2 focus:ring-amber-500/20 bg-white"
                         />
@@ -6831,23 +6982,46 @@ export default function PedidosPage() {
                 <div className="space-y-3.5">
                   {paymentsWithSurcharges.map((p, idx) => (
                     <div key={p.id} className="p-3 bg-white rounded-xl border border-slate-200 space-y-2.5 relative group animate-in fade-in duration-200">
-                      {paymentsList.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setPaymentsList(prev => prev.filter(item => item.id !== p.id));
-                          }}
-                          className="absolute top-2 right-2 text-slate-400 hover:text-red-500 p-1.5 rounded-lg transition-colors cursor-pointer"
-                          title="Eliminar este pago"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="bg-slate-100 text-slate-700 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md">
+                            {paymentsList.length > 1 ? `Comprobante / Pago #${idx + 1}` : 'Pago / Comprobante'}
+                          </span>
+                          {p.receipt_url ? (
+                            <span className="text-[9px] font-extrabold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1">
+                              <Check className="w-3 h-3 text-emerald-600 stroke-[3]" /> Comprobante adjunto
+                            </span>
+                          ) : (
+                            <span className="text-[9px] font-medium text-slate-400">
+                              Sin archivo adjunto
+                            </span>
+                          )}
+                        </div>
 
-                      <div className="flex items-center gap-1.5">
-                        <span className="bg-slate-100 text-slate-600 text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full">
-                          Pago #{idx + 1}
-                        </span>
+                        {paymentsList.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const remaining = paymentsList.filter(item => item.id !== p.id);
+                              setPaymentsList(remaining);
+                              const totalAllocated = remaining.reduce((sum, item) => sum + (item.amount || 0), 0);
+                              if (totalAllocated === 0) {
+                                if (!remaining.some(item => Boolean(item.receipt_url))) setPaymentTiming('contra_entrega');
+                                setCustomDepositAmount(0);
+                              } else if (totalAllocated >= total && total > 0) {
+                                setPaymentTiming('paid');
+                                setCustomDepositAmount(total);
+                              } else {
+                                setPaymentTiming('partial');
+                                setCustomDepositAmount(totalAllocated);
+                              }
+                            }}
+                            className="text-slate-400 hover:text-red-500 p-1.5 rounded-lg transition-colors cursor-pointer"
+                            title="Eliminar este pago"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -6881,21 +7055,29 @@ export default function PedidosPage() {
                           </select>
                         </div>
 
-                        {/* Monto Base */}
+                        {/* Monto del Comprobante / Pago */}
                         <div className="flex flex-col gap-1">
-                          <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider">
-                            {paymentsList.length > 1 ? "Monto Base Asignado" : "Importe Base del Pedido"}
-                          </span>
+                          <div className="flex items-center justify-between">
+                            <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider">
+                              {p.receipt_url ? "Monto del Comprobante" : "Monto a Abonar"}
+                            </span>
+                            {total > 0 && p.amount === 0 && (
+                              <button
+                                type="button"
+                                onClick={() => handlePaymentAmountChange(p.id, total)}
+                                className="text-[9px] font-bold text-brand-600 hover:underline cursor-pointer"
+                              >
+                                Cubre Total
+                              </button>
+                            )}
+                          </div>
                           <div className="relative">
                             <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">$</span>
                             <input
                               type="number"
                               value={p.amount === 0 ? "" : p.amount}
-                              onChange={(e) => {
-                                const val = Math.max(0, Number(e.target.value));
-                                setPaymentsList(prev => prev.map(item => item.id === p.id ? { ...item, amount: val } : item));
-                              }}
-                              placeholder={paymentsList.length === 1 ? `${p.baseAmount} (Total base)` : "Monto a abonar..."}
+                              onChange={(e) => handlePaymentAmountChange(p.id, Math.max(0, Number(e.target.value)))}
+                              placeholder={paymentsList.length === 1 && paymentTiming === 'paid' ? `${p.baseAmount}` : "Monto..."}
                               className="w-full pl-5 pr-2.5 py-1.5 border border-slate-200 rounded-lg text-xs font-bold outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 bg-slate-50"
                             />
                           </div>
@@ -6971,28 +7153,49 @@ export default function PedidosPage() {
 
                       {/* Comprobante de pago y notas */}
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 border-t border-slate-100">
-                        {/* Notas */}
-                        <div className="flex flex-col gap-1">
-                          <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider">Notas de Pago</span>
-                          <input
-                            type="text"
-                            value={p.notes || ""}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setPaymentsList(prev => prev.map(item => item.id === p.id ? { ...item, notes: val } : item));
-                            }}
-                            placeholder="Ej: Seña inicial o Comentario..."
-                            className="w-full px-2 py-1.5 border border-slate-200 rounded-lg text-[10px] font-bold outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500"
-                          />
-                        </div>
-
                         {/* Comprobante */}
                         <div className="flex flex-col gap-1">
-                          <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider">Comprobante de Pago</span>
-                          <div className="flex items-center gap-2">
-                            <label className="flex-1 flex items-center justify-center gap-1 py-1 border border-dashed border-slate-300 rounded-lg cursor-pointer bg-slate-50 hover:bg-slate-100 transition-colors text-slate-600">
-                              <UploadCloud className="w-3.5 h-3.5 text-slate-400" />
-                              <span className="text-[9px] font-extrabold">{uploadingReceipt ? "Subiendo..." : "Subir archivo"}</span>
+                          <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider">Comprobante (Foto / PDF)</span>
+                          {p.receipt_url ? (
+                            <div className="flex items-center gap-2 p-1.5 bg-slate-50 border border-slate-200 rounded-lg">
+                              {p.receipt_url.toLowerCase().includes('.pdf') ? (
+                                <FileText className="w-5 h-5 text-rose-500 shrink-0" />
+                              ) : (
+                                <img src={p.receipt_url} alt="Comprobante" className="w-6 h-6 object-cover rounded border border-slate-200 shrink-0" />
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <a
+                                  href={p.receipt_url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-[10px] font-bold text-brand-600 hover:text-brand-800 hover:underline flex items-center gap-1 truncate"
+                                  title="Abrir comprobante"
+                                >
+                                  <ExternalLink className="w-3 h-3 inline" /> Ver archivo
+                                </a>
+                                <span className="text-[8px] font-semibold text-emerald-600 block">
+                                  {p.telegram_sent ? "✓ Enviado a Telegram" : "✓ Se enviará a Telegram al guardar"}
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleRemovePaymentReceipt(p.id)}
+                                className="p-1 text-slate-400 hover:text-red-500 rounded transition-colors cursor-pointer"
+                                title="Quitar comprobante"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          ) : (
+                            <label className="flex items-center justify-center gap-1.5 py-1.5 px-3 border border-dashed border-brand-300 bg-brand-50/50 hover:bg-brand-100/60 rounded-lg cursor-pointer transition-colors text-brand-700">
+                              {uploadingReceiptId === p.id ? (
+                                <Loader2 className="w-3.5 h-3.5 text-brand-600 animate-spin" />
+                              ) : (
+                                <UploadCloud className="w-3.5 h-3.5 text-brand-500" />
+                              )}
+                              <span className="text-[10px] font-extrabold">
+                                {uploadingReceiptId === p.id ? "Subiendo archivo..." : "Subir comprobante"}
+                              </span>
                               <input
                                 type="file"
                                 accept="image/*,application/pdf"
@@ -7001,65 +7204,92 @@ export default function PedidosPage() {
                                   if (file) handlePaymentReceiptUpload(p.id, file);
                                 }}
                                 className="hidden"
-                                disabled={uploadingReceipt}
+                                disabled={Boolean(uploadingReceiptId)}
                               />
                             </label>
-                            {p.receipt_url && (
-                              <a
-                                href={p.receipt_url}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="p-1.5 bg-brand-50 text-brand-600 hover:bg-brand-100 rounded-lg transition-colors border border-brand-100 shrink-0"
-                                title="Ver comprobante"
-                              >
-                                <FileText className="w-3.5 h-3.5" />
-                              </a>
-                            )}
-                          </div>
+                          )}
+                        </div>
+
+                        {/* Notas / Observación */}
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider">Nota / Observación (Opcional)</span>
+                          <input
+                            type="text"
+                            value={p.notes || ""}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setPaymentsList(prev => prev.map(item => item.id === p.id ? { ...item, notes: val } : item));
+                            }}
+                            placeholder="Ej: Seña, primer pago..."
+                            className="w-full px-2 py-1.5 border border-slate-200 rounded-lg text-[10px] font-bold outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 bg-slate-50"
+                          />
                         </div>
                       </div>
                     </div>
                   ))}
                 </div>
 
-                {/* Resumen de Pagos Registrados */}
-                <div className="flex flex-col gap-2.5 p-2.5 bg-white rounded-xl border border-slate-200">
-                  <span className="text-[9px] font-black text-slate-600 uppercase tracking-wide">Estado de Pago del Pedido</span>
-                  <div className="flex items-center gap-2">
+                {/* Botón para agregar otro comprobante / pago */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPaymentsList(prev => [
+                      ...prev,
+                      {
+                        id: Math.random().toString(36).substring(2, 9),
+                        payment_method_id: "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3",
+                        amount: 0,
+                        card_surcharge: 0,
+                        card_installments: 1,
+                        receipt_url: "",
+                        notes: "",
+                        telegram_sent: false
+                      }
+                    ]);
+                  }}
+                  className="w-full py-2 border-2 border-dashed border-slate-200 hover:border-brand-300 hover:bg-brand-50/50 rounded-xl text-slate-500 hover:text-brand-700 text-xs font-black flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Agregar otro comprobante o medio de pago
+                </button>
+
+                {/* Resumen de Cobro del Pedido */}
+                <div className="p-3 bg-white rounded-xl border border-slate-200 shadow-2xs space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[9px] font-black text-slate-600 uppercase tracking-wide">
+                      Resumen de Cobro y Descuento
+                    </span>
                     {paymentTiming === 'paid' ? (
-                      <span className="px-2 py-1 rounded bg-emerald-100 text-emerald-800 text-[10px] font-black uppercase tracking-wider flex items-center gap-1">
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-black uppercase tracking-wider flex items-center gap-1">
                         <Check className="w-3 h-3 stroke-[3]" /> Completado (Abonado)
                       </span>
                     ) : paymentTiming === 'partial' ? (
-                      <span className="px-2 py-1 rounded bg-amber-100 text-amber-800 text-[10px] font-black uppercase tracking-wider flex items-center gap-1">
+                      <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-black uppercase tracking-wider flex items-center gap-1">
                         💵 Parcial (Señado)
                       </span>
                     ) : (
-                      <span className="px-2 py-1 rounded bg-red-100 text-red-800 text-[10px] font-black uppercase tracking-wider flex items-center gap-1">
+                      <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-800 text-[10px] font-black uppercase tracking-wider flex items-center gap-1">
                         ❌ A Cobrar en Domicilio (Pendiente)
                       </span>
                     )}
                   </div>
-                  
-                  <div className="pt-2 border-t border-slate-100 space-y-1.5">
-                    <span className="text-[8px] font-black text-slate-400 uppercase tracking-wide block">Desglose de Transacciones</span>
-                    <div className="space-y-1 max-h-36 overflow-y-auto pr-0.5">
-                      {paymentsWithSurcharges.map((p, idx) => {
-                        const pm = dbPaymentMethods.find(m => m.id === p.payment_method_id);
-                        return (
-                          <div key={p.id} className="flex items-center justify-between text-[10px] text-slate-600 font-bold bg-slate-50 p-1.5 rounded border border-slate-100">
-                            <span className="truncate max-w-[120px]">{pm?.name || "Efectivo/Transferencia"}</span>
-                            <div className="flex items-center gap-1.5">
-                              <span>{formatPrice(p.totalAmount)}</span>
-                              {p.receipt_url && (
-                                <a href={p.receipt_url} target="_blank" rel="noreferrer" className="text-brand-600 hover:text-brand-700">
-                                  <FileText className="w-3 h-3" />
-                                </a>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
+
+                  <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-100 text-xs">
+                    <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
+                      <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider block">
+                        Total Pagado / Comprobantes:
+                      </span>
+                      <span className={`text-xs font-black ${totalPaid > 0 ? 'text-emerald-700' : 'text-slate-600'}`}>
+                        {formatPrice(totalPaid)}
+                      </span>
+                    </div>
+
+                    <div className={`p-2 rounded-lg border ${pendingBalance > 0 ? 'bg-amber-50/60 border-amber-200' : 'bg-emerald-50/60 border-emerald-200'}`}>
+                      <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider block">
+                        Saldo a Cobrar en Entrega:
+                      </span>
+                      <span className={`text-xs font-black ${pendingBalance > 0 ? 'text-amber-800' : 'text-emerald-700'}`}>
+                        {formatPrice(pendingBalance)}
+                      </span>
                     </div>
                   </div>
                 </div>

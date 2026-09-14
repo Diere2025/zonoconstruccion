@@ -348,6 +348,43 @@ export default function ViewOrderModal({
                     ✓ Sin saldo pendiente para cobrar al entregar
                   </div>
                 )}
+
+                {/* Comprobantes adjuntos */}
+                {(() => {
+                  const breakdown = (order as any).totals?.payments_breakdown;
+                  const receipts: Array<{ url: string; amount?: number; notes?: string }> = [];
+                  if (Array.isArray(breakdown)) {
+                    breakdown.forEach((p: any) => {
+                      if (p.receipt_url) receipts.push({ url: p.receipt_url, amount: p.amount, notes: p.notes });
+                    });
+                  }
+                  if (receipts.length === 0 && (order as any).totals?.deposit_receipt_url) {
+                    receipts.push({ url: (order as any).totals.deposit_receipt_url, amount: deposit });
+                  }
+                  if (receipts.length === 0) return null;
+                  return (
+                    <div className="pt-2 mt-2 border-t border-slate-200/70 space-y-1.5">
+                      <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider block">
+                        Comprobante{receipts.length > 1 ? 's' : ''} Adjunto{receipts.length > 1 ? 's' : ''}:
+                      </span>
+                      <div className="flex flex-wrap gap-2">
+                        {receipts.map((r, i) => (
+                          <a
+                            key={i}
+                            href={r.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-brand-50 border border-brand-200 text-brand-700 hover:bg-brand-100 rounded-lg text-xs font-bold transition-colors"
+                          >
+                            <FileText className="w-3.5 h-3.5 text-brand-600" />
+                            <span>Comprobante #{i + 1}{r.amount ? ` (${formatPrice(r.amount)})` : ''}</span>
+                            <ExternalLink className="w-3 h-3 text-brand-500" />
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
 
