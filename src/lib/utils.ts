@@ -65,3 +65,21 @@ export function normalizeText(text?: string | null): string {
     .trim();
 }
 
+/**
+ * Limpia cualquier residuo de "Cobrar al entregar: $..." o "Saldo al entregar: $..."
+ * de notas y detalles de entrega para que no quede grabado ni visible en aclaraciones.
+ */
+export function cleanDeliveryNotes(text?: string | null): string {
+  if (!text) return '';
+  let cleaned = text
+    .replace(/(?:\/?\s*)?Cobrar al entregar:?\s*\$[\d.,]+(?:\s*\([^)]*\))?/gi, '')
+    .replace(/(?:\/?\s*)?Saldo al entregar:?\s*\$[\d.,]+(?:\s*\([^)]*\))?/gi, '')
+    .replace(/(?:\/?\s*)?Cobrar al entregar[^\/]+/gi, '')
+    .replace(/(?:\/?\s*)?Saldo al entregar[^\/]+/gi, '')
+    .replace(/\s*\/\s*\/\s*/g, ' / ')
+    .replace(/^[\/\-\s]+|[\/\-\s]+$/g, '')
+    .trim();
+  return cleaned;
+}
+
+

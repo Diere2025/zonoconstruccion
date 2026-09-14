@@ -14,12 +14,11 @@ import {
   Truck,
   CreditCard,
   User,
-  Phone,
   AlertCircle
 } from "lucide-react";
 import html2canvas from "html2canvas-pro";
 import jsPDF from "jspdf";
-import { formatPrice } from "@/lib/utils";
+import { formatPrice, cleanDeliveryNotes } from "@/lib/utils";
 
 export interface PrintableOrderItem {
   id?: string;
@@ -246,7 +245,10 @@ export default function PrintableOrderModal({
     ? order.pending_balance 
     : (order.payment_status === 'Abonado' ? 0 : Math.max(0, finalTotal - deposit));
 
-  const notesText = [order.delivery_notes, order.delivery_detail]
+  const notesText = [
+    cleanDeliveryNotes(order.delivery_notes), 
+    cleanDeliveryNotes(order.delivery_detail)
+  ]
     .filter(Boolean)
     .map(t => t?.trim())
     .filter(Boolean)

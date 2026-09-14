@@ -516,6 +516,25 @@ export function normalizeSellerNameForSheet(sellerName?: string | null): string 
   return trimmed;
 }
 
+export function normalizeLocalityForSheet(locality?: string | null): string {
+  if (!locality) return '';
+  const trimmed = locality.trim();
+  const lower = trimmed.toLowerCase();
+
+  // Mapeos canónicos para coincidir exactamente con el desplegable DATABASE!P:P de la planilla
+  if (lower === 'caballito') return 'Caballito (CABA)';
+  if (lower === 'palermo') return 'Palermo (CABA)';
+  if (lower === 'belgrano') return 'Belgrano (CABA)';
+  if (lower === 'flores') return 'Flores (CABA)';
+  if (lower === 'villa urquiza') return 'Villa Urquiza (CABA)';
+  if (lower === 'recoleta') return 'Recoleta (CABA)';
+  if (lower === 'devoto' || lower === 'villa devoto') return 'Villa Devoto (CABA)';
+  if (lower === 'san telmo') return 'San Telmo (CABA)';
+  if (lower === 'la plata centro') return 'La Plata';
+
+  return trimmed;
+}
+
 const SPREADSHEET_DEFAULT_PREFIX: Record<string, string> = {
   '1ccs1yPtwSSUf6dcA5XpxhpvPaWmHfJ0zsCfyJvEBvtg': 'DB',
   '16DPcJEdrTMYvNSaUKQo9ODKClqe1VHLlKOX6O_sELRw': 'JS',
@@ -695,7 +714,7 @@ export async function appendOrderToSellerSheet(
       },
       {
         range: `'${sheetName}'!Q${rowNumber}:T${rowNumber}`,
-        values: [[(order.status === 'En Espera') ? 'En Espera' : '🔸 Validado', order.locality || '', order.address || '', order.mapsLink || '']]
+        values: [[(order.status === 'En Espera') ? 'En Espera' : '🔸 Validado', normalizeLocalityForSheet(order.locality), order.address || '', order.mapsLink || '']]
       },
       {
         range: `'${sheetName}'!U${rowNumber}:W${rowNumber}`,
@@ -883,7 +902,7 @@ export async function updateOrderInSellerSheet(
     },
     {
       range: `'${sheetName}'!Q${rowNumber}:T${rowNumber}`,
-      values: [[sheetStatus, order.locality || '', order.address || '', order.mapsLink || '']]
+      values: [[sheetStatus, normalizeLocalityForSheet(order.locality), order.address || '', order.mapsLink || '']]
     },
     {
       range: `'${sheetName}'!U${rowNumber}:W${rowNumber}`,

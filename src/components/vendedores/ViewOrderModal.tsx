@@ -18,7 +18,7 @@ import {
   ExternalLink,
   MessageSquare
 } from "lucide-react";
-import { formatPrice } from "@/lib/utils";
+import { formatPrice, cleanDeliveryNotes } from "@/lib/utils";
 import { PrintableOrderData } from "./PrintableOrderModal";
 
 interface ViewOrderModalProps {
@@ -239,16 +239,23 @@ export default function ViewOrderModal({
                 )}
               </div>
 
-              {(order.delivery_notes || order.delivery_detail) && (
-                <div className="p-2 bg-amber-50/80 border border-amber-200 rounded-xl text-[11px] text-amber-900">
-                  <span className="font-black uppercase tracking-wider text-[9px] block text-amber-700">
-                    Aclaraciones de Entrega:
-                  </span>
-                  <p className="mt-0.5 font-medium leading-tight">
-                    {[order.delivery_notes, order.delivery_detail].filter(Boolean).join(" / ")}
-                  </p>
-                </div>
-              )}
+              {(() => {
+                const cleanObs = [
+                  cleanDeliveryNotes(order.delivery_notes),
+                  cleanDeliveryNotes(order.delivery_detail)
+                ].filter(Boolean).join(" / ");
+                if (!cleanObs) return null;
+                return (
+                  <div className="p-2 bg-amber-50/80 border border-amber-200 rounded-xl text-[11px] text-amber-900">
+                    <span className="font-black uppercase tracking-wider text-[9px] block text-amber-700">
+                      Aclaraciones de Entrega:
+                    </span>
+                    <p className="mt-0.5 font-medium leading-tight">
+                      {cleanObs}
+                    </p>
+                  </div>
+                );
+              })()}
             </div>
 
           </div>
