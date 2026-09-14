@@ -650,7 +650,7 @@ export default function RuteoPage() {
       // Run parallel requests
       const promises = [
         supabase.from('payment_methods').select('*').eq('is_active', true).order('name'),
-        supabase.from('localities').select('id, name').order('name'),
+        supabase.from('localities').select('id, name').eq('is_active', true).order('name'),
         supabase.from('carriers').select('*').order('name'),
         supabase.from('route_sheets').select('*, carriers(*)'),
         activeQuery,
