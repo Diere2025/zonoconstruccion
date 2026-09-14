@@ -174,7 +174,11 @@ export async function POST(request: Request) {
 
       const tgRes = await sendTelegramMessage(tokenToUse, chatToUse, testMsg);
       if (!tgRes.ok) {
-        return NextResponse.json({ success: false, error: tgRes.description || 'Error de Telegram al enviar' }, { status: 400 });
+        let errDesc = tgRes.description || 'Error de Telegram al enviar';
+        if (errDesc.toLowerCase().includes('chat not found')) {
+          errDesc = 'Debes buscar tu nuevo bot en Telegram y presionar el botón "Iniciar" (Start) o enviarle /start para que tenga permiso de enviarte mensajes.';
+        }
+        return NextResponse.json({ success: false, error: errDesc }, { status: 400 });
       }
 
       return NextResponse.json({ success: true, message: '¡Mensaje de prueba enviado con éxito a tu celular!' });
