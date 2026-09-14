@@ -45,13 +45,16 @@ import {
   CheckCheck,
   Database,
   XCircle,
-  Ban
+  Ban,
+  Printer
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { supabase } from "@/lib/supabase";
 import { Product } from "@/types";
 import VisualProductSelectorModal from "@/components/vendedores/VisualProductSelectorModal";
 import ImportWhatsAppBudgetModal from "@/components/vendedores/ImportWhatsAppBudgetModal";
+import PrintableOrderModal, { PrintableOrderData } from "@/components/vendedores/PrintableOrderModal";
+import ViewOrderModal from "@/components/vendedores/ViewOrderModal";
 import { cn, formatPrice } from "@/lib/utils";
 import { calculateBulkPrices } from "@/lib/erp/prices";
 import { createBulkStockTransactions } from "@/lib/erp/stock";
@@ -564,6 +567,12 @@ export default function PedidosPage() {
   const [submitting, setSubmitting] = useState(false);
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
   const isEditingRef = useRef(false);
+
+  // View & Print Order Modals State
+  const [isViewOrderModalOpen, setIsViewOrderModalOpen] = useState(false);
+  const [selectedOrderForView, setSelectedOrderForView] = useState<PrintableOrderData | null>(null);
+  const [isPrintOrderModalOpen, setIsPrintOrderModalOpen] = useState(false);
+  const [selectedOrderForPrint, setSelectedOrderForPrint] = useState<PrintableOrderData | null>(null);
 
   // Load from DB & Sheet Sync States
   const [showLoadFromDbModal, setShowLoadFromDbModal] = useState(false);
@@ -1520,6 +1529,7 @@ export default function PedidosPage() {
   const [showCancelSuccessModal, setShowCancelSuccessModal] = useState(false);
   const [generatedCancelMessage, setGeneratedCancelMessage] = useState("");
   const [copiedCancelMessage, setCopiedCancelMessage] = useState(false);
+  const [notifiedLogistics, setNotifiedLogistics] = useState(false);
 
   const formatDateDisplay = (d?: string | null) => {
     if (!d) return "Sin fecha";
@@ -1622,8 +1632,19 @@ export default function PedidosPage() {
     }
 
     // 7. Estado de Pago
-    if (original.payment_status && current.payment_status && original.payment_status !== current.payment_status) {
-      diffs.push(`💳 Estado de Pago: de "${original.payment_status}" a "${current.payment_status}"`);
+    const normalizePayStatus = (s?: string) => {
+      if (!s) return 'Contra Entrega';
+      const clean = s.trim().toLowerCase();
+      if (clean === 'abonado' || clean === 'pagado') return 'Abonado';
+      if (clean === 'seniado' || clean === 'señado' || clean === 'parcial') return 'Señado';
+      if (clean === 'pendiente' || clean === 'contra entrega' || clean === 'contra_entrega' || clean === 'no abonado') return 'Contra Entrega';
+      return s;
+    };
+
+    const origPayStatus = normalizePayStatus(original.payment_status);
+    const currPayStatus = normalizePayStatus(current.payment_status);
+    if (origPayStatus !== currPayStatus) {
+      diffs.push(`💳 Estado de Pago: de "${origPayStatus}" a "${currPayStatus}"`);
     }
 
     // 8. Aclaraciones
@@ -1640,6 +1661,23 @@ export default function PedidosPage() {
     return diffs;
   };
 
+  const isLogisticallyRelevantChange = (diffs: string[], observation?: string): boolean => {
+    if (observation && observation.trim()) return true;
+    const logisticalKeywords = [
+      '📅 Fecha de Entrega',
+      '➕ Producto agregado',
+      '➖ Producto quitado',
+      '📦 Cantidad cambiada',
+      '🏠 Dirección',
+      '📍 Localidad',
+      '🚚 Flete',
+      '💳 Estado de Pago',
+      '💰 Monto Total',
+      '📝 Detalle Entrega'
+    ];
+    return diffs.some(d => logisticalKeywords.some(kw => d.startsWith(kw)));
+  };
+
   const buildCopyableModificationMessage = (params: {
     legacyCode: string;
     sellerName?: string;
@@ -1647,15 +1685,14 @@ export default function PedidosPage() {
     logisticsObservation?: string;
   }): string => {
     const lines: string[] = [];
-    lines.push(`📝 *PEDIDO MODIFICADO: ${params.legacyCode}*`);
-    if (params.sellerName) lines.push(`🧑‍💼 *Vendedor:* ${params.sellerName}`);
+    const sellerTag = params.sellerName ? ` (${params.sellerName})` : '';
+    lines.push(`📝 **PEDIDO MODIFICADO: ${params.legacyCode}${sellerTag}**`);
     lines.push(``);
-    lines.push(`🔄 *CAMBIOS REALIZADOS:*`);
+    lines.push(`🔄 **CAMBIOS REALIZADOS:**`);
     params.changes.forEach(c => lines.push(`• ${c}`));
     if (params.logisticsObservation && params.logisticsObservation.trim()) {
       lines.push(``);
-      lines.push(`💬 *Observación para Logística:*`);
-      lines.push(params.logisticsObservation.trim());
+      lines.push(`💬 **Observación para Logística:** ${params.logisticsObservation.trim()}`);
     }
 
     return lines.join('\n');
@@ -1663,24 +1700,51 @@ export default function PedidosPage() {
 
   const buildCopyableCancelMessage = (params: {
     legacyCode: string;
-    customerName: string;
     sellerName?: string;
-    locality?: string;
-    address?: string;
     reason: string;
   }): string => {
     const lines: string[] = [];
-    lines.push(`🚨 *PEDIDO ANULADO: ${params.legacyCode}*`);
-    lines.push(`👤 *Cliente:* ${params.customerName}`);
-    if (params.sellerName) lines.push(`🧑‍💼 *Vendedor:* ${params.sellerName}`);
-    if (params.locality || params.address) {
-      lines.push(`📍 *Localidad / Dirección:* ${params.locality || 'Sin localidad'} - ${params.address || 'Sin dirección'}`);
-    }
-    lines.push(``);
-    lines.push(`❌ *Motivo de Anulación:*`);
-    lines.push(params.reason.trim());
+    const sellerTag = params.sellerName ? ` (${params.sellerName})` : '';
+    lines.push(`🚨 **PEDIDO ANULADO: ${params.legacyCode}${sellerTag}**`);
+    lines.push(`❌ **Motivo de Anulación:** ${params.reason.trim()}`);
 
     return lines.join('\n');
+  };
+
+  const copyRichMessageToClipboard = async (text: string): Promise<boolean> => {
+    try {
+      const html = text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')
+        .replace(/\n/g, '<br/>');
+
+      if (navigator?.clipboard && typeof ClipboardItem !== 'undefined') {
+        const textBlob = new Blob([text], { type: 'text/plain' });
+        const htmlBlob = new Blob([html], { type: 'text/html' });
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            'text/plain': textBlob,
+            'text/html': htmlBlob
+          })
+        ]);
+        return true;
+      } else if (navigator?.clipboard) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (e) {
+      console.warn("Clipboard write rich text fallback:", e);
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch (err) {
+        console.error("All clipboard write attempts failed:", err);
+        return false;
+      }
+    }
+    return false;
   };
 
   const handleOpenCancelModal = (order: any) => {
@@ -1713,8 +1777,7 @@ export default function PedidosPage() {
       const { error: updateOrderErr } = await supabase
         .from('orders')
         .update({
-          status: 'Cancelado',
-          updated_at: new Date().toISOString()
+          status: 'Cancelado'
         })
         .eq('id', cancelingOrder.id);
 
@@ -1788,15 +1851,22 @@ export default function PedidosPage() {
         }
       }
 
-      // 5. Construir mensaje formateado para copiar y pegar
+      // 5. Construir mensaje formateado y enviar automáticamente a Telegram
       const copyMsg = buildCopyableCancelMessage({
         legacyCode: cancelingOrder.legacy_code || 'S/C',
-        customerName: cancelingOrder.customer_name || 'Cliente',
         sellerName: sellerFullName,
-        locality: cancelingOrder.locality,
-        address: cancelingOrder.address,
         reason: trimmedReason
       });
+
+      fetch('/api/vendedores/telegram-notify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'cancellation',
+          message: copyMsg,
+          legacyCode: cancelingOrder.legacy_code || ''
+        })
+      }).catch(err => console.warn('Error sending Telegram cancellation notification:', err));
 
       setGeneratedCancelMessage(copyMsg);
       setCopiedCancelMessage(false);
@@ -3010,6 +3080,196 @@ export default function PedidosPage() {
   const handleEditOrder = (order: any) => handleLoadOrderIntoForm(order, false);
   const handleCloneOrder = (order: any) => handleLoadOrderIntoForm(order, true);
 
+  // Helper para convertir cualquier objeto de pedido (de la tabla o del form) a PrintableOrderData
+  const formatOrderForPrintable = async (rawOrder: any): Promise<PrintableOrderData> => {
+    // 1. Obtener los ítems si faltan datos de precios o cantidades
+    let items = rawOrder.order_items || [];
+    if (!items || items.length === 0 || (!items[0].unit_price && !items[0].customPrice)) {
+      try {
+        const { data: itms } = await supabase
+          .from('order_items')
+          .select('*')
+          .eq('order_id', rawOrder.id);
+        if (itms && itms.length > 0) items = itms;
+      } catch (err) {
+        console.warn("Error cargando items del pedido para comprobante:", err);
+      }
+    }
+
+    // 2. Datos del cliente (teléfonos si no vienen en la consulta)
+    let clientPhone = rawOrder.client_phone || "";
+    let clientPhone2 = rawOrder.client_phone_secondary || "";
+    if (!clientPhone && rawOrder.client_id) {
+      const c = clients.find(cl => cl.id === rawOrder.client_id);
+      if (c) {
+        clientPhone = c.phone_primary || "";
+        clientPhone2 = c.phone_secondary || "";
+      } else {
+        try {
+          const { data: cData } = await supabase
+            .from("clients")
+            .select("phone_primary, phone_secondary")
+            .eq("id", rawOrder.client_id)
+            .maybeSingle();
+          if (cData) {
+            clientPhone = cData.phone_primary || "";
+            clientPhone2 = cData.phone_secondary || "";
+          }
+        } catch (err) {
+          console.warn("Error al buscar teléfono del cliente:", err);
+        }
+      }
+    }
+
+    // 3. Vendedor
+    let sellerName = rawOrder.sellers?.full_name || rawOrder.totals?.seller;
+    if (!sellerName && rawOrder.seller_id) {
+      const s = sellersList.find(sl => sl.id === rawOrder.seller_id);
+      sellerName = s?.full_name || "Vendedor";
+    }
+
+    // 4. Nombre de Método de pago y totales
+    const pm = dbPaymentMethods.find(m => m.id === rawOrder.payment_method_id);
+    const pmName = pm?.name || "Efectivo / Transferencia";
+    const totalsObj = rawOrder.totals || {};
+
+    const zoneName = rawOrder.zones 
+      ? (Array.isArray(rawOrder.zones) ? rawOrder.zones[0]?.name : rawOrder.zones.name) 
+      : undefined;
+
+    const advName = advertisingSources.find(a => a.id === rawOrder.advertising_source_id)?.name;
+    const medName = orderMediums.find(m => m.id === rawOrder.order_medium_id)?.name;
+
+    return {
+      id: rawOrder.id,
+      legacy_code: rawOrder.legacy_code || "",
+      created_at: rawOrder.created_at,
+      order_date: rawOrder.order_date || rawOrder.created_at,
+      customer_name: rawOrder.customer_name || "Cliente",
+      client_phone: clientPhone,
+      client_phone_secondary: clientPhone2,
+      address: rawOrder.address || "",
+      locality: rawOrder.locality || "",
+      zone_name: zoneName,
+      google_maps_link: rawOrder.google_maps_link || "",
+      whaticket_link: rawOrder.whaticket_link || "",
+      seller_name: sellerName,
+      status: rawOrder.status || "Pendiente",
+      channel: rawOrder.channel || "",
+      advertising_source_name: advName,
+      order_medium_name: medName,
+      freight_type: rawOrder.freight_type || "Flete Regular",
+      initial_delivery_date: rawOrder.initial_delivery_date || "",
+      max_delivery_date: rawOrder.max_delivery_date || "",
+      delivery_notes: rawOrder.delivery_notes || "",
+      delivery_detail: rawOrder.delivery_detail || "",
+      payment_method_name: pmName,
+      payment_status: rawOrder.payment_status || "Impago",
+      total_amount: rawOrder.total_amount || totalsObj.total || 0,
+      subtotal: totalsObj.subtotal,
+      freight_cost: totalsObj.freight,
+      surcharges: totalsObj.payment_surcharges,
+      tax: totalsObj.tax,
+      deposit_amount: totalsObj.deposit_amount,
+      deposit_receipt_url: totalsObj.deposit_receipt_url,
+      pending_balance: totalsObj.pending_balance,
+      order_items: (items || []).map((it: any) => ({
+        id: it.id,
+        product_id: it.product_id,
+        product_name: it.product_name || it.name,
+        name: it.product_name || it.name,
+        sku: it.sku || "",
+        quantity: it.quantity || 1,
+        unit_price: it.unit_price !== undefined ? it.unit_price : it.customPrice,
+        customPrice: it.customPrice !== undefined ? it.customPrice : it.unit_price
+      }))
+    };
+  };
+
+  // Abrir modal de solo lectura
+  const handleOpenViewOrder = async (order: any) => {
+    try {
+      const formatted = await formatOrderForPrintable(order);
+      setSelectedOrderForView(formatted);
+      setIsViewOrderModalOpen(true);
+    } catch (err) {
+      console.error("Error al abrir visualización del pedido:", err);
+      alert("Error al cargar los datos del pedido.");
+    }
+  };
+
+  // Abrir modal de comprobante imprimible
+  const handleOpenPrintOrder = async (order: any) => {
+    try {
+      const formatted = await formatOrderForPrintable(order);
+      setSelectedOrderForPrint(formatted);
+      setIsPrintOrderModalOpen(true);
+    } catch (err) {
+      console.error("Error al abrir comprobante del pedido:", err);
+      alert("Error al cargar los datos para el comprobante.");
+    }
+  };
+
+  // Generar comprobante del pedido actual que se está cargando/editando en el formulario
+  const handleOpenCurrentFormPrintable = async () => {
+    if (orderItems.length === 0) {
+      alert("Agregá al menos un producto al pedido para generar el comprobante.");
+      return;
+    }
+
+    const sellerObj = sellersList.find(s => s.id === selectedSellerId);
+    const locObj = localities.find(l => l.id === localidadId);
+    const pmObj = dbPaymentMethods.find(p => p.id === selectedPaymentMethodId);
+
+    const currentFormData: PrintableOrderData = {
+      id: editingOrderId || "NUEVO",
+      legacy_code: legacyCode || "",
+      created_at: new Date().toISOString(),
+      order_date: fechaPedido || new Date().toISOString().split('T')[0],
+      customer_name: cliente || newClientName || "Cliente",
+      client_phone: newClientPhones[0] || "",
+      client_phone_secondary: newClientPhones[1] || "",
+      address: direccion || "",
+      locality: locObj?.name || "",
+      zone_name: locObj?.zones?.name || "",
+      google_maps_link: linkMaps || "",
+      whaticket_link: whaticketLink || "",
+      seller_name: sellerObj?.full_name || "Equipo Zono",
+      status: orderStatus || "Pendiente",
+      channel: sellerType === 'mayorista' ? 'mayorista' : 'minorista',
+      advertising_source_name: advertisingSources.find(a => a.id === selectedAdvertisingSourceId)?.name,
+      order_medium_name: orderMediums.find(m => m.id === selectedOrderMediumId)?.name,
+      freight_type: flete || "Flete Regular",
+      initial_delivery_date: entregaInicial || "",
+      max_delivery_date: entregaMaxima || "",
+      delivery_notes: aclaraciones || "",
+      delivery_detail: deliveryDetail || "",
+      payment_method_name: pmObj?.name || "Efectivo / Transferencia",
+      payment_status: paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? 'Seniado' : 'Impago'),
+      total_amount: total,
+      subtotal: subtotal,
+      freight_cost: shippingAmount,
+      surcharges: totalSurcharges,
+      tax: ivaAmount,
+      deposit_amount: paymentTiming === 'partial' ? customDepositAmount : (paymentTiming === 'paid' ? total : 0),
+      deposit_receipt_url: depositReceiptUrl || "",
+      pending_balance: pendingBalance,
+      order_items: orderItems.map(it => ({
+        id: it.id,
+        product_id: it.id,
+        product_name: it.name,
+        name: it.name,
+        sku: it.sku || "",
+        quantity: it.quantity,
+        unit_price: it.customPrice,
+        customPrice: it.customPrice
+      }))
+    };
+
+    setSelectedOrderForPrint(currentFormData);
+    setIsPrintOrderModalOpen(true);
+  };
+
   // Reintentar o sincronizar un pedido existente en BD directamente a la Planilla de Google
   const handleSyncExistingOrderToSheet = async (order: any) => {
     try {
@@ -3891,11 +4151,13 @@ export default function PedidosPage() {
     const isPostponed = editingOrderId && originalDeliveryDate && (new Date(entregaInicial) > new Date(originalDeliveryDate));
     if (isPostponed && !hasDeclaredPostponementReason) {
       setShowSummaryModal(false);
+      setShowEditConfirmModal(false);
       setShowPostponementModal(true);
       return;
     }
 
     setShowSummaryModal(false);
+    setShowEditConfirmModal(false);
     setSubmitting(true);
     try {
       const { data: userData } = await supabase.auth.getUser();
@@ -4470,6 +4732,22 @@ export default function PedidosPage() {
           logisticsObservation: logisticsObservation.trim()
         });
 
+        // Enviar automáticamente a Telegram SOLO si hay cambios que afectan a Logística
+        const shouldNotifyLogistics = isLogisticallyRelevantChange(editChangesSummary, logisticsObservation);
+        setNotifiedLogistics(shouldNotifyLogistics);
+
+        if (shouldNotifyLogistics) {
+          fetch('/api/vendedores/telegram-notify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              type: 'modification',
+              message: copyMsg,
+              legacyCode: legacyCode || orderData.legacy_code || ''
+            })
+          }).catch(err => console.warn('Error sending automatic Telegram alert:', err));
+        }
+
         setGeneratedModificationMessage(copyMsg);
         setCopiedModificationMessage(false);
         setShowModificationSuccessModal(true);
@@ -4699,9 +4977,19 @@ export default function PedidosPage() {
                   setHoldProductId("");
                   setActiveTab('list');
                 }}
-                className="px-3 py-1.5 bg-white hover:bg-slate-50 border border-amber-200 text-amber-800 font-black rounded-lg text-[10px] shadow-sm transition-all uppercase tracking-wider shrink-0"
+                className="px-3 py-1.5 bg-white hover:bg-slate-50 border border-amber-200 text-amber-800 font-black rounded-lg text-[10px] shadow-sm transition-all uppercase tracking-wider shrink-0 cursor-pointer"
               >
                 Cancelar Edición
+              </button>
+
+              <button
+                type="button"
+                onClick={handleOpenCurrentFormPrintable}
+                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-lg text-[10px] shadow-sm transition-all uppercase tracking-wider shrink-0 flex items-center gap-1 cursor-pointer"
+                title="Generar e imprimir comprobante de este pedido"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>Ver / Imprimir Comprobante</span>
               </button>
             </div>
           )}
@@ -6657,7 +6945,7 @@ export default function PedidosPage() {
                 </div>
 
                 {/* Botón de Confirmación y Resumen */}
-                <div className="mt-4 pt-3 border-t border-slate-200/60">
+                <div className="mt-4 pt-3 border-t border-slate-200/60 space-y-2">
                   <Button 
                     type="submit" 
                     disabled={submitting || orderItems.length === 0} 
@@ -6665,6 +6953,17 @@ export default function PedidosPage() {
                   >
                     <Save className="w-4 h-4" /> Ver Resumen y Reservar Stock
                   </Button>
+
+                  {orderItems.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleOpenCurrentFormPrintable}
+                      className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer border border-slate-200"
+                    >
+                      <Printer className="w-3.5 h-3.5 text-slate-500" />
+                      <span>Ver / Imprimir Comprobante</span>
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -7154,7 +7453,7 @@ export default function PedidosPage() {
                   <th className="px-3.5 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400 min-w-[180px]">Localidad & Zona</th>
                   <th className="px-3.5 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400 text-center w-28 whitespace-nowrap">Estado</th>
                   <th className="px-3.5 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400 text-right w-28 whitespace-nowrap">Total</th>
-                  <th className="px-3 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400 text-center w-20 whitespace-nowrap">Acciones</th>
+                  <th className="px-3 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400 text-center min-w-[140px] whitespace-nowrap">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100/90 text-slate-700">
@@ -7177,7 +7476,14 @@ export default function PedidosPage() {
                     {/* Cliente */}
                     <td className="px-3.5 py-2">
                       <div className="font-bold text-slate-900 text-xs flex items-center gap-1.5 flex-wrap">
-                        <span className="hover:text-brand-600 transition-colors cursor-default">{p.customer_name}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenViewOrder(p)}
+                          className="hover:text-brand-600 hover:underline transition-colors cursor-pointer text-left font-black"
+                          title="Clic para ver detalle completo del pedido (modo lectura)"
+                        >
+                          {p.customer_name}
+                        </button>
                         {isOrderWholesale(p) && (
                           <span className="inline-flex items-center px-1.5 py-0.25 bg-purple-50 border border-purple-200 text-purple-700 rounded text-[7.5px] font-black uppercase tracking-wider shrink-0 shadow-2xs" title="Cliente Mayorista / Recurrente">
                             👑 Mayorista
@@ -7265,6 +7571,26 @@ export default function PedidosPage() {
                     {/* Acciones (Solo Íconos) */}
                     <td className="px-3 py-2 text-center whitespace-nowrap">
                       <div className="flex items-center justify-center gap-1.5">
+                        {/* Ver Detalle del Pedido (Lectura sin edición) */}
+                        <button
+                          type="button"
+                          onClick={() => handleOpenViewOrder(p)}
+                          className="p-1.5 bg-slate-50 hover:bg-slate-800 text-slate-600 hover:text-white rounded-lg border border-slate-200 hover:border-slate-800 transition-all duration-150 active:scale-90 shadow-2xs cursor-pointer"
+                          title="Ver Detalle del Pedido (Modo Lectura)"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                        </button>
+
+                        {/* Imprimir / Comprobante de Pedido */}
+                        <button
+                          type="button"
+                          onClick={() => handleOpenPrintOrder(p)}
+                          className="p-1.5 bg-emerald-50 hover:bg-emerald-600 text-emerald-700 hover:text-white rounded-lg border border-emerald-200 hover:border-emerald-600 transition-all duration-150 active:scale-90 shadow-2xs cursor-pointer"
+                          title="Imprimir / Exportar Comprobante de Pedido (PDF e Imagen)"
+                        >
+                          <Printer className="w-3.5 h-3.5" />
+                        </button>
+
                         <button
                           type="button"
                           onClick={() => handleEditOrder(p)}
@@ -7658,12 +7984,26 @@ export default function PedidosPage() {
                 />
               </div>
 
-              {/* Aviso sobre planilla */}
-              <div className="p-3 bg-purple-50/60 rounded-xl border border-purple-100 flex items-center gap-2 text-[11px] text-purple-800">
-                <FileSpreadsheet className="w-4 h-4 text-purple-600 shrink-0" />
-                <span>
-                  Al confirmar, el pedido se actualizará en el sistema, <strong>impactará en la planilla de Google</strong> con estado <strong>"Modificado"</strong> y se guardará el historial de cambios.
-                </span>
+              {/* Aviso sobre planilla y Telegram */}
+              <div className="space-y-2">
+                <div className="p-3 bg-purple-50/60 rounded-xl border border-purple-100 flex items-center gap-2 text-[11px] text-purple-800">
+                  <FileSpreadsheet className="w-4 h-4 text-purple-600 shrink-0" />
+                  <span>
+                    Al confirmar, el pedido se actualizará en el sistema, <strong>impactará en la planilla de Google</strong> con estado <strong>"Modificado"</strong> y se guardará el historial de cambios.
+                  </span>
+                </div>
+
+                {isLogisticallyRelevantChange(editChangesSummary, logisticsObservation) ? (
+                  <div className="p-2.5 bg-emerald-50 rounded-xl border border-emerald-200 flex items-center gap-2 text-[11px] text-emerald-800 font-medium">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>🚚 <strong>Afecta a Logística:</strong> Se notificará automáticamente al grupo de Telegram.</span>
+                  </div>
+                ) : (
+                  <div className="p-2.5 bg-slate-100 rounded-xl border border-slate-200 flex items-center gap-2 text-[11px] text-slate-600 font-medium">
+                    <span className="text-xs">ℹ️</span>
+                    <span><strong>Cambio administrativo:</strong> Se actualizará en el sistema y planilla sin enviar alerta a Logística.</span>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -7730,11 +8070,18 @@ export default function PedidosPage() {
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-black text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
                     <Copy className="w-3.5 h-3.5 text-slate-500" />
-                    Mensaje de Modificación para Copiar y Pegar
+                    Mensaje de Modificación
                   </span>
-                  <span className="text-[10px] font-bold text-slate-500 bg-slate-200/70 px-2 py-0.5 rounded-full">
-                    WhatsApp / Telegram
-                  </span>
+                  {notifiedLogistics ? (
+                    <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100/90 border border-emerald-200 px-2 py-0.5 rounded-full flex items-center gap-1 shadow-2xs">
+                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                      Enviado a Telegram
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-bold text-slate-600 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+                      ℹ️ Sin alerta a Logística (Cambio administrativo)
+                    </span>
+                  )}
                 </div>
                 <div className="bg-white rounded-xl border border-slate-200 p-3.5 text-xs font-mono text-slate-800 whitespace-pre-wrap select-all max-h-64 overflow-y-auto leading-relaxed">
                   {generatedModificationMessage}
@@ -7759,9 +8106,9 @@ export default function PedidosPage() {
 
               <button
                 type="button"
-                onClick={() => {
-                  if (navigator?.clipboard) {
-                    navigator.clipboard.writeText(generatedModificationMessage);
+                onClick={async () => {
+                  const ok = await copyRichMessageToClipboard(generatedModificationMessage);
+                  if (ok) {
                     setCopiedModificationMessage(true);
                     setTimeout(() => setCopiedModificationMessage(false), 2500);
                   }
@@ -7769,7 +8116,7 @@ export default function PedidosPage() {
                 className="w-full sm:w-auto px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-xs flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 cursor-pointer"
               >
                 {copiedModificationMessage ? <CheckCheck className="w-4 h-4 text-emerald-200" /> : <Copy className="w-4 h-4" />}
-                {copiedModificationMessage ? "¡Mensaje Copiado al Portapapeles!" : "Copiar Mensaje para Logística / WhatsApp"}
+                {copiedModificationMessage ? "¡Mensaje Copiado al Portapapeles!" : "Copiar Mensaje para Telegram / WhatsApp"}
               </button>
             </div>
           </div>
@@ -8068,10 +8415,11 @@ export default function PedidosPage() {
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-black text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
                     <Copy className="w-3.5 h-3.5 text-slate-500" />
-                    Aviso de Anulación para Copiar y Pegar
+                    Aviso de Anulación
                   </span>
-                  <span className="text-[10px] font-bold text-slate-500 bg-slate-200/70 px-2 py-0.5 rounded-full">
-                    WhatsApp / Telegram
+                  <span className="text-[10px] font-bold text-rose-800 bg-rose-100/90 border border-rose-200 px-2 py-0.5 rounded-full flex items-center gap-1 shadow-2xs">
+                    <CheckCircle2 className="w-3 h-3 text-rose-600" />
+                    Enviado a Telegram
                   </span>
                 </div>
                 <div className="bg-white rounded-xl border border-slate-200 p-3.5 text-xs font-mono text-slate-800 whitespace-pre-wrap select-all max-h-64 overflow-y-auto leading-relaxed">
@@ -8095,9 +8443,9 @@ export default function PedidosPage() {
 
               <button
                 type="button"
-                onClick={() => {
-                  if (navigator?.clipboard) {
-                    navigator.clipboard.writeText(generatedCancelMessage);
+                onClick={async () => {
+                  const ok = await copyRichMessageToClipboard(generatedCancelMessage);
+                  if (ok) {
                     setCopiedCancelMessage(true);
                     setTimeout(() => setCopiedCancelMessage(false), 2500);
                   }
@@ -8105,7 +8453,7 @@ export default function PedidosPage() {
                 className="w-full sm:w-auto px-6 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-black text-xs flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 cursor-pointer"
               >
                 {copiedCancelMessage ? <CheckCheck className="w-4 h-4 text-rose-200" /> : <Copy className="w-4 h-4" />}
-                {copiedCancelMessage ? "¡Aviso Copiado al Portapapeles!" : "Copiar Aviso para Logística / WhatsApp"}
+                {copiedCancelMessage ? "¡Aviso Copiado al Portapapeles!" : "Copiar Aviso para Telegram / WhatsApp"}
               </button>
             </div>
           </div>
@@ -8677,6 +9025,39 @@ export default function PedidosPage() {
         products={products}
         currentItemsCount={orderItems.length}
         onApplyBudget={handleApplyWhatsAppBudget}
+      />
+
+      {/* MODAL DE VISTA DE PEDIDO (LECTURA SIN EDICIÓN) */}
+      <ViewOrderModal
+        isOpen={isViewOrderModalOpen}
+        onClose={() => {
+          setIsViewOrderModalOpen(false);
+          setSelectedOrderForView(null);
+        }}
+        order={selectedOrderForView}
+        onEdit={(ord) => {
+          setIsViewOrderModalOpen(false);
+          handleEditOrder(ord);
+        }}
+        onPrint={(ord) => {
+          setIsViewOrderModalOpen(false);
+          setSelectedOrderForPrint(ord);
+          setIsPrintOrderModalOpen(true);
+        }}
+      />
+
+      {/* MODAL DE IMPRESIÓN / COMPROBANTE DE PEDIDO (PDF, IMAGEN, COPIAR) */}
+      <PrintableOrderModal
+        isOpen={isPrintOrderModalOpen}
+        onClose={() => {
+          setIsPrintOrderModalOpen(false);
+          setSelectedOrderForPrint(null);
+        }}
+        order={selectedOrderForPrint}
+        onEdit={(ord) => {
+          setIsPrintOrderModalOpen(false);
+          handleEditOrder(ord);
+        }}
       />
     </div>
   );
