@@ -18,7 +18,14 @@ interface CachedData {
 }
 
 let cache: CachedData | null = null;
-const CACHE_TTL_MS = 3 * 60 * 1000; // 3 minutes cache
+const CACHE_TTL_MS = 10 * 1000; // 10 seconds buffer, bypassed on refresh
+
+const NO_CACHE_HEADERS = {
+  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+  'Pragma': 'no-cache',
+  'Expires': '0',
+  'Surrogate-Control': 'no-store'
+};
 
 function parseMoney(val: any): number {
   if (!val) return 0;
@@ -38,19 +45,32 @@ function parsePercent(val: any): number {
   return isNaN(num) ? 0 : num;
 }
 
+export async function POST(request: Request) {
+  cache = null;
+  return NextResponse.json(
+    { success: true, message: 'Caché de EERR invalidada correctamente', timestamp: new Date().toISOString() },
+    {
+      headers: {
+        ...NO_CACHE_HEADERS,
+        'Access-Control-Allow-Origin': '*'
+      }
+    }
+  );
+}
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const forceRefresh = searchParams.get('refresh') === 'true';
+    const forceRefresh = searchParams.get('refresh') === 'true' || searchParams.get('webhook') === 'true';
 
     const now = Date.now();
     if (!forceRefresh && cache && now - cache.timestamp < CACHE_TTL_MS) {
-      return NextResponse.json(cache.data);
+      return NextResponse.json(cache.data, { headers: NO_CACHE_HEADERS });
     }
 
     // 1. Fetch main EERR range and Master Logistics sheet in parallel
     const [values, masterDeliveriesSheetRows] = await Promise.all([
-      fetchSpreadsheetValues(SPREADSHEET_ID, 'EERR!A1:AK34'),
+      fetchSpreadsheetValues(SPREADSHEET_ID, 'EERR!A1:AK40'),
       fetchSpreadsheetValues(LOGISTICS_SPREADSHEET_ID, "'🔴 Entregados'!A1:Z").catch(err => {
         console.warn('[API EERR] Could not fetch master logistics sheet:', err);
         return null;
@@ -718,7 +738,7 @@ export async function GET(request: Request) {
     };
 
     cache = { timestamp: now, data: result };
-    return NextResponse.json(result);
+    return NextResponse.json(result, { headers: NO_CACHE_HEADERS });
   } catch (error: any) {
     console.error('[API /api/admin/finanzas/eerr] Error:', error);
     return NextResponse.json(
@@ -726,7 +746,7 @@ export async function GET(request: Request) {
         success: false,
         error: error.message || 'Error fetching EERR data from Google Sheets'
       },
-      { status: 500 }
+      { status: 500, headers: NO_CACHE_HEADERS }
     );
   }
 }

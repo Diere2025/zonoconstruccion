@@ -140,7 +140,8 @@ export async function fetchSpreadsheetValues(
   const res = await fetch(url, {
     headers: {
       Authorization: `Bearer ${token}`
-    }
+    },
+    cache: 'no-store'
   });
 
   if (!res.ok) {
@@ -747,6 +748,187 @@ export async function appendOrderToSellerSheet(
     code: finalCode,
     codes: assignedCodes,
     rowNumber: firstRowNumber
+  };
+}
+
+export const SELLER_SHEET_CONFIG: Record<string, { spreadsheetId: string; sheetName: string; enabled: boolean }> = {
+  // Diego Bóveda
+  '381df0d1-183f-4ccb-aaf2-8147c76159a9': {
+    spreadsheetId: '1ccs1yPtwSSUf6dcA5XpxhpvPaWmHfJ0zsCfyJvEBvtg',
+    sheetName: 'Pendientes',
+    enabled: true
+  },
+  // Jazmín Sánchez
+  '13430e05-b61a-4a3f-9fc3-152d377c4b0c': {
+    spreadsheetId: '16DPcJEdrTMYvNSaUKQo9ODKClqe1VHLlKOX6O_sELRw',
+    sheetName: 'Pendientes',
+    enabled: true
+  },
+  // Ludmila Krenz
+  '54b2d319-8f6f-47ff-b794-b7731978410a': {
+    spreadsheetId: '1tp10RNH7z5VpWL9eVmofpOVrB2HzEpfbSEc1ngKO9_8',
+    sheetName: 'Pendientes',
+    enabled: true
+  },
+  '8207801b-b6cb-48cc-af0f-d2f9f2c98032': {
+    spreadsheetId: '1tp10RNH7z5VpWL9eVmofpOVrB2HzEpfbSEc1ngKO9_8',
+    sheetName: 'Pendientes',
+    enabled: true
+  },
+  // Facundo Paz
+  '3820a0fe-bb0a-4a84-ad85-79e49868cad7': {
+    spreadsheetId: '1c0iswWt2GAv8NhXfNgIlaOul9wanpZHaeMFeN2Pr0ns',
+    sheetName: 'Pendientes',
+    enabled: true
+  }
+};
+
+export async function updateOrderInSellerSheet(
+  spreadsheetId: string,
+  sheetName: string = 'Pendientes',
+  legacyCode: string,
+  order: SheetOrderPayload,
+  logisticsObservation?: string
+): Promise<{ success: boolean; rowNumber: number; code: string; message?: string }> {
+  if (!legacyCode || !legacyCode.trim()) {
+    throw new Error('legacyCode es requerido para modificar un pedido en la planilla');
+  }
+
+  const token = await getGoogleAccessToken();
+
+  // 1. Obtener todos los códigos de la Columna B
+  const rows = await fetchSpreadsheetValues(spreadsheetId, `'${sheetName}'!B2:B`);
+  
+  // Buscar coincidencia por código (puede venir como 'DB0064' o 'DB0064 / DB0065')
+  const codesToSearch = legacyCode
+    .split(/[\/,]/)
+    .map(c => c.trim().toUpperCase())
+    .filter(Boolean);
+
+  let targetRowIndex = -1;
+  let matchedCode = '';
+
+  for (let i = 0; i < rows.length; i++) {
+    const currentCode = (rows[i]?.[0] || '').trim().toUpperCase();
+    if (!currentCode) continue;
+
+    if (codesToSearch.some(c => c === currentCode)) {
+      targetRowIndex = i;
+      matchedCode = currentCode;
+      break;
+    }
+  }
+
+  if (targetRowIndex === -1) {
+    return {
+      success: false,
+      rowNumber: -1,
+      code: legacyCode,
+      message: `No se encontró la fila en la planilla con el código ${legacyCode}`
+    };
+  }
+
+  const rowNumber = targetRowIndex + 2;
+
+  const formattedDeliveryDate = formatDateForSheet(order.deliveryDate);
+  const formattedOrderDate = formatDateForSheet(order.orderDate);
+  const formattedMaxDeliveryDate = formatDateForSheet(order.maxDeliveryDate);
+
+  // Armar notas: notas existentes + observación para logística si existe
+  let cleanNotes = (order.deliveryNotes || '').trim();
+  if (logisticsObservation && logisticsObservation.trim()) {
+    const obsText = `⚠️ OBS. LOGÍSTICA: ${logisticsObservation.trim()}`;
+    if (!cleanNotes.includes(obsText)) {
+      cleanNotes = cleanNotes ? `${cleanNotes} / ${obsText}` : obsText;
+    }
+  }
+
+  const depositAmount = order.depositOrPaidAmount ?? 0;
+  const freightCost = order.freightCost ?? 0;
+  const paymentStatus = order.paymentStatus || 'No Abonado';
+
+  // En la planilla, Columna Q siempre debe ser 'Modificado'
+  const sheetStatus = 'Modificado';
+
+  const batchData: Array<{ range: string; values: any[][] }> = [
+    {
+      range: `'${sheetName}'!C${rowNumber}:E${rowNumber}`,
+      values: [[formattedDeliveryDate, formattedOrderDate, formattedMaxDeliveryDate]]
+    },
+    {
+      range: `'${sheetName}'!F${rowNumber}:H${rowNumber}`,
+      values: [[order.clientName || '', order.phonePrimary || '', order.phoneSecondary || '']]
+    },
+    {
+      range: `'${sheetName}'!I${rowNumber}:K${rowNumber}`,
+      values: [[order.whaticketLink || '', order.source || 'Publicidad Meta', cleanNotes]]
+    },
+    {
+      range: `'${sheetName}'!L${rowNumber}:M${rowNumber}`,
+      values: [[order.medium || '', normalizeSellerNameForSheet(order.sellerName)]]
+    },
+    {
+      range: `'${sheetName}'!Q${rowNumber}:T${rowNumber}`,
+      values: [[sheetStatus, order.locality || '', order.address || '', order.mapsLink || '']]
+    },
+    {
+      range: `'${sheetName}'!U${rowNumber}:W${rowNumber}`,
+      values: [[normalizeCategoryForSheet(order.category), order.paymentMethod || '', order.identification || '']]
+    },
+    {
+      range: `'${sheetName}'!X${rowNumber}:Y${rowNumber}`,
+      values: [[paymentStatus, depositAmount]]
+    },
+    {
+      range: `'${sheetName}'!AA${rowNumber}:AB${rowNumber}`,
+      values: [[normalizeFreightForSheet(order.freightType), freightCost]]
+    }
+  ];
+
+  // Actualizar los 12 slots de productos: los que tienen ítem se escriben, los vacíos se limpian con ''
+  const items = order.items || [];
+  for (let i = 0; i < PRODUCT_SLOT_RANGES.length; i++) {
+    const [startCol, endCol] = PRODUCT_SLOT_RANGES[i];
+    if (i < items.length) {
+      const item = items[i];
+      const finalProdName = normalizeProductNameForSheet(item.name, item.sku);
+      batchData.push({
+        range: `'${sheetName}'!${startCol}${rowNumber}:${endCol}${rowNumber}`,
+        values: [[finalProdName, item.quantity || 1, item.unitPrice || 0]]
+      });
+    } else {
+      // Limpiar slot sobrante
+      batchData.push({
+        range: `'${sheetName}'!${startCol}${rowNumber}:${endCol}${rowNumber}`,
+        values: [['', '', '']]
+      });
+    }
+  }
+
+  const updateRes = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        valueInputOption: 'USER_ENTERED',
+        data: batchData
+      })
+    }
+  );
+
+  if (!updateRes.ok) {
+    const errText = await updateRes.text();
+    throw new Error(`Google Sheets batchUpdate error (${updateRes.status}): ${errText}`);
+  }
+
+  return {
+    success: true,
+    rowNumber,
+    code: matchedCode || legacyCode
   };
 }
 

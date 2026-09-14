@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { appendOrderToSellerSheet, getNextAvailableSheetCode, normalizeSellerNameForSheet, SheetOrderPayload } from '@/lib/googleSheets';
+import {
+  appendOrderToSellerSheet,
+  getNextAvailableSheetCode,
+  normalizeSellerNameForSheet,
+  SELLER_SHEET_CONFIG,
+  SheetOrderPayload
+} from '@/lib/googleSheets';
 import { createClient } from '@supabase/supabase-js';
 
 export const runtime = 'edge';
@@ -7,39 +13,6 @@ export const runtime = 'edge';
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
-
-// Seller spreadsheet configuration
-const SELLER_SHEET_CONFIG: Record<string, { spreadsheetId: string; sheetName: string; enabled: boolean }> = {
-  // Diego Bóveda
-  '381df0d1-183f-4ccb-aaf2-8147c76159a9': {
-    spreadsheetId: '1ccs1yPtwSSUf6dcA5XpxhpvPaWmHfJ0zsCfyJvEBvtg',
-    sheetName: 'Pendientes',
-    enabled: true
-  },
-  // Jazmín Sánchez
-  '13430e05-b61a-4a3f-9fc3-152d377c4b0c': {
-    spreadsheetId: '16DPcJEdrTMYvNSaUKQo9ODKClqe1VHLlKOX6O_sELRw',
-    sheetName: 'Pendientes',
-    enabled: true
-  },
-  // Ludmila Krenz
-  '54b2d319-8f6f-47ff-b794-b7731978410a': {
-    spreadsheetId: '1tp10RNH7z5VpWL9eVmofpOVrB2HzEpfbSEc1ngKO9_8',
-    sheetName: 'Pendientes',
-    enabled: true
-  },
-  '8207801b-b6cb-48cc-af0f-d2f9f2c98032': {
-    spreadsheetId: '1tp10RNH7z5VpWL9eVmofpOVrB2HzEpfbSEc1ngKO9_8',
-    sheetName: 'Pendientes',
-    enabled: true
-  },
-  // Facundo Paz
-  '3820a0fe-bb0a-4a84-ad85-79e49868cad7': {
-    spreadsheetId: '1c0iswWt2GAv8NhXfNgIlaOul9wanpZHaeMFeN2Pr0ns',
-    sheetName: 'Pendientes',
-    enabled: true
-  }
-};
 
 export async function GET(req: NextRequest) {
   try {
