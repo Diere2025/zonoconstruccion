@@ -2198,6 +2198,22 @@ export default function MetaAdsPage() {
                                   {(() => {
                                     const alerts = campaignAlertsMap[c.campaignId] || [];
                                     if (alerts.length === 0) {
+                                      if (c.messages === 0) {
+                                        if (c.spendUsd >= 5) {
+                                          return (
+                                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200">
+                                              ⏳ Sin mensajes
+                                            </span>
+                                          );
+                                        } else if (c.spendUsd > 0) {
+                                          return (
+                                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-medium text-slate-600 bg-slate-100 border border-slate-200">
+                                              🔍 En exploración
+                                            </span>
+                                          );
+                                        }
+                                        return <span className="text-slate-400 font-mono text-[11px]">-</span>;
+                                      }
                                       return (
                                         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold text-slate-500 bg-slate-50 border border-slate-200">
                                           ✓ En Rango
@@ -2352,7 +2368,7 @@ export default function MetaAdsPage() {
                                                             className={`inline-flex items-center px-2 py-0.5 rounded-lg text-[9.5px] font-black border ${
                                                               al.includes('CPR Alto') || al.includes('Gasto sin') 
                                                                 ? 'bg-rose-50 text-rose-700 border-rose-200' 
-                                                                : al.includes('Fatiga')
+                                                                : al.includes('Fatiga') || al.includes('Sin mensajes')
                                                                 ? 'bg-amber-50 text-amber-700 border-amber-200'
                                                                 : 'bg-emerald-50 text-emerald-700 border-emerald-200'
                                                             }`}
@@ -2365,6 +2381,18 @@ export default function MetaAdsPage() {
                                                       <span className="inline-flex items-center px-2 py-0.5 rounded-lg text-[9.5px] font-black bg-rose-50 text-rose-700 border border-rose-200">
                                                         🚨 CPR Alto (US$ {ad.costPerActionUsd.toFixed(2)})
                                                       </span>
+                                                    ) : ad.messages === 0 ? (
+                                                      ad.spendUsd >= 3 ? (
+                                                        <span className="inline-flex items-center px-2 py-0.5 rounded-lg text-[9.5px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                                                          ⏳ Sin mensajes
+                                                        </span>
+                                                      ) : ad.spendUsd > 0 ? (
+                                                        <span className="inline-flex items-center px-2 py-0.5 rounded-lg text-[9.5px] font-medium bg-slate-100 text-slate-600 border border-slate-200">
+                                                          🔍 En exploración
+                                                        </span>
+                                                      ) : (
+                                                        <span className="text-slate-400 font-mono text-[11px]">-</span>
+                                                      )
                                                     ) : (
                                                       <span className="text-[10px] text-slate-400 font-bold">
                                                         ✓ En Rango
@@ -2722,7 +2750,7 @@ export default function MetaAdsPage() {
                       className={`px-2.5 py-1 rounded-xl text-xs font-black border ${
                         al.includes('CPR Alto') || al.includes('Gasto sin') 
                           ? 'bg-rose-50 text-rose-700 border-rose-200' 
-                          : al.includes('Fatiga')
+                          : al.includes('Fatiga') || al.includes('Sin mensajes')
                           ? 'bg-amber-50 text-amber-700 border-amber-200'
                           : 'bg-emerald-50 text-emerald-700 border-emerald-200'
                       }`}

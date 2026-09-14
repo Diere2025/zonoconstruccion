@@ -660,10 +660,11 @@ export async function appendOrderToSellerSheet(
       ? `VA CON EL PEDIDO ${brotherCodes.join(' / ')}`
       : '';
 
-    // Limpiar notas de cualquier prefijo anterior
+    // Limpiar notas de cualquier prefijo anterior o residuos de cobrar al entregar
     let cleanNotes = (order.deliveryNotes || '').trim();
     cleanNotes = cleanNotes.replace(/\(Continuación pedido [^)]+\)/gi, '').trim();
     cleanNotes = cleanNotes.replace(/^VA CON EL PEDIDO\s+[A-Za-z0-9\-\/,\s]+?(\/|-|$)/i, '').trim();
+    cleanNotes = cleanNotes.replace(/(?:Cobrar al entregar|Saldo al entregar|Seña:)[^/]+/gi, '').trim();
     cleanNotes = cleanNotes.replace(/^[\/\-\s]+|[\/\-\s]+$/g, '').trim();
 
     let notes = cleanNotes;
@@ -738,6 +739,15 @@ export async function appendOrderToSellerSheet(
     if (!updateRes.ok) {
       const errText = await updateRes.text();
       throw new Error(`Google Sheets batchUpdate error (${updateRes.status}): ${errText}`);
+    }
+
+    // Formatear celda de notas (Columna K) con fondo amarillo y texto negro en negrita si hay notas
+    if (notes && notes.trim().length > 0) {
+      try {
+        await formatSheetNoteCell(spreadsheetId, sheetName, rowNumber, token);
+      } catch (fErr) {
+        console.warn('Could not format note cell in sheet:', fErr);
+      }
     }
   }
 
@@ -835,8 +845,11 @@ export async function updateOrderInSellerSheet(
   const formattedOrderDate = formatDateForSheet(order.orderDate);
   const formattedMaxDeliveryDate = formatDateForSheet(order.maxDeliveryDate);
 
-  // Armar notas: notas existentes + observación para logística si existe
+  // Armar notas: notas existentes (limpiando cualquier residuo de cobrar al entregar) + observación para logística si existe
   let cleanNotes = (order.deliveryNotes || '').trim();
+  cleanNotes = cleanNotes.replace(/(?:Cobrar al entregar|Saldo al entregar|Seña:)[^/]+/gi, '').trim();
+  cleanNotes = cleanNotes.replace(/^[\/\-\s]+|[\/\-\s]+$/g, '').trim();
+
   if (logisticsObservation && logisticsObservation.trim()) {
     const obsText = `⚠️ OBS. LOGÍSTICA: ${logisticsObservation.trim()}`;
     if (!cleanNotes.includes(obsText)) {
@@ -924,6 +937,15 @@ export async function updateOrderInSellerSheet(
   if (!updateRes.ok) {
     const errText = await updateRes.text();
     throw new Error(`Google Sheets batchUpdate error (${updateRes.status}): ${errText}`);
+  }
+
+  // Formatear celda de notas (Columna K) con fondo amarillo y texto negro en negrita si hay notas
+  if (cleanNotes && cleanNotes.trim().length > 0) {
+    try {
+      await formatSheetNoteCell(spreadsheetId, sheetName, rowNumber, token);
+    } catch (fErr) {
+      console.warn('Could not format note cell in sheet:', fErr);
+    }
   }
 
   return {
@@ -1027,10 +1049,96 @@ export async function cancelOrderInSellerSheet(
     throw new Error(`Google Sheets batchUpdate error (${updateRes.status}): ${errText}`);
   }
 
+  if (cancelReason && cancelReason.trim()) {
+    try {
+      await formatSheetNoteCell(spreadsheetId, sheetName, rowNumber, token);
+    } catch (fErr) {
+      console.warn('Could not format cancel note cell in sheet:', fErr);
+    }
+  }
+
   return {
     success: true,
     rowNumber,
     code: matchedCode || legacyCode
   };
+}
+
+const sheetIdCache: Record<string, number> = {
+  'Pendientes': 1414092286
+};
+
+async function getSheetIdByTitle(spreadsheetId: string, sheetTitle: string, token: string): Promise<number> {
+  const cacheKey = `${spreadsheetId}_${sheetTitle}`;
+  if (sheetIdCache[cacheKey] !== undefined) {
+    return sheetIdCache[cacheKey];
+  }
+
+  try {
+    const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const match = data.sheets?.find((s: any) => s.properties?.title?.toLowerCase() === sheetTitle.toLowerCase());
+      if (match && match.properties?.sheetId !== undefined) {
+        sheetIdCache[cacheKey] = match.properties.sheetId;
+        return match.properties.sheetId;
+      }
+    }
+  } catch (err) {
+    console.warn(`Could not lookup sheetId for ${sheetTitle} in ${spreadsheetId}:`, err);
+  }
+
+  return sheetIdCache[sheetTitle] || 1414092286;
+}
+
+/**
+ * Aplica formato en Columna K (Aclaraciones / Detalle Entrega):
+ * - Fondo amarillo (#FFFF00)
+ * - Letras negras en negrita (#000000)
+ */
+export async function formatSheetNoteCell(
+  spreadsheetId: string,
+  sheetName: string = 'Pendientes',
+  rowNumber: number,
+  token?: string
+): Promise<void> {
+  const authToken = token || await getGoogleAccessToken();
+  const sheetId = await getSheetIdByTitle(spreadsheetId, sheetName, authToken);
+
+  await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${authToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      requests: [
+        {
+          repeatCell: {
+            range: {
+              sheetId: sheetId,
+              startRowIndex: rowNumber - 1,
+              endRowIndex: rowNumber,
+              startColumnIndex: 10, // Columna K (0-indexed)
+              endColumnIndex: 11
+            },
+            cell: {
+              userEnteredFormat: {
+                backgroundColor: { red: 1, green: 1, blue: 0 },
+                textFormat: {
+                  foregroundColor: { red: 0, green: 0, blue: 0 },
+                  bold: true,
+                  fontSize: 10
+                }
+              }
+            },
+            fields: 'userEnteredFormat(backgroundColor,textFormat)'
+          }
+        }
+      ]
+    })
+  });
 }
 
