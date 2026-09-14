@@ -816,7 +816,7 @@ export default function MetaAdsPage() {
   }, [historyRecords]);
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className="space-y-6 pb-12 w-full max-w-full min-w-0">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
         <div className="space-y-1">
@@ -1833,41 +1833,44 @@ export default function MetaAdsPage() {
               )}
 
               {/* Filters Bar */}
-              <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
-                <div className="flex items-center gap-3 w-full sm:w-auto">
-                  <div className="relative flex-1 sm:w-80">
-                    <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <input
-                      type="text"
-                      placeholder="Buscar por campaña, oferta o producto..."
-                      value={liveSearchQuery}
-                      onChange={e => setLiveSearchQuery(e.target.value)}
-                      className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    />
+              <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm space-y-3">
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                  {/* Search and Line selector */}
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 flex-1 min-w-0">
+                    <div className="relative flex-1 min-w-0">
+                      <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input
+                        type="text"
+                        placeholder="Buscar por campaña, oferta o producto..."
+                        value={liveSearchQuery}
+                        onChange={e => setLiveSearchQuery(e.target.value)}
+                        className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+
+                    {distinctLiveLines.length > 0 && (
+                      <div className="flex items-center gap-2 shrink-0">
+                        <PhoneCall className="w-4 h-4 text-slate-400 shrink-0" />
+                        <select
+                          value={liveLineFilter}
+                          onChange={e => setLiveLineFilter(e.target.value)}
+                          className="py-2 px-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-700 focus:outline-none w-full sm:w-auto"
+                        >
+                          <option value="all">Todas las Líneas</option>
+                          {distinctLiveLines.map(line => (
+                            <option key={line} value={line}>Línea {line}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                   </div>
 
-                  {distinctLiveLines.length > 0 && (
-                    <div className="flex items-center gap-2">
-                      <PhoneCall className="w-4 h-4 text-slate-400" />
-                      <select
-                        value={liveLineFilter}
-                        onChange={e => setLiveLineFilter(e.target.value)}
-                        className="py-2 px-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-700 focus:outline-none"
-                      >
-                        <option value="all">Todas las Líneas</option>
-                        {distinctLiveLines.map(line => (
-                          <option key={line} value={line}>Línea {line}</option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-
                   {/* Status & Alert Filters */}
-                  <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-2xl border border-slate-200 text-xs flex-wrap">
+                  <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-2xl border border-slate-200 text-xs overflow-x-auto no-scrollbar shrink-0 max-w-full">
                     <button
                       type="button"
                       onClick={() => { setLiveStatusFilter('all'); setLiveAlertFilter('all'); }}
-                      className={`px-3 py-1 rounded-xl font-bold transition-all cursor-pointer ${
+                      className={`px-3 py-1 rounded-xl font-bold transition-all cursor-pointer shrink-0 whitespace-nowrap ${
                         liveStatusFilter === 'all' && liveAlertFilter === 'all'
                           ? 'bg-white text-slate-900 shadow-xs'
                           : 'text-slate-500 hover:text-slate-800'
@@ -1878,7 +1881,7 @@ export default function MetaAdsPage() {
                     <button
                       type="button"
                       onClick={() => setLiveStatusFilter('active')}
-                      className={`px-3 py-1 rounded-xl font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                      className={`px-3 py-1 rounded-xl font-bold transition-all cursor-pointer flex items-center gap-1 shrink-0 whitespace-nowrap ${
                         liveStatusFilter === 'active' && liveAlertFilter === 'all'
                           ? 'bg-emerald-600 text-white shadow-xs'
                           : 'text-emerald-700 hover:bg-emerald-50'
@@ -1890,7 +1893,7 @@ export default function MetaAdsPage() {
                     <button
                       type="button"
                       onClick={() => setLiveStatusFilter('paused')}
-                      className={`px-3 py-1 rounded-xl font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                      className={`px-3 py-1 rounded-xl font-bold transition-all cursor-pointer flex items-center gap-1 shrink-0 whitespace-nowrap ${
                         liveStatusFilter === 'paused' && liveAlertFilter === 'all'
                           ? 'bg-amber-600 text-white shadow-xs'
                           : 'text-amber-700 hover:bg-amber-50'
@@ -1903,7 +1906,7 @@ export default function MetaAdsPage() {
                       <button
                         type="button"
                         onClick={() => setLiveAlertFilter(liveAlertFilter === 'all' ? 'with_alerts' : 'all')}
-                        className={`px-3 py-1 rounded-xl font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                        className={`px-3 py-1 rounded-xl font-bold transition-all cursor-pointer flex items-center gap-1 shrink-0 whitespace-nowrap ${
                           liveAlertFilter === 'with_alerts'
                             ? 'bg-rose-600 text-white shadow-xs'
                             : 'text-rose-700 hover:bg-rose-50'
@@ -1916,41 +1919,49 @@ export default function MetaAdsPage() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 flex-wrap">
-                  <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-2xl border border-slate-200 text-xs">
-                    <button
-                      type="button"
-                      onClick={expandAllCampaigns}
-                      className="px-2.5 py-1 rounded-xl font-bold text-[10.5px] text-slate-600 hover:text-indigo-600 hover:bg-white transition-all cursor-pointer"
-                      title="Expandir anuncios de todas las campañas"
-                    >
-                      Desplegar Anuncios
-                    </button>
-                    <button
-                      type="button"
-                      onClick={collapseAllCampaigns}
-                      className="px-2.5 py-1 rounded-xl font-bold text-[10.5px] text-slate-600 hover:text-indigo-600 hover:bg-white transition-all cursor-pointer"
-                      title="Contraer anuncios de todas las campañas"
-                    >
-                      Contraer
-                    </button>
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-2xl border border-slate-200 text-xs">
+                      <button
+                        type="button"
+                        onClick={expandAllCampaigns}
+                        className="px-2.5 py-1 rounded-xl font-bold text-[10.5px] text-slate-600 hover:text-indigo-600 hover:bg-white transition-all cursor-pointer"
+                        title="Expandir anuncios de todas las campañas"
+                      >
+                        Desplegar Anuncios
+                      </button>
+                      <button
+                        type="button"
+                        onClick={collapseAllCampaigns}
+                        className="px-2.5 py-1 rounded-xl font-bold text-[10.5px] text-slate-600 hover:text-indigo-600 hover:bg-white transition-all cursor-pointer"
+                        title="Contraer anuncios de todas las campañas"
+                      >
+                        Contraer
+                      </button>
+                    </div>
+
+                    <span className="text-xs font-bold text-slate-500">
+                      {filteredLiveCampaigns.length} de {liveCampaigns.length} campañas
+                    </span>
                   </div>
 
-                  <span className="text-xs font-bold text-slate-500">
-                    {filteredLiveCampaigns.length} de {liveCampaigns.length} campañas
-                  </span>
                   {liveSortField === 'cpr' && (
-                    <span className="text-[10.5px] font-black px-2.5 py-0.5 rounded-lg bg-rose-50 text-rose-700 border border-rose-200 flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => handleLiveSort('cpr')}
+                      className="text-[10.5px] font-black px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 border border-rose-200 flex items-center gap-1 cursor-pointer hover:bg-rose-100 transition-colors"
+                      title="Tocar para ordenar por CPR"
+                    >
                       {liveSortOrder === 'desc' ? '🔴 Más caro a más barato' : '🟢 Más barato a más caro'}
-                    </span>
+                    </button>
                   )}
                 </div>
               </div>
 
               {/* Live Campaigns Table */}
-              <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse text-xs">
+              <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden w-full max-w-full">
+                <div className="overflow-x-auto w-full">
+                  <table className="w-full min-w-[950px] text-left border-collapse text-xs">
                     <thead>
                       <tr className="bg-slate-50 border-b border-slate-200 text-slate-400 font-black uppercase tracking-wider text-[9px] select-none">
                         <th className="p-4">Estado</th>
