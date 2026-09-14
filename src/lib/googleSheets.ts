@@ -788,7 +788,8 @@ export async function updateOrderInSellerSheet(
   sheetName: string = 'Pendientes',
   legacyCode: string,
   order: SheetOrderPayload,
-  logisticsObservation?: string
+  logisticsObservation?: string,
+  statusOverride?: string
 ): Promise<{ success: boolean; rowNumber: number; code: string; message?: string }> {
   if (!legacyCode || !legacyCode.trim()) {
     throw new Error('legacyCode es requerido para modificar un pedido en la planilla');
@@ -847,8 +848,8 @@ export async function updateOrderInSellerSheet(
   const freightCost = order.freightCost ?? 0;
   const paymentStatus = order.paymentStatus || 'No Abonado';
 
-  // En la planilla, Columna Q siempre debe ser 'Modificado'
-  const sheetStatus = 'Modificado';
+  // En la planilla, Columna Q: 'Modificado' o valor sobrescrito (ej. '❌ Anulado')
+  const sheetStatus = statusOverride || 'Modificado';
 
   const batchData: Array<{ range: string; values: any[][] }> = [
     {
@@ -902,6 +903,107 @@ export async function updateOrderInSellerSheet(
         range: `'${sheetName}'!${startCol}${rowNumber}:${endCol}${rowNumber}`,
         values: [['', '', '']]
       });
+    }
+  }
+
+  const updateRes = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        valueInputOption: 'USER_ENTERED',
+        data: batchData
+      })
+    }
+  );
+
+  if (!updateRes.ok) {
+    const errText = await updateRes.text();
+    throw new Error(`Google Sheets batchUpdate error (${updateRes.status}): ${errText}`);
+  }
+
+  return {
+    success: true,
+    rowNumber,
+    code: matchedCode || legacyCode
+  };
+}
+
+/**
+ * Anula un pedido existente en la planilla del vendedor:
+ * - Coloca '❌ Anulado' en la Columna Q.
+ * - Opcionalmente añade la razón de anulación en la columna de notas (Columna K).
+ */
+export async function cancelOrderInSellerSheet(
+  spreadsheetId: string,
+  sheetName: string = 'Pendientes',
+  legacyCode: string,
+  cancelReason?: string
+): Promise<{ success: boolean; rowNumber: number; code: string; message?: string }> {
+  if (!legacyCode || !legacyCode.trim()) {
+    throw new Error('legacyCode es requerido para anular un pedido en la planilla');
+  }
+
+  const token = await getGoogleAccessToken();
+
+  // 1. Obtener todos los códigos de la Columna B
+  const rows = await fetchSpreadsheetValues(spreadsheetId, `'${sheetName}'!B2:B`);
+  
+  const codesToSearch = legacyCode
+    .split(/[\/,]/)
+    .map(c => c.trim().toUpperCase())
+    .filter(Boolean);
+
+  let targetRowIndex = -1;
+  let matchedCode = '';
+
+  for (let i = 0; i < rows.length; i++) {
+    const currentCode = (rows[i]?.[0] || '').trim().toUpperCase();
+    if (!currentCode) continue;
+
+    if (codesToSearch.some(c => c === currentCode)) {
+      targetRowIndex = i;
+      matchedCode = currentCode;
+      break;
+    }
+  }
+
+  if (targetRowIndex === -1) {
+    return {
+      success: false,
+      rowNumber: -1,
+      code: legacyCode,
+      message: `No se encontró la fila en la planilla con el código ${legacyCode}`
+    };
+  }
+
+  const rowNumber = targetRowIndex + 2;
+
+  // Actualizar Columna Q a '❌ Anulado'
+  const batchData: Array<{ range: string; values: any[][] }> = [
+    {
+      range: `'${sheetName}'!Q${rowNumber}`,
+      values: [['❌ Anulado']]
+    }
+  ];
+
+  // Si hay motivo de anulación, anexarlo a la celda de notas/aclaraciones (Columna K)
+  if (cancelReason && cancelReason.trim()) {
+    try {
+      const currentNotesRows = await fetchSpreadsheetValues(spreadsheetId, `'${sheetName}'!K${rowNumber}`);
+      const existingNote = (currentNotesRows[0]?.[0] || '').trim();
+      const cancelNoteText = `❌ ANULADO: ${cancelReason.trim()}`;
+      const newNote = existingNote ? `${existingNote} / ${cancelNoteText}` : cancelNoteText;
+      batchData.push({
+        range: `'${sheetName}'!K${rowNumber}`,
+        values: [[newNote]]
+      });
+    } catch (noteErr) {
+      console.warn('Could not read existing note before appending cancel reason:', noteErr);
     }
   }
 
