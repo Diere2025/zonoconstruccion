@@ -419,7 +419,10 @@ export default function PrintableOrderModal({
               flexDirection: "column",
               justifyContent: "flex-start",
               gap: "24px",
-              overflow: "visible"
+              overflow: "visible",
+              // El visor exterior es flex y tiene scroll. Sin esto el documento
+              // se encoge a la altura disponible y el canvas queda recortado.
+              flexShrink: 0
             }}
           >
             <div>
