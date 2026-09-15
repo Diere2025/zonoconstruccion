@@ -1900,6 +1900,10 @@ export default function PedidosPage() {
     sellerName?: string;
     changes: string[];
     logisticsObservation?: string;
+    operationalSync?: {
+      central?: { success: boolean; sheetName?: string; message?: string };
+      deliveriesCurrent?: { success: boolean; sheetName?: string; message?: string };
+    };
   }): string => {
     const lines: string[] = [];
     const sellerTag = params.sellerName ? ` (${params.sellerName})` : '';
@@ -1910,6 +1914,19 @@ export default function PedidosPage() {
     if (params.logisticsObservation && params.logisticsObservation.trim()) {
       lines.push(``);
       lines.push(`💬 **Observación para Logística:** ${params.logisticsObservation.trim()}`);
+    }
+
+    if (params.operationalSync) {
+      const central = params.operationalSync.central;
+      const deliveries = params.operationalSync.deliveriesCurrent;
+      lines.push(``);
+      lines.push(`📊 **SINCRONIZACIÓN DE PLANILLAS:**`);
+      lines.push(central?.success
+        ? `✅ Cambio en Central${central.sheetName ? ` (${central.sheetName})` : ''}`
+        : `❌ Cambio en Central: ${central?.message || 'No se pudo sincronizar'}`);
+      lines.push(deliveries?.success
+        ? `✅ Cambio en Entregas Actual (${deliveries.sheetName || 'Hoja no informada'})`
+        : `❌ Cambio en Entregas Actual: ${deliveries?.message || 'No se pudo sincronizar'}`);
     }
 
     return lines.join('\n');
@@ -5068,6 +5085,10 @@ export default function PedidosPage() {
         }
 
         // 2. Sincronizar actualización con la planilla de Google Sheets
+        let operationalSync: {
+          central?: { success: boolean; sheetName?: string; message?: string };
+          deliveriesCurrent?: { success: boolean; sheetName?: string; message?: string };
+        } | undefined;
         try {
           const clientPhone = isNewClient 
             ? (newClientPhones.map(cleanPhoneForSaving).filter(Boolean)[0] || '')
@@ -5128,6 +5149,7 @@ export default function PedidosPage() {
             if (sheetData.synced) {
               console.log(`Planilla actualizada en fila ${sheetData.rowNumber}`);
             }
+            operationalSync = sheetData.operationalSync;
           } else {
             const errData = await sheetUpdateRes.json().catch(() => ({}));
             console.warn('Error syncing update to sheet:', errData);
@@ -5151,11 +5173,14 @@ export default function PedidosPage() {
           legacyCode: legacyCode || orderData.legacy_code || 'S/C',
           sellerName: sellerFullName,
           changes: editChangesSummary,
-          logisticsObservation: logisticsObservation.trim()
+          logisticsObservation: logisticsObservation.trim(),
+          operationalSync
         });
 
         // Enviar automáticamente a Telegram SOLO si hay cambios que afectan a Logística
-        const shouldNotifyLogistics = isLogisticallyRelevantChange(editChangesSummary, logisticsObservation);
+        const hasOperationalSyncFailure = !!operationalSync &&
+          (!operationalSync.central?.success || !operationalSync.deliveriesCurrent?.success);
+        const shouldNotifyLogistics = isLogisticallyRelevantChange(editChangesSummary, logisticsObservation) || hasOperationalSyncFailure;
         setIsLogisticallyRelevant(shouldNotifyLogistics);
 
         let telegramSuccess = false;

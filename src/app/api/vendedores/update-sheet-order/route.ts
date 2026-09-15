@@ -3,6 +3,7 @@ import {
   updateOrderInSellerSheet,
   cancelOrderInSellerSheet,
   normalizeSellerNameForSheet,
+  syncOrderModificationToOperationalSheets,
   SELLER_SHEET_CONFIG,
   SheetOrderPayload
 } from '@/lib/googleSheets';
@@ -111,10 +112,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const operationalSync = await syncOrderModificationToOperationalSheets(
+      legacyCode,
+      order,
+      logisticsObservation
+    );
+
     return NextResponse.json({
       synced: true,
       code: result.code,
-      rowNumber: result.rowNumber
+      rowNumber: result.rowNumber,
+      operationalSync
     });
   } catch (err: any) {
     console.error('[update-sheet-order POST] Error:', err);

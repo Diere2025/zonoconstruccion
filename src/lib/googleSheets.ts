@@ -557,6 +557,194 @@ const PRODUCT_SLOT_RANGES: [string, string][] = [
   ['BW', 'BY']
 ];
 
+const CENTRAL_ORDERS_SHEET = {
+  spreadsheetId: '1nz545_xNUgdI2LMAGIDCjh6Qs8-vUDHdynzj7jU2wm0',
+  sheetName: 'Central pedidos',
+  codeColumn: 'B',
+  columnOffset: 0
+};
+
+const DELIVERIES_CURRENT_SHEET = {
+  spreadsheetId: '1mESHu4klY3N1XBXVgFT_Q7ZwlLtiA8GTi5NCCFFboZs',
+  sheetNames: ['Nuevos', 'Pend', 'Entregando', 'SinStock/o pasar dia', 'L1', 'L2', 'L3', 'L4', 'L5', 'L6'],
+  codeColumn: 'A',
+  // Entregas Actual omite la primera columna de las planillas de pedidos.
+  columnOffset: -1
+};
+
+export interface OperationalSheetSyncResult {
+  success: boolean;
+  sheetName?: string;
+  rowNumber?: number;
+  message?: string;
+}
+
+export interface OperationalSheetsSyncResult {
+  central: OperationalSheetSyncResult;
+  deliveriesCurrent: OperationalSheetSyncResult;
+}
+
+function shiftColumn(column: string, offset: number): string {
+  let value = 0;
+  for (const char of column) {
+    value = value * 26 + char.charCodeAt(0) - 64;
+  }
+  value += offset;
+  if (value < 1) throw new Error(`Desplazamiento inválido para la columna ${column}`);
+
+  let result = '';
+  while (value > 0) {
+    const remainder = (value - 1) % 26;
+    result = String.fromCharCode(65 + remainder) + result;
+    value = Math.floor((value - 1) / 26);
+  }
+  return result;
+}
+
+function makeRange(sheetName: string, startColumn: string, endColumn: string, rowNumber: number, columnOffset: number): string {
+  return `'${sheetName}'!${shiftColumn(startColumn, columnOffset)}${rowNumber}:${shiftColumn(endColumn, columnOffset)}${rowNumber}`;
+}
+
+function buildOrderUpdateBatchData(
+  sheetName: string,
+  rowNumber: number,
+  order: SheetOrderPayload,
+  logisticsObservation: string | undefined,
+  columnOffset: number,
+  statusOverride?: string
+): Array<{ range: string; values: unknown[][] }> {
+  const formattedDeliveryDate = formatDateForSheet(order.deliveryDate);
+  const formattedOrderDate = formatDateForSheet(order.orderDate);
+  const formattedMaxDeliveryDate = formatDateForSheet(order.maxDeliveryDate);
+  let cleanNotes = (order.deliveryNotes || '').trim();
+  cleanNotes = cleanNotes.replace(/(?:Cobrar al entregar|Saldo al entregar|Seña:)[^/]+/gi, '').trim();
+  cleanNotes = cleanNotes.replace(/^[\/\-\s]+|[\/\-\s]+$/g, '').trim();
+
+  if (logisticsObservation && logisticsObservation.trim()) {
+    const observation = `⚠️ OBS. LOGÍSTICA: ${logisticsObservation.trim()}`;
+    if (!cleanNotes.includes(observation)) {
+      cleanNotes = cleanNotes ? `${cleanNotes} / ${observation}` : observation;
+    }
+  }
+
+  const batchData: Array<{ range: string; values: unknown[][] }> = [
+    { range: makeRange(sheetName, 'C', 'E', rowNumber, columnOffset), values: [[formattedDeliveryDate, formattedOrderDate, formattedMaxDeliveryDate]] },
+    { range: makeRange(sheetName, 'F', 'H', rowNumber, columnOffset), values: [[order.clientName || '', order.phonePrimary || '', order.phoneSecondary || '']] },
+    { range: makeRange(sheetName, 'I', 'K', rowNumber, columnOffset), values: [[order.whaticketLink || '', order.source || 'Publicidad Meta', cleanNotes]] },
+    { range: makeRange(sheetName, 'L', 'M', rowNumber, columnOffset), values: [[order.medium || '', normalizeSellerNameForSheet(order.sellerName)]] },
+    { range: makeRange(sheetName, 'Q', 'T', rowNumber, columnOffset), values: [[statusOverride || 'Modificado', normalizeLocalityForSheet(order.locality), order.address || '', order.mapsLink || '']] },
+    { range: makeRange(sheetName, 'U', 'W', rowNumber, columnOffset), values: [[normalizeCategoryForSheet(order.category), order.paymentMethod || '', order.identification || '']] },
+    { range: makeRange(sheetName, 'X', 'Y', rowNumber, columnOffset), values: [[order.paymentStatus || 'No Abonado', order.depositOrPaidAmount ?? 0]] },
+    { range: makeRange(sheetName, 'AA', 'AB', rowNumber, columnOffset), values: [[normalizeFreightForSheet(order.freightType), order.freightCost ?? 0]] }
+  ];
+
+  const items = order.items || [];
+  for (let i = 0; i < PRODUCT_SLOT_RANGES.length; i++) {
+    const [startColumn, endColumn] = PRODUCT_SLOT_RANGES[i];
+    const item = items[i];
+    batchData.push({
+      range: makeRange(sheetName, startColumn, endColumn, rowNumber, columnOffset),
+      values: [item
+        ? [normalizeProductNameForSheet(item.name, item.sku), item.quantity || 1, item.unitPrice || 0]
+        : ['', '', '']]
+    });
+  }
+  return batchData;
+}
+
+async function findOrderRowInSheet(
+  spreadsheetId: string,
+  sheetName: string,
+  codeColumn: string,
+  legacyCode: string
+): Promise<{ rowNumber: number; code: string } | null> {
+  const rows = await fetchSpreadsheetValues(spreadsheetId, `'${sheetName}'!${codeColumn}2:${codeColumn}`);
+  const codesToSearch = legacyCode.split(/[\/,]/).map(code => code.trim().toUpperCase()).filter(Boolean);
+  for (let index = 0; index < rows.length; index++) {
+    const currentCode = (rows[index]?.[0] || '').trim().toUpperCase();
+    if (codesToSearch.includes(currentCode)) {
+      return { rowNumber: index + 2, code: currentCode };
+    }
+  }
+  return null;
+}
+
+async function updateOrderInOperationalSheet(
+  spreadsheetId: string,
+  sheetName: string,
+  codeColumn: string,
+  columnOffset: number,
+  legacyCode: string,
+  order: SheetOrderPayload,
+  logisticsObservation?: string
+): Promise<OperationalSheetSyncResult> {
+  try {
+    const target = await findOrderRowInSheet(spreadsheetId, sheetName, codeColumn, legacyCode);
+    if (!target) {
+      return { success: false, sheetName, message: `No se encontró el pedido ${legacyCode} en la hoja ${sheetName}` };
+    }
+
+    const token = await getGoogleAccessToken();
+    const updateRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        valueInputOption: 'USER_ENTERED',
+        data: buildOrderUpdateBatchData(sheetName, target.rowNumber, order, logisticsObservation, columnOffset)
+      })
+    });
+    if (!updateRes.ok) {
+      throw new Error(`Google Sheets respondió ${updateRes.status}`);
+    }
+    return { success: true, sheetName, rowNumber: target.rowNumber };
+  } catch (error) {
+    console.error(`[GoogleSheets] No se pudo sincronizar ${sheetName}:`, error);
+    return { success: false, sheetName, message: `No se pudo actualizar ${sheetName} (sin acceso o error de Google Sheets)` };
+  }
+}
+
+export async function syncOrderModificationToOperationalSheets(
+  legacyCode: string,
+  order: SheetOrderPayload,
+  logisticsObservation?: string
+): Promise<OperationalSheetsSyncResult> {
+  const central = await updateOrderInOperationalSheet(
+    CENTRAL_ORDERS_SHEET.spreadsheetId,
+    CENTRAL_ORDERS_SHEET.sheetName,
+    CENTRAL_ORDERS_SHEET.codeColumn,
+    CENTRAL_ORDERS_SHEET.columnOffset,
+    legacyCode,
+    order,
+    logisticsObservation
+  );
+
+  let deliveriesCurrent: OperationalSheetSyncResult = {
+    success: false,
+    message: `No se encontró el pedido ${legacyCode} en Entregas Actual`
+  };
+  for (const sheetName of DELIVERIES_CURRENT_SHEET.sheetNames) {
+    const result = await updateOrderInOperationalSheet(
+      DELIVERIES_CURRENT_SHEET.spreadsheetId,
+      sheetName,
+      DELIVERIES_CURRENT_SHEET.codeColumn,
+      DELIVERIES_CURRENT_SHEET.columnOffset,
+      legacyCode,
+      order,
+      logisticsObservation
+    );
+    if (result.success) {
+      deliveriesCurrent = result;
+      break;
+    }
+    if (!result.message?.startsWith(`No se encontró el pedido ${legacyCode}`)) {
+      deliveriesCurrent = result;
+      break;
+    }
+  }
+
+  return { central, deliveriesCurrent };
+}
+
 function formatDateForSheet(val?: string | null): string {
   if (!val) return '';
   const clean = val.split('T')[0].trim();
