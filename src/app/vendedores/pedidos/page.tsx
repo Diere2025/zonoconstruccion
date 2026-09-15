@@ -1093,6 +1093,7 @@ export default function PedidosPage() {
     }
   ]);
   const [uploadingReceiptId, setUploadingReceiptId] = useState<string | null>(null);
+  const receiptUploadInProgress = useRef(false);
 
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>("");
   const [adminSellerFilter, setAdminSellerFilter] = useState<string>("mis_kits");
@@ -1539,6 +1540,8 @@ export default function PedidosPage() {
   };
 
   const handlePaymentReceiptUpload = async (id: string, file: File) => {
+    if (receiptUploadInProgress.current) return;
+    receiptUploadInProgress.current = true;
     setUploadingReceipt(true);
     setUploadingReceiptId(id);
     try {
@@ -1600,6 +1603,7 @@ export default function PedidosPage() {
       console.error("Error al subir el comprobante del pago:", err);
       alert("Error al subir el comprobante: " + err.message);
     } finally {
+      receiptUploadInProgress.current = false;
       setUploadingReceipt(false);
       setUploadingReceiptId(null);
     }
@@ -7366,26 +7370,49 @@ export default function PedidosPage() {
                               </button>
                             </div>
                           ) : (
-                            <label className="flex items-center justify-center gap-1.5 py-1.5 px-3 border border-dashed border-brand-300 bg-brand-50/50 hover:bg-brand-100/60 rounded-lg cursor-pointer transition-colors text-brand-700">
-                              {uploadingReceiptId === p.id ? (
-                                <Loader2 className="w-3.5 h-3.5 text-brand-600 animate-spin" />
-                              ) : (
-                                <UploadCloud className="w-3.5 h-3.5 text-brand-500" />
-                              )}
-                              <span className="text-[10px] font-extrabold">
-                                {uploadingReceiptId === p.id ? "Subiendo archivo..." : "Subir comprobante"}
-                              </span>
-                              <input
-                                type="file"
-                                accept="image/*,application/pdf"
-                                onChange={(e) => {
-                                  const file = e.target.files?.[0];
-                                  if (file) handlePaymentReceiptUpload(p.id, file);
+                            <div className="flex flex-col gap-1.5">
+                              <div
+                                role="group"
+                                tabIndex={uploadingReceiptId ? -1 : 0}
+                                aria-label="Pegar imagen del comprobante de este pago"
+                                aria-disabled={Boolean(uploadingReceiptId)}
+                                onClick={(e) => e.currentTarget.focus()}
+                                onPaste={(e) => {
+                                  const image = Array.from(e.clipboardData.items)
+                                    .find(item => item.kind === "file" && item.type.startsWith("image/"))
+                                    ?.getAsFile();
+                                  if (!image) return;
+                                  e.preventDefault();
+                                  if (receiptUploadInProgress.current) return;
+                                  void handlePaymentReceiptUpload(p.id, image);
                                 }}
-                                className="hidden"
-                                disabled={Boolean(uploadingReceiptId)}
-                              />
-                            </label>
+                                className="px-3 py-2 border border-dashed border-brand-300 rounded-lg bg-brand-50/50 text-center text-brand-700 cursor-text outline-none focus:ring-2 focus:ring-brand-500 focus:bg-brand-100/60"
+                              >
+                                <span className="block text-[10px] font-extrabold">Pegá una imagen con Ctrl+V (o ⌘V)</span>
+                                <span className="block text-[9px]">Copiá la imagen en WhatsApp y hacé clic acá para pegarla.</span>
+                              </div>
+                              <label className="flex items-center justify-center gap-1.5 py-1.5 px-3 border border-dashed border-brand-300 bg-brand-50/50 hover:bg-brand-100/60 rounded-lg cursor-pointer transition-colors text-brand-700">
+                                {uploadingReceiptId === p.id ? (
+                                  <Loader2 className="w-3.5 h-3.5 text-brand-600 animate-spin" />
+                                ) : (
+                                  <UploadCloud className="w-3.5 h-3.5 text-brand-500" />
+                                )}
+                                <span className="text-[10px] font-extrabold">
+                                  {uploadingReceiptId === p.id ? "Subiendo archivo..." : "Subir comprobante"}
+                                </span>
+                                <input
+                                  type="file"
+                                  accept="image/*,application/pdf"
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    if (file) handlePaymentReceiptUpload(p.id, file);
+                                    e.target.value = "";
+                                  }}
+                                  className="hidden"
+                                  disabled={Boolean(uploadingReceiptId)}
+                                />
+                              </label>
+                            </div>
                           )}
                         </div>
 
