@@ -2892,6 +2892,12 @@ export default function PedidosPage() {
             }
           }
 
+          // When an administrator chooses a seller in the list filter, constrain
+          // the database query itself instead of only changing the select label.
+          if (sellerFilter !== 'todos') {
+            query = query.eq('seller_id', sellerFilter);
+          }
+
           // Apply client type filter at query level
           const hasMinoristas = selectedChannels.includes('minoristas');
           const hasMayoristas = selectedChannels.includes('mayoristas');
@@ -2998,7 +3004,7 @@ export default function PedidosPage() {
       }
     }
     fetchOrders();
-  }, [activeTab, listType, role, debouncedOrderSearch, selectedStatuses, selectedProducts, expandedSelectedProductIds, products, selectedChannels, dateFrom, dateTo, refreshTrigger]);
+  }, [activeTab, listType, role, sellerFilter, debouncedOrderSearch, selectedStatuses, selectedProducts, expandedSelectedProductIds, products, selectedChannels, dateFrom, dateTo, refreshTrigger]);
 
   // Fetch recent orders for the "Cargar desde BD" modal
   const fetchOrdersForModal = async () => {
