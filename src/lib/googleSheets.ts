@@ -744,21 +744,37 @@ function buildOrderUpdateBatchData(
   return batchData;
 }
 
-async function findOrderRowInSheet(
+async function findOrderRowsInSheet(
   spreadsheetId: string,
   sheetName: string,
   codeColumn: string,
   legacyCode: string
-): Promise<{ rowNumber: number; code: string } | null> {
+): Promise<Array<{ rowNumber: number; code: string }>> {
   const rows = await fetchSpreadsheetValues(spreadsheetId, `'${sheetName}'!${codeColumn}2:${codeColumn}`);
   const codesToSearch = legacyCode.split(/[\/,]/).map(code => code.trim().toUpperCase()).filter(Boolean);
+  const matches = new Map<string, { rowNumber: number; code: string }>();
   for (let index = 0; index < rows.length; index++) {
     const currentCode = (rows[index]?.[0] || '').trim().toUpperCase();
-    if (codesToSearch.includes(currentCode)) {
-      return { rowNumber: index + 2, code: currentCode };
+    if (codesToSearch.includes(currentCode) && !matches.has(currentCode)) {
+      matches.set(currentCode, { rowNumber: index + 2, code: currentCode });
     }
   }
-  return null;
+  return codesToSearch.flatMap(code => {
+    const match = matches.get(code);
+    return match ? [match] : [];
+  });
+}
+
+function splitOrderItemsForRows(order: SheetOrderPayload, rowCount: number): SheetOrderItem[][] {
+  const items = order.items || [];
+  const maxItems = rowCount * PRODUCT_SLOT_RANGES.length;
+  if (items.length > maxItems) {
+    throw new Error(`El pedido tiene ${items.length} productos y las ${rowCount} filas disponibles admiten ${maxItems}`);
+  }
+  return Array.from(
+    { length: rowCount },
+    (_, index) => items.slice(index * PRODUCT_SLOT_RANGES.length, (index + 1) * PRODUCT_SLOT_RANGES.length)
+  );
 }
 
 async function updateOrderInOperationalSheet(
@@ -772,14 +788,20 @@ async function updateOrderInOperationalSheet(
   statusOverride?: string
 ): Promise<OperationalSheetSyncResult> {
   try {
-    const target = await findOrderRowInSheet(spreadsheetId, sheetName, codeColumn, legacyCode);
-    if (!target) {
+    const targets = await findOrderRowsInSheet(spreadsheetId, sheetName, codeColumn, legacyCode);
+    if (targets.length === 0) {
       return { success: false, sheetName, message: `No se encontró el pedido ${legacyCode} en la hoja ${sheetName}` };
     }
 
     const token = await getGoogleAccessToken();
-    await restoreMissingCalculatedFormulas(spreadsheetId, sheetName, target.rowNumber, columnOffset, token);
-    const batchData = buildOrderUpdateBatchData(sheetName, target.rowNumber, order, logisticsObservation, columnOffset, statusOverride);
+    const itemChunks = splitOrderItemsForRows(order, targets.length);
+    const batchData = targets.flatMap((target, index) => {
+      const orderForRow = { ...order, items: itemChunks[index] };
+      return buildOrderUpdateBatchData(sheetName, target.rowNumber, orderForRow, logisticsObservation, columnOffset, statusOverride);
+    });
+    await Promise.all(targets.map(target =>
+      restoreMissingCalculatedFormulas(spreadsheetId, sheetName, target.rowNumber, columnOffset, token)
+    ));
     assertOnlyDataCellsAreWritten(batchData, columnOffset);
     const updateRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`, {
       method: 'POST',
@@ -792,7 +814,7 @@ async function updateOrderInOperationalSheet(
     if (!updateRes.ok) {
       throw new Error(`Google Sheets respondió ${updateRes.status}`);
     }
-    return { success: true, sheetName, rowNumber: target.rowNumber };
+    return { success: true, sheetName, rowNumber: targets[0].rowNumber };
   } catch (error) {
     console.error(`[GoogleSheets] No se pudo sincronizar ${sheetName}:`, error);
     return { success: false, sheetName, message: `No se pudo actualizar ${sheetName} (sin acceso o error de Google Sheets)` };
@@ -1154,7 +1176,7 @@ export async function updateOrderInSellerSheet(
     .map(c => c.trim().toUpperCase())
     .filter(Boolean);
 
-  let targetRowIndex = -1;
+  const targetRows: Array<{ rowNumber: number; code: string }> = [];
   let matchedCode = '';
 
   for (let i = 0; i < rows.length; i++) {
@@ -1162,13 +1184,12 @@ export async function updateOrderInSellerSheet(
     if (!currentCode) continue;
 
     if (codesToSearch.some(c => c === currentCode)) {
-      targetRowIndex = i;
-      matchedCode = currentCode;
-      break;
+      targetRows.push({ rowNumber: i + 2, code: currentCode });
+      if (!matchedCode) matchedCode = currentCode;
     }
   }
 
-  if (targetRowIndex === -1) {
+  if (targetRows.length === 0) {
     return {
       success: false,
       rowNumber: -1,
@@ -1177,83 +1198,26 @@ export async function updateOrderInSellerSheet(
     };
   }
 
-  const rowNumber = targetRowIndex + 2;
-
-  const formattedDeliveryDate = formatDateForSheet(order.deliveryDate);
-  const formattedOrderDate = formatDateForSheet(order.orderDate);
-  const formattedMaxDeliveryDate = formatDateForSheet(order.maxDeliveryDate);
-
-  // Armar notas: notas existentes (limpiando cualquier residuo de cobrar al entregar)
-  let cleanNotes = (order.deliveryNotes || '').trim();
-  cleanNotes = cleanNotes.replace(/(?:Cobrar al entregar|Saldo al entregar|Seña:)[^/]+/gi, '').trim();
-  cleanNotes = cleanNotes.replace(/^[\/\-\s]+|[\/\-\s]+$/g, '').trim();
-
-  // Las observaciones para logística son únicamente para Telegram; no se agregan a las notas de la planilla.
-
-  const depositAmount = order.depositOrPaidAmount ?? 0;
-  const freightCost = order.freightCost ?? 0;
-  const paymentStatus = order.paymentStatus || 'No Abonado';
+  const rowNumber = targetRows[0].rowNumber;
 
   // En la planilla, Columna Q: 'Modificado' o valor sobrescrito (ej. '❌ Anulado')
   const sheetStatus = statusOverride || 'Modificado';
 
-  const batchData: Array<{ range: string; values: any[][] }> = [
-    {
-      range: `'${sheetName}'!C${rowNumber}:E${rowNumber}`,
-      values: [[formattedDeliveryDate, formattedOrderDate, formattedMaxDeliveryDate]]
-    },
-    {
-      range: `'${sheetName}'!F${rowNumber}:H${rowNumber}`,
-      values: [[order.clientName || '', order.phonePrimary || '', order.phoneSecondary || '']]
-    },
-    {
-      range: `'${sheetName}'!I${rowNumber}:K${rowNumber}`,
-      values: [[order.whaticketLink || '', order.source || 'Publicidad Meta', cleanNotes]]
-    },
-    {
-      range: `'${sheetName}'!L${rowNumber}:M${rowNumber}`,
-      values: [[order.medium || '', normalizeSellerNameForSheet(order.sellerName)]]
-    },
-    {
-      range: `'${sheetName}'!Q${rowNumber}:T${rowNumber}`,
-      values: [[sheetStatus, normalizeLocalityForSheet(order.locality), order.address || '', order.mapsLink || '']]
-    },
-    {
-      range: `'${sheetName}'!U${rowNumber}:W${rowNumber}`,
-      values: [[normalizeCategoryForSheet(order.category), order.paymentMethod || '', order.identification || '']]
-    },
-    {
-      range: `'${sheetName}'!X${rowNumber}:Y${rowNumber}`,
-      values: [[paymentStatus, depositAmount]]
-    },
-    {
-      range: `'${sheetName}'!AA${rowNumber}:AB${rowNumber}`,
-      values: [[normalizeFreightForSheet(order.freightType), freightCost]]
-    }
-  ];
-
-  // Actualizar los 12 slots de productos: los que tienen ítem se escriben, los vacíos se limpian con ''
-  const items = order.items || [];
-  for (let i = 0; i < PRODUCT_SLOT_RANGES.length; i++) {
-    const [startCol, endCol] = PRODUCT_SLOT_RANGES[i];
-    if (i < items.length) {
-      const item = items[i];
-      const finalProdName = normalizeProductNameForSheet(item.name, item.sku);
-      batchData.push({
-        range: `'${sheetName}'!${startCol}${rowNumber}:${endCol}${rowNumber}`,
-        values: [[finalProdName, item.quantity || 1, item.unitPrice || 0]]
-      });
-    } else {
-      // Limpiar slot sobrante
-      batchData.push({
-        range: `'${sheetName}'!${startCol}${rowNumber}:${endCol}${rowNumber}`,
-        values: [['', '', '']]
-      });
-    }
-  }
-
-  await restoreMissingCalculatedFormulas(spreadsheetId, sheetName, rowNumber, 0, token);
-  assertOnlyDataCellsAreWritten(batchData, 0);
+  const itemChunks = splitOrderItemsForRows(order, targetRows.length);
+  const allBatchData = targetRows.flatMap((target, index) =>
+    buildOrderUpdateBatchData(
+      sheetName,
+      target.rowNumber,
+      { ...order, items: itemChunks[index] },
+      logisticsObservation,
+      0,
+      sheetStatus
+    )
+  );
+  await Promise.all(targetRows.map(target =>
+    restoreMissingCalculatedFormulas(spreadsheetId, sheetName, target.rowNumber, 0, token)
+  ));
+  assertOnlyDataCellsAreWritten(allBatchData, 0);
   const updateRes = await fetch(
     `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`,
     {
@@ -1264,7 +1228,7 @@ export async function updateOrderInSellerSheet(
       },
       body: JSON.stringify({
         valueInputOption: 'USER_ENTERED',
-        data: batchData
+        data: allBatchData
       })
     }
   );
@@ -1275,9 +1239,11 @@ export async function updateOrderInSellerSheet(
   }
 
   // Formatear celda de notas (Columna K) con fondo amarillo y texto negro en negrita si hay notas
-  if (cleanNotes && cleanNotes.trim().length > 0) {
+  if (order.deliveryNotes?.trim()) {
     try {
-      await formatSheetNoteCell(spreadsheetId, sheetName, rowNumber, token);
+      await Promise.all(targetRows.map(target =>
+        formatSheetNoteCell(spreadsheetId, sheetName, target.rowNumber, token)
+      ));
     } catch (fErr) {
       console.warn('Could not format note cell in sheet:', fErr);
     }
