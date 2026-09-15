@@ -69,6 +69,52 @@ export interface VisualCatalogConfig {
   families: VisualFamily[];
 }
 
+/**
+ * Complete installation kits charge only their first item (the kit itself).
+ * Every following component is included at $0, without an item-level discount.
+ */
+export function includeInstallationKitCuplas(config: VisualCatalogConfig, products: Product[]): VisualCatalogConfig {
+  const cupla = products.find(product => {
+    const name = product.name.toLowerCase();
+    return product.is_active !== false && name.includes('awaduct') && name.includes('cupla') && name.includes('110');
+  });
+
+  return {
+    ...config,
+    families: config.families.map(family => ({
+      ...family,
+      subgroups: family.subgroups.map(subgroup => {
+        if (subgroup.id !== 'kits_instalacion') return subgroup;
+
+        return {
+          ...subgroup,
+          items: subgroup.items.map(item => {
+            if (!item.isCombo) return item;
+
+            const comboItems = item.comboItems || [];
+            const itemsWithCupla = !cupla || comboItems.some(comboItem => comboItem.productId === cupla.id)
+              ? comboItems
+              : [...comboItems, { productId: cupla.id, quantity: 2, customPrice: 0 }];
+
+            return {
+              ...item,
+              comboItems: itemsWithCupla.map((comboItem, index) => index === 0
+                ? comboItem
+                : {
+                    ...comboItem,
+                    customPrice: 0,
+                    basePrice: 0,
+                    discountType: undefined,
+                    discountValue: undefined
+                  })
+            };
+          })
+        };
+      })
+    }))
+  };
+}
+
 export const DEFAULT_FAMILY_IMAGES: Record<string, string> = {
   tanques: 'https://ckvbyfgsbjbfaqotmeld.supabase.co/storage/v1/object/public/product-images/0.20177720182888725.jpg',
   termotanques: 'https://placehold.co/400x400/f59e0b/ffffff?text=Termotanques',
@@ -314,6 +360,7 @@ export function generateDefaultVisualConfig(products: Product[]): VisualCatalogC
   const pRamalT = products.find(p => p.is_active !== false && p.name.toLowerCase().includes('ramal t') && p.name.toLowerCase().includes('110'));
   const pCodo90 = products.find(p => p.is_active !== false && p.name.toLowerCase().includes('codo 110') && p.name.toLowerCase().includes('90'));
   const pCodo45 = products.find(p => p.is_active !== false && p.name.toLowerCase().includes('codo 110') && p.name.toLowerCase().includes('45'));
+  const pCupla110 = products.find(p => p.is_active !== false && p.name.toLowerCase().includes('awaduct') && p.name.toLowerCase().includes('cupla') && p.name.toLowerCase().includes('110'));
   const pBiolam = products.find(p => p.is_active !== false && p.name.toLowerCase().includes('biolam'));
   const pSombrero = products.find(p => p.is_active !== false && p.name.toLowerCase().includes('sombrero') && p.name.toLowerCase().includes('110'));
   const pLusqtoff = products.find(p => p.is_active !== false && p.name.toLowerCase().includes('lusqtoff') && p.name.toLowerCase().includes('lubricante'));
@@ -363,6 +410,7 @@ export function generateDefaultVisualConfig(products: Product[]): VisualCatalogC
       if (pRamalT) items.push({ productId: pRamalT.id, quantity: 1, customPrice: 0 });
       if (pCodo90) items.push({ productId: pCodo90.id, quantity: 2, customPrice: 0 });
       if (pCodo45) items.push({ productId: pCodo45.id, quantity: 2, customPrice: 0 });
+      if (pCupla110) items.push({ productId: pCupla110.id, quantity: 2, customPrice: 0 });
       if (pBiolam) items.push({ productId: pBiolam.id, quantity: 1, customPrice: 0 });
       if (pLusqtoff) items.push({ productId: pLusqtoff.id, quantity: 1, customPrice: 0 });
       return items;
@@ -398,6 +446,7 @@ export function generateDefaultVisualConfig(products: Product[]): VisualCatalogC
     if (pRamalT) items.push({ productId: pRamalT.id, quantity: 1, customPrice: 0 });
     if (pCodo90) items.push({ productId: pCodo90.id, quantity: 2, customPrice: 0 });
     if (pCodo45) items.push({ productId: pCodo45.id, quantity: 2, customPrice: 0 });
+    if (pCupla110) items.push({ productId: pCupla110.id, quantity: 2, customPrice: 0 });
     if (pBiolam) items.push({ productId: pBiolam.id, quantity: 1, customPrice: 0 });
     if (pSombrero) items.push({ productId: pSombrero.id, quantity: 1, customPrice: 0 });
     if (pLusqtoff) items.push({ productId: pLusqtoff.id, quantity: 1, customPrice: 0 });
