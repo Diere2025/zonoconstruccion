@@ -5089,6 +5089,7 @@ export default function PedidosPage() {
           central?: { success: boolean; sheetName?: string; message?: string };
           deliveriesCurrent?: { success: boolean; sheetName?: string; message?: string };
         } | undefined;
+        let operationalSyncSkipped = false;
         try {
           const clientPhone = isNewClient 
             ? (newClientPhones.map(cleanPhoneForSaving).filter(Boolean)[0] || '')
@@ -5150,6 +5151,7 @@ export default function PedidosPage() {
               console.log(`Planilla actualizada en fila ${sheetData.rowNumber}`);
             }
             operationalSync = sheetData.operationalSync;
+            operationalSyncSkipped = sheetData.operationalSyncSkipped === true;
           } else {
             const errData = await sheetUpdateRes.json().catch(() => ({}));
             console.warn('Error syncing update to sheet:', errData);
@@ -5180,7 +5182,8 @@ export default function PedidosPage() {
         // Enviar automáticamente a Telegram SOLO si hay cambios que afectan a Logística
         const hasOperationalSyncFailure = !!operationalSync &&
           (!operationalSync.central?.success || !operationalSync.deliveriesCurrent?.success);
-        const shouldNotifyLogistics = isLogisticallyRelevantChange(editChangesSummary, logisticsObservation) || hasOperationalSyncFailure;
+        const shouldNotifyLogistics = !operationalSyncSkipped &&
+          (isLogisticallyRelevantChange(editChangesSummary, logisticsObservation) || hasOperationalSyncFailure);
         setIsLogisticallyRelevant(shouldNotifyLogistics);
 
         let telegramSuccess = false;
@@ -8730,7 +8733,7 @@ export default function PedidosPage() {
                 <div className="p-3 bg-purple-50/60 rounded-xl border border-purple-100 flex items-center gap-2 text-[11px] text-purple-800">
                   <FileSpreadsheet className="w-4 h-4 text-purple-600 shrink-0" />
                   <span>
-                    Al confirmar, el pedido se actualizará en el sistema, <strong>impactará en la planilla de Google</strong> con estado <strong>"Modificado"</strong> y se guardará el historial de cambios.
+                    Al confirmar, el pedido se actualizará en el sistema, <strong>impactará en la planilla de Google</strong> y se guardará el historial de cambios. Si su estado es <strong>"No está"</strong>, sólo se actualizará esa planilla.
                   </span>
                 </div>
 

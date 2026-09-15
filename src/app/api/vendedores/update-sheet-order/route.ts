@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
   updateOrderInSellerSheet,
+  getOrderStatusInSellerSheet,
+  isSellerOrderNotYetProcessed,
   cancelOrderInSellerSheet,
   normalizeSellerNameForSheet,
   syncOrderModificationToOperationalSheets,
@@ -96,15 +98,28 @@ export async function POST(req: NextRequest) {
       order.source = 'Publicidad Meta';
     }
 
-    // 1. Sincronizar primero con planillas operativas (Entregas Actual y Central pedidos)
-    const operationalSync = await syncOrderModificationToOperationalSheets(
-      legacyCode,
-      order,
-      logisticsObservation
+    // Los pedidos con estado "No está" todavía no fueron tomados por Logística.
+    // Sólo se actualiza la planilla de la vendedora y se conserva su estado.
+    const currentSellerStatus = await getOrderStatusInSellerSheet(
+      config.spreadsheetId,
+      config.sheetName,
+      legacyCode
     );
+    const operationalSyncSkipped = isSellerOrderNotYetProcessed(currentSellerStatus);
 
-    // 2. Si aplicó el cambio en Central -> '🔹 Pasado' en planilla de la vendedora, caso contrario 'Modificado'
-    const sellerStatus = operationalSync.central.success ? '🔹 Pasado' : (sheetStatus || 'Modificado');
+    // 1. Sincronizar con Central y Entregas Actual sólo cuando Logística ya procesó el pedido.
+    const operationalSync = operationalSyncSkipped
+      ? undefined
+      : await syncOrderModificationToOperationalSheets(
+          legacyCode,
+          order,
+          logisticsObservation
+        );
+
+    // 2. Si aplicó el cambio en Central -> '🔹 Pasado'; "No está" se conserva.
+    const sellerStatus = operationalSyncSkipped
+      ? currentSellerStatus!
+      : (operationalSync?.central.success ? '🔹 Pasado' : (sheetStatus || 'Modificado'));
 
     // 3. Actualizar planilla de la vendedora con el estado correspondiente
     const result = await updateOrderInSellerSheet(
@@ -127,7 +142,8 @@ export async function POST(req: NextRequest) {
       synced: true,
       code: result.code,
       rowNumber: result.rowNumber,
-      operationalSync
+      operationalSync,
+      operationalSyncSkipped
     });
   } catch (err: any) {
     console.error('[update-sheet-order POST] Error:', err);

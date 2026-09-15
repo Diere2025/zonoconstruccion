@@ -1104,6 +1104,33 @@ export const SELLER_SHEET_CONFIG: Record<string, { spreadsheetId: string; sheetN
   }
 };
 
+export async function getOrderStatusInSellerSheet(
+  spreadsheetId: string,
+  sheetName: string = 'Pendientes',
+  legacyCode: string
+): Promise<string | null> {
+  const rows = await fetchSpreadsheetValues(spreadsheetId, `'${sheetName}'!A2:B`);
+  const codesToSearch = legacyCode
+    .split(/[\/,]/)
+    .map(code => code.trim().toUpperCase())
+    .filter(Boolean);
+
+  const matchingRow = rows.find(row => {
+    const currentCode = (row[1] || '').trim().toUpperCase();
+    return currentCode && codesToSearch.some(code => code === currentCode);
+  });
+
+  return matchingRow ? (matchingRow[0] || '').trim() : null;
+}
+
+export function isSellerOrderNotYetProcessed(status: string | null): boolean {
+  return (status || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase() === 'no esta';
+}
+
 export async function updateOrderInSellerSheet(
   spreadsheetId: string,
   sheetName: string = 'Pendientes',
