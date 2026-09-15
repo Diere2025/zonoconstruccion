@@ -407,7 +407,6 @@ export default function PrintableOrderModal({
             ref={printableRef}
             style={{
               width: "740px",
-              minHeight: "960px",
               backgroundColor: "#ffffff",
               color: "#0f172a",
               fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
@@ -418,7 +417,9 @@ export default function PrintableOrderModal({
               position: "relative",
               display: "flex",
               flexDirection: "column",
-              justifyContent: "space-between"
+              justifyContent: "flex-start",
+              gap: "24px",
+              overflow: "visible"
             }}
           >
             <div>
@@ -777,7 +778,15 @@ export default function PrintableOrderModal({
             </div>
 
             {/* PIE DE PÁGINA INSTITUCIONAL CON FIRMAS */}
-            <div style={{ borderTop: "1px solid #cbd5e1", paddingTop: "14px", marginTop: "24px" }}>
+            <div
+              style={{
+                borderTop: "1px solid #cbd5e1",
+                paddingTop: "14px",
+                breakInside: "avoid",
+                pageBreakInside: "avoid",
+                flexShrink: 0
+              }}
+            >
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px", marginBottom: "12px" }}>
                 <div style={{ textAlign: "center" }}>
                   <div style={{ borderTop: "1px solid #94a3b8", width: "70%", margin: "0 auto 4px" }} />
