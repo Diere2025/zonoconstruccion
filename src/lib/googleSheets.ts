@@ -585,10 +585,7 @@ export interface OperationalSheetsSyncResult {
 }
 
 function shiftColumn(column: string, offset: number): string {
-  let value = 0;
-  for (const char of column) {
-    value = value * 26 + char.charCodeAt(0) - 64;
-  }
+  let value = columnToNumber(column);
   value += offset;
   if (value < 1) throw new Error(`Desplazamiento inválido para la columna ${column}`);
 
@@ -601,8 +598,92 @@ function shiftColumn(column: string, offset: number): string {
   return result;
 }
 
+function columnToNumber(column: string): number {
+  let value = 0;
+  for (const char of column) {
+    value = value * 26 + char.charCodeAt(0) - 64;
+  }
+  return value;
+}
+
 function makeRange(sheetName: string, startColumn: string, endColumn: string, rowNumber: number, columnOffset: number): string {
   return `'${sheetName}'!${shiftColumn(startColumn, columnOffset)}${rowNumber}:${shiftColumn(endColumn, columnOffset)}${rowNumber}`;
+}
+
+const CALCULATED_COLUMNS = ['Z', 'AC', 'AD', 'AH', 'AL', 'AP', 'AT', 'AX', 'BB', 'BF', 'BJ', 'BN', 'BR', 'BV', 'BZ'];
+
+function buildCalculatedFormula(baseColumn: string, rowNumber: number, columnOffset: number): string {
+  const column = shiftColumn(baseColumn, columnOffset);
+  if (baseColumn === 'Z') {
+    return `=IF(${shiftColumn('V', columnOffset)}${rowNumber}="";0;${shiftColumn('AC', columnOffset)}${rowNumber}*VLOOKUP(${shiftColumn('V', columnOffset)}${rowNumber};'BD Recargos'!$A:$B;2;FALSE))`;
+  }
+  if (baseColumn === 'AC') {
+    return `=${['AH', 'AL', 'AP', 'AT', 'AX', 'BB', 'BF', 'BJ', 'BN', 'BR', 'BV', 'BZ'].map(item => `${shiftColumn(item, columnOffset)}${rowNumber}`).join('+')}`;
+  }
+  if (baseColumn === 'AD') {
+    return `=${shiftColumn('AC', columnOffset)}${rowNumber}+${shiftColumn('Z', columnOffset)}${rowNumber}-${shiftColumn('Y', columnOffset)}${rowNumber}+${shiftColumn('AB', columnOffset)}${rowNumber}`;
+  }
+  return `=${shiftColumn(column, -2)}${rowNumber}*${shiftColumn(column, -1)}${rowNumber}`;
+}
+
+async function restoreMissingCalculatedFormulas(
+  spreadsheetId: string,
+  sheetName: string,
+  rowNumber: number,
+  columnOffset: number,
+  token: string
+): Promise<void> {
+  const firstColumn = shiftColumn('Z', columnOffset);
+  const lastColumn = shiftColumn('BZ', columnOffset);
+  const encodedRange = encodeURIComponent(`'${sheetName}'!${firstColumn}${rowNumber}:${lastColumn}${rowNumber}`);
+  const response = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodedRange}?valueRenderOption=FORMULA`,
+    { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' }
+  );
+  if (!response.ok) {
+    throw new Error(`No se pudieron verificar fórmulas (${response.status})`);
+  }
+
+  const data = await response.json();
+  const currentValues: string[] = data.values?.[0] || [];
+  const firstColumnNumber = columnToNumber(firstColumn);
+  const missingFormulas = CALCULATED_COLUMNS.flatMap(baseColumn => {
+    const targetColumn = shiftColumn(baseColumn, columnOffset);
+    const currentValue = currentValues[columnToNumber(targetColumn) - firstColumnNumber];
+    if (typeof currentValue === 'string' && currentValue.startsWith('=')) return [];
+    return [{
+      range: `'${sheetName}'!${targetColumn}${rowNumber}`,
+      values: [[buildCalculatedFormula(baseColumn, rowNumber, columnOffset)]]
+    }];
+  });
+
+  if (missingFormulas.length === 0) return;
+  const restoreResponse = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ valueInputOption: 'USER_ENTERED', data: missingFormulas })
+  });
+  if (!restoreResponse.ok) {
+    throw new Error(`No se pudieron restaurar fórmulas (${restoreResponse.status})`);
+  }
+}
+
+function assertOnlyDataCellsAreWritten(
+  batchData: Array<{ range: string }>,
+  columnOffset: number
+): void {
+  for (const update of batchData) {
+    const columns = update.range.match(/!([A-Z]+)\d+(?::([A-Z]+)\d+)?$/);
+    if (!columns) continue;
+    const start = columnToNumber(columns[1]);
+    const end = columnToNumber(columns[2] || columns[1]);
+    const formulaColumn = CALCULATED_COLUMNS
+      .map(column => columnToNumber(shiftColumn(column, columnOffset)))
+      .find(column => column >= start && column <= end);
+    if (formulaColumn !== undefined) {
+      throw new Error(`La actualización intentó escribir una columna calculada (${update.range})`);
+    }
+  }
 }
 
 function buildOrderUpdateBatchData(
@@ -697,12 +778,15 @@ async function updateOrderInOperationalSheet(
     }
 
     const token = await getGoogleAccessToken();
+    await restoreMissingCalculatedFormulas(spreadsheetId, sheetName, target.rowNumber, columnOffset, token);
+    const batchData = buildOrderUpdateBatchData(sheetName, target.rowNumber, order, logisticsObservation, columnOffset, statusOverride);
+    assertOnlyDataCellsAreWritten(batchData, columnOffset);
     const updateRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         valueInputOption: 'USER_ENTERED',
-        data: buildOrderUpdateBatchData(sheetName, target.rowNumber, order, logisticsObservation, columnOffset, statusOverride)
+        data: batchData
       })
     });
     if (!updateRes.ok) {
@@ -946,6 +1030,8 @@ export async function appendOrderToSellerSheet(
       });
     }
 
+    await restoreMissingCalculatedFormulas(spreadsheetId, sheetName, rowNumber, 0, token);
+    assertOnlyDataCellsAreWritten(batchData, 0);
     const updateRes = await fetch(
       `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`,
       {
@@ -1139,6 +1225,8 @@ export async function updateOrderInSellerSheet(
     }
   }
 
+  await restoreMissingCalculatedFormulas(spreadsheetId, sheetName, rowNumber, 0, token);
+  assertOnlyDataCellsAreWritten(batchData, 0);
   const updateRes = await fetch(
     `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`,
     {
