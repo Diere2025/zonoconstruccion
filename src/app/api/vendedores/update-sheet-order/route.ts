@@ -96,13 +96,24 @@ export async function POST(req: NextRequest) {
       order.source = 'Publicidad Meta';
     }
 
+    // 1. Sincronizar primero con planillas operativas (Entregas Actual y Central pedidos)
+    const operationalSync = await syncOrderModificationToOperationalSheets(
+      legacyCode,
+      order,
+      logisticsObservation
+    );
+
+    // 2. Si aplicó el cambio en Central -> '🔹 Pasado' en planilla de la vendedora, caso contrario 'Modificado'
+    const sellerStatus = operationalSync.central.success ? '🔹 Pasado' : (sheetStatus || 'Modificado');
+
+    // 3. Actualizar planilla de la vendedora con el estado correspondiente
     const result = await updateOrderInSellerSheet(
       config.spreadsheetId,
       config.sheetName,
       legacyCode,
       order,
       logisticsObservation,
-      sheetStatus
+      sellerStatus
     );
 
     if (!result.success) {
@@ -111,12 +122,6 @@ export async function POST(req: NextRequest) {
         { status: 404 }
       );
     }
-
-    const operationalSync = await syncOrderModificationToOperationalSheets(
-      legacyCode,
-      order,
-      logisticsObservation
-    );
 
     return NextResponse.json({
       synced: true,

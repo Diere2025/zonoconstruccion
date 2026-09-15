@@ -609,7 +609,7 @@ function buildOrderUpdateBatchData(
   sheetName: string,
   rowNumber: number,
   order: SheetOrderPayload,
-  logisticsObservation: string | undefined,
+  _logisticsObservation: string | undefined,
   columnOffset: number,
   statusOverride?: string
 ): Array<{ range: string; values: unknown[][] }> {
@@ -620,23 +620,34 @@ function buildOrderUpdateBatchData(
   cleanNotes = cleanNotes.replace(/(?:Cobrar al entregar|Saldo al entregar|Seña:)[^/]+/gi, '').trim();
   cleanNotes = cleanNotes.replace(/^[\/\-\s]+|[\/\-\s]+$/g, '').trim();
 
-  if (logisticsObservation && logisticsObservation.trim()) {
-    const observation = `⚠️ OBS. LOGÍSTICA: ${logisticsObservation.trim()}`;
-    if (!cleanNotes.includes(observation)) {
-      cleanNotes = cleanNotes ? `${cleanNotes} / ${observation}` : observation;
-    }
-  }
+  // Las observaciones para logística son únicamente para Telegram; no se agregan a las notas de la planilla.
 
   const batchData: Array<{ range: string; values: unknown[][] }> = [
     { range: makeRange(sheetName, 'C', 'E', rowNumber, columnOffset), values: [[formattedDeliveryDate, formattedOrderDate, formattedMaxDeliveryDate]] },
     { range: makeRange(sheetName, 'F', 'H', rowNumber, columnOffset), values: [[order.clientName || '', order.phonePrimary || '', order.phoneSecondary || '']] },
     { range: makeRange(sheetName, 'I', 'K', rowNumber, columnOffset), values: [[order.whaticketLink || '', order.source || 'Publicidad Meta', cleanNotes]] },
-    { range: makeRange(sheetName, 'L', 'M', rowNumber, columnOffset), values: [[order.medium || '', normalizeSellerNameForSheet(order.sellerName)]] },
-    { range: makeRange(sheetName, 'Q', 'T', rowNumber, columnOffset), values: [[statusOverride || 'Modificado', normalizeLocalityForSheet(order.locality), order.address || '', order.mapsLink || '']] },
+    { range: makeRange(sheetName, 'L', 'M', rowNumber, columnOffset), values: [[order.medium || '', normalizeSellerNameForSheet(order.sellerName)]] }
+  ];
+
+  if (columnOffset === -1) {
+    // Entregas Actual: no sobreescribe la columna P (estado logístico de entrega propio de la hoja)
+    batchData.push({
+      range: makeRange(sheetName, 'R', 'T', rowNumber, columnOffset),
+      values: [[normalizeLocalityForSheet(order.locality), order.address || '', order.mapsLink || '']]
+    });
+  } else {
+    // Central pedidos / Vendedora: columna Q es el estado de ruteo/entrega
+    batchData.push({
+      range: makeRange(sheetName, 'Q', 'T', rowNumber, columnOffset),
+      values: [[statusOverride || 'Modificado', normalizeLocalityForSheet(order.locality), order.address || '', order.mapsLink || '']]
+    });
+  }
+
+  batchData.push(
     { range: makeRange(sheetName, 'U', 'W', rowNumber, columnOffset), values: [[normalizeCategoryForSheet(order.category), order.paymentMethod || '', order.identification || '']] },
     { range: makeRange(sheetName, 'X', 'Y', rowNumber, columnOffset), values: [[order.paymentStatus || 'No Abonado', order.depositOrPaidAmount ?? 0]] },
     { range: makeRange(sheetName, 'AA', 'AB', rowNumber, columnOffset), values: [[normalizeFreightForSheet(order.freightType), order.freightCost ?? 0]] }
-  ];
+  );
 
   const items = order.items || [];
   for (let i = 0; i < PRODUCT_SLOT_RANGES.length; i++) {
@@ -676,7 +687,8 @@ async function updateOrderInOperationalSheet(
   columnOffset: number,
   legacyCode: string,
   order: SheetOrderPayload,
-  logisticsObservation?: string
+  logisticsObservation?: string,
+  statusOverride?: string
 ): Promise<OperationalSheetSyncResult> {
   try {
     const target = await findOrderRowInSheet(spreadsheetId, sheetName, codeColumn, legacyCode);
@@ -690,7 +702,7 @@ async function updateOrderInOperationalSheet(
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         valueInputOption: 'USER_ENTERED',
-        data: buildOrderUpdateBatchData(sheetName, target.rowNumber, order, logisticsObservation, columnOffset)
+        data: buildOrderUpdateBatchData(sheetName, target.rowNumber, order, logisticsObservation, columnOffset, statusOverride)
       })
     });
     if (!updateRes.ok) {
@@ -708,16 +720,7 @@ export async function syncOrderModificationToOperationalSheets(
   order: SheetOrderPayload,
   logisticsObservation?: string
 ): Promise<OperationalSheetsSyncResult> {
-  const central = await updateOrderInOperationalSheet(
-    CENTRAL_ORDERS_SHEET.spreadsheetId,
-    CENTRAL_ORDERS_SHEET.sheetName,
-    CENTRAL_ORDERS_SHEET.codeColumn,
-    CENTRAL_ORDERS_SHEET.columnOffset,
-    legacyCode,
-    order,
-    logisticsObservation
-  );
-
+  // 1. Buscar y actualizar primero en Entregas Actual
   let deliveriesCurrent: OperationalSheetSyncResult = {
     success: false,
     message: `No se encontró el pedido ${legacyCode} en Entregas Actual`
@@ -741,6 +744,21 @@ export async function syncOrderModificationToOperationalSheets(
       break;
     }
   }
+
+  // 2. Si aplicó en Entregas Actual -> '🔹 Pasado' en Central, caso contrario 'Modificado'
+  const centralStatus = deliveriesCurrent.success ? '🔹 Pasado' : 'Modificado';
+
+  // 3. Actualizar Central pedidos
+  const central = await updateOrderInOperationalSheet(
+    CENTRAL_ORDERS_SHEET.spreadsheetId,
+    CENTRAL_ORDERS_SHEET.sheetName,
+    CENTRAL_ORDERS_SHEET.codeColumn,
+    CENTRAL_ORDERS_SHEET.columnOffset,
+    legacyCode,
+    order,
+    logisticsObservation,
+    centralStatus
+  );
 
   return { central, deliveriesCurrent };
 }
@@ -1052,17 +1070,12 @@ export async function updateOrderInSellerSheet(
   const formattedOrderDate = formatDateForSheet(order.orderDate);
   const formattedMaxDeliveryDate = formatDateForSheet(order.maxDeliveryDate);
 
-  // Armar notas: notas existentes (limpiando cualquier residuo de cobrar al entregar) + observación para logística si existe
+  // Armar notas: notas existentes (limpiando cualquier residuo de cobrar al entregar)
   let cleanNotes = (order.deliveryNotes || '').trim();
   cleanNotes = cleanNotes.replace(/(?:Cobrar al entregar|Saldo al entregar|Seña:)[^/]+/gi, '').trim();
   cleanNotes = cleanNotes.replace(/^[\/\-\s]+|[\/\-\s]+$/g, '').trim();
 
-  if (logisticsObservation && logisticsObservation.trim()) {
-    const obsText = `⚠️ OBS. LOGÍSTICA: ${logisticsObservation.trim()}`;
-    if (!cleanNotes.includes(obsText)) {
-      cleanNotes = cleanNotes ? `${cleanNotes} / ${obsText}` : obsText;
-    }
-  }
+  // Las observaciones para logística son únicamente para Telegram; no se agregan a las notas de la planilla.
 
   const depositAmount = order.depositOrPaidAmount ?? 0;
   const freightCost = order.freightCost ?? 0;
