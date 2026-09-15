@@ -131,7 +131,6 @@ export default function PrintableOrderModal({
       const canvas = await generateCanvas();
       if (!canvas) return;
 
-      const imgData = canvas.toDataURL("image/png");
       const pdf = new jsPDF({
         orientation: "portrait",
         unit: "mm",
@@ -142,22 +141,42 @@ export default function PrintableOrderModal({
       const pdfHeight = pdf.internal.pageSize.getHeight(); // 297mm
       const margin = 10;
       const printWidth = pdfWidth - margin * 2; // 190mm
-      const printHeight = (canvas.height * printWidth) / canvas.width;
+      const printAreaHeight = pdfHeight - margin * 2;
+      // Dividimos el canvas antes de añadirlo al PDF. Mover una única imagen muy
+      // alta entre páginas puede hacer que jsPDF recorte presupuestos extensos.
+      const pixelsPerMillimeter = canvas.width / printWidth;
+      const pagePixelHeight = Math.max(1, Math.floor(printAreaHeight * pixelsPerMillimeter));
 
-      if (printHeight <= pdfHeight - margin * 2) {
-        pdf.addImage(imgData, "PNG", margin, margin, printWidth, printHeight);
-      } else {
-        let heightLeft = printHeight;
-        let position = margin;
-        pdf.addImage(imgData, "PNG", margin, position, printWidth, printHeight);
-        heightLeft -= (pdfHeight - margin * 2);
+      for (let sourceY = 0; sourceY < canvas.height; sourceY += pagePixelHeight) {
+        const sliceHeight = Math.min(pagePixelHeight, canvas.height - sourceY);
+        const pageCanvas = document.createElement("canvas");
+        pageCanvas.width = canvas.width;
+        pageCanvas.height = sliceHeight;
+        const context = pageCanvas.getContext("2d");
+        if (!context) throw new Error("No se pudo preparar una página del PDF.");
 
-        while (heightLeft > 0) {
-          position = heightLeft - printHeight + margin;
-          pdf.addPage();
-          pdf.addImage(imgData, "PNG", margin, position, printWidth, printHeight);
-          heightLeft -= (pdfHeight - margin * 2);
-        }
+        context.drawImage(
+          canvas,
+          0,
+          sourceY,
+          canvas.width,
+          sliceHeight,
+          0,
+          0,
+          canvas.width,
+          sliceHeight
+        );
+
+        if (sourceY > 0) pdf.addPage();
+        const slicePrintHeight = sliceHeight / pixelsPerMillimeter;
+        pdf.addImage(
+          pageCanvas.toDataURL("image/png"),
+          "PNG",
+          margin,
+          margin,
+          printWidth,
+          slicePrintHeight
+        );
       }
 
       pdf.save(`Comprobante_Pedido_Zono_${orderNumber}_${cleanClientName}.pdf`);
