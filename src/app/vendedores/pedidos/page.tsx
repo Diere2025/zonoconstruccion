@@ -625,6 +625,16 @@ export default function PedidosPage() {
 
   const detectedCategory = useMemo(() => {
     if (orderItems.length === 0) return "OTRO";
+
+    // A complete BioFort installation contains many $0 accessories. Its category
+    // must be defined by the installation item, not by the most numerous accessory.
+    const hasBiofortInstallation = orderItems.some(item => {
+      const full = `${item.name || ""} ${item.sku || ""} ${item.category || ""}`.toLowerCase();
+      const isInstallation = full.includes("instalaci") || full.includes("mano de obra");
+      const isBiofort = full.includes("biofort") || full.includes("biodigestor") || full.includes("séptic") || full.includes("septic");
+      return isInstallation && isBiofort;
+    });
+    if (hasBiofortInstallation) return "INSTALACIÓN BIOFORT";
     
     let termotanqueCount = 0;
     let tanquesCount = 0;
