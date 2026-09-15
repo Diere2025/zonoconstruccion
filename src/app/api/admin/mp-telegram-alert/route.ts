@@ -9,6 +9,8 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT
 const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 
 interface TelegramConfig {
+  // Database revision, never persisted inside the JSON configuration.
+  _updatedAt?: string | null;
   enabled: boolean;
   bot_token: string;
   chat_id: string;
@@ -33,31 +35,40 @@ export async function getTelegramConfig(): Promise<TelegramConfig> {
   try {
     const { data } = await supabaseAdmin
       .from('site_settings')
-      .select('value')
+      .select('value, updated_at')
       .eq('id', 'mp_telegram_config')
       .maybeSingle();
 
     if (data?.value) {
       const parsed = typeof data.value === 'string' ? JSON.parse(data.value) : data.value;
-      return { ...DEFAULT_CONFIG, ...parsed, accounts_state: parsed.accounts_state || {} };
+      return { ...DEFAULT_CONFIG, ...parsed, accounts_state: parsed.accounts_state || {}, _updatedAt: data.updated_at };
     }
   } catch (e) {
     console.warn('[MP Telegram Alert] Error reading config:', e);
   }
-  return DEFAULT_CONFIG;
+  return { ...DEFAULT_CONFIG, accounts_state: {} };
 }
 
 export async function saveTelegramConfig(config: TelegramConfig): Promise<boolean> {
   try {
-    const { error } = await supabaseAdmin
-      .from('site_settings')
-      .upsert({
-        id: 'mp_telegram_config',
-        value: JSON.stringify(config),
-        updated_at: new Date().toISOString()
-      }, { onConflict: 'id' });
-
-    return !error;
+    const { _updatedAt, ...storedConfig } = config;
+    const previousMs = _updatedAt ? Date.parse(_updatedAt) : 0;
+    const updatedAt = new Date(Math.max(Date.now(), (previousMs || 0) + 1)).toISOString();
+    const values = { value: JSON.stringify(storedConfig), updated_at: updatedAt };
+    // A cron check, a page error and an admin save may run concurrently.
+    // Only the reader of the current revision can replace its state.
+    const query = _updatedAt !== undefined
+      ? supabaseAdmin.from('site_settings').update(values).eq('id', 'mp_telegram_config')
+      : supabaseAdmin.from('site_settings').upsert({ id: 'mp_telegram_config', ...values }, { onConflict: 'id' });
+    const conditionalQuery = _updatedAt === undefined ? query
+      : _updatedAt === null ? query.is('updated_at', null) : query.eq('updated_at', _updatedAt);
+    const { data, error } = await conditionalQuery.select('updated_at');
+    if (error || data?.length !== 1) {
+      console.error('[MP Telegram Alert] Config was not saved:', error?.message || 'Concurrent update; retry on next check');
+      return false;
+    }
+    config._updatedAt = data[0].updated_at;
+    return true;
   } catch (e) {
     console.error('[MP Telegram Alert] Error saving config:', e);
     return false;
@@ -299,6 +310,15 @@ ${acc.client_time ? `🕒 *Último reloj detectado:* ${acc.client_time} hs\n` : 
 
     // CASE B: Account is ONLINE, but was previously offline and sent alert -> Send RECOVERY message!
     if (!isOffline && accState.was_offline) {
+      // Persist/claim this recovery BEFORE sending. If saving fails, do not
+      // repeatedly send a recovery that the next cron check cannot remember.
+      accState.was_offline = false;
+      currentConfig.accounts_state[accId] = accState;
+      currentConfig.was_offline = Object.values(currentConfig.accounts_state).some(s => s.was_offline);
+      if (!await saveTelegramConfig(currentConfig)) {
+        return { success: false, error: 'No se pudo guardar el estado de recuperación; no se envió el aviso', results };
+      }
+      configChanged = false; // This save includes any preceding account changes.
       const recoveryMsg = 
 `✅ *MONITOR MERCADO PAGO RESTABLECIDO*
 
@@ -310,10 +330,12 @@ ${acc.client_time ? `🕒 *Reloj de la extensión:* ${acc.client_time} hs` : ''}
 
       const tgRes = await sendTelegramMessage(currentConfig.bot_token, currentConfig.chat_id, recoveryMsg);
       if (tgRes.ok) {
-        accState.was_offline = false;
-        currentConfig.accounts_state[accId] = accState;
-        configChanged = true;
         results.push({ account: accName, status: 'recovery_sent' });
+      } else {
+        accState.was_offline = true;
+        currentConfig.was_offline = true;
+        const restored = await saveTelegramConfig(currentConfig);
+        results.push({ account: accName, status: 'recovery_failed', retrySaved: restored, error: tgRes.description });
       }
     }
   }
@@ -321,7 +343,9 @@ ${acc.client_time ? `🕒 *Reloj de la extensión:* ${acc.client_time} hs` : ''}
   if (configChanged) {
     currentConfig.was_offline = Object.values(currentConfig.accounts_state).some(s => s.was_offline);
     currentConfig.last_alert_at = new Date().toISOString();
-    await saveTelegramConfig(currentConfig);
+    if (!await saveTelegramConfig(currentConfig)) {
+      return { success: false, error: 'No se pudo guardar el estado de las alertas', results };
+    }
   }
 
   return { success: true, results };
