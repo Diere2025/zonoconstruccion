@@ -171,8 +171,6 @@ async function handleProcessNotification(
     });
   }
 
-  const paymentId = extraData?.id || `mp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-
   // Calculate receivedAt timestamp
   let receivedAt = extraData?.received_at || new Date().toISOString();
   if (isNaN(new Date(receivedAt).getTime())) {
@@ -189,13 +187,34 @@ async function handleProcessNotification(
     console.log('[MP Webhook] Adjusted future timestamp back by 24 hours:', receivedAt);
   }
 
+  // Each Mercado Pago account has its own activity stream. Resolve it before
+  // checking duplicates so equal transfers in two accounts remain independent.
+  let resolvedAccountId = 'diegozono_mp';
+  try {
+    const cleanAccount = (account || 'diegozono.mp').trim().toLowerCase();
+    if (cleanAccount.includes('pagos') || cleanAccount.includes('mp4') || cleanAccount.includes('26') || cleanAccount.includes('zonopagos')) {
+      resolvedAccountId = 'pagoszono_26';
+    }
+
+    await supabaseAdmin.from('mp_accounts').update({
+      last_seen_at: new Date().toISOString(),
+      status: 'online'
+    }).eq('id', resolvedAccountId);
+  } catch (e) {
+    console.warn('[MP Webhook] Error resolving account_id:', e);
+  }
+
+  // Browser-generated activity IDs are only unique within an MP account.
+  const rawPaymentId = extraData?.id || `mp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+  const paymentId = `${resolvedAccountId}_${rawPaymentId}`;
+
   // Check for duplicate:
-  // 1. By exact ID
+  // 1. By exact account-scoped ID
   if (extraData?.id) {
     const { data: existingId } = await supabaseAdmin
       .from('mp_payments')
       .select('id, amount, payer_name, received_at')
-      .eq('id', extraData.id)
+      .eq('id', paymentId)
       .maybeSingle();
 
     if (existingId) {
@@ -208,7 +227,7 @@ async function handleProcessNotification(
     }
   }
 
-  // 2. Check for duplicate payment by amount, payer and received_at within 10 minutes
+  // 2. Check for duplicate payment by account, amount, payer and time.
   try {
     const targetTime = new Date(receivedAt).getTime();
     const tenMinBefore = new Date(targetTime - 10 * 60 * 1000).toISOString();
@@ -217,6 +236,7 @@ async function handleProcessNotification(
     const { data: existingFuzzy } = await supabaseAdmin
       .from('mp_payments')
       .select('id, amount, payer_name, received_at')
+      .eq('account_id', resolvedAccountId)
       .eq('amount', parsed.amount)
       .ilike('payer_name', parsed.payerName || '')
       .gte('received_at', tenMinBefore)
@@ -235,25 +255,6 @@ async function handleProcessNotification(
     }
   } catch (dupErr) {
     console.warn('[MP Webhook] Error checking duplicate:', dupErr);
-  }
-
-  // Resolve account_id from mp_accounts (diegozono_mp or pagoszono_26)
-  let resolvedAccountId = 'diegozono_mp';
-  try {
-    const cleanAccount = (account || 'diegozono.mp').trim().toLowerCase();
-    if (cleanAccount.includes('pagos') || cleanAccount.includes('mp4') || cleanAccount.includes('26') || cleanAccount.includes('zonopagos')) {
-      resolvedAccountId = 'pagoszono_26';
-    } else {
-      resolvedAccountId = 'diegozono_mp';
-    }
-
-    // Refresh last_seen_at timestamp
-    await supabaseAdmin.from('mp_accounts').update({
-      last_seen_at: new Date().toISOString(),
-      status: 'online'
-    }).eq('id', resolvedAccountId);
-  } catch (e) {
-    console.warn('[MP Webhook] Error resolving account_id:', e);
   }
 
   // Check if payer is an internal user
