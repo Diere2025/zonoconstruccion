@@ -30,6 +30,7 @@ import {
   VisualSubGroup,
   VisualItemOption,
   generateDefaultVisualConfig,
+  includeInstallationKitCuplas,
   findRecommendedBase,
   findFlotanteProduct
 } from "@/lib/visualSelectorConfig";
@@ -169,7 +170,7 @@ export default function VisualProductSelectorModal({
                   }))
                 }))
               }));
-              setConfig({ ...parsed, families: normalizedFamilies });
+              setConfig(includeInstallationKitCuplas({ ...parsed, families: normalizedFamilies }, products));
               setLoading(false);
               return;
             }
@@ -328,10 +329,11 @@ export default function VisualProductSelectorModal({
         const ci = item.comboItems[idx];
         const prod = products.find(p => p.id === ci.productId);
         if (prod) {
-          const effectiveBase = ci.basePrice !== undefined ? ci.basePrice : prod.price;
-          const effectiveCustom = ci.customPrice !== undefined ? ci.customPrice : prod.price;
-          const discType = ci.discountType || (effectiveCustom < effectiveBase ? 'percentage' : undefined);
-          const discVal = ci.discountValue !== undefined ? ci.discountValue : (discType === 'percentage' && effectiveBase > 0 ? Math.round(((effectiveBase - effectiveCustom) / effectiveBase) * 100) : undefined);
+          const isIncludedInKit = isKit && idx > 0;
+          const effectiveBase = isIncludedInKit ? 0 : (ci.basePrice !== undefined ? ci.basePrice : prod.price);
+          const effectiveCustom = isIncludedInKit ? 0 : (ci.customPrice !== undefined ? ci.customPrice : prod.price);
+          const discType = isIncludedInKit ? undefined : (ci.discountType || (effectiveCustom < effectiveBase ? 'percentage' : undefined));
+          const discVal = isIncludedInKit ? undefined : (ci.discountValue !== undefined ? ci.discountValue : (discType === 'percentage' && effectiveBase > 0 ? Math.round(((effectiveBase - effectiveCustom) / effectiveBase) * 100) : undefined));
 
           itemsToAdd.push({
             ...prod,
@@ -340,8 +342,8 @@ export default function VisualProductSelectorModal({
             basePrice: effectiveBase,
             discountType: discType,
             discountValue: discVal,
-            bundleParentId: (isKit && idx > 0) ? parentId : undefined,
-            isIncludedInKit: isKit && idx > 0,
+            bundleParentId: isIncludedInKit ? parentId : undefined,
+            isIncludedInKit,
             baseQuantity: ci.quantity || 1
           } as any);
         }
