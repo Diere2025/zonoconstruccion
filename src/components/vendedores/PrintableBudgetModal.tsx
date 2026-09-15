@@ -14,7 +14,7 @@ import {
   ShieldCheck
 } from "lucide-react";
 import html2canvas from "html2canvas-pro";
-import jsPDF from "jspdf";
+import { createPrintablePdf } from "@/lib/printablePdf";
 import { formatPrice } from "@/lib/utils";
 import { isDiscountItem } from "@/lib/whatsappBudgetParser";
 
@@ -139,36 +139,7 @@ export default function PrintableBudgetModal({
       const canvas = await generateCanvas();
       if (!canvas) return;
 
-      const imgData = canvas.toDataURL("image/png");
-      const pdf = new jsPDF({
-        orientation: "portrait",
-        unit: "mm",
-        format: "a4"
-      });
-
-      const pdfWidth = pdf.internal.pageSize.getWidth(); // 210mm
-      const pdfHeight = pdf.internal.pageSize.getHeight(); // 297mm
-      const margin = 10;
-      const printWidth = pdfWidth - margin * 2; // 190mm
-      const printHeight = (canvas.height * printWidth) / canvas.width;
-
-      if (printHeight <= pdfHeight - margin * 2) {
-        // Entra en 1 sola página
-        pdf.addImage(imgData, "PNG", margin, margin, printWidth, printHeight);
-      } else {
-        // Multi-página para presupuestos muy extensos
-        let heightLeft = printHeight;
-        let position = margin;
-        pdf.addImage(imgData, "PNG", margin, position, printWidth, printHeight);
-        heightLeft -= (pdfHeight - margin * 2);
-
-        while (heightLeft > 0) {
-          position = heightLeft - printHeight + margin;
-          pdf.addPage();
-          pdf.addImage(imgData, "PNG", margin, position, printWidth, printHeight);
-          heightLeft -= (pdfHeight - margin * 2);
-        }
-      }
+      const pdf = createPrintablePdf(canvas, printableRef.current!);
 
       pdf.save(`Presupuesto_Zono_${budgetNumber}_${cleanClientName}.pdf`);
     } catch (error) {
@@ -397,7 +368,7 @@ export default function PrintableBudgetModal({
         </div>
 
         {/* Contenedor con Scroll para previsualizar el documento exacto */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 flex justify-center bg-slate-200/80">
+        <div className="flex-1 min-h-0 overflow-auto p-4 sm:p-6 flex items-start justify-center bg-slate-200/80">
           
           {/* DOCUMENTO IMPRIMIBLE / EXPORTABLE */}
           <div
@@ -405,6 +376,9 @@ export default function PrintableBudgetModal({
             ref={printableRef}
             style={{
               width: "794px", // Ancho estándar A4 a 96 DPI
+              height: "max-content",
+              alignSelf: "flex-start",
+              flexShrink: 0,
               minHeight: "1000px",
               backgroundColor: "#ffffff",
               color: "#0f172a",
@@ -639,7 +613,7 @@ export default function PrintableBudgetModal({
               </table>
 
               {/* SECCIÓN INFERIOR: CONDICIONES COMERCIALES Y TOTALES */}
-              <div style={{ display: "grid", gridTemplateColumns: "1.15fr 0.85fr", gap: "20px", marginTop: "10px" }}>
+              <div data-pdf-keep-together style={{ display: "grid", gridTemplateColumns: "1.15fr 0.85fr", gap: "20px", marginTop: "10px" }}>
                 
                 {/* Columna Izquierda: Medio de pago, Envío y Aclaraciones */}
                 <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
@@ -851,7 +825,7 @@ export default function PrintableBudgetModal({
             </div>
 
             {/* PIE INSTITUCIONAL / CONDICIONES */}
-            <div 
+            <div data-pdf-keep-together
               style={{ 
                 borderTop: "1px solid #e2e8f0", 
                 paddingTop: "14px", 
