@@ -17,8 +17,8 @@ import {
   AlertCircle
 } from "lucide-react";
 import html2canvas from "html2canvas-pro";
-import jsPDF from "jspdf";
-import { formatPrice, cleanDeliveryNotes } from "@/lib/utils";
+import { createPrintablePdf } from "@/lib/printablePdf";
+import { formatPrice } from "@/lib/utils";
 
 export interface PrintableOrderItem {
   id?: string;
@@ -59,6 +59,9 @@ export interface PrintableOrderData {
   payment_status?: string;
   total_amount: number;
   subtotal?: number;
+  order_discount_type?: 'percentage' | 'fixed';
+  order_discount_value?: number;
+  order_discount_amount?: number;
   freight_cost?: number;
   surcharges?: number;
   tax?: number;
@@ -131,53 +134,7 @@ export default function PrintableOrderModal({
       const canvas = await generateCanvas();
       if (!canvas) return;
 
-      const pdf = new jsPDF({
-        orientation: "portrait",
-        unit: "mm",
-        format: "a4"
-      });
-
-      const pdfWidth = pdf.internal.pageSize.getWidth(); // 210mm
-      const pdfHeight = pdf.internal.pageSize.getHeight(); // 297mm
-      const margin = 10;
-      const printWidth = pdfWidth - margin * 2; // 190mm
-      const printAreaHeight = pdfHeight - margin * 2;
-      // Dividimos el canvas antes de añadirlo al PDF. Mover una única imagen muy
-      // alta entre páginas puede hacer que jsPDF recorte presupuestos extensos.
-      const pixelsPerMillimeter = canvas.width / printWidth;
-      const pagePixelHeight = Math.max(1, Math.floor(printAreaHeight * pixelsPerMillimeter));
-
-      for (let sourceY = 0; sourceY < canvas.height; sourceY += pagePixelHeight) {
-        const sliceHeight = Math.min(pagePixelHeight, canvas.height - sourceY);
-        const pageCanvas = document.createElement("canvas");
-        pageCanvas.width = canvas.width;
-        pageCanvas.height = sliceHeight;
-        const context = pageCanvas.getContext("2d");
-        if (!context) throw new Error("No se pudo preparar una página del PDF.");
-
-        context.drawImage(
-          canvas,
-          0,
-          sourceY,
-          canvas.width,
-          sliceHeight,
-          0,
-          0,
-          canvas.width,
-          sliceHeight
-        );
-
-        if (sourceY > 0) pdf.addPage();
-        const slicePrintHeight = sliceHeight / pixelsPerMillimeter;
-        pdf.addImage(
-          pageCanvas.toDataURL("image/png"),
-          "PNG",
-          margin,
-          margin,
-          printWidth,
-          slicePrintHeight
-        );
-      }
+      const pdf = createPrintablePdf(canvas, printableRef.current!);
 
       pdf.save(`Comprobante_Pedido_Zono_${orderNumber}_${cleanClientName}.pdf`);
     } catch (error) {
@@ -259,19 +216,17 @@ export default function PrintableOrderModal({
   }, 0);
 
   const finalTotal = order.total_amount || itemsSubtotal;
+  const orderDiscountAmount = Math.max(0, Number(order.order_discount_amount) || 0);
+  const netSubtotal = order.subtotal !== undefined
+    ? Number(order.subtotal)
+    : Math.max(0, itemsSubtotal - orderDiscountAmount);
+  const discountLabel = order.order_discount_type === 'percentage'
+    ? `Descuento Pedido (${order.order_discount_value || 0}%)`
+    : 'Descuento Pedido (Monto Fijo)';
   const deposit = order.deposit_amount || 0;
   const balance = order.pending_balance !== undefined 
     ? order.pending_balance 
     : (order.payment_status === 'Abonado' ? 0 : Math.max(0, finalTotal - deposit));
-
-  const notesText = [
-    cleanDeliveryNotes(order.delivery_notes), 
-    cleanDeliveryNotes(order.delivery_detail)
-  ]
-    .filter(Boolean)
-    .map(t => t?.trim())
-    .filter(Boolean)
-    .join(" / ");
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-950/70 backdrop-blur-sm overflow-hidden">
@@ -399,7 +354,7 @@ export default function PrintableOrderModal({
         </div>
 
         {/* Contenedor con Scroll para Visualización */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 flex justify-center bg-slate-200/60 custom-scrollbar">
+        <div className="flex-1 min-h-0 overflow-auto p-4 sm:p-6 flex items-start justify-center bg-slate-200/60 custom-scrollbar">
           
           {/* DOCUMENTO IMPRIMIBLE OFICIAL DE ZONO */}
           <div
@@ -407,6 +362,8 @@ export default function PrintableOrderModal({
             ref={printableRef}
             style={{
               width: "740px",
+              height: "max-content",
+              alignSelf: "flex-start",
               backgroundColor: "#ffffff",
               color: "#0f172a",
               fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
@@ -420,8 +377,7 @@ export default function PrintableOrderModal({
               justifyContent: "flex-start",
               gap: "24px",
               overflow: "visible",
-              // El visor exterior es flex y tiene scroll. Sin esto el documento
-              // se encoge a la altura disponible y el canvas queda recortado.
+              // Keep the export width stable inside narrow viewports.
               flexShrink: 0
             }}
           >
@@ -518,9 +474,6 @@ export default function PrintableOrderModal({
                   <div style={{ fontSize: "10.5px", color: "#334155", marginTop: "2px" }}>
                     <strong>Dirección:</strong> {order.address || "A coordinar"}
                   </div>
-                  <div style={{ fontSize: "10.5px", color: "#0f172a", marginTop: "1px" }}>
-                    <strong>Localidad:</strong> {order.locality || "Sin Localidad"} {order.zone_name ? `(${order.zone_name})` : ""}
-                  </div>
                   {(order.client_phone || order.client_phone_secondary) && (
                     <div style={{ fontSize: "10px", color: "#475569", marginTop: "2px" }}>
                       <strong>Teléfono:</strong> {[order.client_phone, order.client_phone_secondary].filter(Boolean).join(" / ")}
@@ -528,16 +481,13 @@ export default function PrintableOrderModal({
                   )}
                 </div>
 
-                {/* Logística y Asesor */}
+                {/* Datos de atención */}
                 <div style={{ borderLeft: "1px solid #e2e8f0", paddingLeft: "12px" }}>
                   <div style={{ fontSize: "8.5px", fontWeight: 900, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                    DATOS DE ATENCIÓN Y LOGÍSTICA
+                    DATOS DE ATENCIÓN
                   </div>
                   <div style={{ fontSize: "11px", color: "#334155", marginTop: "2px" }}>
                     <strong>Asesor Comercial:</strong> <span style={{ fontWeight: 800, color: "#0f172a" }}>{order.seller_name || "Equipo Zono"}</span>
-                  </div>
-                  <div style={{ fontSize: "11px", color: "#334155", marginTop: "1px" }}>
-                    <strong>Tipo de Entrega:</strong> {order.freight_type || "Flete Regular"}
                   </div>
                   {(order.initial_delivery_date || order.max_delivery_date) && (
                     <div style={{ fontSize: "10.5px", color: "#334155", marginTop: "1px" }}>
@@ -550,39 +500,8 @@ export default function PrintableOrderModal({
                         : ""}
                     </div>
                   )}
-                  <div style={{ fontSize: "10.5px", color: "#334155", marginTop: "1px" }}>
-                    <strong>Estado del Pedido:</strong>{" "}
-                    <span 
-                      style={{ 
-                        fontWeight: 900, 
-                        color: order.status === 'Entregado' ? '#047857' : (order.status === 'Cancelado' ? '#b91c1c' : '#b45309') 
-                      }}
-                    >
-                      {order.status || "Pendiente"}
-                    </span>
-                  </div>
                 </div>
               </div>
-
-              {/* Observaciones de Entrega si existen */}
-              {notesText && (
-                <div 
-                  style={{ 
-                    backgroundColor: "#fffbeb", 
-                    border: "1px solid #fde68a", 
-                    borderRadius: "6px", 
-                    padding: "7px 10px", 
-                    marginBottom: "14px",
-                    fontSize: "10px",
-                    color: "#92400e"
-                  }}
-                >
-                  <strong style={{ textTransform: "uppercase", fontSize: "8.5px", letterSpacing: "0.5px", display: "block", color: "#b45309" }}>
-                    Observaciones / Indicaciones de Entrega:
-                  </strong>
-                  <span style={{ fontWeight: 600 }}>{notesText}</span>
-                </div>
-              )}
 
               {/* TABLA DE PRODUCTOS DEL PEDIDO */}
               <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: "14px" }}>
@@ -627,7 +546,7 @@ export default function PrintableOrderModal({
               </table>
 
               {/* SECCIÓN INFERIOR: CONDICIÓN DE PAGO Y TOTALES */}
-              <div style={{ display: "grid", gridTemplateColumns: "1.1fr 0.9fr", gap: "14px", alignItems: "start" }}>
+              <div data-pdf-keep-together style={{ display: "grid", gridTemplateColumns: "1.1fr 0.9fr", gap: "14px", alignItems: "start" }}>
                 
                 {/* Izquierda: Forma de Pago y Estado de Cobro */}
                 <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
@@ -740,6 +659,19 @@ export default function PrintableOrderModal({
                     <span style={{ fontFamily: "monospace", fontWeight: 700 }}>{formatPrice(itemsSubtotal)}</span>
                   </div>
 
+                  {orderDiscountAmount > 0 && (
+                    <>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "10px", color: "#b45309", fontWeight: 700 }}>
+                        <span>{discountLabel}:</span>
+                        <span style={{ fontFamily: "monospace" }}>-{formatPrice(orderDiscountAmount)}</span>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "10px", color: "#475569", fontWeight: 700 }}>
+                        <span>Subtotal Neto:</span>
+                        <span style={{ fontFamily: "monospace" }}>{formatPrice(netSubtotal)}</span>
+                      </div>
+                    </>
+                  )}
+
                   {Boolean(order.surcharges && order.surcharges > 0) && (
                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: "10px", color: "#b91c1c" }}>
                       <span>Recargo Financiero:</span>
@@ -782,6 +714,7 @@ export default function PrintableOrderModal({
 
             {/* PIE DE PÁGINA INSTITUCIONAL CON FIRMAS */}
             <div
+              data-pdf-keep-together
               style={{
                 borderTop: "1px solid #cbd5e1",
                 paddingTop: "14px",

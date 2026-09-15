@@ -60,6 +60,13 @@ export default function ViewOrderModal({
   }, 0);
 
   const finalTotal = order.total_amount || itemsSubtotal;
+  const orderDiscountAmount = Math.max(0, Number(order.order_discount_amount) || 0);
+  const netSubtotal = order.subtotal !== undefined
+    ? Number(order.subtotal)
+    : Math.max(0, itemsSubtotal - orderDiscountAmount);
+  const discountLabel = order.order_discount_type === 'percentage'
+    ? `Descuento Pedido (${order.order_discount_value || 0}%)`
+    : 'Descuento Pedido (Monto Fijo)';
   const deposit = order.deposit_amount || 0;
   const balance = order.pending_balance !== undefined 
     ? order.pending_balance 
@@ -394,6 +401,18 @@ export default function ViewOrderModal({
                 <span>Subtotal Artículos:</span>
                 <span className="font-mono">{formatPrice(itemsSubtotal)}</span>
               </div>
+              {orderDiscountAmount > 0 && (
+                <>
+                  <div className="flex justify-between text-amber-700 font-semibold">
+                    <span>{discountLabel}:</span>
+                    <span className="font-mono">-{formatPrice(orderDiscountAmount)}</span>
+                  </div>
+                  <div className="flex justify-between text-slate-600 font-semibold">
+                    <span>Subtotal Neto:</span>
+                    <span className="font-mono">{formatPrice(netSubtotal)}</span>
+                  </div>
+                </>
+              )}
               {Boolean(order.surcharges && order.surcharges > 0) && (
                 <div className="flex justify-between text-red-600 font-semibold">
                   <span>Recargos por Pago:</span>
