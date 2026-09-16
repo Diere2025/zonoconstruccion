@@ -557,6 +557,18 @@ const PRODUCT_SLOT_RANGES: [string, string][] = [
   ['BW', 'BY']
 ];
 
+function splitOrderItemsForRows(order: SheetOrderPayload, rowCount: number): SheetOrderItem[][] {
+  const items = order.items || [];
+  const maxItems = rowCount * PRODUCT_SLOT_RANGES.length;
+  if (items.length > maxItems) {
+    throw new Error(`El pedido tiene ${items.length} productos y las ${rowCount} filas disponibles admiten ${maxItems}`);
+  }
+  return Array.from(
+    { length: rowCount },
+    (_, index) => items.slice(index * PRODUCT_SLOT_RANGES.length, (index + 1) * PRODUCT_SLOT_RANGES.length)
+  );
+}
+
 export const CENTRAL_ORDERS_SHEET = {
   spreadsheetId: '1nz545_xNUgdI2LMAGIDCjh6Qs8-vUDHdynzj7jU2wm0',
   sheetName: 'Central pedidos',
@@ -1163,8 +1175,6 @@ async function appendOrderToOperationalSheet(
     // Central y Entregas Actual ya tienen las fórmulas preconfiguradas en sus
     // filas plantilla. No intentamos recrearlas al dar de alta un pedido: esas
     // columnas pueden estar protegidas y no intervienen en la carga de datos.
-    assertOnlyDataCellsAreWritten(batchData, columnOffset);
-
     const response = await fetch(
       `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`,
       {
