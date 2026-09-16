@@ -4728,6 +4728,7 @@ export default function PedidosPage() {
       let sheetSyncSuccess = false;
       let sheetAttempted = false;
       let sheetSyncError = '';
+      let operationalSyncWarning = '';
       // Código legacy definitivo: si la orden original ya tenía un código legacy asignado,
       // PRESERVARLO estrictamente para no crear duplicados ni desfasar planillas operativas.
       const effectiveLegacyCode = editingOrderId
@@ -4938,7 +4939,8 @@ export default function PedidosPage() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               sellerId: seller_id,
-              order: sheetOrderPayload
+              order: sheetOrderPayload,
+              syncOperational: true
             })
           });
 
@@ -4949,6 +4951,23 @@ export default function PedidosPage() {
               if (sheetData.code) {
                 finalLegacyCode = sheetData.code;
                 sheetSyncSuccess = true;
+              }
+              const centralSynced = sheetData.operationalSync?.central?.success;
+              const deliveriesSynced = sheetData.operationalSync?.deliveriesCurrent?.success;
+              const sellerStatusSynced = sheetData.operationalSync?.sellerStatusSync?.success;
+              const centralStatusSynced = sheetData.operationalSync?.centralStatusSync?.success;
+              if (centralSynced === false || deliveriesSynced === false || sellerStatusSynced === false || centralStatusSynced === false) {
+                const failedTargets = [
+                  centralSynced === false ? 'Central pedidos' : '',
+                  deliveriesSynced === false ? 'Entregas Actual / Vendedores' : '',
+                  sellerStatusSynced === false ? 'el estado 🔹 Pasado de la planilla de vendedores' : '',
+                  centralStatusSynced === false ? 'el estado 🔹 Pasado de Central pedidos' : ''
+                ].filter(Boolean).join(' y ');
+                operationalSyncWarning = `El pedido quedó en la planilla de la vendedora, pero no se pudo reflejar en ${failedTargets}. Reintentá la sincronización antes de procesarlo.`;
+              } else if (sheetData.formationAlert?.attempted && !sheetData.formationAlert?.sent) {
+                operationalSyncWarning = `El pedido fue cargado en las planillas, pero no se pudo enviar el aviso de formación de recorridos: ${sheetData.formationAlert.message || 'error de configuración'}.`;
+              } else if (sheetData.expressAlert?.attempted && !sheetData.expressAlert?.sent) {
+                operationalSyncWarning = `El pedido fue cargado en las planillas, pero no se pudo enviar el aviso Express a Telegram: ${sheetData.expressAlert.message || 'error de configuración'}.`;
               }
             }
           } else {
@@ -5258,7 +5277,7 @@ export default function PedidosPage() {
         setOrders(prev => prev.map(o => o.id === orderData.id ? { ...o, ...orderData, status: 'Modificado' } : o));
       } else {
         if (sheetSyncSuccess && finalLegacyCode) {
-          alert(`¡Pedido ${finalLegacyCode} guardado y registrado en la planilla con éxito!`);
+          alert(`¡Pedido ${finalLegacyCode} guardado y registrado en la planilla con éxito!${operationalSyncWarning ? `\n\n⚠️ ${operationalSyncWarning}` : ''}`);
         } else if (sheetAttempted && !sheetSyncSuccess) {
           alert(`⚠️ ATENCIÓN: El pedido se guardó en el sistema, pero NO se pudo registrar en la planilla de Google.\n\nMotivo: ${sheetSyncError || 'Error de permisos o conexión'}\n\nPodrás sincronizarlo manualmente desde la lista de pedidos con el botón "A Planilla" una vez verificado el acceso.`);
         } else {
