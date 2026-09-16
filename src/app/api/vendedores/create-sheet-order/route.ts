@@ -204,7 +204,10 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { sellerId, order, syncOperational = false } = body as {
+    // Las altas de pedidos siempre se reflejan en Central y Entregas Actual.
+    // El valor por defecto mantiene la compatibilidad con navegadores que aún
+    // tengan el bundle anterior en caché y no envíen el indicador.
+    const { sellerId, order, syncOperational = true } = body as {
       sellerId: string;
       order: SheetOrderPayload;
       // Sólo el alta nueva debe crear filas nuevas en las planillas operativas.

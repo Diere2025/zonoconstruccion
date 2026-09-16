@@ -3803,7 +3803,9 @@ export default function PedidosPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sellerId,
-          order: sheetOrderPayload
+          order: sheetOrderPayload,
+          // Re-sincronizar un pedido histórico no debe crear filas operativas nuevas.
+          syncOperational: false
         })
       });
 
