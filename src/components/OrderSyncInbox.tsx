@@ -5,11 +5,12 @@ import { Bell, X, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
 type Job = {
+  kind: 'create' | 'cancel';
   id: string; order_id: string; customer_name: string; code: string | null;
   status: 'awaiting_items' | 'pending' | 'processing' | 'completed' | 'attention';
   message: string | null; read_at: string | null; created_at: string;
 };
-const fields = 'id,order_id,customer_name,code,status,message,read_at,created_at';
+const fields = 'id,order_id,customer_name,code,kind,status,message,read_at,created_at';
 
 export function OrderSyncInbox() {
   const [open, setOpen] = useState(false);
@@ -69,8 +70,8 @@ export function OrderSyncInbox() {
                     {busy ? <Loader2 className="h-4 w-4 animate-spin text-blue-600" /> : failed ? <AlertTriangle className="h-4 w-4 text-amber-600" /> : <CheckCircle2 className="h-4 w-4 text-emerald-600" />}
                     {job.code || `Pedido ${job.order_id.slice(0,8)}`}
                   </div>
-                  <p className="mt-1 text-sm font-semibold text-slate-700">{job.customer_name}</p>
-                  <p className="mt-2 whitespace-pre-line text-sm text-slate-600">{busy ? (job.status === 'processing' ? 'Sincronizando planillas y avisos…' : 'Guardado en ERP. Esperando sincronización…') : job.message}</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-700">{job.kind === 'cancel' ? 'Anulación · ' : ''}{job.customer_name}</p>
+                  <p className="mt-2 whitespace-pre-line text-sm text-slate-600">{busy ? (job.kind === 'cancel' ? 'Anulado en ERP. Actualizando planillas y aviso…' : job.status === 'processing' ? 'Sincronizando planillas y avisos…' : 'Guardado en ERP. Esperando sincronización…') : job.message}</p>
                   <p className="mt-2 text-xs text-slate-400">{new Date(job.created_at).toLocaleString('es-AR')}</p>
                   {!busy && !job.read_at && <button type="button" className="mt-3 text-xs font-bold text-blue-700" onClick={async () => {
                     const {error} = await supabase.rpc('mark_order_sync_read', {job_id:job.id});

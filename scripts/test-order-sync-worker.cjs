@@ -12,13 +12,13 @@ async function run(mode, authenticated = true) {
   const db={
     from(table) { return {
       select() {return this;}, eq() {return this;},
-      async single() {return {data:{secret:'test-only'}};},
+      async single() {return {data:table==='order_sync_worker_config' ? {secret:'test-only'} : {status:mode==='cancelled-create'?'Cancelado':'Pendiente', legacy_code:'TEST123'}};},
       update(value) {return {eq:async()=>{writes.push({table,value});return {error:null};}}}
     };},
     async rpc() {
       if(claimed)return {data:[]};
       claimed=true;
-      return {data:[{id:'job',order_id:'order',seller_id:'seller',payload:{order:{clientName:'Test'}}}]};
+      return {data:[{id:'job',order_id:'order',seller_id:'seller',kind:mode==='cancel'?'cancel':'create',payload:{order:{clientName:'Test'}}}]};
     }
   };
   const exports={};
@@ -27,6 +27,7 @@ async function run(mode, authenticated = true) {
     require(name) {
       if(name==='next/server')return {NextRequest,NextResponse};
       if(name==='@supabase/supabase-js')return {createClient:()=>db};
+      if(name==='@/lib/processOrderCancellation')return {processOrderCancellation:async()=>({code:'TEST123',warnings:[],result:{cancelled:true},message:'Anulación aplicada'})};
       if(name==='@/lib/processSheetOrder')return {processSheetOrder:async(req,onCode)=>{
         calls++;
         if(mode==='sheet-error')return NextResponse.json({error:'Sheets unavailable'},{status:500});
@@ -43,13 +44,15 @@ async function run(mode, authenticated = true) {
   }));
   if(!authenticated){assert.equal(response.status,401);assert.equal(calls,0);return;}
   assert.equal(response.status,200);
-  assert.equal(calls,1);
+  assert.equal(calls,['cancel','cancelled-create'].includes(mode)?0:1);
   const final=writes.filter(w=>w.table==='order_sync_jobs'&&w.value.status).at(-1).value;
+  if(mode==='cancel'){assert.equal(final.status,'completed');assert.equal(final.result.cancelled,true);return;}
+  if(mode==='cancelled-create'){assert.equal(final.status,'completed');assert.equal(final.result.skipped,true);return;}
   assert.equal(final.status,mode==='success'?'completed':'attention');
   if(mode==='telegram-error')assert.match(final.message,/Telegram recorridos/);
   if(mode==='sheet-error')assert.match(final.message,/Sheets unavailable/);
   if(mode!=='sheet-error')assert.ok(writes.some(w=>w.table==='orders'&&w.value.legacy_code==='TEST123'));
 }
-(async()=>{for(const mode of ['success','telegram-error','sheet-error'])await run(mode);await run('success',false);
+(async()=>{for(const mode of ['success','telegram-error','sheet-error','cancel','cancelled-create'])await run(mode);await run('success',false);
   console.log('PASS: worker authentication, code update, completion, sheet failure and Telegram failure inbox results.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

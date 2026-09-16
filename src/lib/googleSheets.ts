@@ -580,7 +580,7 @@ export const DELIVERIES_CURRENT_SHEET = {
   spreadsheetId: '1mESHu4klY3N1XBXVgFT_Q7ZwlLtiA8GTi5NCCFFboZs',
   // Los pedidos recién creados ingresan en "Vendedores". El resto se conserva
   // para que las modificaciones posteriores encuentren el pedido luego del ruteo.
-  sheetNames: ['Vendedores', 'Nuevos', 'Pend', 'Entregando', 'SinStock/o pasar dia', 'L1', 'L2', 'L3', 'L4', 'L5', 'L6'],
+  sheetNames: ['Vendedores', 'Nuevos', 'Pend', 'Entregando', 'EntProd', 'SinStock/o pasar dia', 'L1', 'L2', 'L3', 'L4', 'L5', 'L6'],
   codeColumn: 'A',
   // Entregas Actual omite la primera columna de las planillas de pedidos.
   columnOffset: -1
@@ -1427,108 +1427,101 @@ export async function updateOrderInSellerSheet(
  * - Coloca '❌ Anulado' en la Columna Q.
  * - Opcionalmente añade la razón de anulación en la columna de notas (Columna K).
  */
-export async function cancelOrderInSellerSheet(
-  spreadsheetId: string,
-  sheetName: string = 'Pendientes',
-  legacyCode: string,
-  cancelReason?: string
-): Promise<{ success: boolean; rowNumber: number; code: string; message?: string }> {
-  if (!legacyCode || !legacyCode.trim()) {
-    throw new Error('legacyCode es requerido para anular un pedido en la planilla');
-  }
+export interface CancellationSheetResult {
+  success: boolean;
+  rowNumber: number;
+  rowNumbers: number[];
+  code: string;
+  matchedCodes: string[];
+  message?: string;
+}
 
-  const token = await getGoogleAccessToken();
-
-  // 1. Obtener todos los códigos de la Columna B
-  const rows = await fetchSpreadsheetValues(spreadsheetId, `'${sheetName}'!B2:B`);
-  
-  const codesToSearch = legacyCode
-    .split(/[\/,]/)
-    .map(c => c.trim().toUpperCase())
-    .filter(Boolean);
-
-  let targetRowIndex = -1;
-  let matchedCode = '';
-
-  for (let i = 0; i < rows.length; i++) {
-    const currentCode = (rows[i]?.[0] || '').trim().toUpperCase();
-    if (!currentCode) continue;
-
-    if (codesToSearch.some(c => c === currentCode)) {
-      targetRowIndex = i;
-      matchedCode = currentCode;
-      break;
-    }
-  }
-
-  if (targetRowIndex === -1) {
-    return {
-      success: false,
-      rowNumber: -1,
-      code: legacyCode,
-      message: `No se encontró la fila en la planilla con el código ${legacyCode}`
-    };
-  }
-
-  const rowNumber = targetRowIndex + 2;
-
-  // Actualizar Columna Q a '❌ Anulado'
-  const batchData: Array<{ range: string; values: any[][] }> = [
-    {
-      range: `'${sheetName}'!Q${rowNumber}`,
-      values: [['❌ Anulado']]
-    }
-  ];
-
-  // Si hay motivo de anulación, anexarlo a la celda de notas/aclaraciones (Columna K)
-  if (cancelReason && cancelReason.trim()) {
-    try {
-      const currentNotesRows = await fetchSpreadsheetValues(spreadsheetId, `'${sheetName}'!K${rowNumber}`);
-      const existingNote = (currentNotesRows[0]?.[0] || '').trim();
-      const cancelNoteText = `❌ ANULADO: ${cancelReason.trim()}`;
-      const newNote = existingNote ? `${existingNote} / ${cancelNoteText}` : cancelNoteText;
-      batchData.push({
-        range: `'${sheetName}'!K${rowNumber}`,
-        values: [[newNote]]
+async function cancelOrderInSheet(
+  spreadsheetId: string, sheetName: string, legacyCode: string,
+  cancelReason: string | undefined, columnOffset: number
+): Promise<CancellationSheetResult> {
+  const expected = [...new Set(legacyCode.split(/[\\/,]/).map(code => code.trim().toUpperCase()).filter(Boolean))];
+  const matchedCodes: string[] = [];
+  const rowNumbers: number[] = [];
+  try {
+    if (!expected.length) throw new Error('El código del pedido es obligatorio');
+    const codeColumn = shiftColumn('B', columnOffset);
+    const noteColumn = shiftColumn('K', columnOffset);
+    const safeName = sheetName.replace(/'/g, "''");
+    const rows = await fetchSpreadsheetValues(spreadsheetId, `'${safeName}'!${codeColumn}2:${noteColumn}`);
+    const data: Array<{range: string; values: string[][]}> = [];
+    const note = cancelReason?.trim() ? `❌ ANULADO: ${cancelReason.trim()}` : '';
+    rows.forEach((row, index) => {
+      const code = String(row?.[0] || '').trim().toUpperCase();
+      if (!expected.includes(code)) return;
+      const rowNumber = index + 2;
+      matchedCodes.push(code);
+      rowNumbers.push(rowNumber);
+      data.push({range: makeRange(safeName, 'Q', 'Q', rowNumber, columnOffset), values: [['❌ Anulado']]});
+      if (note) {
+        const previous = String(row?.[9] || '').trim();
+        data.push({range: makeRange(safeName, 'K', 'K', rowNumber, columnOffset),
+          values: [[previous.includes(note) ? previous : [previous, note].filter(Boolean).join(' / ')]]});
+      }
+    });
+    if (data.length) {
+      const token = await getGoogleAccessToken();
+      const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`, {
+        method: 'POST', headers: {Authorization: `Bearer ${token}`, 'Content-Type':'application/json'},
+        body: JSON.stringify({valueInputOption:'RAW', data})
       });
-    } catch (noteErr) {
-      console.warn('Could not read existing note before appending cancel reason:', noteErr);
+      if (!response.ok) throw new Error(`Google Sheets respondió ${response.status}: ${await response.text()}`);
     }
+    const missing = expected.filter(code => !matchedCodes.includes(code));
+    return {success: !missing.length, rowNumber: rowNumbers[0] ?? -1, rowNumbers,
+      code: legacyCode, matchedCodes,
+      message: missing.length ? `No se encontraron estos códigos en ${sheetName}: ${missing.join(', ')}` : undefined};
+  } catch (error) {
+    return {success:false, rowNumber:-1, rowNumbers:[], code:legacyCode, matchedCodes:[],
+      message: `${sheetName}: ${error instanceof Error ? error.message : 'Error de sincronización'}`};
   }
+}
 
-  const updateRes = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`,
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        valueInputOption: 'USER_ENTERED',
-        data: batchData
-      })
+export async function cancelOrderInSellerSheet(
+  spreadsheetId: string, sheetName: string = 'Pendientes',
+  legacyCode: string, cancelReason?: string
+): Promise<CancellationSheetResult> {
+  return cancelOrderInSheet(spreadsheetId, sheetName, legacyCode, cancelReason, 0);
+}
+
+export async function cancelOrderInAllSheets(sellerId: string, legacyCode: string, reason?: string) {
+  const config = SELLER_SHEET_CONFIG[sellerId];
+  const seller = config?.enabled
+    ? await cancelOrderInSellerSheet(config.spreadsheetId, config.sheetName, legacyCode, reason)
+    : {success:false, message:'La planilla de la vendedora no está habilitada'};
+  // Attempt every destination even if another spreadsheet fails.
+  const central = await cancelOrderInSheet(CENTRAL_ORDERS_SHEET.spreadsheetId,
+    CENTRAL_ORDERS_SHEET.sheetName, legacyCode, reason, 0);
+  let deliveriesCurrent: {success:boolean; message?:string; sheets?:string[]};
+  try {
+    const token = await getGoogleAccessToken();
+    const metadata = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${DELIVERIES_CURRENT_SHEET.spreadsheetId}?fields=sheets.properties.title`,
+      {headers:{Authorization:`Bearer ${token}`}});
+    if (!metadata.ok) throw new Error('No se pudieron consultar las hojas de Entregas Actual');
+    const payload = await metadata.json();
+    const available = new Set((payload.sheets || []).map((sheet: {properties?:{title?:string}}) => sheet.properties?.title));
+    const expected = [...new Set(legacyCode.split(/[\\/,]/).map(code => code.trim().toUpperCase()).filter(Boolean))];
+    const found = new Set<string>();
+    const sheets: string[] = [];
+    const errors: string[] = [];
+    for (const name of DELIVERIES_CURRENT_SHEET.sheetNames.filter(name => available.has(name))) {
+      const result = await cancelOrderInSheet(DELIVERIES_CURRENT_SHEET.spreadsheetId, name, legacyCode, reason, -1);
+      result.matchedCodes.forEach(code => found.add(code));
+      if (result.matchedCodes.length) sheets.push(name);
+      if (!result.success && !result.message?.startsWith('No se encontraron estos códigos')) errors.push(result.message || name);
     }
-  );
-
-  if (!updateRes.ok) {
-    const errText = await updateRes.text();
-    throw new Error(`Google Sheets batchUpdate error (${updateRes.status}): ${errText}`);
+    const missing = expected.filter(code => !found.has(code));
+    if (missing.length) errors.push(`No se encontraron en Entregas Actual: ${missing.join(', ')}`);
+    deliveriesCurrent = {success:!errors.length, sheets, message:errors.length ? errors.join('; ') : undefined};
+  } catch (error) {
+    deliveriesCurrent = {success:false, message:error instanceof Error ? error.message : 'Error en Entregas Actual'};
   }
-
-  if (cancelReason && cancelReason.trim()) {
-    try {
-      await formatSheetNoteCell(spreadsheetId, sheetName, rowNumber, token);
-    } catch (fErr) {
-      console.warn('Could not format cancel note cell in sheet:', fErr);
-    }
-  }
-
-  return {
-    success: true,
-    rowNumber,
-    code: matchedCode || legacyCode
-  };
+  return {seller, central, deliveriesCurrent};
 }
 
 const sheetIdCache: Record<string, number> = {

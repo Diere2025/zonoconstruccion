@@ -2039,7 +2039,8 @@ export default function PedidosPage() {
       const { error: updateOrderErr } = await supabase
         .from('orders')
         .update({
-          status: 'Cancelado'
+          status: 'Cancelado',
+          cancel_reason: trimmedReason
         })
         .eq('id', cancelingOrder.id);
 
@@ -2089,65 +2090,13 @@ export default function PedidosPage() {
         console.error("Error registrando anulación en order_history:", histErr);
       }
 
-      // 4. Sincronizar estado '❌ Anulado' en Google Sheets si tiene código asignado
-      if (cancelingOrder.legacy_code && cancelingOrder.seller_id) {
-        try {
-          const sheetRes = await fetch('/api/vendedores/update-sheet-order', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              action: 'cancel',
-              sellerId: cancelingOrder.seller_id,
-              legacyCode: cancelingOrder.legacy_code,
-              cancelReason: trimmedReason
-            })
-          });
-          const sheetData = await sheetRes.json().catch(() => ({}));
-          if (sheetData?.synced) {
-            console.log(`Planilla actualizada a ❌ Anulado para ${cancelingOrder.legacy_code}`);
-          } else {
-            console.warn('Planilla no sincronizada al anular:', sheetData);
-          }
-        } catch (sErr) {
-          console.error("Error al actualizar planilla en anulación:", sErr);
-        }
-      }
-
-      // 5. Construir mensaje formateado y enviar automáticamente a Telegram
-      const copyMsg = buildCopyableCancelMessage({
-        legacyCode: cancelingOrder.legacy_code || 'S/C',
-        sellerName: sellerFullName,
-        reason: trimmedReason
-      });
-
-      let cancelTgSuccess = false;
-      try {
-        const tgRes = await fetch('/api/vendedores/telegram-notify', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            type: 'cancellation',
-            message: copyMsg,
-            legacyCode: cancelingOrder.legacy_code || ''
-          })
-        });
-        const tgData = await tgRes.json().catch(() => ({}));
-        cancelTgSuccess = !!(tgRes.ok && tgData.ok);
-      } catch (err) {
-        console.warn('Error sending Telegram cancellation notification:', err);
-      }
-
-      setNotifiedCancelTelegram(cancelTgSuccess);
-      setGeneratedCancelMessage(copyMsg);
-      setCopiedCancelMessage(false);
-
-      // 6. Actualizar estado local en la lista de pedidos
+      setOrderSaveNotice('Pedido anulado en el ERP. Central, Entregas Actual y la planilla de la vendedora se actualizan en segundo plano. El resultado aparecerá en la bandeja.');
+      window.dispatchEvent(new Event('order-sync-updated'));
       setOrders(prev =>
         prev.map(o => o.id === cancelingOrder.id ? { ...o, status: 'Cancelado' } : o)
       );
 
       setShowCancelOrderModal(false);
-      setShowCancelSuccessModal(true);
     } catch (err: any) {
       console.error("Error al anular pedido:", err);
       alert(`Error al anular el pedido: ${err.message || 'Error desconocido'}`);

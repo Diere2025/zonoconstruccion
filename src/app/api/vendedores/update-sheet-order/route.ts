@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
   updateOrderInSellerSheet,
-  cancelOrderInSellerSheet,
+  cancelOrderInAllSheets,
   normalizeSellerNameForSheet,
   syncOrderModificationToOperationalSheets,
   SELLER_SHEET_CONFIG,
@@ -35,34 +35,20 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (action === 'cancel') {
+      const cancellationSync = await cancelOrderInAllSheets(sellerId, legacyCode, cancelReason);
+      return NextResponse.json({
+        synced: Object.values(cancellationSync).every(result => result.success),
+        code: legacyCode,
+        cancellationSync
+      });
+    }
+
     const config = SELLER_SHEET_CONFIG[sellerId];
     if (!config || !config.enabled) {
       return NextResponse.json({
         synced: false,
         message: 'La sincronización de planilla no está habilitada para este vendedor'
-      });
-    }
-
-    // Acción de anulación directa en la planilla
-    if (action === 'cancel') {
-      const cancelResult = await cancelOrderInSellerSheet(
-        config.spreadsheetId,
-        config.sheetName,
-        legacyCode,
-        cancelReason
-      );
-
-      if (!cancelResult.success) {
-        return NextResponse.json(
-          { synced: false, message: cancelResult.message || 'Código no encontrado en la planilla' },
-          { status: 404 }
-        );
-      }
-
-      return NextResponse.json({
-        synced: true,
-        code: cancelResult.code,
-        rowNumber: cancelResult.rowNumber
       });
     }
 

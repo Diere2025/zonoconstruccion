@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { processSheetOrder } from '@/lib/processSheetOrder';
+import { processOrderCancellation } from '@/lib/processOrderCancellation';
 
 export const runtime = 'edge';
 
@@ -14,17 +15,32 @@ export async function POST(req: NextRequest) {
   let processed = 0;
   // pg_net owns this request: closing the seller's browser cannot cancel it.
   while (Date.now() - started < 80000 && processed < 10) {
-    const { data: jobs, error } = await db.rpc('claim_order_sync_job');
+    const { data: jobs, error } = await db.rpc('claim_order_sync_job', {worker_version:2});
     if (error) return NextResponse.json({ error: 'No se pudo leer la cola' }, { status: 500 });
     const job = jobs?.[0];
     if (!job) break;
     const warnings: string[] = [];
     let result: Record<string, any> = {};
+    let successMessage = 'Planillas y avisos procesados correctamente.';
+    let confirmedCode = job.code;
     try {
+      const current = await db.from('orders').select('status,legacy_code,customer_name').eq('id',job.order_id).single();
+      if (current.error || !current.data) throw new Error('No se pudo consultar el estado actual del pedido');
+      if (job.kind === 'cancel') {
+        const cancellation = await processOrderCancellation(db, req.url, job, current.data);
+        result = cancellation.result;
+        warnings.push(...cancellation.warnings);
+        successMessage = cancellation.message;
+        confirmedCode = cancellation.code || null;
+      } else if (current.data.status === 'Cancelado') {
+        result = {skipped:true, reason:'cancelled'};
+        successMessage = 'Carga omitida: el pedido fue anulado antes de sincronizar.';
+      } else {
       const response = await processSheetOrder(new NextRequest(new URL('/api/vendedores/create-sheet-order', req.url), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sellerId: job.seller_id, order: job.payload.order, syncOperational: true })
       }), async code => {
+        confirmedCode = code;
         const orderUpdate = await db.from('orders').update({ legacy_code: code }).eq('id', job.order_id);
         if (orderUpdate.error) throw new Error(`La planilla se cargó (${code}), pero no se pudo guardar el código en el ERP: ${orderUpdate.error.message}`);
         const progress = await db.from('order_sync_jobs').update({ code }).eq('id', job.id);
@@ -61,12 +77,13 @@ export async function POST(req: NextRequest) {
           }
         }
       }
+      }
     } catch (error) {
       warnings.push(error instanceof Error ? error.message : 'Error de sincronización');
     }
     const saved = await db.from('order_sync_jobs').update({
-      status: warnings.length ? 'attention' : 'completed', result,
-      message: warnings.length ? warnings.join('\n') : 'Planillas y avisos procesados correctamente.',
+      status: warnings.length ? 'attention' : 'completed', result, code:confirmedCode,
+      message: warnings.length ? warnings.join('\n') : successMessage,
       finished_at: new Date().toISOString()
     }).eq('id', job.id);
     // Leave processing in place on persistence failure; stale recovery surfaces it without replaying writes.
