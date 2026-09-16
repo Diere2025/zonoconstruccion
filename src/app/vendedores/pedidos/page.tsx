@@ -1701,6 +1701,7 @@ export default function PedidosPage() {
   }, []);
 
   const [showSummaryModal, setShowSummaryModal] = useState(false);
+  const [showAdvertisingSourceRequiredModal, setShowAdvertisingSourceRequiredModal] = useState(false);
   const [showPostponementModal, setShowPostponementModal] = useState(false);
   const [originalDeliveryDate, setOriginalDeliveryDate] = useState("");
   const [postponementReasonType, setPostponementReasonType] = useState<'cliente' | 'empresa'>('cliente');
@@ -4581,7 +4582,7 @@ export default function PedidosPage() {
       return;
     }
     if (!selectedAdvertisingSourceId) {
-      alert("Seleccioná la procedencia del pedido (campo obligatorio).");
+      setShowAdvertisingSourceRequiredModal(true);
       return;
     }
 
@@ -4614,7 +4615,7 @@ export default function PedidosPage() {
     // que un doble clic ejecute dos altas con el mismo código.
     if (submittingRef.current) return;
     if (!selectedAdvertisingSourceId) {
-      alert("Seleccioná la procedencia del pedido (campo obligatorio).");
+      setShowAdvertisingSourceRequiredModal(true);
       return;
     }
     const isPostponed = editingOrderId && originalDeliveryDate && (new Date(entregaInicial) > new Date(originalDeliveryDate));
@@ -8562,6 +8563,77 @@ export default function PedidosPage() {
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Procedencia obligatoria */}
+      {showAdvertisingSourceRequiredModal && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="w-full max-w-lg overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-100 bg-gradient-to-r from-brand-50 via-white to-slate-50 p-5">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-brand-700">Dato obligatorio</p>
+                <h2 className="mt-1 text-lg font-black text-slate-900">Seleccioná la procedencia</h2>
+                <p className="mt-1 text-sm font-medium text-slate-500">Elegila acá y continuá con el pedido sin perder los datos cargados.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAdvertisingSourceRequiredModal(false)}
+                className="rounded-full p-2 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-900"
+                aria-label="Cerrar selector de procedencia"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="p-5">
+              <label className="mb-3 flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-slate-600">
+                📢 Procedencia <span className="text-rose-600">*</span>
+              </label>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {filteredAdvertisingSources.map((source) => {
+                  const isSelected = selectedAdvertisingSourceId === source.id;
+                  return (
+                    <button
+                      key={source.id}
+                      type="button"
+                      onClick={() => setSelectedAdvertisingSourceId(source.id)}
+                      className={cn(
+                        "min-h-12 rounded-xl border px-3 py-2 text-left text-xs font-bold transition-all",
+                        isSelected
+                          ? "border-brand-600 bg-brand-600 text-white ring-2 ring-brand-500/20 shadow-sm"
+                          : "border-slate-200 bg-white text-slate-700 hover:border-brand-300 hover:bg-brand-50"
+                      )}
+                    >
+                      {source.name}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 border-t border-slate-100 bg-slate-50 p-5">
+              <button
+                type="button"
+                onClick={() => setShowAdvertisingSourceRequiredModal(false)}
+                className="rounded-xl px-4 py-2.5 text-sm font-bold text-slate-600 transition-colors hover:bg-slate-200"
+              >
+                Volver
+              </button>
+              <Button
+                type="button"
+                disabled={!selectedAdvertisingSourceId}
+                onClick={() => {
+                  const shouldResumeSubmission = showSummaryModal || showEditConfirmModal;
+                  setShowAdvertisingSourceRequiredModal(false);
+                  if (shouldResumeSubmission) void confirmAndSubmit();
+                }}
+                className="rounded-xl px-5 py-2.5 text-sm font-black"
+              >
+                {showSummaryModal || showEditConfirmModal ? 'Continuar con el pedido' : 'Guardar procedencia'}
+              </Button>
+            </div>
           </div>
         </div>
       )}
