@@ -713,6 +713,11 @@ export default function PedidosPage() {
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [ordersError, setOrdersError] = useState<string | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  useEffect(() => {
+    const refresh = () => setRefreshTrigger(value => value + 1);
+    window.addEventListener('order-sync-finished', refresh);
+    return () => window.removeEventListener('order-sync-finished', refresh);
+  }, []);
   const [orderSearchQuery, setOrderSearchQuery] = useState("");
   const [sortField, setSortField] = useState<'order_date' | 'seller'>('order_date');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
@@ -1704,6 +1709,7 @@ export default function PedidosPage() {
     }
   }, []);
 
+  const [orderSaveNotice, setOrderSaveNotice] = useState('');
   const [showSummaryModal, setShowSummaryModal] = useState(false);
   const [showRequiredOrderFieldsModal, setShowRequiredOrderFieldsModal] = useState(false);
   const [resumeOrderReviewAfterRequiredFields, setResumeOrderReviewAfterRequiredFields] = useState(false);
@@ -3063,6 +3069,13 @@ export default function PedidosPage() {
 
   // Generic loader: can be used for editing (isClone=false) or cloning/re-creating (isClone=true)
   const handleLoadOrderIntoForm = async (order: any, isClone: boolean = false) => {
+    if (!isClone && order.totals?.integration_payload) {
+      const { data: job, error } = await supabase.from('order_sync_jobs').select('status').eq('order_id',order.id).maybeSingle();
+      if (error || (job && ['awaiting_items','pending','processing'].includes(job.status))) {
+        setOrderSaveNotice('Este pedido todavía se está sincronizando. Podés cargar otro mientras termina; su estado está en la bandeja.');
+        return;
+      }
+    }
     isEditingRef.current = true;
     try {
       setSubmitting(true);
@@ -3720,6 +3733,10 @@ export default function PedidosPage() {
 
   // Reintentar o sincronizar un pedido existente en BD directamente a la Planilla de Google
   const handleSyncExistingOrderToSheet = async (order: any) => {
+    if (order.totals?.integration_payload) {
+      setOrderSaveNotice('Este pedido tiene una sincronización registrada en la bandeja. Revisá allí el resultado antes de repetir una carga en planillas.');
+      return;
+    }
     try {
       setSyncingOrderId(order.id);
 
@@ -4735,10 +4752,7 @@ export default function PedidosPage() {
       // 2. Crear o Actualizar Pedido de Venta
       let orderData: any = null;
       let finalLegacyCode: string | null = null;
-      let sheetSyncSuccess = false;
-      let sheetAttempted = false;
-      let sheetSyncError = '';
-      let operationalSyncWarning = '';
+      let integrationPayload: Record<string, unknown> | undefined;
 
       if (editingOrderId) {
         // Obtener ítems anteriores para poder revertir stock
@@ -4885,23 +4899,9 @@ export default function PedidosPage() {
         if (deleteItemsErr) throw deleteItemsErr;
 
       } else {
-        // Validar el código antes de tocar las planillas. Si la orden ya fue
-        // creada por un envío anterior, no debemos volver a agregarla allí.
-        const requestedLegacyCode = legacyCode.trim().toUpperCase();
-        if (requestedLegacyCode) {
-          const { data: dupOrder } = await supabase
-            .from('orders')
-            .select('id, customer_name, legacy_code')
-            .eq('legacy_code', requestedLegacyCode)
-            .maybeSingle();
 
-          if (dupOrder) {
-            throw new Error(`El código de pedido "${requestedLegacyCode}" ya existe en el sistema (asignado a "${dupOrder.customer_name}"). No se puede cargar un pedido con código duplicado.`);
-          }
-        }
-
-        // Sincronizar a Google Sheets si el vendedor tiene planilla configurada
-        try {
+        // Persistir el trabajo junto al pedido; el servidor lo procesa luego.
+        {
           const selectedPayMethodName = dbPaymentMethods.find(m => m.id === paymentsList[0]?.payment_method_id)?.name || 'Efectivo';
           const clientPhone = isNewClient 
             ? (newClientPhones.map(cleanPhoneForSaving).filter(Boolean)[0] || '')
@@ -4953,72 +4953,24 @@ export default function PedidosPage() {
             items: buildSheetOrderItems(orderItems, orderDiscountAmount, products)
           };
 
-          const sheetRes = await fetch('/api/vendedores/create-sheet-order', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              sellerId: seller_id,
-              order: sheetOrderPayload,
-              syncOperational: true
-            })
-          });
-
-          if (sheetRes.ok) {
-            const sheetData = await sheetRes.json();
-            if (sheetData.synced) {
-              sheetAttempted = true;
-              if (sheetData.code) {
-                finalLegacyCode = sheetData.code;
-                sheetSyncSuccess = true;
-              }
-              const centralSynced = sheetData.operationalSync?.central?.success;
-              const deliveriesSynced = sheetData.operationalSync?.deliveriesCurrent?.success;
-              const sellerStatusSynced = sheetData.operationalSync?.sellerStatusSync?.success;
-              const centralStatusSynced = sheetData.operationalSync?.centralStatusSync?.success;
-              if (centralSynced === false || deliveriesSynced === false || sellerStatusSynced === false || centralStatusSynced === false) {
-                const failedTargets = [
-                  centralSynced === false ? 'Central pedidos' : '',
-                  deliveriesSynced === false ? 'Entregas Actual / Vendedores' : '',
-                  sellerStatusSynced === false ? 'el estado 🔹 Pasado de la planilla de vendedores' : '',
-                  centralStatusSynced === false ? 'el estado 🔹 Pasado de Central pedidos' : ''
-                ].filter(Boolean).join(' y ');
-                const syncDetail = sheetData.operationalSync?.central?.message ||
-                  sheetData.operationalSync?.deliveriesCurrent?.message ||
-                  sheetData.operationalSync?.sellerStatusSync?.message ||
-                  sheetData.operationalSync?.centralStatusSync?.message;
-                operationalSyncWarning = `El pedido quedó en la planilla de la vendedora, pero no se pudo reflejar en ${failedTargets}.${syncDetail ? ` Detalle: ${syncDetail}` : ''} Reintentá la sincronización antes de procesarlo.`;
-              } else if (sheetData.formationAlert?.attempted && !sheetData.formationAlert?.sent) {
-                operationalSyncWarning = `El pedido fue cargado en las planillas, pero no se pudo enviar el aviso de formación de recorridos: ${sheetData.formationAlert.message || 'error de configuración'}.`;
-              } else if (sheetData.expressAlert?.attempted && !sheetData.expressAlert?.sent) {
-                operationalSyncWarning = `El pedido fue cargado en las planillas, pero no se pudo enviar el aviso Express a Telegram: ${sheetData.expressAlert.message || 'error de configuración'}.`;
-              }
+          integrationPayload = {
+            order: sheetOrderPayload,
+            receipts: {
+              type: 'receipt',
+              customerName: (isNewClient ? newClientName : cliente) || '',
+              taxId: isNewClient ? newClientTaxId : (clients.find(c => c.id === selectedClientId)?.tax_id || ''),
+              sellerName: sellerFullName,
+              status: paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? 'Señado' : 'Pendiente'),
+              pendingBalance,
+              receipts: paymentsList.filter(p => p.receipt_url && !p.telegram_sent).map(p => ({
+                url: p.receipt_url,
+                amount: p.amount > 0 ? p.amount : (paymentsList.length === 1 ? (paymentTiming === 'paid' ? total : customDepositAmount) : 0),
+                notes: p.notes || ''
+              }))
             }
-          } else {
-            sheetAttempted = true;
-            const errData = await sheetRes.json().catch(() => ({}));
-            sheetSyncError = errData.error || errData.message || `Error (${sheetRes.status}) al sincronizar con la planilla`;
-            console.warn('Google Sheet sync returned non-ok:', sheetRes.status, errData);
-          }
-        } catch (sheetErr: any) {
-          sheetAttempted = true;
-          sheetSyncError = sheetErr?.message || 'Error de red al conectar con la planilla';
-          console.error('Error synchronizing order to Google Sheet:', sheetErr);
+          };
         }
 
-        // Si la planilla devolvió un código diferente al previsto, validarlo
-        // antes de crear la orden. En el caso habitual ya fue validado arriba.
-        const codeToCheck = finalLegacyCode || legacyCode;
-        if (codeToCheck && codeToCheck.trim().toUpperCase() !== requestedLegacyCode) {
-          const { data: dupOrder } = await supabase
-            .from('orders')
-            .select('id, customer_name, legacy_code')
-            .eq('legacy_code', codeToCheck.trim().toUpperCase())
-            .maybeSingle();
-
-          if (dupOrder) {
-            throw new Error(`El código de pedido "${codeToCheck}" ya existe en el sistema (asignado a "${dupOrder.customer_name}"). No se puede cargar un pedido con código duplicado.`);
-          }
-        }
 
         // Insertar Nuevo Pedido
         const { data: newOrder, error: orderError } = await supabase
@@ -5043,6 +4995,7 @@ export default function PedidosPage() {
             total_amount: total,
             status: orderStatus,
             totals: {
+              integration_payload: integrationPayload,
               items_subtotal: itemsGrossSubtotal,
               order_discount_type: orderDiscountType,
               order_discount_value: orderDiscountValue,
@@ -5297,17 +5250,12 @@ export default function PedidosPage() {
         // Actualizar estado local
         setOrders(prev => prev.map(o => o.id === orderData.id ? { ...o, ...orderData, status: 'Modificado' } : o));
       } else {
-        if (sheetSyncSuccess && finalLegacyCode) {
-          alert(`¡Pedido ${finalLegacyCode} guardado y registrado en la planilla con éxito!${operationalSyncWarning ? `\n\n⚠️ ${operationalSyncWarning}` : ''}`);
-        } else if (sheetAttempted && !sheetSyncSuccess) {
-          alert(`⚠️ ATENCIÓN: El pedido se guardó en el sistema, pero NO se pudo registrar en la planilla de Google.\n\nMotivo: ${sheetSyncError || 'Error de permisos o conexión'}\n\nPodrás sincronizarlo manualmente desde la lista de pedidos con el botón "A Planilla" una vez verificado el acceso.`);
-        } else {
-          alert("Pedido cargado con éxito en el sistema. Se ha reservado el stock de los productos.");
-        }
+        setOrderSaveNotice('Pedido guardado. Las planillas y Telegram se procesan en segundo plano. Podés cargar el siguiente pedido.');
+        window.dispatchEvent(new Event('order-sync-updated'));
       }
 
-      // Enviar comprobantes a Telegram si hay comprobantes cargados no enviados
-      try {
+      // En altas nuevas los comprobantes viajan en la cola persistente.
+      if (editingOrderId) try {
         const orderCodeForTelegram = finalLegacyCode || legacyCode || orderData?.legacy_code || '';
         const clientNameForTelegram = (isNewClient ? newClientName : cliente) || '';
         const clientTaxIdForTelegram = isNewClient ? newClientTaxId : (clients.find(c => c.id === selectedClientId)?.tax_id || '');
@@ -5464,6 +5412,12 @@ export default function PedidosPage() {
 
   return (
     <div className="space-y-4">
+      {orderSaveNotice && (
+        <div role="status" className="flex items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+          <span>{orderSaveNotice}</span>
+          <button type="button" aria-label="Cerrar aviso" onClick={() => setOrderSaveNotice('')}><X className="h-4 w-4" /></button>
+        </div>
+      )}
       {activeTab === 'form' ? (
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-3.5 px-4 rounded-2xl border border-slate-200/80 shadow-xs">
           <div className="flex items-center gap-3">
@@ -5598,7 +5552,7 @@ export default function PedidosPage() {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-start pb-3 border-b border-slate-200/70">
                 {/* Código de Pedido Legacy */}
                 <div className="space-y-1">
-                  <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Código de Pedido (Anterior)</label>
+                  <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">{editingOrderId ? 'Código de Pedido' : 'Código estimado (se confirma al sincronizar)'}</label>
                   <input
                     type="text"
                     value={legacyCode}

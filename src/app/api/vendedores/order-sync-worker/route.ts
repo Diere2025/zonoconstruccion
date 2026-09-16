@@ -1,0 +1,77 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+import { processSheetOrder } from '@/lib/processSheetOrder';
+
+export const runtime = 'edge';
+
+export async function POST(req: NextRequest) {
+  const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  const { data: config, error: configError } = await db.from('order_sync_worker_config').select('secret').eq('id', true).single();
+  if (configError || !config || req.headers.get('authorization') !== `Bearer ${config.secret}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  const started = Date.now();
+  let processed = 0;
+  // pg_net owns this request: closing the seller's browser cannot cancel it.
+  while (Date.now() - started < 80000 && processed < 10) {
+    const { data: jobs, error } = await db.rpc('claim_order_sync_job');
+    if (error) return NextResponse.json({ error: 'No se pudo leer la cola' }, { status: 500 });
+    const job = jobs?.[0];
+    if (!job) break;
+    const warnings: string[] = [];
+    let result: Record<string, any> = {};
+    try {
+      const response = await processSheetOrder(new NextRequest(new URL('/api/vendedores/create-sheet-order', req.url), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sellerId: job.seller_id, order: job.payload.order, syncOperational: true })
+      }), async code => {
+        const orderUpdate = await db.from('orders').update({ legacy_code: code }).eq('id', job.order_id);
+        if (orderUpdate.error) throw new Error(`La planilla se cargó (${code}), pero no se pudo guardar el código en el ERP: ${orderUpdate.error.message}`);
+        const progress = await db.from('order_sync_jobs').update({ code }).eq('id', job.id);
+        if (progress.error) throw new Error('La planilla se cargó pero no se pudo registrar el progreso. Revisar antes de reintentar.');
+      });
+      result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Falló la carga en planillas');
+      if (!result.synced) warnings.push(result.message || 'El vendedor no tiene una planilla habilitada.');
+      const sync = result.operationalSync;
+      if (result.synced && !result.operationalSyncSucceeded) {
+        for (const [key, label] of [['central','Central'], ['deliveriesCurrent','Entregas Actual'], ['sellerStatusSync','Estado de la vendedora'], ['centralStatusSync','Estado de Central']]) {
+          if (!sync?.[key]?.success) warnings.push(`${label}: ${sync?.[key]?.message || 'No se completó'}`);
+        }
+      }
+      for (const [key, label] of [['formationAlert','Telegram recorridos'], ['expressAlert','Telegram Express']]) {
+        if (result[key]?.attempted && !result[key]?.sent) warnings.push(`${label}: ${result[key].message || 'No se pudo enviar'}`);
+      }
+      if (job.payload.receipts?.receipts?.length) {
+        const receipts = await fetch(new URL('/api/vendedores/telegram-notify', req.url), {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...job.payload.receipts, legacyCode: result.code || job.order_id.slice(0,8) })
+        });
+        const receiptsResult = await receipts.json();
+        if (!receipts.ok || !receiptsResult.ok) warnings.push('Telegram comprobantes: no se pudo enviar.');
+        else {
+          const { data: order } = await db.from('orders').select('totals').eq('id',job.order_id).single();
+          if (order) {
+            const urls = new Set(job.payload.receipts.receipts.map((r: { url: string }) => r.url));
+            const updated = await db.from('orders').update({ totals: { ...order.totals,
+              payments_breakdown: (order.totals?.payments_breakdown || []).map((p: {receipt_url?: string}) =>
+                urls.has(p.receipt_url) ? {...p,telegram_sent:true} : p)
+            }}).eq('id',job.order_id);
+            if (updated.error) warnings.push('Comprobantes enviados, pero no se pudo actualizar su estado en el ERP.');
+          }
+        }
+      }
+    } catch (error) {
+      warnings.push(error instanceof Error ? error.message : 'Error de sincronización');
+    }
+    const saved = await db.from('order_sync_jobs').update({
+      status: warnings.length ? 'attention' : 'completed', result,
+      message: warnings.length ? warnings.join('\n') : 'Planillas y avisos procesados correctamente.',
+      finished_at: new Date().toISOString()
+    }).eq('id', job.id);
+    // Leave processing in place on persistence failure; stale recovery surfaces it without replaying writes.
+    if (saved.error) return NextResponse.json({ error: 'No se pudo registrar el resultado' }, { status: 500 });
+    processed++;
+  }
+  return NextResponse.json({ processed });
+}

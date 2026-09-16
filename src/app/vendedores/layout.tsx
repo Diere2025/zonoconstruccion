@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { Loader2 } from "lucide-react";
 import { AdminLayout } from "@/components/ui/AdminLayout";
 import { ModernLogin } from "@/components/auth/ModernLogin";
+import { OrderSyncInbox } from "@/components/OrderSyncInbox";
 
 let globalSession: any = null;
 let globalSessionChecked = false;
@@ -78,6 +79,7 @@ export default function VendedoresLayout({ children }: { children: React.ReactNo
   return (
     <AdminLayout>
       {children}
+      <OrderSyncInbox />
     </AdminLayout>
   );
 }
