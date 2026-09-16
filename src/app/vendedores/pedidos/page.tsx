@@ -4947,7 +4947,11 @@ export default function PedidosPage() {
                   sellerStatusSynced === false ? 'el estado 🔹 Pasado de la planilla de vendedores' : '',
                   centralStatusSynced === false ? 'el estado 🔹 Pasado de Central pedidos' : ''
                 ].filter(Boolean).join(' y ');
-                operationalSyncWarning = `El pedido quedó en la planilla de la vendedora, pero no se pudo reflejar en ${failedTargets}. Reintentá la sincronización antes de procesarlo.`;
+                const syncDetail = sheetData.operationalSync?.central?.message ||
+                  sheetData.operationalSync?.deliveriesCurrent?.message ||
+                  sheetData.operationalSync?.sellerStatusSync?.message ||
+                  sheetData.operationalSync?.centralStatusSync?.message;
+                operationalSyncWarning = `El pedido quedó en la planilla de la vendedora, pero no se pudo reflejar en ${failedTargets}.${syncDetail ? ` Detalle: ${syncDetail}` : ''} Reintentá la sincronización antes de procesarlo.`;
               } else if (sheetData.formationAlert?.attempted && !sheetData.formationAlert?.sent) {
                 operationalSyncWarning = `El pedido fue cargado en las planillas, pero no se pudo enviar el aviso de formación de recorridos: ${sheetData.formationAlert.message || 'error de configuración'}.`;
               } else if (sheetData.expressAlert?.attempted && !sheetData.expressAlert?.sent) {
