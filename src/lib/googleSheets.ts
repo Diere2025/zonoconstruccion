@@ -557,16 +557,18 @@ const PRODUCT_SLOT_RANGES: [string, string][] = [
   ['BW', 'BY']
 ];
 
-const CENTRAL_ORDERS_SHEET = {
+export const CENTRAL_ORDERS_SHEET = {
   spreadsheetId: '1nz545_xNUgdI2LMAGIDCjh6Qs8-vUDHdynzj7jU2wm0',
   sheetName: 'Central pedidos',
   codeColumn: 'B',
   columnOffset: 0
 };
 
-const DELIVERIES_CURRENT_SHEET = {
+export const DELIVERIES_CURRENT_SHEET = {
   spreadsheetId: '1mESHu4klY3N1XBXVgFT_Q7ZwlLtiA8GTi5NCCFFboZs',
-  sheetNames: ['Nuevos', 'Pend', 'Entregando', 'SinStock/o pasar dia', 'L1', 'L2', 'L3', 'L4', 'L5', 'L6'],
+  // Los pedidos recién creados ingresan en "Vendedores". El resto se conserva
+  // para que las modificaciones posteriores encuentren el pedido luego del ruteo.
+  sheetNames: ['Vendedores', 'Nuevos', 'Pend', 'Entregando', 'SinStock/o pasar dia', 'L1', 'L2', 'L3', 'L4', 'L5', 'L6'],
   codeColumn: 'A',
   // Entregas Actual omite la primera columna de las planillas de pedidos.
   columnOffset: -1
@@ -848,7 +850,7 @@ export async function appendOrderToSellerSheet(
   spreadsheetId: string,
   sheetName: string = 'Pendientes',
   order: SheetOrderPayload
-): Promise<{ success: boolean; code: string; codes: string[]; rowNumber: number }> {
+): Promise<{ success: boolean; code: string; codes: string[]; rowNumber: number; rowNumbers: number[] }> {
   const token = await getGoogleAccessToken();
 
   const allItems = order.items && order.items.length > 0 ? order.items : [];
@@ -982,8 +984,246 @@ export async function appendOrderToSellerSheet(
     success: true,
     code: finalCode,
     codes: assignedCodes,
-    rowNumber: firstRowNumber
+    rowNumber: firstRowNumber,
+    rowNumbers: slots.map(slot => slot.rowNumber)
   };
+}
+
+export interface NewOperationalSheetSyncResult {
+  success: boolean;
+  sheetName: string;
+  rowNumbers?: number[];
+  message?: string;
+}
+
+export interface NewOperationalSheetsSyncResult {
+  central: NewOperationalSheetSyncResult;
+  deliveriesCurrent: NewOperationalSheetSyncResult;
+}
+
+export interface SheetStatusSyncResult {
+  success: boolean;
+  message?: string;
+}
+
+/** Actualiza únicamente el estado, sin tocar datos ni fórmulas de la fila. */
+export async function setOrderStatusInSheetRows(
+  spreadsheetId: string,
+  sheetName: string,
+  rowNumbers: number[],
+  columnOffset: number,
+  status: string
+): Promise<SheetStatusSyncResult> {
+  try {
+    if (rowNumbers.length === 0) throw new Error('No hay filas para actualizar');
+    const token = await getGoogleAccessToken();
+    const response = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          valueInputOption: 'USER_ENTERED',
+          data: rowNumbers.map(rowNumber => ({
+            range: makeRange(sheetName, 'Q', 'Q', rowNumber, columnOffset),
+            values: [[status]]
+          }))
+        })
+      }
+    );
+    if (!response.ok) throw new Error(`Google Sheets respondió ${response.status}`);
+    return { success: true };
+  } catch (error) {
+    console.error(`[GoogleSheets] No se pudo actualizar el estado en ${sheetName}:`, error);
+    return { success: false, message: `No se pudo marcar ${status} en ${sheetName}` };
+  }
+}
+
+/** Devuelve el ordinal del pedido dentro de su fecha de carga en Central. */
+export async function getCentralOrderDailySequence(orderDate?: string): Promise<number> {
+  const normalizeDate = (value?: string): string => {
+    const clean = (value || '').split('T')[0].trim();
+    const isoMatch = clean.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (isoMatch) return `${isoMatch[1]}-${isoMatch[2].padStart(2, '0')}-${isoMatch[3].padStart(2, '0')}`;
+    const sheetMatch = clean.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (sheetMatch) return `${sheetMatch[3]}-${sheetMatch[2].padStart(2, '0')}-${sheetMatch[1].padStart(2, '0')}`;
+    return clean;
+  };
+  const targetDate = normalizeDate(orderDate);
+  if (!targetDate) throw new Error('Falta la fecha del pedido para calcular su número diario');
+  const rows = await fetchSpreadsheetValues(
+    CENTRAL_ORDERS_SHEET.spreadsheetId,
+    `'${CENTRAL_ORDERS_SHEET.sheetName}'!D2:D`
+  );
+  const matchingRows = rows.filter(row => normalizeDate(row[0]) === targetDate);
+  if (matchingRows.length === 0) throw new Error('No se encontró el pedido nuevo en Central para calcular su número diario');
+  return matchingRows.length;
+}
+
+/**
+ * Busca filas realmente vacías en una hoja operativa. Central tiene el código
+ * en B y Entregas Actual en A; el offset mantiene ambos formatos alineados.
+ */
+async function getNextEmptyOperationalRows(
+  spreadsheetId: string,
+  sheetName: string,
+  columnOffset: number,
+  count: number
+): Promise<number[]> {
+  const codeColumn = shiftColumn('B', columnOffset);
+  const clientColumn = shiftColumn('F', columnOffset);
+  const rows = await fetchSpreadsheetValues(
+    spreadsheetId,
+    `'${sheetName}'!${codeColumn}2:${clientColumn}`
+  );
+  const available: number[] = [];
+
+  for (let index = 0; index < rows.length && available.length < count; index++) {
+    const row = rows[index] || [];
+    const hasCode = Boolean((row[0] || '').trim());
+    const hasClient = Boolean((row[row.length - 1] || '').trim());
+    if (!hasCode && !hasClient) available.push(index + 2);
+  }
+
+  let nextRow = rows.length + 2;
+  while (available.length < count) available.push(nextRow++);
+  return available;
+}
+
+function makeContinuationOrder(
+  order: SheetOrderPayload,
+  items: SheetOrderItem[],
+  codes: string[],
+  index: number
+): SheetOrderPayload {
+  const siblingCodes = codes.filter((_, codeIndex) => codeIndex !== index);
+  const continuationPrefix = siblingCodes.length > 0
+    ? `VA CON EL PEDIDO ${siblingCodes.join(' / ')}`
+    : '';
+  const originalNotes = (order.deliveryNotes || '').trim();
+  const deliveryNotes = continuationPrefix
+    ? (originalNotes ? `${continuationPrefix} / ${originalNotes}` : continuationPrefix)
+    : originalNotes;
+
+  return {
+    ...order,
+    items,
+    deliveryNotes,
+    // Los importes pertenecen sólo a la primera línea cuando el pedido se
+    // divide en varias filas por tener más de 12 productos.
+    depositOrPaidAmount: index === 0 ? order.depositOrPaidAmount : 0,
+    freightCost: index === 0 ? order.freightCost : 0,
+    paymentStatus: index === 0 ? order.paymentStatus : 'Abonado'
+  };
+}
+
+async function appendOrderToOperationalSheet(
+  spreadsheetId: string,
+  sheetName: string,
+  columnOffset: number,
+  codes: string[],
+  order: SheetOrderPayload
+): Promise<NewOperationalSheetSyncResult> {
+  try {
+    const rowNumbers = await getNextEmptyOperationalRows(
+      spreadsheetId,
+      sheetName,
+      columnOffset,
+      codes.length
+    );
+    const itemChunks = splitOrderItemsForRows(order, codes.length);
+    const token = await getGoogleAccessToken();
+    const batchData = rowNumbers.flatMap((rowNumber, index) => {
+      const rowOrder = makeContinuationOrder(order, itemChunks[index], codes, index);
+      return [
+        {
+          // B en Central pedidos y A en Entregas Actual.
+          range: makeRange(sheetName, 'B', 'B', rowNumber, columnOffset),
+          values: [[codes[index]]]
+        },
+        ...buildOrderUpdateBatchData(
+          sheetName,
+          rowNumber,
+          rowOrder,
+          undefined,
+          columnOffset,
+          rowOrder.status === 'En Espera' ? 'En Espera' : '🔸 Validado'
+        )
+      ];
+    });
+
+    // buildOrderUpdateBatchData deliberately preserves the delivery-status
+    // column while editing Entregas Actual. A new row has no status yet, so it
+    // must be initialized here (Q in Central, P in Entregas Actual).
+    if (columnOffset === -1) {
+      rowNumbers.forEach(rowNumber => {
+        batchData.push({
+          range: makeRange(sheetName, 'Q', 'Q', rowNumber, columnOffset),
+          values: [[order.status === 'En Espera' ? 'En Espera' : '🔸 Validado']]
+        });
+      });
+    }
+
+    await Promise.all(rowNumbers.map(rowNumber =>
+      restoreMissingCalculatedFormulas(spreadsheetId, sheetName, rowNumber, columnOffset, token)
+    ));
+    assertOnlyDataCellsAreWritten(batchData, columnOffset);
+
+    const response = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ valueInputOption: 'USER_ENTERED', data: batchData })
+      }
+    );
+    if (!response.ok) {
+      throw new Error(`Google Sheets respondió ${response.status}: ${await response.text()}`);
+    }
+
+    return { success: true, sheetName, rowNumbers };
+  } catch (error) {
+    console.error(`[GoogleSheets] No se pudo crear el pedido en ${sheetName}:`, error);
+    return {
+      success: false,
+      sheetName,
+      message: `No se pudo registrar el pedido nuevo en ${sheetName}`
+    };
+  }
+}
+
+/** Registra un alta nueva en las dos planillas operativas con el mismo código. */
+export async function appendNewOrderToOperationalSheets(
+  codes: string[],
+  order: SheetOrderPayload
+): Promise<NewOperationalSheetsSyncResult> {
+  const central = await appendOrderToOperationalSheet(
+    CENTRAL_ORDERS_SHEET.spreadsheetId,
+    CENTRAL_ORDERS_SHEET.sheetName,
+    CENTRAL_ORDERS_SHEET.columnOffset,
+    codes,
+    order
+  );
+  if (!central.success) {
+    return {
+      central,
+      deliveriesCurrent: {
+        success: false,
+        sheetName: 'Vendedores',
+        message: 'No se cargó Entregas Actual porque Central no pudo registrar el pedido'
+      }
+    };
+  }
+
+  const deliveriesCurrent = await appendOrderToOperationalSheet(
+    DELIVERIES_CURRENT_SHEET.spreadsheetId,
+    'Vendedores',
+    DELIVERIES_CURRENT_SHEET.columnOffset,
+    codes,
+    order
+  );
+
+  return { central, deliveriesCurrent };
 }
 
 export const SELLER_SHEET_CONFIG: Record<string, { spreadsheetId: string; sheetName: string; enabled: boolean }> = {
