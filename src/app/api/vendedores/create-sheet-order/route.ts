@@ -68,13 +68,26 @@ async function getExpressChatId(botToken: string): Promise<string | null> {
   return FALLBACK_EXPRESS_CHAT_ID;
 }
 
-async function sendExpressOrderAlert(code: string, order: SheetOrderPayload): Promise<ExpressAlertResult> {
-  const botToken = process.env.LOGISTICS_TELEGRAM_BOT_TOKEN;
-  if (!botToken) {
-    return { attempted: true, sent: false, message: 'Falta LOGISTICS_TELEGRAM_BOT_TOKEN' };
+async function sendOperationalTelegramMessage(
+  origin: string,
+  chatId: string,
+  html: string
+): Promise<ExpressAlertResult> {
+  const response = await fetch(`${origin}/api/vendedores/telegram-notify`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type: 'operational', chatId, message: html })
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || !payload.ok) {
+    return { attempted: true, sent: false, message: payload.error || payload.description || 'No se pudo enviar el aviso operativo' };
   }
+  return { attempted: true, sent: true };
+}
 
-  const chatId = await getExpressChatId(botToken.trim());
+async function sendExpressOrderAlert(origin: string, code: string, order: SheetOrderPayload): Promise<ExpressAlertResult> {
+  const botToken = process.env.LOGISTICS_TELEGRAM_BOT_TOKEN;
+  const chatId = await getExpressChatId(botToken?.trim() || '');
   if (!chatId) {
     return {
       attempted: true,
@@ -99,6 +112,8 @@ async function sendExpressOrderAlert(code: string, order: SheetOrderPayload): Pr
     items ? `\n<b>Productos</b>\n${items}` : '',
     order.deliveryNotes ? `\n📝 <b>Indicaciones:</b> ${escapeTelegramHtml(order.deliveryNotes)}` : ''
   ].filter(Boolean);
+
+  if (!botToken) return sendOperationalTelegramMessage(origin, chatId, lines.join('\n'));
 
   const response = await fetch(`https://api.telegram.org/bot${botToken.trim()}/sendMessage`, {
     method: 'POST',
@@ -147,11 +162,9 @@ async function getRouteFormationChatId(botToken: string): Promise<string | null>
   return FALLBACK_ROUTE_FORMATION_CHAT_ID;
 }
 
-async function sendRouteFormationAlert(code: string, order: SheetOrderPayload): Promise<ExpressAlertResult> {
+async function sendRouteFormationAlert(origin: string, code: string, order: SheetOrderPayload): Promise<ExpressAlertResult> {
   const botToken = process.env.LOGISTICS_TELEGRAM_BOT_TOKEN;
-  if (!botToken) return { attempted: true, sent: false, message: 'Falta LOGISTICS_TELEGRAM_BOT_TOKEN' };
-
-  const chatId = await getRouteFormationChatId(botToken.trim());
+  const chatId = await getRouteFormationChatId(botToken?.trim() || '');
   if (!chatId) {
     return {
       attempted: true,
@@ -170,6 +183,8 @@ async function sendRouteFormationAlert(code: string, order: SheetOrderPayload): 
     items,
     '──────────────────'
   ].filter(Boolean).join('\n');
+
+  if (!botToken) return sendOperationalTelegramMessage(origin, chatId, text);
 
   const response = await fetch(`https://api.telegram.org/bot${botToken.trim()}/sendMessage`, {
     method: 'POST',
@@ -304,11 +319,12 @@ export async function POST(req: NextRequest) {
         sellerStatusSync?.success === true &&
         centralStatusSync?.success === true
       : undefined;
+    const origin = new URL(req.url).origin;
     const formationAlert = syncOperational && operationalRowsCreated
-      ? await sendRouteFormationAlert(result.code, order)
+      ? await sendRouteFormationAlert(origin, result.code, order)
       : { attempted: false, sent: false };
     const expressAlert = syncOperational && isExpressFreight(order.freightType)
-      ? await sendExpressOrderAlert(result.code, order)
+      ? await sendExpressOrderAlert(origin, result.code, order)
       : { attempted: false, sent: false };
 
     return NextResponse.json({

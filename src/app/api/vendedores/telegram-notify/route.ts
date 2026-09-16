@@ -4,6 +4,11 @@ import { createClient } from '@supabase/supabase-js';
 export const dynamic = 'force-dynamic';
 export const runtime = 'edge';
 
+const OPERATIONAL_TELEGRAM_CHAT_IDS = new Set([
+  '-1002433775204', // PEDIDOS EXPRESS AVISO
+  '-1002044363540'  // Pedidos (formación de recorridos)
+]);
+
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
@@ -293,8 +298,12 @@ export async function POST(req: Request) {
       });
     }
 
-    // Default handler for order modifications and cancellations
-    const chatId = process.env.LOGISTICS_TELEGRAM_CHAT_ID || '-1002086594506';
+    // Default handler for order modifications and cancellations. Los avisos
+    // operativos pueden elegir únicamente uno de los dos grupos autorizados.
+    const requestedChatId = type === 'operational' ? String(body.chatId || '').trim() : '';
+    const chatId = OPERATIONAL_TELEGRAM_CHAT_IDS.has(requestedChatId)
+      ? requestedChatId
+      : (process.env.LOGISTICS_TELEGRAM_CHAT_ID || '-1002086594506');
 
     if (!message || typeof message !== 'string') {
       return NextResponse.json(
@@ -304,12 +313,14 @@ export async function POST(req: Request) {
     }
 
     // Convert double/single asterisks to HTML <b> tags for Telegram HTML parse mode
-    const htmlMessage = message
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')
-      .replace(/\*(.*?)\*/g, '<b>$1</b>');
+    const htmlMessage = type === 'operational'
+      ? message
+      : message
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')
+        .replace(/\*(.*?)\*/g, '<b>$1</b>');
 
     const res = await fetch(`https://api.telegram.org/bot${botToken.trim()}/sendMessage`, {
       method: 'POST',
