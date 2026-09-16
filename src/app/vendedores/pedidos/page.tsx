@@ -1285,6 +1285,10 @@ export default function PedidosPage() {
   const [legacyCode, setLegacyCode] = useState("");
   const [selectedAdvertisingSourceId, setSelectedAdvertisingSourceId] = useState("");
   const [selectedOrderMediumId, setSelectedOrderMediumId] = useState("e9654dad-9352-4f31-8f01-b12c57289993");
+  const selectedOrderMedium = filteredOrderMediums.find(m => m.id === selectedOrderMediumId)
+    || orderMediums.find(m => m.id === selectedOrderMediumId);
+  const requiresWhaticketLink = selectedOrderMedium?.name.toLowerCase() === 'whaticket';
+  const isWhaticketLinkMissing = requiresWhaticketLink && !whaticketLink.trim();
 
   const assignableSellers = useMemo(() => {
     return sellersList.filter(s => {
@@ -1701,7 +1705,9 @@ export default function PedidosPage() {
   }, []);
 
   const [showSummaryModal, setShowSummaryModal] = useState(false);
-  const [showAdvertisingSourceRequiredModal, setShowAdvertisingSourceRequiredModal] = useState(false);
+  const [showRequiredOrderFieldsModal, setShowRequiredOrderFieldsModal] = useState(false);
+  const [resumeOrderReviewAfterRequiredFields, setResumeOrderReviewAfterRequiredFields] = useState(false);
+  const [showWhaticketLinkFieldInModal, setShowWhaticketLinkFieldInModal] = useState(false);
   const [showPostponementModal, setShowPostponementModal] = useState(false);
   const [originalDeliveryDate, setOriginalDeliveryDate] = useState("");
   const [postponementReasonType, setPostponementReasonType] = useState<'cliente' | 'empresa'>('cliente');
@@ -4559,33 +4565,7 @@ export default function PedidosPage() {
       })
     : null;
 
-  const handleInitialSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (orderItems.length === 0) {
-      alert("Debes agregar al menos un producto al pedido.");
-      return;
-    }
-    if (isNewClient && !newClientName) {
-      alert("Completá el nombre del nuevo cliente.");
-      return;
-    }
-    if (!isNewClient && !selectedClientId) {
-      alert("Seleccioná un cliente existente o registrá uno nuevo.");
-      return;
-    }
-    if (!localidadId) {
-      alert("Seleccioná la localidad de entrega.");
-      return;
-    }
-    if (!flete) {
-      alert("Seleccioná el tipo de entrega.");
-      return;
-    }
-    if (!selectedAdvertisingSourceId) {
-      setShowAdvertisingSourceRequiredModal(true);
-      return;
-    }
-
+  const openOrderReview = () => {
     if (editingOrderId) {
       const locName = localities.find(l => l.id === localidadId)?.name || "";
       const selectedPayMethodName = dbPaymentMethods.find(m => m.id === paymentsList[0]?.payment_method_id)?.name || 'Efectivo';
@@ -4610,12 +4590,46 @@ export default function PedidosPage() {
     setShowSummaryModal(true);
   };
 
+  const handleInitialSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (orderItems.length === 0) {
+      alert("Debes agregar al menos un producto al pedido.");
+      return;
+    }
+    if (isNewClient && !newClientName) {
+      alert("Completá el nombre del nuevo cliente.");
+      return;
+    }
+    if (!isNewClient && !selectedClientId) {
+      alert("Seleccioná un cliente existente o registrá uno nuevo.");
+      return;
+    }
+    if (!localidadId) {
+      alert("Seleccioná la localidad de entrega.");
+      return;
+    }
+    if (!flete) {
+      alert("Seleccioná el tipo de entrega.");
+      return;
+    }
+    if (!selectedAdvertisingSourceId || isWhaticketLinkMissing) {
+      setResumeOrderReviewAfterRequiredFields(true);
+      setShowWhaticketLinkFieldInModal(isWhaticketLinkMissing);
+      setShowRequiredOrderFieldsModal(true);
+      return;
+    }
+
+    openOrderReview();
+  };
+
   const confirmAndSubmit = async () => {
     // El estado de React tarda un render en actualizarse. Esta referencia evita
     // que un doble clic ejecute dos altas con el mismo código.
     if (submittingRef.current) return;
-    if (!selectedAdvertisingSourceId) {
-      setShowAdvertisingSourceRequiredModal(true);
+    if (!selectedAdvertisingSourceId || isWhaticketLinkMissing) {
+      setResumeOrderReviewAfterRequiredFields(false);
+      setShowWhaticketLinkFieldInModal(isWhaticketLinkMissing);
+      setShowRequiredOrderFieldsModal(true);
       return;
     }
     const isPostponed = editingOrderId && originalDeliveryDate && (new Date(entregaInicial) > new Date(originalDeliveryDate));
@@ -8567,71 +8581,102 @@ export default function PedidosPage() {
         </div>
       )}
 
-      {/* Procedencia obligatoria */}
-      {showAdvertisingSourceRequiredModal && (
+      {/* Datos obligatorios antes de confirmar */}
+      {showRequiredOrderFieldsModal && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-150">
           <div className="w-full max-w-lg overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl animate-in zoom-in-95 duration-200">
             <div className="flex items-start justify-between gap-4 border-b border-slate-100 bg-gradient-to-r from-brand-50 via-white to-slate-50 p-5">
               <div>
                 <p className="text-[10px] font-black uppercase tracking-[0.16em] text-brand-700">Dato obligatorio</p>
-                <h2 className="mt-1 text-lg font-black text-slate-900">Seleccioná la procedencia</h2>
-                <p className="mt-1 text-sm font-medium text-slate-500">Elegila acá y continuá con el pedido sin perder los datos cargados.</p>
+                <h2 className="mt-1 text-lg font-black text-slate-900">
+                  {!selectedAdvertisingSourceId && isWhaticketLinkMissing
+                    ? 'Completá los datos del pedido'
+                    : !selectedAdvertisingSourceId
+                      ? 'Seleccioná la procedencia'
+                      : 'Pegá el link de Whaticket'}
+                </h2>
+                <p className="mt-1 text-sm font-medium text-slate-500">Completalos acá y continuá con el pedido sin perder los datos cargados.</p>
               </div>
               <button
                 type="button"
-                onClick={() => setShowAdvertisingSourceRequiredModal(false)}
+                onClick={() => setShowRequiredOrderFieldsModal(false)}
                 className="rounded-full p-2 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-900"
-                aria-label="Cerrar selector de procedencia"
+                aria-label="Cerrar datos obligatorios"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
             <div className="p-5">
-              <label className="mb-3 flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-slate-600">
-                📢 Procedencia <span className="text-rose-600">*</span>
-              </label>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {filteredAdvertisingSources.map((source) => {
-                  const isSelected = selectedAdvertisingSourceId === source.id;
-                  return (
-                    <button
-                      key={source.id}
-                      type="button"
-                      onClick={() => setSelectedAdvertisingSourceId(source.id)}
-                      className={cn(
-                        "min-h-12 rounded-xl border px-3 py-2 text-left text-xs font-bold transition-all",
-                        isSelected
-                          ? "border-brand-600 bg-brand-600 text-white ring-2 ring-brand-500/20 shadow-sm"
-                          : "border-slate-200 bg-white text-slate-700 hover:border-brand-300 hover:bg-brand-50"
-                      )}
-                    >
-                      {source.name}
-                    </button>
-                  );
-                })}
-              </div>
+              {!selectedAdvertisingSourceId && (
+                <div className={isWhaticketLinkMissing ? 'mb-5' : ''}>
+                  <label className="mb-3 flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-slate-600">
+                    📢 Procedencia <span className="text-rose-600">*</span>
+                  </label>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {filteredAdvertisingSources.map((source) => {
+                      const isSelected = selectedAdvertisingSourceId === source.id;
+                      return (
+                        <button
+                          key={source.id}
+                          type="button"
+                          onClick={() => setSelectedAdvertisingSourceId(source.id)}
+                          className={cn(
+                            "min-h-12 rounded-xl border px-3 py-2 text-left text-xs font-bold transition-all",
+                            isSelected
+                              ? "border-brand-600 bg-brand-600 text-white ring-2 ring-brand-500/20 shadow-sm"
+                              : "border-slate-200 bg-white text-slate-700 hover:border-brand-300 hover:bg-brand-50"
+                          )}
+                        >
+                          {source.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {showWhaticketLinkFieldInModal && (
+                <div className="space-y-2">
+                  <label className="flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-slate-600">
+                    🔗 Link de Whaticket <span className="text-rose-600">*</span>
+                  </label>
+                  <input
+                    type="url"
+                    value={whaticketLink}
+                    onChange={(event) => setWhaticketLink(event.target.value)}
+                    placeholder="https://whaticket... o pegar enlace de conversación"
+                    autoFocus={!!selectedAdvertisingSourceId}
+                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-800 outline-none transition-all placeholder:font-medium placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10"
+                  />
+                </div>
+              )}
             </div>
 
             <div className="flex items-center justify-end gap-3 border-t border-slate-100 bg-slate-50 p-5">
               <button
                 type="button"
-                onClick={() => setShowAdvertisingSourceRequiredModal(false)}
+                onClick={() => setShowRequiredOrderFieldsModal(false)}
                 className="rounded-xl px-4 py-2.5 text-sm font-bold text-slate-600 transition-colors hover:bg-slate-200"
               >
                 Volver
               </button>
               <Button
                 type="button"
-                disabled={!selectedAdvertisingSourceId}
+                disabled={!selectedAdvertisingSourceId || isWhaticketLinkMissing}
                 onClick={() => {
                   const shouldResumeSubmission = showSummaryModal || showEditConfirmModal;
-                  setShowAdvertisingSourceRequiredModal(false);
-                  if (shouldResumeSubmission) void confirmAndSubmit();
+                  setShowRequiredOrderFieldsModal(false);
+                  if (shouldResumeSubmission) {
+                    void confirmAndSubmit();
+                  } else if (resumeOrderReviewAfterRequiredFields) {
+                    setResumeOrderReviewAfterRequiredFields(false);
+                    openOrderReview();
+                  }
                 }}
                 className="rounded-xl px-5 py-2.5 text-sm font-black"
               >
-                {showSummaryModal || showEditConfirmModal ? 'Continuar con el pedido' : 'Guardar procedencia'}
+                Continuar con el pedido
               </Button>
             </div>
           </div>
