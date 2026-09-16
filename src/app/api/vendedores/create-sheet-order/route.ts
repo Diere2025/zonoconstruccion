@@ -20,6 +20,12 @@ const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 
 type ExpressAlertResult = { attempted: boolean; sent: boolean; message?: string };
 
+// Respaldo operativo para que los avisos sigan funcionando aunque el entorno
+// de despliegue todavía no tenga las variables configuradas. Las variables y
+// site_settings, si existen, siempre tienen prioridad.
+const FALLBACK_EXPRESS_CHAT_ID = '-1002433775204';
+const FALLBACK_ROUTE_FORMATION_CHAT_ID = '-1002044363540';
+
 function escapeTelegramHtml(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
@@ -57,8 +63,9 @@ async function getExpressChatId(botToken: string): Promise<string | null> {
     return chat?.id ? String(chat.id) : null;
   } catch (error) {
     console.warn('[Express Telegram] No se pudo detectar el grupo:', error);
-    return null;
   }
+
+  return FALLBACK_EXPRESS_CHAT_ID;
 }
 
 async function sendExpressOrderAlert(code: string, order: SheetOrderPayload): Promise<ExpressAlertResult> {
@@ -135,8 +142,9 @@ async function getRouteFormationChatId(botToken: string): Promise<string | null>
     return chat?.id ? String(chat.id) : null;
   } catch (error) {
     console.warn('[Route formation Telegram] No se pudo detectar el grupo:', error);
-    return null;
   }
+
+  return FALLBACK_ROUTE_FORMATION_CHAT_ID;
 }
 
 async function sendRouteFormationAlert(code: string, order: SheetOrderPayload): Promise<ExpressAlertResult> {
@@ -287,13 +295,16 @@ export async function POST(req: NextRequest) {
     const operationalSync = initialOperationalSync
       ? { ...initialOperationalSync, sellerStatusSync, centralStatusSync }
       : undefined;
+    const operationalRowsCreated = initialOperationalSync
+      ? initialOperationalSync.central.success && initialOperationalSync.deliveriesCurrent.success
+      : undefined;
     const operationalSyncSucceeded = initialOperationalSync
       ? initialOperationalSync.central.success &&
         initialOperationalSync.deliveriesCurrent.success &&
         sellerStatusSync?.success === true &&
         centralStatusSync?.success === true
       : undefined;
-    const formationAlert = syncOperational && operationalSyncSucceeded
+    const formationAlert = syncOperational && operationalRowsCreated
       ? await sendRouteFormationAlert(result.code, order)
       : { attempted: false, sent: false };
     const expressAlert = syncOperational && isExpressFreight(order.freightType)
