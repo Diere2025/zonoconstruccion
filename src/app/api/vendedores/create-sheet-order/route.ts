@@ -60,7 +60,7 @@ async function getExpressChatId(botToken: string): Promise<string | null> {
       return (chat?.type === 'group' || chat?.type === 'supergroup') && title.includes('pedidos express aviso');
     });
     const chat = match?.message?.chat || match?.my_chat_member?.chat;
-    return chat?.id ? String(chat.id) : null;
+    if (chat?.id) return String(chat.id);
   } catch (error) {
     console.warn('[Express Telegram] No se pudo detectar el grupo:', error);
   }
@@ -154,7 +154,7 @@ async function getRouteFormationChatId(botToken: string): Promise<string | null>
         title.includes('pedidos') && title.includes('formacion de recorridos');
     });
     const chat = match?.message?.chat || match?.my_chat_member?.chat;
-    return chat?.id ? String(chat.id) : null;
+    if (chat?.id) return String(chat.id);
   } catch (error) {
     console.warn('[Route formation Telegram] No se pudo detectar el grupo:', error);
   }
