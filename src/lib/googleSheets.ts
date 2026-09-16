@@ -1115,18 +1115,14 @@ async function getNextEmptyOperationalRows(
     spreadsheetId,
     `'${sheetName}'!${codeColumn}2:${clientColumn}`
   );
-  const available: number[] = [];
-
-  for (let index = 0; index < rows.length && available.length < count; index++) {
-    const row = rows[index] || [];
-    const hasCode = Boolean((row[0] || '').trim());
-    const hasClient = Boolean((row[row.length - 1] || '').trim());
-    if (!hasCode && !hasClient) available.push(index + 2);
-  }
-
-  let nextRow = rows.length + 2;
-  while (available.length < count) available.push(nextRow++);
-  return available;
+  // Las planillas operativas se cargan siempre al final. Una fila vacía entre
+  // cabeceras y pedidos históricos es parte del diseño de la planilla, no un
+  // slot disponible para altas nuevas.
+  const lastUsedIndex = rows.reduce((lastIndex, row, index) => (
+    row.some(value => String(value || '').trim() !== '') ? index : lastIndex
+  ), -1);
+  const firstNewRow = Math.max(2, lastUsedIndex + 3);
+  return Array.from({ length: count }, (_, index) => firstNewRow + index);
 }
 
 function makeContinuationOrder(
@@ -1223,10 +1219,11 @@ async function appendOrderToOperationalSheet(
     return { success: true, sheetName, rowNumbers };
   } catch (error) {
     console.error(`[GoogleSheets] No se pudo crear el pedido en ${sheetName}:`, error);
+    const detail = error instanceof Error ? error.message : 'Error desconocido';
     return {
       success: false,
       sheetName,
-      message: `No se pudo registrar el pedido nuevo en ${sheetName}`
+      message: `No se pudo registrar el pedido nuevo en ${sheetName}: ${detail}`
     };
   }
 }
