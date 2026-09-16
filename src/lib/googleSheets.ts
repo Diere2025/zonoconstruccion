@@ -1160,9 +1160,9 @@ async function appendOrderToOperationalSheet(
       });
     }
 
-    await Promise.all(rowNumbers.map(rowNumber =>
-      restoreMissingCalculatedFormulas(spreadsheetId, sheetName, rowNumber, columnOffset, token)
-    ));
+    // Central y Entregas Actual ya tienen las fórmulas preconfiguradas en sus
+    // filas plantilla. No intentamos recrearlas al dar de alta un pedido: esas
+    // columnas pueden estar protegidas y no intervienen en la carga de datos.
     assertOnlyDataCellsAreWritten(batchData, columnOffset);
 
     const response = await fetch(
