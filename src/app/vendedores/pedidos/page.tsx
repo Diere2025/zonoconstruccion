@@ -3019,7 +3019,8 @@ export default function PedidosPage() {
   // Generic loader: can be used for editing (isClone=false) or cloning/re-creating (isClone=true)
   const handleLoadOrderIntoForm = async (order: any, isClone: boolean = false) => {
     if (!isClone && order.totals?.integration_payload) {
-      const { data: job, error } = await supabase.from('order_sync_jobs').select('status').eq('order_id',order.id).maybeSingle();
+      const { data: job, error } = await supabase.from('order_sync_jobs').select('status').eq('order_id',order.id)
+        .in('status', ['awaiting_items','pending','processing']).limit(1).maybeSingle();
       if (error || (job && ['awaiting_items','pending','processing'].includes(job.status))) {
         setOrderSaveNotice('Este pedido todavía se está sincronizando. Podés cargar otro mientras termina; su estado está en la bandeja.');
         return;
