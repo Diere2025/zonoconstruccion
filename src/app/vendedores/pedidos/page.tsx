@@ -571,6 +571,7 @@ export default function PedidosPage() {
   const [showProductDropdown, setShowProductDropdown] = useState(false);
   const [productSearchTerm, setProductSearchTerm] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
   const isEditingRef = useRef(false);
 
@@ -4609,6 +4610,9 @@ export default function PedidosPage() {
   };
 
   const confirmAndSubmit = async () => {
+    // El estado de React tarda un render en actualizarse. Esta referencia evita
+    // que un doble clic ejecute dos altas con el mismo código.
+    if (submittingRef.current) return;
     if (!selectedAdvertisingSourceId) {
       alert("Seleccioná la procedencia del pedido (campo obligatorio).");
       return;
@@ -4623,6 +4627,7 @@ export default function PedidosPage() {
 
     setShowSummaryModal(false);
     setShowEditConfirmModal(false);
+    submittingRef.current = true;
     setSubmitting(true);
     try {
       const { data: userData } = await supabase.auth.getUser();
@@ -4865,6 +4870,21 @@ export default function PedidosPage() {
         if (deleteItemsErr) throw deleteItemsErr;
 
       } else {
+        // Validar el código antes de tocar las planillas. Si la orden ya fue
+        // creada por un envío anterior, no debemos volver a agregarla allí.
+        const requestedLegacyCode = legacyCode.trim().toUpperCase();
+        if (requestedLegacyCode) {
+          const { data: dupOrder } = await supabase
+            .from('orders')
+            .select('id, customer_name, legacy_code')
+            .eq('legacy_code', requestedLegacyCode)
+            .maybeSingle();
+
+          if (dupOrder) {
+            throw new Error(`El código de pedido "${requestedLegacyCode}" ya existe en el sistema (asignado a "${dupOrder.customer_name}"). No se puede cargar un pedido con código duplicado.`);
+          }
+        }
+
         // Sincronizar a Google Sheets si el vendedor tiene planilla configurada
         try {
           const selectedPayMethodName = dbPaymentMethods.find(m => m.id === paymentsList[0]?.payment_method_id)?.name || 'Efectivo';
@@ -4970,9 +4990,10 @@ export default function PedidosPage() {
           console.error('Error synchronizing order to Google Sheet:', sheetErr);
         }
 
-        // VALIDACIÓN ANTI-DUPLICADOS: Verificar que el código asignado no exista en el sistema
+        // Si la planilla devolvió un código diferente al previsto, validarlo
+        // antes de crear la orden. En el caso habitual ya fue validado arriba.
         const codeToCheck = finalLegacyCode || legacyCode;
-        if (codeToCheck) {
+        if (codeToCheck && codeToCheck.trim().toUpperCase() !== requestedLegacyCode) {
           const { data: dupOrder } = await supabase
             .from('orders')
             .select('id, customer_name, legacy_code')
@@ -5421,6 +5442,7 @@ export default function PedidosPage() {
       console.error(error);
       alert(`Error al cargar el pedido: ${error?.message || error?.details || JSON.stringify(error)}`);
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };
