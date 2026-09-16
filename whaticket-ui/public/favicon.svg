@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" fill="none">
+  <defs>
+    <linearGradient id="zticket-red-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF2A4D"/>
+      <stop offset="45%" stop-color="#E11D48"/>
+      <stop offset="100%" stop-color="#9F1239"/>
+    </linearGradient>
+    <filter id="zticket-shadow" x="-8%" y="-8%" width="116%" height="120%" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="1.5" stdDeviation="1.2" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#zticket-shadow)">
+    <!-- Ticket Body with side notches -->
+    <path d="M 12 4 L 36 4 C 40.8 4 44 7.2 44 12 L 44 18 C 40.5 18 37.5 20.7 37.5 24 C 37.5 27.3 40.5 30 44 30 L 44 36 C 44 40.8 40.8 44 36 44 L 12 44 C 7.2 44 4 40.8 4 36 L 4 30 C 7.5 30 10.5 27.3 10.5 24 C 10.5 20.7 7.5 18 4 18 L 4 12 C 4 7.2 7.2 4 12 4 Z"
+          fill="url(#zticket-red-bg)"
+          stroke="#FDA4AF"
+          stroke-width="0.8"
+          stroke-opacity="0.5"/>
+
+    <!-- Subtle ticket perforation accents (top and bottom center) -->
+    <circle cx="24" cy="7" r="1.1" fill="#FFFFFF" fill-opacity="0.5"/>
+    <circle cx="24" cy="41" r="1.1" fill="#FFFFFF" fill-opacity="0.5"/>
+
+    <!-- Distinctive Bold White 'Z' -->
+    <path d="M 15 14 L 33 14 L 33 18.8 L 21.5 29.2 L 33 29.2 L 33 34 L 15 34 L 15 29.2 L 26.5 18.8 L 15 18.8 Z"
+          fill="#FFFFFF"/>
+  </g>
+</svg>

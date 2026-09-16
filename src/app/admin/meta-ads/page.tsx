@@ -46,7 +46,11 @@ import {
 } from "lucide-react";
 import { formatPrice } from "@/lib/utils";
 
+import MetaReview from '@/components/admin/MetaReview';
+import { diagnose, readHistoryResponse, readLiveResponse, type Periods } from '@/lib/meta-ads-review';
+
 interface LiveAd {
+  periods?: Periods;
   id: string;
   name: string;
   status: string;
@@ -70,6 +74,7 @@ interface LiveAd {
 }
 
 interface LiveCampaign {
+  periods?: Periods;
   status: string;
   accountName: string;
   campaignName: string;
@@ -257,7 +262,7 @@ export default function MetaAdsPage() {
 
   // Live Data State
   const [liveSummary, setLiveSummary] = useState<any>(null);
-  const [liveCampaigns, setLiveCampaigns] = useState<LiveCampaign[]>([]);
+  const [rawLiveCampaigns, setLiveCampaigns] = useState<LiveCampaign[]>([]);
   const [liveSearchQuery, setLiveSearchQuery] = useState("");
   const [liveLineFilter, setLiveLineFilter] = useState("all");
   const [liveStatusFilter, setLiveStatusFilter] = useState<string>("all");
@@ -270,7 +275,23 @@ export default function MetaAdsPage() {
   const [liveIsCached, setLiveIsCached] = useState<boolean>(false);
   const [liveCacheAge, setLiveCacheAge] = useState<number>(0);
   const [expandedCampaigns, setExpandedCampaigns] = useState<Set<string>>(new Set());
+  const [reviewDetailsOpen, setReviewDetailsOpen] = useState(false);
   const [previewAd, setPreviewAd] = useState<LiveAd | null>(null);
+
+  const [liveData, setLiveData] = useState<any>(null);
+  const [targets, setTargets] = useState<Record<string, number>>({});
+  const [clock, setClock] = useState(Date.now());
+  useEffect(() => {
+    try { const saved=JSON.parse(localStorage.getItem('meta-ads-targets')||'{}'); if(saved && typeof saved==='object') setTargets(Object.fromEntries(Object.entries(saved).filter(([,v])=>typeof v==='number'&&Number.isFinite(v)&&v>0)) as Record<string,number>); } catch {}
+    const timer=setInterval(()=>setClock(Date.now()),30000); return ()=>clearInterval(timer);
+  }, []);
+  const setTarget=(key:string,value:number)=>setTargets(prev=>{const next={...prev,[key]:value};try{localStorage.setItem('meta-ads-targets',JSON.stringify(next));}catch{}return next;});
+  const liveFresh = !!liveData?.updatedAt && liveData.source==='meta_api_direct' && !liveData.stale && !liveData.apiError && !liveData.error && clock-Date.parse(liveData.updatedAt)<180000;
+  const liveCampaigns = useMemo(()=>rawLiveCampaigns.map(c=>({...c,ads:c.ads?.map(a=>({...a,alerts:a.periods?[diagnose(a.periods,targets[c.commercialOffer]||3.5,a.effectiveStatus==='ACTIVE',liveFresh).label]:['Datos insuficientes']}))})),[rawLiveCampaigns,targets,liveFresh]);
+
+  useEffect(() => {
+    setPreviewAd(previous => previous ? liveCampaigns.flatMap(c => c.ads || []).find(a => a.id === previous.id) || null : null);
+  }, [liveCampaigns]);
 
   const toggleCampaignExpand = (campId: string) => {
     setExpandedCampaigns(prev => {
@@ -286,10 +307,12 @@ export default function MetaAdsPage() {
 
   const expandAllCampaigns = () => {
     setExpandedCampaigns(new Set(liveCampaigns.map(c => c.campaignId)));
+    setReviewDetailsOpen(true);
   };
 
   const collapseAllCampaigns = () => {
     setExpandedCampaigns(new Set());
+    setReviewDetailsOpen(false);
   };
 
   // Live Pacing & Forecasting State
@@ -312,7 +335,7 @@ export default function MetaAdsPage() {
     const totalMessages = liveSummary.totalMessages || 0;
     const totalSpendArs = liveSummary.totalSpendArs || 0;
     const realBudgetArs = liveSummary.totalBudgetArs || 0;
-    
+
     // Check if custom simulation budget is active
     const parsedSimulatedBudget = parseFloat(simulatedBudgetInput.replace(/[^0-9]/g, ''));
     const activeBudgetArs = (isSimulatingBudget && !isNaN(parsedSimulatedBudget) && parsedSimulatedBudget > 0)
@@ -493,14 +516,13 @@ export default function MetaAdsPage() {
       if (activeTo) url += `&dateTo=${activeTo}`;
 
       const res = await fetch(url);
-      if (!res.ok) throw new Error('Error al cargar histórico');
-      const data = await res.json();
+      const data = await readHistoryResponse(res);
       setHistorySummary(data.summary || null);
       setHistoryRecords(data.records || []);
       setDailyTimeline(data.dailyTimeline || []);
       setCategoriesSummary(data.categories || []);
     } catch (err: any) {
-      console.error(err);
+      console.warn('Histórico de Meta Ads no disponible:', err.message);
     }
   }, [dateFrom, dateTo]);
 
@@ -548,26 +570,30 @@ export default function MetaAdsPage() {
     try {
       const url = force ? '/api/admin/meta-ads-live?force=true' : '/api/admin/meta-ads-live';
       const res = await fetch(url);
-      if (!res.ok) throw new Error('Error al cargar datos en vivo de Meta API');
-      const data = await res.json();
+      const data = await readLiveResponse(res);
+      setLiveData(data);
+      setClock(Date.now());
       setLiveSummary(data.summary || null);
       setLiveCampaigns(data.campaigns || []);
       setLiveIsCached(!!data.isCached);
       setLiveCacheAge(data.cacheAgeSeconds || 0);
-      setLastUpdated(new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+      setLastUpdated(data.updatedAt ? new Date(data.updatedAt).toLocaleString('es-AR') : 'No disponible');
     } catch (err: any) {
-      console.error('Meta API direct error, falling back to sheet:', err);
+      setLiveData((prev:any)=>({...prev, stale:true, error:err.message}));
+      setLiveIsCached(false);
+      console.warn('Meta API no disponible; se muestra el estado de conexión:', err.message);
       try {
         const fallbackRes = await fetch('/api/admin/meta-ads-sheet?tab=live');
         if (fallbackRes.ok) {
           const fbData = await fallbackRes.json();
+          setLiveData({source:'sheet',stale:true,error:err.message+' La fecha original de la planilla no está verificada.'});
           setLiveSummary(fbData.summary || null);
           setLiveCampaigns(fbData.campaigns || []);
           setLiveIsCached(false);
           setLiveCacheAge(0);
         }
       } catch (fbErr) {
-        console.error('Fallback sheet error:', fbErr);
+        console.warn('Planilla de respaldo no disponible');
       }
     }
   };
@@ -592,97 +618,14 @@ export default function MetaAdsPage() {
     setRefreshing(false);
   };
 
-  // Real-time Smart Rules Alert Engine
-  const smartRuleAlerts = useMemo(() => {
-    const alerts: SmartRuleAlert[] = [];
-
-    liveCampaigns.forEach(c => {
-      const isActiva = c.status.toUpperCase() === 'ACTIVE' || c.status.toUpperCase() === 'ACTIVA' || c.status.toUpperCase() === 'ON';
-      if (!isActiva) return;
-
-      // 1. Regla: Costo por Mensaje Elevado (CPR > $3.50 USD y gasto acumulado >= $10 USD)
-      if (c.spendUsd >= 10 && c.costPerActionUsd > 3.50) {
-        alerts.push({
-          id: `high-cpr-${c.campaignId}`,
-          type: 'danger',
-          category: 'high_cpr',
-          campaignId: c.campaignId,
-          campaignName: c.campaignName,
-          commercialOffer: c.commercialOffer,
-          phoneLine: c.phoneLine,
-          badgeText: `🚨 CPR Alto (US$ ${c.costPerActionUsd.toFixed(2)})`,
-          title: 'Costo por Lead Disparado',
-          metricLabel: 'CPR Actual',
-          metricValue: `US$ ${c.costPerActionUsd.toFixed(2)} (${formatPrice(c.cprArs)})`,
-          threshold: 'Objetivo: ≤ US$ 2.50',
-          description: `Gasto de US$ ${c.spendUsd.toFixed(1)} con solo ${c.messages} mensaje(s). Costo por conversación significativamente superior al promedio.`,
-          actionText: 'Pausar anuncios secundarios con bajo CTR o reducir presupuesto diario temporalmente para frenar el costo.'
-        });
-      }
-
-      // 2. Regla: Frecuencia Alta / Fatiga Creativa (Frecuencia >= 1.80 y gasto >= $10 USD)
-      if (c.frequency >= 1.80 && c.spendUsd >= 10) {
-        alerts.push({
-          id: `high-freq-${c.campaignId}`,
-          type: 'warning',
-          category: 'high_frequency',
-          campaignId: c.campaignId,
-          campaignName: c.campaignName,
-          commercialOffer: c.commercialOffer,
-          phoneLine: c.phoneLine,
-          badgeText: `⚠️ Fatiga (${c.frequency.toFixed(1)}x)`,
-          title: 'Saturación de Audiencia / Fatiga',
-          metricLabel: 'Frecuencia',
-          metricValue: `${c.frequency.toFixed(2)}x`,
-          threshold: 'Límite sugerido: < 1.80x',
-          description: `La audiencia ya vio el anuncio en promedio ${c.frequency.toFixed(1)} veces. Riesgo inminente de encarecimiento y caída de CTR.`,
-          actionText: 'Rotar imágenes, subir videos a Reels/Stories o incorporar nuevos ángulos para reactivar el interés de la audiencia.'
-        });
-      }
-
-      // 3. Regla: Fuga de Presupuesto (Gasto >= $8 USD y 0 mensajes)
-      if (c.spendUsd >= 8 && c.messages === 0) {
-        alerts.push({
-          id: `zero-leads-${c.campaignId}`,
-          type: 'danger',
-          category: 'zero_leads',
-          campaignId: c.campaignId,
-          campaignName: c.campaignId,
-          commercialOffer: c.commercialOffer,
-          phoneLine: c.phoneLine,
-          badgeText: '🛑 Sin Mensajes',
-          title: 'Fuga de Presupuesto',
-          metricLabel: 'Gasto sin Resultados',
-          metricValue: `US$ ${c.spendUsd.toFixed(2)}`,
-          threshold: '0 conversaciones',
-          description: 'La campaña está consumiendo presupuesto sin registrar ninguna conversación iniciada en WhatsApp.',
-          actionText: 'Verificar funcionamiento del botón a WhatsApp, número de teléfono asignado o pausar temporalmente.'
-        });
-      }
-
-      // 4. Regla: Oportunidad de Escala (Costo Óptimo: CPR <= $1.40 USD con >= 12 mensajes)
-      if (c.costPerActionUsd > 0 && c.costPerActionUsd <= 1.40 && c.messages >= 12) {
-        alerts.push({
-          id: `scale-${c.campaignId}`,
-          type: 'success',
-          category: 'scale_opportunity',
-          campaignName: c.campaignName,
-          campaignId: c.campaignId,
-          phoneLine: c.phoneLine,
-          commercialOffer: c.commercialOffer,
-          badgeText: `🚀 Escala (US$ ${c.costPerActionUsd.toFixed(2)})`,
-          title: 'Oportunidad de Escalamiento',
-          metricLabel: 'CPR Óptimo',
-          metricValue: `US$ ${c.costPerActionUsd.toFixed(2)} (${formatPrice(c.cprArs)})`,
-          threshold: `${c.messages} mensajes logrados`,
-          description: 'Costo por lead sumamente económico con excelente tracción de conversaciones.',
-          actionText: 'Candidata prioritaria para incrementar presupuesto diario (+15% a +25%) y capturar más volumen.'
-        });
-      }
+  // One diagnosis engine drives cards, campaign rows and ad rows.
+  const smartRuleAlerts = useMemo(() => liveCampaigns.flatMap(c => {
+    if(!c.periods || !liveFresh) return [];
+    const entries=[{id:c.campaignId,name:c.campaignName,p:c.periods,active:c.status==='ACTIVE'},...(c.ads||[]).filter(a=>a.periods).map(a=>({id:a.id,name:a.name,p:a.periods!,active:a.effectiveStatus==='ACTIVE'}))];
+    return entries.flatMap(e=>{const d=diagnose(e.p,targets[c.commercialOffer]||3.5,e.active,liveFresh);if(d.severity==='neutral')return [];
+      return [{id:e.id,type:d.severity,category:'high_cpr' as const,campaignId:c.campaignId,campaignName:c.campaignName,commercialOffer:e.name,phoneLine:c.phoneLine,badgeText:d.label,title:d.label,metricLabel:d.evidence,metricValue:e.p.today.messages+' conversaciones',threshold:'Objetivo US$ '+(targets[c.commercialOffer]||3.5).toFixed(2),description:d.reason,actionText:d.action,score:d.score}];
     });
-
-    return alerts;
-  }, [liveCampaigns]);
+  }).sort((a,b)=>b.score-a.score),[liveCampaigns,liveFresh,targets]);
 
   // Map campaign ID to its alerts
   const campaignAlertsMap = useMemo(() => {
@@ -706,7 +649,7 @@ export default function MetaAdsPage() {
         c.campaignName.toLowerCase().includes(liveSearchQuery.toLowerCase()) ||
         c.commercialOffer.toLowerCase().includes(liveSearchQuery.toLowerCase()) ||
         c.product.toLowerCase().includes(liveSearchQuery.toLowerCase());
-      
+
       const matchesLine = liveLineFilter === 'all' || c.phoneLine === liveLineFilter;
 
       const isActiva = c.status.toUpperCase() === 'ACTIVE' || c.status.toUpperCase() === 'ACTIVA' || c.status.toUpperCase() === 'ON';
@@ -835,14 +778,14 @@ export default function MetaAdsPage() {
                 </span>
               </div>
               <p className="text-xs text-slate-500 font-medium">
-                Monitoreo en tiempo real de pauta, generación de leads a Whaticket y retorno comercial (ROAS).
+                Monitoreo en tiempo real de pauta, generación de leads a Whaticket y relación entre ventas totales e inversión.
               </p>
             </div>
           </div>
         </div>
 
         <div className="flex items-center gap-3">
-          {activeTab === 'live' && liveIsCached && (
+          {activeTab === 'live' && liveIsCached && liveFresh && (
             <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[10.5px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200" title="Datos en memoria para no saturar la API">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
               Cache saludable ({liveCacheAge}s)
@@ -1038,14 +981,14 @@ export default function MetaAdsPage() {
                 <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm space-y-1.5">
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                      🚀 Retorno ROAS (Ventas ERP)
+                      Ventas totales / inversión
                     </span>
                     <div className="p-2 bg-purple-50 text-purple-600 rounded-xl">
                       <Sparkles className="w-4 h-4" />
                     </div>
                   </div>
                   <div className="text-2xl font-black text-indigo-600 tracking-tight">
-                    {historySummary?.roas || 0}x
+                    {historySummary?.roas || 0}x <span className="block text-xs font-normal text-slate-500">Incluye todas las ventas ERP; no atribuye ventas a los anuncios.</span>
                   </div>
                   <p className="text-[11px] text-slate-500 font-semibold">
                     Facturación: {formatPrice(historySummary?.erpRevenueArs || 0)} ({historySummary?.erpOrdersCount || 0} pedidos)
@@ -1073,7 +1016,7 @@ export default function MetaAdsPage() {
                       { id: 'investment', label: '💰 Inversión ($)' },
                       { id: 'cpr', label: '🎯 CPR ($/lead)' },
                       { id: 'revenue', label: '🏷️ Facturación ERP' },
-                      { id: 'roas', label: '🚀 ROAS Diario' }
+                      { id: 'roas', label: 'Ventas / inversión diaria' }
                     ].map(m => (
                       <button
                         key={m.id}
@@ -1124,7 +1067,7 @@ export default function MetaAdsPage() {
                             <span className="font-black text-indigo-600">{formatPrice(hoveredDay.erpRevenue)} ({hoveredDay.erpOrdersCount} pedidos)</span>
                           </div>
                           <div>
-                            <span className="text-[10px] uppercase font-bold text-slate-400">ROAS:</span>{' '}
+                            <span className="text-[10px] uppercase font-bold text-slate-400">Ventas / inversión:</span>{' '}
                             <span className="font-black text-purple-600">{hoveredDay.roas}x</span>
                           </div>
                         </div>
@@ -1178,7 +1121,7 @@ export default function MetaAdsPage() {
                         }
 
                         const heightPercent = chartMaxVal > 0 ? Math.max(6, Math.round((barValue / chartMaxVal) * 100)) : 6;
-                        
+
                         const dateObj = new Date(`${d.isoDate}T12:00:00`);
                         const dayOfWeek = dateObj.getDay(); // 0 = Sunday, 6 = Saturday
                         const isSunday = dayOfWeek === 0;
@@ -1247,8 +1190,8 @@ export default function MetaAdsPage() {
                 {/* Category Cards Grid */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                   {categoriesSummary.map(cat => {
-                    const isLowCpr = cat.cprArs > 0 && cat.cprArs <= 2500;
-                    const isHighCpr = cat.cprArs > 4500;
+                    const isLowCpr = false;
+                    const isHighCpr = false; // Category totals do not share a single commercial target.
                     const messageShare = historySummary?.totalMessages > 0 
                       ? Math.round((cat.messages / historySummary.totalMessages) * 100) 
                       : 0;
@@ -1326,8 +1269,8 @@ export default function MetaAdsPage() {
                         .filter(c => c.messages > 0)
                         .sort((a, b) => a.cprArs - b.cprArs)
                         .map((cat, rank) => {
-                          const isLowCpr = cat.cprArs <= 2500;
-                          const isHighCpr = cat.cprArs > 4500;
+                          const isLowCpr = false;
+                          const isHighCpr = false; // Category totals do not share a single commercial target.
 
                           return (
                             <tr key={cat.name} className="hover:bg-slate-50/50">
@@ -1348,7 +1291,7 @@ export default function MetaAdsPage() {
                                   isHighCpr ? 'bg-rose-50 text-rose-700' :
                                   'bg-amber-50 text-amber-700'
                                 }`}>
-                                  {isLowCpr ? '🔥 Muy Eficiente' : isHighCpr ? '⚠️ Alto Costo' : '⚖️ Moderado'}
+                                  Costo agregado · revisar por oferta
                                 </span>
                               </td>
                             </tr>
@@ -1366,6 +1309,7 @@ export default function MetaAdsPage() {
           {/* ========================================================================= */}
           {activeTab === 'live' && (
             <div className="space-y-6">
+              <MetaReview campaigns={liveCampaigns} data={liveData} targets={targets} setTarget={setTarget} fresh={liveFresh} detailsOpen={reviewDetailsOpen} onDetailsOpenChange={setReviewDetailsOpen} />
               {/* Executive Summary Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 {/* 1. Leads Hoy */}
@@ -1719,6 +1663,7 @@ export default function MetaAdsPage() {
                 </div>
               )}
 
+
               {/* Centro de Alertas & Diagnóstico de Reglas */}
               {smartRuleAlerts.length > 0 && (
                 <div className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm space-y-4">
@@ -1756,7 +1701,7 @@ export default function MetaAdsPage() {
                         )}
                         {successAlertsCount > 0 && (
                           <span className="px-2.5 py-1 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-black">
-                            🚀 {successAlertsCount} Escala
+                            {successAlertsCount} Candidatas a evaluar
                           </span>
                         )}
                       </div>
@@ -2058,8 +2003,8 @@ export default function MetaAdsPage() {
                         </tr>
                       ) : (
                         filteredLiveCampaigns.map((c, idx) => {
-                          const isHighCpr = c.cprArs > 4500;
-                          const isLowCpr = c.cprArs > 0 && c.cprArs <= 2500;
+                          const isHighCpr = liveFresh && c.messages > 0 && c.costPerActionUsd > (targets[c.commercialOffer]||3.5);
+                          const isLowCpr = liveFresh && c.messages >= 5 && c.costPerActionUsd <= (targets[c.commercialOffer]||3.5);
                           const isActiva = c.status.toUpperCase() === 'ACTIVE' || c.status.toUpperCase() === 'ACTIVA' || c.status.toUpperCase() === 'ON';
 
                           const isExpanded = expandedCampaigns.has(c.campaignId);
@@ -2198,6 +2143,7 @@ export default function MetaAdsPage() {
                                   {(() => {
                                     const alerts = campaignAlertsMap[c.campaignId] || [];
                                     if (alerts.length === 0) {
+                                      if (!liveFresh) return <span className="text-amber-700 text-xs">Datos no vigentes</span>;
                                       if (c.messages === 0) {
                                         if (c.spendUsd >= 5) {
                                           return (
@@ -2216,7 +2162,7 @@ export default function MetaAdsPage() {
                                       }
                                       return (
                                         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold text-slate-500 bg-slate-50 border border-slate-200">
-                                          ✓ En Rango
+                                          {c.periods ? diagnose(c.periods, targets[c.commercialOffer]||3.5, c.status==='ACTIVE', liveFresh).label : 'Datos insuficientes'}
                                         </span>
                                       );
                                     }
@@ -2278,7 +2224,7 @@ export default function MetaAdsPage() {
                                           <tbody className="divide-y divide-slate-100 font-bold text-slate-700">
                                             {visibleAds.map(ad => {
                                               const isAdActive = ad.effectiveStatus === 'ACTIVE' || ad.status === 'ACTIVE';
-                                              const isAdHighCpr = ad.costPerActionUsd > 3.50 && ad.spendUsd >= 6;
+                                              const isAdHighCpr = liveFresh && ad.messages > 0 && ad.costPerActionUsd > (targets[c.commercialOffer]||3.5);
                                               const isAdLowCpr = ad.costPerActionUsd > 0 && ad.costPerActionUsd <= 2.00;
 
                                               return (
@@ -2366,11 +2312,11 @@ export default function MetaAdsPage() {
                                                           <span 
                                                             key={alIdx} 
                                                             className={`inline-flex items-center px-2 py-0.5 rounded-lg text-[9.5px] font-black border ${
-                                                              al.includes('CPR Alto') || al.includes('Gasto sin') 
+                                                              al.includes('persistente')
                                                                 ? 'bg-rose-50 text-rose-700 border-rose-200' 
-                                                                : al.includes('Fatiga') || al.includes('Sin mensajes')
+                                                                : /elevad|costoso|Gasto sin/.test(al)
                                                                 ? 'bg-amber-50 text-amber-700 border-amber-200'
-                                                                : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                                : al.includes('Candidata') ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-50 text-slate-600 border-slate-200'
                                                             }`}
                                                           >
                                                             {al}
@@ -2395,7 +2341,7 @@ export default function MetaAdsPage() {
                                                       )
                                                     ) : (
                                                       <span className="text-[10px] text-slate-400 font-bold">
-                                                        ✓ En Rango
+                                                        Datos insuficientes
                                                       </span>
                                                     )}
                                                   </td>
@@ -2512,14 +2458,14 @@ export default function MetaAdsPage() {
                 <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                      🚀 ROAS Comercial Real
+                      Ventas totales / inversión
                     </span>
                     <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
                       <Sparkles className="w-4 h-4" />
                     </div>
                   </div>
                   <div className="text-2xl font-black text-indigo-600 tracking-tight">
-                    {historySummary?.roas || 0}x
+                    {historySummary?.roas || 0}x <span className="block text-xs font-normal text-slate-500">Incluye todas las ventas ERP; no atribuye ventas a los anuncios.</span>
                   </div>
                   <p className="text-[11px] text-slate-500 font-semibold">
                     Retorno sobre cada $1 invertido en publicidad
@@ -2742,17 +2688,18 @@ export default function MetaAdsPage() {
                 </div>
               </div>
 
-              {previewAd.alerts && previewAd.alerts.length > 0 && (
+              {!liveFresh && <p className="text-amber-700 text-sm">Datos no vigentes. Actualizar antes de decidir.</p>}
+              {liveFresh && previewAd.alerts && previewAd.alerts.length > 0 && (
                 <div className="flex flex-wrap items-center gap-1.5 pt-1">
                   {previewAd.alerts.map((al, alIdx) => (
                     <span 
                       key={alIdx} 
                       className={`px-2.5 py-1 rounded-xl text-xs font-black border ${
-                        al.includes('CPR Alto') || al.includes('Gasto sin') 
+                        al.includes('persistente')
                           ? 'bg-rose-50 text-rose-700 border-rose-200' 
-                          : al.includes('Fatiga') || al.includes('Sin mensajes')
+                          : /elevad|costoso|Gasto sin/.test(al)
                           ? 'bg-amber-50 text-amber-700 border-amber-200'
-                          : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          : al.includes('Candidata') ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-50 text-slate-600 border-slate-200'
                       }`}
                     >
                       {al}

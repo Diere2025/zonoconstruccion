@@ -61,7 +61,7 @@ import { cn, formatPrice, cleanDeliveryNotes } from "@/lib/utils";
 import { calculateBulkPrices } from "@/lib/erp/prices";
 import { createBulkStockTransactions } from "@/lib/erp/stock";
 import { evaluateDiscountSuggestions, DiscountSuggestion } from "@/lib/discountRules";
-import { buildSheetOrderItems } from "@/lib/googleSheets";
+import { buildSheetOrderItems, normalizeProductNameForSheet } from "@/lib/googleSheets";
 
 interface OrderItem extends Product {
   quantity: number;
@@ -572,6 +572,7 @@ export default function PedidosPage() {
   const [productSearchTerm, setProductSearchTerm] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
+  const editingOrderIdRef = useRef<string | null>(null);
   const isEditingRef = useRef(false);
 
   // View & Print Order Modals State
@@ -2166,12 +2167,17 @@ export default function PedidosPage() {
   // Helper to generate next sequential legacy code for a seller
   const generateNextLegacyCode = async (userId: string) => {
     if (!userId) return;
+    if (editingOrderIdRef.current || editingOrderId) {
+      console.log('[generateNextLegacyCode] Omitido: el formulario está en modo edición');
+      return;
+    }
     try {
       // 1. Intentar consultar el próximo código disponible en la planilla del vendedor
       try {
         const sheetRes = await fetch(`/api/vendedores/create-sheet-order?sellerId=${userId}`);
         if (sheetRes.ok) {
           const sheetData = await sheetRes.json();
+          if (editingOrderIdRef.current || editingOrderId) return;
           if (sheetData.synced && sheetData.code) {
             setLegacyCode(sheetData.code);
             return;
@@ -2258,10 +2264,13 @@ export default function PedidosPage() {
         attempts++;
       }
 
+      if (editingOrderIdRef.current || editingOrderId) return;
       setLegacyCode(candidateCode);
     } catch (err) {
       console.error("Error generating legacy code:", err);
-      setLegacyCode(`ZC${Date.now().toString().slice(-6)}`);
+      if (!editingOrderIdRef.current && !editingOrderId) {
+        setLegacyCode(`ZC${Date.now().toString().slice(-6)}`);
+      }
     }
   };
 
@@ -3301,6 +3310,7 @@ export default function PedidosPage() {
       
       // 6. Origen y Recepción
       if (isClone) {
+        editingOrderIdRef.current = null;
         setEditingOrderId(null);
         setOriginalOrderSnapshot(null);
         setSelectedSellerId(currentUserId);
@@ -3310,6 +3320,7 @@ export default function PedidosPage() {
           setLegacyCode("");
         }
       } else {
+        editingOrderIdRef.current = order.id;
         setEditingOrderId(order.id);
         if (order.seller_id) {
           setSelectedSellerId(order.seller_id);
@@ -3385,6 +3396,7 @@ export default function PedidosPage() {
   const handleCloneOrder = (order: any) => handleLoadOrderIntoForm(order, true);
 
   const resetAllFormFields = () => {
+    editingOrderIdRef.current = null;
     setEditingOrderId(null);
     setOriginalDeliveryDate("");
     setHasDeclaredPostponementReason(false);
@@ -4716,8 +4728,14 @@ export default function PedidosPage() {
       let sheetSyncSuccess = false;
       let sheetAttempted = false;
       let sheetSyncError = '';
+      // Código legacy definitivo: si la orden original ya tenía un código legacy asignado,
+      // PRESERVARLO estrictamente para no crear duplicados ni desfasar planillas operativas.
+      const effectiveLegacyCode = editingOrderId
+        ? ((originalOrderSnapshot?.legacy_code || legacyCode || '').trim().toUpperCase() || null)
+        : null;
 
       if (editingOrderId) {
+
         // Obtener ítems anteriores para poder revertir stock
         const { data: oldItems, error: oldItemsErr } = await supabase
           .from('order_items')
@@ -4727,16 +4745,16 @@ export default function PedidosPage() {
         if (oldItemsErr) throw oldItemsErr;
 
         // Validar código duplicado al editar
-        if (legacyCode) {
+        if (effectiveLegacyCode) {
           const { data: dupOrder } = await supabase
             .from('orders')
             .select('id, customer_name, legacy_code')
-            .eq('legacy_code', legacyCode.trim().toUpperCase())
+            .eq('legacy_code', effectiveLegacyCode)
             .neq('id', editingOrderId)
             .maybeSingle();
 
           if (dupOrder) {
-            throw new Error(`El código de pedido "${legacyCode}" ya existe en el pedido de "${dupOrder.customer_name}". No se puede duplicar.`);
+            throw new Error(`El código de pedido "${effectiveLegacyCode}" ya existe en el pedido de "${dupOrder.customer_name}". No se puede duplicar.`);
           }
         }
 
@@ -4796,7 +4814,7 @@ export default function PedidosPage() {
             order_medium_id: selectedOrderMediumId || null,
             received_phone_line_id: (selectedPhoneLineId && selectedPhoneLineId !== 'otro') ? selectedPhoneLineId : null,
             delivery_detail: deliveryDetail || null,
-            legacy_code: legacyCode || null,
+            legacy_code: effectiveLegacyCode,
             status: 'Modificado',
             hold_reason: orderStatus === 'En Espera' ? holdReason : null,
             hold_product_id: orderStatus === 'En Espera' && holdProductId ? holdProductId : null,
@@ -5032,7 +5050,7 @@ export default function PedidosPage() {
       const itemsToInsert = orderItems.map(item => ({
         order_id: orderData.id,
         product_id: item.id,
-        product_name: item.name,
+        product_name: normalizeProductNameForSheet(item.name, item.sku) || item.name,
         quantity: item.quantity,
         unit_price: item.customPrice,
         historical_unit_cost: (item as any).cost || 0, // Costo dinámico guardado
@@ -5067,7 +5085,7 @@ export default function PedidosPage() {
 
           const modifiedSnapshot = {
             id: editingOrderId,
-            legacy_code: legacyCode || orderData.legacy_code,
+            legacy_code: effectiveLegacyCode || orderData.legacy_code || legacyCode,
             customer_name: isNewClient ? newClientName : cliente,
             locality: locName,
             address: direccion,
@@ -5165,7 +5183,7 @@ export default function PedidosPage() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               sellerId: seller_id,
-              legacyCode: legacyCode || orderData.legacy_code || '',
+              legacyCode: effectiveLegacyCode || orderData.legacy_code || legacyCode || '',
               order: sheetOrderPayload,
               logisticsObservation: logisticsObservation.trim()
             })
@@ -5194,11 +5212,11 @@ export default function PedidosPage() {
         const selectedPayMethodName = dbPaymentMethods.find(m => m.id === paymentsList[0]?.payment_method_id)?.name || 'Efectivo';
         const payStatusName = paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? `Señado (${formatPrice(depositAmount)})` : 'Contra Entrega');
         const clientPhone = isNewClient 
-          ? (newClientPhones.map(cleanPhoneForSaving).filter(Boolean)[0] || '')
-          : (clients.find(c => c.id === selectedClientId)?.phone_primary || '');
+            ? (newClientPhones.map(cleanPhoneForSaving).filter(Boolean)[0] || '')
+            : (clients.find(c => c.id === selectedClientId)?.phone_primary || '');
 
         const copyMsg = buildCopyableModificationMessage({
-          legacyCode: legacyCode || orderData.legacy_code || 'S/C',
+          legacyCode: effectiveLegacyCode || orderData.legacy_code || legacyCode || 'S/C',
           sellerName: sellerFullName,
           changes: editChangesSummary,
           logisticsObservation: logisticsObservation.trim(),
@@ -5221,7 +5239,7 @@ export default function PedidosPage() {
               body: JSON.stringify({
                 type: 'modification',
                 message: copyMsg,
-                legacyCode: legacyCode || orderData.legacy_code || ''
+                legacyCode: effectiveLegacyCode || orderData.legacy_code || legacyCode || ''
               })
             });
             const tgData = await tgRes.json().catch(() => ({}));
@@ -5250,7 +5268,7 @@ export default function PedidosPage() {
 
       // Enviar comprobantes a Telegram si hay comprobantes cargados no enviados
       try {
-        const orderCodeForTelegram = finalLegacyCode || legacyCode || orderData?.legacy_code || '';
+        const orderCodeForTelegram = effectiveLegacyCode || finalLegacyCode || legacyCode || orderData?.legacy_code || '';
         const clientNameForTelegram = (isNewClient ? newClientName : cliente) || '';
         const clientTaxIdForTelegram = isNewClient ? newClientTaxId : (clients.find(c => c.id === selectedClientId)?.tax_id || '');
         const paymentStatusLabel = paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? 'Señado' : 'Pendiente');
@@ -5381,6 +5399,7 @@ export default function PedidosPage() {
       setOrderDiscountValue(0);
       setOrderCategory("auto");
       
+      editingOrderIdRef.current = null;
       generateNextLegacyCode(seller_id);
       setSelectedAdvertisingSourceId("");
       setSelectedOrderMediumId("");
@@ -5560,7 +5579,9 @@ export default function PedidosPage() {
                       onChange={(e) => {
                         const newId = e.target.value;
                         setSelectedSellerId(newId);
-                        generateNextLegacyCode(newId);
+                        if (!editingOrderIdRef.current && !editingOrderId) {
+                          generateNextLegacyCode(newId);
+                        }
                       }}
                       className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-800 font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 transition-all cursor-pointer h-[34px]"
                     >
@@ -8847,6 +8868,7 @@ export default function PedidosPage() {
                 type="button" 
                 onClick={() => {
                   setShowModificationSuccessModal(false);
+                  editingOrderIdRef.current = null;
                   setEditingOrderId(null);
                   setOriginalOrderSnapshot(null);
                   setActiveTab('list');
@@ -8895,6 +8917,7 @@ export default function PedidosPage() {
                 type="button"
                 onClick={() => {
                   setShowModificationSuccessModal(false);
+                  editingOrderIdRef.current = null;
                   setEditingOrderId(null);
                   setOriginalOrderSnapshot(null);
                   setActiveTab('list');

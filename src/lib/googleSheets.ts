@@ -280,86 +280,8 @@ function normalizeFreightForSheet(freight?: string | null): string {
   return '⚪ Flete Regular';
 }
 
-function normalizeProductNameForSheet(name: string, sku?: string): string {
-  const lowerName = (name || '').toLowerCase();
-  const lowerSku = (sku || '').toLowerCase();
-
-  // 1. If it's a base, map to the exact dropdown string in DATABASE!A:A
-  if (lowerName.includes('base') || lowerSku.includes('base')) {
-    if (lowerName.includes('74') || lowerSku.includes('74')) return 'Base Hierro Reforzada 74 cms';
-    if (lowerName.includes('85') || lowerSku.includes('85')) return 'Base Hierro Reforzada 85 cms';
-    if (lowerName.includes('102') || lowerSku.includes('102')) return 'Base Hierro Reforzada 102 cms';
-    if (lowerName.includes('145') || lowerSku.includes('145')) return 'Base Hierro Reforzada 145 cms';
-    if (sku && !sku.startsWith('AUTO-')) return sku;
-  }
-
-  // 2. If it's Flotante Eco Varilla Plástica 1/2", ensure quotes are preserved/added
-  if (lowerName.includes('flotante') && lowerName.includes('eco') && (lowerName.includes('1/2') || lowerSku.includes('1/2'))) {
-    return 'Flotante Eco Varilla Plástica 1/2"';
-  }
-
-  // 3. If it's TurboFlex with quotes
-  if (lowerName.includes('turboflex') && lowerName.includes('40cm')) {
-    return 'TurboFlex 3/4" x 40cm con rosca normal - Macho fijo';
-  }
-  if (lowerName.includes('turboflex') && lowerName.includes('60cm')) {
-    return 'TurboFlex 3/4" x 60cm con rosca normal - Macho fijo';
-  }
-
-  // 4. BioFort equipment normalization to exact DATABASE!A:A strings
-  if (lowerName.includes('biodigestor') && !lowerName.includes('kit')) {
-    if (lowerName.includes('500')) return 'BioFort - Biodigestor 500L';
-    if (lowerName.includes('600')) return 'BioFort - Biodigestor 600L';
-    if (lowerName.includes('750')) return 'BioFort - Biodigestor 750L';
-    if (lowerName.includes('1000')) return 'BioFort - Biodigestor 1000L';
-    if (lowerName.includes('3000')) return 'BioFort - Biodigestor 3000L';
-  }
-  if (lowerName.includes('autolimpiable') && lowerName.includes('700') && !lowerName.includes('kit')) {
-    return 'BioFort - Autolimpiable 700L';
-  }
-  if (lowerName.includes('lodos')) {
-    return 'BioFort - Registro Lodos';
-  }
-  if ((lowerName.includes('séptica') || lowerName.includes('septica')) && !lowerName.includes('kit')) {
-    if (lowerName.includes('500')) return 'BioFort - Séptica 500L';
-    if (lowerName.includes('600')) return 'BioFort - Séptica 600L';
-    if (lowerName.includes('750')) return 'BioFort - Séptica 750L';
-    if (lowerName.includes('1000')) return 'BioFort - Séptica 1000L';
-    if (lowerName.includes('3000')) return 'BioFort - Séptica 3000L';
-  }
-  if (lowerName.includes('desengrasadora') && lowerName.includes('canasto')) {
-    return 'WP - Camara Desengrasadora C/canasto';
-  }
-  if (lowerName.includes('cámara de inspección') || lowerName.includes('camara de inspeccion') || lowerName.includes('cii')) {
-    return 'WP Kit cámara de inspección CII';
-  }
-  if (lowerName.includes('biolam')) {
-    return 'Biolam - Concentrado Enzimático 500g';
-  }
-  if (lowerName.includes('lusqtoff') && lowerName.includes('lubricante')) {
-    return 'Lusqtoff - Aerosol lubricante';
-  }
-  if (lowerName.includes('sombrero') && lowerName.includes('110')) {
-    return 'Awaduct - Sombrero 110';
-  }
-  if (lowerName.includes('descuento combo biodigestor') || lowerName.includes('descuento combo bio')) {
-    return 'Descuento Combo Biodigestor';
-  }
-  if (lowerName.includes('descuento') && lowerName.includes('bomba')) {
-    return 'Descuento - Bombas';
-  }
-  if (lowerName.includes('descuento') && (lowerName.includes('mayorista') || lowerName.includes('general') || lowerName.includes('pedido') || lowerName.includes('compra'))) {
-    return 'Descuento Compra Mayorista';
-  }
-  if (lowerName.includes('descuento') && lowerName.includes('mep')) {
-    if (lowerName.includes('x12') || lowerName.includes('12')) return 'Descuento - MEP x12';
-    if (lowerName.includes('x6') || lowerName.includes('6')) return 'Descuento - MEP x6';
-    if (lowerName.includes('x3') || lowerName.includes('3')) return 'Descuento - MEP x3';
-    if (lowerName.includes('x2') || lowerName.includes('2')) return 'Descuento - MEP x2';
-  }
-
-  return name;
-}
+export { normalizeProductNameForSheet, VALID_SHEET_PRODUCTS } from './sheetProducts';
+import { normalizeProductNameForSheet } from './sheetProducts';
 
 export function buildSheetOrderItems(
   orderItems: Array<{
@@ -396,7 +318,19 @@ export function buildSheetOrderItems(
 
   for (const item of orderItems) {
     const rawName = item.product_name || item.name || '';
-    const rawSku = item.sku || '';
+    let rawSku = item.sku || '';
+
+    // Resolver producto del catálogo usando product_id, id, sku o nombre
+    const prodId = (item as any).product_id || item.id;
+    const catalogProduct = (productsCatalog && productsCatalog.length > 0)
+      ? productsCatalog.find(p => (prodId && p.id === prodId) || (rawSku && p.sku === rawSku) || (rawName && p.name === rawName))
+      : undefined;
+
+    // Si falta SKU o es automático AUTO-*, adoptar el SKU del catálogo
+    if ((!rawSku || rawSku.startsWith('AUTO-')) && catalogProduct?.sku && !catalogProduct.sku.startsWith('AUTO-')) {
+      rawSku = catalogProduct.sku;
+    }
+
     const nameLower = rawName.toLowerCase();
     const skuLower = rawSku.toLowerCase();
     const qty = item.quantity || 1;
@@ -433,11 +367,8 @@ export function buildSheetOrderItems(
 
     // Para productos normales: determinar precio de lista
     let listPrice = (item.basePrice !== undefined && item.basePrice > 0) ? item.basePrice : 0;
-    if (!listPrice && productsCatalog && productsCatalog.length > 0) {
-      const found = productsCatalog.find(p => p.id === item.id || (item.sku && p.sku === item.sku) || (rawName && p.name === rawName));
-      if (found && found.price) {
-        listPrice = found.price;
-      }
+    if (!listPrice && catalogProduct?.price) {
+      listPrice = catalogProduct.price;
     }
     if (!listPrice) {
       listPrice = Math.max(0, currentPrice);
