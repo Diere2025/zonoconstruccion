@@ -1219,7 +1219,7 @@ export default function ComprasAdminPage() {
     try {
       const { data, error } = await supabase
         .from('purchase_order_items')
-        .select('*, product:products(id, name, sku)')
+        .select('*, product:products(id, name, sku, cost_price, price)')
         .eq('purchase_order_id', po.id)
         .order('created_at', { ascending: true });
 
@@ -1233,6 +1233,7 @@ export default function ComprasAdminPage() {
         quantityOrdered: Number(item.quantity_ordered),
         quantityReceived: Number(item.quantity_received || 0),
         unitCost: Number(item.unit_cost),
+        catalogCost: Number(item.product?.cost_price || 0),
         status: item.status,
         notes: item.notes || "",
         isNew: false
@@ -1243,6 +1244,23 @@ export default function ComprasAdminPage() {
       console.error("Error cargando ítems de la OC para editar:", err);
       alert("Error al cargar ítems de la OC: " + err.message);
     }
+  };
+
+  const handleUpdateCostsToCatalog = () => {
+    let changed = 0;
+    const updated = editPoItems.map(item => {
+      const catCost = Number(item.catalogCost || 0);
+      if (catCost > 0 && Math.abs(catCost - item.unitCost) > 0.01) {
+        changed++;
+        return { ...item, unitCost: catCost };
+      }
+      return item;
+    });
+    if (changed === 0) {
+      alert("Todos los artículos ya coinciden con el costo de planilla.");
+      return;
+    }
+    setEditPoItems(updated);
   };
 
   const handleAlignAllWithReceived = () => {
@@ -6563,15 +6581,27 @@ export default function ComprasAdminPage() {
                       <h4 className="text-xs font-black text-slate-800">Artículos de la Orden</h4>
                       <p className="text-[11px] text-slate-400">Modificá la cantidad pedida para ajustarla a lo que mandó el proveedor (ej. un termo menos).</p>
                     </div>
-                    {editPoItems.some(i => i.quantityReceived > 0 && i.quantityOrdered !== i.quantityReceived) && (
-                      <button
-                        type="button"
-                        onClick={handleAlignAllWithReceived}
-                        className="inline-flex items-center gap-1 text-[10px] font-black uppercase text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-300 px-3 py-1.5 rounded-xl transition-all shadow-sm"
-                      >
-                        <Sparkles className="w-3.5 h-3.5" /> Alinear todo con lo recibido
-                      </button>
-                    )}
+                    <div className="flex flex-wrap items-center gap-2">
+                      {editPoItems.some(i => !i.isDeleted && i.catalogCost > 0 && Math.abs(i.catalogCost - i.unitCost) > 0.01) && (
+                        <button
+                          type="button"
+                          onClick={handleUpdateCostsToCatalog}
+                          className="inline-flex items-center gap-1 text-[10px] font-black uppercase text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-300 px-3 py-1.5 rounded-xl transition-all shadow-sm"
+                          title="Actualizar todos los costos al valor sin IVA vigente de la planilla"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" /> Actualizar a costos de planilla
+                        </button>
+                      )}
+                      {editPoItems.some(i => i.quantityReceived > 0 && i.quantityOrdered !== i.quantityReceived) && (
+                        <button
+                          type="button"
+                          onClick={handleAlignAllWithReceived}
+                          className="inline-flex items-center gap-1 text-[10px] font-black uppercase text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-300 px-3 py-1.5 rounded-xl transition-all shadow-sm"
+                        >
+                          <Sparkles className="w-3.5 h-3.5" /> Alinear todo con lo recibido
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   {/* Fila para agregar nuevo ítem a la OC */}
@@ -6800,6 +6830,20 @@ export default function ComprasAdminPage() {
                                     }}
                                     className="w-28 px-2 py-1 border rounded-lg text-right text-xs font-mono"
                                   />
+                                  {item.catalogCost && item.catalogCost > 0 && Math.abs(item.catalogCost - item.unitCost) > 0.01 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const updated = [...editPoItems];
+                                        updated[idx].unitCost = item.catalogCost;
+                                        setEditPoItems(updated);
+                                      }}
+                                      className="text-[10px] text-blue-600 hover:text-blue-800 font-bold block text-right mt-0.5 whitespace-nowrap"
+                                      title="Click para igualar al costo sin IVA de la planilla"
+                                    >
+                                      Planilla: {formatPrice(item.catalogCost)}
+                                    </button>
+                                  )}
                                 </td>
                                 <td className="p-3 text-right text-slate-900 font-mono font-bold">
                                   {formatPrice(item.quantityOrdered * item.unitCost)}
