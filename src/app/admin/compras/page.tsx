@@ -369,6 +369,23 @@ export default function ComprasAdminPage() {
   const [poNotes, setPoNotes] = useState("");
   const [poItems, setPoItems] = useState<any[]>([]); // { productId, rawProductName, quantityOrdered, unitCost }
 
+  // Edit PO States
+  const [showEditPOModal, setShowEditPOModal] = useState(false);
+  const [editingPO, setEditingPO] = useState<any | null>(null);
+  const [editPoSupplierId, setEditPoSupplierId] = useState("");
+  const [editPoSupplierSearchText, setEditPoSupplierSearchText] = useState("");
+  const [isEditPoSupplierDropdownOpen, setIsEditPoSupplierDropdownOpen] = useState(false);
+  const [editPoCode, setEditPoCode] = useState("");
+  const [editPoPaymentCondition, setEditPoPaymentCondition] = useState("Efectivo");
+  const [editPoPaymentTermDays, setEditPoPaymentTermDays] = useState("0");
+  const [editPoEstimatedDeliveryDate, setEditPoEstimatedDeliveryDate] = useState("");
+  const [editPoNotes, setEditPoNotes] = useState("");
+  const [editPoItems, setEditPoItems] = useState<any[]>([]); // { id, productId, rawProductName, sku, quantityOrdered, quantityReceived, unitCost, status, isNew }
+  const [editDeletedItemIds, setEditDeletedItemIds] = useState<string[]>([]);
+  const [editPoProductSearchText, setEditPoProductSearchText] = useState("");
+  const [isEditPoProductDropdownOpen, setIsEditPoProductDropdownOpen] = useState(false);
+  const [isSavingEditPO, setIsSavingEditPO] = useState(false);
+
   // Receptions States
   const [receptions, setReceptions] = useState<any[]>([]);
   const [loadingReceptions, setLoadingReceptions] = useState(false);
@@ -384,6 +401,7 @@ export default function ComprasAdminPage() {
   const [receptionNotes, setReceptionNotes] = useState("");
   const [receptionItems, setReceptionItems] = useState<any[]>([]); // { poItemId, productId, productName, quantityOrdered, quantityReceivedPrior, quantityReceivedNew, unitCost }
   const [receptionUpdateStock, setReceptionUpdateStock] = useState(false);
+  const [receptionAlignPO, setReceptionAlignPO] = useState(false);
 
   // Importer States
   const [importType, setImportType] = useState<'ocs' | 'detalle_ocs' | 'recepciones' | 'conciliacion_unificada'>('conciliacion_unificada');
@@ -403,6 +421,7 @@ export default function ComprasAdminPage() {
   const [calcMinUnits, setCalcMinUnits] = useState("");
   const [calcDeliveryGraceDays, setCalcDeliveryGraceDays] = useState("2");
   const [calcLoading, setCalcLoading] = useState(false);
+  const [syncingCosts, setSyncingCosts] = useState(false);
   const [calcResults, setCalcResults] = useState<any[]>([]);
   const [calcAverageCoverage, setCalcAverageCoverage] = useState(0);
   const [calcTotalCost, setCalcTotalCost] = useState(0);
@@ -1184,6 +1203,262 @@ export default function ComprasAdminPage() {
     }
   };
 
+  const handleOpenEditPO = async (po: any) => {
+    setEditingPO(po);
+    setEditPoSupplierId(po.supplier_id || "");
+    setEditPoSupplierSearchText(po.supplier?.name || suppliers.find(s => s.id === po.supplier_id)?.name || "");
+    setEditPoCode(po.oc_code || "");
+    setEditPoPaymentCondition(po.payment_condition || "Efectivo");
+    setEditPoPaymentTermDays(String(po.payment_term_days ?? 0));
+    setEditPoEstimatedDeliveryDate(po.estimated_delivery_date ? po.estimated_delivery_date.substring(0, 10) : "");
+    setEditPoNotes(po.notes || "");
+    setEditDeletedItemIds([]);
+    setEditPoProductSearchText("");
+    setIsEditPoProductDropdownOpen(false);
+
+    try {
+      const { data, error } = await supabase
+        .from('purchase_order_items')
+        .select('*, product:products(id, name, sku)')
+        .eq('purchase_order_id', po.id)
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
+
+      const items = (data || []).map(item => ({
+        id: item.id,
+        productId: item.product_id,
+        rawProductName: item.raw_product_name,
+        sku: item.product?.sku,
+        quantityOrdered: Number(item.quantity_ordered),
+        quantityReceived: Number(item.quantity_received || 0),
+        unitCost: Number(item.unit_cost),
+        status: item.status,
+        notes: item.notes || "",
+        isNew: false
+      }));
+      setEditPoItems(items);
+      setShowEditPOModal(true);
+    } catch (err: any) {
+      console.error("Error cargando ítems de la OC para editar:", err);
+      alert("Error al cargar ítems de la OC: " + err.message);
+    }
+  };
+
+  const handleAlignAllWithReceived = () => {
+    const hasDiff = editPoItems.some(i => i.quantityReceived > 0 && i.quantityOrdered !== i.quantityReceived);
+    if (!hasDiff) {
+      alert("No hay artículos con recepciones pendientes de alinear.");
+      return;
+    }
+    if (!confirm("¿Ajustar la cantidad solicitada de todos los artículos recibidos para que sea exactamente igual a lo recibido?\n\nAl guardar, la orden pasará automáticamente al estado Cumplido sin saldos pendientes.")) {
+      return;
+    }
+    setEditPoItems(prev => prev.map(item => {
+      if (item.quantityReceived > 0) {
+        return { ...item, quantityOrdered: item.quantityReceived };
+      }
+      return item;
+    }));
+  };
+
+  const handleSaveEditPO = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingPO) return;
+
+    if (!editPoSupplierId || !editPoCode) {
+      alert("Proveedor y Código de OC son requeridos.");
+      return;
+    }
+
+    const activeItems = editPoItems.filter(i => !i.isDeleted);
+    if (activeItems.length === 0) {
+      alert("La orden de compra debe contener al menos un artículo.");
+      return;
+    }
+
+    for (const item of activeItems) {
+      if (!item.quantityOrdered || item.quantityOrdered <= 0) {
+        alert(`La cantidad pedida para "${item.rawProductName}" debe ser mayor a 0.`);
+        return;
+      }
+      if (item.quantityReceived > 0 && item.quantityOrdered < item.quantityReceived) {
+        const proceed = confirm(`Atención: Para "${item.rawProductName}", la cantidad pedida (${item.quantityOrdered}) es MENOR a lo ya recibido (${item.quantityReceived}). ¿Deseás continuar?`);
+        if (!proceed) return;
+      }
+    }
+
+    setIsSavingEditPO(true);
+    try {
+      // 1. Eliminar ítems borrados
+      if (editDeletedItemIds.length > 0) {
+        const { error: delErr } = await supabase
+          .from('purchase_order_items')
+          .delete()
+          .in('id', editDeletedItemIds);
+        if (delErr) throw delErr;
+      }
+
+      // 2. Guardar ítems nuevos y actualizados
+      for (const item of activeItems) {
+        const subtotal = item.quantityOrdered * item.unitCost;
+        if (item.isNew || !item.id) {
+          const { error: insErr } = await supabase
+            .from('purchase_order_items')
+            .insert({
+              purchase_order_id: editingPO.id,
+              product_id: item.productId || null,
+              raw_product_name: item.rawProductName,
+              quantity_ordered: item.quantityOrdered,
+              quantity_received: 0,
+              unit_cost: item.unitCost,
+              subtotal: subtotal,
+              status: 'Pendiente'
+            });
+          if (insErr) throw insErr;
+        } else {
+          let newStatus = item.status;
+          if (item.status !== 'Cancelado') {
+            if (item.quantityReceived >= item.quantityOrdered) {
+              newStatus = 'Cumplido';
+            } else if (item.quantityReceived > 0) {
+              newStatus = 'Parcial';
+            } else {
+              newStatus = 'Pendiente';
+            }
+          }
+          const { error: updErr } = await supabase
+            .from('purchase_order_items')
+            .update({
+              raw_product_name: item.rawProductName,
+              quantity_ordered: item.quantityOrdered,
+              unit_cost: item.unitCost,
+              subtotal: subtotal,
+              status: newStatus
+            })
+            .eq('id', item.id);
+          if (updErr) throw updErr;
+        }
+      }
+
+      // 3. Recalcular estado y monto total de la cabecera
+      const totalAmount = activeItems
+        .filter(i => i.status !== 'Cancelado')
+        .reduce((acc, i) => acc + (i.quantityOrdered * i.unitCost), 0);
+
+      const nonCancelled = activeItems.filter(i => i.status !== 'Cancelado');
+      let newPoStatus = 'Pendiente';
+      if (nonCancelled.length === 0) {
+        newPoStatus = 'Cancelado';
+      } else {
+        const allFulfilled = nonCancelled.every(i => i.quantityReceived >= i.quantityOrdered && i.quantityOrdered > 0);
+        const anyReceived = nonCancelled.some(i => i.quantityReceived > 0);
+        if (allFulfilled) {
+          newPoStatus = 'Cumplido';
+        } else if (anyReceived) {
+          newPoStatus = 'Parcial';
+        } else {
+          newPoStatus = 'Pendiente';
+        }
+      }
+
+      const { error: poErr } = await supabase
+        .from('purchase_orders')
+        .update({
+          oc_code: editPoCode.trim().toUpperCase(),
+          supplier_id: editPoSupplierId,
+          estimated_delivery_date: editPoEstimatedDeliveryDate ? new Date(editPoEstimatedDeliveryDate).toISOString() : null,
+          payment_condition: editPoPaymentCondition,
+          payment_term_days: parseInt(editPoPaymentTermDays) || 0,
+          notes: editPoNotes || null,
+          total_amount: totalAmount,
+          status: newPoStatus
+        })
+        .eq('id', editingPO.id);
+
+      if (poErr) throw poErr;
+
+      // Limpiar cache local de ítems expandidos
+      setPoItemsMap(prev => {
+        const next = { ...prev };
+        delete next[editingPO.id];
+        return next;
+      });
+
+      alert("¡Orden de Compra modificada y alineada con éxito!");
+      setShowEditPOModal(false);
+      setEditingPO(null);
+      loadAllData(true);
+    } catch (err: any) {
+      console.error("Error al guardar cambios de la OC:", err);
+      alert("Error al actualizar la Orden de Compra: " + err.message);
+    } finally {
+      setIsSavingEditPO(false);
+    }
+  };
+
+  const handleQuickAlignLine = async (po: any, item: any) => {
+    const received = Number(item.quantity_received) || 0;
+    const ordered = Number(item.quantity_ordered) || 0;
+    if (received <= 0) {
+      alert("No se han recibido unidades de este artículo aún.");
+      return;
+    }
+    const confirmAlign = window.confirm(
+      `¿Ajustar la cantidad solicitada de "${item.raw_product_name}" de ${ordered} a ${received} unidades (lo efectivamente recibido)?\n\n` +
+      `Esto dará por cumplida esta línea y alineará el total de la Orden de Compra ${po.oc_code}.`
+    );
+    if (!confirmAlign) return;
+
+    try {
+      const newSubtotal = received * Number(item.unit_cost);
+      const { error: itemErr } = await supabase
+        .from('purchase_order_items')
+        .update({
+          quantity_ordered: received,
+          subtotal: newSubtotal,
+          status: 'Cumplido'
+        })
+        .eq('id', item.id);
+
+      if (itemErr) throw itemErr;
+
+      // Recalcular todos los ítems de esta orden
+      const { data: allItems, error: allItemsErr } = await supabase
+        .from('purchase_order_items')
+        .select('*')
+        .eq('purchase_order_id', po.id);
+
+      if (allItemsErr) throw allItemsErr;
+
+      const nonCancelled = (allItems || []).filter(i => i.status !== 'Cancelado');
+      const allFulfilled = nonCancelled.length > 0 && nonCancelled.every(i => Number(i.quantity_received) >= Number(i.quantity_ordered));
+      const anyReceived = nonCancelled.some(i => Number(i.quantity_received) > 0);
+      const newPoStatus = nonCancelled.length === 0 ? 'Cancelado' : (allFulfilled ? 'Cumplido' : (anyReceived ? 'Parcial' : 'Pendiente'));
+      const newTotalAmount = nonCancelled.reduce((acc, i) => acc + (Number(i.quantity_ordered) * Number(i.unit_cost)), 0);
+
+      await supabase
+        .from('purchase_orders')
+        .update({
+          total_amount: newTotalAmount,
+          status: newPoStatus
+        })
+        .eq('id', po.id);
+
+      setPoItemsMap(prev => {
+        const next = { ...prev };
+        delete next[po.id];
+        return next;
+      });
+
+      alert(`¡Línea alineada con éxito a ${received} unidades!`);
+      loadAllData(true);
+    } catch (err: any) {
+      console.error("Error al alinear línea:", err);
+      alert("Error al alinear línea: " + err.message);
+    }
+  };
+
   const fetchReceptionDetails = async (recId: string) => {
     setLoadingRecDetail(true);
     try {
@@ -1262,6 +1537,7 @@ export default function ComprasAdminPage() {
     setReceptionNotes(`Recepción de ${po.oc_code}`);
     setReceptionPOId(po.id);
     setModalOCSearchText(po.oc_code);
+    setReceptionAlignPO(false);
     
     const { data, error } = await supabase
       .from('purchase_order_items')
@@ -1451,6 +1727,49 @@ export default function ComprasAdminPage() {
             })
             .eq('id', receptionPOId);
         }
+      }
+
+      // Si el usuario indicó alinear la OC con lo recibido (ej. el proveedor envió menos y no enviará el resto):
+      if (receptionAlignPO && receptionPOId) {
+        for (const item of activeItems) {
+          if (item.poItemId) {
+            const newRecTotal = (item.quantityReceivedPrior || 0) + item.quantityReceivedNew;
+            if (newRecTotal > 0 && newRecTotal < item.quantityOrdered) {
+              await supabase
+                .from('purchase_order_items')
+                .update({
+                  quantity_ordered: newRecTotal,
+                  subtotal: newRecTotal * item.unitCost,
+                  status: 'Cumplido'
+                })
+                .eq('id', item.poItemId);
+            }
+          }
+        }
+        // Recalcular cabecera de la OC
+        const { data: allPoItems } = await supabase
+          .from('purchase_order_items')
+          .select('quantity_ordered, quantity_received, unit_cost, status')
+          .eq('purchase_order_id', receptionPOId);
+
+        const nonCancelled = (allPoItems || []).filter(i => i.status !== 'Cancelado');
+        const allDone = nonCancelled.length > 0 && nonCancelled.every(i => Number(i.quantity_received) >= Number(i.quantity_ordered));
+        const newTotalAmt = nonCancelled.reduce((acc, i) => acc + (Number(i.quantity_ordered) * Number(i.unit_cost)), 0);
+
+        await supabase
+          .from('purchase_orders')
+          .update({
+            total_amount: newTotalAmt,
+            status: allDone ? 'Cumplido' : 'Parcial'
+          })
+          .eq('id', receptionPOId);
+
+        // Invalidate cache
+        setPoItemsMap(prev => {
+          const next = { ...prev };
+          delete next[receptionPOId];
+          return next;
+        });
       }
 
       // 3. Create Account Payable (supplier_purchases) to integrate with Cash/Finance
@@ -2387,6 +2706,25 @@ export default function ComprasAdminPage() {
     return { targetDate: current, displayDays };
   };
 
+  const handleSyncCostsFromSheet = async () => {
+    if (syncingCosts) return;
+    setSyncingCosts(true);
+    try {
+      const res = await fetch('/api/admin/sync-costs', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Error desconocido al sincronizar costos');
+      }
+      alert(`✅ Sincronización de costos exitosa!\n\n• Productos en planilla BDCosto: ${data.sheetProductsCount}\n• Productos en base de datos: ${data.dbProductsCount}\n• Productos con costo actualizado: ${data.updatedCount}\n\nLos costos sin IVA ya están sincronizados y activos.`);
+      await loadAllData(true);
+    } catch (err: any) {
+      console.error("Error sincronizando costos:", err);
+      alert("❌ Error al sincronizar costos desde Google Sheets: " + err.message);
+    } finally {
+      setSyncingCosts(false);
+    }
+  };
+
   const handleCalculateReplenishment = async () => {
     if (!calcSupplierId) {
       alert("Por favor seleccioná un proveedor o la opción de Todos los Proveedores.");
@@ -2518,7 +2856,7 @@ export default function ComprasAdminPage() {
       // 2. Fetch fresh stock levels from active, non-discontinued products
       const { data: latestProducts, error: prodErr } = await supabase
         .from('products')
-        .select('id, name, sku, stock_physical, stock_reserved, stock_current, price, category, is_active, is_discontinued')
+        .select('id, name, sku, stock_physical, stock_reserved, stock_current, price, cost_price, category, is_active, is_discontinued')
         .eq('is_active', true)
         .eq('is_discontinued', false);
       
@@ -2600,9 +2938,11 @@ export default function ComprasAdminPage() {
         if (totalQtySold <= 0) return;
 
         let purchaseCost = 0;
-        if (filterAllSuppliers) {
+        if (p.cost_price && Number(p.cost_price) > 0) {
+          purchaseCost = Number(p.cost_price);
+        } else if (filterAllSuppliers) {
           const rel = relations.find(r => r.product_id === p.id && r.is_primary) || relations.find(r => r.product_id === p.id);
-          purchaseCost = rel ? Number(rel.purchase_cost) : (Number(p.price) * 0.7);
+          purchaseCost = rel && Number(rel.purchase_cost) > 0 ? Number(rel.purchase_cost) : (Number(p.price) * 0.7);
         } else {
           purchaseCost = relationCostMap[p.id] || (Number(p.price) * 0.7);
         }
@@ -5046,27 +5386,38 @@ export default function ComprasAdminPage() {
               <h3 className="font-black text-slate-900 text-sm">Órdenes de Compra (OC)</h3>
               <p className="text-xs text-slate-400">Gestioná los pedidos emitidos a tus proveedores y realizá el seguimiento de su entrega.</p>
             </div>
-            <Button onClick={() => {
-              setPoSupplierId("");
-              const nextNum = purchaseOrders.length + 1;
-              setPoCode(`OP${String(nextNum).padStart(6, '0')}`);
-              setPoPaymentCondition("Efectivo");
-              setPoPaymentTermDays("0");
-              setPoEstimatedDeliveryDate("");
-              setPoNotes("");
-              setPoItems([]);
-              setShowNewPOModal(true);
-            }} className="rounded-xl gap-1.5 py-2 px-3 text-xs font-black">
-              <Plus className="w-3.5 h-3.5" /> Nueva OC
-            </Button>
-            <Button
-              onClick={handleSyncFromSpreadsheet}
-              disabled={importing}
-              className="rounded-xl gap-1.5 py-2 px-3 text-xs font-black bg-emerald-600 hover:bg-emerald-700 text-white"
-            >
-              <ArrowRightLeft className="w-3.5 h-3.5" />
-              {importing ? "Sincronizando..." : "Sincronizar con Planilla"}
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                onClick={handleSyncCostsFromSheet}
+                disabled={syncingCosts}
+                className="rounded-xl gap-1.5 py-2 px-3 text-xs font-black bg-amber-500 hover:bg-amber-600 text-white"
+                title="Sincronizar costos sin IVA desde la planilla BDCosto"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${syncingCosts ? 'animate-spin' : ''}`} />
+                {syncingCosts ? "Sincronizando Costos..." : "Sincronizar Costos (BDCosto)"}
+              </Button>
+              <Button onClick={() => {
+                setPoSupplierId("");
+                const nextNum = purchaseOrders.length + 1;
+                setPoCode(`OP${String(nextNum).padStart(6, '0')}`);
+                setPoPaymentCondition("Efectivo");
+                setPoPaymentTermDays("0");
+                setPoEstimatedDeliveryDate("");
+                setPoNotes("");
+                setPoItems([]);
+                setShowNewPOModal(true);
+              }} className="rounded-xl gap-1.5 py-2 px-3 text-xs font-black">
+                <Plus className="w-3.5 h-3.5" /> Nueva OC
+              </Button>
+              <Button
+                onClick={handleSyncFromSpreadsheet}
+                disabled={importing}
+                className="rounded-xl gap-1.5 py-2 px-3 text-xs font-black bg-emerald-600 hover:bg-emerald-700 text-white"
+              >
+                <ArrowRightLeft className="w-3.5 h-3.5" />
+                {importing ? "Sincronizando..." : "Sincronizar con Planilla"}
+              </Button>
+            </div>
           </div>
 
           {/* Filtros de Búsqueda y Control */}
@@ -5255,6 +5606,16 @@ export default function ComprasAdminPage() {
                                   </button>
                                 </>
                               )}
+                              {po.status !== 'Cancelado' && (
+                                <button
+                                  onClick={() => handleOpenEditPO(po)}
+                                  className="p-1.5 text-amber-700 hover:text-amber-900 bg-amber-50/80 hover:bg-amber-100 rounded-lg transition-all flex items-center gap-1 border border-amber-300 shadow-sm"
+                                  title="Modificar / Editar Orden de Compra (Cantidades, Precios o Artículos)"
+                                >
+                                  <Edit className="w-3.5 h-3.5" />
+                                  <span className="text-[10px] font-black uppercase">Editar</span>
+                                </button>
+                              )}
                               {po.status === 'Cumplido' && (
                                 <button
                                   onClick={() => handleRevertPOStatus(po.id, po.oc_code)}
@@ -5301,6 +5662,22 @@ export default function ComprasAdminPage() {
                                 </div>
                               ) : (
                                 <div className="overflow-x-auto rounded-2xl border border-slate-200/60 bg-white shadow-sm max-w-4xl mx-auto my-1">
+                                  <div className="flex justify-between items-center px-4 py-2.5 bg-slate-50 border-b border-slate-100">
+                                    <span className="text-xs font-bold text-slate-500">
+                                      Artículos de la Orden <span className="text-slate-900 font-black">{po.oc_code}</span>
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleOpenEditPO(po);
+                                      }}
+                                      className="inline-flex items-center gap-1.5 px-3 py-1 bg-white border border-amber-300 text-amber-800 hover:bg-amber-50 text-xs font-black rounded-lg shadow-sm transition-all"
+                                    >
+                                      <Edit className="w-3.5 h-3.5" />
+                                      <span>Modificar Orden</span>
+                                    </button>
+                                  </div>
                                   <table className="w-full text-left text-xs border-collapse">
                                     <thead>
                                       <tr className="bg-slate-100/80 border-b text-slate-400 font-bold uppercase tracking-wider">
@@ -5341,19 +5718,45 @@ export default function ComprasAdminPage() {
                                               </span>
                                             </td>
                                             <td className="p-2.5 text-center pr-4">
-                                              {item.status !== 'Cumplido' && item.status !== 'Cancelado' && (
+                                              <div className="flex items-center justify-center gap-1">
+                                                {pendingQty > 0 && Number(item.quantity_received) > 0 && (
+                                                  <button
+                                                    type="button"
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      handleQuickAlignLine(po, item);
+                                                    }}
+                                                    className="px-2 py-0.5 text-[9px] font-black uppercase text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded transition-all whitespace-nowrap"
+                                                    title={`Ajustar pedido a ${item.quantity_received} (cerrar faltante de ${pendingQty})`}
+                                                  >
+                                                    Alinear a {item.quantity_received}
+                                                  </button>
+                                                )}
                                                 <button
                                                   type="button"
                                                   onClick={(e) => {
                                                     e.stopPropagation();
-                                                    handleCancelPOLine(item.id, po.id);
+                                                    handleOpenEditPO(po);
                                                   }}
-                                                  className="p-1 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-all"
-                                                  title="Cancelar Línea"
+                                                  className="p-1 text-amber-600 hover:text-amber-800 hover:bg-amber-50 rounded-lg transition-all"
+                                                  title="Modificar Orden / Ajustar Cantidades"
                                                 >
-                                                  <X className="w-3.5 h-3.5" />
+                                                  <Edit className="w-3.5 h-3.5" />
                                                 </button>
-                                              )}
+                                                {item.status !== 'Cumplido' && item.status !== 'Cancelado' && (
+                                                  <button
+                                                    type="button"
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      handleCancelPOLine(item.id, po.id);
+                                                    }}
+                                                    className="p-1 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-all"
+                                                    title="Cancelar Línea"
+                                                  >
+                                                    <X className="w-3.5 h-3.5" />
+                                                  </button>
+                                                )}
+                                              </div>
                                             </td>
                                           </tr>
                                         );
@@ -5491,6 +5894,17 @@ export default function ComprasAdminPage() {
                           <Button
                             type="button"
                             onClick={() => {
+                              const po = selectedPO;
+                              setSelectedPO(null);
+                              handleOpenEditPO(po);
+                            }}
+                            className="bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-xl font-black text-xs px-4 py-2.5 flex items-center gap-1.5"
+                          >
+                            <Edit className="w-4 h-4" /> Modificar Orden
+                          </Button>
+                          <Button
+                            type="button"
+                            onClick={() => {
                               const poId = selectedPO.id;
                               const ocCode = selectedPO.oc_code;
                               setSelectedPO(null);
@@ -5526,7 +5940,18 @@ export default function ComprasAdminPage() {
                     )}
 
                     {selectedPO.status === 'Cumplido' && (
-                      <div className="flex justify-end pt-4 border-t border-slate-100">
+                      <div className="flex justify-between items-center pt-4 border-t border-slate-100">
+                        <Button
+                          type="button"
+                          onClick={() => {
+                            const po = selectedPO;
+                            setSelectedPO(null);
+                            handleOpenEditPO(po);
+                          }}
+                          className="bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-xl font-black text-xs px-4 py-2.5 flex items-center gap-1.5"
+                        >
+                          <Edit className="w-4 h-4" /> Modificar Orden
+                        </Button>
                         <Button
                           type="button"
                           onClick={() => {
@@ -5855,7 +6280,7 @@ export default function ComprasAdminPage() {
                                           productId: p.id,
                                           rawProductName: p.name,
                                           quantityOrdered: 1,
-                                          unitCost: Number(p.price) || 0
+                                          unitCost: (p.cost_price && Number(p.cost_price) > 0) ? Number(p.cost_price) : (Number(p.price) || 0)
                                         }]);
                                         setPoProductSearchText("");
                                         setIsPoProductDropdownOpen(false);
@@ -5987,6 +6412,447 @@ export default function ComprasAdminPage() {
                   </Button>
                   <Button type="submit" className="bg-brand-600 hover:bg-brand-700 py-2.5 px-6 rounded-xl text-white">
                     <Save className="w-4 h-4 mr-1.5" /> Registrar OC
+                  </Button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          {/* Modal Edit PO */}
+          {showEditPOModal && editingPO && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm overflow-y-auto">
+              <form onSubmit={handleSaveEditPO} className="bg-white rounded-3xl w-full max-w-4xl shadow-2xl p-6 space-y-6 my-8 animate-in zoom-in-95 duration-150">
+                <div className="flex justify-between items-center border-b pb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 bg-amber-100 text-amber-800 rounded-2xl">
+                      <Edit className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-black text-slate-900">Modificar Orden de Compra: {editPoCode}</h3>
+                      <p className="text-xs text-slate-400">Ajustá las cantidades pedidas, precios o artículos para reflejar lo efectivamente acordado o enviado.</p>
+                    </div>
+                  </div>
+                  <button type="button" onClick={() => setShowEditPOModal(false)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-colors">
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {/* Proveedor */}
+                  <div className="space-y-1 relative">
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Proveedor *</label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        placeholder="Buscar proveedor..."
+                        value={editPoSupplierSearchText || (suppliers.find(s => s.id === editPoSupplierId)?.name || "")}
+                        onFocus={() => setIsEditPoSupplierDropdownOpen(true)}
+                        onChange={e => {
+                          setEditPoSupplierSearchText(e.target.value);
+                          setIsEditPoSupplierDropdownOpen(true);
+                        }}
+                        className="w-full px-3 py-2 pr-8 rounded-xl border bg-slate-50 font-bold text-xs outline-none focus:border-brand-500 focus:bg-white"
+                      />
+                      {(editPoSupplierId || editPoSupplierSearchText) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditPoSupplierId("");
+                            setEditPoSupplierSearchText("");
+                            setIsEditPoSupplierDropdownOpen(false);
+                          }}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+
+                    {isEditPoSupplierDropdownOpen && (
+                      <>
+                        <div 
+                          className="fixed inset-0 z-20" 
+                          onClick={() => setIsEditPoSupplierDropdownOpen(false)} 
+                        />
+                        <div className="absolute left-0 right-0 mt-1 max-h-56 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-xl z-30 py-1 divide-y divide-slate-50">
+                          {suppliers
+                            .filter(s => !editPoSupplierSearchText || s.name.toLowerCase().includes(editPoSupplierSearchText.toLowerCase()))
+                            .map(s => (
+                              <button
+                                key={s.id}
+                                type="button"
+                                onClick={() => {
+                                  setEditPoSupplierId(s.id);
+                                  setEditPoSupplierSearchText(s.name);
+                                  setIsEditPoSupplierDropdownOpen(false);
+                                }}
+                                className="w-full text-left px-3 py-2 text-xs font-bold hover:bg-brand-50 hover:text-brand-700 text-slate-700 transition-colors flex items-center justify-between cursor-pointer"
+                              >
+                                <span>{s.name}</span>
+                                {editPoSupplierId === s.id && <span className="text-brand-600 font-bold">✓</span>}
+                              </button>
+                            ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Código OC */}
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Código OC *</label>
+                    <input
+                      type="text"
+                      required
+                      value={editPoCode}
+                      onChange={e => setEditPoCode(e.target.value)}
+                      className="w-full px-4 py-2.5 rounded-xl border bg-slate-50 font-bold text-xs uppercase"
+                    />
+                  </div>
+
+                  {/* Fecha Est. Entrega */}
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Fecha Est. Entrega</label>
+                    <DatePickerDDMMYYYY
+                      value={editPoEstimatedDeliveryDate}
+                      onChange={setEditPoEstimatedDeliveryDate}
+                    />
+                  </div>
+
+                  {/* Condición de Pago */}
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Condición de Pago</label>
+                    <select
+                      value={editPoPaymentCondition}
+                      onChange={e => setEditPoPaymentCondition(e.target.value)}
+                      className="w-full px-4 py-2.5 rounded-xl border bg-slate-50 font-bold text-xs"
+                    >
+                      <option value="Efectivo">Efectivo</option>
+                      <option value="Transferencia">Transferencia</option>
+                      <option value="Cheque">Cheque</option>
+                      <option value="Cuenta Corriente">Cuenta Corriente</option>
+                    </select>
+                  </div>
+
+                  {/* Plazo Pago */}
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Plazo Pago (Días)</label>
+                    <input
+                      type="number"
+                      value={editPoPaymentTermDays}
+                      onChange={e => setEditPoPaymentTermDays(e.target.value)}
+                      className="w-full px-4 py-2.5 rounded-xl border bg-slate-50 font-bold text-xs"
+                    />
+                  </div>
+
+                  {/* Notas */}
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Notas / Observaciones</label>
+                    <input
+                      type="text"
+                      placeholder="Observaciones de la OC"
+                      value={editPoNotes}
+                      onChange={e => setEditPoNotes(e.target.value)}
+                      className="w-full px-4 py-2.5 rounded-xl border bg-slate-50 font-bold text-xs"
+                    />
+                  </div>
+                </div>
+
+                <div className="border-t pt-4 space-y-4">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                    <div>
+                      <h4 className="text-xs font-black text-slate-800">Artículos de la Orden</h4>
+                      <p className="text-[11px] text-slate-400">Modificá la cantidad pedida para ajustarla a lo que mandó el proveedor (ej. un termo menos).</p>
+                    </div>
+                    {editPoItems.some(i => i.quantityReceived > 0 && i.quantityOrdered !== i.quantityReceived) && (
+                      <button
+                        type="button"
+                        onClick={handleAlignAllWithReceived}
+                        className="inline-flex items-center gap-1 text-[10px] font-black uppercase text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-300 px-3 py-1.5 rounded-xl transition-all shadow-sm"
+                      >
+                        <Sparkles className="w-3.5 h-3.5" /> Alinear todo con lo recibido
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Fila para agregar nuevo ítem a la OC */}
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                    <div className="md:col-span-2 space-y-1 relative">
+                      <label className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Agregar Producto (Catálogo o Libre)</label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          placeholder={editPoSupplierId ? "Buscar producto en catálogo..." : "Seleccioná un proveedor arriba..."}
+                          disabled={!editPoSupplierId}
+                          value={editPoProductSearchText}
+                          onFocus={() => setIsEditPoProductDropdownOpen(true)}
+                          onChange={e => {
+                            setEditPoProductSearchText(e.target.value);
+                            setIsEditPoProductDropdownOpen(true);
+                          }}
+                          className="w-full px-3 py-2 pr-8 rounded-xl border bg-white font-bold text-xs outline-none focus:border-brand-500 disabled:opacity-50"
+                        />
+                        {editPoProductSearchText && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditPoProductSearchText("");
+                              setIsEditPoProductDropdownOpen(false);
+                            }}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+
+                      {isEditPoProductDropdownOpen && editPoSupplierId && (
+                        <>
+                          <div 
+                            className="fixed inset-0 z-10" 
+                            onClick={() => setIsEditPoProductDropdownOpen(false)} 
+                          />
+                          <div className="absolute left-0 right-0 mt-1 max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg z-20 py-1 divide-y divide-slate-50">
+                            {(() => {
+                              const supplierProductIds = relations
+                                .filter(r => r.supplier_id === editPoSupplierId)
+                                .map(r => r.product_id);
+                              
+                              const filtered = products
+                                .filter(p => {
+                                  const pName = p.name || '';
+                                  const pSku = p.sku || '';
+                                  const anyP = p as any;
+                                  if (pName.includes('_OLD') || pSku.includes('_OLD') || pName.startsWith('[Interno]') || anyP.is_discontinued || anyP.is_active === false) {
+                                    return false;
+                                  }
+                                  if (supplierProductIds.length > 0 && !supplierProductIds.includes(p.id)) return false;
+                                  if (editPoProductSearchText) {
+                                    const search = editPoProductSearchText.toLowerCase();
+                                    return pName.toLowerCase().includes(search) || pSku.toLowerCase().includes(search);
+                                  }
+                                  return true;
+                                });
+
+                              return (
+                                <>
+                                  {filtered.map(p => (
+                                    <button
+                                      key={p.id}
+                                      type="button"
+                                      onClick={() => {
+                                        const exists = editPoItems.some(i => !i.isDeleted && i.productId === p.id);
+                                        if (exists) {
+                                          alert("El producto ya se encuentra en la orden de compra.");
+                                          setIsEditPoProductDropdownOpen(false);
+                                          return;
+                                        }
+                                        setEditPoItems([...editPoItems, {
+                                          id: null,
+                                          productId: p.id,
+                                          rawProductName: p.name,
+                                          sku: p.sku,
+                                          quantityOrdered: 1,
+                                          quantityReceived: 0,
+                                          unitCost: (p.cost_price && Number(p.cost_price) > 0) ? Number(p.cost_price) : (Number(p.price) || 0),
+                                          status: 'Pendiente',
+                                          isNew: true
+                                        }]);
+                                        setEditPoProductSearchText("");
+                                        setIsEditPoProductDropdownOpen(false);
+                                      }}
+                                      className="w-full text-left px-3 py-2 text-xs font-semibold hover:bg-slate-50 text-slate-700 hover:text-brand-600 transition-colors"
+                                    >
+                                      {p.name} {p.sku ? `(${p.sku})` : ''}
+                                    </button>
+                                  ))}
+                                  {filtered.length === 0 && (
+                                    <div className="px-3 py-2 text-xs text-slate-400 italic">
+                                      No se encontraron productos
+                                    </div>
+                                  )}
+                                </>
+                              );
+                            })()}
+                          </div>
+                        </>
+                      )}
+
+                      <div className="pt-2 flex gap-2">
+                        <input
+                          id="editManualProductName"
+                          type="text"
+                          placeholder="O agregá un artículo no catalogado..."
+                          className="w-full px-3 py-1.5 rounded-lg border bg-white text-xs font-bold"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const input = document.getElementById("editManualProductName") as HTMLInputElement;
+                            if (input && input.value.trim()) {
+                              setEditPoItems([...editPoItems, {
+                                id: null,
+                                productId: null,
+                                rawProductName: input.value.trim(),
+                                sku: null,
+                                quantityOrdered: 1,
+                                quantityReceived: 0,
+                                unitCost: 0,
+                                status: 'Pendiente',
+                                isNew: true
+                              }]);
+                              input.value = "";
+                            }
+                          }}
+                          className="bg-slate-200 text-slate-700 px-3 rounded-lg text-xs font-bold hover:bg-slate-300"
+                        >
+                          Agregar
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Tabla de Artículos a Modificar */}
+                  <div className="border border-slate-200 rounded-2xl overflow-x-auto bg-white max-h-72 overflow-y-auto">
+                    <table className="w-full text-left text-xs min-w-[620px] border-collapse">
+                      <thead>
+                        <tr className="bg-slate-50 border-b text-slate-400 font-bold uppercase tracking-wider">
+                          <th className="p-3">Artículo / Detalle</th>
+                          <th className="p-3 text-center" style={{ width: '110px' }}>Ingresado</th>
+                          <th className="p-3 text-right" style={{ width: '130px' }}>Cant. Pedida</th>
+                          <th className="p-3 text-right" style={{ width: '140px' }}>Costo Unitario ($)</th>
+                          <th className="p-3 text-right" style={{ width: '130px' }}>Subtotal</th>
+                          <th className="p-3 text-center" style={{ width: '100px' }}>Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 font-bold text-slate-700">
+                        {editPoItems.filter(i => !i.isDeleted).length === 0 ? (
+                          <tr>
+                            <td colSpan={6} className="p-6 text-center text-slate-400 font-normal">No hay artículos en la orden de compra.</td>
+                          </tr>
+                        ) : (
+                          editPoItems.map((item, idx) => {
+                            if (item.isDeleted) return null;
+                            const isAligned = item.quantityReceived > 0 && item.quantityOrdered === item.quantityReceived;
+                            const hasDiff = item.quantityReceived > 0 && item.quantityOrdered !== item.quantityReceived;
+                            return (
+                              <tr key={item.id || `new-${idx}`} className="hover:bg-slate-50/50">
+                                <td className="p-3 text-slate-900">
+                                  <div className="font-bold">{item.rawProductName} {item.sku ? `(${item.sku})` : ''}</div>
+                                  {item.status && (
+                                    <span className="text-[10px] text-slate-400 font-normal">Estado: {item.status}</span>
+                                  )}
+                                </td>
+                                <td className="p-3 text-center">
+                                  {item.quantityReceived > 0 ? (
+                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                                      isAligned ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'
+                                    }`}>
+                                      {item.quantityReceived} recibidos
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-400 text-[10px] font-normal">0 recibido</span>
+                                  )}
+                                </td>
+                                <td className="p-3 text-right">
+                                  <div className="flex items-center justify-end gap-1">
+                                    <input
+                                      type="number"
+                                      min="0.001"
+                                      step="any"
+                                      required
+                                      value={item.quantityOrdered}
+                                      onChange={e => {
+                                        const val = parseFloat(e.target.value) || 0;
+                                        const updated = [...editPoItems];
+                                        updated[idx].quantityOrdered = val;
+                                        setEditPoItems(updated);
+                                      }}
+                                      className="w-20 px-2 py-1 border rounded-lg text-right text-xs font-mono font-bold bg-amber-50/40 border-amber-300 focus:bg-white focus:border-brand-500 outline-none"
+                                    />
+                                    {hasDiff && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const updated = [...editPoItems];
+                                          updated[idx].quantityOrdered = item.quantityReceived;
+                                          setEditPoItems(updated);
+                                        }}
+                                        className="text-[9px] px-1.5 py-1 bg-amber-100 hover:bg-amber-200 text-amber-800 rounded font-black uppercase whitespace-nowrap"
+                                        title={`Alinear con lo recibido (${item.quantityReceived})`}
+                                      >
+                                        ={item.quantityReceived}
+                                      </button>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="p-3 text-right">
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="any"
+                                    required
+                                    value={item.unitCost}
+                                    onChange={e => {
+                                      const val = parseFloat(e.target.value) || 0;
+                                      const updated = [...editPoItems];
+                                      updated[idx].unitCost = val;
+                                      setEditPoItems(updated);
+                                    }}
+                                    className="w-28 px-2 py-1 border rounded-lg text-right text-xs font-mono"
+                                  />
+                                </td>
+                                <td className="p-3 text-right text-slate-900 font-mono font-bold">
+                                  {formatPrice(item.quantityOrdered * item.unitCost)}
+                                </td>
+                                <td className="p-3 text-center">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (item.quantityReceived > 0) {
+                                        alert(`No podés eliminar este artículo porque ya tiene ${item.quantityReceived} unidades recibidas.\n\nPara cerrar la línea, igualá la cantidad pedida a ${item.quantityReceived}.`);
+                                        return;
+                                      }
+                                      if (item.id) {
+                                        setEditDeletedItemIds(prev => [...prev, item.id]);
+                                      }
+                                      const updated = [...editPoItems];
+                                      updated[idx].isDeleted = true;
+                                      setEditPoItems(updated);
+                                    }}
+                                    className="text-red-400 hover:text-red-700 p-1.5 rounded-lg hover:bg-red-50 transition-colors"
+                                    title="Quitar artículo de la orden"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-slate-50 p-4 rounded-2xl border border-slate-100 font-black gap-2">
+                    <div className="text-xs text-slate-500 font-normal">
+                      <span>💡 Si ajustás la cantidad pedida para que iguale a lo ingresado, la orden pasará a estado <strong>Cumplido</strong> al guardar.</span>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <span className="text-slate-600 text-xs">Total Modificado:</span>
+                      <span className="text-slate-900 text-base font-black">
+                        {formatPrice(editPoItems.filter(i => !i.isDeleted).reduce((acc, i) => acc + (i.quantityOrdered * i.unitCost), 0))}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-3 border-t pt-4">
+                  <Button type="button" onClick={() => setShowEditPOModal(false)} className="bg-slate-100 text-slate-600 hover:bg-slate-200 py-2.5 px-4 rounded-xl">
+                    Cancelar
+                  </Button>
+                  <Button type="submit" disabled={isSavingEditPO} className="bg-brand-600 hover:bg-brand-700 py-2.5 px-6 rounded-xl text-white font-bold">
+                    <Save className="w-4 h-4 mr-1.5" />
+                    {isSavingEditPO ? "Guardando..." : "Guardar Modificaciones"}
                   </Button>
                 </div>
               </form>
@@ -6450,6 +7316,32 @@ export default function ComprasAdminPage() {
                   </span>
                 </div>
 
+                {/* Switch / Checkbox de Alinear OC con lo recibido */}
+                {receptionPOId && (
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-3.5 bg-amber-50/60 border border-amber-200/80 rounded-2xl gap-3">
+                    <div className="flex items-start sm:items-center gap-3">
+                      <input
+                        type="checkbox"
+                        id="alignPOCheck"
+                        checked={receptionAlignPO}
+                        onChange={(e) => setReceptionAlignPO(e.target.checked)}
+                        className="w-4 h-4 mt-0.5 sm:mt-0 rounded text-amber-600 focus:ring-amber-500 border-amber-300 cursor-pointer"
+                      />
+                      <label htmlFor="alignPOCheck" className="text-xs font-bold text-amber-950 cursor-pointer select-none">
+                        Alinear OC con lo recibido (Cerrar faltantes si el proveedor no enviará el resto)
+                        <span className="block text-[11px] text-amber-800 font-normal mt-0.5">
+                          Si el proveedor envió menos unidades de las pedidas (ej. un termo menos), ajusta la cantidad pedida de la OC a lo recibido para cerrar la orden como Cumplida.
+                        </span>
+                      </label>
+                    </div>
+                    <span className={`text-[10px] font-black px-2.5 py-1 rounded-full border shrink-0 ${
+                      receptionAlignPO ? 'bg-amber-100 text-amber-900 border-amber-300' : 'bg-slate-100 text-slate-500 border-slate-200'
+                    }`}>
+                      {receptionAlignPO ? 'Alinea y Cierra OC' : 'Mantiene Saldo Pendiente'}
+                    </span>
+                  </div>
+                )}
+
                 <div className="border-t pt-4 space-y-4">
                   <div className="flex justify-between items-center">
                     <h4 className="text-xs font-black text-slate-800">Artículos Recibidos</h4>
@@ -6826,7 +7718,18 @@ export default function ComprasAdminPage() {
               </div>
             </div>
 
-            <div className="flex justify-end gap-3 border-t pt-4">
+            <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3 border-t pt-4">
+              <Button
+                type="button"
+                disabled={syncingCosts || calcLoading}
+                onClick={handleSyncCostsFromSheet}
+                className="bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 py-2.5 px-4 rounded-xl font-bold text-xs shadow-sm cursor-pointer transition-all flex items-center justify-center gap-1.5"
+                title="Descargar la planilla BDCosto de Google Sheets y actualizar los costos sin IVA de todos los productos"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${syncingCosts ? 'animate-spin' : ''}`} />
+                {syncingCosts ? "Sincronizando Costos..." : "Sincronizar Costos (Planilla BDCosto)"}
+              </Button>
+
               <Button
                 disabled={calcLoading}
                 onClick={handleCalculateReplenishment}
@@ -8037,7 +8940,9 @@ export default function ComprasAdminPage() {
                                 // Trigger the auto-fill cost logic that was in the original select's onChange
                                 const rel = relations.find(r => r.product_id === p.id && r.is_primary) || relations.find(r => r.product_id === p.id);
                                 const supplierId = rel?.supplier_id;
-                                if (supplierId) {
+                                if (p.cost_price && Number(p.cost_price) > 0) {
+                                  setCurrentItemUnitCost(String(p.cost_price));
+                                } else if (supplierId) {
                                   setCurrentItemUnitCost("");
                                 }
                               }}
