@@ -45,7 +45,8 @@ import {
   Loader2,
   FileSpreadsheet,
   Lock,
-  PlusCircle
+  PlusCircle,
+  ClipboardCheck
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
@@ -282,7 +283,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   // Route guards per role
   useEffect(() => {
     if (!isRoleLoaded) return;
-    if (userRole === 'logistica' && pathname && pathname !== '/admin/cobros-mp' && pathname !== '/admin/fleteros') {
+    if (userRole === 'logistica' && pathname && pathname !== '/admin/cobros-mp' && pathname !== '/admin/fleteros' && pathname !== '/admin/control-planillas') {
       router.replace('/admin/cobros-mp');
     } else if (userRole === 'fletero' && pathname && pathname !== '/admin/cobros-mp') {
       router.replace('/admin/cobros-mp');
@@ -374,6 +375,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         { name: "Gestión de Transportistas", href: "/admin/fleteros", icon: Truck, adminOnly: true },
         { name: "Ruteo de Entregas", href: "/vendedores/ruteo", icon: Truck },
         { name: "Facturación Pendiente", href: "/admin/facturacion-pendiente", icon: PackageCheck, adminOnly: true },
+        { name: "Control de Planillas", href: "/admin/control-planillas", icon: ClipboardCheck },
         { name: "Auditoría de Entregas", href: "/admin/auditoria-logistica", icon: Clock, adminOnly: true },
         { name: "Zonas y Localidades", href: "/admin/localidades-zonas", icon: Map, adminOnly: true },
         { name: "Tiempos de Entrega", href: "/admin/tiempos-entrega", icon: Clock, adminOnly: true }
@@ -525,7 +527,11 @@ export function AdminLayout({ children }: AdminLayoutProps) {
             linkSections.map((section, sIdx) => {
               const visibleLinks = section.links.filter(link => {
                 if (userRole === 'logistica') {
-                  return link.href === "/admin/cobros-mp" || link.href === "/admin/fleteros";
+                  return (
+                    link.href === "/admin/cobros-mp" ||
+                    link.href === "/admin/fleteros" ||
+                    link.href === "/admin/control-planillas"
+                  );
                 }
                 if (userRole === 'fletero') {
                   return link.href === "/admin/cobros-mp";

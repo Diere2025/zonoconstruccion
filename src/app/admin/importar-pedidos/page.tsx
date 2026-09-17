@@ -460,7 +460,7 @@ export default function ImportarPedidosPage() {
         });
 
         if (targetRows.length > 0) {
-          const CHUNK_SIZE = 10;
+          const CHUNK_SIZE = 5;
           const totalChunks = Math.ceil(targetRows.length / CHUNK_SIZE);
           addLog(`📄 ${sheet.name}: Procesando ${targetRows.length} pedidos en ${totalChunks} lote(s) optimizados...`);
 
@@ -504,7 +504,50 @@ export default function ImportarPedidosPage() {
 
             if (!importRes || !importRes.ok) {
               const errText = await importRes?.text().catch(() => "") || "Error de red";
-              throw new Error(sanitizeErrorMessage(errText));
+              addLog(`⚠️ Lote ${chunkIdx + 1} no pudo completarse en bloque (${sanitizeErrorMessage(errText)}). Procesando pedidos individualmente para no detener la importación...`);
+
+              for (const singleRow of chunkRows) {
+                if (cancelImportRef.current) break;
+                const singleCode = (singleRow[1] || '').trim();
+                try {
+                  const singleRes = await fetch("/api/admin/import-sheet", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      sheetName: `${sheet.name} (Unitario ${singleCode || 'pedido'})`,
+                      rows: [singleRow],
+                      skipENC,
+                      skipCAMB,
+                      syncPaymentMethods,
+                      defaultSellerId: sheet.defaultSellerId,
+                      defaultChannel: sheet.defaultChannel,
+                      isCentralSheet: sheet.isCentralSheet
+                    })
+                  });
+
+                  if (singleRes.ok) {
+                    const singleData = await singleRes.json();
+                    totalImported += singleData.totalImported || 0;
+                    totalUpdated += singleData.totalUpdated || 0;
+                    totalItemsImported += singleData.totalItemsImported || 0;
+                    addLog(`  ↳ ✅ Pedido ${singleCode}: procesado con éxito en modo unitario.`);
+                  } else {
+                    const singleErr = await singleRes.text().catch(() => "");
+                    addLog(`  ↳ ⚠️ Pedido ${singleCode}: no se pudo procesar (${sanitizeErrorMessage(singleErr)}). Se omite.`);
+                  }
+                } catch (errSingle: any) {
+                  addLog(`  ↳ ⚠️ Pedido ${singleCode}: microcorte (${errSingle.message}). Se omite.`);
+                }
+              }
+
+              setStats({
+                imported: totalImported,
+                updated: totalUpdated,
+                items: totalItemsImported,
+                sheetsCompleted: sheetsDone,
+                totalSheets: sheets.length
+              });
+              continue;
             }
 
             const importData = await importRes.json();
