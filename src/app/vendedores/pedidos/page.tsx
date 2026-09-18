@@ -3497,7 +3497,7 @@ export default function PedidosPage() {
       if (totalsObj.order_discount_type) {
         setOrderDiscountType(totalsObj.order_discount_type);
       } else {
-        setOrderDiscountType('fixed');
+        setOrderDiscountType('percentage');
       }
       if (totalsObj.order_discount_value !== undefined) {
         setOrderDiscountValue(totalsObj.order_discount_value);
@@ -3708,7 +3708,7 @@ export default function PedidosPage() {
     setWhaticketLink("");
     setLocalidadId("");
     setOrderItems([]);
-    setOrderDiscountType('fixed');
+    setOrderDiscountType('percentage');
     setOrderDiscountValue(0);
     setOrderCategory("auto");
     setCommercialBrand(isWholesaleContext || FACUNDO_SELLER_IDS.includes(currentUserId) ? 'aquafort' : 'zono');
@@ -5780,7 +5780,7 @@ export default function PedidosPage() {
       setWhaticketLink("");
       setLocalidadId("");
       setOrderItems([]);
-      setOrderDiscountType('fixed');
+      setOrderDiscountType('percentage');
       setOrderDiscountValue(0);
       setOrderCategory("auto");
       setCommercialBrand(isWholesaleContext || FACUNDO_SELLER_IDS.includes(seller_id) ? 'aquafort' : 'zono');
