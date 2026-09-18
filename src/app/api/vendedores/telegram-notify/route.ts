@@ -246,6 +246,9 @@ export async function POST(req: Request) {
           return NextResponse.json({
             ok: true,
             chatId: targetChatId,
+            messageIds: Array.isArray(data.result)
+              ? data.result.map((message: any) => message?.message_id).filter(Boolean)
+              : [],
             caption: finalCaption,
             count: receiptsList.length
           });

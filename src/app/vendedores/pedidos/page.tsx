@@ -1155,6 +1155,8 @@ export default function PedidosPage() {
     receipt_url?: string;
     notes?: string;
     telegram_sent?: boolean;
+    telegram_message_id?: number;
+    telegram_chat_id?: string;
     created_at?: string;
   }
   const [paymentsList, setPaymentsList] = useState<PaymentBreakdownItem[]>([
@@ -5654,21 +5656,33 @@ export default function PedidosPage() {
             });
             const tgData = await tgRes.json();
             if (tgData.ok) {
-              unsentReceipts.forEach(r => { r.telegram_sent = true; });
+              const messageIds: number[] = Array.isArray(tgData.messageIds)
+                ? tgData.messageIds
+                : (tgData.messageId ? [tgData.messageId] : []);
+              unsentReceipts.forEach((receipt, index) => {
+                receipt.telegram_sent = true;
+                receipt.telegram_message_id = messageIds[index] || messageIds[0];
+                receipt.telegram_chat_id = tgData.chatId ? String(tgData.chatId) : undefined;
+              });
 
               if (orderData?.id) {
-                const updatedBreakdown = paymentsWithSurcharges.map(p => ({
-                  id: p.id,
-                  payment_method_id: p.payment_method_id,
-                  amount: p.baseAmount,
-                  surcharge: p.surchargeValue,
-                  total: p.totalAmount,
-                  card_installments: p.installments,
-                  card_surcharge: p.surchargePercentage,
-                  receipt_url: p.receipt_url,
-                  notes: p.notes,
-                  telegram_sent: p.telegram_sent || false
-                }));
+                const updatedBreakdown = paymentsWithSurcharges.map(payment => {
+                  const persistedPayment = paymentsList.find(item => item.id === payment.id) || payment;
+                  return {
+                    id: payment.id,
+                    payment_method_id: payment.payment_method_id,
+                    amount: payment.baseAmount,
+                    surcharge: payment.surchargeValue,
+                    total: payment.totalAmount,
+                    card_installments: payment.installments,
+                    card_surcharge: payment.surchargePercentage,
+                    receipt_url: payment.receipt_url,
+                    notes: payment.notes,
+                    telegram_sent: persistedPayment.telegram_sent || false,
+                    telegram_message_id: persistedPayment.telegram_message_id,
+                    telegram_chat_id: persistedPayment.telegram_chat_id
+                  };
+                });
 
                 await supabase
                   .from('orders')
