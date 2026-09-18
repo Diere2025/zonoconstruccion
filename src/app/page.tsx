@@ -69,7 +69,7 @@ function ErpRedirector() {
 
         if (isRestricted) {
           clearTimeout(fallbackTimer);
-          doRedirect("/vendedores/presupuestos");
+          doRedirect("/vendedores");
           return;
         }
 

@@ -70,6 +70,7 @@ export default function VendedoresLayout({ children }: { children: React.ReactNo
           globalSession = newSession;
           globalSessionChecked = true;
           setSession(newSession);
+          window.location.replace('/vendedores');
         }} 
       />
     );
