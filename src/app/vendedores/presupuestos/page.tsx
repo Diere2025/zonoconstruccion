@@ -11,6 +11,7 @@ import InlineVisualProductSelector from "@/components/vendedores/InlineVisualPro
 import PrintableBudgetModal from "@/components/vendedores/PrintableBudgetModal";
 import { evaluateDiscountSuggestions, DiscountSuggestion } from "@/lib/discountRules";
 import { parseWhatsAppBudget, matchParsedItemsToProducts, parsePrice, isDiscountItem } from "@/lib/whatsappBudgetParser";
+import { defaultQuoteValidity, saveSalesQuote } from "@/lib/salesQuotes";
 
 interface QuoteItem extends Product {
   quantity: number;
@@ -166,6 +167,7 @@ export default function PresupuestosPage() {
   const [sellerName, setSellerName] = useState<string>("Asesor Comercial Zono");
   const [budgetNumber, setBudgetNumber] = useState<string>(() => `ZC-${Math.floor(100000 + Math.random() * 900000)}`);
   const [showPrintModal, setShowPrintModal] = useState<boolean>(false);
+  const [savingQuote, setSavingQuote] = useState(false);
 
   useEffect(() => {
     async function loadInitialData() {
@@ -812,8 +814,78 @@ export default function PresupuestosPage() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleConvertToOrder = () => {
+  const buildMinoristaQuote = (status: 'draft' | 'sent' | 'accepted') => ({
+    channel: 'minorista' as const,
+    customerName: clientName,
+    customerPhone: clientPhone,
+    subtotal: itemsGrossSubtotal,
+    discountType: orderDiscountAmount > 0 ? orderDiscountType : null,
+    discountValue: orderDiscountValue,
+    discountAmount: orderDiscountAmount,
+    freightAmount: shippingAmount,
+    taxAmount: ivaAmount,
+    totalAmount: total,
+    paymentMethodId: /^[0-9a-f-]{36}$/i.test(selectedPaymentMethod.id) ? selectedPaymentMethod.id : null,
+    commercialConditions: {
+      paymentType,
+      paymentMethodName,
+      cardInstallments,
+      cardSurcharge,
+      isFreeShipping,
+      includeIVA,
+      source: 'cotizador_minorista'
+    },
+    notes: kitDetailText,
+    validUntil: defaultQuoteValidity(),
+    status,
+    items: quoteItems.map(item => ({
+      productId: /^[0-9a-f-]{36}$/i.test(item.id) ? item.id : null,
+      productName: item.name,
+      sku: item.sku || '',
+      quantity: item.quantity,
+      listUnitPrice: item.basePrice !== undefined ? item.basePrice : (item.price || item.customPrice),
+      unitPrice: item.customPrice,
+      discountPercentage: item.discountType === 'percentage' ? (item.discountValue || 0) : 0,
+      subtotal: item.customPrice * item.quantity,
+      metadata: {
+        cost: item.cost || 0,
+        bundleParentId: item.bundleParentId,
+        isIncludedInKit: item.isIncludedInKit,
+        baseQuantity: item.baseQuantity
+      }
+    }))
+  });
+
+  const handleSaveQuote = async (status: 'draft' | 'sent' = 'sent') => {
+    if (!quoteItems.length) return;
+    try {
+      setSavingQuote(true);
+      const quote = await saveSalesQuote(buildMinoristaQuote(status));
+      setBudgetNumber(quote.quote_number);
+      alert(`Presupuesto ${quote.quote_number} guardado${status === 'sent' ? ' y marcado como enviado' : ''}.`);
+      return quote;
+    } catch (error: any) {
+      alert(`No se pudo guardar el presupuesto: ${error.message || error}`);
+      return null;
+    } finally {
+      setSavingQuote(false);
+    }
+  };
+
+  const handleConvertToOrder = async () => {
+    if (savingQuote) return;
+    setSavingQuote(true);
+    let quote: any = null;
+    try {
+      quote = await saveSalesQuote(buildMinoristaQuote('accepted'));
+    } catch (error: any) {
+      alert(`No se pudo guardar el presupuesto antes de convertirlo: ${error.message || error}`);
+      setSavingQuote(false);
+      return;
+    }
     const budgetData = {
+      quoteId: quote.id,
+      quoteNumber: quote.quote_number,
       items: quoteItems.map(item => {
         const isDisc = isDiscountItem(item);
         return {
@@ -838,7 +910,7 @@ export default function PresupuestosPage() {
       cardSurcharge
     };
     sessionStorage.setItem('preloaded_budget', JSON.stringify(budgetData));
-    router.push('/vendedores/pedidos');
+    router.push('/vendedores/pedidos?tab=form&client_type=minoristas');
   };
 
   const handleImportFromText = () => {
@@ -1854,14 +1926,26 @@ export default function PresupuestosPage() {
             </button>
 
             {quoteItems.length > 0 && (
-              <button 
-                type="button"
-                onClick={handleConvertToOrder}
-                className="w-full py-2.5 px-4 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all shadow-sm"
-              >
-                <ShoppingBag className="w-3.5 h-3.5" />
-                Crear Pedido con este Presupuesto
-              </button>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleSaveQuote('sent')}
+                  disabled={savingQuote}
+                  className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all shadow-sm"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  {savingQuote ? 'Guardando...' : 'Guardar Presupuesto'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConvertToOrder}
+                  disabled={savingQuote}
+                  className="w-full py-2.5 px-4 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all shadow-sm"
+                >
+                  <ShoppingBag className="w-3.5 h-3.5" />
+                  Crear Pedido
+                </button>
+              </div>
             )}
           </div>
           

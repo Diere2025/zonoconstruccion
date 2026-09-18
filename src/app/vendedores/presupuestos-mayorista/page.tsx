@@ -33,6 +33,7 @@ import { supabase } from "@/lib/supabase";
 import { formatPrice, cn } from "@/lib/utils";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { defaultQuoteValidity, saveSalesQuote } from "@/lib/salesQuotes";
 
 interface WholesaleProduct {
   id: string;
@@ -112,7 +113,6 @@ export default function PresupuestosMayoristaPage() {
   // UI status
   const [copiedWhatsapp, setCopiedWhatsapp] = useState(false);
   const [isCreatingOrder, setIsCreatingOrder] = useState(false);
-  const [createdOrderNumber, setCreatedOrderNumber] = useState<string | null>(null);
 
   // Load the selected published wholesale list. Historical lists retain their
   // saved item prices instead of being recalculated from today's costs.
@@ -546,7 +546,62 @@ export default function PresupuestosMayoristaPage() {
     doc.save(`Presupuesto_Mayorista_${clientName.replace(/\s+/g, "_")}_Lista${listNumber}.pdf`);
   };
 
-  // Convert to Wholesale Order in Supabase
+  const buildWholesaleQuote = (status: 'sent' | 'accepted') => ({
+    channel: 'mayorista' as const,
+    clientId: selectedClient?.id || null,
+    customerName: selectedClient?.business_name || '',
+    customerPhone: selectedClient?.phone_primary || '',
+    subtotal: subtotalProducts,
+    freightAmount: totalFreight,
+    taxAmount: ivaAmount,
+    totalAmount: grandTotal,
+    commercialConditions: {
+      listNumber,
+      listDate,
+      tier: activeTier,
+      tierLabel: activeTierLabel,
+      freightType,
+      paymentCondition,
+      deliveryDays,
+      includeIva,
+      source: 'cotizador_mayorista'
+    },
+    notes,
+    validUntil: defaultQuoteValidity(),
+    status,
+    items: calculatedItems.map(item => ({
+      productId: item.productId,
+      productName: item.name,
+      variant: item.variant,
+      quantity: item.quantity,
+      listUnitPrice: item.priceList,
+      unitPrice: item.effectiveUnitPrice,
+      discountPercentage: item.priceList > 0
+        ? Math.round((1 - item.effectiveUnitPrice / item.priceList) * 10000) / 100
+        : 0,
+      subtotal: item.subtotal,
+      metadata: { category: item.category, liters: item.liters }
+    }))
+  });
+
+  const handleSaveWholesaleQuote = async () => {
+    if (!cartItems.length || !selectedClient) {
+      alert('Seleccioná un cliente y agregá productos antes de guardar.');
+      return;
+    }
+    try {
+      setIsCreatingOrder(true);
+      const quote = await saveSalesQuote(buildWholesaleQuote('sent'));
+      alert(`Presupuesto ${quote.quote_number} guardado y marcado como enviado.`);
+    } catch (error: any) {
+      alert(`No se pudo guardar el presupuesto: ${error.message || error}`);
+    } finally {
+      setIsCreatingOrder(false);
+    }
+  };
+
+  // La conversión usa el formulario normal de pedidos para completar entrega,
+  // procedencia y pagos antes de activar planillas, stock y Telegram.
   const handleCreateWholesaleOrder = async () => {
     if (cartItems.length === 0) {
       alert("Agregá productos al presupuesto antes de confirmar el pedido.");
@@ -557,65 +612,36 @@ export default function PresupuestosMayoristaPage() {
       return;
     }
 
-    if (!confirm(`¿Confirmar y registrar Pedido Mayorista para "${selectedClient.business_name}" por un total de $${grandTotal.toLocaleString("es-AR")} (${totalTanksCount} tanques)?`)) {
+    if (!confirm(`¿Aceptar el presupuesto de "${selectedClient.business_name}" y continuar a la carga del pedido? Todavía no se enviará nada a Logística.`)) {
       return;
     }
 
     try {
       setIsCreatingOrder(true);
-      const { data: userData } = await supabase.auth.getUser();
-      const sellerId = userData.user?.id || null;
-
-      // Create Order
-      const { data: orderData, error: orderError } = await supabase
-        .from("orders")
-        .insert({
-          seller_id: sellerId,
-          client_id: selectedClient.id,
-          customer_name: selectedClient.business_name,
-          address: selectedClient.billing_address || "Entrega mayorista a coordinar",
-          channel: "mayorista",
-          category: "Mayorista",
-          total_amount: grandTotal,
-          freight_type: freightType,
-          payment_status: "Pendiente",
-          status: "Pendiente",
-          order_date: new Date().toISOString(),
-          totals: {
-            subtotal: subtotalProducts,
-            freight: totalFreight,
-            tax: ivaAmount,
-            total: grandTotal,
-            tanksCount: totalTanksCount,
-            tier: activeTier
-          },
-          delivery_notes: `[Mayorista Lista ${listNumber}] Escala: ${activeTierLabel}. ${notes}`
-        })
-        .select()
-        .single();
-
-      if (orderError) throw orderError;
-
-      // Create Order Items
-      if (orderData && calculatedItems.length > 0) {
-        const itemsToInsert = calculatedItems.map(item => ({
-          order_id: orderData.id,
-          product_id: item.productId,
-          product_name: `${item.name}${item.variant === "ciego" ? " (CIEGO)" : " (Estándar)"}`,
+      const quote = await saveSalesQuote(buildWholesaleQuote('accepted'));
+      sessionStorage.setItem('preloaded_budget', JSON.stringify({
+        quoteId: quote.id,
+        quoteNumber: quote.quote_number,
+        channel: 'mayorista',
+        clientId: selectedClient.id,
+        customerName: selectedClient.business_name,
+        customerPhone: selectedClient.phone_primary || '',
+        notes: `[Presupuesto ${quote.quote_number} · Lista ${listNumber}] ${notes}`.trim(),
+        items: calculatedItems.map(item => ({
+          id: item.productId,
+          name: `${item.name}${item.variant === 'ciego' ? ' (CIEGO)' : ' (Estándar)'}`,
+          sku: item.name,
           quantity: item.quantity,
-          unit_price: item.effectiveUnitPrice,
-          subtotal: item.subtotal
-        }));
-
-        await supabase.from("order_items").insert(itemsToInsert);
-      }
-
-      setCreatedOrderNumber(orderData.id.slice(0, 8).toUpperCase());
-      alert(`🎉 ¡Pedido Mayorista registrado con éxito! (ID: #${orderData.id.slice(0, 8).toUpperCase()})`);
-      router.push("/vendedores/pedidos");
+          customPrice: item.effectiveUnitPrice,
+          basePrice: item.priceList,
+          discountType: 'percentage',
+          discountValue: item.priceList > 0 ? Math.round((1 - item.effectiveUnitPrice / item.priceList) * 10000) / 100 : 0
+        }))
+      }));
+      router.push('/vendedores/pedidos?tab=form&client_type=mayoristas');
 
     } catch (err: any) {
-      alert("Error al registrar pedido: " + (err.message || "Error desconocido"));
+      alert("Error al preparar el pedido: " + (err.message || "Error desconocido"));
     } finally {
       setIsCreatingOrder(false);
     }
@@ -1164,18 +1190,24 @@ export default function PresupuestosMayoristaPage() {
                 </button>
               </div>
 
-              <button
-                onClick={handleCreateWholesaleOrder}
-                disabled={isCreatingOrder || cartItems.length === 0}
-                className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-2xl text-xs font-black transition-all flex items-center justify-center gap-2 shadow-md shadow-blue-600/20 cursor-pointer"
-              >
-                {isCreatingOrder ? (
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Package className="w-4 h-4" />
-                )}
-                <span>{isCreatingOrder ? "Registrando Pedido..." : "Generar Pedido Mayorista"}</span>
-              </button>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  onClick={handleSaveWholesaleQuote}
+                  disabled={isCreatingOrder || cartItems.length === 0 || !selectedClient}
+                  className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-2xl text-xs font-black transition-all flex items-center justify-center gap-2 shadow-md shadow-emerald-600/20 cursor-pointer"
+                >
+                  <FileText className="w-4 h-4" />
+                  <span>{isCreatingOrder ? "Guardando..." : "Guardar Presupuesto"}</span>
+                </button>
+                <button
+                  onClick={handleCreateWholesaleOrder}
+                  disabled={isCreatingOrder || cartItems.length === 0 || !selectedClient}
+                  className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-2xl text-xs font-black transition-all flex items-center justify-center gap-2 shadow-md shadow-blue-600/20 cursor-pointer"
+                >
+                  {isCreatingOrder ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Package className="w-4 h-4" />}
+                  <span>{isCreatingOrder ? "Preparando..." : "Convertir en Pedido"}</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
