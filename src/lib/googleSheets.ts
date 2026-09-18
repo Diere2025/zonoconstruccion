@@ -280,86 +280,8 @@ function normalizeFreightForSheet(freight?: string | null): string {
   return '⚪ Flete Regular';
 }
 
-function normalizeProductNameForSheet(name: string, sku?: string): string {
-  const lowerName = (name || '').toLowerCase();
-  const lowerSku = (sku || '').toLowerCase();
-
-  // 1. If it's a base, map to the exact dropdown string in DATABASE!A:A
-  if (lowerName.includes('base') || lowerSku.includes('base')) {
-    if (lowerName.includes('74') || lowerSku.includes('74')) return 'Base Hierro Reforzada 74 cms';
-    if (lowerName.includes('85') || lowerSku.includes('85')) return 'Base Hierro Reforzada 85 cms';
-    if (lowerName.includes('102') || lowerSku.includes('102')) return 'Base Hierro Reforzada 102 cms';
-    if (lowerName.includes('145') || lowerSku.includes('145')) return 'Base Hierro Reforzada 145 cms';
-    if (sku && !sku.startsWith('AUTO-')) return sku;
-  }
-
-  // 2. If it's Flotante Eco Varilla Plástica 1/2", ensure quotes are preserved/added
-  if (lowerName.includes('flotante') && lowerName.includes('eco') && (lowerName.includes('1/2') || lowerSku.includes('1/2'))) {
-    return 'Flotante Eco Varilla Plástica 1/2"';
-  }
-
-  // 3. If it's TurboFlex with quotes
-  if (lowerName.includes('turboflex') && lowerName.includes('40cm')) {
-    return 'TurboFlex 3/4" x 40cm con rosca normal - Macho fijo';
-  }
-  if (lowerName.includes('turboflex') && lowerName.includes('60cm')) {
-    return 'TurboFlex 3/4" x 60cm con rosca normal - Macho fijo';
-  }
-
-  // 4. BioFort equipment normalization to exact DATABASE!A:A strings
-  if (lowerName.includes('biodigestor') && !lowerName.includes('kit')) {
-    if (lowerName.includes('500')) return 'BioFort - Biodigestor 500L';
-    if (lowerName.includes('600')) return 'BioFort - Biodigestor 600L';
-    if (lowerName.includes('750')) return 'BioFort - Biodigestor 750L';
-    if (lowerName.includes('1000')) return 'BioFort - Biodigestor 1000L';
-    if (lowerName.includes('3000')) return 'BioFort - Biodigestor 3000L';
-  }
-  if (lowerName.includes('autolimpiable') && lowerName.includes('700') && !lowerName.includes('kit')) {
-    return 'BioFort - Autolimpiable 700L';
-  }
-  if (lowerName.includes('lodos')) {
-    return 'BioFort - Registro Lodos';
-  }
-  if ((lowerName.includes('séptica') || lowerName.includes('septica')) && !lowerName.includes('kit')) {
-    if (lowerName.includes('500')) return 'BioFort - Séptica 500L';
-    if (lowerName.includes('600')) return 'BioFort - Séptica 600L';
-    if (lowerName.includes('750')) return 'BioFort - Séptica 750L';
-    if (lowerName.includes('1000')) return 'BioFort - Séptica 1000L';
-    if (lowerName.includes('3000')) return 'BioFort - Séptica 3000L';
-  }
-  if (lowerName.includes('desengrasadora') && lowerName.includes('canasto')) {
-    return 'WP - Camara Desengrasadora C/canasto';
-  }
-  if (lowerName.includes('cámara de inspección') || lowerName.includes('camara de inspeccion') || lowerName.includes('cii')) {
-    return 'WP Kit cámara de inspección CII';
-  }
-  if (lowerName.includes('biolam')) {
-    return 'Biolam - Concentrado Enzimático 500g';
-  }
-  if (lowerName.includes('lusqtoff') && lowerName.includes('lubricante')) {
-    return 'Lusqtoff - Aerosol lubricante';
-  }
-  if (lowerName.includes('sombrero') && lowerName.includes('110')) {
-    return 'Awaduct - Sombrero 110';
-  }
-  if (lowerName.includes('descuento combo biodigestor') || lowerName.includes('descuento combo bio')) {
-    return 'Descuento Combo Biodigestor';
-  }
-  if (lowerName.includes('descuento') && lowerName.includes('bomba')) {
-    return 'Descuento - Bombas';
-  }
-  if (lowerName.includes('descuento') && (lowerName.includes('mayorista') || lowerName.includes('general') || lowerName.includes('pedido') || lowerName.includes('compra'))) {
-    return 'Descuento Compra Mayorista';
-  }
-  if (lowerName.includes('descuento') && lowerName.includes('mep')) {
-    if (lowerName.includes('x12') || lowerName.includes('12')) return 'Descuento - MEP x12';
-    if (lowerName.includes('x6') || lowerName.includes('6')) return 'Descuento - MEP x6';
-    if (lowerName.includes('x3') || lowerName.includes('3')) return 'Descuento - MEP x3';
-    if (lowerName.includes('x2') || lowerName.includes('2')) return 'Descuento - MEP x2';
-  }
-
-  return name;
-}
+export { normalizeProductNameForSheet, VALID_SHEET_PRODUCTS } from './sheetProducts';
+import { normalizeProductNameForSheet } from './sheetProducts';
 
 export function buildSheetOrderItems(
   orderItems: Array<{
@@ -374,29 +296,52 @@ export function buildSheetOrderItems(
     basePrice?: number;
     discountType?: 'percentage' | 'fixed';
     discountValue?: number;
+    isIncludedInKit?: boolean;
+    bundleParentId?: string;
   }>,
   orderDiscountAmount: number = 0,
   productsCatalog?: Array<{ id: string; price: number; name?: string; sku?: string }>
 ): SheetOrderItem[] {
   if (!orderItems || orderItems.length === 0) {
-    if (orderDiscountAmount > 0) {
-      return [{
-        name: 'Descuento Compra Mayorista',
-        sku: 'Descuento Compra Mayorista',
-        quantity: 1,
-        unitPrice: -Math.round(orderDiscountAmount)
-      }];
-    }
     return [];
   }
 
   const resultItems: SheetOrderItem[] = [];
-  let bioFortSavings = 0;
-  let mayoristaSavings = Math.max(0, orderDiscountAmount || 0);
+  let discountToAllocate = Math.max(0, orderDiscountAmount || 0);
+
+  // Detectar si el pedido contiene un Kit de Instalación
+  const hasInstallationKit = orderItems.some(item => {
+    const rawName = item.product_name || item.name || '';
+    const rawSku = item.sku || '';
+    const nameLower = rawName.toLowerCase();
+    const skuLower = rawSku.toLowerCase();
+    const isExplicitDiscount = nameLower.includes('descuento') ||
+                               skuLower.includes('descuento') ||
+                               nameLower.includes('bonificaci') ||
+                               skuLower.includes('bonificaci');
+    if (isExplicitDiscount) return false;
+    return nameLower.includes('kit instalaci') ||
+           nameLower.includes('kit de instalaci') ||
+           skuLower.includes('kit instalaci') ||
+           skuLower.includes('kit de instalaci') ||
+           (nameLower.startsWith('kit ') && !nameLower.includes('herramienta'));
+  });
 
   for (const item of orderItems) {
     const rawName = item.product_name || item.name || '';
-    const rawSku = item.sku || '';
+    let rawSku = item.sku || '';
+
+    // Resolver producto del catálogo usando product_id, id, sku o nombre
+    const prodId = (item as any).product_id || item.id;
+    const catalogProduct = (productsCatalog && productsCatalog.length > 0)
+      ? productsCatalog.find(p => (prodId && p.id === prodId) || (rawSku && p.sku === rawSku) || (rawName && p.name === rawName))
+      : undefined;
+
+    // Si falta SKU o es automático AUTO-*, adoptar el SKU del catálogo
+    if ((!rawSku || rawSku.startsWith('AUTO-')) && catalogProduct?.sku && !catalogProduct.sku.startsWith('AUTO-')) {
+      rawSku = catalogProduct.sku;
+    }
+
     const nameLower = rawName.toLowerCase();
     const skuLower = rawSku.toLowerCase();
     const qty = item.quantity || 1;
@@ -409,90 +354,78 @@ export function buildSheetOrderItems(
                                currentPrice < 0;
 
     if (isExplicitDiscount) {
-      // Si ya viene un "Descuento Combo Biodigestor" como ítem explícito, acumular su ahorro
-      if (nameLower.includes('combo') && (nameLower.includes('bio') || nameLower.includes('biodigestor'))) {
-        bioFortSavings += Math.abs(currentPrice) * qty;
-        continue;
-      }
+      // Compatibilidad con pedidos viejos: cualquier descuento que llegue como
+      // renglón se transforma en ajuste del pedido y luego se prorratea entre
+      // los productos reales. Nunca vuelve a Google Sheets como un producto.
+      discountToAllocate += Math.abs(currentPrice) * qty;
+      continue;
+    }
 
-      // Si ya viene un "Descuento Compra Mayorista" o "Descuento General", acumular al descuento mayorista
-      if (nameLower.includes('mayorista') || nameLower.includes('general') || nameLower.includes('compra')) {
-        mayoristaSavings += Math.abs(currentPrice) * qty;
-        continue;
-      }
+    // Verificar si es un ítem incluido en un Kit de Instalación o producto bonificado a $0
+    const isKitProduct = (nameLower.includes('kit instalaci') || nameLower.includes('kit de instalaci') || (nameLower.includes('kit') && nameLower.includes('instalaci'))) && !isExplicitDiscount;
+    const isIncludedInKitOrZero = !isKitProduct && (
+      Boolean(item.isIncludedInKit) ||
+      Boolean(item.bundleParentId) ||
+      currentPrice === 0 ||
+      (hasInstallationKit && (item.basePrice === 0 || currentPrice === 0))
+    );
 
-      // Otras bonificaciones oficiales de planilla (MEP x2, x3, x6, x12, Bombas, Escaleras, etc.)
+    if (isIncludedInKitOrZero) {
+      // En pedidos de instalaciones, los productos incluidos en el kit básico salen en $0
+      // sin generar diferencias de precio de lista ni descuentos mayoristas.
       resultItems.push({
         name: normalizeProductNameForSheet(rawName, rawSku),
         sku: rawSku || undefined,
         quantity: qty,
-        unitPrice: -Math.abs(currentPrice)
+        unitPrice: 0
       });
       continue;
     }
 
-    // Para productos normales: determinar precio de lista
-    let listPrice = (item.basePrice !== undefined && item.basePrice > 0) ? item.basePrice : 0;
-    if (!listPrice && productsCatalog && productsCatalog.length > 0) {
-      const found = productsCatalog.find(p => p.id === item.id || (item.sku && p.sku === item.sku) || (rawName && p.name === rawName));
-      if (found && found.price) {
-        listPrice = found.price;
-      }
+    // Los descuentos por producto ya están reflejados en customPrice/unit_price.
+    // Ese precio neto es el que debe viajar a la planilla.
+    let effectivePrice = currentPrice;
+    if (effectivePrice === 0 && item.customPrice === undefined && item.unit_price === undefined) {
+      effectivePrice = item.price ?? item.basePrice ?? catalogProduct?.price ?? 0;
     }
-    if (!listPrice) {
-      listPrice = Math.max(0, currentPrice);
-    }
-
-    // Calcular ahorro si el producto tiene precio con descuento
-    const priceDiff = listPrice - currentPrice;
-    if (priceDiff > 0) {
-      // Verificar si es parte de un combo BioFort (15% OFF en equipos y accesorios de saneamiento)
-      const isBioComponent = nameLower.includes('biodigestor') || 
-                             nameLower.includes('autolimpiable') || 
-                             nameLower.includes('séptica') || 
-                             nameLower.includes('septica') || 
-                             nameLower.includes('lodos') || 
-                             nameLower.includes('inspección') || 
-                             nameLower.includes('inspeccion') || 
-                             nameLower.includes('cii') || 
-                             nameLower.includes('biolam') || 
-                             nameLower.includes('desengrasadora') || 
-                             nameLower.includes('desgrasadora');
-      
-      if (isBioComponent && item.discountValue === 15) {
-        bioFortSavings += priceDiff * qty;
-      } else {
-        mayoristaSavings += priceDiff * qty;
-      }
-    }
-
-    // En planilla SIEMPRE se registra el producto con su precio de lista
     resultItems.push({
       name: normalizeProductNameForSheet(rawName, rawSku),
       sku: rawSku || undefined,
       quantity: qty,
-      unitPrice: listPrice
+      unitPrice: Math.max(0, effectivePrice)
     });
   }
 
-  // Si hay ahorro por Combo BioFort, agregar la línea consolidada 'Descuento Combo Biodigestor'
-  if (bioFortSavings > 0) {
-    resultItems.push({
-      name: 'Descuento Combo Biodigestor',
-      sku: 'Descuento Combo Biodigestor',
-      quantity: 1,
-      unitPrice: -Math.round(bioFortSavings)
+  // Google Sheets no tiene una columna propia para el descuento total. Para
+  // conservar el total sin inventar un producto, se reparte proporcionalmente
+  // entre los renglones cobrables. Se permiten centavos para cerrar exacto.
+  const eligible = resultItems
+    .map((item, index) => ({ index, gross: Math.max(0, Number(item.unitPrice) * Math.max(1, Number(item.quantity) || 1)) }))
+    .filter(item => item.gross > 0);
+  const grossTotal = eligible.reduce((sum, item) => sum + item.gross, 0);
+  const targetNetTotal = Math.round((grossTotal - Math.min(discountToAllocate, grossTotal)) * 100) / 100;
+  let remaining = Math.min(discountToAllocate, grossTotal);
+  if (remaining > 0 && grossTotal > 0) {
+    eligible.forEach((entry, position) => {
+      const item = resultItems[entry.index];
+      const quantity = Math.max(1, Number(item.quantity) || 1);
+      const allocation = position === eligible.length - 1
+        ? remaining
+        : Math.round((discountToAllocate * entry.gross / grossTotal) * 100) / 100;
+      const applied = Math.min(entry.gross, allocation);
+      item.unitPrice = Math.round(((entry.gross - applied) / quantity) * 10000) / 10000;
+      remaining = Math.max(0, Math.round((remaining - applied) * 100) / 100);
     });
-  }
-
-  // Si hay ahorro negociado (al total del pedido o por productos personalizados), agregar 'Descuento Compra Mayorista'
-  if (mayoristaSavings > 0) {
-    resultItems.push({
-      name: 'Descuento Compra Mayorista',
-      sku: 'Descuento Compra Mayorista',
-      quantity: 1,
-      unitPrice: -Math.round(mayoristaSavings)
-    });
+    const resultingNetTotal = eligible.reduce((sum, entry) => {
+      const item = resultItems[entry.index];
+      return sum + Number(item.unitPrice) * Math.max(1, Number(item.quantity) || 1);
+    }, 0);
+    const residual = Math.round((targetNetTotal - resultingNetTotal) * 10000) / 10000;
+    if (residual !== 0) {
+      const last = resultItems[eligible[eligible.length - 1].index];
+      const quantity = Math.max(1, Number(last.quantity) || 1);
+      last.unitPrice = Math.round((Number(last.unitPrice) + residual / quantity) * 10000) / 10000;
+    }
   }
 
   return resultItems;
@@ -557,18 +490,6 @@ const PRODUCT_SLOT_RANGES: [string, string][] = [
   ['BW', 'BY']
 ];
 
-function splitOrderItemsForRows(order: SheetOrderPayload, rowCount: number): SheetOrderItem[][] {
-  const items = order.items || [];
-  const maxItems = rowCount * PRODUCT_SLOT_RANGES.length;
-  if (items.length > maxItems) {
-    throw new Error(`El pedido tiene ${items.length} productos y las ${rowCount} filas disponibles admiten ${maxItems}`);
-  }
-  return Array.from(
-    { length: rowCount },
-    (_, index) => items.slice(index * PRODUCT_SLOT_RANGES.length, (index + 1) * PRODUCT_SLOT_RANGES.length)
-  );
-}
-
 export const CENTRAL_ORDERS_SHEET = {
   spreadsheetId: '1nz545_xNUgdI2LMAGIDCjh6Qs8-vUDHdynzj7jU2wm0',
   sheetName: 'Central pedidos',
@@ -599,10 +520,7 @@ export interface OperationalSheetsSyncResult {
 }
 
 function shiftColumn(column: string, offset: number): string {
-  let value = 0;
-  for (const char of column) {
-    value = value * 26 + char.charCodeAt(0) - 64;
-  }
+  let value = columnToNumber(column);
   value += offset;
   if (value < 1) throw new Error(`Desplazamiento inválido para la columna ${column}`);
 
@@ -615,8 +533,92 @@ function shiftColumn(column: string, offset: number): string {
   return result;
 }
 
+function columnToNumber(column: string): number {
+  let value = 0;
+  for (const char of column) {
+    value = value * 26 + char.charCodeAt(0) - 64;
+  }
+  return value;
+}
+
 function makeRange(sheetName: string, startColumn: string, endColumn: string, rowNumber: number, columnOffset: number): string {
   return `'${sheetName}'!${shiftColumn(startColumn, columnOffset)}${rowNumber}:${shiftColumn(endColumn, columnOffset)}${rowNumber}`;
+}
+
+const CALCULATED_COLUMNS = ['Z', 'AC', 'AD', 'AH', 'AL', 'AP', 'AT', 'AX', 'BB', 'BF', 'BJ', 'BN', 'BR', 'BV', 'BZ'];
+
+function buildCalculatedFormula(baseColumn: string, rowNumber: number, columnOffset: number): string {
+  const column = shiftColumn(baseColumn, columnOffset);
+  if (baseColumn === 'Z') {
+    return `=IF(${shiftColumn('V', columnOffset)}${rowNumber}="";0;${shiftColumn('AC', columnOffset)}${rowNumber}*VLOOKUP(${shiftColumn('V', columnOffset)}${rowNumber};'BD Recargos'!$A:$B;2;FALSE))`;
+  }
+  if (baseColumn === 'AC') {
+    return `=${['AH', 'AL', 'AP', 'AT', 'AX', 'BB', 'BF', 'BJ', 'BN', 'BR', 'BV', 'BZ'].map(item => `${shiftColumn(item, columnOffset)}${rowNumber}`).join('+')}`;
+  }
+  if (baseColumn === 'AD') {
+    return `=${shiftColumn('AC', columnOffset)}${rowNumber}+${shiftColumn('Z', columnOffset)}${rowNumber}-${shiftColumn('Y', columnOffset)}${rowNumber}+${shiftColumn('AB', columnOffset)}${rowNumber}`;
+  }
+  return `=${shiftColumn(column, -2)}${rowNumber}*${shiftColumn(column, -1)}${rowNumber}`;
+}
+
+async function restoreMissingCalculatedFormulas(
+  spreadsheetId: string,
+  sheetName: string,
+  rowNumber: number,
+  columnOffset: number,
+  token: string
+): Promise<void> {
+  const firstColumn = shiftColumn('Z', columnOffset);
+  const lastColumn = shiftColumn('BZ', columnOffset);
+  const encodedRange = encodeURIComponent(`'${sheetName}'!${firstColumn}${rowNumber}:${lastColumn}${rowNumber}`);
+  const response = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodedRange}?valueRenderOption=FORMULA`,
+    { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' }
+  );
+  if (!response.ok) {
+    throw new Error(`No se pudieron verificar fórmulas (${response.status})`);
+  }
+
+  const data = await response.json();
+  const currentValues: string[] = data.values?.[0] || [];
+  const firstColumnNumber = columnToNumber(firstColumn);
+  const missingFormulas = CALCULATED_COLUMNS.flatMap(baseColumn => {
+    const targetColumn = shiftColumn(baseColumn, columnOffset);
+    const currentValue = currentValues[columnToNumber(targetColumn) - firstColumnNumber];
+    if (typeof currentValue === 'string' && currentValue.startsWith('=')) return [];
+    return [{
+      range: `'${sheetName}'!${targetColumn}${rowNumber}`,
+      values: [[buildCalculatedFormula(baseColumn, rowNumber, columnOffset)]]
+    }];
+  });
+
+  if (missingFormulas.length === 0) return;
+  const restoreResponse = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ valueInputOption: 'USER_ENTERED', data: missingFormulas })
+  });
+  if (!restoreResponse.ok) {
+    throw new Error(`No se pudieron restaurar fórmulas (${restoreResponse.status})`);
+  }
+}
+
+function assertOnlyDataCellsAreWritten(
+  batchData: Array<{ range: string }>,
+  columnOffset: number
+): void {
+  for (const update of batchData) {
+    const columns = update.range.match(/!([A-Z]+)\d+(?::([A-Z]+)\d+)?$/);
+    if (!columns) continue;
+    const start = columnToNumber(columns[1]);
+    const end = columnToNumber(columns[2] || columns[1]);
+    const formulaColumn = CALCULATED_COLUMNS
+      .map(column => columnToNumber(shiftColumn(column, columnOffset)))
+      .find(column => column >= start && column <= end);
+    if (formulaColumn !== undefined) {
+      throw new Error(`La actualización intentó escribir una columna calculada (${update.range})`);
+    }
+  }
 }
 
 function buildOrderUpdateBatchData(
@@ -677,21 +679,37 @@ function buildOrderUpdateBatchData(
   return batchData;
 }
 
-async function findOrderRowInSheet(
+async function findOrderRowsInSheet(
   spreadsheetId: string,
   sheetName: string,
   codeColumn: string,
   legacyCode: string
-): Promise<{ rowNumber: number; code: string } | null> {
+): Promise<Array<{ rowNumber: number; code: string }>> {
   const rows = await fetchSpreadsheetValues(spreadsheetId, `'${sheetName}'!${codeColumn}2:${codeColumn}`);
   const codesToSearch = legacyCode.split(/[\/,]/).map(code => code.trim().toUpperCase()).filter(Boolean);
+  const matches = new Map<string, { rowNumber: number; code: string }>();
   for (let index = 0; index < rows.length; index++) {
     const currentCode = (rows[index]?.[0] || '').trim().toUpperCase();
-    if (codesToSearch.includes(currentCode)) {
-      return { rowNumber: index + 2, code: currentCode };
+    if (codesToSearch.includes(currentCode) && !matches.has(currentCode)) {
+      matches.set(currentCode, { rowNumber: index + 2, code: currentCode });
     }
   }
-  return null;
+  return codesToSearch.flatMap(code => {
+    const match = matches.get(code);
+    return match ? [match] : [];
+  });
+}
+
+function splitOrderItemsForRows(order: SheetOrderPayload, rowCount: number): SheetOrderItem[][] {
+  const items = order.items || [];
+  const maxItems = rowCount * PRODUCT_SLOT_RANGES.length;
+  if (items.length > maxItems) {
+    throw new Error(`El pedido tiene ${items.length} productos y las ${rowCount} filas disponibles admiten ${maxItems}`);
+  }
+  return Array.from(
+    { length: rowCount },
+    (_, index) => items.slice(index * PRODUCT_SLOT_RANGES.length, (index + 1) * PRODUCT_SLOT_RANGES.length)
+  );
 }
 
 async function updateOrderInOperationalSheet(
@@ -705,24 +723,33 @@ async function updateOrderInOperationalSheet(
   statusOverride?: string
 ): Promise<OperationalSheetSyncResult> {
   try {
-    const target = await findOrderRowInSheet(spreadsheetId, sheetName, codeColumn, legacyCode);
-    if (!target) {
+    const targets = await findOrderRowsInSheet(spreadsheetId, sheetName, codeColumn, legacyCode);
+    if (targets.length === 0) {
       return { success: false, sheetName, message: `No se encontró el pedido ${legacyCode} en la hoja ${sheetName}` };
     }
 
     const token = await getGoogleAccessToken();
+    const itemChunks = splitOrderItemsForRows(order, targets.length);
+    const batchData = targets.flatMap((target, index) => {
+      const orderForRow = { ...order, items: itemChunks[index] };
+      return buildOrderUpdateBatchData(sheetName, target.rowNumber, orderForRow, logisticsObservation, columnOffset, statusOverride);
+    });
+    await Promise.all(targets.map(target =>
+      restoreMissingCalculatedFormulas(spreadsheetId, sheetName, target.rowNumber, columnOffset, token)
+    ));
+    assertOnlyDataCellsAreWritten(batchData, columnOffset);
     const updateRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         valueInputOption: 'USER_ENTERED',
-        data: buildOrderUpdateBatchData(sheetName, target.rowNumber, order, logisticsObservation, columnOffset, statusOverride)
+        data: batchData
       })
     });
     if (!updateRes.ok) {
       throw new Error(`Google Sheets respondió ${updateRes.status}`);
     }
-    return { success: true, sheetName, rowNumber: target.rowNumber };
+    return { success: true, sheetName, rowNumber: targets[0].rowNumber };
   } catch (error) {
     console.error(`[GoogleSheets] No se pudo sincronizar ${sheetName}:`, error);
     return { success: false, sheetName, message: `No se pudo actualizar ${sheetName} (sin acceso o error de Google Sheets)` };
@@ -960,6 +987,8 @@ export async function appendOrderToSellerSheet(
       });
     }
 
+    await restoreMissingCalculatedFormulas(spreadsheetId, sheetName, rowNumber, 0, token);
+    assertOnlyDataCellsAreWritten(batchData, 0);
     const updateRes = await fetch(
       `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`,
       {
@@ -1175,6 +1204,7 @@ async function appendOrderToOperationalSheet(
     // Central y Entregas Actual ya tienen las fórmulas preconfiguradas en sus
     // filas plantilla. No intentamos recrearlas al dar de alta un pedido: esas
     // columnas pueden estar protegidas y no intervienen en la carga de datos.
+    assertOnlyDataCellsAreWritten(batchData, columnOffset);
     const response = await fetch(
       `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`,
       {
@@ -1265,6 +1295,33 @@ export const SELLER_SHEET_CONFIG: Record<string, { spreadsheetId: string; sheetN
   }
 };
 
+export async function getOrderStatusInSellerSheet(
+  spreadsheetId: string,
+  sheetName: string = 'Pendientes',
+  legacyCode: string
+): Promise<string | null> {
+  const rows = await fetchSpreadsheetValues(spreadsheetId, `'${sheetName}'!A2:B`);
+  const codesToSearch = legacyCode
+    .split(/[\/,]/)
+    .map(code => code.trim().toUpperCase())
+    .filter(Boolean);
+
+  const matchingRow = rows.find(row => {
+    const currentCode = (row[1] || '').trim().toUpperCase();
+    return currentCode && codesToSearch.some(code => code === currentCode);
+  });
+
+  return matchingRow ? (matchingRow[0] || '').trim() : null;
+}
+
+export function isSellerOrderNotYetProcessed(status: string | null): boolean {
+  return (status || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase() === 'no esta';
+}
+
 export async function updateOrderInSellerSheet(
   spreadsheetId: string,
   sheetName: string = 'Pendientes',
@@ -1288,7 +1345,7 @@ export async function updateOrderInSellerSheet(
     .map(c => c.trim().toUpperCase())
     .filter(Boolean);
 
-  let targetRowIndex = -1;
+  const targetRows: Array<{ rowNumber: number; code: string }> = [];
   let matchedCode = '';
 
   for (let i = 0; i < rows.length; i++) {
@@ -1296,13 +1353,12 @@ export async function updateOrderInSellerSheet(
     if (!currentCode) continue;
 
     if (codesToSearch.some(c => c === currentCode)) {
-      targetRowIndex = i;
-      matchedCode = currentCode;
-      break;
+      targetRows.push({ rowNumber: i + 2, code: currentCode });
+      if (!matchedCode) matchedCode = currentCode;
     }
   }
 
-  if (targetRowIndex === -1) {
+  if (targetRows.length === 0) {
     return {
       success: false,
       rowNumber: -1,
@@ -1311,81 +1367,26 @@ export async function updateOrderInSellerSheet(
     };
   }
 
-  const rowNumber = targetRowIndex + 2;
-
-  const formattedDeliveryDate = formatDateForSheet(order.deliveryDate);
-  const formattedOrderDate = formatDateForSheet(order.orderDate);
-  const formattedMaxDeliveryDate = formatDateForSheet(order.maxDeliveryDate);
-
-  // Armar notas: notas existentes (limpiando cualquier residuo de cobrar al entregar)
-  let cleanNotes = (order.deliveryNotes || '').trim();
-  cleanNotes = cleanNotes.replace(/(?:Cobrar al entregar|Saldo al entregar|Seña:)[^/]+/gi, '').trim();
-  cleanNotes = cleanNotes.replace(/^[\/\-\s]+|[\/\-\s]+$/g, '').trim();
-
-  // Las observaciones para logística son únicamente para Telegram; no se agregan a las notas de la planilla.
-
-  const depositAmount = order.depositOrPaidAmount ?? 0;
-  const freightCost = order.freightCost ?? 0;
-  const paymentStatus = order.paymentStatus || 'No Abonado';
+  const rowNumber = targetRows[0].rowNumber;
 
   // En la planilla, Columna Q: 'Modificado' o valor sobrescrito (ej. '❌ Anulado')
   const sheetStatus = statusOverride || 'Modificado';
 
-  const batchData: Array<{ range: string; values: any[][] }> = [
-    {
-      range: `'${sheetName}'!C${rowNumber}:E${rowNumber}`,
-      values: [[formattedDeliveryDate, formattedOrderDate, formattedMaxDeliveryDate]]
-    },
-    {
-      range: `'${sheetName}'!F${rowNumber}:H${rowNumber}`,
-      values: [[order.clientName || '', order.phonePrimary || '', order.phoneSecondary || '']]
-    },
-    {
-      range: `'${sheetName}'!I${rowNumber}:K${rowNumber}`,
-      values: [[order.whaticketLink || '', order.source || 'Publicidad Meta', cleanNotes]]
-    },
-    {
-      range: `'${sheetName}'!L${rowNumber}:M${rowNumber}`,
-      values: [[order.medium || '', normalizeSellerNameForSheet(order.sellerName)]]
-    },
-    {
-      range: `'${sheetName}'!Q${rowNumber}:T${rowNumber}`,
-      values: [[sheetStatus, normalizeLocalityForSheet(order.locality), order.address || '', order.mapsLink || '']]
-    },
-    {
-      range: `'${sheetName}'!U${rowNumber}:W${rowNumber}`,
-      values: [[normalizeCategoryForSheet(order.category), order.paymentMethod || '', order.identification || '']]
-    },
-    {
-      range: `'${sheetName}'!X${rowNumber}:Y${rowNumber}`,
-      values: [[paymentStatus, depositAmount]]
-    },
-    {
-      range: `'${sheetName}'!AA${rowNumber}:AB${rowNumber}`,
-      values: [[normalizeFreightForSheet(order.freightType), freightCost]]
-    }
-  ];
-
-  // Actualizar los 12 slots de productos: los que tienen ítem se escriben, los vacíos se limpian con ''
-  const items = order.items || [];
-  for (let i = 0; i < PRODUCT_SLOT_RANGES.length; i++) {
-    const [startCol, endCol] = PRODUCT_SLOT_RANGES[i];
-    if (i < items.length) {
-      const item = items[i];
-      const finalProdName = normalizeProductNameForSheet(item.name, item.sku);
-      batchData.push({
-        range: `'${sheetName}'!${startCol}${rowNumber}:${endCol}${rowNumber}`,
-        values: [[finalProdName, item.quantity || 1, item.unitPrice || 0]]
-      });
-    } else {
-      // Limpiar slot sobrante
-      batchData.push({
-        range: `'${sheetName}'!${startCol}${rowNumber}:${endCol}${rowNumber}`,
-        values: [['', '', '']]
-      });
-    }
-  }
-
+  const itemChunks = splitOrderItemsForRows(order, targetRows.length);
+  const allBatchData = targetRows.flatMap((target, index) =>
+    buildOrderUpdateBatchData(
+      sheetName,
+      target.rowNumber,
+      { ...order, items: itemChunks[index] },
+      logisticsObservation,
+      0,
+      sheetStatus
+    )
+  );
+  await Promise.all(targetRows.map(target =>
+    restoreMissingCalculatedFormulas(spreadsheetId, sheetName, target.rowNumber, 0, token)
+  ));
+  assertOnlyDataCellsAreWritten(allBatchData, 0);
   const updateRes = await fetch(
     `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`,
     {
@@ -1396,7 +1397,7 @@ export async function updateOrderInSellerSheet(
       },
       body: JSON.stringify({
         valueInputOption: 'USER_ENTERED',
-        data: batchData
+        data: allBatchData
       })
     }
   );
@@ -1407,9 +1408,11 @@ export async function updateOrderInSellerSheet(
   }
 
   // Formatear celda de notas (Columna K) con fondo amarillo y texto negro en negrita si hay notas
-  if (cleanNotes && cleanNotes.trim().length > 0) {
+  if (order.deliveryNotes?.trim()) {
     try {
-      await formatSheetNoteCell(spreadsheetId, sheetName, rowNumber, token);
+      await Promise.all(targetRows.map(target =>
+        formatSheetNoteCell(spreadsheetId, sheetName, target.rowNumber, token)
+      ));
     } catch (fErr) {
       console.warn('Could not format note cell in sheet:', fErr);
     }

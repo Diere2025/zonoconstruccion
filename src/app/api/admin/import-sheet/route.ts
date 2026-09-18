@@ -22,6 +22,8 @@ let masterCache: {
   cachedAt: number;
 } | null = null;
 
+let cachedClaimsMap: { map: Map<string, string[]>; cachedAt: number } | null = null;
+
 // Helper normalizers/parsers for import
 const normalizeText = (text: any): string => {
   if (!text) return "";
@@ -258,6 +260,19 @@ export async function POST(request: Request) {
       preloadedDummyOrders = dummyData || [];
     }
 
+    // Preload order_items for existing orders in this chunk to prevent row-by-row queries
+    const existingOrderDbIds = dbOrders.map(o => o.id);
+    let preloadedOrderItems: any[] = [];
+    if (existingOrderDbIds.length > 0) {
+      const { data: itemsData, error: errItems } = await supabaseAdmin
+        .from('order_items')
+        .select('id, order_id, product_name, quantity, unit_price, product_id')
+        .in('order_id', existingOrderDbIds);
+      if (!errItems) {
+        preloadedOrderItems = itemsData || [];
+      }
+    }
+
     // 3. Build Maps
     const sellersMap = new Map();
     dbSellers.forEach(r => sellersMap.set(normalizeText(r.full_name), { id: r.id, is_organic: r.is_organic, full_name: r.full_name }));
@@ -314,67 +329,72 @@ export async function POST(request: Request) {
 
     let claimsMap = new Map<string, string[]>();
     if (!skipCAMB && hasCambOrRecInChunk) {
-      addLog("Descargando planilla general de reclamos para vinculación de cambios...");
-      try {
-        const claimsCsv = await fetchSpreadsheetCsv("https://docs.google.com/spreadsheets/d/1PzbotWVO-iLqV0rPvH2ZlXKkMGYPTIkmBd1owU45OCo/gviz/tq?tqx=out:csv&gid=1414092286");
-        if (claimsCsv) {
-          
-          const parseCSV = (csvText: string) => {
-            const result: string[][] = [];
-            let currentWord = '';
-            let inQuotes = false;
-            let currentRow: string[] = [];
-            const text = csvText.replace(/\r\n/g, '\n');
-            const firstLine = text.split('\n')[0] || '';
-            const delimiter = firstLine.includes(';') ? ';' : ',';
-            for (let i = 0; i < text.length; i++) {
-              const char = text[i];
-              const nextChar = text[i + 1];
-              if (inQuotes) {
-                if (char === '"' && nextChar === '"') {
-                  currentWord += '"';
-                  i++;
-                } else if (char === '"') {
-                  inQuotes = false;
-                } else {
-                  currentWord += char;
-                }
-              } else {
-                if (char === '"') {
-                  inQuotes = true;
-                } else if (char === delimiter) {
-                  currentRow.push(currentWord.trim());
-                  currentWord = '';
-                } else if (char === '\n') {
-                  currentRow.push(currentWord.trim());
-                  if (currentRow.length > 1 || currentRow[0] !== '') {
-                    result.push(currentRow);
+      if (cachedClaimsMap && (Date.now() - cachedClaimsMap.cachedAt < 15 * 60 * 1000)) {
+        claimsMap = cachedClaimsMap.map;
+      } else {
+        addLog("Descargando planilla general de reclamos para vinculación de cambios...");
+        try {
+          const claimsCsv = await fetchSpreadsheetCsv("https://docs.google.com/spreadsheets/d/1PzbotWVO-iLqV0rPvH2ZlXKkMGYPTIkmBd1owU45OCo/gviz/tq?tqx=out:csv&gid=1414092286");
+          if (claimsCsv) {
+            
+            const parseCSV = (csvText: string) => {
+              const result: string[][] = [];
+              let currentWord = '';
+              let inQuotes = false;
+              let currentRow: string[] = [];
+              const text = csvText.replace(/\r\n/g, '\n');
+              const firstLine = text.split('\n')[0] || '';
+              const delimiter = firstLine.includes(';') ? ';' : ',';
+              for (let i = 0; i < text.length; i++) {
+                const char = text[i];
+                const nextChar = text[i + 1];
+                if (inQuotes) {
+                  if (char === '"' && nextChar === '"') {
+                    currentWord += '"';
+                    i++;
+                  } else if (char === '"') {
+                    inQuotes = false;
+                  } else {
+                    currentWord += char;
                   }
-                  currentRow = [];
-                  currentWord = '';
                 } else {
-                  currentWord += char;
+                  if (char === '"') {
+                    inQuotes = true;
+                  } else if (char === delimiter) {
+                    currentRow.push(currentWord.trim());
+                    currentWord = '';
+                  } else if (char === '\n') {
+                    currentRow.push(currentWord.trim());
+                    if (currentRow.length > 1 || currentRow[0] !== '') {
+                      result.push(currentRow);
+                    }
+                    currentRow = [];
+                    currentWord = '';
+                  } else {
+                    currentWord += char;
+                  }
                 }
               }
-            }
-            currentRow.push(currentWord.trim());
-            if (currentRow.length > 1 || currentRow[0] !== '') {
-              result.push(currentRow);
-            }
-            return result;
-          };
+              currentRow.push(currentWord.trim());
+              if (currentRow.length > 1 || currentRow[0] !== '') {
+                result.push(currentRow);
+              }
+              return result;
+            };
 
-          const claimsRows = parseCSV(claimsCsv);
-          for (let i = 1; i < claimsRows.length; i++) {
-            const crow = claimsRows[i];
-            const claimCode = (crow[0] || "").trim().toUpperCase();
-            const orderCodeRef = (crow[3] || "").trim().toUpperCase();
-            if (claimCode) claimsMap.set(claimCode, crow);
-            if (orderCodeRef) claimsMap.set(orderCodeRef, crow);
+            const claimsRows = parseCSV(claimsCsv);
+            for (let i = 1; i < claimsRows.length; i++) {
+              const crow = claimsRows[i];
+              const claimCode = (crow[0] || "").trim().toUpperCase();
+              const orderCodeRef = (crow[3] || "").trim().toUpperCase();
+              if (claimCode) claimsMap.set(claimCode, crow);
+              if (orderCodeRef) claimsMap.set(orderCodeRef, crow);
+            }
+            cachedClaimsMap = { map: claimsMap, cachedAt: Date.now() };
           }
+        } catch (errClaims: any) {
+          addLog(`⚠ Advertencia al descargar planilla de reclamos: ${errClaims.message}`);
         }
-      } catch (errClaims: any) {
-        addLog(`⚠ Error al descargar planilla de reclamos: ${errClaims.message}`);
       }
     }
 
@@ -910,10 +930,7 @@ export async function POST(request: Request) {
         }
 
         if (['Pendiente', 'Confirmado', 'Entregando'].includes(dbOrder.status)) {
-          const { data: dbItems } = await supabaseAdmin
-            .from('order_items')
-            .select('id, product_name, quantity, unit_price, product_id')
-            .eq('order_id', dbOrder.id);
+          const dbItems = preloadedOrderItems.filter(item => item.order_id === dbOrder.id);
 
           const sheetItems = [];
           for (let pIdx = 30; pIdx < row.length; pIdx += 4) {
@@ -985,6 +1002,10 @@ export async function POST(request: Request) {
                 addLog(`  ✅ Artículos re-sincronizados con éxito (${sheetItems.length} items).`);
                 totalItemsImported += sheetItems.length;
                 totalUpdated++;
+                preloadedOrderItems = [
+                  ...preloadedOrderItems.filter(item => item.order_id !== dbOrder.id),
+                  ...sheetItems
+                ];
               }
             }
           }
@@ -1262,9 +1283,9 @@ export async function POST(request: Request) {
   } catch (error: any) {
     console.error('[API Import Sheet] Error:', error);
     let errMsg = error?.message || String(error);
-    if (errMsg.includes('<!DOCTYPE') || errMsg.includes('<html') || errMsg.includes('Cloudflare')) {
+    if (errMsg.includes('<!DOCTYPE') || errMsg.includes('<html') || (errMsg.includes('Cloudflare') && errMsg.includes('Timeout'))) {
       errMsg = 'Error de conexión con la base de datos Supabase al procesar los pedidos (Cloudflare/Timeout). Intenta nuevamente.';
     }
-    return NextResponse.json({ error: errMsg }, { status: 500 });
+    return NextResponse.json({ error: errMsg, details: error?.message || null }, { status: 500 });
   }
 }

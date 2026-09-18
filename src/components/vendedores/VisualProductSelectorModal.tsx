@@ -68,6 +68,7 @@ interface VisualProductSelectorModalProps {
   onUpdateOrderDiscount?: (type: 'percentage' | 'fixed', value: number) => void;
   onApplyDiscountSuggestion?: (sug: DiscountSuggestion) => void;
   isAdmin?: boolean;
+  isWholesaleContext?: boolean;
 }
 
 export default function VisualProductSelectorModal({
@@ -88,7 +89,8 @@ export default function VisualProductSelectorModal({
   orderDiscountValue = 0,
   onUpdateOrderDiscount,
   onApplyDiscountSuggestion,
-  isAdmin = false
+  isAdmin = false,
+  isWholesaleContext = false
 }: VisualProductSelectorModalProps) {
   const [config, setConfig] = useState<VisualCatalogConfig | null>(null);
   const [loading, setLoading] = useState(true);
@@ -372,6 +374,26 @@ export default function VisualProductSelectorModal({
     setTimeout(() => setAddedFeedback(null), 1200);
   };
 
+  const handleQuickVariantAdd = (
+    event: React.MouseEvent | undefined,
+    item: VisualItemOption,
+    variant: 'standard' | 'ciego'
+  ) => {
+    event?.stopPropagation();
+    const productId = variant === 'ciego' ? item.ciegoProductId : item.productId;
+    const product = products.find(candidate => candidate.id === productId);
+    if (!product) {
+      alert(`No se encontró la variante ${variant === 'ciego' ? 'ciega' : 'estándar'} en la Lista 12.`);
+      return;
+    }
+    const finalProduct = !isWholesaleContext && item.price !== undefined
+      ? { ...product, price: item.price, customPrice: item.price }
+      : product;
+    onAddProduct(finalProduct as Product);
+    setAddedFeedback(`¡${item.label} ${variant === 'ciego' ? 'ciego' : 'estándar'} agregado!`);
+    setTimeout(() => setAddedFeedback(null), 900);
+  };
+
   // Quick add from search result
   const handleAddSearchItem = (p: Product) => {
     onAddProduct(p);
@@ -461,7 +483,7 @@ export default function VisualProductSelectorModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-sm p-1.5 sm:p-2.5 md:p-3.5 overflow-hidden animate-in fade-in duration-200">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200/90 w-full max-w-[98vw] 2xl:max-w-[1760px] h-[96vh] flex flex-col overflow-hidden">
+      <div className="relative bg-white rounded-2xl shadow-2xl border border-slate-200/90 w-full max-w-[98vw] 2xl:max-w-[1760px] h-[96vh] flex flex-col overflow-hidden">
         
         {/* ======================= MODAL HEADER ======================= */}
         <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between bg-gradient-to-r from-slate-50 via-white to-slate-50 shrink-0">
@@ -531,7 +553,7 @@ export default function VisualProductSelectorModal({
 
         {/* FEEDBACK BANNER */}
         {addedFeedback && (
-          <div className="bg-emerald-600 text-white py-2 px-4 text-center font-black text-xs flex items-center justify-center gap-2 animate-in slide-in-from-top duration-150 shrink-0">
+          <div className="pointer-events-none absolute right-4 top-[4.5rem] z-40 max-w-[calc(100%-2rem)] rounded-xl bg-emerald-600 px-4 py-2 text-center text-xs font-black text-white shadow-lg animate-in slide-in-from-top duration-150 flex items-center justify-center gap-2">
             <Check className="w-4 h-4" />
             <span>{addedFeedback}</span>
           </div>
@@ -910,7 +932,11 @@ export default function VisualProductSelectorModal({
                             return (
                               <div
                                 key={item.id}
-                                onClick={() => {
+                                onClick={(event) => {
+                                  if (isWholesaleContext && item.allowCiego) {
+                                    handleQuickVariantAdd(event, item, 'standard');
+                                    return;
+                                  }
                                   if (item.allowCiego || item.recommendedBaseCm) {
                                     setSelectedItem(item);
                                   } else {
@@ -954,18 +980,49 @@ export default function VisualProductSelectorModal({
                                     ) : (
                                       <p className="text-[10px] font-bold text-slate-400">Consultar</p>
                                     )}
-                                    <span className="text-[9px] font-bold text-slate-400">
-                                      {item.allowCiego || item.recommendedBaseCm ? 'Configurar' : 'Agregar'}
-                                    </span>
+                                    {!isWholesaleContext || !item.allowCiego ? (
+                                      <span className="text-[9px] font-bold text-slate-400">
+                                        {item.allowCiego || item.recommendedBaseCm ? 'Configurar' : 'Agregar'}
+                                      </span>
+                                    ) : null}
                                   </div>
 
-                                  <div className="w-7 h-7 rounded-lg bg-slate-100 group-hover:bg-brand-600 group-hover:text-white text-slate-600 flex items-center justify-center transition-colors">
-                                    {item.allowCiego || item.recommendedBaseCm ? (
-                                      <ChevronRight className="w-3.5 h-3.5" />
-                                    ) : (
-                                      <Plus className="w-3.5 h-3.5" />
-                                    )}
-                                  </div>
+                                  {isWholesaleContext && item.allowCiego ? (
+                                    <div className="flex items-center gap-1.5">
+                                      <button
+                                        type="button"
+                                        onClick={event => handleQuickVariantAdd(event, item, 'standard')}
+                                        className="rounded-lg border border-brand-200 bg-brand-50 px-2.5 py-1.5 text-[10px] font-black text-brand-700 hover:bg-brand-600 hover:text-white"
+                                      >
+                                        + Estándar
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={event => handleQuickVariantAdd(event, item, 'ciego')}
+                                        className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[10px] font-black text-amber-700 hover:bg-amber-500 hover:text-white"
+                                      >
+                                        + Ciego
+                                      </button>
+                                      {item.recommendedBaseCm && (
+                                        <button
+                                          type="button"
+                                          onClick={event => { event.stopPropagation(); setSelectedItem(item); }}
+                                          className="h-7 w-7 rounded-lg border border-slate-200 bg-white text-slate-500 hover:border-brand-300 hover:text-brand-600"
+                                          title="Ver bases y accesorios"
+                                        >
+                                          <ChevronRight className="mx-auto h-3.5 w-3.5" />
+                                        </button>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <div className="w-7 h-7 rounded-lg bg-slate-100 group-hover:bg-brand-600 group-hover:text-white text-slate-600 flex items-center justify-center transition-colors">
+                                      {item.allowCiego || item.recommendedBaseCm ? (
+                                        <ChevronRight className="w-3.5 h-3.5" />
+                                      ) : (
+                                        <Plus className="w-3.5 h-3.5" />
+                                      )}
+                                    </div>
+                                  )}
                                 </div>
                               </div>
                             );
@@ -983,7 +1040,11 @@ export default function VisualProductSelectorModal({
                             return (
                               <div
                                 key={item.id}
-                                onClick={() => {
+                                onClick={(event) => {
+                                  if (isWholesaleContext && item.allowCiego) {
+                                    handleQuickVariantAdd(event, item, 'standard');
+                                    return;
+                                  }
                                   if (item.allowCiego || item.recommendedBaseCm) {
                                     setSelectedItem(item);
                                   } else {
@@ -1049,19 +1110,38 @@ export default function VisualProductSelectorModal({
                                     )}
                                   </div>
 
-                                  <div className="flex items-center gap-1 bg-brand-600 group-hover:bg-brand-700 text-white text-[10px] font-black px-2.5 py-1 rounded-lg shadow-xs transition-all shrink-0">
-                                    {item.allowCiego || item.recommendedBaseCm ? (
-                                      <>
-                                        <span>Configurar</span>
-                                        <ChevronRight className="w-3 h-3 stroke-[2.5]" />
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Plus className="w-3 h-3 stroke-[3]" />
-                                        <span>Agregar</span>
-                                      </>
-                                    )}
-                                  </div>
+                                  {isWholesaleContext && item.allowCiego ? (
+                                    <div className="flex flex-wrap justify-end gap-1">
+                                      <button
+                                        type="button"
+                                        onClick={event => handleQuickVariantAdd(event, item, 'standard')}
+                                        className="rounded-lg bg-brand-600 px-2 py-1 text-[9px] font-black text-white hover:bg-brand-700"
+                                      >
+                                        + Estándar
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={event => handleQuickVariantAdd(event, item, 'ciego')}
+                                        className="rounded-lg bg-amber-500 px-2 py-1 text-[9px] font-black text-white hover:bg-amber-600"
+                                      >
+                                        + Ciego
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center gap-1 bg-brand-600 group-hover:bg-brand-700 text-white text-[10px] font-black px-2.5 py-1 rounded-lg shadow-xs transition-all shrink-0">
+                                      {item.allowCiego || item.recommendedBaseCm ? (
+                                        <>
+                                          <span>Configurar</span>
+                                          <ChevronRight className="w-3 h-3 stroke-[2.5]" />
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Plus className="w-3 h-3 stroke-[3]" />
+                                          <span>Agregar</span>
+                                        </>
+                                      )}
+                                    </div>
+                                  )}
                                 </div>
                               </div>
                             );

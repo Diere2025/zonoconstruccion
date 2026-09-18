@@ -31,7 +31,8 @@ import {
   VisualSubGroup, 
   VisualItemOption,
   DEFAULT_FAMILY_IMAGES,
-  generateDefaultVisualConfig
+  generateDefaultVisualConfig,
+  includeInstallationKitCuplas
 } from "@/lib/visualSelectorConfig";
 
 interface VisualSelectorSettingsProps {
@@ -63,6 +64,7 @@ export default function VisualSelectorSettings({ products = [] }: VisualSelector
 
   // Product picker modal for associating a DB product
   const [isPickingProduct, setIsPickingProduct] = useState(false);
+  const [isPickingKitComponent, setIsPickingKitComponent] = useState(false);
   const [productSearch, setProductSearch] = useState("");
 
   // Uploading state
@@ -120,10 +122,10 @@ export default function VisualSelectorSettings({ products = [] }: VisualSelector
                 }))
               }));
 
-              const normalizedConfig: VisualCatalogConfig = {
+              const normalizedConfig: VisualCatalogConfig = includeInstallationKitCuplas({
                 ...parsed,
                 families: normalizedFamilies
-              };
+              }, prods);
 
               setConfig(normalizedConfig);
               if (normalizedConfig.families[0]) {
@@ -1374,6 +1376,98 @@ export default function VisualSelectorSettings({ products = [] }: VisualSelector
                 )}
               </div>
 
+              <div className="p-3.5 bg-emerald-50/60 border border-emerald-200 rounded-xl space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-black text-emerald-950">Kit preestablecido</p>
+                    <p className="text-[10px] text-emerald-800">El primer artículo es el precio del kit. Todos los componentes siguientes se agregan a $0.</p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(editingItem.item.isCombo)}
+                    onChange={e => setEditingItem({
+                      ...editingItem,
+                      item: {
+                        ...editingItem.item,
+                        isCombo: e.target.checked,
+                        comboItems: e.target.checked
+                          ? (editingItem.item.comboItems?.length ? editingItem.item.comboItems : (editingItem.item.productId ? [{ productId: editingItem.item.productId, quantity: 1, customPrice: editingItem.item.price }] : []))
+                          : undefined
+                      }
+                    })}
+                    className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 border-emerald-300"
+                  />
+                </div>
+
+                {editingItem.item.isCombo && (
+                  <div className="space-y-2">
+                    {(editingItem.item.comboItems || []).map((component, index) => {
+                      const product = (localProducts.length > 0 ? localProducts : products).find(p => p.id === component.productId);
+                      return (
+                        <div key={`${component.productId}-${index}`} className="flex items-center gap-2 bg-white border border-emerald-100 rounded-lg p-2">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[10px] font-black text-emerald-800 uppercase">{index === 0 ? 'Precio del kit' : 'Incluido a $0'}</p>
+                            <p className="text-xs font-bold text-slate-800 truncate">{product?.name || 'Producto eliminado del catálogo'}</p>
+                          </div>
+                          <input
+                            type="number"
+                            min="1"
+                            value={component.quantity || 1}
+                            onChange={e => setEditingItem({
+                              ...editingItem,
+                              item: {
+                                ...editingItem.item,
+                                comboItems: (editingItem.item.comboItems || []).map((current, componentIndex) => componentIndex === index
+                                  ? { ...current, quantity: Math.max(1, Number(e.target.value) || 1) }
+                                  : current)
+                              }
+                            })}
+                            className="w-14 px-1.5 py-1 text-xs font-bold border border-slate-200 rounded text-center"
+                            title="Cantidad"
+                          />
+                          {index === 0 ? (
+                            <input
+                              type="number"
+                              min="0"
+                              value={component.customPrice ?? product?.price ?? 0}
+                              onChange={e => setEditingItem({
+                                ...editingItem,
+                                item: {
+                                  ...editingItem.item,
+                                  comboItems: (editingItem.item.comboItems || []).map((current, componentIndex) => componentIndex === index
+                                    ? { ...current, customPrice: Math.max(0, Number(e.target.value) || 0) }
+                                    : current)
+                                }
+                              })}
+                              className="w-24 px-1.5 py-1 text-xs font-bold border border-slate-200 rounded text-right"
+                              title="Precio del kit"
+                            />
+                          ) : <span className="w-24 text-right text-xs font-black text-emerald-700">$0</span>}
+                          <button
+                            type="button"
+                            onClick={() => setEditingItem({
+                              ...editingItem,
+                              item: { ...editingItem.item, comboItems: (editingItem.item.comboItems || []).filter((_, componentIndex) => componentIndex !== index) }
+                            })}
+                            className="p-1 text-slate-400 hover:text-red-600"
+                            title="Quitar componente"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                    <button
+                      type="button"
+                      onClick={() => { setIsPickingKitComponent(true); setIsPickingProduct(true); }}
+                      className="w-full py-1.5 rounded-lg border border-dashed border-emerald-300 text-emerald-800 hover:bg-emerald-100 text-xs font-black flex items-center justify-center gap-1"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Agregar componente incluido
+                    </button>
+                  </div>
+                )}
+              </div>
+
               {/* IMAGEN DE LA OPCIÓN */}
               <div>
                 <label className="text-[10px] font-black uppercase text-slate-400 mb-1 block">Imagen</label>
@@ -1465,7 +1559,7 @@ export default function VisualSelectorSettings({ products = [] }: VisualSelector
             <div className="p-4 border-b border-slate-100 flex items-center justify-between">
               <h4 className="font-black text-sm text-slate-800">Vincular Producto del Catálogo</h4>
               <button
-                onClick={() => setIsPickingProduct(false)}
+                onClick={() => { setIsPickingProduct(false); setIsPickingKitComponent(false); }}
                 className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-700"
               >
                 ✕
@@ -1507,7 +1601,15 @@ export default function VisualSelectorSettings({ products = [] }: VisualSelector
                   <div
                     key={p.id}
                     onClick={() => {
-                      if (editingItem) {
+                      if (editingItem && isPickingKitComponent) {
+                        setEditingItem({
+                          ...editingItem,
+                          item: {
+                            ...editingItem.item,
+                            comboItems: [...(editingItem.item.comboItems || []), { productId: p.id, quantity: 1, customPrice: 0 }]
+                          }
+                        });
+                      } else if (editingItem) {
                         setEditingItem({
                           ...editingItem,
                           item: {
@@ -1519,6 +1621,7 @@ export default function VisualSelectorSettings({ products = [] }: VisualSelector
                         });
                       }
                       setIsPickingProduct(false);
+                      setIsPickingKitComponent(false);
                     }}
                     className="py-2.5 px-3 hover:bg-slate-50 rounded-lg cursor-pointer transition-colors flex items-center justify-between gap-3"
                   >
@@ -1542,7 +1645,7 @@ export default function VisualSelectorSettings({ products = [] }: VisualSelector
             <div className="p-3 border-t border-slate-100 bg-slate-50 flex justify-end">
               <button
                 type="button"
-                onClick={() => setIsPickingProduct(false)}
+                onClick={() => { setIsPickingProduct(false); setIsPickingKitComponent(false); }}
                 className="px-4 py-1.5 rounded-lg border border-slate-200 text-xs font-bold text-slate-600"
               >
                 Cerrar

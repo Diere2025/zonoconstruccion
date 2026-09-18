@@ -126,6 +126,48 @@ export async function GET(request: Request) {
     if (payMethodsRes.error) throw payMethodsRes.error;
     if (recentOrdersRes.error) throw recentOrdersRes.error;
 
+    // Procedencias comerciales disponibles para nuevos pedidos B2B.
+    let advertisingSources = advRes.data || [];
+    const wholesaleSourceNames = ['Cliente', 'Página web', 'Reenviado de Minorista', 'Recomendado', 'Otro'];
+    const missingWholesaleSources = wholesaleSourceNames.filter(name =>
+      !advertisingSources.some((source: { name?: string }) => source.name?.toLowerCase() === name.toLowerCase())
+    );
+    if (missingWholesaleSources.length > 0) {
+      try {
+        const { data: existingSources, error: existingSourcesError } = await supabaseAdmin
+          .from('advertising_sources')
+          .select()
+          .in('name', missingWholesaleSources);
+
+        if (existingSourcesError) {
+          console.warn('No se pudieron buscar las procedencias mayoristas:', existingSourcesError.message);
+        } else {
+          const existingNames = new Set((existingSources || []).map(source => source.name));
+          const toInsert = missingWholesaleSources
+            .filter(name => !existingNames.has(name))
+            .map(name => ({ name, is_active: true }));
+          const existingIds = (existingSources || []).map(source => source.id);
+          if (existingIds.length > 0) {
+            await supabaseAdmin.from('advertising_sources').update({ is_active: true }).in('id', existingIds);
+          }
+          if (toInsert.length > 0) {
+            await supabaseAdmin.from('advertising_sources').insert(toInsert);
+          }
+          const { data: refreshedSources } = await supabaseAdmin
+            .from('advertising_sources')
+            .select('*')
+            .eq('is_active', true)
+            .order('name');
+          if (refreshedSources) advertisingSources = refreshedSources;
+        }
+      } catch (wholesaleSourceError) {
+        console.warn(
+          'No se pudieron preparar las procedencias mayoristas:',
+          wholesaleSourceError instanceof Error ? wholesaleSourceError.message : String(wholesaleSourceError)
+        );
+      }
+    }
+
     const seller = sellerRes.data;
     const sellerType = seller?.seller_type || 'minorista';
     const isOrganic = seller?.is_organic || false;
@@ -203,7 +245,7 @@ export async function GET(request: Request) {
       localities: mappedLocalities,
       deliveryTimes: dtRes.data || [],
       kits: mappedKits,
-      advertisingSources: advRes.data || [],
+      advertisingSources,
       orderMediums: mediumRes.data || [],
       phoneLines: phoneLinesRes.data || [],
       paymentMethods: payMethodsRes.data || [],

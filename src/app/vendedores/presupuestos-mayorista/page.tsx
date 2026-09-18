@@ -77,8 +77,8 @@ export default function PresupuestosMayoristaPage() {
   // State: Master Wholesale Catalog from DB
   const [products, setProducts] = useState<WholesaleProduct[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
-  const [listNumber, setListNumber] = useState("13");
-  const [listDate, setListDate] = useState("Septiembre 2026");
+  const listNumber = "12";
+  const [listDate, setListDate] = useState("Junio 2026");
   const [discountCorralonPct, setDiscountCorralonPct] = useState(8);
   const [discountDistributorPct, setDiscountDistributorPct] = useState(14);
   const [loadingCatalog, setLoadingCatalog] = useState(true);
@@ -86,6 +86,7 @@ export default function PresupuestosMayoristaPage() {
   // State: Client Selection
   const [clients, setClients] = useState<ClientOption[]>([]);
   const [clientSearch, setClientSearch] = useState("");
+  const [loadingClients, setLoadingClients] = useState(false);
   const [selectedClient, setSelectedClient] = useState<ClientOption | null>(null);
   const [showNewClientModal, setShowNewClientModal] = useState(false);
   const [newClientName, setNewClientName] = useState("");
@@ -113,17 +114,17 @@ export default function PresupuestosMayoristaPage() {
   const [isCreatingOrder, setIsCreatingOrder] = useState(false);
   const [createdOrderNumber, setCreatedOrderNumber] = useState<string | null>(null);
 
-  // Load Wholesale Catalog (Lista 13)
+  // Load the selected published wholesale list. Historical lists retain their
+  // saved item prices instead of being recalculated from today's costs.
   useEffect(() => {
     async function loadCatalog() {
       try {
         setLoadingCatalog(true);
-        const res = await fetch("/api/admin/lista-mayorista-data");
+        const res = await fetch(`/api/admin/lista-mayorista-data?listNumber=${encodeURIComponent(listNumber)}`);
         const json = await res.json();
         if (json.success && json.products) {
           const activeList = json.savedDbConfig;
           if (activeList) {
-            if (activeList.listNumber) setListNumber(activeList.listNumber);
             if (activeList.listDate) setListDate(activeList.listDate);
             if (activeList.globalDiscountCorralonPct) setDiscountCorralonPct(activeList.globalDiscountCorralonPct);
             if (activeList.globalDiscountDistributorPct) setDiscountDistributorPct(activeList.globalDiscountDistributorPct);
@@ -134,12 +135,12 @@ export default function PresupuestosMayoristaPage() {
           const distPct = activeList?.globalDiscountDistributorPct ?? 14;
 
           const prods: WholesaleProduct[] = json.products
-            .filter((p: any) => p.defaultCommercialized !== false)
+            .filter((p: any) => p.defaultCommercialized !== false && p.isCommercialized !== false)
             .map((p: any) => {
               const baseCost = p.costBaseReal || 50000;
-              const priceList = Math.round(baseCost * 1.35);
-              const priceCorralon = Math.round(priceList * (1 - corrPct / 100));
-              const priceDistributor = Math.round(priceList * (1 - distPct / 100));
+              const priceList = json.isPersistedList ? Number(p.priceList || 0) : Math.round(baseCost * 1.35);
+              const priceCorralon = json.isPersistedList ? Number(p.priceCorralon || 0) : Math.round(priceList * (1 - corrPct / 100));
+              const priceDistributor = json.isPersistedList ? Number(p.priceDistributor || 0) : Math.round(priceList * (1 - distPct / 100));
 
               return {
                 id: p.id,
@@ -165,21 +166,55 @@ export default function PresupuestosMayoristaPage() {
       }
     }
 
-    async function loadClients() {
+    loadCatalog();
+  }, [listNumber]);
+
+  // Supabase limita las consultas a 1.000 filas. Buscar en el arreglo cargado
+  // dejaba afuera a la mayoría de los clientes, por eso la búsqueda se resuelve
+  // en la base y sólo trae una lista corta de candidatos mayoristas.
+  useEffect(() => {
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      setLoadingClients(true);
       try {
-        const { data } = await supabase
+        const trimmed = clientSearch.trim();
+        let request = supabase
           .from("clients")
           .select("id, business_name, tax_id, phone_primary, billing_address, is_wholesale")
-          .order("business_name");
-        if (data) setClients(data);
-      } catch (err) {
-        console.error("Error loading clients:", err);
-      }
-    }
+          .eq("is_wholesale", true)
+          .order("business_name")
+          .limit(trimmed ? 50 : 20);
 
-    loadCatalog();
-    loadClients();
-  }, []);
+        if (trimmed) {
+          const anchor = trimmed
+            .split(/\s+/)
+            .map(term => term.replace(/[,()%_'"\\]/g, "").trim())
+            .filter(Boolean)
+            .sort((a, b) => b.length - a.length)[0];
+
+          if (anchor) {
+            request = request.or(
+              `business_name.ilike.%${anchor}%,tax_id.ilike.%${anchor}%,phone_primary.ilike.%${anchor}%`
+            );
+          }
+        }
+
+        const { data, error } = await request;
+        if (error) throw error;
+        if (!cancelled) setClients((data || []) as ClientOption[]);
+      } catch (err) {
+        console.error("Error searching wholesale clients:", err);
+        if (!cancelled) setClients([]);
+      } finally {
+        if (!cancelled) setLoadingClients(false);
+      }
+    }, clientSearch.trim() ? 250 : 0);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [clientSearch]);
 
   // Compute Volume Tier and Totals
   const totalTanksCount = useMemo(() => {
@@ -661,6 +696,9 @@ export default function PresupuestosMayoristaPage() {
 
         {/* Top Actions */}
         <div className="flex items-center gap-2 flex-wrap">
+          <span className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-100 rounded-xl text-xs font-black text-blue-800">
+            Lista 12 vigente · descuentos 5% / 10%
+          </span>
           <Link
             href="/admin/lista-mayorista"
             className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
@@ -739,7 +777,11 @@ export default function PresupuestosMayoristaPage() {
                     className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium outline-none focus:border-blue-500 focus:bg-white transition-all"
                   />
                 </div>
-                {filteredClients.length > 0 && (
+                {loadingClients ? (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3 text-xs font-bold text-slate-500">
+                    Buscando clientes...
+                  </div>
+                ) : filteredClients.length > 0 ? (
                   <div className="max-h-40 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100 bg-white">
                     {filteredClients.map(c => (
                       <button
@@ -755,7 +797,11 @@ export default function PresupuestosMayoristaPage() {
                       </button>
                     ))}
                   </div>
-                )}
+                ) : clientSearch.trim() ? (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 text-xs font-bold text-amber-700">
+                    No se encontró un cliente mayorista con ese nombre, CUIT o teléfono.
+                  </div>
+                ) : null}
               </div>
             )}
           </div>
