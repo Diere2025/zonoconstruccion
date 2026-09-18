@@ -346,7 +346,8 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       ok: true,
-      messageId: data.result?.message_id
+      messageId: data.result?.message_id,
+      chatId: chatId.trim()
     });
   } catch (error: any) {
     console.error('[Telegram Notify] Internal server error:', error);

@@ -519,6 +519,20 @@ export interface OperationalSheetsSyncResult {
   deliveriesCurrent: OperationalSheetSyncResult;
 }
 
+export interface RemovedOrderSheetResult {
+  success: boolean;
+  sheetName: string;
+  clearedRows: number[];
+  message?: string;
+}
+
+export interface RemovedOrderSheetsResult {
+  success: boolean;
+  seller: RemovedOrderSheetResult;
+  central: RemovedOrderSheetResult;
+  deliveriesCurrent: RemovedOrderSheetResult[];
+}
+
 function shiftColumn(column: string, offset: number): string {
   let value = columnToNumber(column);
   value += offset;
@@ -698,6 +712,126 @@ async function findOrderRowsInSheet(
     const match = matches.get(code);
     return match ? [match] : [];
   });
+}
+
+function orderInputRangesToClear(
+  sheetName: string,
+  rowNumber: number,
+  columnOffset: number,
+  options: { preserveCode: boolean; clearSellerStatus?: boolean }
+): string[] {
+  const ranges: string[] = [];
+  if (!options.preserveCode) {
+    ranges.push(makeRange(sheetName, 'B', 'B', rowNumber, columnOffset));
+  }
+  if (options.clearSellerStatus) {
+    ranges.push(`'${sheetName}'!A${rowNumber}`);
+  }
+  ranges.push(
+    makeRange(sheetName, 'C', 'Y', rowNumber, columnOffset),
+    makeRange(sheetName, 'AA', 'AB', rowNumber, columnOffset),
+    ...PRODUCT_SLOT_RANGES.map(([startColumn, endColumn]) =>
+      makeRange(sheetName, startColumn, endColumn, rowNumber, columnOffset)
+    )
+  );
+  return ranges;
+}
+
+async function clearOrderFromSheet(
+  spreadsheetId: string,
+  sheetName: string,
+  codeColumn: string,
+  columnOffset: number,
+  legacyCode: string,
+  options: { preserveCode: boolean; clearSellerStatus?: boolean }
+): Promise<RemovedOrderSheetResult> {
+  try {
+    const targets = await findOrderRowsInSheet(spreadsheetId, sheetName, codeColumn, legacyCode);
+    if (targets.length === 0) {
+      return { success: true, sheetName, clearedRows: [] };
+    }
+
+    const token = await getGoogleAccessToken();
+    const ranges = targets.flatMap(target =>
+      orderInputRangesToClear(sheetName, target.rowNumber, columnOffset, options)
+    );
+    const response = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchClear`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ranges })
+      }
+    );
+    if (!response.ok) {
+      throw new Error(`Google Sheets respondió ${response.status}: ${await response.text()}`);
+    }
+    return {
+      success: true,
+      sheetName,
+      clearedRows: targets.map(target => target.rowNumber)
+    };
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : 'Error desconocido';
+    console.error(`[GoogleSheets] No se pudo limpiar ${legacyCode} de ${sheetName}:`, error);
+    return { success: false, sheetName, clearedRows: [], message: detail };
+  }
+}
+
+/**
+ * Revierte las filas generadas por un pedido de prueba sin borrar fórmulas ni
+ * el código preasignado de la planilla del vendedor. En las planillas
+ * operativas sí limpia el código para que la fila vuelva a quedar disponible.
+ */
+export async function removeTestOrderFromSheets(
+  sellerId: string,
+  legacyCode: string
+): Promise<RemovedOrderSheetsResult> {
+  const sellerConfig = SELLER_SHEET_CONFIG[sellerId];
+  const seller = sellerConfig?.enabled
+    ? await clearOrderFromSheet(
+        sellerConfig.spreadsheetId,
+        sellerConfig.sheetName,
+        'B',
+        0,
+        legacyCode,
+        { preserveCode: true, clearSellerStatus: true }
+      )
+    : {
+        success: false,
+        sheetName: 'Planilla del vendedor',
+        clearedRows: [],
+        message: 'El vendedor no tiene una planilla habilitada'
+      };
+
+  const central = await clearOrderFromSheet(
+    CENTRAL_ORDERS_SHEET.spreadsheetId,
+    CENTRAL_ORDERS_SHEET.sheetName,
+    CENTRAL_ORDERS_SHEET.codeColumn,
+    CENTRAL_ORDERS_SHEET.columnOffset,
+    legacyCode,
+    { preserveCode: false }
+  );
+
+  const deliveriesCurrent = await Promise.all(
+    DELIVERIES_CURRENT_SHEET.sheetNames.map(sheetName =>
+      clearOrderFromSheet(
+        DELIVERIES_CURRENT_SHEET.spreadsheetId,
+        sheetName,
+        DELIVERIES_CURRENT_SHEET.codeColumn,
+        DELIVERIES_CURRENT_SHEET.columnOffset,
+        legacyCode,
+        { preserveCode: false }
+      )
+    )
+  );
+
+  return {
+    success: seller.success && central.success && deliveriesCurrent.every(result => result.success),
+    seller,
+    central,
+    deliveriesCurrent
+  };
 }
 
 function splitOrderItemsForRows(order: SheetOrderPayload, rowCount: number): SheetOrderItem[][] {

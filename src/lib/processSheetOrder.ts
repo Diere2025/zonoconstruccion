@@ -18,7 +18,13 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjb
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 
-type ExpressAlertResult = { attempted: boolean; sent: boolean; message?: string };
+type ExpressAlertResult = {
+  attempted: boolean;
+  sent: boolean;
+  message?: string;
+  messageId?: number;
+  chatId?: string;
+};
 
 // Respaldo operativo para que los avisos sigan funcionando aunque el entorno
 // de despliegue todavía no tenga las variables configuradas. Las variables y
@@ -82,7 +88,12 @@ async function sendOperationalTelegramMessage(
   if (!response.ok || !payload.ok) {
     return { attempted: true, sent: false, message: payload.error || payload.description || 'No se pudo enviar el aviso operativo' };
   }
-  return { attempted: true, sent: true };
+  return {
+    attempted: true,
+    sent: true,
+    messageId: payload.messageId,
+    chatId: payload.chatId || chatId
+  };
 }
 
 async function sendExpressOrderAlert(origin: string, code: string, order: SheetOrderPayload): Promise<ExpressAlertResult> {
@@ -124,7 +135,12 @@ async function sendExpressOrderAlert(origin: string, code: string, order: SheetO
   if (!response.ok || !payload.ok) {
     return { attempted: true, sent: false, message: payload.description || 'Telegram rechazó el mensaje' };
   }
-  return { attempted: true, sent: true };
+  return {
+    attempted: true,
+    sent: true,
+    messageId: payload.result?.message_id,
+    chatId
+  };
 }
 
 async function getRouteFormationChatId(botToken: string): Promise<string | null> {
@@ -195,7 +211,12 @@ async function sendRouteFormationAlert(origin: string, code: string, order: Shee
   if (!response.ok || !payload.ok) {
     return { attempted: true, sent: false, message: payload.description || 'Telegram rechazó el mensaje' };
   }
-  return { attempted: true, sent: true };
+  return {
+    attempted: true,
+    sent: true,
+    messageId: payload.result?.message_id,
+    chatId
+  };
 }
 
 export async function getSheetCode(req: NextRequest) {

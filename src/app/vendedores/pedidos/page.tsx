@@ -8845,35 +8845,28 @@ export default function PedidosPage() {
                           <button
                             type="button"
                             onClick={async () => {
-                              if (!confirm(`¿Estás seguro de que deseas eliminar permanentemente el pedido de "${p.customer_name}"? Esta acción no se puede deshacer.`)) return;
-
-                              let deleteClient = false;
-                              if (p.client_id) {
-                                try {
-                                  const { data: otherOrders } = await supabase
-                                    .from('orders')
-                                    .select('id')
-                                    .eq('client_id', p.client_id)
-                                    .neq('id', p.id)
-                                    .limit(1);
-
-                                  if (!otherOrders || otherOrders.length === 0) {
-                                    deleteClient = confirm(
-                                      `El cliente "${p.customer_name}" no tiene ningún otro pedido registrado en el sistema.\n\n¿Deseas eliminar también al cliente y sus datos asociados?`
-                                    );
-                                  }
-                                } catch (chkErr) {
-                                  console.warn("Error al consultar pedidos del cliente:", chkErr);
-                                }
+                              const code = String(p.legacy_code || '').trim().toUpperCase();
+                              if (!code) {
+                                alert('Este pedido todavía no tiene código de planilla y no puede revertirse de forma segura.');
+                                return;
                               }
+                              const confirmationCode = prompt(
+                                `Esta acción es sólo para pedidos de prueba.\n\nSe eliminará ${code} del ERP, se liberará el stock, se limpiarán sus filas en todas las planillas y se borrarán sus avisos registrados de Telegram. El cliente NO será eliminado.\n\nEscribí ${code} para confirmar:`
+                              );
+                              if (confirmationCode?.trim().toUpperCase() !== code) return;
 
                               try {
+                                const { data: { session } } = await supabase.auth.getSession();
+                                if (!session?.access_token) throw new Error('La sesión venció. Volvé a ingresar al ERP.');
                                 const res = await fetch('/api/vendedores/delete-order', {
                                   method: 'POST',
-                                  headers: { 'Content-Type': 'application/json' },
+                                  headers: {
+                                    'Content-Type': 'application/json',
+                                    'Authorization': `Bearer ${session.access_token}`
+                                  },
                                   body: JSON.stringify({
                                     orderId: p.id,
-                                    deleteClient
+                                    confirmationCode: code
                                   })
                                 });
 
@@ -8883,21 +8876,16 @@ export default function PedidosPage() {
                                 }
 
                                 setOrders(prev => prev.filter(o => o.id !== p.id));
-                                if (resData.clientWasDeleted && p.client_id) {
-                                  setClients(prev => prev.filter(c => c.id !== p.client_id));
-                                }
-
-                                alert(
-                                  resData.clientWasDeleted
-                                    ? `Pedido y cliente "${p.customer_name}" eliminados con éxito.`
-                                    : `Pedido de "${p.customer_name}" eliminado con éxito.`
-                                );
+                                const telegramWarning = resData.telegramDeletion?.failures?.length
+                                  ? `\n\nAviso: ${resData.telegramDeletion.failures.length} mensaje(s) de Telegram no pudieron borrarse.`
+                                  : '';
+                                alert(`Pedido de prueba ${code} eliminado del ERP y de las planillas. El cliente se conservó.${telegramWarning}`);
                               } catch (err: any) {
-                                alert(`Error al eliminar pedido: ${err.message || err.details || 'Error desconocido'}`);
+                                alert(`Error al eliminar el pedido de prueba: ${err.message || err.details || 'Error desconocido'}`);
                               }
                             }}
                             className="p-1.5 bg-slate-50 hover:bg-red-600 text-slate-400 hover:text-white rounded-lg border border-slate-200 hover:border-red-600 transition-all duration-150 active:scale-90 shadow-2xs cursor-pointer"
-                            title="Eliminar Pedido"
+                            title="Eliminar pedido de prueba (sólo administradores)"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>

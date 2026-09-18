@@ -58,23 +58,49 @@ export async function POST(req: NextRequest) {
       for (const [key, label] of [['formationAlert','Telegram recorridos'], ['expressAlert','Telegram Express']]) {
         if (result[key]?.attempted && !result[key]?.sent) warnings.push(`${label}: ${result[key].message || 'No se pudo enviar'}`);
       }
+      const telegramNotifications = ['formationAlert', 'expressAlert'].flatMap(key => {
+        const alert = result[key];
+        return alert?.sent && alert?.messageId && alert?.chatId
+          ? [{ type: key, messageId: alert.messageId, chatId: String(alert.chatId) }]
+          : [];
+      });
+      let receiptResult: Record<string, any> | null = null;
       if (job.payload.receipts?.receipts?.length) {
         const receipts = await fetch(new URL('/api/vendedores/telegram-notify', req.url), {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ...job.payload.receipts, legacyCode: result.code || job.order_id.slice(0,8) })
         });
-        const receiptsResult = await receipts.json();
-        if (!receipts.ok || !receiptsResult.ok) warnings.push('Telegram comprobantes: no se pudo enviar.');
-        else {
-          const { data: order } = await db.from('orders').select('totals').eq('id',job.order_id).single();
-          if (order) {
-            const urls = new Set(job.payload.receipts.receipts.map((r: { url: string }) => r.url));
-            const updated = await db.from('orders').update({ totals: { ...order.totals,
-              payments_breakdown: (order.totals?.payments_breakdown || []).map((p: {receipt_url?: string}) =>
-                urls.has(p.receipt_url) ? {...p,telegram_sent:true} : p)
-            }}).eq('id',job.order_id);
-            if (updated.error) warnings.push('Comprobantes enviados, pero no se pudo actualizar su estado en el ERP.');
-          }
+        receiptResult = await receipts.json();
+        if (!receipts.ok || !receiptResult?.ok) warnings.push('Telegram comprobantes: no se pudo enviar.');
+      }
+      if (telegramNotifications.length || receiptResult?.ok) {
+        const { data: order } = await db.from('orders').select('totals').eq('id',job.order_id).single();
+        if (order) {
+          const receiptUrls = new Set(job.payload.receipts?.receipts?.map((r: { url: string }) => r.url) || []);
+          const receiptMessageIds: number[] = Array.isArray(receiptResult?.messageIds)
+            ? receiptResult.messageIds
+            : (receiptResult?.messageId ? [receiptResult.messageId] : []);
+          let receiptIndex = 0;
+          const paymentsBreakdown = (order.totals?.payments_breakdown || []).map((payment: {receipt_url?: string}) => {
+            if (!receiptResult?.ok || !payment.receipt_url || !receiptUrls.has(payment.receipt_url)) return payment;
+            const messageId = receiptMessageIds[receiptIndex] || receiptMessageIds[0];
+            receiptIndex++;
+            return {
+              ...payment,
+              telegram_sent: true,
+              telegram_message_id: messageId,
+              telegram_chat_id: receiptResult.chatId ? String(receiptResult.chatId) : undefined
+            };
+          });
+          const updated = await db.from('orders').update({ totals: {
+            ...order.totals,
+            telegram_notifications: [
+              ...(Array.isArray(order.totals?.telegram_notifications) ? order.totals.telegram_notifications : []),
+              ...telegramNotifications
+            ],
+            payments_breakdown: paymentsBreakdown
+          }}).eq('id',job.order_id);
+          if (updated.error) warnings.push('Avisos enviados, pero no se pudieron guardar sus identificadores en el ERP.');
         }
       }
       }
