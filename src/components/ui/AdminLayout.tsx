@@ -358,6 +358,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         { name: "Cargar Pedido", href: "/vendedores/pedidos?tab=form&client_type=minoristas", icon: PlusCircle },
         { name: "Pedidos Minoristas", href: "/vendedores/pedidos?tab=list&client_type=minoristas", icon: ShoppingCart },
         { name: "Cotizador Minorista", href: "/vendedores/presupuestos", icon: Calculator },
+        { name: "Presupuestos Minoristas", href: "/vendedores/cotizaciones?channel=minorista", icon: ClipboardCheck },
         { name: "Clientes Minoristas", href: "/vendedores/clientes", icon: Users },
         { name: "Meta Ads Performance", href: "/admin/meta-ads", icon: Target, adminOnly: true },
         { name: "Postventa y Reclamos", href: "/vendedores/postventa", icon: RefreshCw }
@@ -371,6 +372,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         { name: "Pedidos Mayoristas", href: "/vendedores/pedidos?tab=list&list_type=todos&status=Todos&client_type=mayoristas", icon: ShoppingBag },
         { name: "Clientes Mayoristas", href: "/vendedores/clientes?client_type=mayoristas", icon: Users },
         { name: "Cotizador Mayorista", href: "/vendedores/presupuestos-mayorista", icon: Calculator },
+        { name: "Presupuestos Mayoristas", href: "/vendedores/cotizaciones?channel=mayorista", icon: ClipboardCheck },
         { name: "Lista Precios Mayorista", href: "/admin/lista-mayorista", icon: Calculator, adminOnly: true },
         { name: "Vincular Productos", href: "/admin/dashboard-mayorista?tab=mapping", icon: Link2, adminOnly: true }
       ]

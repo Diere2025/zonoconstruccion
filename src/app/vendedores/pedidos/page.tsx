@@ -635,6 +635,7 @@ export default function PedidosPage() {
   const [showProductDropdown, setShowProductDropdown] = useState(false);
   const [productSearchTerm, setProductSearchTerm] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [sourceQuoteId, setSourceQuoteId] = useState<string | null>(null);
   const submittingRef = useRef(false);
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
   const editingOrderIdRef = useRef<string | null>(null);
@@ -1906,6 +1907,10 @@ export default function PedidosPage() {
           if (data.items && Array.isArray(data.items)) {
             setOrderItems(data.items);
           }
+          if (data.quoteId) setSourceQuoteId(data.quoteId);
+          if (data.clientId) setSelectedClientId(data.clientId);
+          if (data.customerName) setCliente(data.customerName);
+          if (data.notes) setAclaraciones(data.notes);
           if (data.paymentType) setPaymentType(data.paymentType);
           if (data.cardInstallments) setCardInstallments(data.cardInstallments);
           if (data.cardSurcharge) setCardSurcharge(data.cardSurcharge);
@@ -1915,7 +1920,7 @@ export default function PedidosPage() {
           sessionStorage.removeItem("preloaded_budget");
           setActiveTab('form');
           
-          alert("¡Presupuesto precargado con éxito! Podés completar la entrega y flete para guardar el pedido.");
+          alert(`${data.quoteNumber ? `Presupuesto ${data.quoteNumber}` : 'Presupuesto'} precargado con éxito. Completá entrega, procedencia y pago; Logística se activa recién al guardar el pedido.`);
         } catch (e) {
           console.error("Error parsing preloaded budget", e);
         }
@@ -3638,6 +3643,7 @@ export default function PedidosPage() {
   const resetAllFormFields = () => {
     editingOrderIdRef.current = null;
     setEditingOrderId(null);
+    setSourceQuoteId(null);
     setOriginalDeliveryDate("");
     setHasDeclaredPostponementReason(false);
     setPostponementMotive("");
@@ -5267,6 +5273,7 @@ export default function PedidosPage() {
           .from('orders')
           .insert({
             seller_id,
+            quote_id: sourceQuoteId,
             client_id: finalClientId || null,
             shipping_address_id: finalAddressId || null,
             shipping_address_snapshot: addressSnapshot,
@@ -5383,6 +5390,16 @@ export default function PedidosPage() {
         await createBulkStockTransactions(supabase, stockTxs);
       } catch (stockErr) {
         console.error("Error registrando transacciones de stock:", stockErr);
+      }
+
+      if (!editingOrderId && sourceQuoteId && orderData?.id) {
+        const { error: quoteStatusError } = await supabase
+          .from('sales_quotes')
+          .update({ status: 'converted', converted_order_id: orderData.id })
+          .eq('id', sourceQuoteId);
+        if (quoteStatusError) {
+          console.warn('El pedido se creó, pero no se pudo marcar el presupuesto como convertido:', quoteStatusError);
+        }
       }
 
       if (editingOrderId) {
@@ -5705,6 +5722,7 @@ export default function PedidosPage() {
         }
       ]);
       setSelectedClientId("");
+      setSourceQuoteId(null);
       setSelectedAddressId("");
       setClientSearchQuery("");
       setNewClientName("");
