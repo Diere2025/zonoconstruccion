@@ -296,25 +296,36 @@ export function buildSheetOrderItems(
     basePrice?: number;
     discountType?: 'percentage' | 'fixed';
     discountValue?: number;
+    isIncludedInKit?: boolean;
+    bundleParentId?: string;
   }>,
   orderDiscountAmount: number = 0,
   productsCatalog?: Array<{ id: string; price: number; name?: string; sku?: string }>
 ): SheetOrderItem[] {
   if (!orderItems || orderItems.length === 0) {
-    if (orderDiscountAmount > 0) {
-      return [{
-        name: 'Descuento Compra Mayorista',
-        sku: 'Descuento Compra Mayorista',
-        quantity: 1,
-        unitPrice: -Math.round(orderDiscountAmount)
-      }];
-    }
     return [];
   }
 
   const resultItems: SheetOrderItem[] = [];
-  let bioFortSavings = 0;
-  let mayoristaSavings = Math.max(0, orderDiscountAmount || 0);
+  let discountToAllocate = Math.max(0, orderDiscountAmount || 0);
+
+  // Detectar si el pedido contiene un Kit de Instalación
+  const hasInstallationKit = orderItems.some(item => {
+    const rawName = item.product_name || item.name || '';
+    const rawSku = item.sku || '';
+    const nameLower = rawName.toLowerCase();
+    const skuLower = rawSku.toLowerCase();
+    const isExplicitDiscount = nameLower.includes('descuento') || 
+                               skuLower.includes('descuento') || 
+                               nameLower.includes('bonificaci') || 
+                               skuLower.includes('bonificaci');
+    if (isExplicitDiscount) return false;
+    return nameLower.includes('kit instalaci') || 
+           nameLower.includes('kit de instalaci') || 
+           skuLower.includes('kit instalaci') ||
+           skuLower.includes('kit de instalaci') ||
+           (nameLower.startsWith('kit ') && !nameLower.includes('herramienta'));
+  });
 
   for (const item of orderItems) {
     const rawName = item.product_name || item.name || '';
@@ -343,87 +354,78 @@ export function buildSheetOrderItems(
                                currentPrice < 0;
 
     if (isExplicitDiscount) {
-      // Si ya viene un "Descuento Combo Biodigestor" como ítem explícito, acumular su ahorro
-      if (nameLower.includes('combo') && (nameLower.includes('bio') || nameLower.includes('biodigestor'))) {
-        bioFortSavings += Math.abs(currentPrice) * qty;
-        continue;
-      }
+      // Compatibilidad con pedidos viejos: cualquier descuento que llegue como
+      // renglón se transforma en ajuste del pedido y luego se prorratea entre
+      // los productos reales. Nunca vuelve a Google Sheets como un producto.
+      discountToAllocate += Math.abs(currentPrice) * qty;
+      continue;
+    }
 
-      // Si ya viene un "Descuento Compra Mayorista" o "Descuento General", acumular al descuento mayorista
-      if (nameLower.includes('mayorista') || nameLower.includes('general') || nameLower.includes('compra')) {
-        mayoristaSavings += Math.abs(currentPrice) * qty;
-        continue;
-      }
+    // Verificar si es un ítem incluido en un Kit de Instalación o producto bonificado a $0
+    const isKitProduct = (nameLower.includes('kit instalaci') || nameLower.includes('kit de instalaci') || (nameLower.includes('kit') && nameLower.includes('instalaci'))) && !isExplicitDiscount;
+    const isIncludedInKitOrZero = !isKitProduct && (
+      Boolean(item.isIncludedInKit) || 
+      Boolean(item.bundleParentId) || 
+      currentPrice === 0 ||
+      (hasInstallationKit && (item.basePrice === 0 || currentPrice === 0))
+    );
 
-      // Otras bonificaciones oficiales de planilla (MEP x2, x3, x6, x12, Bombas, Escaleras, etc.)
+    if (isIncludedInKitOrZero) {
+      // En pedidos de instalaciones, los productos incluidos en el kit básico salen en $0
+      // sin generar diferencias de precio de lista ni descuentos mayoristas.
       resultItems.push({
         name: normalizeProductNameForSheet(rawName, rawSku),
         sku: rawSku || undefined,
         quantity: qty,
-        unitPrice: -Math.abs(currentPrice)
+        unitPrice: 0
       });
       continue;
     }
 
-    // Para productos normales: determinar precio de lista
-    let listPrice = (item.basePrice !== undefined && item.basePrice > 0) ? item.basePrice : 0;
-    if (!listPrice && catalogProduct?.price) {
-      listPrice = catalogProduct.price;
+    // Los descuentos por producto ya están reflejados en customPrice/unit_price.
+    // Ese precio neto es el que debe viajar a la planilla.
+    let effectivePrice = currentPrice;
+    if (effectivePrice === 0 && item.customPrice === undefined && item.unit_price === undefined) {
+      effectivePrice = item.price ?? item.basePrice ?? catalogProduct?.price ?? 0;
     }
-    if (!listPrice) {
-      listPrice = Math.max(0, currentPrice);
-    }
-
-    // Calcular ahorro si el producto tiene precio con descuento
-    const priceDiff = listPrice - currentPrice;
-    if (priceDiff > 0) {
-      // Verificar si es parte de un combo BioFort (15% OFF en equipos y accesorios de saneamiento)
-      const isBioComponent = nameLower.includes('biodigestor') || 
-                             nameLower.includes('autolimpiable') || 
-                             nameLower.includes('séptica') || 
-                             nameLower.includes('septica') || 
-                             nameLower.includes('lodos') || 
-                             nameLower.includes('inspección') || 
-                             nameLower.includes('inspeccion') || 
-                             nameLower.includes('cii') || 
-                             nameLower.includes('biolam') || 
-                             nameLower.includes('desengrasadora') || 
-                             nameLower.includes('desgrasadora');
-      
-      if (isBioComponent && item.discountValue === 15) {
-        bioFortSavings += priceDiff * qty;
-      } else {
-        mayoristaSavings += priceDiff * qty;
-      }
-    }
-
-    // En planilla SIEMPRE se registra el producto con su precio de lista
     resultItems.push({
       name: normalizeProductNameForSheet(rawName, rawSku),
       sku: rawSku || undefined,
       quantity: qty,
-      unitPrice: listPrice
+      unitPrice: Math.max(0, effectivePrice)
     });
   }
 
-  // Si hay ahorro por Combo BioFort, agregar la línea consolidada 'Descuento Combo Biodigestor'
-  if (bioFortSavings > 0) {
-    resultItems.push({
-      name: 'Descuento Combo Biodigestor',
-      sku: 'Descuento Combo Biodigestor',
-      quantity: 1,
-      unitPrice: -Math.round(bioFortSavings)
+  // Google Sheets no tiene una columna propia para el descuento total. Para
+  // conservar el total sin inventar un producto, se reparte proporcionalmente
+  // entre los renglones cobrables. Se permiten centavos para cerrar exacto.
+  const eligible = resultItems
+    .map((item, index) => ({ index, gross: Math.max(0, Number(item.unitPrice) * Math.max(1, Number(item.quantity) || 1)) }))
+    .filter(item => item.gross > 0);
+  const grossTotal = eligible.reduce((sum, item) => sum + item.gross, 0);
+  const targetNetTotal = Math.round((grossTotal - Math.min(discountToAllocate, grossTotal)) * 100) / 100;
+  let remaining = Math.min(discountToAllocate, grossTotal);
+  if (remaining > 0 && grossTotal > 0) {
+    eligible.forEach((entry, position) => {
+      const item = resultItems[entry.index];
+      const quantity = Math.max(1, Number(item.quantity) || 1);
+      const allocation = position === eligible.length - 1
+        ? remaining
+        : Math.round((discountToAllocate * entry.gross / grossTotal) * 100) / 100;
+      const applied = Math.min(entry.gross, allocation);
+      item.unitPrice = Math.round(((entry.gross - applied) / quantity) * 10000) / 10000;
+      remaining = Math.max(0, Math.round((remaining - applied) * 100) / 100);
     });
-  }
-
-  // Si hay ahorro negociado (al total del pedido o por productos personalizados), agregar 'Descuento Compra Mayorista'
-  if (mayoristaSavings > 0) {
-    resultItems.push({
-      name: 'Descuento Compra Mayorista',
-      sku: 'Descuento Compra Mayorista',
-      quantity: 1,
-      unitPrice: -Math.round(mayoristaSavings)
-    });
+    const resultingNetTotal = eligible.reduce((sum, entry) => {
+      const item = resultItems[entry.index];
+      return sum + Number(item.unitPrice) * Math.max(1, Number(item.quantity) || 1);
+    }, 0);
+    const residual = Math.round((targetNetTotal - resultingNetTotal) * 10000) / 10000;
+    if (residual !== 0) {
+      const last = resultItems[eligible[eligible.length - 1].index];
+      const quantity = Math.max(1, Number(last.quantity) || 1);
+      last.unitPrice = Math.round((Number(last.unitPrice) + residual / quantity) * 10000) / 10000;
+    }
   }
 
   return resultItems;

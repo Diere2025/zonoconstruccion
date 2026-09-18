@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { 
   Search, 
@@ -48,6 +48,11 @@ interface Client {
   balance?: number;
   orders_count?: number;
   is_wholesale?: boolean;
+  internal_code?: string | null;
+  client_type?: string | null;
+  default_discount_label?: string | null;
+  default_discount_coef?: number | null;
+  notes?: string | null;
 }
 
 interface Address {
@@ -86,6 +91,8 @@ const normalizeText = (text: string) => {
 
 export default function ClientesPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const isWholesaleView = searchParams.get('client_type') === 'mayoristas';
   
   // Loading & Data States
   const [loading, setLoading] = useState(true);
@@ -146,6 +153,10 @@ export default function ClientesPage() {
   const [clientTaxId, setClientTaxId] = useState("");
   const [clientBillingAddress, setClientBillingAddress] = useState("");
   const [clientIsWholesale, setClientIsWholesale] = useState(false);
+  const [clientInternalCode, setClientInternalCode] = useState("");
+  const [clientDiscountPct, setClientDiscountPct] = useState("");
+  const [clientDiscountLabel, setClientDiscountLabel] = useState("");
+  const [clientNotes, setClientNotes] = useState("");
 
   // Form Address States
   const [addressAlias, setAddressAlias] = useState("");
@@ -172,7 +183,7 @@ export default function ClientesPage() {
   useEffect(() => {
     console.log("[ClientesPage] search/filter changed, reloading clients. debouncedSearchQuery:", debouncedSearchQuery, "filterType:", filterType);
     loadClients();
-  }, [debouncedSearchQuery, filterType]);
+  }, [debouncedSearchQuery, filterType, isWholesaleView]);
 
   async function loadClients() {
     console.log("[ClientesPage] loadClients started");
@@ -181,11 +192,13 @@ export default function ClientesPage() {
       
       // Fetch total count once
       if (totalClientsDb === 0) {
-        const { count } = await supabase
+        let countQuery = supabase
           .from("clients")
           .select("*", { count: 'exact', head: true })
           .not("business_name", "is", null)
           .neq("business_name", "");
+        if (isWholesaleView) countQuery = countQuery.eq('is_wholesale', true);
+        const { count } = await countQuery;
         if (count) setTotalClientsDb(count);
       }
 
@@ -193,6 +206,7 @@ export default function ClientesPage() {
         .select("*")
         .not("business_name", "is", null)
         .neq("business_name", "");
+      if (isWholesaleView) query = query.eq('is_wholesale', true);
 
       if (debouncedSearchQuery.trim()) {
         const q = debouncedSearchQuery.trim();
@@ -644,6 +658,10 @@ export default function ClientesPage() {
       setClientTaxId(client.tax_id || "");
       setClientBillingAddress(client.billing_address || "");
       setClientIsWholesale(client.is_wholesale || false);
+      setClientInternalCode(client.internal_code || "");
+      setClientDiscountPct(client.default_discount_coef != null ? String(Math.round((1 - Number(client.default_discount_coef)) * 10000) / 100) : "");
+      setClientDiscountLabel(client.default_discount_label || "");
+      setClientNotes(client.notes || "");
     } else {
       setEditingClient(null);
       setClientName("");
@@ -651,7 +669,11 @@ export default function ClientesPage() {
       setClientPhoneSecondary("");
       setClientTaxId("");
       setClientBillingAddress("");
-      setClientIsWholesale(false);
+      setClientIsWholesale(isWholesaleView);
+      setClientInternalCode("");
+      setClientDiscountPct("");
+      setClientDiscountLabel("");
+      setClientNotes("");
     }
     setShowClientModal(true);
   };
@@ -681,13 +703,19 @@ export default function ClientesPage() {
 
     setIsSaving(true);
     try {
+      const discountPct = Math.min(100, Math.max(0, Number(clientDiscountPct.replace(',', '.')) || 0));
       const payload = {
         business_name: clientName.trim(),
         phone_primary: cleanPhoneForSaving(clientPhonePrimary),
         phone_secondary: clientPhoneSecondary.trim() ? cleanPhoneForSaving(clientPhoneSecondary) : null,
         tax_id: clientTaxId.trim() || null,
         billing_address: clientBillingAddress.trim() || null,
-        is_wholesale: clientIsWholesale
+        is_wholesale: clientIsWholesale,
+        internal_code: clientInternalCode.trim() || null,
+        client_type: clientIsWholesale ? 'Mayorista' : 'Particular',
+        default_discount_coef: clientIsWholesale ? Math.round((1 - discountPct / 100) * 10000) / 10000 : 1,
+        default_discount_label: clientIsWholesale ? (clientDiscountLabel.trim() || null) : null,
+        notes: clientNotes.trim() || null
       };
 
       if (editingClient) {
@@ -888,7 +916,7 @@ export default function ClientesPage() {
 
   // Redirect to new order load with client pre-selection
   const handleCreateOrderRedirect = (clientId: string, addressId?: string) => {
-    let url = `/vendedores/pedidos?client_id=${clientId}`;
+    let url = `/vendedores/pedidos?client_id=${clientId}${isWholesaleView ? '&client_type=mayoristas' : ''}`;
     if (addressId) {
       url += `&address_id=${addressId}`;
     }
@@ -914,9 +942,9 @@ export default function ClientesPage() {
         <div>
           <h1 className="text-lg font-black text-slate-900 tracking-tight flex items-center gap-2">
             <Users className="w-5 h-5 text-brand-600" />
-            Cartera de Clientes
+            {isWholesaleView ? 'Clientes Mayoristas' : 'Cartera de Clientes'}
           </h1>
-          <p className="text-[11px] text-slate-400 font-semibold">Administra tus contactos, direcciones y cotizaciones frecuentes.</p>
+          <p className="text-[11px] text-slate-400 font-semibold">{isWholesaleView ? 'Razón social, sucursales y condiciones comerciales B2B.' : 'Administra tus contactos, direcciones y cotizaciones frecuentes.'}</p>
         </div>
 
         <div className="flex gap-4">
@@ -950,7 +978,7 @@ export default function ClientesPage() {
             className="flex items-center justify-center gap-2 py-2 px-4 rounded-lg bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs shadow-sm hover:shadow-md transition-all shrink-0"
           >
             <UserPlus className="w-4 h-4" />
-            Nuevo Cliente
+            {isWholesaleView ? 'Nuevo Mayorista' : 'Nuevo Cliente'}
           </Button>
         </div>
         
@@ -1057,6 +1085,14 @@ export default function ClientesPage() {
                           👑 Mayorista
                         </span>
                       )}
+                      {client.internal_code && (
+                        <span className="bg-emerald-50 border border-emerald-200 text-emerald-700 font-black text-[9px] uppercase px-1.5 py-0.5 rounded shrink-0">{client.internal_code}</span>
+                      )}
+                      {client.is_wholesale && client.default_discount_coef != null && Number(client.default_discount_coef) < 1 && (
+                        <span className="bg-amber-50 border border-amber-200 text-amber-700 font-black text-[9px] px-1.5 py-0.5 rounded shrink-0">
+                          {client.default_discount_label || `${Math.round((1 - Number(client.default_discount_coef)) * 10000) / 100}% habitual`}
+                        </span>
+                      )}
                       {client.tax_id && (
                         <span className="bg-slate-100 border text-slate-500 font-bold text-[9px] uppercase px-1.5 py-0.5 rounded">
                           {client.tax_id.replace(/\D/g, "").length <= 8 ? "DNI" : "CUIT"}: {client.tax_id}
@@ -1156,7 +1192,7 @@ export default function ClientesPage() {
       {/* --- CLIENT MODAL (CREATE / EDIT) --- */}
       {showClientModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-2xl max-h-[92vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-200">
             {/* Header */}
             <div className="bg-slate-50 px-6 py-4 border-b border-slate-200/80 flex items-center justify-between">
               <h3 className="font-black text-slate-900 text-sm uppercase tracking-tight">
@@ -1183,6 +1219,13 @@ export default function ClientesPage() {
                   className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 font-bold text-xs focus:ring-4 focus:ring-brand-500/10 focus:outline-none transition-all"
                 />
               </div>
+
+              {(clientIsWholesale || isWholesaleView) && (
+                <div className="space-y-1.5">
+                  <label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Código interno mayorista</label>
+                  <input type="text" value={clientInternalCode} onChange={(e) => setClientInternalCode(e.target.value)} placeholder="Ej: CL00123" className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 font-bold text-xs focus:ring-4 focus:ring-brand-500/10 focus:outline-none transition-all" />
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5">
@@ -1244,6 +1287,25 @@ export default function ClientesPage() {
                   Cliente Mayorista / Recurrente
                 </label>
               </div>
+
+              {clientIsWholesale && (
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50/50 p-4 space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-black uppercase tracking-widest text-emerald-700">Descuento habitual (%)</label>
+                      <input type="number" min="0" max="100" step="0.01" value={clientDiscountPct} onChange={(e) => setClientDiscountPct(e.target.value)} placeholder="Ej: 15" className="w-full px-4 py-2.5 rounded-xl border border-emerald-200 bg-white font-bold text-xs focus:ring-4 focus:ring-emerald-500/10 focus:outline-none" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-black uppercase tracking-widest text-emerald-700">Condición / etiqueta</label>
+                      <input type="text" value={clientDiscountLabel} onChange={(e) => setClientDiscountLabel(e.target.value)} placeholder="Ej: (-10%-5%)" className="w-full px-4 py-2.5 rounded-xl border border-emerald-200 bg-white font-bold text-xs focus:ring-4 focus:ring-emerald-500/10 focus:outline-none" />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[9px] font-black uppercase tracking-widest text-emerald-700">Observaciones comerciales</label>
+                    <textarea rows={3} value={clientNotes} onChange={(e) => setClientNotes(e.target.value)} placeholder="Referente, horarios, condiciones acordadas..." className="w-full resize-none px-4 py-2.5 rounded-xl border border-emerald-200 bg-white font-bold text-xs focus:ring-4 focus:ring-emerald-500/10 focus:outline-none" />
+                  </div>
+                </div>
+              )}
 
               {/* Action Buttons */}
               <div className="flex gap-3 pt-4 border-t border-slate-100">

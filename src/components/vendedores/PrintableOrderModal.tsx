@@ -90,6 +90,9 @@ export default function PrintableOrderModal({
 
   if (!isOpen || !order) return null;
 
+  const isWholesale = order.channel === 'mayorista';
+  const companyName = isWholesale ? 'AQUAFORT' : 'ZONO CONSTRUCCIÓN';
+  const documentPrefix = isWholesale ? 'Aquafort' : 'Zono';
   const orderNumber = order.legacy_code || order.id.substring(0, 8).toUpperCase();
   const orderDateFormatted = order.order_date
     ? new Date(order.order_date + "T00:00:00").toLocaleDateString("es-AR", {
@@ -136,7 +139,7 @@ export default function PrintableOrderModal({
 
       const pdf = createPrintablePdf(canvas, printableRef.current!);
 
-      pdf.save(`Comprobante_Pedido_Zono_${orderNumber}_${cleanClientName}.pdf`);
+      pdf.save(`Comprobante_Pedido_${documentPrefix}_${orderNumber}_${cleanClientName}.pdf`);
     } catch (error) {
       console.error("Error al generar PDF:", error);
       alert("Ocurrió un error al generar el PDF del comprobante.");
@@ -153,7 +156,7 @@ export default function PrintableOrderModal({
       if (!canvas) return;
 
       const link = document.createElement("a");
-      link.download = `Comprobante_Pedido_Zono_${orderNumber}_${cleanClientName}.png`;
+      link.download = `Comprobante_Pedido_${documentPrefix}_${orderNumber}_${cleanClientName}.png`;
       link.href = canvas.toDataURL("image/png");
       link.click();
     } catch (error) {
@@ -188,7 +191,7 @@ export default function PrintableOrderModal({
         } catch (clipErr) {
           console.warn("Fallo en portapapeles, descargando PNG...", clipErr);
           const link = document.createElement("a");
-          link.download = `Comprobante_Pedido_Zono_${orderNumber}_${cleanClientName}.png`;
+          link.download = `Comprobante_Pedido_${documentPrefix}_${orderNumber}_${cleanClientName}.png`;
           link.href = URL.createObjectURL(blob);
           link.click();
           alert("Tu navegador no permitió copiar directamente al portapapeles. Se descargó la imagen PNG para que la compartas.");
@@ -409,19 +412,21 @@ export default function PrintableOrderModal({
                         fontSize: "18px"
                       }}
                     >
-                      Z
+                      {isWholesale ? 'A' : 'Z'}
                     </div>
                     <div>
                       <div style={{ fontSize: "19px", fontWeight: 900, color: "#001538", letterSpacing: "-0.5px", lineHeight: 1.1 }}>
-                        ZONO CONSTRUCCIÓN
+                        {companyName}
                       </div>
                       <div style={{ fontSize: "9.5px", fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                        Venta Directa & Distribución Oficial
+                        {isWholesale ? 'Canal Mayorista' : 'Venta Directa & Distribución Oficial'}
                       </div>
                     </div>
                   </div>
                   <div style={{ fontSize: "9px", color: "#64748b", marginTop: "4px" }}>
-                    Quilmes 4541, Paso del Rey • Tel: 11-5769-4181 • www.zono.com.ar
+                    {isWholesale
+                      ? 'Quilmes 4541, Paso del Rey • AquaFort'
+                      : 'Quilmes 4541, Paso del Rey • Tel: 11-5769-4181 • www.zono.com.ar'}
                   </div>
                 </div>
 
@@ -736,7 +741,7 @@ export default function PrintableOrderModal({
                 <div style={{ textAlign: "center" }}>
                   <div style={{ borderTop: "1px solid #94a3b8", width: "70%", margin: "0 auto 4px" }} />
                   <div style={{ fontSize: "8.5px", fontWeight: 900, color: "#334155", textTransform: "uppercase" }}>
-                    Zono Construcción y Hogar
+                    {companyName}
                   </div>
                   <div style={{ fontSize: "7.5px", color: "#64748b" }}>
                     Comprobante Operativo de Entrega
@@ -745,7 +750,7 @@ export default function PrintableOrderModal({
               </div>
 
               <div style={{ textAlign: "center", fontSize: "8px", color: "#94a3b8" }}>
-                Este documento es un comprobante interno de pedido y control de entrega emitido por el sistema ERP de Zono Construcción.
+                Este documento es un comprobante interno de pedido y control de entrega emitido por {companyName}.
               </div>
             </div>
 

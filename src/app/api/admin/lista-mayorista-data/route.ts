@@ -19,6 +19,23 @@ const BASE_GAS = 7957;
 const BASE_MDO = 5148;
 const BASE_FIJO = 3610;
 
+type SavedWholesaleListConfig = {
+  listNumber?: string | number;
+  listDate?: string;
+  globalDiscountCorralonPct?: number;
+  globalDiscountDistributorPct?: number;
+  items?: unknown[];
+};
+
+type WholesaleListRecord = {
+  id: string;
+  list_number: string;
+  valid_text: string | null;
+  is_active: boolean;
+  global_discount_corralon_pct: number | null;
+  global_discount_dist_pct: number | null;
+};
+
 function parseCsvLine(text: string): string[] {
   const result: string[] = [];
   let cur = '';
@@ -43,9 +60,9 @@ function parseCsvLine(text: string): string[] {
   return result;
 }
 
-function parseSpanishNumber(val: any): number {
+function parseSpanishNumber(val: unknown): number {
   if (!val) return 0;
-  let clean = val.toString().trim().replace(/[^0-9.,-]/g, '');
+  let clean = String(val).trim().replace(/[^0-9.,-]/g, '');
   if (!clean) return 0;
   const hasComma = clean.includes(',');
   const hasDot = clean.includes('.');
@@ -60,8 +77,9 @@ function parseSpanishNumber(val: any): number {
   return isNaN(parsed) ? 0 : parsed;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const requestedListNumber = new URL(request.url).searchParams.get('listNumber')?.trim();
     // 1. Descargar BDCosto directamente desde Google Sheets
     const url = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_COSTS_ID}/gviz/tq?tqx=out:csv&gid=${GID_BD_COSTO}`;
     const csvText = await fetchSpreadsheetCsv(url);
@@ -219,30 +237,140 @@ export async function GET() {
       'Cámaras Desengrasadoras'
     ];
 
-    // Obtener configuración persistida en base de datos si existe
-    let savedDbConfig = null;
+    // Archivo histórico: "Lista Mayorista N12", vigencia 1/6/2026.
+    // Se ofrece como respaldo hasta que se publique una versión de Lista 12 en la base.
+    const list12Prices: Record<string, number> = {
+      'bic-300': 85300, 'bic-500': 101000, 'bic-600': 108900, 'bic-750': 142400, 'bic-1000': 150800, 'bic-1200': 214400,
+      'tric-300-gris': 95900, 'tric-500-gris': 104700, 'tric-600-gris': 117300, 'tric-750-gris': 159200, 'tric-1000-gris': 167500, 'tric-1200-gris': 250100, 'tric-3000-gris': 563700, 'tric-slim-500-gris': 121500, 'tric-chato-1000-gris': 243400,
+      'tric-300-beige': 95900, 'tric-500-beige': 112900, 'tric-600-beige': 134000, 'tric-750-beige': 175900, 'tric-1000-beige': 192600, 'tric-1200-beige': 286000, 'tric-3000-beige': 563700, 'tric-slim-500-beige': 129500, 'tric-chato-1000-beige': 243400,
+      'cuatr-500': 175000, 'cuatr-600': 175900, 'cuatr-750': 192600, 'cuatr-1000': 226200, 'cuatr-1200': 314300, 'cuatr-3000': 777200,
+      'cisterna-300': 95600, 'cisterna-500': 112900, 'cisterna-600': 134000, 'cisterna-750': 175900, 'cisterna-1000': 185400, 'cisterna-3000': 593500, 'cisterna-slim-500': 158100,
+      'bio-500': 222700, 'bio-600': 236600, 'bio-750': 261800, 'bio-1000': 286400, 'bio-3000': 832400, 'bio-700-autolimp': 419500,
+      'sept-300': 95900, 'sept-500': 112900, 'sept-600': 134000, 'sept-750': 175900, 'sept-1000': 243400,
+      'deseng-70-c50': 59200, 'deseng-70-c110': 59200, 'deseng-300': 95900, 'deseng-500': 112900, 'deseng-600': 134000, 'deseng-750': 175900, 'deseng-1000': 243400
+    };
+    const list12Fallback: SavedWholesaleListConfig = {
+      listNumber: '12',
+      listDate: 'Junio 2026',
+      globalDiscountCorralonPct: 5,
+      globalDiscountDistributorPct: 10,
+      items: products
+        .filter((product) => list12Prices[product.id] !== undefined)
+        .map((product) => {
+          const priceList = list12Prices[product.id];
+          return {
+            ...product,
+            priceList,
+            priceCorralon: Math.round(priceList * 0.95),
+            priceDistributor: Math.round(priceList * 0.90),
+            isCommercialized: true
+          };
+        })
+    };
+
+    // Las listas publicadas se guardan completas en site_settings. Leerlas por
+    // número permite cotizar con una versión anterior sin recalcular sus precios.
+    const savedConfigs = new Map<string, SavedWholesaleListConfig>();
+    const relationalLists = new Map<string, WholesaleListRecord>();
+    let activeDbConfig: SavedWholesaleListConfig | null = null;
     try {
-      const { data: dbData } = await supabaseAdmin
+      const { data: listSettings } = await supabaseAdmin
+        .from('site_settings')
+        .select('id, value')
+        .like('id', 'wholesale_price_list_%');
+
+      listSettings?.forEach((setting: { id: string; value: string }) => {
+        try {
+          const config = JSON.parse(setting.value) as SavedWholesaleListConfig;
+          const number = String(config.listNumber || setting.id.replace('wholesale_price_list_', ''));
+          savedConfigs.set(number, config);
+        } catch {
+          console.warn('[API Lista Mayorista Data] Invalid saved list:', setting.id);
+        }
+      });
+
+      const { data: activeDbData } = await supabaseAdmin
         .from('site_settings')
         .select('value')
-        .eq('id', 'wholesale_price_list_13')
+        .eq('id', 'active_wholesale_price_list')
         .maybeSingle();
-
-      if (dbData?.value) {
-        savedDbConfig = JSON.parse(dbData.value);
-      } else {
-        const { data: activeDbData } = await supabaseAdmin
-          .from('site_settings')
-          .select('value')
-          .eq('id', 'active_wholesale_price_list')
-          .maybeSingle();
-        if (activeDbData?.value) {
-          savedDbConfig = JSON.parse(activeDbData.value);
+      if (activeDbData?.value) {
+        activeDbConfig = JSON.parse(activeDbData.value) as SavedWholesaleListConfig;
+        if (activeDbConfig?.listNumber) {
+          savedConfigs.set(String(activeDbConfig.listNumber), activeDbConfig);
         }
       }
     } catch (e) {
       console.warn('[API Lista Mayorista Data] Warning fetching saved config from DB:', e);
     }
+
+    if (!savedConfigs.has('12')) {
+      savedConfigs.set('12', list12Fallback);
+    }
+
+    // Las instalaciones más antiguas pueden tener listas sólo en las tablas
+    // relacionales; incluirlas también mantiene disponible, por ejemplo, Lista 12.
+    try {
+      const { data: relationalRows, error: relationalError } = await supabaseAdmin
+        .from('wholesale_price_lists')
+        .select('id, list_number, valid_text, is_active, global_discount_corralon_pct, global_discount_dist_pct');
+      if (!relationalError) {
+        (relationalRows as WholesaleListRecord[] | null)?.forEach((list) => {
+          relationalLists.set(String(list.list_number), list);
+        });
+      }
+    } catch (e) {
+      console.warn('[API Lista Mayorista Data] Warning fetching relational lists:', e);
+    }
+
+    const activeListNumber = String(activeDbConfig?.listNumber || '');
+    const listNumbers = new Set([...savedConfigs.keys(), ...relationalLists.keys()]);
+    const availableLists = Array.from(listNumbers)
+      .map((number) => {
+        const config = savedConfigs.get(number);
+        const relationalList = relationalLists.get(number);
+        return {
+        listNumber: number,
+        listDate: config?.listDate || relationalList?.valid_text || 'Sin vigencia informada',
+        isActive: activeListNumber === number || (!activeListNumber && relationalList?.is_active === true),
+        hasSavedPrices: (Array.isArray(config?.items) && config.items.length > 0) || Boolean(relationalList)
+      };
+      })
+      .sort((a, b) => Number(b.listNumber) - Number(a.listNumber));
+
+    const requestedRelationalList = requestedListNumber ? relationalLists.get(requestedListNumber) : undefined;
+    const fallbackRelationalList = Array.from(relationalLists.values()).find((list) => list.is_active) || relationalLists.values().next().value;
+    const selectedRelationalList = requestedRelationalList || fallbackRelationalList;
+    const relationalConfig: SavedWholesaleListConfig | null = selectedRelationalList ? {
+      listNumber: selectedRelationalList.list_number,
+      listDate: selectedRelationalList.valid_text || undefined,
+      globalDiscountCorralonPct: selectedRelationalList.global_discount_corralon_pct || undefined,
+      globalDiscountDistributorPct: selectedRelationalList.global_discount_dist_pct || undefined
+    } : null;
+    const fallbackConfig = activeDbConfig || savedConfigs.values().next().value || relationalConfig;
+    const savedDbConfig = (requestedListNumber && savedConfigs.get(requestedListNumber)) || (requestedListNumber && relationalConfig) || fallbackConfig;
+    let savedItems = Array.isArray(savedDbConfig?.items) ? savedDbConfig.items : [];
+
+    if (savedItems.length === 0 && selectedRelationalList && String(savedDbConfig?.listNumber || '') === selectedRelationalList.list_number) {
+      try {
+        const { data: itemRows, error: itemsError } = await supabaseAdmin
+          .from('wholesale_price_list_items')
+          .select('product_id, product_name, category, family, liters, is_manufactured, price_list, price_corralon, price_distributor, is_commercialized')
+          .eq('price_list_id', selectedRelationalList.id);
+        if (!itemsError && itemRows) {
+          savedItems = itemRows.map((item: Record<string, unknown>) => ({
+            ...item,
+            id: item.product_id,
+            name: item.product_name,
+            isManufactured: item.is_manufactured,
+            isCommercialized: item.is_commercialized
+          }));
+        }
+      } catch (e) {
+        console.warn('[API Lista Mayorista Data] Warning fetching relational list items:', e);
+      }
+    }
+    const productsForSelectedList = savedItems.length > 0 ? savedItems : products;
 
     return NextResponse.json({
       success: true,
@@ -253,15 +381,18 @@ export async function GET() {
         baseFijo: BASE_FIJO
       },
       categories,
-      products,
-      savedDbConfig
+      products: productsForSelectedList,
+      savedDbConfig,
+      resolvedListNumber: savedDbConfig?.listNumber ? String(savedDbConfig.listNumber) : null,
+      availableLists,
+      isPersistedList: savedItems.length > 0
     });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('[API Lista Mayorista Data] Error:', error);
     return NextResponse.json({
       success: false,
-      error: error?.message || 'Error al procesar datos para la lista mayorista'
+      error: error instanceof Error ? error.message : 'Error al procesar datos para la lista mayorista'
     }, { status: 500 });
   }
 }

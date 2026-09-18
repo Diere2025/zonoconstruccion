@@ -530,6 +530,16 @@ export default function PresupuestosPage() {
           customPrice: -Math.abs(price)
         };
       }
+      if (price === 0) {
+        return {
+          ...item,
+          customPrice: 0,
+          basePrice: 0,
+          isIncludedInKit: true,
+          discountType: undefined,
+          discountValue: 0
+        };
+      }
       const base = item.basePrice !== undefined ? item.basePrice : (item.price || price);
       const isDiscounted = base > price && price > 0;
       const discVal = isDiscounted ? Math.round(((base - price) / base) * 100) : 0;

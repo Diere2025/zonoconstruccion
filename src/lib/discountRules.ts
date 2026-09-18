@@ -167,26 +167,38 @@ export function evaluateDiscountSuggestions(
   }
 
   // 2. Evaluar combinación de Combo BioFort (Biodigestor + Séptica/Lodos + Cámara Inspección + Biolam)
-  const bioProd = orderItems.find(i => {
+  // No aplica si el pedido ya cuenta con un Kit de Instalación o si los productos están incluidos a $0
+  const hasInstallationKit = orderItems.some(i => {
     const n = (i.name || "").toLowerCase();
-    return (n.includes("biodigestor") || n.includes("autolimpiable")) && !n.includes("descuento");
+    const s = (i.sku || "").toLowerCase();
+    return (n.includes("kit instalaci") || n.includes("kit de instalaci") || n.startsWith("kit ")) && !n.includes("descuento") && !s.includes("descuento");
   });
-  const sepProd = orderItems.find(i => {
+
+  const bioProd = !hasInstallationKit ? orderItems.find(i => {
     const n = (i.name || "").toLowerCase();
-    return (n.includes("séptica") || n.includes("septica") || n.includes("lodos")) && !n.includes("descuento");
-  });
-  const inspProd = orderItems.find(i => {
+    const isIncluded = (i as any).isIncludedInKit || i.customPrice === 0;
+    return (n.includes("biodigestor") || n.includes("autolimpiable")) && !n.includes("descuento") && !isIncluded;
+  }) : undefined;
+  const sepProd = !hasInstallationKit ? orderItems.find(i => {
     const n = (i.name || "").toLowerCase();
-    return (n.includes("inspección") || n.includes("inspeccion") || n.includes("cii")) && !n.includes("descuento");
-  });
-  const biolamProd = orderItems.find(i => {
+    const isIncluded = (i as any).isIncludedInKit || i.customPrice === 0;
+    return (n.includes("séptica") || n.includes("septica") || n.includes("lodos")) && !n.includes("descuento") && !isIncluded;
+  }) : undefined;
+  const inspProd = !hasInstallationKit ? orderItems.find(i => {
     const n = (i.name || "").toLowerCase();
-    return n.includes("biolam") && !n.includes("descuento");
-  });
-  const desengrasadoraProd = orderItems.find(i => {
+    const isIncluded = (i as any).isIncludedInKit || i.customPrice === 0;
+    return (n.includes("inspección") || n.includes("inspeccion") || n.includes("cii")) && !n.includes("descuento") && !isIncluded;
+  }) : undefined;
+  const biolamProd = !hasInstallationKit ? orderItems.find(i => {
     const n = (i.name || "").toLowerCase();
-    return (n.includes("desengrasadora") || n.includes("desgrasadora")) && !n.includes("descuento");
-  });
+    const isIncluded = (i as any).isIncludedInKit || i.customPrice === 0;
+    return n.includes("biolam") && !n.includes("descuento") && !isIncluded;
+  }) : undefined;
+  const desengrasadoraProd = !hasInstallationKit ? orderItems.find(i => {
+    const n = (i.name || "").toLowerCase();
+    const isIncluded = (i as any).isIncludedInKit || i.customPrice === 0;
+    return (n.includes("desengrasadora") || n.includes("desgrasadora")) && !n.includes("descuento") && !isIncluded;
+  }) : undefined;
 
   if (bioProd && sepProd && inspProd && biolamProd) {
     const comboItemIds = [bioProd.id, sepProd.id, inspProd.id, biolamProd.id];

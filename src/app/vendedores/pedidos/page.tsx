@@ -48,7 +48,8 @@ import {
   XCircle,
   Ban,
   Printer,
-  ExternalLink
+  ExternalLink,
+  Building2
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { supabase } from "@/lib/supabase";
@@ -57,6 +58,7 @@ import VisualProductSelectorModal from "@/components/vendedores/VisualProductSel
 import ImportWhatsAppBudgetModal from "@/components/vendedores/ImportWhatsAppBudgetModal";
 import PrintableOrderModal, { PrintableOrderData } from "@/components/vendedores/PrintableOrderModal";
 import ViewOrderModal from "@/components/vendedores/ViewOrderModal";
+import WholesaleClientModal, { WholesaleClientOption } from "@/components/vendedores/WholesaleClientModal";
 import { cn, formatPrice, cleanDeliveryNotes } from "@/lib/utils";
 import { calculateBulkPrices } from "@/lib/erp/prices";
 import { createBulkStockTransactions } from "@/lib/erp/stock";
@@ -80,13 +82,33 @@ interface AdvertisingSource {
   is_active: boolean;
 }
 
-const ALLOWED_ADVERTISING_SOURCES = [
+interface WholesaleCatalogItem {
+  name: string;
+  priceList?: number;
+  price_list?: number;
+}
+
+const WHOLESALE_ADVERTISING_SOURCES = [
+  "Cliente",
+  "Página web",
+  "Reenviado de Minorista",
+  "Recomendado",
+  "Otro"
+];
+
+const RETAIL_ADVERTISING_SOURCES = [
+  "Mayorista",
   "Meta - Tanques Aquafort",
   "Meta - Termotanques Universal",
   "Meta - Termotanques Cooper",
   "Meta - Biodigestores Biofort",
   "Meta - MEPS / Equilibrio",
   "Orgánico / Cliente Habitual / Recomendado"
+];
+
+const ALLOWED_ADVERTISING_SOURCES = [
+  ...WHOLESALE_ADVERTISING_SOURCES,
+  ...RETAIL_ADVERTISING_SOURCES
 ];
 
 const DEFAULT_ADVERTISING_SOURCES: AdvertisingSource[] = [
@@ -104,6 +126,19 @@ const ALLOWED_ORDER_MEDIUMS = [
   "Llamado",
   "Otro"
 ];
+
+const WHOLESALE_ORDER_MEDIUMS = [
+  "WhatsApp",
+  "Llamado",
+  "Otro"
+];
+
+const FACUNDO_SELLER_IDS = [
+  '3820a0fe-bb0a-4a84-ad85-79e49868cad7',
+  '54b9ce55-7354-4b39-9886-314aa79f6aa6'
+];
+
+const FACUNDO_RETAIL_SOURCE = 'Orgánico / Cliente Habitual / Recomendado';
 
 interface OrderMedium {
   id: string;
@@ -157,15 +192,21 @@ interface Client {
   phone?: string;
   billing_address?: string;
   is_wholesale?: boolean;
+  default_discount_label?: string | null;
+  default_discount_coef?: number | null;
+  internal_code?: string | null;
+  notes?: string | null;
 }
 
 interface Address {
   id: string;
   alias: string;
-  full_address: string;
-  locality_id: string;
-  map_link?: string;
-  delivery_notes?: string;
+  full_address: string | null;
+  locality_id: string | null;
+  map_link?: string | null;
+  delivery_notes?: string | null;
+  is_default?: boolean | null;
+  created_at?: string | null;
 }
 
 interface Locality {
@@ -362,6 +403,27 @@ const calculateNthBusinessDay = (baseDateStr: string, n: number): Date | null =>
     }
   }
   return date;
+};
+
+const calculateNthWeekday = (baseDateStr: string, n: number): Date | null => {
+  if (!baseDateStr) return null;
+  const date = new Date(baseDateStr + 'T12:00:00');
+  if (isNaN(date.getTime())) return null;
+  let count = 0;
+  while (count < n) {
+    date.setDate(date.getDate() + 1);
+    const day = date.getDay();
+    if (day !== 0 && day !== 6) count++;
+  }
+  return date;
+};
+
+const formatDateInput = (date: Date | null): string => {
+  if (!date) return '';
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
 };
 
 const isDateValidForFlete = (
@@ -589,6 +651,7 @@ export default function PedidosPage() {
   const [syncingOrderId, setSyncingOrderId] = useState<string | null>(null);
 
   const [products, setProducts] = useState<Product[]>([]);
+  const [allProducts, setAllProducts] = useState<Product[]>([]);
 
   // Filter products for the searchable dropdown using smart multi-word search on Name and SKU
   const filteredDropdownProducts = products
@@ -617,6 +680,9 @@ export default function PedidosPage() {
   // Order Discount States (Global)
   const [orderDiscountType, setOrderDiscountType] = useState<'percentage' | 'fixed'>('percentage');
   const [orderDiscountValue, setOrderDiscountValue] = useState<number>(0);
+
+  const isWholesaleContext = selectedChannels.length === 1 && selectedChannels[0] === 'mayoristas';
+  const isWholesaleForm = activeTab === 'form' && isWholesaleContext;
 
   // Item Discounts Accordion State in Page Summary
   const [openItemDiscountIds, setOpenItemDiscountIds] = useState<Record<string, boolean>>({});
@@ -1149,12 +1215,14 @@ export default function PedidosPage() {
 
   // Client Selection Toggle
   const [selectedClientId, setSelectedClientId] = useState("");
+  const [appliedWholesaleDiscountLabel, setAppliedWholesaleDiscountLabel] = useState("");
   const isNewClient = !selectedClientId;
   const [selectedAddressId, setSelectedAddressId] = useState("");
   const [clientSearchQuery, setClientSearchQuery] = useState("");
   const [debouncedClientSearch, setDebouncedClientSearch] = useState("");
   const [debouncedOrderSearch, setDebouncedOrderSearch] = useState("");
   const [showClientDropdown, setShowClientDropdown] = useState(false);
+  const [showWholesaleClientModal, setShowWholesaleClientModal] = useState(false);
 
   // Debounce client search
   useEffect(() => {
@@ -1251,15 +1319,19 @@ export default function PedidosPage() {
     }
     return DEFAULT_ADVERTISING_SOURCES;
   });
+  const isFacundoSelectedSeller = FACUNDO_SELLER_IDS.includes(selectedSellerId || currentUserId);
   const filteredAdvertisingSources = useMemo(() => {
+    const contextSources = isWholesaleContext
+      ? WHOLESALE_ADVERTISING_SOURCES
+      : (isFacundoSelectedSeller ? [FACUNDO_RETAIL_SOURCE] : RETAIL_ADVERTISING_SOURCES);
     return advertisingSources
-      .filter(a => a && a.is_active !== false && ALLOWED_ADVERTISING_SOURCES.includes(a.name))
+      .filter(a => a && a.is_active !== false && contextSources.includes(a.name))
       .sort((a, b) => {
-        const idxA = ALLOWED_ADVERTISING_SOURCES.indexOf(a.name);
-        const idxB = ALLOWED_ADVERTISING_SOURCES.indexOf(b.name);
+        const idxA = contextSources.indexOf(a.name);
+        const idxB = contextSources.indexOf(b.name);
         return (idxA !== -1 ? idxA : 999) - (idxB !== -1 ? idxB : 999);
       });
-  }, [advertisingSources]);
+  }, [advertisingSources, isWholesaleContext, isFacundoSelectedSeller]);
   const [orderMediums, setOrderMediums] = useState<OrderMedium[]>([
     { id: "e9654dad-9352-4f31-8f01-b12c57289993", name: "Whaticket", requires_phone_line: false, is_active: true },
     { id: "8111f489-b970-40f8-9754-4636df1ab7ed", name: "WhatsApp", requires_phone_line: true, is_active: true },
@@ -1269,12 +1341,14 @@ export default function PedidosPage() {
   const filteredOrderMediums = useMemo(() => {
     return orderMediums
       .filter(m => m && m.is_active !== false && ALLOWED_ORDER_MEDIUMS.includes(m.name))
+      .filter(m => !isWholesaleContext || WHOLESALE_ORDER_MEDIUMS.includes(m.name))
       .sort((a, b) => {
-        const idxA = ALLOWED_ORDER_MEDIUMS.indexOf(a.name);
-        const idxB = ALLOWED_ORDER_MEDIUMS.indexOf(b.name);
+        const displayOrder = isWholesaleContext ? WHOLESALE_ORDER_MEDIUMS : ALLOWED_ORDER_MEDIUMS;
+        const idxA = displayOrder.indexOf(a.name);
+        const idxB = displayOrder.indexOf(b.name);
         return (idxA !== -1 ? idxA : 999) - (idxB !== -1 ? idxB : 999);
       });
-  }, [orderMediums]);
+  }, [orderMediums, isWholesaleContext]);
 
   const [phoneLines, setPhoneLines] = useState<PhoneLine[]>([]);
   const [topAdvertisingSources, setTopAdvertisingSources] = useState<AdvertisingSource[]>([]);
@@ -1284,7 +1358,9 @@ export default function PedidosPage() {
   
   const [legacyCode, setLegacyCode] = useState("");
   const [selectedAdvertisingSourceId, setSelectedAdvertisingSourceId] = useState("");
+  const [advertisingSourceDetail, setAdvertisingSourceDetail] = useState("");
   const [selectedOrderMediumId, setSelectedOrderMediumId] = useState("e9654dad-9352-4f31-8f01-b12c57289993");
+  const [selectedPhoneLineId, setSelectedPhoneLineId] = useState("");
 
   const assignableSellers = useMemo(() => {
     return sellersList.filter(s => {
@@ -1313,7 +1389,120 @@ export default function PedidosPage() {
     }
   }, [filteredOrderMediums, selectedOrderMediumId]);
 
-  const [selectedPhoneLineId, setSelectedPhoneLineId] = useState("");
+  // A wholesale order must be built with the published wholesale price list,
+  // while retaining the real product IDs needed by stock and order_items.
+  useEffect(() => {
+    let cancelled = false;
+
+    const getTokens = (name: string) => normalizeText(name)
+      .replace(/\btric\b/g, 'tricapa')
+      .replace(/\bcuatr\b/g, 'cuatricapa')
+      .replace(/\bbic\b/g, 'bicapa')
+      .replace(/\bsept\b/g, 'septica')
+      .replace(/\bbio\b/g, 'biodigestor')
+      .replace(/\bdeseng\b/g, 'desengrasadora')
+      .replace(/(\d{2,4})\s*l(?:ts|itros?)?\b/g, '$1l')
+      .split(/[^a-z0-9]+/)
+      .filter(token => token.length > 1 && !['aquafort', 'biofort', 'tanque', 'de', 'el', 'la'].includes(token));
+
+    async function loadWholesaleCatalog() {
+      if (!isWholesaleContext) {
+        setProducts(allProducts);
+        return;
+      }
+      if (allProducts.length === 0) return;
+
+      try {
+        const response = await fetch('/api/admin/lista-mayorista-data?listNumber=12');
+        const data: { success?: boolean; products?: WholesaleCatalogItem[] } = await response.json();
+        if (!data.success || !Array.isArray(data.products)) throw new Error('No se pudo obtener la lista mayorista');
+
+        const usedProductIds = new Set<string>();
+        const matchedProducts = data.products.flatMap((wholesale) => {
+          const wholesaleTokens = getTokens(wholesale.name || '');
+          const wholesaleText = wholesaleTokens.join(' ');
+          const wholesaleCapacity = wholesaleTokens.find((token: string) => /^\d{2,4}l$/.test(token));
+          let bestProduct: Product | null = null;
+          let bestScore = 0;
+
+          for (const product of allProducts) {
+            if (usedProductIds.has(product.id)) continue;
+            const productTokens = getTokens(`${product.name || ''} ${product.sku || ''}`);
+            const productText = productTokens.join(' ');
+            const isCiego = (product.variant_type || '').toLowerCase() === 'ciego' || productText.includes('ciego');
+            if (isCiego) continue;
+
+            // La forma y el color son parte de la identidad del tanque. Sin esta
+            // validación un 1000 L estándar podía consumir el producto Chato (o
+            // una variante Ciego) porque compartían capacidad, familia y color.
+            const exclusiveMarkers = ['chato', 'slim', 'gris', 'beige', 'celeste'];
+            if (exclusiveMarkers.some(marker => wholesaleText.includes(marker) !== productText.includes(marker))) continue;
+
+            const familyMarkers = ['tricapa', 'cuatricapa', 'bicapa', 'cisterna', 'biodigestor', 'septica', 'desengrasadora', 'autolimpiable'];
+            const wholesaleFamily = familyMarkers.find(marker => wholesaleText.includes(marker));
+            const productFamily = familyMarkers.find(marker => productText.includes(marker));
+            if (wholesaleFamily && productFamily !== wholesaleFamily) continue;
+
+            const productCapacity = productTokens.find(token => /^\d{2,4}l$/.test(token));
+            if (wholesaleCapacity && productCapacity && wholesaleCapacity !== productCapacity) continue;
+            const overlap = wholesaleTokens.filter((token: string) => productTokens.includes(token)).length;
+            const score = overlap / Math.max(wholesaleTokens.length, 1);
+            if (score >= 0.6 && score > bestScore) {
+              bestProduct = product;
+              bestScore = score;
+            }
+          }
+
+          if (!bestProduct) return [];
+          usedProductIds.add(bestProduct.id);
+          const listPrice = Number(wholesale.priceList || wholesale.price_list || 0);
+          return [{ ...bestProduct, price: listPrice, wholesale_list_price: listPrice }];
+        });
+
+        // Mantener disponibles las variantes ciegas dentro del selector B2B.
+        // Heredan el precio de Lista 12 de su tanque estándar.
+        const wholesaleByProductId = new Map(matchedProducts.map(product => [product.id, product]));
+        const ciegoVariants = allProducts.flatMap(product => {
+          if (!product.parent_id || (product.variant_type || '').toLowerCase() !== 'ciego') return [];
+          const parent = wholesaleByProductId.get(product.parent_id);
+          if (!parent) return [];
+          return [{
+            ...product,
+            price: parent.price,
+            wholesale_list_price: parent.wholesale_list_price
+          }];
+        });
+
+        if (!cancelled) setProducts([...matchedProducts, ...ciegoVariants]);
+      } catch (error) {
+        console.error('Error loading wholesale catalog:', error);
+        if (!cancelled) setProducts([]);
+      }
+    }
+
+    loadWholesaleCatalog();
+    return () => { cancelled = true; };
+  }, [allProducts, isWholesaleContext]);
+
+  // Los pedidos B2B ingresan por WhatsApp sin asociar una línea telefónica.
+  // La procedencia comercial se elige explícitamente en cada pedido.
+  useEffect(() => {
+    if (!isWholesaleForm || editingOrderId) return;
+    const whatsappMedium = orderMediums.find(medium => medium.name.toLowerCase() === 'whatsapp');
+    if (whatsappMedium) setSelectedOrderMediumId(whatsappMedium.id);
+    setSelectedPhoneLineId("");
+  }, [editingOrderId, isWholesaleForm, orderMediums]);
+
+  // Facundo comparte una única secuencia AQ-FP. La procedencia de planilla es
+  // la que distingue inequívocamente sus pedidos minoristas de los mayoristas.
+  useEffect(() => {
+    if (isWholesaleContext || !isFacundoSelectedSeller || editingOrderId) return;
+    const organicSource = advertisingSources.find(source => source.name === FACUNDO_RETAIL_SOURCE);
+    if (organicSource) {
+      setSelectedAdvertisingSourceId(organicSource.id);
+      setAdvertisingSourceDetail("");
+    }
+  }, [advertisingSources, editingOrderId, isFacundoSelectedSeller, isWholesaleContext]);
   const [deliveryDetail, setDeliveryDetail] = useState("");
 
   const [orderStatus, setOrderStatus] = useState<string>("Pendiente");
@@ -1380,6 +1569,7 @@ export default function PedidosPage() {
 
   // Obtener la fecha sugerida de entrega inicial basada en la agenda del flete seleccionado
   const suggestedDeliveryDate = React.useMemo(() => {
+    if (isWholesaleForm) return formatDateInput(calculateNthWeekday(fechaPedido, 1)) || null;
     if (!flete || !fechaPedido) return null;
     const selectedFlete = deliveryTimes.find(dt => dt.name === flete);
     if (!selectedFlete) return null;
@@ -1399,10 +1589,11 @@ export default function PedidosPage() {
     const mm = String(nextDate.getMonth() + 1).padStart(2, '0');
     const dd = String(nextDate.getDate()).padStart(2, '0');
     return `${yyyy}-${mm}-${dd}`;
-  }, [flete, deliveryTimes, fechaPedido]);
+  }, [flete, deliveryTimes, fechaPedido, isWholesaleForm]);
 
   // Obtener la fecha sugerida de entrega máxima basada en la agenda del flete seleccionado
   const suggestedDeliveryDateMax = React.useMemo(() => {
+    if (isWholesaleForm) return formatDateInput(calculateNthWeekday(fechaPedido, 7)) || null;
     if (!flete || !fechaPedido) return null;
     const selectedFlete = deliveryTimes.find(dt => dt.name === flete);
     if (!selectedFlete) return null;
@@ -1417,7 +1608,7 @@ export default function PedidosPage() {
     }
     
     return suggestedDeliveryDate;
-  }, [flete, deliveryTimes, fechaPedido, suggestedDeliveryDate]);
+  }, [flete, deliveryTimes, fechaPedido, suggestedDeliveryDate, isWholesaleForm]);
 
   // Seleccionar automáticamente el tipo de entrega al cambiar de localidad (localidad -> Zona -> Tipo Entrega)
   useEffect(() => {
@@ -1432,6 +1623,11 @@ export default function PedidosPage() {
 
   // Sugerir y establecer automáticamente las fechas de entrega según el flete seleccionado y la fecha del pedido
   useEffect(() => {
+    if (isWholesaleForm && !editingOrderId) {
+      setEntregaInicial(formatDateInput(calculateNthWeekday(fechaPedido, 1)));
+      setEntregaMaxima(formatDateInput(calculateNthWeekday(fechaPedido, 7)));
+      return;
+    }
     if (!flete) return;
     const selectedFlete = deliveryTimes.find(dt => dt.name === flete);
     if (!selectedFlete) return;
@@ -1469,10 +1665,11 @@ export default function PedidosPage() {
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [flete, fechaPedido, deliveryTimes]);
+  }, [flete, fechaPedido, deliveryTimes, editingOrderId, isWholesaleForm]);
 
   // Si la fecha seleccionada no es compatible con el flete actual, cambiar automáticamente a "Día Particular"
   useEffect(() => {
+    if (isWholesaleForm) return;
     if (!entregaInicial || !flete || deliveryTimes.length === 0 || !fechaPedido) return;
 
     const selectedFlete = deliveryTimes.find(dt => dt.name === flete);
@@ -1488,7 +1685,7 @@ export default function PedidosPage() {
         setFlete(particularOption.name);
       }
     }
-  }, [entregaInicial, flete, deliveryTimes, fechaPedido]);
+  }, [entregaInicial, flete, deliveryTimes, fechaPedido, isWholesaleForm]);
 
   const [paymentType, setPaymentType] = useState<'efectivo' | 'tarjeta'>('efectivo');
   const [cardInstallments, setCardInstallments] = useState<number>(1);
@@ -2284,7 +2481,7 @@ export default function PedidosPage() {
         setCurrentUserId(userId);
         setSelectedSellerId(userId);
 
-        const PEDIDOS_CACHE_VER = "zc_pedidos_v21_default_efectivo";
+        const PEDIDOS_CACHE_VER = "zc_pedidos_v23_wholesale_sources";
         const cachedUserId = sessionStorage.getItem("cached_pedidos_user_id");
         if (sessionStorage.getItem("cached_pedidos_ver") !== PEDIDOS_CACHE_VER || (cachedUserId && cachedUserId !== userId)) {
           sessionStorage.clear();
@@ -2321,7 +2518,9 @@ export default function PedidosPage() {
             try { setCurrentSeller(JSON.parse(cachedCurrentSeller)); } catch (e) {}
           }
           const parsedCache = JSON.parse(cachedProducts);
-          setProducts(Array.isArray(parsedCache) ? parsedCache.filter((p: any) => p && p.is_active !== false) : []);
+          const validCachedProducts = Array.isArray(parsedCache) ? parsedCache.filter((p: any) => p && p.is_active !== false) : [];
+          setAllProducts(validCachedProducts);
+          setProducts(validCachedProducts);
           setClients(JSON.parse(cachedClients));
           setLocalities(JSON.parse(cachedLocalities));
           setDeliveryTimes(JSON.parse(cachedDt));
@@ -2369,13 +2568,27 @@ export default function PedidosPage() {
             }
           }
 
-          // Refrescar SIEMPRE medios de pago para reflejar cambios inmediatos en recargos (ej. Cuota Simple 42%)
+          // Refrescar SIEMPRE metadatos editables para que nuevas procedencias,
+          // medios y recargos no queden ocultos por una sesión anterior.
           try {
-            const { data: freshPms, error: pmsErr } = await supabase
-              .from('payment_methods')
-              .select('*')
-              .eq('is_active', true)
-              .order('name');
+            const [freshAdvRes, freshMediumsRes, freshPmsRes] = await Promise.all([
+              supabase.from('advertising_sources').select('*').eq('is_active', true).order('name'),
+              supabase.from('order_mediums').select('*').eq('is_active', true).order('name'),
+              supabase.from('payment_methods').select('*').eq('is_active', true).order('name')
+            ]);
+            const freshAdv = (freshAdvRes.data || []).filter((a: any) => ALLOWED_ADVERTISING_SOURCES.includes(a.name));
+            if (!freshAdvRes.error && freshAdv.length > 0) {
+              setAdvertisingSources(freshAdv);
+              sessionStorage.setItem("cached_pedidos_adv", JSON.stringify(freshAdv));
+              try { localStorage.setItem("cached_pedidos_adv", JSON.stringify(freshAdv)); } catch (e) {}
+            }
+            const freshMediums = (freshMediumsRes.data || []).filter((m: any) => ALLOWED_ORDER_MEDIUMS.includes(m.name));
+            if (!freshMediumsRes.error && freshMediums.length > 0) {
+              setOrderMediums(freshMediums);
+              sessionStorage.setItem("cached_pedidos_mediums", JSON.stringify(freshMediums));
+            }
+            const freshPms = freshPmsRes.data;
+            const pmsErr = freshPmsRes.error;
             if (!pmsErr && freshPms && freshPms.length > 0) {
               setDbPaymentMethods(freshPms);
               sessionStorage.setItem("cached_pedidos_payment_methods", JSON.stringify(freshPms));
@@ -2439,7 +2652,11 @@ export default function PedidosPage() {
 
         // Cargar desde la API en el backend
         const res = await fetch(`/api/vendedores/pedidos-init?userId=${userId}`);
-        if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+        if (!res.ok) {
+          const errorPayload = await res.json().catch(() => null);
+          const apiMessage = errorPayload?.error || errorPayload?.message;
+          throw new Error(apiMessage ? `HTTP ${res.status}: ${apiMessage}` : `HTTP error ${res.status}`);
+        }
         
         const payload = await res.json();
         
@@ -2543,6 +2760,7 @@ export default function PedidosPage() {
         }
 
         if (payload.products) {
+          setAllProducts(payload.products);
           setProducts(payload.products);
           sessionStorage.setItem("cached_pedidos_products", JSON.stringify(payload.products));
         }
@@ -2707,6 +2925,7 @@ export default function PedidosPage() {
     async function fetchAddresses() {
       if (!selectedClientId) {
         setClientAddresses([]);
+        setAppliedWholesaleDiscountLabel("");
         return;
       }
 
@@ -2715,8 +2934,10 @@ export default function PedidosPage() {
         // pero NO pisamos los datos del formulario ya establecidos del pedido.
         const { data } = await supabase
           .from("addresses")
-          .select("id, alias, full_address, locality_id, map_link, delivery_notes")
-          .eq("client_id", selectedClientId);
+          .select("id, alias, full_address, locality_id, map_link, delivery_notes, is_default, created_at")
+          .eq("client_id", selectedClientId)
+          .order("is_default", { ascending: false })
+          .order("created_at", { ascending: false });
         if (data) {
           setClientAddresses(data);
         }
@@ -2740,6 +2961,23 @@ export default function PedidosPage() {
         }
       }
 
+      if (isWholesaleContext) {
+        const { data: wholesaleClient } = await supabase
+          .from('clients')
+          .select('default_discount_coef, default_discount_label')
+          .eq('id', selectedClientId)
+          .maybeSingle();
+        const coefficient = Number(wholesaleClient?.default_discount_coef);
+        if (Number.isFinite(coefficient) && coefficient >= 0 && coefficient < 1) {
+          const discountPct = Math.round((1 - coefficient) * 10000) / 100;
+          setOrderDiscountType('percentage');
+          setOrderDiscountValue(discountPct);
+          setAppliedWholesaleDiscountLabel(wholesaleClient?.default_discount_label || `Descuento mayorista ${discountPct}%`);
+        } else {
+          setAppliedWholesaleDiscountLabel("");
+        }
+      }
+
       // Fetch most recent whaticket_link for this client if it exists
       supabase
         .from('orders')
@@ -2756,8 +2994,10 @@ export default function PedidosPage() {
 
       const { data } = await supabase
         .from("addresses")
-        .select("id, alias, full_address, locality_id, map_link, delivery_notes")
-        .eq("client_id", selectedClientId);
+        .select("id, alias, full_address, locality_id, map_link, delivery_notes, is_default, created_at")
+        .eq("client_id", selectedClientId)
+        .order("is_default", { ascending: false })
+        .order("created_at", { ascending: false });
       
       if (data) {
         setClientAddresses(data);
@@ -2775,8 +3015,8 @@ export default function PedidosPage() {
             }
           }
           setSelectedAddressId(selectedAddress.id);
-          setDireccion(selectedAddress.full_address);
-          setLocalidadId(selectedAddress.locality_id);
+          setDireccion(selectedAddress.full_address ?? "");
+          setLocalidadId(selectedAddress.locality_id ?? "");
           const loc = localities.find(l => l.id === selectedAddress.locality_id);
           if (loc) {
             setLocalitySearch(loc.name);
@@ -2787,7 +3027,7 @@ export default function PedidosPage() {
           setAclaraciones(selectedAddress.delivery_notes || "");
         } else {
           setSelectedAddressId("nueva_direccion");
-          setDireccion("");
+          setDireccion(c?.billing_address || "");
           setLocalidadId("");
           setLocalitySearch("");
           setLinkMaps("");
@@ -2796,7 +3036,7 @@ export default function PedidosPage() {
       }
     }
     fetchAddresses();
-  }, [selectedClientId, clients, localities]);
+  }, [selectedClientId, clients, isWholesaleContext, localities]);
 
   // Handle Address change
   const handleAddressChange = (addressId: string) => {
@@ -2811,8 +3051,8 @@ export default function PedidosPage() {
     }
     const addr = clientAddresses.find(a => a.id === addressId);
     if (addr) {
-      setDireccion(addr.full_address);
-      setLocalidadId(addr.locality_id);
+      setDireccion(addr.full_address ?? "");
+      setLocalidadId(addr.locality_id ?? "");
       const loc = localities.find(l => l.id === addr.locality_id);
       if (loc) {
         setLocalitySearch(loc.name);
@@ -3077,11 +3317,17 @@ export default function PedidosPage() {
       if (itemsError) throw itemsError;
       
       // 2. Map order items to OrderItem state
+      const orderHasKit = (itemsData || []).some(it => {
+        const n = (it.product_name || "").toLowerCase();
+        return n.includes("kit instalaci") || n.includes("kit de instalaci") || n.startsWith("kit ");
+      });
+
       const mappedItems: OrderItem[] = (itemsData || []).map(item => {
         const prod = products.find(p => p.id === item.product_id);
-        const basePrice = prod?.price || item.unit_price;
-        const discountType = (item.discount_percentage && item.discount_percentage > 0) ? 'percentage' : undefined;
-        const discountValue = (item.discount_percentage && item.discount_percentage > 0) ? item.discount_percentage : undefined;
+        const isIncludedZero = item.unit_price === 0;
+        const basePrice = isIncludedZero ? 0 : (prod?.price || item.unit_price);
+        const discountType = (item.discount_percentage && item.discount_percentage > 0 && !isIncludedZero) ? 'percentage' : undefined;
+        const discountValue = (item.discount_percentage && item.discount_percentage > 0 && !isIncludedZero) ? item.discount_percentage : undefined;
         return {
           id: item.product_id,
           sku: prod?.sku || "",
@@ -3095,7 +3341,8 @@ export default function PedidosPage() {
           image_url: prod?.image_url || "",
           basePrice: basePrice,
           discountType: discountType,
-          discountValue: discountValue
+          discountValue: discountValue,
+          isIncludedInKit: isIncludedZero ? true : undefined
         } as OrderItem;
       });
       
@@ -3357,6 +3604,7 @@ export default function PedidosPage() {
       }
       
       setSelectedAdvertisingSourceId(order.advertising_source_id || "");
+      setAdvertisingSourceDetail(order.advertising_source_detail || "");
       setSelectedOrderMediumId(order.order_medium_id || "");
       if (order.received_phone_line_id) {
         setSelectedPhoneLineId(order.received_phone_line_id);
@@ -3402,15 +3650,10 @@ export default function PedidosPage() {
     setHasDeclaredPostponementReason(false);
     setPostponementMotive("");
     setPostponementReasonType('cliente');
-    setEntregaInicial("");
-    setEntregaMaxima("");
-    setFechaPedido(() => {
-      const today = new Date();
-      const yyyy = today.getFullYear();
-      const mm = String(today.getMonth() + 1).padStart(2, '0');
-      const dd = String(today.getDate()).padStart(2, '0');
-      return `${yyyy}-${mm}-${dd}`;
-    });
+    const resetOrderDate = formatDateInput(new Date());
+    setEntregaInicial(isWholesaleContext ? formatDateInput(calculateNthWeekday(resetOrderDate, 1)) : "");
+    setEntregaMaxima(isWholesaleContext ? formatDateInput(calculateNthWeekday(resetOrderDate, 7)) : "");
+    setFechaPedido(resetOrderDate);
     setCliente("");
     setDireccion("");
     setAclaraciones("");
@@ -3460,7 +3703,10 @@ export default function PedidosPage() {
       generateNextLegacyCode(currentUserId);
     }
     setSelectedAdvertisingSourceId("");
-    setSelectedOrderMediumId("");
+    setAdvertisingSourceDetail("");
+    setSelectedOrderMediumId(
+      isWholesaleContext ? (orderMediums.find(medium => medium.name.toLowerCase() === 'whatsapp')?.id || '') : ''
+    );
     setSelectedPhoneLineId("");
     setDeliveryDetail("");
     setOrderStatus("Pendiente");
@@ -3674,7 +3920,7 @@ export default function PedidosPage() {
       whaticket_link: whaticketLink || "",
       seller_name: sellerObj?.full_name || "Equipo Zono",
       status: orderStatus || "Pendiente",
-      channel: sellerType === 'mayorista' ? 'mayorista' : 'minorista',
+      channel: isWholesaleContext ? 'mayorista' : 'minorista',
       advertising_source_name: advertisingSources.find(a => a.id === selectedAdvertisingSourceId)?.name,
       order_medium_name: orderMediums.find(m => m.id === selectedOrderMediumId)?.name,
       freight_type: flete || "Flete Regular",
@@ -3766,7 +4012,14 @@ export default function PedidosPage() {
         const { data: sRow } = await supabase.from('sellers').select('full_name').eq('id', sellerId).maybeSingle();
         sellerFullName = sRow?.full_name || 'Vendedor';
       }
-      const advName = advertisingSources.find(a => a.id === order.advertising_source_id)?.name || 'Publicidad Meta';
+      const advName = advertisingSources.find(a => a.id === order.advertising_source_id)?.name ||
+        (order.channel === 'mayorista' ? 'Cliente' : 'Publicidad Meta');
+      const detailedSheetSource = advName === 'Otro' && order.advertising_source_detail?.trim()
+        ? `Otro: ${order.advertising_source_detail.trim()}`
+        : advName;
+      const sheetSource = order.channel === 'mayorista'
+        ? 'Mayorista'
+        : (FACUNDO_SELLER_IDS.includes(sellerId) ? FACUNDO_RETAIL_SOURCE : detailedSheetSource);
       const mediumName = orderMediums.find(m => m.id === order.order_medium_id)?.name || 'WhatsApp';
 
       const sheetOrderPayload = {
@@ -3777,7 +4030,7 @@ export default function PedidosPage() {
         phonePrimary: clientPhone,
         phoneSecondary: clientPhone2,
         whaticketLink: order.whaticket_link || '',
-        source: order.channel === 'mayorista' ? 'Mayorista' : advName,
+        source: sheetSource,
         deliveryNotes: [
           order.delivery_notes, 
           order.delivery_detail
@@ -4158,7 +4411,20 @@ export default function PedidosPage() {
   };
 
   const updateCustomPrice = (id: string, price: number) => {
-    setOrderItems(prev => prev.map(i => i.id === id ? { ...i, customPrice: price } : i));
+    setOrderItems(prev => prev.map(i => {
+      if (i.id !== id) return i;
+      if (price === 0) {
+        return {
+          ...i,
+          customPrice: 0,
+          basePrice: 0,
+          isIncludedInKit: true,
+          discountType: undefined,
+          discountValue: undefined
+        };
+      }
+      return { ...i, customPrice: price };
+    }));
   };
 
   const updateItemDiscount = (id: string, discountType: 'percentage' | 'fixed', discountValue: number) => {
@@ -4424,12 +4690,15 @@ export default function PedidosPage() {
   }, [paymentTiming, customDepositAmount, total]);
 
   const filteredClients = clientSearchQuery.trim()
-    ? clients.filter(c => 
-        (c.business_name && normalizeText(c.business_name).includes(normalizeText(clientSearchQuery))) ||
-        (c.phone_primary && c.phone_primary.includes(clientSearchQuery.trim())) ||
-        (c.phone_secondary && c.phone_secondary.includes(clientSearchQuery.trim())) ||
-        (c.phone && c.phone.includes(clientSearchQuery.trim()))
-      )
+    ? clients.filter(c => {
+        if (isWholesaleContext && c.is_wholesale !== true) return false;
+        return (
+          (c.business_name && normalizeText(c.business_name).includes(normalizeText(clientSearchQuery))) ||
+          (c.phone_primary && c.phone_primary.includes(clientSearchQuery.trim())) ||
+          (c.phone_secondary && c.phone_secondary.includes(clientSearchQuery.trim())) ||
+          (c.phone && c.phone.includes(clientSearchQuery.trim()))
+        );
+      })
     : [];
 
   const sortedOrders = [...orders].sort((a, b) => {
@@ -4559,6 +4828,7 @@ export default function PedidosPage() {
           return cleanNum;
         }).filter(Boolean);
         
+        if (isWholesaleContext && !c.is_wholesale) return false;
         return numbers.some(num => {
           if (num === targetCleanNoPrefix) return true;
           if (targetCleanNoPrefix.length >= 8 && num.length >= 8) {
@@ -4595,6 +4865,14 @@ export default function PedidosPage() {
       alert("Seleccioná la procedencia del pedido (campo obligatorio).");
       return;
     }
+    if (
+      isWholesaleContext &&
+      advertisingSources.find(source => source.id === selectedAdvertisingSourceId)?.name === 'Otro' &&
+      !advertisingSourceDetail.trim()
+    ) {
+      alert("Especificá la procedencia del pedido mayorista.");
+      return;
+    }
 
     if (editingOrderId) {
       const locName = localities.find(l => l.id === localidadId)?.name || "";
@@ -4625,6 +4903,14 @@ export default function PedidosPage() {
       alert("Seleccioná la procedencia del pedido (campo obligatorio).");
       return;
     }
+    if (
+      isWholesaleContext &&
+      advertisingSources.find(source => source.id === selectedAdvertisingSourceId)?.name === 'Otro' &&
+      !advertisingSourceDetail.trim()
+    ) {
+      alert("Especificá la procedencia del pedido mayorista.");
+      return;
+    }
     const isPostponed = editingOrderId && originalDeliveryDate && (new Date(entregaInicial) > new Date(originalDeliveryDate));
     if (isPostponed && !hasDeclaredPostponementReason) {
       setShowSummaryModal(false);
@@ -4653,7 +4939,9 @@ export default function PedidosPage() {
           .insert({
             business_name: newClientName,
             tax_id: newClientTaxId || null,
-            phone_primary: newClientPhones.map(cleanPhoneForSaving).filter(Boolean).join(", ")
+            phone_primary: newClientPhones.map(cleanPhoneForSaving).filter(Boolean).join(", "),
+            is_wholesale: isWholesaleContext,
+            client_type: isWholesaleContext ? 'Mayorista' : undefined
           })
           .select()
           .single();
@@ -4783,6 +5071,9 @@ export default function PedidosPage() {
             payment_method_id: paymentsList[0]?.payment_method_id || 'a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3',
             freight_type: flete,
             total_amount: total,
+            order_discount_type: orderDiscountAmount > 0 ? orderDiscountType : null,
+            order_discount_value: orderDiscountAmount > 0 ? orderDiscountValue : 0,
+            order_discount_amount: orderDiscountAmount,
             totals: {
               items_subtotal: itemsGrossSubtotal,
               order_discount_type: orderDiscountType,
@@ -4814,11 +5105,16 @@ export default function PedidosPage() {
             payment_status: paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? 'Seniado' : 'Pendiente'),
             logistics_zone_id: localities.find(l => l.id === localidadId)?.zone_id || null,
             advertising_source_id: selectedAdvertisingSourceId || null,
+            advertising_source_detail: advertisingSourceDetail.trim() || null,
             order_medium_id: selectedOrderMediumId || null,
-            received_phone_line_id: (selectedPhoneLineId && selectedPhoneLineId !== 'otro') ? selectedPhoneLineId : null,
+            received_phone_line_id: isWholesaleContext ? null : ((selectedPhoneLineId && selectedPhoneLineId !== 'otro') ? selectedPhoneLineId : null),
             delivery_detail: deliveryDetail || null,
             legacy_code: effectiveLegacyCode,
-            status: 'Modificado',
+            // Modificado es una marca de planilla, no un estado operativo del ERP.
+            // Si el pedido ya avanzó (Confirmado/Entregando/etc.), conservar ese estado.
+            status: originalOrderSnapshot?.status === 'Modificado'
+              ? 'Pendiente'
+              : (originalOrderSnapshot?.status || 'Pendiente'),
             hold_reason: orderStatus === 'En Espera' ? holdReason : null,
             hold_product_id: orderStatus === 'En Espera' && holdProductId ? holdProductId : null,
             category: orderCategory === 'auto' ? detectedCategory : orderCategory
@@ -4904,7 +5200,14 @@ export default function PedidosPage() {
           if (!sellerFullName) {
             sellerFullName = (seller_id === loggedInUserId ? (currentSeller?.full_name || userData.user.user_metadata?.full_name) : '') || 'Vendedor';
           }
-          const advName = advertisingSources.find(a => a.id === selectedAdvertisingSourceId)?.name || 'Publicidad Meta';
+          const advName = advertisingSources.find(a => a.id === selectedAdvertisingSourceId)?.name ||
+            (isWholesaleContext ? 'Cliente' : 'Publicidad Meta');
+          const detailedSheetSource = advName === 'Otro' && advertisingSourceDetail.trim()
+            ? `Otro: ${advertisingSourceDetail.trim()}`
+            : advName;
+          const sheetSource = isWholesaleContext
+            ? 'Mayorista'
+            : (FACUNDO_SELLER_IDS.includes(seller_id) ? FACUNDO_RETAIL_SOURCE : detailedSheetSource);
           const mediumName = orderMediums.find(m => m.id === selectedOrderMediumId)?.name || 'WhatsApp';
 
           const sheetOrderPayload = {
@@ -4915,7 +5218,7 @@ export default function PedidosPage() {
             phonePrimary: clientPhone,
             phoneSecondary: clientPhone2,
             whaticketLink: whaticketLink || '',
-            source: sellerType === 'mayorista' ? 'Mayorista' : (advName || 'Publicidad Meta'),
+            source: sheetSource,
             deliveryNotes: [
               aclaraciones, 
               deliveryDetail
@@ -5023,6 +5326,9 @@ export default function PedidosPage() {
             payment_method_id: paymentsList[0]?.payment_method_id || 'a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3',
             freight_type: flete,
             total_amount: total,
+            order_discount_type: orderDiscountAmount > 0 ? orderDiscountType : null,
+            order_discount_value: orderDiscountAmount > 0 ? orderDiscountValue : 0,
+            order_discount_amount: orderDiscountAmount,
             status: orderStatus,
             totals: {
               items_subtotal: itemsGrossSubtotal,
@@ -5052,12 +5358,13 @@ export default function PedidosPage() {
               })),
               payment_timing: paymentTiming
             },
-            channel: sellerType === 'mayorista' ? 'mayorista' : 'vendedor_externo',
+            channel: isWholesaleContext ? 'mayorista' : 'vendedor_externo',
             payment_status: paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? 'Seniado' : 'Pendiente'),
             logistics_zone_id: localities.find(l => l.id === localidadId)?.zone_id || null,
             advertising_source_id: selectedAdvertisingSourceId || null,
+            advertising_source_detail: advertisingSourceDetail.trim() || null,
             order_medium_id: selectedOrderMediumId || null,
-            received_phone_line_id: (selectedPhoneLineId && selectedPhoneLineId !== 'otro') ? selectedPhoneLineId : null,
+            received_phone_line_id: isWholesaleContext ? null : ((selectedPhoneLineId && selectedPhoneLineId !== 'otro') ? selectedPhoneLineId : null),
             delivery_detail: deliveryDetail || null,
             legacy_code: finalLegacyCode || null,
             hold_reason: orderStatus === 'En Espera' ? holdReason : null,
@@ -5069,6 +5376,23 @@ export default function PedidosPage() {
 
         if (orderError) throw orderError;
         orderData = newOrder;
+      }
+
+      // La dirección elegida en el último pedido pasa a ser la predeterminada
+      // del cliente, sin eliminar las demás sucursales o domicilios guardados.
+      if (finalClientId && finalAddressId && finalAddressId !== "nueva_direccion") {
+        const { error: clearDefaultError } = await supabase
+          .from("addresses")
+          .update({ is_default: false })
+          .eq("client_id", finalClientId);
+        if (clearDefaultError) throw clearDefaultError;
+
+        const { error: setDefaultError } = await supabase
+          .from("addresses")
+          .update({ is_default: true })
+          .eq("id", finalAddressId)
+          .eq("client_id", finalClientId);
+        if (setDefaultError) throw setDefaultError;
       }
 
       // 3. Crear nuevos ítems del Pedido
@@ -5125,7 +5449,7 @@ export default function PedidosPage() {
             max_delivery_date: entregaMaxima,
             order_date: fechaPedido,
             seller_id: seller_id,
-            status: 'Modificado',
+            status: orderData.status,
             total_amount: total,
             payment_method_id: paymentsList[0]?.payment_method_id,
             payment_status: paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? 'Seniado' : 'Pendiente'),
@@ -5170,7 +5494,14 @@ export default function PedidosPage() {
           if (!sellerFullName) {
             sellerFullName = (seller_id === loggedInUserId ? (currentSeller?.full_name || userData.user.user_metadata?.full_name) : '') || 'Vendedor';
           }
-          const advName = advertisingSources.find(a => a.id === selectedAdvertisingSourceId)?.name || 'Publicidad Meta';
+          const advName = advertisingSources.find(a => a.id === selectedAdvertisingSourceId)?.name ||
+            (isWholesaleContext ? 'Cliente' : 'Publicidad Meta');
+          const detailedSheetSource = advName === 'Otro' && advertisingSourceDetail.trim()
+            ? `Otro: ${advertisingSourceDetail.trim()}`
+            : advName;
+          const sheetSource = isWholesaleContext
+            ? 'Mayorista'
+            : (FACUNDO_SELLER_IDS.includes(seller_id) ? FACUNDO_RETAIL_SOURCE : detailedSheetSource);
           const mediumName = orderMediums.find(m => m.id === selectedOrderMediumId)?.name || 'WhatsApp';
           const selectedPayMethodName = dbPaymentMethods.find(m => m.id === paymentsList[0]?.payment_method_id)?.name || 'Efectivo';
 
@@ -5182,7 +5513,7 @@ export default function PedidosPage() {
             phonePrimary: clientPhone,
             phoneSecondary: clientPhone2,
             whaticketLink: whaticketLink || '',
-            source: sellerType === 'mayorista' ? 'Mayorista' : (advName || 'Publicidad Meta'),
+            source: sheetSource,
             deliveryNotes: [
               aclaraciones, 
               deliveryDetail
@@ -5280,7 +5611,7 @@ export default function PedidosPage() {
         setShowModificationSuccessModal(true);
 
         // Actualizar estado local
-        setOrders(prev => prev.map(o => o.id === orderData.id ? { ...o, ...orderData, status: 'Modificado' } : o));
+        setOrders(prev => prev.map(o => o.id === orderData.id ? { ...o, ...orderData } : o));
       } else {
         if (sheetSyncSuccess && finalLegacyCode) {
           alert(`¡Pedido ${finalLegacyCode} guardado y registrado en la planilla con éxito!${operationalSyncWarning ? `\n\n⚠️ ${operationalSyncWarning}` : ''}`);
@@ -5363,15 +5694,10 @@ export default function PedidosPage() {
       setHasDeclaredPostponementReason(false);
       setPostponementMotive("");
       setPostponementReasonType('cliente');
-      setEntregaInicial("");
-      setEntregaMaxima("");
-      setFechaPedido(() => {
-        const today = new Date();
-        const yyyy = today.getFullYear();
-        const mm = String(today.getMonth() + 1).padStart(2, '0');
-        const dd = String(today.getDate()).padStart(2, '0');
-        return `${yyyy}-${mm}-${dd}`;
-      });
+      const nextOrderDate = formatDateInput(new Date());
+      setEntregaInicial(isWholesaleContext ? formatDateInput(calculateNthWeekday(nextOrderDate, 1)) : "");
+      setEntregaMaxima(isWholesaleContext ? formatDateInput(calculateNthWeekday(nextOrderDate, 7)) : "");
+      setFechaPedido(nextOrderDate);
       setCliente("");
       setDireccion("");
       setAclaraciones("");
@@ -5427,6 +5753,7 @@ export default function PedidosPage() {
       editingOrderIdRef.current = null;
       generateNextLegacyCode(seller_id);
       setSelectedAdvertisingSourceId("");
+      setAdvertisingSourceDetail("");
       setSelectedOrderMediumId("");
       setSelectedPhoneLineId("");
       setDeliveryDetail("");
@@ -5463,14 +5790,14 @@ export default function PedidosPage() {
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-lg font-black text-slate-900 tracking-tight">
-                  {editingOrderId ? "Modificar Pedido" : "Carga de Nuevo Pedido"}
+                  {editingOrderId ? "Modificar Pedido" : (isWholesaleContext ? "Carga de Pedido Mayorista" : "Carga de Nuevo Pedido")}
                 </h1>
                 {editingOrderId && (
                   <span className="bg-amber-100 text-amber-800 text-[10px] px-2 py-0.5 rounded-full font-bold border border-amber-200">
                     Modo Edición
                   </span>
                 )}
-                {sellerType === 'mayorista' && (
+                {isWholesaleContext && (
                   <span className="bg-emerald-100 text-emerald-800 text-[10px] px-2 py-0.5 rounded-full font-bold">
                     Modo Mayorista
                   </span>
@@ -5479,7 +5806,9 @@ export default function PedidosPage() {
               <p className="text-[11px] text-slate-400 font-medium">
                 {editingOrderId 
                   ? "Modificá los datos del pedido y actualizá la reserva de stock."
-                  : "Ingresá los datos del cliente, productos y logística con reserva automática de stock."}
+                  : isWholesaleContext
+                    ? "Pedido comercial de AquaFort: usá los productos y precios de la lista mayorista."
+                    : "Ingresá los datos del cliente, productos y logística con reserva automática de stock."}
               </p>
             </div>
           </div>
@@ -5504,7 +5833,7 @@ export default function PedidosPage() {
             </h1>
             <p className="text-[11px] text-slate-400 font-semibold">
               Listado y seguimiento de pedidos, estados de entrega y cobranzas.
-              {sellerType === 'mayorista' && <span className="ml-2 bg-emerald-100 text-emerald-800 text-[10px] px-2 py-0.5 rounded-full font-bold">Modo Mayorista</span>}
+              {isWholesaleContext && <span className="ml-2 bg-emerald-100 text-emerald-800 text-[10px] px-2 py-0.5 rounded-full font-bold">Modo Mayorista</span>}
             </p>
           </div>
           
@@ -5676,7 +6005,10 @@ export default function PedidosPage() {
                         <button
                           key={source.id}
                           type="button"
-                          onClick={() => setSelectedAdvertisingSourceId(source.id)}
+                          onClick={() => {
+                            setSelectedAdvertisingSourceId(source.id);
+                            if (source.name !== 'Otro') setAdvertisingSourceDetail("");
+                          }}
                           className={cn(
                             "w-full sm:w-auto px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer text-left border shadow-2xs",
                             isSelected
@@ -5689,6 +6021,15 @@ export default function PedidosPage() {
                       );
                     })}
                   </div>
+                  {isWholesaleContext && advertisingSources.find(source => source.id === selectedAdvertisingSourceId)?.name === 'Otro' && (
+                    <input
+                      type="text"
+                      value={advertisingSourceDetail}
+                      onChange={event => setAdvertisingSourceDetail(event.target.value)}
+                      placeholder="Especificá la procedencia..."
+                      className="w-full max-w-md px-3 py-2 rounded-lg border border-slate-200 bg-white font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500"
+                    />
+                  )}
                 </div>
 
                 {/* Columna Derecha: Medio de Recepción y Detalle */}
@@ -5759,6 +6100,14 @@ export default function PedidosPage() {
                               placeholder="https://whaticket... o pegar enlace de conversación" 
                               className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 transition-all text-slate-800 h-[36px]" 
                             />
+                          </div>
+                        );
+                      }
+
+                      if (isWholesaleContext && ['whatsapp', 'llamado'].includes(selectedMedium.name.toLowerCase())) {
+                        return (
+                          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[10px] font-bold text-emerald-700">
+                            {selectedMedium.name} general · sin especificar línea telefónica
                           </div>
                         );
                       }
@@ -5857,6 +6206,15 @@ export default function PedidosPage() {
                 <h3 className="flex items-center gap-1.5 font-black text-slate-800 text-xs uppercase tracking-wider">
                   <User className="w-4 h-4 text-brand-500" /> Cuenta del Cliente
                 </h3>
+                {isWholesaleContext && (
+                  <button
+                    type="button"
+                    onClick={() => setShowWholesaleClientModal(true)}
+                    className="flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[9px] font-black text-emerald-700 transition hover:bg-emerald-100"
+                  >
+                    <Search className="h-3 w-3" /> {selectedClientId ? "Cambiar mayorista" : "Buscar / crear"}
+                  </button>
+                )}
               </div>
 
               {/* Búsqueda inteligente por nombre, teléfono o CUIT */}
@@ -5867,6 +6225,9 @@ export default function PedidosPage() {
                       <div>
                         <span className="font-black text-brand-700">Cliente Existente Seleccionado</span>
                         <p className="text-[10px] text-slate-500 font-bold leading-tight mt-0.5">La información de CUIT y Teléfono ha sido precargada.</p>
+                        {isWholesaleContext && appliedWholesaleDiscountLabel && (
+                          <p className="text-[10px] text-emerald-700 font-black leading-tight mt-1">{appliedWholesaleDiscountLabel} aplicado al pedido.</p>
+                        )}
                       </div>
                       <button
                         type="button"
@@ -5912,6 +6273,22 @@ export default function PedidosPage() {
 
               {/* Campos de Información del Cliente */}
               {isNewClient ? (
+                isWholesaleContext ? (
+                  <div className="space-y-3 border-t border-slate-100 pt-3 animate-in fade-in duration-200">
+                    <button
+                      type="button"
+                      onClick={() => setShowWholesaleClientModal(true)}
+                      className="group w-full rounded-2xl border-2 border-dashed border-emerald-200 bg-emerald-50/60 p-5 text-center transition hover:border-emerald-400 hover:bg-emerald-50"
+                    >
+                      <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-600 text-white shadow-md shadow-emerald-600/20 transition group-hover:scale-105">
+                        <Building2 className="h-5 w-5" />
+                      </div>
+                      <p className="text-xs font-black text-slate-800">Seleccionar cliente mayorista</p>
+                      <p className="mt-1 text-[10px] font-semibold text-slate-500">Buscá por razón social, CUIT, teléfono o código; también podés crear uno nuevo.</p>
+                    </button>
+                    <p className="text-center text-[9px] font-bold text-slate-400">El descuento habitual del cliente se aplicará automáticamente al pedido.</p>
+                  </div>
+                ) : (
                 <div className="space-y-3 border-t border-slate-100 pt-3 animate-in fade-in duration-200">
                   <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-1 gap-3">
                     
@@ -6035,6 +6412,7 @@ export default function PedidosPage() {
 
                   </div>
                 </div>
+                )
               ) : (
                 <div className="space-y-2.5 border-t border-slate-100 pt-3 animate-in fade-in duration-200">
                   <div className="bg-brand-50/20 border border-brand-100/50 rounded-xl p-3 space-y-2 text-xs">
@@ -6133,7 +6511,7 @@ export default function PedidosPage() {
                         </div>
                       )}
                     </div>
-                    <input type="hidden" required value={localidadId} onChange={() => {}} />
+                    <input type="hidden" required value={localidadId ?? ""} onChange={() => {}} />
                     {(() => {
                       const selectedLocality = localities.find(l => l.id === localidadId);
                       if (selectedLocality && selectedLocality.zones) {
@@ -6258,7 +6636,7 @@ export default function PedidosPage() {
                 </div>
                 {suggestedDeliveryDate && (
                   <div className="mt-2 text-[10px] font-black text-amber-800 bg-amber-50 border border-amber-200/50 rounded-lg px-2.5 py-1.5 flex items-center gap-1.5 w-fit animate-in fade-in slide-in-from-top-1 shadow-sm">
-                    <span>💡 Próximo reparto programado:</span>
+                    <span>{isWholesaleContext ? '💡 Plazo mayorista (7 días hábiles):' : '💡 Próximo reparto programado:'}</span>
                     <button 
                       type="button"
                       onClick={() => {
@@ -8392,7 +8770,6 @@ export default function PedidosPage() {
                         p.status === 'Entregado' ? 'text-emerald-700 bg-emerald-50 border border-emerald-200' : 
                         p.status === 'Entregando' ? 'text-amber-700 bg-amber-50 border border-amber-200' :
                         p.status === 'Pendiente' ? 'text-orange-700 bg-orange-50 border border-orange-200' : 
-                        p.status === 'Modificado' ? 'text-purple-700 bg-purple-50 border border-purple-300 font-black' :
                         p.status === 'Cancelado' ? 'text-rose-700 bg-rose-50 border border-rose-300 font-black' :
                         p.status === 'En Espera' ? 'text-amber-700 bg-amber-50 border border-amber-200 font-extrabold animate-pulse' : 
                         p.status === 'En Revisión' ? 'text-rose-700 bg-rose-50 border border-rose-200 font-black animate-pulse' :
@@ -8626,6 +9003,7 @@ export default function PedidosPage() {
                           <p className="font-bold text-slate-700">
                             Procedencia: <span className="font-black text-slate-900">
                               {advertisingSources.find(s => s.id === selectedAdvertisingSourceId)?.name}
+                              {advertisingSourceDetail.trim() ? `: ${advertisingSourceDetail.trim()}` : ''}
                             </span>
                           </p>
                         )}
@@ -8633,7 +9011,7 @@ export default function PedidosPage() {
                           <p className="font-bold text-slate-700">
                             Medio: <span className="font-black text-slate-900">
                               {orderMediums.find(m => m.id === selectedOrderMediumId)?.name}
-                              {(() => {
+                              {!isWholesaleContext && (() => {
                                 if (selectedPhoneLineId === 'otro') return " (Otro)";
                                 const line = phoneLines.find(l => l.id === selectedPhoneLineId);
                                 return line ? ` (${line.name} - ${line.phone_number})` : "";
@@ -8885,7 +9263,7 @@ export default function PedidosPage() {
                   </h2>
                   <p className="text-xs font-medium text-emerald-700 flex items-center gap-1">
                     <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse" />
-                    Impactado en Planilla (Estado: Modificado) e Historial ERP
+                    ERP: Pendiente. Planilla: aviso de modificación para Logística.
                   </p>
                 </div>
               </div>
@@ -9848,6 +10226,31 @@ export default function PedidosPage() {
         </div>
       )}
 
+      {/* MODAL DE BÚSQUEDA Y ALTA DE CLIENTES MAYORISTAS */}
+      <WholesaleClientModal
+        open={showWholesaleClientModal}
+        selectedClientId={selectedClientId}
+        onClose={() => setShowWholesaleClientModal(false)}
+        onSelect={(wholesaleClient: WholesaleClientOption) => {
+          const client: Client = {
+            id: wholesaleClient.id,
+            business_name: wholesaleClient.business_name,
+            tax_id: wholesaleClient.tax_id || "",
+            phone_primary: wholesaleClient.phone_primary,
+            phone_secondary: wholesaleClient.phone_secondary || undefined,
+            billing_address: wholesaleClient.billing_address || undefined,
+            is_wholesale: true,
+            internal_code: wholesaleClient.internal_code,
+            default_discount_label: wholesaleClient.default_discount_label,
+            default_discount_coef: wholesaleClient.default_discount_coef,
+            notes: wholesaleClient.notes
+          };
+          setClients(previous => [client, ...previous.filter(item => item.id !== client.id)]);
+          setSelectedClientId(client.id);
+          setClientSearchQuery("");
+        }}
+      />
+
       {/* MODAL SELECTOR VISUAL DE PRODUCTOS */}
       <VisualProductSelectorModal
         isOpen={isVisualModalOpen}
@@ -9863,6 +10266,7 @@ export default function PedidosPage() {
         onRemoveKit={handleRemoveKit}
         onClearOrderItems={() => setOrderItems([])}
         isAdmin={role === 'admin'}
+        isWholesaleContext={isWholesaleContext}
         orderDiscountType={orderDiscountType}
         orderDiscountValue={orderDiscountValue}
         onUpdateOrderDiscount={(type, value) => {

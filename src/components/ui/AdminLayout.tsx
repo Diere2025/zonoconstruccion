@@ -71,6 +71,7 @@ interface SidebarSection {
 let cachedUserRole: 'seller' | 'admin' | 'logistica' | 'fletero' | 'administracion' | null = null;
 let cachedIsRestricted: boolean | null = null;
 let cachedUserEmail: string | null = null;
+let cachedCanUseWholesale: boolean | null = null;
 
 export function AdminLayout({ children }: AdminLayoutProps) {
   const pathname = usePathname();
@@ -118,6 +119,20 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       if (cachedIsRestricted !== null) return cachedIsRestricted;
       const saved = sessionStorage.getItem('zono_is_restricted');
       if (saved !== null) return saved === 'true';
+    }
+    return false;
+  });
+
+  const [canUseWholesale, setCanUseWholesale] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      if (cachedCanUseWholesale !== null) return cachedCanUseWholesale;
+      return sessionStorage.getItem('zono_can_use_wholesale') === 'true';
+    }
+    return false;
+  });
+  const [isWholesalePermissionLoaded, setIsWholesalePermissionLoaded] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return sessionStorage.getItem('zono_can_use_wholesale') !== null;
     }
     return false;
   });
@@ -224,11 +239,12 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         }
 
         let detectedRestricted = false;
+        let detectedCanUseWholesale = isAdminUser;
 
         try {
           const { data: seller } = await supabase
             .from('sellers')
-            .select('id, full_name, role')
+            .select('id, full_name, role, seller_type, can_sell_wholesale')
             .or(`id.eq.${user.id},email.ilike.${emailLower}`)
             .maybeSingle();
 
@@ -241,6 +257,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
           }
 
           const nameLower = (seller?.full_name || "").toLowerCase();
+          detectedCanUseWholesale = isAdminUser || seller?.can_sell_wholesale === true || seller?.seller_type === 'mayorista';
           detectedRestricted = !isAdminUser && (
             emailLower.includes("jazmin") || 
             emailLower.includes("jazmín") || 
@@ -263,13 +280,17 @@ export function AdminLayout({ children }: AdminLayoutProps) {
 
         setUserRole(detectedRole);
         setIsRestrictedSeller(detectedRestricted);
+        setCanUseWholesale(detectedCanUseWholesale);
+        setIsWholesalePermissionLoaded(true);
         cachedUserRole = detectedRole;
         cachedIsRestricted = detectedRestricted;
+        cachedCanUseWholesale = detectedCanUseWholesale;
 
         if (typeof window !== 'undefined') {
           sessionStorage.setItem('zono_user_email', email);
           sessionStorage.setItem('zono_user_role', detectedRole);
           sessionStorage.setItem('zono_is_restricted', detectedRestricted ? 'true' : 'false');
+          sessionStorage.setItem('zono_can_use_wholesale', detectedCanUseWholesale ? 'true' : 'false');
           sessionStorage.setItem('zono_role_loaded', 'true');
         }
       } finally {
@@ -289,21 +310,19 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       router.replace('/admin/cobros-mp');
     } else if (userRole === 'administracion' && pathname && !pathname.startsWith('/admin/dashboard') && !pathname.startsWith('/vendedores/pedidos') && pathname !== '/admin/cobros-mp' && !pathname.startsWith('/admin/finanzas') && pathname !== '/admin/facturacion-pendiente') {
       router.replace('/admin/cobros-mp');
-    } else if (
-      isRestrictedSeller && 
-      pathname && 
-      (
+    } else if (isRestrictedSeller && isWholesalePermissionLoaded && pathname) {
+      const query = typeof window !== 'undefined' ? window.location.search : '';
+      const isWholesaleRoute =
         pathname === '/vendedores/presupuestos-mayorista' ||
-        (pathname.startsWith('/vendedores/pedidos') && typeof window !== 'undefined' && window.location.search.includes('client_type=mayoristas')) ||
-        (
-          pathname !== '/vendedores' &&
-          pathname !== '/vendedores/presupuestos' && 
-          !pathname.startsWith('/vendedores/pedidos') && 
-          pathname !== '/admin/cobros-mp'
-        )
-      )
-    ) {
-      router.replace('/vendedores');
+        (pathname === '/vendedores/clientes' && query.includes('client_type=mayoristas')) ||
+        (pathname.startsWith('/vendedores/pedidos') && query.includes('client_type=mayoristas'));
+      const isRestrictedRouteAllowed =
+        pathname === '/vendedores' ||
+        pathname === '/vendedores/presupuestos' ||
+        pathname === '/admin/cobros-mp' ||
+        (pathname.startsWith('/vendedores/pedidos') && !query.includes('client_type=mayoristas')) ||
+        (canUseWholesale && isWholesaleRoute);
+      if (!isRestrictedRouteAllowed) router.replace('/vendedores');
     } else if (
       userRole === 'seller' && 
       !isRestrictedSeller && 
@@ -312,16 +331,18 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     ) {
       router.replace('/vendedores');
     }
-  }, [isRoleLoaded, userRole, isRestrictedSeller, pathname, router]);
+  }, [isRoleLoaded, userRole, isRestrictedSeller, canUseWholesale, isWholesalePermissionLoaded, pathname, router]);
 
   const handleLogout = async () => {
     cachedUserRole = null;
     cachedIsRestricted = null;
     cachedUserEmail = null;
+    cachedCanUseWholesale = null;
     if (typeof window !== 'undefined') {
       sessionStorage.removeItem('zono_user_email');
       sessionStorage.removeItem('zono_user_role');
       sessionStorage.removeItem('zono_is_restricted');
+      sessionStorage.removeItem('zono_can_use_wholesale');
       sessionStorage.removeItem('zono_role_loaded');
     }
     await supabase.auth.signOut();
@@ -346,7 +367,9 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       title: "Canal Mayorista (B2B)",
       links: [
         { name: "Dashboard Mayorista", href: "/admin/dashboard-mayorista", icon: TrendingUp, adminOnly: true },
+        { name: "Cargar Pedido Mayorista", href: "/vendedores/pedidos?tab=form&client_type=mayoristas", icon: PlusCircle },
         { name: "Pedidos Mayoristas", href: "/vendedores/pedidos?list_type=todos&status=Todos&client_type=mayoristas", icon: ShoppingBag },
+        { name: "Clientes Mayoristas", href: "/vendedores/clientes?client_type=mayoristas", icon: Users },
         { name: "Cotizador Mayorista", href: "/vendedores/presupuestos-mayorista", icon: Calculator },
         { name: "Lista Precios Mayorista", href: "/admin/lista-mayorista", icon: Calculator, adminOnly: true },
         { name: "Vincular Productos", href: "/admin/dashboard-mayorista?tab=mapping", icon: Link2, adminOnly: true }
@@ -357,7 +380,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       links: [
         { name: "Gestión de Vendedores", href: "/admin/vendedores", icon: Users, adminOnly: true },
         { name: "Chequeo de Pagos", href: "/admin/cobros-mp", icon: ShieldCheck },
-        { name: "Importar Pedidos", href: "/admin/importar-pedidos", icon: Upload, adminOnly: true }
+        { name: "Sincronizar Planillas", href: "/admin/importar-pedidos", icon: Upload, adminOnly: true }
       ]
     },
     {
@@ -548,7 +571,14 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                   );
                 }
                 if (isRestrictedSeller) {
+                  const isAllowedWholesaleLink = canUseWholesale && (
+                    link.href === "/vendedores/pedidos?tab=form&client_type=mayoristas" ||
+                    link.href === "/vendedores/pedidos?list_type=todos&status=Todos&client_type=mayoristas" ||
+                    link.href === "/vendedores/clientes?client_type=mayoristas" ||
+                    link.href === "/vendedores/presupuestos-mayorista"
+                  );
                   return (
+                    isAllowedWholesaleLink ||
                     link.href === "/vendedores" ||
                     link.href === "/vendedores/presupuestos" ||
                     link.href === "/vendedores/pedidos?tab=form&client_type=minoristas" ||
