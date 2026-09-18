@@ -83,7 +83,9 @@ interface AdvertisingSource {
 }
 
 interface WholesaleCatalogItem {
+  id?: string;
   name: string;
+  category?: string;
   priceList?: number;
   price_list?: number;
 }
@@ -848,7 +850,7 @@ export default function PedidosPage() {
       const urlTab = params.get("tab");
       if (urlTab === 'form' || urlTab === 'nuevo') {
         setActiveTab('form');
-      } else if (urlTab === 'list') {
+      } else {
         setActiveTab('list');
       }
       const urlStatus = params.get("status");
@@ -1435,8 +1437,9 @@ export default function PedidosPage() {
           const wholesaleTokens = getTokens(wholesale.name || '');
           const wholesaleText = wholesaleTokens.join(' ');
           const wholesaleCapacity = wholesaleTokens.find((token: string) => /^\d{2,4}l$/.test(token));
-          let bestProduct: Product | null = null;
-          let bestScore = 0;
+          const exactProduct = allProducts.find(product => product.id === wholesale.id && !usedProductIds.has(product.id));
+          let bestProduct: Product | null = exactProduct || null;
+          let bestScore = exactProduct ? 1 : 0;
 
           for (const product of allProducts) {
             if (usedProductIds.has(product.id)) continue;
@@ -1469,7 +1472,12 @@ export default function PedidosPage() {
           if (!bestProduct) return [];
           usedProductIds.add(bestProduct.id);
           const listPrice = Number(wholesale.priceList || wholesale.price_list || 0);
-          return [{ ...bestProduct, price: listPrice, wholesale_list_price: listPrice }];
+          return [{
+            ...bestProduct,
+            category: wholesale.category || bestProduct.category,
+            price: listPrice,
+            wholesale_list_price: listPrice
+          }];
         });
 
         // Mantener disponibles las variantes ciegas dentro del selector B2B.

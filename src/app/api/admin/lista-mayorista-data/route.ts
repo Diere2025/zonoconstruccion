@@ -188,6 +188,16 @@ export async function GET(request: Request) {
       { id: 'deseng-1000', name: 'BioFort - Desengrasadora 1000L', family: 'Cámaras Desengrasadoras', category: 'Cámaras Desengrasadoras', liters: '1000L', isManufactured: false, score: 0, fallbackColE: 145826.83 },
       { id: 'deseng-3000', name: 'BioFort - Desengrasadora 3000L', family: 'Cámaras Desengrasadoras', category: 'Cámaras Desengrasadoras', liters: '3000L', isManufactured: false, score: 0, fallbackColE: 351965.77 },
 
+      // COMPLEMENTOS PARA TANQUES
+      { id: '5fdf20d6-fb4a-42ee-89cb-c8e0c07a4419', name: 'Flotante Eco Varilla Plástica 1/2"', family: 'Flotantes', category: 'Flotantes', liters: '', isManufactured: false, score: 0, fallbackColE: 10000 },
+      { id: 'ac1936af-24b3-436d-85a9-c426e5f16149', name: 'Flotante Completo Varilla Bronce Rao 1/2', family: 'Flotantes', category: 'Flotantes', liters: '', isManufactured: false, score: 0, fallbackColE: 16500 },
+      { id: 'a9a39b8d-8454-4fb6-a06f-204b02cb6cfb', name: 'Flotante Completo Varilla Bronce Rao 3/4', family: 'Flotantes', category: 'Flotantes', liters: '', isManufactured: false, score: 0, fallbackColE: 16500 },
+      { id: '7a65d99f-d56f-4bbf-a6b7-e8ef38f2ff0a', name: 'Base Hierro Reforzada 74 cms', family: 'Bases', category: 'Bases', liters: '74 cm', isManufactured: false, score: 0, fallbackColE: 49700 },
+      { id: 'f0478d75-ae8a-42ae-8662-6ac3262bc43c', name: 'Base de Hierro Reforzada para Tanque (85 cm)', family: 'Bases', category: 'Bases', liters: '85 cm', isManufactured: false, score: 0, fallbackColE: 49700 },
+      { id: '1e93a8f1-60dd-4d5d-8544-d2dc71e2505d', name: 'Base Hierro Reforzada 102 cms', family: 'Bases', category: 'Bases', liters: '102 cm', isManufactured: false, score: 0, fallbackColE: 49700 },
+      { id: 'cfc521fe-d091-48f9-949f-6ab98579cbcf', name: 'Base Hierro Reforzada 145 cms', family: 'Bases', category: 'Bases', liters: '145 cm', isManufactured: false, score: 0, fallbackColE: 133200 },
+      { id: '8d25dc58-b7f7-467f-917a-3434890dc634', name: 'AUTOMATICO TANQUE/CISTERNA - MP (1,5m)', family: 'Automáticos', category: 'Automáticos', liters: '1,5 m', isManufactured: false, score: 0, fallbackColE: 11000 },
+
     ];
 
     const products = catalogDefinition.map(item => {
@@ -234,7 +244,10 @@ export async function GET(request: Request) {
       'Cisternas',
       'Biodigestores',
       'Cámaras Sépticas',
-      'Cámaras Desengrasadoras'
+      'Cámaras Desengrasadoras',
+      'Flotantes',
+      'Bases',
+      'Automáticos'
     ];
 
     // Archivo histórico: "Lista Mayorista N12", vigencia 1/6/2026.
@@ -247,7 +260,15 @@ export async function GET(request: Request) {
       'cisterna-300': 95600, 'cisterna-500': 112900, 'cisterna-600': 134000, 'cisterna-750': 175900, 'cisterna-1000': 185400, 'cisterna-3000': 593500, 'cisterna-slim-500': 158100,
       'bio-500': 222700, 'bio-600': 236600, 'bio-750': 261800, 'bio-1000': 286400, 'bio-3000': 832400, 'bio-700-autolimp': 419500,
       'sept-300': 95900, 'sept-500': 112900, 'sept-600': 134000, 'sept-750': 175900, 'sept-1000': 243400,
-      'deseng-70-c50': 59200, 'deseng-70-c110': 59200, 'deseng-300': 95900, 'deseng-500': 112900, 'deseng-600': 134000, 'deseng-750': 175900, 'deseng-1000': 243400
+      'deseng-70-c50': 59200, 'deseng-70-c110': 59200, 'deseng-300': 95900, 'deseng-500': 112900, 'deseng-600': 134000, 'deseng-750': 175900, 'deseng-1000': 243400,
+      '5fdf20d6-fb4a-42ee-89cb-c8e0c07a4419': 10000,
+      'ac1936af-24b3-436d-85a9-c426e5f16149': 16500,
+      'a9a39b8d-8454-4fb6-a06f-204b02cb6cfb': 16500,
+      '7a65d99f-d56f-4bbf-a6b7-e8ef38f2ff0a': 49700,
+      'f0478d75-ae8a-42ae-8662-6ac3262bc43c': 49700,
+      '1e93a8f1-60dd-4d5d-8544-d2dc71e2505d': 49700,
+      'cfc521fe-d091-48f9-949f-6ab98579cbcf': 133200,
+      '8d25dc58-b7f7-467f-917a-3434890dc634': 11000
     };
     const list12Fallback: SavedWholesaleListConfig = {
       listNumber: '12',

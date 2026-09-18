@@ -368,7 +368,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       links: [
         { name: "Dashboard Mayorista", href: "/admin/dashboard-mayorista", icon: TrendingUp, adminOnly: true },
         { name: "Cargar Pedido Mayorista", href: "/vendedores/pedidos?tab=form&client_type=mayoristas", icon: PlusCircle },
-        { name: "Pedidos Mayoristas", href: "/vendedores/pedidos?list_type=todos&status=Todos&client_type=mayoristas", icon: ShoppingBag },
+        { name: "Pedidos Mayoristas", href: "/vendedores/pedidos?tab=list&list_type=todos&status=Todos&client_type=mayoristas", icon: ShoppingBag },
         { name: "Clientes Mayoristas", href: "/vendedores/clientes?client_type=mayoristas", icon: Users },
         { name: "Cotizador Mayorista", href: "/vendedores/presupuestos-mayorista", icon: Calculator },
         { name: "Lista Precios Mayorista", href: "/admin/lista-mayorista", icon: Calculator, adminOnly: true },
@@ -565,7 +565,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                     link.href.startsWith("/admin/dashboard-mayorista") ||
                     link.href === "/admin/dashboard" ||
                     link.href === "/vendedores/pedidos?client_type=minoristas" ||
-                    link.href === "/vendedores/pedidos?list_type=todos&status=Todos&client_type=mayoristas" ||
+                    link.href === "/vendedores/pedidos?tab=list&list_type=todos&status=Todos&client_type=mayoristas" ||
                     link.href.startsWith("/admin/finanzas") ||
                     link.href === "/admin/facturacion-pendiente"
                   );
@@ -573,7 +573,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                 if (isRestrictedSeller) {
                   const isAllowedWholesaleLink = canUseWholesale && (
                     link.href === "/vendedores/pedidos?tab=form&client_type=mayoristas" ||
-                    link.href === "/vendedores/pedidos?list_type=todos&status=Todos&client_type=mayoristas" ||
+                    link.href === "/vendedores/pedidos?tab=list&list_type=todos&status=Todos&client_type=mayoristas" ||
                     link.href === "/vendedores/clientes?client_type=mayoristas" ||
                     link.href === "/vendedores/presupuestos-mayorista"
                   );
