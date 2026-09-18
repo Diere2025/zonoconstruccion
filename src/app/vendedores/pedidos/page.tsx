@@ -676,6 +676,7 @@ export default function PedidosPage() {
   const [isOrderSummaryExpanded, setIsOrderSummaryExpanded] = useState(true);
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
   const [orderCategory, setOrderCategory] = useState<string>("auto");
+  const [commercialBrand, setCommercialBrand] = useState<'zono' | 'aquafort'>('zono');
 
   // Order Discount States (Global)
   const [orderDiscountType, setOrderDiscountType] = useState<'percentage' | 'fixed'>('percentage');
@@ -1505,6 +1506,11 @@ export default function PedidosPage() {
       setAdvertisingSourceDetail("");
     }
   }, [advertisingSources, editingOrderId, isFacundoSelectedSeller, isWholesaleContext]);
+
+  useEffect(() => {
+    if (editingOrderId) return;
+    setCommercialBrand(isWholesaleContext || isFacundoSelectedSeller ? 'aquafort' : 'zono');
+  }, [editingOrderId, isFacundoSelectedSeller, isWholesaleContext]);
   const [deliveryDetail, setDeliveryDetail] = useState("");
 
   const [orderStatus, setOrderStatus] = useState<string>("Pendiente");
@@ -3624,6 +3630,11 @@ export default function PedidosPage() {
       setHoldReason(order.hold_reason || "");
       setHoldProductId(order.hold_product_id || "");
       setOrderCategory(order.category || "auto");
+      setCommercialBrand(
+        order.commercial_brand === 'aquafort' || order.commercial_brand === 'zono'
+          ? order.commercial_brand
+          : (order.channel === 'mayorista' ? 'aquafort' : 'zono')
+      );
       
       setActiveTab('form');
       setShowLoadFromDbModal(false);
@@ -3700,6 +3711,7 @@ export default function PedidosPage() {
     setOrderDiscountType('fixed');
     setOrderDiscountValue(0);
     setOrderCategory("auto");
+    setCommercialBrand(isWholesaleContext || FACUNDO_SELLER_IDS.includes(currentUserId) ? 'aquafort' : 'zono');
     setSelectedSellerId(currentUserId);
     if (currentUserId) {
       generateNextLegacyCode(currentUserId);
@@ -3828,6 +3840,7 @@ export default function PedidosPage() {
       seller_name: sellerName,
       status: rawOrder.status || "Pendiente",
       channel: rawOrder.channel || "",
+      commercial_brand: rawOrder.commercial_brand || (rawOrder.channel === 'mayorista' ? 'aquafort' : 'zono'),
       advertising_source_name: advName,
       order_medium_name: medName,
       freight_type: rawOrder.freight_type || "Flete Regular",
@@ -3923,6 +3936,7 @@ export default function PedidosPage() {
       seller_name: sellerObj?.full_name || "Equipo Zono",
       status: orderStatus || "Pendiente",
       channel: isWholesaleContext ? 'mayorista' : 'minorista',
+      commercial_brand: commercialBrand,
       advertising_source_name: advertisingSources.find(a => a.id === selectedAdvertisingSourceId)?.name,
       order_medium_name: orderMediums.find(m => m.id === selectedOrderMediumId)?.name,
       freight_type: flete || "Flete Regular",
@@ -5100,7 +5114,9 @@ export default function PedidosPage() {
                 card_surcharge: p.surchargePercentage,
                 receipt_url: p.receipt_url,
                 notes: p.notes,
-                telegram_sent: p.telegram_sent || false
+                telegram_sent: p.telegram_sent || false,
+                telegram_message_id: p.telegram_message_id,
+                telegram_chat_id: p.telegram_chat_id
               })),
               payment_timing: paymentTiming
             },
@@ -5119,7 +5135,8 @@ export default function PedidosPage() {
               : (originalOrderSnapshot?.status || 'Pendiente'),
             hold_reason: orderStatus === 'En Espera' ? holdReason : null,
             hold_product_id: orderStatus === 'En Espera' && holdProductId ? holdProductId : null,
-            category: orderCategory === 'auto' ? detectedCategory : orderCategory
+            category: orderCategory === 'auto' ? detectedCategory : orderCategory,
+            commercial_brand: commercialBrand
           })
           .eq('id', editingOrderId)
           .select()
@@ -5356,11 +5373,14 @@ export default function PedidosPage() {
                 card_surcharge: p.surchargePercentage,
                 receipt_url: p.receipt_url,
                 notes: p.notes,
-                telegram_sent: p.telegram_sent || false
+                telegram_sent: p.telegram_sent || false,
+                telegram_message_id: p.telegram_message_id,
+                telegram_chat_id: p.telegram_chat_id
               })),
               payment_timing: paymentTiming
             },
             channel: isWholesaleContext ? 'mayorista' : 'vendedor_externo',
+            commercial_brand: commercialBrand,
             payment_status: paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? 'Seniado' : 'Pendiente'),
             logistics_zone_id: localities.find(l => l.id === localidadId)?.zone_id || null,
             advertising_source_id: selectedAdvertisingSourceId || null,
@@ -5763,6 +5783,7 @@ export default function PedidosPage() {
       setOrderDiscountType('fixed');
       setOrderDiscountValue(0);
       setOrderCategory("auto");
+      setCommercialBrand(isWholesaleContext || FACUNDO_SELLER_IDS.includes(seller_id) ? 'aquafort' : 'zono');
       
       editingOrderIdRef.current = null;
       generateNextLegacyCode(seller_id);
@@ -5923,7 +5944,7 @@ export default function PedidosPage() {
               </h3>
               
               {/* Fila Superior: Códigos y Datos Generales */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-start pb-3 border-b border-slate-200/70">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-start pb-3 border-b border-slate-200/70">
                 {/* Código de Pedido Legacy */}
                 <div className="space-y-1">
                   <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Código de Pedido (Anterior)</label>
@@ -5990,6 +6011,18 @@ export default function PedidosPage() {
                     <option value="HERRAMIENTAS ELÉCTRICAS">HERRAMIENTAS ELÉCTRICAS</option>
                     <option value="INSTALACIÓN BIOFORT">INSTALACIÓN BIOFORT</option>
                     <option value="OTRO">OTRO</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Marca del comprobante</label>
+                  <select
+                    value={commercialBrand}
+                    onChange={event => setCommercialBrand(event.target.value as 'zono' | 'aquafort')}
+                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 transition-all cursor-pointer text-slate-800 h-[34px]"
+                  >
+                    <option value="aquafort">AquaFort</option>
+                    <option value="zono">Zono Construcción</option>
                   </select>
                 </div>
               </div>

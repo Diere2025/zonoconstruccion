@@ -48,6 +48,7 @@ export interface PrintableOrderData {
   seller_name?: string;
   status?: string;
   channel?: string;
+  commercial_brand?: 'zono' | 'aquafort';
   advertising_source_name?: string;
   order_medium_name?: string;
   freight_type?: string;
@@ -90,9 +91,11 @@ export default function PrintableOrderModal({
 
   if (!isOpen || !order) return null;
 
-  const isWholesale = order.channel === 'mayorista';
-  const companyName = isWholesale ? 'AQUAFORT' : 'ZONO CONSTRUCCIÓN';
-  const documentPrefix = isWholesale ? 'Aquafort' : 'Zono';
+  const isAquafortBrand = order.commercial_brand
+    ? order.commercial_brand === 'aquafort'
+    : order.channel === 'mayorista';
+  const companyName = isAquafortBrand ? 'AQUAFORT' : 'ZONO CONSTRUCCIÓN';
+  const documentPrefix = isAquafortBrand ? 'Aquafort' : 'Zono';
   const orderNumber = order.legacy_code || order.id.substring(0, 8).toUpperCase();
   const orderDateFormatted = order.order_date
     ? new Date(order.order_date + "T00:00:00").toLocaleDateString("es-AR", {
@@ -412,19 +415,19 @@ export default function PrintableOrderModal({
                         fontSize: "18px"
                       }}
                     >
-                      {isWholesale ? 'A' : 'Z'}
+                      {isAquafortBrand ? 'A' : 'Z'}
                     </div>
                     <div>
                       <div style={{ fontSize: "19px", fontWeight: 900, color: "#001538", letterSpacing: "-0.5px", lineHeight: 1.1 }}>
                         {companyName}
                       </div>
                       <div style={{ fontSize: "9.5px", fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                        {isWholesale ? 'Canal Mayorista' : 'Venta Directa & Distribución Oficial'}
+                        {isAquafortBrand ? 'Soluciones para el agua' : 'Venta Directa & Distribución Oficial'}
                       </div>
                     </div>
                   </div>
                   <div style={{ fontSize: "9px", color: "#64748b", marginTop: "4px" }}>
-                    {isWholesale
+                    {isAquafortBrand
                       ? 'Quilmes 4541, Paso del Rey • AquaFort'
                       : 'Quilmes 4541, Paso del Rey • Tel: 11-5769-4181 • www.zono.com.ar'}
                   </div>
