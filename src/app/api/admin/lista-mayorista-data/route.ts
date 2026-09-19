@@ -12,6 +12,14 @@ const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 
 const SPREADSHEET_COSTS_ID = "1q5m7T0pqlYBj9imWyTkJf5fus2eVyPtTLc74cp0Nul0";
 const GID_BD_COSTO = "39870918";
+const SPREADSHEET_WHOLESALE_HISTORY_ID = "1lTPAMSEhGv7k0QD-N-N3FNdW59V1k31v0GknH0hEskw";
+const WHOLESALE_HISTORY_SHEET = "LISTAS";
+
+// La hoja LISTAS identifica cada snapshot con un ordinal en su segunda fila.
+// La Lista Mayorista 12 publicada históricamente corresponde al snapshot 105.
+const HISTORY_REFERENCE_BY_LIST_NUMBER: Record<string, string> = {
+  '12': '105'
+};
 
 // Base benchmarks de rotomoldeo de Planta (Agosto 2026)
 // Base 500L (Score 1.00): Gas = $7.957, MDO = $5.148, Luz+Opex = $3.610
@@ -77,12 +85,86 @@ function parseSpanishNumber(val: unknown): number {
   return isNaN(parsed) ? 0 : parsed;
 }
 
+function slugifyProductId(name: string): string {
+  return `sheet-${name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')}`;
+}
+
+function inferProductMetadata(name: string) {
+  const normalized = name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  let category = 'Otros';
+  if (normalized.includes('registro lodo') || normalized.includes('camara r lodo') || normalized.includes('cr lodo')) category = 'Registro Lodos';
+  else if (normalized.includes('desengras')) category = 'Cámaras Desengrasadoras';
+  else if (normalized.includes('sept')) category = 'Cámaras Sépticas';
+  else if (normalized.includes('biodigest') || normalized.includes('autolimp')) category = 'Biodigestores';
+  else if (normalized.includes('cisterna')) category = 'Cisternas';
+  else if (normalized.includes('cuatr')) category = 'Cuatricapa';
+  else if (normalized.includes('tric') && normalized.includes('beige')) category = 'Tricapa Beige';
+  else if (normalized.includes('tric')) category = 'Tricapa Gris';
+  else if (normalized.includes('bic')) category = 'Bicapa';
+
+  const litersMatch = name.match(/(\d+(?:[.,]\d+)?)\s*l\b/i);
+  return {
+    category,
+    family: category,
+    liters: litersMatch ? `${litersMatch[1].replace(',', '.')}L` : '',
+    isManufactured: false
+  };
+}
+
+function buildHistoricalListItems(csvText: string, listNumber: string) {
+  const reference = HISTORY_REFERENCE_BY_LIST_NUMBER[listNumber];
+  if (!reference) return [];
+
+  const rows = csvText.split(/\r?\n/).filter(Boolean).map(parseCsvLine);
+  const referenceRow = rows[1] || [];
+  const priceColumnIndex = referenceRow.findIndex((value) => value.trim() === reference);
+  if (priceColumnIndex < 1) return [];
+
+  return rows.slice(3).flatMap((row) => {
+    const name = row[0]?.trim();
+    const priceList = parseSpanishNumber(row[priceColumnIndex]);
+    if (!name || priceList <= 0) return [];
+    const metadata = inferProductMetadata(name);
+    return [{
+      id: slugifyProductId(name),
+      name,
+      ...metadata,
+      originType: 'Histórico hoja LISTAS',
+      rawInsumosColE: 0,
+      plantCost: 0,
+      costGas: 0,
+      costMdo: 0,
+      costFijo: 0,
+      costBaseReal: 0,
+      isFeatured: false,
+      defaultCommercialized: true,
+      suggestedListPrice: priceList,
+      priceList,
+      priceCorralon: Math.round(priceList * 0.95),
+      priceDistributor: Math.round(priceList * 0.90),
+      isCommercialized: true,
+      isConfirmed: true,
+      mode: 'fixed_price',
+      customFixedListPrice: priceList
+    }];
+  });
+}
+
 export async function GET(request: Request) {
   try {
     const requestedListNumber = new URL(request.url).searchParams.get('listNumber')?.trim();
     // 1. Descargar BDCosto directamente desde Google Sheets
     const url = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_COSTS_ID}/gviz/tq?tqx=out:csv&gid=${GID_BD_COSTO}`;
-    const csvText = await fetchSpreadsheetCsv(url);
+    const historyUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_WHOLESALE_HISTORY_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(WHOLESALE_HISTORY_SHEET)}`;
+    const [csvText, wholesaleHistoryCsv] = await Promise.all([
+      fetchSpreadsheetCsv(url),
+      fetchSpreadsheetCsv(historyUrl)
+    ]);
     const lines = csvText.split('\n');
 
     // Mapeo de Columna E por producto
@@ -237,35 +319,16 @@ export async function GET(request: Request) {
       'Cámaras Desengrasadoras'
     ];
 
-    // Archivo histórico: "Lista Mayorista N12", vigencia 1/6/2026.
-    // Se ofrece como respaldo hasta que se publique una versión de Lista 12 en la base.
-    const list12Prices: Record<string, number> = {
-      'bic-300': 85300, 'bic-500': 101000, 'bic-600': 108900, 'bic-750': 142400, 'bic-1000': 150800, 'bic-1200': 214400,
-      'tric-300-gris': 95900, 'tric-500-gris': 104700, 'tric-600-gris': 117300, 'tric-750-gris': 159200, 'tric-1000-gris': 167500, 'tric-1200-gris': 250100, 'tric-3000-gris': 563700, 'tric-slim-500-gris': 121500, 'tric-chato-1000-gris': 243400,
-      'tric-300-beige': 95900, 'tric-500-beige': 112900, 'tric-600-beige': 134000, 'tric-750-beige': 175900, 'tric-1000-beige': 192600, 'tric-1200-beige': 286000, 'tric-3000-beige': 563700, 'tric-slim-500-beige': 129500, 'tric-chato-1000-beige': 243400,
-      'cuatr-500': 175000, 'cuatr-600': 175900, 'cuatr-750': 192600, 'cuatr-1000': 226200, 'cuatr-1200': 314300, 'cuatr-3000': 777200,
-      'cisterna-300': 95600, 'cisterna-500': 112900, 'cisterna-600': 134000, 'cisterna-750': 175900, 'cisterna-1000': 185400, 'cisterna-3000': 593500, 'cisterna-slim-500': 158100,
-      'bio-500': 222700, 'bio-600': 236600, 'bio-750': 261800, 'bio-1000': 286400, 'bio-3000': 832400, 'bio-700-autolimp': 419500,
-      'sept-300': 95900, 'sept-500': 112900, 'sept-600': 134000, 'sept-750': 175900, 'sept-1000': 243400,
-      'deseng-70-c50': 59200, 'deseng-70-c110': 59200, 'deseng-300': 95900, 'deseng-500': 112900, 'deseng-600': 134000, 'deseng-750': 175900, 'deseng-1000': 243400
-    };
+    // Lista 12 se reconstruye desde la fuente histórica completa, no desde un
+    // subconjunto manual. De esta forma incluye también Registro de Lodos y
+    // cualquier otro producto que haya tenido precio en ese snapshot.
+    const list12Items = buildHistoricalListItems(wholesaleHistoryCsv, '12');
     const list12Fallback: SavedWholesaleListConfig = {
       listNumber: '12',
       listDate: 'Junio 2026',
       globalDiscountCorralonPct: 5,
       globalDiscountDistributorPct: 10,
-      items: products
-        .filter((product) => list12Prices[product.id] !== undefined)
-        .map((product) => {
-          const priceList = list12Prices[product.id];
-          return {
-            ...product,
-            priceList,
-            priceCorralon: Math.round(priceList * 0.95),
-            priceDistributor: Math.round(priceList * 0.90),
-            isCommercialized: true
-          };
-        })
+      items: list12Items
     };
 
     // Las listas publicadas se guardan completas en site_settings. Leerlas por
@@ -304,9 +367,19 @@ export async function GET(request: Request) {
       console.warn('[API Lista Mayorista Data] Warning fetching saved config from DB:', e);
     }
 
-    if (!savedConfigs.has('12')) {
-      savedConfigs.set('12', list12Fallback);
+    // Lista 12 siempre conserva la membresía completa proveniente de LISTAS.
+    // Los ajustes guardados se aplican encima por nombre/id sin eliminar filas.
+    const savedList12 = savedConfigs.get('12');
+    if (savedList12 && Array.isArray(savedList12.items)) {
+      const savedByName = new Map(
+        (savedList12.items as Array<Record<string, unknown>>).map((item) => [String(item.name || '').trim().toLowerCase(), item])
+      );
+      list12Fallback.items = list12Items.map((sheetItem) => ({
+        ...sheetItem,
+        ...(savedByName.get(sheetItem.name.toLowerCase()) || {})
+      }));
     }
+    savedConfigs.set('12', { ...list12Fallback, ...savedList12, items: list12Fallback.items });
 
     // Las instalaciones más antiguas pueden tener listas sólo en las tablas
     // relacionales; incluirlas también mantiene disponible, por ejemplo, Lista 12.
@@ -371,6 +444,14 @@ export async function GET(request: Request) {
       }
     }
     const productsForSelectedList = savedItems.length > 0 ? savedItems : products;
+    const productCategories = productsForSelectedList.map((item) => {
+      const category = (item as { category?: unknown }).category;
+      return typeof category === 'string' ? category : '';
+    }).filter(Boolean);
+    const responseCategories = Array.from(new Set([
+      ...categories,
+      ...productCategories
+    ]));
 
     return NextResponse.json({
       success: true,
@@ -380,7 +461,7 @@ export async function GET(request: Request) {
         baseMdo: BASE_MDO,
         baseFijo: BASE_FIJO
       },
-      categories,
+      categories: responseCategories,
       products: productsForSelectedList,
       savedDbConfig,
       resolvedListNumber: savedDbConfig?.listNumber ? String(savedDbConfig.listNumber) : null,

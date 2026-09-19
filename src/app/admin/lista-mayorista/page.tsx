@@ -37,7 +37,9 @@ import {
   Ban,
   CheckSquare,
   Square,
-  Edit3
+  Edit3,
+  Plus,
+  Library
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import * as XLSX from "xlsx";
@@ -60,6 +62,15 @@ interface ProductData {
   costBaseReal: number;
   isFeatured: boolean;
   defaultCommercialized?: boolean;
+  suggestedListPrice?: number;
+  priceList?: number;
+}
+
+interface AvailableWholesaleList {
+  listNumber: string;
+  listDate: string;
+  isActive: boolean;
+  hasSavedPrices: boolean;
 }
 
 interface CategoryConfig {
@@ -114,25 +125,34 @@ export default function ListaMayoristaConfigPage() {
   const [copiedSummary, setCopiedSummary] = useState(false);
   const [isSavingDb, setIsSavingDb] = useState(false);
   const [lastSavedDbAt, setLastSavedDbAt] = useState<string | null>(null);
+  const [availableLists, setAvailableLists] = useState<AvailableWholesaleList[]>([]);
+  const [loadedListNumber, setLoadedListNumber] = useState<string | null>(null);
+  const [isPersistedList, setIsPersistedList] = useState(false);
 
   // Load Initial Data
-  const fetchData = async () => {
+  const fetchData = async (requestedListNumber?: string) => {
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch("/api/admin/lista-mayorista-data");
+      const query = requestedListNumber ? `?listNumber=${encodeURIComponent(requestedListNumber)}` : '';
+      const res = await fetch(`/api/admin/lista-mayorista-data${query}`);
       const json = await res.json();
       if (!json.success) throw new Error(json.error || "Error al cargar catálogo de costos");
       const fetchedProducts: ProductData[] = json.products || [];
       setProducts(fetchedProducts);
       setCategories(json.categories || []);
+      setAvailableLists(json.availableLists || []);
+      setIsPersistedList(Boolean(json.isPersistedList));
+      const resolvedNumber = String(json.resolvedListNumber || requestedListNumber || listNumber);
+      setLoadedListNumber(resolvedNumber);
+      setListNumber(resolvedNumber);
 
       // Initialize product states from localStorage (v2 with fallback to v1)
       const savedConfigV2 = localStorage.getItem("zono_mayorista_config_v2");
       const savedConfigV1 = localStorage.getItem("zono_mayorista_config_v1");
       let savedStates: Record<string, ProductItemState> = {};
 
-      if (savedConfigV1) {
+      if (!requestedListNumber && savedConfigV1) {
         try {
           const parsedV1 = JSON.parse(savedConfigV1);
           if (parsedV1.globalFreightPct !== undefined) setGlobalFreightPct(parsedV1.globalFreightPct);
@@ -159,7 +179,7 @@ export default function ListaMayoristaConfigPage() {
         }
       }
 
-      if (savedConfigV2) {
+      if (!requestedListNumber && savedConfigV2) {
         try {
           const parsedV2 = JSON.parse(savedConfigV2);
           if (parsedV2.listNumber) setListNumber(parsedV2.listNumber);
@@ -204,6 +224,13 @@ export default function ListaMayoristaConfigPage() {
       fetchedProducts.forEach(p => {
         if (savedStates[p.id]) {
           initialStates[p.id] = savedStates[p.id];
+        } else if (p.suggestedListPrice || p.priceList) {
+          initialStates[p.id] = {
+            isCommercialized: true,
+            isConfirmed: true,
+            mode: "fixed_price",
+            customFixedListPrice: Number(p.suggestedListPrice || p.priceList)
+          };
         } else {
           // Default: 1100L not commercialized, others true
           initialStates[p.id] = {
@@ -226,6 +253,36 @@ export default function ListaMayoristaConfigPage() {
   useEffect(() => {
     fetchData();
   }, []);
+
+  const handleLoadList = async (number: string) => {
+    if (!number || number === loadedListNumber) return;
+    await fetchData(number);
+  };
+
+  const handleCreateList = () => {
+    const numericLists = availableLists.map((list) => Number(list.listNumber)).filter(Number.isFinite);
+    const nextNumber = String((numericLists.length ? Math.max(...numericLists) : Number(listNumber) || 0) + 1);
+    const requestedNumber = window.prompt("Número de la nueva lista", nextNumber)?.trim();
+    if (!requestedNumber) return;
+    if (availableLists.some((list) => list.listNumber === requestedNumber)) {
+      alert(`La Lista ${requestedNumber} ya existe. Seleccionala desde el historial.`);
+      return;
+    }
+    const requestedDate = window.prompt("Vigencia de la nueva lista", new Intl.DateTimeFormat('es-AR', { month: 'long', year: 'numeric' }).format(new Date()))?.trim();
+    if (!requestedDate) return;
+
+    setListNumber(requestedNumber);
+    setListDate(requestedDate.charAt(0).toUpperCase() + requestedDate.slice(1));
+    setLoadedListNumber(null);
+    setIsPersistedList(false);
+    setLastSavedDbAt(null);
+    setProductStates((current) => Object.fromEntries(
+      products.map((product) => [product.id, {
+        ...(current[product.id] || { isCommercialized: true, mode: "auto" as const }),
+        isConfirmed: false
+      }])
+    ));
+  };
 
   // Save Settings to LocalStorage whenever they change
   const saveCurrentSettings = () => {
@@ -409,15 +466,15 @@ export default function ListaMayoristaConfigPage() {
       const costBase = prod.costBaseReal;
       const fleteList = Math.round(finalPriceList * (globalFreightPct / 100));
       const netProfitList = finalPriceList - fleteList - costBase;
-      const marginListPct = ((netProfitList / costBase) * 100);
+      const marginListPct = costBase > 0 ? ((netProfitList / costBase) * 100) : 0;
 
       const fleteCorr = Math.round(finalPriceCorralon * (globalFreightPct / 100));
       const netProfitCorr = finalPriceCorralon - fleteCorr - costBase;
-      const marginCorrPct = ((netProfitCorr / costBase) * 100);
+      const marginCorrPct = costBase > 0 ? ((netProfitCorr / costBase) * 100) : 0;
 
       const fleteDist = Math.round(finalPriceDistributor * (globalFreightPct / 100));
       const netProfitDist = finalPriceDistributor - fleteDist - costBase;
-      const marginDistPct = ((netProfitDist / costBase) * 100);
+      const marginDistPct = costBase > 0 ? ((netProfitDist / costBase) * 100) : 0;
 
       return {
         ...prod,
@@ -658,6 +715,18 @@ export default function ListaMayoristaConfigPage() {
       if (!json.success) throw new Error(json.error || "Error al guardar en la base de datos");
       const timeStr = new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
       setLastSavedDbAt(timeStr);
+      setLoadedListNumber(listNumber);
+      setIsPersistedList(true);
+      setAvailableLists((current) => {
+        const nextList: AvailableWholesaleList = {
+          listNumber,
+          listDate,
+          isActive: true,
+          hasSavedPrices: true
+        };
+        return [nextList, ...current.filter((list) => list.listNumber !== listNumber).map((list) => ({ ...list, isActive: false }))]
+          .sort((a, b) => Number(b.listNumber) - Number(a.listNumber));
+      });
       alert(`✅ ¡Lista ${listNumber} guardada y publicada en la Base de Datos con éxito! (${timeStr} hs)`);
     } catch (err: any) {
       alert("❌ Error: " + (err.message || "Error al conectar con la base de datos"));
@@ -742,6 +811,83 @@ export default function ListaMayoristaConfigPage() {
             <span>{isSavingDb ? "Guardando..." : "Guardar en BD"}</span>
           </button>
         </div>
+      </div>
+
+      {/* List library and version management */}
+      <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-xs space-y-4">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-violet-50 border border-violet-100 flex items-center justify-center text-violet-600 shrink-0">
+              <Library className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-sm font-black text-slate-900">Historial y administración de listas</h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Abrí una versión publicada para revisarla o creá una nueva tomando la lista visible como base.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+            <label className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
+              <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 whitespace-nowrap">Ver lista</span>
+              <select
+                value={loadedListNumber || ''}
+                onChange={(event) => handleLoadList(event.target.value)}
+                disabled={loading}
+                className="bg-transparent text-xs font-black text-slate-900 outline-none min-w-48 cursor-pointer disabled:opacity-50"
+              >
+                {!loadedListNumber && <option value="">Nueva lista sin publicar</option>}
+                {availableLists.map((list) => (
+                  <option key={list.listNumber} value={list.listNumber}>
+                    Lista {list.listNumber} — {list.listDate}{list.isActive ? ' (activa)' : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              onClick={handleCreateList}
+              className="px-4 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 shadow-md shadow-violet-600/20 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              Nueva lista
+            </button>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {availableLists.map((list) => (
+            <button
+              type="button"
+              key={list.listNumber}
+              onClick={() => handleLoadList(list.listNumber)}
+              className={cn(
+                "rounded-xl border px-3 py-2 text-left transition-all cursor-pointer",
+                loadedListNumber === list.listNumber
+                  ? "border-violet-300 bg-violet-50 text-violet-900 shadow-xs"
+                  : "border-slate-200 bg-white text-slate-600 hover:border-violet-200 hover:bg-violet-50/50"
+              )}
+            >
+              <span className="block text-xs font-black">Lista {list.listNumber}</span>
+              <span className="block text-[10px] font-medium opacity-75">{list.listDate}</span>
+            </button>
+          ))}
+        </div>
+
+        {loadedListNumber === '12' && (
+          <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-xs text-blue-800 flex items-start gap-2">
+            <Database className="w-4 h-4 mt-0.5 shrink-0" />
+            <span>
+              Lista 12 recuperada desde la pestaña <strong>LISTAS</strong> del historial original. Incluye todos los productos con precio en esa versión, entre ellos <strong>BioFort - Registro Lodos</strong>.
+            </span>
+          </div>
+        )}
+        {!isPersistedList && loadedListNumber !== '12' && (
+          <p className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+            Esta versión todavía no fue publicada. Usá “Guardar en BD” cuando termines de configurarla.
+          </p>
+        )}
       </div>
 
       {/* Progress & Review Status Banner */}
