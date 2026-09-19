@@ -168,28 +168,33 @@ test('Combo BioFort 15% OFF (without installation): net prices stay on the produ
   assert.equal(comboDisc, undefined);
 });
 
-test('Order-level discount is distributed across products and reconciles exactly', () => {
+test('Order-level wholesale discount keeps list prices and is appended as a negative item', () => {
   const orderItems = [
     { id: 'tanque-1000', name: 'Tanque 1000L Aquafort', quantity: 2, customPrice: 200000, basePrice: 200000 },
     { id: 'biolam', name: 'Biolam', quantity: 1, customPrice: 18500, basePrice: 18500 }
   ];
 
   const sheetItems = googleSheetsLib.buildSheetOrderItems(orderItems, 50000, catalogProducts);
-  assert.equal(sheetItems.some(item => item.name.includes('Descuento')), false);
+  assert.equal(sheetItems[0].unitPrice, 200000);
+  assert.equal(sheetItems[1].unitPrice, 18500);
+  assert.equal(sheetItems.at(-1).name, 'Descuento Compra Mayorista');
+  assert.equal(sheetItems.at(-1).unitPrice, -50000);
   const netTotal = sheetItems.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
   assert.equal(Math.round(netTotal * 100) / 100, 368500);
 });
 
-test('Legacy discount rows are absorbed into product prices', () => {
+test('Legacy discount rows are consolidated at the end and products recover list price', () => {
   const orderItems = [
     { id: 'tanque-1000', name: 'Tanque 1000L Aquafort', quantity: 1, customPrice: 200000 },
     { name: 'Descuento Compra Mayorista', quantity: 1, customPrice: -20000 }
   ];
 
   const sheetItems = googleSheetsLib.buildSheetOrderItems(orderItems, 0, catalogProducts);
-  assert.equal(sheetItems.length, 1);
+  assert.equal(sheetItems.length, 2);
   assert.equal(sheetItems[0].name, 'Tanque 1000L Aquafort');
-  assert.equal(sheetItems[0].unitPrice, 180000);
+  assert.equal(sheetItems[0].unitPrice, 200000);
+  assert.equal(sheetItems[1].name, 'Descuento Compra Mayorista');
+  assert.equal(sheetItems[1].unitPrice, -20000);
 });
 
 test('Discount suggestions: does not suggest Combo BioFort 15% OFF when order has an installation kit', () => {
