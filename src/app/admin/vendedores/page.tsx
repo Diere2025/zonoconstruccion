@@ -148,7 +148,7 @@ export default function VendedoresManagementPage() {
         setSellers(data.data || []);
         setPhoneLines(data.phoneLines || []);
       } else {
-        console.error("Error al cargar vendedores:", data.error);
+        console.error("Error al cargar usuarios:", data.error);
       }
     } catch (e) {
       console.error("Error loading sellers:", e);
@@ -224,7 +224,7 @@ export default function VendedoresManagementPage() {
       });
       const data = await res.json();
       if (!data.success) {
-        setCreateError(data.error || "Error al crear vendedor");
+        setCreateError(data.error || "Error al crear usuario");
         setIsCreating(false);
         return;
       }
@@ -240,8 +240,8 @@ export default function VendedoresManagementPage() {
       setNewCommissionRate(8);
       setNewPhoneLineId("none");
       await loadSellers();
-    } catch (err: any) {
-      setCreateError(err.message || "Error al conectar con el servidor");
+    } catch (err: unknown) {
+      setCreateError(err instanceof Error ? err.message : "Error al conectar con el servidor");
     } finally {
       setIsCreating(false);
     }
@@ -278,15 +278,15 @@ export default function VendedoresManagementPage() {
       });
       const data = await res.json();
       if (!data.success) {
-        setEditError(data.error || "Error al actualizar vendedor");
+        setEditError(data.error || "Error al actualizar usuario");
         setIsUpdating(false);
         return;
       }
 
       setSelectedSellerForEdit(null);
       await loadSellers();
-    } catch (err: any) {
-      setEditError(err.message || "Error al conectar con el servidor");
+    } catch (err: unknown) {
+      setEditError(err instanceof Error ? err.message : "Error al conectar con el servidor");
     } finally {
       setIsUpdating(false);
     }
@@ -325,8 +325,8 @@ export default function VendedoresManagementPage() {
         setSelectedSellerForPassword(null);
         setPasswordSuccess(false);
       }, 1800);
-    } catch (err: any) {
-      setPasswordError(err.message || "Error en el servidor");
+    } catch (err: unknown) {
+      setPasswordError(err instanceof Error ? err.message : "Error en el servidor");
     } finally {
       setIsUpdatingPassword(false);
     }
@@ -360,8 +360,8 @@ export default function VendedoresManagementPage() {
       } else {
         alert(data.error || "Error al cambiar estado");
       }
-    } catch (e: any) {
-      alert("Error: " + e.message);
+    } catch (error: unknown) {
+      alert("Error: " + (error instanceof Error ? error.message : "No se pudo cambiar el estado"));
     }
   };
 
@@ -399,7 +399,7 @@ export default function VendedoresManagementPage() {
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-lg font-black text-slate-900 tracking-tight">Gestión de Vendedores</h1>
+              <h1 className="text-lg font-black text-slate-900 tracking-tight">Gestión de Usuarios</h1>
               <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-blue-50 text-blue-700 border border-blue-200">
                 Solo Administradores
               </span>
@@ -436,7 +436,7 @@ export default function VendedoresManagementPage() {
             className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md shadow-blue-600/20 transition-all cursor-pointer"
           >
             <Plus className="w-4 h-4" />
-            <span>Nuevo Vendedor</span>
+            <span>Nuevo Usuario</span>
           </button>
         </div>
       </div>
@@ -542,12 +542,12 @@ export default function VendedoresManagementPage() {
         {isLoading ? (
           <div className="p-12 text-center text-slate-400">
             <Loader2 className="w-8 h-8 animate-spin mx-auto text-blue-500 mb-2" />
-            <p className="text-xs font-medium">Cargando nómina de vendedores...</p>
+            <p className="text-xs font-medium">Cargando usuarios...</p>
           </div>
         ) : filteredSellers.length === 0 ? (
           <div className="p-12 text-center text-slate-400">
             <UserX className="w-10 h-10 mx-auto text-slate-300 mb-2" />
-            <p className="text-sm font-bold text-slate-600">No se encontraron vendedores</p>
+            <p className="text-sm font-bold text-slate-600">No se encontraron usuarios</p>
             <p className="text-xs text-slate-400 mt-1">Intentá cambiar los filtros o el término de búsqueda.</p>
           </div>
         ) : (
@@ -555,7 +555,7 @@ export default function VendedoresManagementPage() {
             <table className="w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="bg-slate-50/75 border-b border-slate-200/80 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
-                  <th className="py-3.5 px-4">Vendedor / Usuario</th>
+                  <th className="py-3.5 px-4">Usuario</th>
                   <th className="py-3.5 px-4">Rol en Sistema</th>
                   <th className="py-3.5 px-4">Canal Comercial</th>
                   <th className="py-3.5 px-4">Línea Telefónica</th>
@@ -729,7 +729,7 @@ export default function VendedoresManagementPage() {
                           <button
                             onClick={() => handleOpenEdit(seller)}
                             className="p-1.5 rounded-lg bg-slate-100 hover:bg-blue-50 hover:text-blue-600 text-slate-600 transition-all cursor-pointer"
-                            title="Editar Datos del Vendedor"
+                            title="Editar usuario"
                           >
                             <Edit className="w-3.5 h-3.5" />
                           </button>
@@ -756,7 +756,7 @@ export default function VendedoresManagementPage() {
                                 ? "bg-slate-100 hover:bg-red-50 hover:text-red-600 text-slate-600"
                                 : "bg-emerald-50 text-emerald-600 hover:bg-emerald-100"
                             }`}
-                            title={seller.is_active ? "Pausar Vendedor" : "Habilitar Vendedor"}
+                            title={seller.is_active ? "Pausar usuario" : "Habilitar usuario"}
                           >
                             {seller.is_active ? <UserX className="w-3.5 h-3.5" /> : <UserCheck className="w-3.5 h-3.5" />}
                           </button>
@@ -771,7 +771,7 @@ export default function VendedoresManagementPage() {
         )}
       </div>
 
-      {/* MODAL: Nuevo Vendedor */}
+      {/* MODAL: Nuevo Usuario */}
       {showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
@@ -780,7 +780,7 @@ export default function VendedoresManagementPage() {
                 <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
                   <Plus className="w-4 h-4" />
                 </div>
-                <h3 className="text-sm font-black text-slate-900">Crear Nuevo Vendedor</h3>
+                <h3 className="text-sm font-black text-slate-900">Crear Nuevo Usuario</h3>
               </div>
               <button
                 onClick={() => setShowCreateModal(false)}
@@ -968,7 +968,7 @@ export default function VendedoresManagementPage() {
                   disabled={isCreating}
                   className="flex-1 py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
                 >
-                  {isCreating ? <Loader2 className="w-4 h-4 animate-spin" /> : "Crear Vendedor"}
+                  {isCreating ? <Loader2 className="w-4 h-4 animate-spin" /> : "Crear Usuario"}
                 </button>
               </div>
             </form>
@@ -976,7 +976,7 @@ export default function VendedoresManagementPage() {
         </div>
       )}
 
-      {/* MODAL: Editar Vendedor */}
+      {/* MODAL: Editar Usuario */}
       {selectedSellerForEdit && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
@@ -985,7 +985,7 @@ export default function VendedoresManagementPage() {
                 <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
                   <Edit className="w-4 h-4" />
                 </div>
-                <h3 className="text-sm font-black text-slate-900">Editar Vendedor</h3>
+                <h3 className="text-sm font-black text-slate-900">Editar Usuario</h3>
               </div>
               <button
                 onClick={() => setSelectedSellerForEdit(null)}

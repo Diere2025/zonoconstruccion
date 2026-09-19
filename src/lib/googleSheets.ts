@@ -307,7 +307,23 @@ export function buildSheetOrderItems(
   }
 
   const resultItems: SheetOrderItem[] = [];
-  let discountToAllocate = Math.max(0, orderDiscountAmount || 0);
+  let totalDiscount = Math.max(0, orderDiscountAmount || 0);
+
+  // Los renglones históricos de descuento se normalizan como un único ajuste
+  // al final. El resto de los productos conserva su precio de lista.
+  for (const item of orderItems) {
+    const rawName = item.product_name || item.name || '';
+    const rawSku = item.sku || '';
+    const currentPrice = item.customPrice !== undefined ? item.customPrice : (item.unit_price !== undefined ? item.unit_price : 0);
+    const isExplicitDiscount = rawName.toLowerCase().includes('descuento') ||
+      rawSku.toLowerCase().includes('descuento') ||
+      rawName.toLowerCase().includes('bonificaci') ||
+      rawSku.toLowerCase().includes('bonificaci') ||
+      currentPrice < 0;
+    if (isExplicitDiscount) {
+      totalDiscount += Math.abs(currentPrice) * Math.max(1, item.quantity || 1);
+    }
+  }
 
   // Detectar si el pedido contiene un Kit de Instalación
   const hasInstallationKit = orderItems.some(item => {
@@ -354,10 +370,7 @@ export function buildSheetOrderItems(
                                currentPrice < 0;
 
     if (isExplicitDiscount) {
-      // Compatibilidad con pedidos viejos: cualquier descuento que llegue como
-      // renglón se transforma en ajuste del pedido y luego se prorratea entre
-      // los productos reales. Nunca vuelve a Google Sheets como un producto.
-      discountToAllocate += Math.abs(currentPrice) * qty;
+      // Se agrega una sola línea consolidada después de todos los productos.
       continue;
     }
 
@@ -382,9 +395,13 @@ export function buildSheetOrderItems(
       continue;
     }
 
-    // Los descuentos por producto ya están reflejados en customPrice/unit_price.
-    // Ese precio neto es el que debe viajar a la planilla.
+    // Con descuento general/mayorista, la planilla debe mostrar el precio de
+    // lista y el ajuste por separado. Los descuentos propios de un producto o
+    // combo siguen usando su precio neto cuando no hay descuento de pedido.
     let effectivePrice = currentPrice;
+    if (totalDiscount > 0) {
+      effectivePrice = item.basePrice ?? catalogProduct?.price ?? item.price ?? currentPrice;
+    }
     if (effectivePrice === 0 && item.customPrice === undefined && item.unit_price === undefined) {
       effectivePrice = item.price ?? item.basePrice ?? catalogProduct?.price ?? 0;
     }
@@ -396,36 +413,13 @@ export function buildSheetOrderItems(
     });
   }
 
-  // Google Sheets no tiene una columna propia para el descuento total. Para
-  // conservar el total sin inventar un producto, se reparte proporcionalmente
-  // entre los renglones cobrables. Se permiten centavos para cerrar exacto.
-  const eligible = resultItems
-    .map((item, index) => ({ index, gross: Math.max(0, Number(item.unitPrice) * Math.max(1, Number(item.quantity) || 1)) }))
-    .filter(item => item.gross > 0);
-  const grossTotal = eligible.reduce((sum, item) => sum + item.gross, 0);
-  const targetNetTotal = Math.round((grossTotal - Math.min(discountToAllocate, grossTotal)) * 100) / 100;
-  let remaining = Math.min(discountToAllocate, grossTotal);
-  if (remaining > 0 && grossTotal > 0) {
-    eligible.forEach((entry, position) => {
-      const item = resultItems[entry.index];
-      const quantity = Math.max(1, Number(item.quantity) || 1);
-      const allocation = position === eligible.length - 1
-        ? remaining
-        : Math.round((discountToAllocate * entry.gross / grossTotal) * 100) / 100;
-      const applied = Math.min(entry.gross, allocation);
-      item.unitPrice = Math.round(((entry.gross - applied) / quantity) * 10000) / 10000;
-      remaining = Math.max(0, Math.round((remaining - applied) * 100) / 100);
+  if (totalDiscount > 0) {
+    resultItems.push({
+      name: 'Descuento Compra Mayorista',
+      sku: 'DESCUENTO',
+      quantity: 1,
+      unitPrice: -Math.round(totalDiscount * 100) / 100
     });
-    const resultingNetTotal = eligible.reduce((sum, entry) => {
-      const item = resultItems[entry.index];
-      return sum + Number(item.unitPrice) * Math.max(1, Number(item.quantity) || 1);
-    }, 0);
-    const residual = Math.round((targetNetTotal - resultingNetTotal) * 10000) / 10000;
-    if (residual !== 0) {
-      const last = resultItems[eligible[eligible.length - 1].index];
-      const quantity = Math.max(1, Number(last.quantity) || 1);
-      last.unitPrice = Math.round((Number(last.unitPrice) + residual / quantity) * 10000) / 10000;
-    }
   }
 
   return resultItems;

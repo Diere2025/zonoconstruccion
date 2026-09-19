@@ -13,7 +13,6 @@ import {
   Users, 
   Menu, 
   X, 
-  ExternalLink,
   Database,
   Truck,
   ShoppingCart,
@@ -46,7 +45,8 @@ import {
   FileSpreadsheet,
   Lock,
   PlusCircle,
-  ClipboardCheck
+  ClipboardCheck,
+  Printer
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
@@ -304,7 +304,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   // Route guards per role
   useEffect(() => {
     if (!isRoleLoaded) return;
-    if (userRole === 'logistica' && pathname && pathname !== '/admin/cobros-mp' && pathname !== '/admin/fleteros' && pathname !== '/admin/control-planillas') {
+    if (userRole === 'logistica' && pathname && pathname !== '/admin/cobros-mp' && pathname !== '/admin/fleteros' && pathname !== '/admin/control-planillas' && pathname !== '/vendedores/ruteo/comprobantes') {
       router.replace('/admin/cobros-mp');
     } else if (userRole === 'fletero' && pathname && pathname !== '/admin/cobros-mp') {
       router.replace('/admin/cobros-mp');
@@ -378,7 +378,6 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     {
       title: "Operaciones y Control",
       links: [
-        { name: "Gestión de Vendedores", href: "/admin/vendedores", icon: Users, adminOnly: true },
         { name: "Chequeo de Pagos", href: "/admin/cobros-mp", icon: ShieldCheck },
         { name: "Sincronizar Planillas", href: "/admin/importar-pedidos", icon: Upload, adminOnly: true }
       ]
@@ -397,6 +396,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       links: [
         { name: "Gestión de Transportistas", href: "/admin/fleteros", icon: Truck, adminOnly: true },
         { name: "Ruteo de Entregas", href: "/vendedores/ruteo", icon: Truck },
+        { name: "Comprobantes", href: "/vendedores/ruteo/comprobantes", icon: Printer },
         { name: "Facturación Pendiente", href: "/admin/facturacion-pendiente", icon: PackageCheck, adminOnly: true },
         { name: "Control de Planillas", href: "/admin/control-planillas", icon: ClipboardCheck },
         { name: "Auditoría de Entregas", href: "/admin/auditoria-logistica", icon: Clock, adminOnly: true },
@@ -427,6 +427,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       title: "Soporte y Configuración",
       links: [
         { name: "Recursos y FAQs", href: "/vendedores/recursos", icon: BookOpen },
+        { name: "Gestión de Usuarios", href: "/admin/vendedores", icon: Users, adminOnly: true },
         { name: "Configuración General", href: "/admin/ajustes", icon: Settings, adminOnly: true }
       ]
     }
@@ -462,7 +463,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       }
     }
     
-    if (pathOnly === "/admin/catalogo" || pathOnly === "/vendedores" || pathOnly === "/admin/dashboard-mayorista") {
+    if (pathOnly === "/admin/catalogo" || pathOnly === "/vendedores" || pathOnly === "/admin/dashboard-mayorista" || pathOnly === "/vendedores/ruteo") {
       return cleanPathname === pathOnly;
     }
     
@@ -553,7 +554,8 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                   return (
                     link.href === "/admin/cobros-mp" ||
                     link.href === "/admin/fleteros" ||
-                    link.href === "/admin/control-planillas"
+                    link.href === "/admin/control-planillas" ||
+                    link.href === "/vendedores/ruteo/comprobantes"
                   );
                 }
                 if (userRole === 'fletero') {
@@ -633,24 +635,6 @@ export function AdminLayout({ children }: AdminLayoutProps) {
             })
           )}
 
-          {/* Atajos Rápidos / Tienda - Solo para Admin */}
-          {userRole === 'admin' && (
-            <div className="space-y-1.5 pt-2 border-t border-slate-800/80">
-              <h4 className="px-3 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Acceso Público</h4>
-              <Link 
-                href="/" 
-                target="_blank"
-                onClick={closeSidebarOnMobile}
-                className="flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800/60 transition-all group"
-              >
-                <span className="flex items-center gap-2.5">
-                  <ShoppingBag className="w-4 h-4 text-slate-400 group-hover:text-slate-200" />
-                  Catálogo Web
-                </span>
-                <ExternalLink className="w-3.5 h-3.5 text-slate-500 group-hover:text-slate-300" />
-              </Link>
-            </div>
-          )}
         </div>
 
         {/* User Info & Logout Footer */}
