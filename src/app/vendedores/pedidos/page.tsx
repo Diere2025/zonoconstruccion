@@ -5025,6 +5025,7 @@ export default function PedidosPage() {
       let orderData: any = null;
       let finalLegacyCode: string | null = null;
       let integrationPayload: Record<string, unknown> | undefined;
+      let itemsPersistedByAssignedOrderApi = false;
       // Código legacy definitivo: si la orden original ya tenía un código legacy asignado,
       // PRESERVARLO estrictamente para no crear duplicados ni desfasar planillas operativas.
       const effectiveLegacyCode = editingOrderId
@@ -5059,6 +5060,7 @@ export default function PedidosPage() {
         const { data: updatedOrder, error: orderError } = await supabase
           .from('orders')
           .update({
+            ...(role === 'admin' ? { seller_id } : {}),
             client_id: finalClientId || null,
             shipping_address_id: finalAddressId || null,
             shipping_address_snapshot: addressSnapshot,
@@ -5268,82 +5270,115 @@ export default function PedidosPage() {
         }
 
 
-        // Insertar Nuevo Pedido
-        const { data: newOrder, error: orderError } = await supabase
-          .from('orders')
-          .insert({
-            seller_id,
-            quote_id: sourceQuoteId,
-            client_id: finalClientId || null,
-            shipping_address_id: finalAddressId || null,
-            shipping_address_snapshot: addressSnapshot,
-            initial_delivery_date: entregaInicial,
-            max_delivery_date: entregaMaxima,
-            order_date: new Date(fechaPedido + 'T12:00:00').toISOString(),
-            created_at: new Date(fechaPedido + 'T12:00:00').toISOString(),
-            customer_name: isNewClient ? newClientName : cliente,
-            locality: locName, // Retro-compatibilidad
-            address: direccion,
-            google_maps_link: linkMaps,
-            delivery_notes: aclaraciones || null,
-            whaticket_link: whaticketLink || null,
-            payment_method_id: paymentsList[0]?.payment_method_id || 'a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3',
-            freight_type: flete,
-            total_amount: total,
-            order_discount_type: orderDiscountAmount > 0 ? orderDiscountType : null,
-            order_discount_value: orderDiscountAmount > 0 ? orderDiscountValue : 0,
+        // Insertar Nuevo Pedido. Si quien carga eligió otra vendedora, el alta
+        // pasa por un endpoint autenticado y acotado en lugar de ampliar RLS.
+        const newOrderPayload = {
+          seller_id,
+          created_by_id: loggedInUserId,
+          quote_id: sourceQuoteId,
+          client_id: finalClientId || null,
+          shipping_address_id: finalAddressId || null,
+          shipping_address_snapshot: addressSnapshot,
+          initial_delivery_date: entregaInicial,
+          max_delivery_date: entregaMaxima,
+          order_date: new Date(fechaPedido + 'T12:00:00').toISOString(),
+          created_at: new Date(fechaPedido + 'T12:00:00').toISOString(),
+          customer_name: isNewClient ? newClientName : cliente,
+          locality: locName,
+          address: direccion,
+          google_maps_link: linkMaps,
+          delivery_notes: aclaraciones || null,
+          whaticket_link: whaticketLink || null,
+          payment_method_id: paymentsList[0]?.payment_method_id || 'a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3',
+          freight_type: flete,
+          total_amount: total,
+          order_discount_type: orderDiscountAmount > 0 ? orderDiscountType : null,
+          order_discount_value: orderDiscountAmount > 0 ? orderDiscountValue : 0,
+          order_discount_amount: orderDiscountAmount,
+          status: orderStatus,
+          totals: {
+            integration_payload: integrationPayload,
+            items_subtotal: itemsGrossSubtotal,
+            order_discount_type: orderDiscountType,
+            order_discount_value: orderDiscountValue,
             order_discount_amount: orderDiscountAmount,
-            status: orderStatus,
-            totals: {
-              integration_payload: integrationPayload,
-              items_subtotal: itemsGrossSubtotal,
-              order_discount_type: orderDiscountType,
-              order_discount_value: orderDiscountValue,
-              order_discount_amount: orderDiscountAmount,
-              subtotal,
-              freight: shippingAmount,
-              tax: ivaAmount,
-              payment_surcharges: surcharge,
-              total,
-              has_deposit: hasDeposit,
-              deposit_amount: hasDeposit ? depositAmount : 0,
-              deposit_receipt_url: paymentsList.find(p => p.receipt_url)?.receipt_url || "",
-              pending_balance: pendingBalance,
-              payments_breakdown: paymentsWithSurcharges.map(p => ({
-                id: p.id,
-                payment_method_id: p.payment_method_id,
-                amount: p.baseAmount,
-                surcharge: p.surchargeValue,
-                total: p.totalAmount,
-                card_installments: p.installments,
-                card_surcharge: p.surchargePercentage,
-                receipt_url: p.receipt_url,
-                notes: p.notes,
-                telegram_sent: p.telegram_sent || false,
-                telegram_message_id: p.telegram_message_id,
-                telegram_chat_id: p.telegram_chat_id
-              })),
-              payment_timing: paymentTiming
-            },
-            channel: isWholesaleContext ? 'mayorista' : 'vendedor_externo',
-            commercial_brand: commercialBrand,
-            payment_status: paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? 'Seniado' : 'Pendiente'),
-            logistics_zone_id: localities.find(l => l.id === localidadId)?.zone_id || null,
-            advertising_source_id: selectedAdvertisingSourceId || null,
-            advertising_source_detail: advertisingSourceDetail.trim() || null,
-            order_medium_id: selectedOrderMediumId || null,
-            received_phone_line_id: isWholesaleContext ? null : ((selectedPhoneLineId && selectedPhoneLineId !== 'otro') ? selectedPhoneLineId : null),
-            delivery_detail: deliveryDetail || null,
-            legacy_code: finalLegacyCode || null,
-            hold_reason: orderStatus === 'En Espera' ? holdReason : null,
-            hold_product_id: orderStatus === 'En Espera' && holdProductId ? holdProductId : null,
-            category: orderCategory === 'auto' ? detectedCategory : orderCategory
-          })
-          .select()
-          .single();
+            subtotal,
+            freight: shippingAmount,
+            tax: ivaAmount,
+            payment_surcharges: surcharge,
+            total,
+            has_deposit: hasDeposit,
+            deposit_amount: hasDeposit ? depositAmount : 0,
+            deposit_receipt_url: paymentsList.find(p => p.receipt_url)?.receipt_url || "",
+            pending_balance: pendingBalance,
+            payments_breakdown: paymentsWithSurcharges.map(p => ({
+              id: p.id,
+              payment_method_id: p.payment_method_id,
+              amount: p.baseAmount,
+              surcharge: p.surchargeValue,
+              total: p.totalAmount,
+              card_installments: p.installments,
+              card_surcharge: p.surchargePercentage,
+              receipt_url: p.receipt_url,
+              notes: p.notes,
+              telegram_sent: p.telegram_sent || false,
+              telegram_message_id: p.telegram_message_id,
+              telegram_chat_id: p.telegram_chat_id
+            })),
+            payment_timing: paymentTiming
+          },
+          channel: isWholesaleContext ? 'mayorista' : 'vendedor_externo',
+          commercial_brand: commercialBrand,
+          payment_status: paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? 'Seniado' : 'Pendiente'),
+          logistics_zone_id: localities.find(l => l.id === localidadId)?.zone_id || null,
+          advertising_source_id: selectedAdvertisingSourceId || null,
+          advertising_source_detail: advertisingSourceDetail.trim() || null,
+          order_medium_id: selectedOrderMediumId || null,
+          received_phone_line_id: isWholesaleContext ? null : ((selectedPhoneLineId && selectedPhoneLineId !== 'otro') ? selectedPhoneLineId : null),
+          delivery_detail: deliveryDetail || null,
+          legacy_code: finalLegacyCode || null,
+          hold_reason: orderStatus === 'En Espera' ? holdReason : null,
+          hold_product_id: orderStatus === 'En Espera' && holdProductId ? holdProductId : null,
+          category: orderCategory === 'auto' ? detectedCategory : orderCategory
+        };
 
-        if (orderError) throw orderError;
-        orderData = newOrder;
+        if (seller_id !== loggedInUserId) {
+          const { data: sessionData } = await supabase.auth.getSession();
+          const accessToken = sessionData.session?.access_token;
+          if (!accessToken) throw new Error('La sesión venció. Volvé a ingresar antes de cargar el pedido.');
+          const assignedOrderResponse = await fetch('/api/vendedores/create-assigned-order', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${accessToken}`
+            },
+            body: JSON.stringify({
+              order: newOrderPayload,
+              items: orderItems.map(item => ({
+                product_id: item.id,
+                product_name: normalizeProductNameForSheet(item.name, item.sku) || item.name,
+                quantity: item.quantity,
+                unit_price: item.customPrice,
+                historical_unit_cost: (item as any).cost || 0,
+                discount_percentage: item.discountType === 'percentage' ? (item.discountValue || 0) : 0
+              }))
+            })
+          });
+          const assignedOrderPayload = await assignedOrderResponse.json().catch(() => ({}));
+          if (!assignedOrderResponse.ok || !assignedOrderPayload.order) {
+            throw new Error(assignedOrderPayload.error || 'No se pudo registrar el pedido para la vendedora seleccionada.');
+          }
+          orderData = assignedOrderPayload.order;
+          itemsPersistedByAssignedOrderApi = true;
+        } else {
+          const { data: newOrder, error: orderError } = await supabase
+            .from('orders')
+            .insert(newOrderPayload)
+            .select()
+            .single();
+          if (orderError) throw orderError;
+          orderData = newOrder;
+        }
       }
 
       // La dirección elegida en el último pedido pasa a ser la predeterminada
@@ -5374,8 +5409,10 @@ export default function PedidosPage() {
         discount_percentage: item.discountType === 'percentage' ? (item.discountValue || 0) : 0
       }));
 
-      const { error: itemsError } = await supabase.from('order_items').insert(itemsToInsert);
-      if (itemsError) throw itemsError;
+      if (!itemsPersistedByAssignedOrderApi) {
+        const { error: itemsError } = await supabase.from('order_items').insert(itemsToInsert);
+        if (itemsError) throw itemsError;
+      }
 
       // 4. Registrar Reservas en el Inventario para descontar Stock Disponible (stock_current)
       try {
@@ -5516,7 +5553,9 @@ export default function PedidosPage() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              sellerId: seller_id,
+              // El código permanece en la planilla que lo originó. Si cambia
+              // la atribución comercial, sólo cambia el nombre de vendedor.
+              sellerId: originalOrderSnapshot?.seller_id || seller_id,
               legacyCode: effectiveLegacyCode || orderData.legacy_code || legacyCode || '',
               order: sheetOrderPayload,
               logisticsObservation: logisticsObservation.trim()
@@ -5619,7 +5658,7 @@ export default function PedidosPage() {
                 legacyCode: orderCodeForTelegram,
                 customerName: clientNameForTelegram,
                 taxId: clientTaxIdForTelegram,
-                sellerName: currentSeller?.full_name || '',
+                sellerName: sellersList.find(seller => seller.id === seller_id)?.full_name || currentSeller?.full_name || '',
                 status: paymentStatusLabel,
                 receipts: receiptsPayload,
                 pendingBalance: pendingBalance
@@ -5924,6 +5963,7 @@ export default function PedidosPage() {
                   {assignableSellers.length > 0 ? (
                     <select
                       value={selectedSellerId || currentUserId}
+                      disabled={Boolean(editingOrderId) && role !== 'admin'}
                       onChange={(e) => {
                         const newId = e.target.value;
                         setSelectedSellerId(newId);
@@ -5931,7 +5971,7 @@ export default function PedidosPage() {
                           generateNextLegacyCode(newId);
                         }
                       }}
-                      className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-800 font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 transition-all cursor-pointer h-[34px]"
+                      className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-800 font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 transition-all cursor-pointer disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 h-[34px]"
                     >
                       {assignableSellers.map((s) => (
                         <option key={s.id} value={s.id}>
@@ -5947,6 +5987,9 @@ export default function PedidosPage() {
                       className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-100 text-slate-700 font-bold text-xs outline-none cursor-not-allowed select-all h-[34px]"
                     />
                   )}
+                  <p className="text-[9px] font-medium text-slate-400">
+                    La venta se atribuye a esta persona; quien realiza la carga queda registrado por separado.
+                  </p>
                 </div>
 
                 {/* Categoría del Pedido para Atribución de Marketing */}
