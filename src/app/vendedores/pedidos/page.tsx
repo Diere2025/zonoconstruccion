@@ -1420,16 +1420,38 @@ export default function PedidosPage() {
         const data: { success?: boolean; products?: WholesaleCatalogItem[] } = await response.json();
         if (!data.success || !Array.isArray(data.products)) throw new Error('No se pudo obtener la lista mayorista');
 
+        // Reservar primero las coincidencias exactas. Sin esta pasada previa,
+        // una fila genérica como "BioFort - Inspección" podía apropiarse por
+        // similitud del producto "WP Kit cámara de inspección CII" y dejar afuera
+        // su fila exacta (con otro precio) cuando se procesaba después.
+        const exactProductByWholesaleIndex = new Map<number, Product>();
+        const reservedExactProductIds = new Set<string>();
+        data.products.forEach((wholesale, index) => {
+          const wholesaleName = normalizeText(wholesale.name || '').trim();
+          if (!wholesaleName) return;
+          const exactProduct = allProducts.find((product) => {
+            if (reservedExactProductIds.has(product.id)) return false;
+            return normalizeText(product.name || '').trim() === wholesaleName
+              || normalizeText(product.sku || '').trim() === wholesaleName;
+          });
+          if (exactProduct) {
+            exactProductByWholesaleIndex.set(index, exactProduct);
+            reservedExactProductIds.add(exactProduct.id);
+          }
+        });
+
         const usedProductIds = new Set<string>();
-        const matchedProducts = data.products.flatMap((wholesale) => {
+        const matchedProducts = data.products.flatMap((wholesale, wholesaleIndex) => {
           const wholesaleTokens = getTokens(wholesale.name || '');
           const wholesaleText = wholesaleTokens.join(' ');
           const wholesaleCapacity = wholesaleTokens.find((token: string) => /^\d{2,4}l$/.test(token));
-          let bestProduct: Product | null = null;
-          let bestScore = 0;
+          const exactProduct = exactProductByWholesaleIndex.get(wholesaleIndex);
+          let bestProduct: Product | null = exactProduct || null;
+          let bestScore = exactProduct ? 1 : 0;
 
           for (const product of allProducts) {
             if (usedProductIds.has(product.id)) continue;
+            if (reservedExactProductIds.has(product.id) && product.id !== exactProduct?.id) continue;
             const productTokens = getTokens(`${product.name || ''} ${product.sku || ''}`);
             const productText = productTokens.join(' ');
             const isCiego = (product.variant_type || '').toLowerCase() === 'ciego' || productText.includes('ciego');
