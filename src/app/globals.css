@@ -218,6 +218,10 @@
   display: none;
 }
 
+#print-legal-remittances-root {
+  display: none;
+}
+
 @media print {
   @page logistics-receipts {
     size: A4 portrait;
@@ -313,6 +317,33 @@
     display: block !important;
     margin-top: 0.5mm !important;
     font-size: 7pt !important;
+  }
+
+  .receipt-brand-block {
+    min-width: 0 !important;
+    flex: 1 1 auto !important;
+  }
+
+  .receipt-company-contact {
+    margin-top: 0.6mm !important;
+    font-size: 7pt !important;
+    font-weight: 700 !important;
+  }
+
+  .receipt-whatsapp-qr {
+    display: flex !important;
+    flex: 0 0 auto !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    gap: 0.3mm !important;
+    font-size: 5.5pt !important;
+    font-weight: 700 !important;
+  }
+
+  .receipt-whatsapp-qr-code {
+    display: block !important;
+    width: 14mm !important;
+    height: 14mm !important;
   }
 
   .receipt-number {
@@ -459,6 +490,11 @@
     padding-bottom: 1mm !important;
   }
 
+  .is-compact .receipt-whatsapp-qr-code {
+    width: 11mm !important;
+    height: 11mm !important;
+  }
+
   .is-compact .receipt-meta {
     padding: 1.2mm 0 !important;
     font-size: 6.5pt !important;
@@ -482,5 +518,207 @@
   .is-compact .receipt-signatures {
     padding-top: 4mm !important;
     font-size: 6.5pt !important;
+  }
+}
+
+@media print {
+  @page legal-remittances {
+    size: A4 landscape;
+    margin: 0;
+  }
+
+  body:has(#print-legal-remittances-root:not(:empty)) #print-remitos-root,
+  body:has(#print-legal-remittances-root:not(:empty)) #print-logistics-receipts-root {
+    display: none !important;
+  }
+
+  #print-legal-remittances-root,
+  #print-legal-remittances-root * {
+    box-sizing: border-box !important;
+    color: #000 !important;
+    print-color-adjust: exact !important;
+    -webkit-print-color-adjust: exact !important;
+  }
+
+  #print-legal-remittances-root {
+    display: block !important;
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+    width: 100% !important;
+    z-index: 1000001 !important;
+    background: #fff !important;
+  }
+
+  .legal-remittance-sheet {
+    page: legal-remittances;
+    position: relative !important;
+    width: 297mm !important;
+    height: 210mm !important;
+    display: grid !important;
+    grid-template-columns: repeat(2, 148.5mm) !important;
+    overflow: hidden !important;
+    background: #fff !important;
+    page-break-after: always !important;
+    break-after: page !important;
+  }
+
+  .legal-remittance-sheet:last-child {
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+
+  .legal-remittance-sheet::after {
+    content: "" !important;
+    position: absolute !important;
+    top: 5mm !important;
+    bottom: 5mm !important;
+    left: 148.5mm !important;
+    border-left: 0.2mm dashed #c7c7c7 !important;
+    pointer-events: none !important;
+  }
+
+  .legal-remittance {
+    position: relative !important;
+    align-self: center !important;
+    justify-self: center !important;
+    width: 143mm !important;
+    height: 190mm !important;
+    overflow: hidden !important;
+    font-family: Arial, Helvetica, sans-serif !important;
+    background: #fff !important;
+    break-inside: avoid !important;
+  }
+
+  .legal-remittance-template {
+    position: absolute !important;
+    inset: 0 !important;
+    display: block !important;
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: fill !important;
+    z-index: 0 !important;
+  }
+
+  .legal-remittance-number,
+  .legal-remittance-date,
+  .legal-remittance-customer,
+  .legal-remittance-address,
+  .legal-remittance-items {
+    position: absolute !important;
+    z-index: 1 !important;
+  }
+
+  .legal-remittance-number {
+    top: 6.35% !important;
+    left: 57% !important;
+    width: 39% !important;
+    padding: 0.4mm 0 !important;
+    background: #fff !important;
+    font-family: "Arial Narrow", Arial, sans-serif !important;
+    font-size: 15pt !important;
+    font-weight: 500 !important;
+    line-height: 1.05 !important;
+    white-space: nowrap !important;
+  }
+
+  .legal-remittance-date {
+    top: 13.25% !important;
+    left: 66.4% !important;
+    width: 27.6% !important;
+    height: 3.1% !important;
+  }
+
+  .legal-remittance-date-cleaner {
+    position: absolute !important;
+    inset: -0.6mm -0.8mm !important;
+    display: block !important;
+    width: calc(100% + 1.6mm) !important;
+    height: calc(100% + 1.2mm) !important;
+    z-index: 0 !important;
+  }
+
+  .legal-remittance-date-fields {
+    position: relative !important;
+    z-index: 1 !important;
+    width: 100% !important;
+    height: 100% !important;
+    display: grid !important;
+    grid-template-columns: 1fr 2.5mm 1fr 2.5mm 1.6fr !important;
+    align-items: end !important;
+    gap: 0.6mm !important;
+    font-size: 8.5pt !important;
+    font-weight: 700 !important;
+    line-height: 1 !important;
+    text-align: center !important;
+    white-space: nowrap !important;
+  }
+
+  .legal-remittance-date-fields span {
+    min-width: 0 !important;
+    border-bottom: 0.25mm dotted #000 !important;
+    padding: 0 0.4mm 0.5mm !important;
+  }
+
+  .legal-remittance-date-fields b {
+    padding-bottom: 0.35mm !important;
+    font-size: 12pt !important;
+    line-height: 0.8 !important;
+  }
+
+  .legal-remittance-customer,
+  .legal-remittance-address {
+    padding: 0.25mm 0.7mm !important;
+    overflow: hidden !important;
+    background: #fff !important;
+    font-size: 8pt !important;
+    font-weight: 600 !important;
+    line-height: 1.15 !important;
+    white-space: nowrap !important;
+    text-overflow: ellipsis !important;
+  }
+
+  .legal-remittance-customer {
+    top: 25.4% !important;
+    left: 16.2% !important;
+    width: 78.5% !important;
+  }
+
+  .legal-remittance-address {
+    top: 28.9% !important;
+    left: 17.5% !important;
+    width: 77.2% !important;
+  }
+
+  .legal-remittance-items {
+    top: 48.65% !important;
+    left: 4.2% !important;
+    width: 91.3% !important;
+    height: 34.4% !important;
+    display: grid !important;
+    grid-template-rows: repeat(10, 1fr) !important;
+    font-size: 7.5pt !important;
+    font-weight: 600 !important;
+  }
+
+  .legal-remittance-item {
+    display: grid !important;
+    grid-template-columns: 12.5% 87.5% !important;
+    align-items: center !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+  }
+
+  .legal-remittance-item > span {
+    overflow: hidden !important;
+    white-space: nowrap !important;
+    text-overflow: ellipsis !important;
+  }
+
+  .legal-remittance-item > span:first-child {
+    text-align: center !important;
+  }
+
+  .legal-remittance-item > span:last-child {
+    padding-left: 1mm !important;
   }
 }

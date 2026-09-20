@@ -1,9 +1,9 @@
 "use client";
 
-import { Printer } from "lucide-react";
-import LogisticsPrintingPanel from "@/components/logistica/LogisticsPrintingPanel";
+import { Printer } from 'lucide-react';
+import LogisticsPrintingPanel from '@/components/logistica/LogisticsPrintingPanel';
 
-export default function LogisticsReceiptsPage() {
+export default function LogisticsRemittancesPage() {
   return (
     <div className="mx-auto max-w-[1500px] space-y-5 p-4 sm:p-6 lg:p-8">
       <header className="flex items-center gap-3">
