@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { fetchSpreadsheetValues } from '@/lib/googleSheets';
+import { fetchSpreadsheetValueRanges, fetchSpreadsheetValues } from '@/lib/googleSheets';
 
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
@@ -162,16 +162,28 @@ export async function GET(request: Request) {
       });
     }
 
-    // 1. Fetch Entregas Actual sheets in parallel
-    const entregasPromises = ENTREGAS_SHEETS_TO_CHECK.map(async (sheetName) => {
+    const startedAt = Date.now();
+
+    // 1. Read every Entregas tab in one batch request. This replaces 11
+    // simultaneous outbound connections with a single Google Sheets call.
+    const entregasPromise = (async () => {
       try {
-        const rows = await fetchSpreadsheetValues(ENTREGAS_SPREADSHEET_ID, `'${sheetName}'!A1:B`);
-        return { sheetName, rows, error: null };
+        const ranges = ENTREGAS_SHEETS_TO_CHECK.map((sheetName) => `'${sheetName}'!A1:B`);
+        const rowsBySheet = await fetchSpreadsheetValueRanges(ENTREGAS_SPREADSHEET_ID, ranges);
+        return ENTREGAS_SHEETS_TO_CHECK.map((sheetName, index) => ({
+          sheetName,
+          rows: rowsBySheet[index] || [],
+          error: null
+        }));
       } catch (err: any) {
-        console.warn(`[ControlPlanillas] Error fetching Entregas Actual sheet "${sheetName}":`, err?.message || err);
-        return { sheetName, rows: [], error: err?.message || 'Error al leer hoja' };
+        console.warn('[ControlPlanillas] Error fetching Entregas Actual:', err?.message || err);
+        return ENTREGAS_SHEETS_TO_CHECK.map((sheetName) => ({
+          sheetName,
+          rows: [] as string[][],
+          error: err?.message || 'Error al leer hoja'
+        }));
       }
-    });
+    })();
 
     // 2. Fetch Central pedidos
     const centralPromise = (async () => {
@@ -196,7 +208,7 @@ export async function GET(request: Request) {
     });
 
     const [entregasResults, centralResult, sellersResults] = await Promise.all([
-      Promise.all(entregasPromises),
+      entregasPromise,
       centralPromise,
       Promise.all(sellersPromises)
     ]);
@@ -471,7 +483,9 @@ export async function GET(request: Request) {
         totalPendingSellerOrders,
         totalSynchronizedSellerOrders,
         totalEntregasCodesIndexed: entregasMap.size,
-        totalCentralCodesIndexed: centralMap.size
+        totalCentralCodesIndexed: centralMap.size,
+        durationMs: Date.now() - startedAt,
+        googleSheetsRequests: 6
       },
       sellerDiscrepancies,
       centralDiscrepancies,
