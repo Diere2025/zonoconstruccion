@@ -31,7 +31,9 @@ async function fetchProductsAll() {
   while (hasMore) {
     const { data, error } = await supabaseAdmin
       .from('products')
-      .select('id, name, sku, is_active, is_generic, mapped_real_product_id, stock_physical, stock_reserved, stock_current')
+      // Keep the full row because Postgres validates NOT NULL columns before
+      // resolving an UPSERT conflict, even when only stock fields changed.
+      .select('*')
       .order('id')
       .range(page * pageSize, (page + 1) * pageSize - 1);
     if (error) throw error;
@@ -459,7 +461,7 @@ export async function POST() {
 
         if (stockValuesChanged(dbProd, sheetPhysical, effectiveReserved, newAvailable)) {
           updatesToUpsertMap.set(dbProd.id, {
-            id: dbProd.id,
+            ...dbProd,
             stock_physical: sheetPhysical,
             stock_reserved: effectiveReserved,
             stock_current: newAvailable
@@ -482,7 +484,7 @@ export async function POST() {
 
         if (stockValuesChanged(p, physical, dbCalculatedReserved, newAvailable)) {
           updatesToUpsertMap.set(p.id, {
-            id: p.id,
+            ...p,
             stock_physical: physical,
             stock_reserved: dbCalculatedReserved,
             stock_current: newAvailable

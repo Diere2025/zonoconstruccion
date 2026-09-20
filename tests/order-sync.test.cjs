@@ -92,7 +92,7 @@ test('stock synchronization shares downloads and only writes changed stock', () 
   assert.match(stock, /const productLookup = buildProductLookup\(dbProducts\)/);
   assert.match(stock, /if \(stockValuesChanged\(dbProd,/);
   assert.match(stock, /unchangedCount: dbProducts\.length - updatesToUpsert\.length/);
-  assert.doesNotMatch(stock, /updatesToUpsertMap\.set\(dbProd\.id, \{\s*\.\.\.dbProd/);
+  assert.match(stock, /updatesToUpsertMap\.set\(dbProd\.id, \{\s*\.\.\.dbProd/);
 });
 
 test('bounded concurrency preserves order and never exceeds the requested worker count', async () => {
