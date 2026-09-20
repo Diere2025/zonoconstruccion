@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuthStore } from './store/authStore';
 import { useChatStore } from './store/chatStore';
-import { getSocket } from './services/socket';
+import { getSocket, connectSocket } from './services/socket';
 import { LoginView } from './components/auth/LoginView';
 import { Sidebar } from './components/layout/Sidebar';
 import { TicketList } from './components/chat/TicketList';
@@ -12,6 +12,7 @@ import { ConnectionsView } from './components/views/ConnectionsView';
 import { DepartmentsView } from './components/views/DepartmentsView';
 import { ContactsView } from './components/views/ContactsView';
 import { UsersView } from './components/views/UsersView';
+import { BudgetsView } from './components/views/BudgetsView';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { Toaster } from 'sonner';
 
@@ -22,6 +23,7 @@ export function App() {
     selectTicket,
     loadTicketByIdentifier,
     fetchTickets,
+    fetchTicketsSilent,
     fetchQueues,
     fetchQuickMessages,
     fetchTags,
@@ -32,7 +34,7 @@ export function App() {
   } = useChatStore();
 
   const [currentView, setCurrentView] = useState<
-    'chats' | 'quick-messages' | 'contacts' | 'connections' | 'departments' | 'users'
+    'chats' | 'quick-messages' | 'contacts' | 'connections' | 'departments' | 'users' | 'budgets'
   >('chats');
   const [isContactDrawerOpen, setIsContactDrawerOpen] = useState(true);
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -110,8 +112,8 @@ export function App() {
   useEffect(() => {
     if (!isAuthenticated || !user?.companyId) return;
 
-    const socket = getSocket();
-    if (!socket) return;
+    const s = getSocket() || connectSocket();
+    if (!s) return;
 
     const ticketChannel = `company-${user.companyId}-ticket`;
     const messageChannel = `company-${user.companyId}-appMessage`;
@@ -136,18 +138,52 @@ export function App() {
       handleSocketWhatsapp(data);
     };
 
-    socket.on(ticketChannel, onTicket);
-    socket.on(messageChannel, onMessage);
-    socket.on(sessionChannel, onWhatsapp);
-    socket.on(whatsappChannel, onWhatsapp);
+    const onConnect = () => {
+      console.log('[Socket] Conectado/Reconectado, sincronizando tickets en segundo plano...');
+      void fetchTicketsSilent();
+    };
+
+    s.on(ticketChannel, onTicket);
+    s.on(messageChannel, onMessage);
+    s.on(sessionChannel, onWhatsapp);
+    s.on(whatsappChannel, onWhatsapp);
+    s.on('connect', onConnect);
 
     return () => {
-      socket.off(ticketChannel, onTicket);
-      socket.off(messageChannel, onMessage);
-      socket.off(sessionChannel, onWhatsapp);
-      socket.off(whatsappChannel, onWhatsapp);
+      s.off(ticketChannel, onTicket);
+      s.off(messageChannel, onMessage);
+      s.off(sessionChannel, onWhatsapp);
+      s.off(whatsappChannel, onWhatsapp);
+      s.off('connect', onConnect);
     };
-  }, [isAuthenticated, user?.companyId, soundEnabled]);
+  }, [isAuthenticated, user?.companyId, soundEnabled, handleSocketTicket, handleSocketMessage, handleSocketWhatsapp, fetchTicketsSilent]);
+
+  // 4. Auto-refresco silencioso en segundo plano y al volver a la ventana (para no requerir F5)
+  useEffect(() => {
+    if (!isAuthenticated || !user?.companyId) return;
+
+    // Refrescar cada 6 segundos de forma silenciosa e imperceptible
+    const interval = window.setInterval(() => {
+      void fetchTicketsSilent();
+    }, 6000);
+
+    // Refrescar inmediatamente cuando el usuario vuelve a la pestaña o ventana
+    const handleFocusOrVisibility = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        void fetchTicketsSilent();
+        void fetchWhatsapps();
+      }
+    };
+
+    window.addEventListener('focus', handleFocusOrVisibility);
+    document.addEventListener('visibilitychange', handleFocusOrVisibility);
+
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('focus', handleFocusOrVisibility);
+      document.removeEventListener('visibilitychange', handleFocusOrVisibility);
+    };
+  }, [isAuthenticated, user?.companyId, fetchTicketsSilent, fetchWhatsapps]);
 
   if (isLoading) {
     return (
@@ -227,6 +263,20 @@ export function App() {
       {currentView === 'connections' && <ConnectionsView />}
       {currentView === 'departments' && <DepartmentsView />}
       {currentView === 'users' && <UsersView />}
+      {currentView === 'budgets' && (
+        <BudgetsView
+          onNavigateToChat={(targetTicket) => {
+            setCurrentView('chats');
+            if (targetTicket) {
+              if (typeof targetTicket === 'object' && targetTicket.id) {
+                selectTicket(targetTicket);
+              } else {
+                loadTicketByIdentifier(targetTicket);
+              }
+            }
+          }}
+        />
+      )}
 
       <Toaster position="top-right" richColors />
     </div>

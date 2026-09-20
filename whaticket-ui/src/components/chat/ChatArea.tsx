@@ -31,8 +31,10 @@ import {
   UserRound,
   AlertTriangle,
   Smartphone,
-  RotateCcw
+  RotateCcw,
+  Calculator
 } from 'lucide-react';
+import { VisualBudgetModal } from './VisualBudgetModal';
 import { useChatStore } from '../../store/chatStore';
 import { useAuthStore } from '../../store/authStore';
 import { Message, QuickMessage } from '../../types';
@@ -94,6 +96,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
   const [inputText, setInputText] = useState('');
   const [isPrivateNote, setIsPrivateNote] = useState(false);
+  const [showBudgetModal, setShowBudgetModal] = useState(false);
   const [signMessage, setSignMessage] = useState(true);
   const [attachedFiles, setAttachedFiles] = useState<AttachedMediaItem[]>([]);
   const [isDragging, setIsDragging] = useState(false);
@@ -997,9 +1000,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                     className="self-center w-full max-w-lg bg-amber-50 dark:bg-amber-950/50 border border-amber-300/80 dark:border-amber-800/60 rounded-xl p-3 shadow-xs text-xs text-amber-900 dark:text-amber-200 flex flex-col gap-1"
                   >
                     <div className="flex items-center justify-between font-semibold text-[11px] text-amber-700 dark:text-amber-400">
-                      <span className="flex items-center gap-1">
-                        <StickyNote className="w-3.5 h-3.5" />
-                        Nota interna
+                      <span className="flex items-center gap-1.5">
+                        <StickyNote className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                        <span>Nota interna</span>
+                        {msg.senderName && (
+                          <span className="text-amber-800/80 dark:text-amber-300/80 font-medium">
+                            · {msg.senderName}
+                          </span>
+                        )}
                       </span>
                       <span>{formatMsgTime(msg.createdAt)}</span>
                     </div>
@@ -1302,6 +1310,21 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         )}
 
         {/* Tier 2: Middle Toolbar Utilities Row */}
+        {isPrivateNote && (
+          <div className="flex items-center justify-between gap-2 px-3 py-1.5 mb-1 rounded-xl bg-amber-100/90 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-700/80 text-amber-900 dark:text-amber-200 text-xs font-semibold animate-in fade-in select-none">
+            <span className="flex items-center gap-1.5">
+              <StickyNote className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+              <span>Modo nota interna: Solo visible para el equipo. <strong className="text-amber-950 dark:text-amber-100">NO se enviará al cliente por WhatsApp.</strong></span>
+            </span>
+            <button
+              type="button"
+              onClick={() => setIsPrivateNote(false)}
+              className="text-amber-700 dark:text-amber-300 hover:text-amber-900 dark:hover:text-amber-100 text-[11px] underline cursor-pointer"
+            >
+              Cancelar
+            </button>
+          </div>
+        )}
         <div className="flex items-center justify-between py-1 select-none">
           <div className="flex items-center gap-2">
             {/* Nota Interna */}
@@ -1362,6 +1385,17 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             >
               <Zap className="w-3.5 h-3.5 text-amber-500" />
               Respuestas Rápidas
+            </button>
+
+            {/* Presupuestar / Cotizador Visual */}
+            <button
+              type="button"
+              onClick={() => setShowBudgetModal(true)}
+              className="px-3 py-1 text-xs font-bold rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="Abrir cotizador visual con catálogo de productos y precios"
+            >
+              <Calculator className="w-3.5 h-3.5 text-emerald-500" />
+              Presupuestar
             </button>
           </div>
         </div>
@@ -1434,35 +1468,50 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             {/* Action Buttons: If writing text or attached files -> Send + Schedule. If empty -> Mic */}
             {inputText.trim() || attachedFiles.length > 0 ? (
               <div className="flex items-center gap-1.5 animate-in fade-in duration-150">
-                {/* Blue Pill Send Button */}
+                {/* Send / Save Note Button */}
                 <button
                   type="button"
                   onClick={handleSendMessage}
                   disabled={isSendingMessage}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-full font-medium text-xs text-white bg-[#2563eb] hover:bg-blue-700 shadow-md shadow-blue-500/25 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+                  className={`flex items-center gap-2 px-5 py-2.5 rounded-full font-medium text-xs text-white shadow-md active:scale-95 transition-all cursor-pointer disabled:opacity-50 ${
+                    isPrivateNote
+                      ? 'bg-amber-600 hover:bg-amber-700 shadow-amber-600/25'
+                      : 'bg-[#2563eb] hover:bg-blue-700 shadow-blue-500/25'
+                  }`}
                 >
-                  <Send className="w-3.5 h-3.5" />
-                  <span>Enviar</span>
+                  {isPrivateNote ? (
+                    <>
+                      <StickyNote className="w-3.5 h-3.5" />
+                      <span>Guardar nota</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-3.5 h-3.5" />
+                      <span>Enviar</span>
+                    </>
+                  )}
                 </button>
 
-                {/* Schedule Message (Clock) Button */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setScheduleBody(inputText);
-                    const d = new Date();
-                    d.setHours(d.getHours() + 1, 0, 0, 0);
-                    const localIso = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
-                      .toISOString()
-                      .slice(0, 16);
-                    setScheduleSendAt(localIso);
-                    setShowScheduleModal(true);
-                  }}
-                  className="w-9 h-9 rounded-full bg-[#2563eb] hover:bg-blue-700 text-white flex items-center justify-center shadow-md shadow-blue-500/25 transition-all active:scale-95 cursor-pointer flex-shrink-0"
-                  title="Programar mensaje"
-                >
-                  <Clock className="w-4 h-4" />
-                </button>
+                {/* Schedule Message (Clock) Button - Solo para mensajes al cliente */}
+                {!isPrivateNote && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setScheduleBody(inputText);
+                      const d = new Date();
+                      d.setHours(d.getHours() + 1, 0, 0, 0);
+                      const localIso = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
+                        .toISOString()
+                        .slice(0, 16);
+                      setScheduleSendAt(localIso);
+                      setShowScheduleModal(true);
+                    }}
+                    className="w-9 h-9 rounded-full bg-[#2563eb] hover:bg-blue-700 text-white flex items-center justify-center shadow-md shadow-blue-500/25 transition-all active:scale-95 cursor-pointer flex-shrink-0"
+                    title="Programar mensaje"
+                  >
+                    <Clock className="w-4 h-4" />
+                  </button>
+                )}
               </div>
             ) : (
               /* Mic Button for Audio Recording */
@@ -1696,6 +1745,19 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
               </form>
             </div>
           </div>
+        )}
+
+        {/* Modal de Cotizador Visual */}
+        {showBudgetModal && activeTicket && (
+          <VisualBudgetModal
+            isOpen={showBudgetModal}
+            onClose={() => setShowBudgetModal(false)}
+            ticket={activeTicket}
+            onInsertIntoChat={(text) => {
+              setInputText(text);
+              setTimeout(() => textareaRef.current?.focus(), 50);
+            }}
+          />
         )}
       </div>
     </div>

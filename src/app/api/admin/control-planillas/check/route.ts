@@ -76,8 +76,19 @@ function extractCodeParts(rawCode: string): string[] {
 }
 
 function isCompletedStatus(status: string): boolean {
-  const s = (status || '').trim().toLowerCase();
-  return s === 'entregado' || s === 'cancelado' || s === 'anulado' || s === 'pasado';
+  // Las planillas suelen anteponer iconos al estado (por ejemplo, "❌ Anulado"
+  // o "🔹 Pasado"). Comparamos las palabras del estado para no tratarlos como
+  // pedidos pendientes por el mero formato visual de la celda.
+  const words = (status || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-záéíóúüñ]+/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean);
+
+  return ['entregado', 'cancelado', 'anulado', 'pasado'].some(completed =>
+    words.includes(completed)
+  );
 }
 
 function parseSheetDateToTimestamp(dateStr?: string | null): number {
@@ -306,13 +317,19 @@ export async function GET(request: Request) {
         // Skip completed / cancelled / delivered
         if (isCompletedStatus(sellerStatus)) return;
 
-        totalPendingSellerOrders++;
-
         const inCentral = centralMap.has(rawCode);
         const inEntregas = entregasMap.has(rawCode);
 
         const centralInfo = centralMap.get(rawCode);
         const entregasInfo = entregasMap.get(rawCode);
+
+        // Central es la referencia para decidir si todavía corresponde auditar
+        // la presencia en Entregas Actual. Un pedido finalizado/cancelado allí no
+        // debe aparecer como faltante aunque siga sin estado en la planilla del
+        // vendedor.
+        if (centralInfo && isCompletedStatus(centralInfo.status)) return;
+
+        totalPendingSellerOrders++;
 
         if (!inCentral && !inEntregas) {
           sellerDiscrepancies.push({

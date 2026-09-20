@@ -24,7 +24,7 @@ async function withRetry<T>(fn: () => Promise<T>, retries = 3, delayMs = 1500): 
   throw lastError;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     // Helper function to fetch all products with pagination
     async function fetchProductsAll() {
@@ -84,6 +84,13 @@ export async function GET() {
         }
       }
       return allOrders;
+    }
+
+    // La sincronización sólo necesita el índice de pedidos para filtrar filas.
+    // Mantener la respuesta completa para otros consumidores del endpoint.
+    if (new URL(request.url).searchParams.get('scope') === 'orders') {
+      const orders = await fetchOrdersAll();
+      return NextResponse.json({ orders });
     }
 
     const [

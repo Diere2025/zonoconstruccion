@@ -1074,6 +1074,36 @@ export async function setOrderStatusInSheetRows(
   }
 }
 
+/** Busca el pedido por código y actualiza sólo su estado en la planilla del vendedor. */
+export async function setOrderStatusInSellerSheetByCode(
+  spreadsheetId: string,
+  sheetName: string,
+  legacyCode: string,
+  status: string
+): Promise<SheetStatusSyncResult> {
+  try {
+    const rows = await fetchSpreadsheetValues(spreadsheetId, `'${sheetName}'!B2:B`);
+    const codesToSearch = legacyCode
+      .split(/[\/,]/)
+      .map(code => code.trim().toUpperCase())
+      .filter(Boolean);
+    const rowNumbers: number[] = [];
+
+    rows.forEach((row, index) => {
+      const currentCode = (row[0] || '').trim().toUpperCase();
+      if (currentCode && codesToSearch.includes(currentCode)) rowNumbers.push(index + 2);
+    });
+
+    if (rowNumbers.length === 0) {
+      return { success: false, message: `No se encontró ${legacyCode} en ${sheetName}` };
+    }
+    return setOrderStatusInSheetRows(spreadsheetId, sheetName, rowNumbers, 0, status);
+  } catch (error) {
+    console.error(`[GoogleSheets] No se pudo buscar ${legacyCode} en ${sheetName}:`, error);
+    return { success: false, message: `No se pudo marcar ${legacyCode} como ${status}` };
+  }
+}
+
 /** Devuelve el ordinal del pedido dentro de su fecha de carga en Central. */
 export async function getCentralOrderDailySequence(orderDate?: string): Promise<number> {
   const normalizeDate = (value?: string): string => {

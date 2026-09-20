@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { fetchSpreadsheetCsv } from '@/lib/googleSheets';
+import { isLogisticsOrderCode } from '@/lib/orderSync';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.dummy';
@@ -217,7 +218,7 @@ export async function GET() {
       const status = (row[15] || "").trim();
       const motive = (row[91] || "").trim();
 
-      if (!code || !code.match(/^[A-Z]+\d+$/)) {
+      if (!isLogisticsOrderCode(code)) {
         continue;
       }
 
@@ -295,7 +296,7 @@ export async function GET() {
       const code = (row[0] || "").trim().toUpperCase();
       const status = (row[15] || "").trim();
 
-      if (!code || !code.match(/^[A-Z]+\d+$/)) {
+      if (!isLogisticsOrderCode(code)) {
         continue;
       }
 
@@ -537,8 +538,11 @@ export async function GET() {
   }
 }
 
-export async function POST() {
+export async function POST(request: Request) {
   try {
+    const options = await request.json().catch(() => ({}));
+    const syncStock = options.syncStock !== false;
+    const stockResult: { status: 'skipped' | 'completed' | 'failed'; error?: string } = { status: 'skipped' };
     console.log("POST: Starting logistics delivered sync...");
     // 1. Fetch Logistics CSV from Google Sheets
     const csvText = await fetchSpreadsheetCsv(LOGISTICS_SHEET_URL);
@@ -734,7 +738,7 @@ export async function POST() {
       const code = (row[0] || "").trim().toUpperCase();
       const status = (row[15] || "").trim();
 
-      if (!code || !code.match(/^[A-Z]+\d+$/)) {
+      if (!isLogisticsOrderCode(code)) {
         continue;
       }
 
@@ -901,7 +905,7 @@ export async function POST() {
         if (errOrderUpdate) throw errOrderUpdate;
 
         // B. Recreate order items if we parsed valid sheet items
-        if (sheetItems.length > 0) {
+        if (itemsDiffer && sheetItems.length > 0) {
           // Delete old items
           const { error: errDelete } = await supabaseAdmin
             .from('order_items')
@@ -926,7 +930,7 @@ export async function POST() {
     // 5. Trigger Stock Sync / Recalculate reserves after synchronization
     console.log("POST: Triggering stock recalculation...");
     const STOCK_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1vrI3WFH6W35sj9JJ4sa3yr7XlJDaKP920R6t54jLW6o/export?format=csv&gid=447948741';
-    try {
+    if (syncStock) try {
       const csvStockText = await fetchSpreadsheetCsv(STOCK_SHEET_URL);
       const stockLines = csvStockText.split('\n');
       if (stockLines.length > 0) {
@@ -999,7 +1003,7 @@ export async function POST() {
               }
 
               updatedStockCount++;
-              await supabaseAdmin
+              const { error: stockUpdateError } = await supabaseAdmin
                 .from('products')
                 .update({
                   stock_physical: sheetPhys,
@@ -1007,21 +1011,26 @@ export async function POST() {
                   stock_current: newAv
                 })
                 .eq('id', dbP.id);
+              if (stockUpdateError) throw stockUpdateError;
             }
           }
           console.log(`POST: Stock sync completed. Updated ${updatedStockCount} products.`);
         } else {
-          console.error("POST: Stock sync error fetching db data", productsRes.error, pendingRes.error);
+          throw productsRes.error || pendingRes.error;
         }
       }
+      stockResult.status = 'completed';
     } catch (stockErr: any) {
+      stockResult.status = 'failed';
+      stockResult.error = stockErr.message || 'No se pudo completar la sincronización de stock.';
       console.error("POST: Failed to download Stock sheet", stockErr);
     }
 
     console.log(`POST: Completed successfully. Synced ${syncedOrdersCount} orders.`);
     return NextResponse.json({
       success: true,
-      message: `Sincronización masiva completada con éxito. Se actualizaron ${syncedOrdersCount} pedidos a 'Entregado' con sus cobros e ítems finales.`
+      stock: stockResult,
+      message: `Conciliación con Logística completada: ${syncedOrdersCount} pedidos actualizados y ${skippedOrdersCount} sin cambios. Se conciliaron estados (Entregando/Entregado), importes, medios de pago y artículos; no se registraron cobros.`
     });
 
   } catch (err: any) {

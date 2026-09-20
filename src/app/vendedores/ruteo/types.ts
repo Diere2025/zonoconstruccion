@@ -127,6 +127,7 @@ export interface Delivery {
 
 export interface RouteOrder {
   id: string;
+  status: string;
   client_id: string;
   customer_name: string;
   locality: string;
@@ -139,6 +140,8 @@ export interface RouteOrder {
   payment_method_id?: string;
   max_delivery_date?: string;
   order_date?: string;
+  hold_reason?: string | null;
+  hold_product_id?: string | null;
   legacy_code?: string;
   delivery_notes?: string;
   delivery_detail?: string;

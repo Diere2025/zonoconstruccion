@@ -4,15 +4,23 @@ chrome.runtime.onInstalled.addListener(() => {
   setupAlarms();
 });
 
-// Broadcast poll pulse to all Mercado Pago tabs every 10-12 seconds
+// Only one tab per Chrome profile is allowed to monitor Mercado Pago. Other
+// Mercado Pago tabs are intentionally passive so normal browsing never emits
+// false outage alerts.
 function pingAllTabs() {
-  chrome.tabs.query({ url: "*://*.mercadopago.com.ar/*" }, (tabs) => {
-    if (chrome.runtime.lastError || !tabs) return;
-    tabs.forEach(tab => {
-      chrome.tabs.sendMessage(tab.id, { action: "TRIGGER_POLL" }).catch(() => {});
+  chrome.storage.local.get(["monitorTabId"], ({ monitorTabId }) => {
+    if (!monitorTabId) return;
+    chrome.tabs.sendMessage(monitorTabId, { action: "TRIGGER_POLL" }).catch(() => {
+      chrome.storage.local.remove("monitorTabId");
     });
   });
 }
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  chrome.storage.local.get(["monitorTabId"], ({ monitorTabId }) => {
+    if (monitorTabId === tabId) chrome.storage.local.remove("monitorTabId");
+  });
+});
 
 function setupAlarms() {
   chrome.alarms.create("POLL_PULSE", { periodInMinutes: 0.25 });
@@ -28,11 +36,39 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 setInterval(pingAllTabs, 10000);
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === "GET_MONITOR_STATE") {
+    chrome.storage.local.get(["monitorTabId"], ({ monitorTabId }) => {
+      sendResponse({ active: Boolean(sender.tab?.id && monitorTabId === sender.tab.id) });
+    });
+    return true;
+  }
+
+  if (request.action === "CLAIM_MONITOR_TAB") {
+    const nextTabId = sender.tab?.id;
+    if (!nextTabId) {
+      sendResponse({ ok: false });
+      return;
+    }
+    chrome.storage.local.get(["monitorTabId"], ({ monitorTabId: previousTabId }) => {
+      chrome.storage.local.set({ monitorTabId: nextTabId }, () => {
+        if (previousTabId && previousTabId !== nextTabId) {
+          chrome.tabs.sendMessage(previousTabId, { action: "MONITOR_STATE", active: false }).catch(() => {});
+        }
+        chrome.tabs.sendMessage(nextTabId, { action: "MONITOR_STATE", active: true }).catch(() => {});
+        sendResponse({ ok: true, active: true });
+      });
+    });
+    return true;
+  }
+
   if (request.action === "REPORT_PAYMENT") {
     const { url, payload, token, paymentSummary } = request;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
 
     fetch(url, {
       method: "POST",
+      signal: controller.signal,
       headers: {
         "Content-Type": "application/json",
         "x-webhook-token": token
@@ -42,7 +78,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       .then(async (res) => {
         const data = await res.json().catch(() => ({}));
         
-        if (paymentSummary && (res.ok || data.success)) {
+        if (paymentSummary && res.ok && data.success === true) {
           chrome.storage.local.get(["history"], (items) => {
             const history = items.history || [];
             // Check if already in local history
@@ -58,7 +94,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       })
       .catch((err) => {
         sendResponse({ ok: false, error: err.message });
-      });
+      })
+      .finally(() => clearTimeout(timeout));
 
     return true; // keep channel open for async sendResponse
   }

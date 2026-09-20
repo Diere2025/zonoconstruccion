@@ -63,6 +63,7 @@ interface ChatState {
   loadTicketByIdentifier: (identifier: string | number) => Promise<void>;
   
   fetchTickets: (reset?: boolean) => Promise<void>;
+  fetchTicketsSilent: () => Promise<void>;
   fetchMessages: (ticketId: number, reset?: boolean) => Promise<void>;
   fetchQueues: () => Promise<void>;
   fetchQuickMessages: () => Promise<void>;
@@ -87,8 +88,8 @@ interface ChatState {
   createTicket: (data: { name?: string; phone: string; whatsappId: number; userId?: number | null }) => Promise<Ticket>;
 
   // Socket handlers
-  handleSocketTicket: (data: { action: string; ticket: Ticket }) => void;
-  handleSocketMessage: (data: { action: string; message: Message }) => void;
+  handleSocketTicket: (data: { action: string; ticket?: Ticket; ticketId?: number }) => void;
+  handleSocketMessage: (data: { action: string; message: Message; ticket?: Ticket; contact?: any }) => void;
   handleSocketWhatsapp: (data: { action?: string; whatsapp?: any; session?: any }) => void;
 }
 
@@ -376,6 +377,103 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
+  fetchTicketsSilent: async () => {
+    const { 
+      activeTab, 
+      selectedQueueId, 
+      selectedQueueIds,
+      searchQuery, 
+      filterUser, 
+      filterUnreadOnly, 
+      filterTagId,
+      filterTagIds,
+      filterWhatsappId,
+      filterWhatsappIds,
+      filterDateRange,
+    } = get();
+
+    try {
+      const params: Record<string, any> = {
+        pageNumber: 1,
+        showAll: 'true',
+        searchParam: searchQuery,
+      };
+
+      if (activeTab !== 'all') {
+        params.status = activeTab;
+      }
+
+      const effectiveQueueIds = selectedQueueIds?.length > 0 
+        ? selectedQueueIds 
+        : (selectedQueueId !== 'all' ? [selectedQueueId] : []);
+      if (effectiveQueueIds.length > 0) {
+        params.queueIds = JSON.stringify(effectiveQueueIds);
+      }
+
+      const effectiveTagIds = filterTagIds?.length > 0 
+        ? filterTagIds 
+        : (filterTagId !== 'all' ? [filterTagId] : []);
+      if (effectiveTagIds.length > 0) {
+        params.tags = JSON.stringify(effectiveTagIds);
+      }
+
+      const effectiveWhatsappIds = filterWhatsappIds?.length > 0 
+        ? filterWhatsappIds 
+        : (filterWhatsappId !== 'all' ? [filterWhatsappId] : []);
+      if (effectiveWhatsappIds.length > 0) {
+        params.whatsappIds = JSON.stringify(effectiveWhatsappIds);
+      }
+
+      if (filterUnreadOnly) {
+        params.withUnreadMessages = 'true';
+      }
+
+      if (typeof filterUser === 'number') {
+        params.users = JSON.stringify([filterUser]);
+      }
+
+      if (filterDateRange?.start) {
+        params.date = filterDateRange.start;
+      }
+
+      const { data } = await api.get('/tickets', { params });
+      const freshTickets: Ticket[] = data.tickets || [];
+      if (!Array.isArray(freshTickets)) return;
+
+      set((state) => {
+        const map = new Map<number, Ticket>();
+        for (const t of state.tickets) {
+          map.set(t.id, t);
+        }
+        for (const ft of freshTickets) {
+          const existing = map.get(ft.id);
+          map.set(ft.id, existing ? { ...existing, ...ft } : ft);
+        }
+
+        const merged = Array.from(map.values()).sort((a, b) => {
+          const timeA = new Date(a.updatedAt || a.createdAt).getTime();
+          const timeB = new Date(b.updatedAt || b.createdAt).getTime();
+          return timeB - timeA;
+        });
+
+        let activeTicket = state.activeTicket;
+        if (activeTicket) {
+          const freshActive = freshTickets.find((t) => t.id === activeTicket?.id);
+          if (freshActive) {
+            activeTicket = { ...activeTicket, ...freshActive };
+          }
+        }
+
+        return {
+          tickets: merged,
+          activeTicket,
+        };
+      });
+    } catch {
+      // Sincronización silenciosa sin alterar UI
+    }
+  },
+
   selectTicket: async (ticket) => {
     ++selectionVersion;
     ++messagesRequestVersion;
@@ -464,12 +562,46 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ isLoadingMessages: true, messagesError: null });
     try {
       const currentPage = reset ? 1 : messagesPage;
-      const { data } = await api.get(`/messages/${ticketId}`, {
-        params: { pageNumber: currentPage },
-      });
+      const contactId = activeTicket.contactId || activeTicket.contact?.id || 0;
+
+      const [msgResponse, notesResponse] = await Promise.allSettled([
+        api.get(`/messages/${ticketId}`, {
+          params: { pageNumber: currentPage },
+        }),
+        reset || currentPage === 1
+          ? api.get('/ticket-notes/list', {
+              params: { contactId, ticketId },
+            })
+          : Promise.resolve({ data: [] }),
+      ]);
+
       if (!isCurrent()) return;
 
-      const loadedMessages: Message[] = data.messages || [];
+      if (msgResponse.status === 'rejected') {
+        throw msgResponse.reason;
+      }
+
+      const loadedMessages: Message[] =
+        msgResponse.status === 'fulfilled' ? msgResponse.value.data?.messages || [] : [];
+      const loadedNotes: any[] =
+        notesResponse.status === 'fulfilled' ? notesResponse.value.data || [] : [];
+
+      const noteMessages: Message[] = Array.isArray(loadedNotes)
+        ? loadedNotes.map((n: any) => ({
+            id: `note-${n.id}`,
+            ticketId: n.ticketId,
+            body: n.note,
+            fromMe: true,
+            read: true,
+            isPrivate: true,
+            createdAt: n.createdAt,
+            updatedAt: n.updatedAt,
+            ack: 1,
+            mediaUrl: null,
+            mediaType: null,
+            senderName: n.user?.name,
+          }))
+        : [];
 
       set((state) => {
         const now = Date.now();
@@ -495,7 +627,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
         const nonTemp = state.messages.filter((m) => !String(m.id).startsWith('temp-'));
         // Refresh the newest page without discarding previously loaded history.
-        const combined = [...loadedMessages, ...nonTemp, ...pendingTemp];
+        const combined = [...loadedMessages, ...noteMessages, ...nonTemp, ...pendingTemp];
 
         // Deduplicar mensajes por ID preservando orden
         const seen = new Set<string | number>();
@@ -509,7 +641,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
         return {
           messages: uniqueMessages.sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt)),
-          hasMoreMessages: reset && messagesPage > 2 ? state.hasMoreMessages : data.hasMore || false,
+          hasMoreMessages: reset && messagesPage > 2 ? state.hasMoreMessages : (msgResponse.status === 'fulfilled' ? msgResponse.value.data?.hasMore : false) || false,
           messagesPage: reset ? Math.max(messagesPage, 2) : currentPage + 1,
           isLoadingMessages: false,
         };
@@ -531,6 +663,47 @@ export const useChatStore = create<ChatState>((set, get) => ({
   }) => {
     const { activeTicket } = get();
     if (!activeTicket?.id) return;
+
+    // Si es nota interna, se guarda en /ticket-notes y NUNCA se envía por WhatsApp
+    if (isPrivate) {
+      set({ isSendingMessage: true });
+      try {
+        const contactId = activeTicket.contactId || activeTicket.contact?.id || 0;
+        const { data: createdNote } = await api.post('/ticket-notes', {
+          note: body,
+          ticketId: activeTicket.id,
+          contactId,
+        });
+
+        const noteMessage: Message = {
+          id: `note-${createdNote?.id || Date.now()}`,
+          ticketId: activeTicket.id,
+          body: createdNote?.note || body,
+          fromMe: true,
+          read: true,
+          isPrivate: true,
+          createdAt: createdNote?.createdAt || new Date().toISOString(),
+          updatedAt: createdNote?.updatedAt || new Date().toISOString(),
+          ack: 1,
+          mediaUrl: null,
+          mediaType: null,
+          senderName: createdNote?.user?.name,
+        };
+
+        set((state) => ({
+          isSendingMessage: false,
+          messages: [
+            ...state.messages.filter((m) => !String(m.id).startsWith('temp-')),
+            noteMessage,
+          ].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt)),
+        }));
+        return;
+      } catch (err) {
+        set({ isSendingMessage: false });
+        console.error('Error al guardar nota interna:', err);
+        throw err;
+      }
+    }
 
     set({ isSendingMessage: true });
 
@@ -726,22 +899,36 @@ export const useChatStore = create<ChatState>((set, get) => ({
       if (userId !== null) {
         payload.status = 'open';
       }
-      await api.put(`/tickets/${ticketId}`, payload);
-      const targetUser = get().users.find((candidate) => candidate.id === userId) || null;
+      const res = await api.put(`/tickets/${ticketId}`, payload);
+      const updatedTicket = res?.data?.ticket || res?.data;
+      const targetUser = get().users.find((candidate) => candidate.id === userId) || updatedTicket?.user || null;
       set((state) => {
         const nextStatus = userId !== null ? 'open' : undefined;
         return {
           tickets: state.tickets.map((ticket) =>
             ticket.id === ticketId
-              ? { ...ticket, userId, user: targetUser, ...(nextStatus ? { status: nextStatus } : {}) }
+              ? {
+                  ...ticket,
+                  ...(updatedTicket && updatedTicket.id ? updatedTicket : {}),
+                  userId,
+                  user: targetUser,
+                  ...(nextStatus ? { status: nextStatus } : {}),
+                }
               : ticket
           ),
           activeTicket:
             state.activeTicket?.id === ticketId
-              ? { ...state.activeTicket, userId, user: targetUser, ...(nextStatus ? { status: nextStatus } : {}) }
+              ? {
+                  ...state.activeTicket,
+                  ...(updatedTicket && updatedTicket.id ? updatedTicket : {}),
+                  userId,
+                  user: targetUser,
+                  ...(nextStatus ? { status: nextStatus } : {}),
+                }
               : state.activeTicket,
         };
       });
+      void get().fetchTicketsSilent();
     } catch (err) {
       console.error('Error updating ticket user:', err);
       throw err;
@@ -813,25 +1000,40 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }));
   },
 
-  handleSocketTicket: ({ action, ticket }) => {
+  handleSocketTicket: (data: { action: string; ticket?: Ticket; ticketId?: number }) => {
+    const ticketId = data.ticket?.id || data.ticketId;
+    if (!ticketId) return;
+
+    const { action, ticket } = data;
     const { activeTab, selectedQueueId, selectedQueueIds } = get();
-    if (!ticket?.id) return;
 
     set((state) => {
-      const existsIndex = state.tickets.findIndex((t) => t.id === ticket.id);
+      const existsIndex = state.tickets.findIndex((t) => t.id === ticketId);
 
       if (action === 'delete') {
         return {
-          tickets: state.tickets.filter((t) => t.id !== ticket.id),
-          activeTicket: state.activeTicket?.id === ticket.id ? null : state.activeTicket,
+          tickets: state.tickets.filter((t) => t.id !== ticketId),
+          activeTicket: state.activeTicket?.id === ticketId && state.activeTicket.status === 'closed'
+            ? null
+            : state.activeTicket,
         };
       }
 
+      if (!ticket) return state;
+
       // Comprobar si corresponde mostrar en la pestaña y cola actual
-      const updatedTicket = { ...state.tickets[existsIndex], ...ticket };
+      const updatedTicket: Ticket = { ...state.tickets[existsIndex], ...ticket };
       const activeTicket = state.activeTicket?.id === ticket.id
         ? { ...state.activeTicket, ...ticket } : state.activeTicket;
-      const matchesTab = activeTab === 'all' || updatedTicket.status === activeTab;
+
+      const isClosed = updatedTicket.status === 'closed';
+      const hasAgent = !!updatedTicket.userId || !!updatedTicket.user;
+      const matchesTab =
+        activeTab === 'all' ||
+        (activeTab === 'open' && !isClosed && (updatedTicket.status === 'open' || hasAgent)) ||
+        (activeTab === 'pending' && updatedTicket.status === 'pending' && !hasAgent) ||
+        (activeTab === 'closed' && isClosed);
+
       const queueIds = selectedQueueIds.length > 0
         ? selectedQueueIds : selectedQueueId === 'all' ? [] : [selectedQueueId];
       const ticketQueueId = updatedTicket.queueId === undefined ? updatedTicket.queue?.id : updatedTicket.queueId;
@@ -839,7 +1041,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
       if (!matchesTab || !matchesQueue) {
         if (existsIndex >= 0) {
-          // Si ya no cumple la condición del tab (ej: pasó de pending a open), lo quitamos de esta lista
+          // Si ya no cumple la condición del tab (ej: pasó de pending a closed), lo quitamos de esta lista
           return {
             tickets: state.tickets.filter((t) => t.id !== ticket.id),
             activeTicket,
@@ -851,26 +1053,24 @@ export const useChatStore = create<ChatState>((set, get) => ({
       if (existsIndex >= 0) {
         // Actualizar ticket existente y moverlo arriba si hay mensaje nuevo
         const updatedList = [...state.tickets];
-        updatedList[existsIndex] = { ...updatedList[existsIndex], ...ticket };
-        // Si updatedAt cambió, lo movemos al principio
+        updatedList[existsIndex] = updatedTicket;
         const [moved] = updatedList.splice(existsIndex, 1);
         return {
           tickets: [moved, ...updatedList],
-          activeTicket:
-            state.activeTicket?.id === ticket.id
-              ? { ...state.activeTicket, ...ticket }
-              : state.activeTicket,
+          activeTicket,
         };
       } else {
         // Nuevo ticket que entra a la pestaña actual
         return {
-          tickets: [ticket, ...state.tickets],
+          tickets: [updatedTicket, ...state.tickets],
+          activeTicket,
         };
       }
     });
   },
 
-  handleSocketMessage: ({ action, message }) => {
+  handleSocketMessage: (data: { action: string; message: Message; ticket?: Ticket; contact?: any }) => {
+    const { message, ticket: socketTicket, contact: socketContact } = data;
     const { activeTicket } = get();
     if (!message?.ticketId) return;
 
@@ -906,14 +1106,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // Actualizar el último mensaje en la lista de tickets lateral
     set((state) => {
       const idx = state.tickets.findIndex((t) => String(t.id) === messageTicketId);
+      const isNotActive = !activeTicketId || activeTicketId !== messageTicketId;
+
       if (idx >= 0) {
         const updated = [...state.tickets];
         const ticket = updated[idx];
-        const isNotActive = !activeTicketId || activeTicketId !== messageTicketId;
         const newUnread = isNotActive && !message.fromMe ? (ticket.unreadMessages || 0) + 1 : ticket.unreadMessages;
 
         const updatedTicket: Ticket = {
           ...ticket,
+          ...(socketTicket || {}),
           lastMessage: message.body,
           updatedAt: message.createdAt || new Date().toISOString(),
           unreadMessages: newUnread,
@@ -923,8 +1125,26 @@ export const useChatStore = create<ChatState>((set, get) => ({
         return {
           tickets: [updatedTicket, ...updated],
         };
+      } else if (socketTicket) {
+        // El ticket no estaba cargado pero vino en el payload del socket
+        const newTicket: Ticket = {
+          ...socketTicket,
+          contact: socketContact || socketTicket.contact,
+          lastMessage: message.body,
+          updatedAt: message.createdAt || new Date().toISOString(),
+          unreadMessages: isNotActive && !message.fromMe ? 1 : 0,
+        };
+        return {
+          tickets: [newTicket, ...state.tickets],
+        };
       }
       return state;
     });
+
+    // Si el ticket no estaba en la lista local y no vino en socketTicket, sincronizar silenciosamente en background
+    const ticketInState = get().tickets.some((t) => String(t.id) === messageTicketId);
+    if (!ticketInState && !socketTicket) {
+      void get().fetchTicketsSilent();
+    }
   },
 }));

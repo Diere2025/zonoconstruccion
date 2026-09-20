@@ -1,5 +1,10 @@
 import { io, Socket } from 'socket.io-client';
-import { BACKEND_URL } from './api';
+
+export const SOCKET_URL =
+  import.meta.env.VITE_BACKEND_URL ||
+  (typeof window !== 'undefined'
+    ? window.location.origin
+    : 'http://134.209.72.93:7777');
 
 let socket: Socket | null = null;
 
@@ -18,15 +23,16 @@ export const connectSocket = (token?: string): Socket => {
     socket.disconnect();
   }
 
-  socket = io(BACKEND_URL, {
+  socket = io(SOCKET_URL, {
     query: {
       token: activeToken || '',
     },
     transports: ['websocket', 'polling'],
     autoConnect: true,
     reconnection: true,
-    reconnectionAttempts: 20,
+    reconnectionAttempts: 50,
     reconnectionDelay: 1000,
+    reconnectionDelayMax: 5000,
   });
 
   socket.on('connect', () => {

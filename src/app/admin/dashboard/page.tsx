@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { formatPrice } from "@/lib/utils";
 import { 
   TrendingUp, 
@@ -29,12 +29,32 @@ import {
   Wallet,
   CheckCircle2,
   Sparkles,
-  ArrowRightLeft
+  ArrowRightLeft,
+  ChevronUp,
+  ExternalLink,
+  AlertCircle
 } from "lucide-react";
+
+export interface TodayDeliveryItem {
+  id: string;
+  order_id: string;
+  legacy_code: string;
+  customer_name: string;
+  locality: string;
+  address: string;
+  google_maps_link?: string;
+  total_amount: number;
+  order_status: string;
+  delivery_status: string;
+  carrier_name?: string | null;
+  run_number?: number | null;
+  seller_id?: string;
+  freight_type?: string;
+}
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import CategorySalesChart, { CategoryData } from "@/components/dashboard/CategorySalesChart";
-import CancelledOrdersChart, { DailyCancelledData } from "@/components/dashboard/CancelledOrdersChart";
+import OrderStatusChart, { OrderStatusData } from "@/components/dashboard/OrderStatusChart";
 import SalesTrendChart, { DailyTrendPoint } from "@/components/dashboard/SalesTrendChart";
 import WeeklyComparisonChart from "@/components/dashboard/WeeklyComparisonChart";
 import { OrderStatusBadge } from "@/components/ui/Badge";
@@ -51,9 +71,14 @@ export interface LocalityRank {
   ordersCount: number;
 }
 
+const isCancelledStatus = (status: string | null | undefined) =>
+  status === "Cancelado" || status === "Anulado";
+
 export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const loadAbortControllerRef = useRef<AbortController | null>(null);
+  const loadRequestIdRef = useRef(0);
   const [productSortKey, setProductSortKey] = useState<'billing' | 'qty'>('billing');
   const [productSearchTerm, setProductSearchTerm] = useState('');
   const [productPage, setProductPage] = useState(1);
@@ -194,6 +219,42 @@ export default function AdminDashboard() {
     prevEndDate: ""
   });
 
+  // Today & Month Fixed Performance States
+  const [todayStats, setTodayStats] = useState({
+    sales: 0,
+    ordersCount: 0,
+    deliveredBilling: 0,
+    pendingBilling: 0,
+    cancelledBilling: 0,
+    deliveredCount: 0,
+    pendingCount: 0,
+    cancelledCount: 0
+  });
+
+  const [monthStats, setMonthStats] = useState({
+    sales: 0,
+    ordersCount: 0,
+    deliveredBilling: 0,
+    pendingBilling: 0,
+    cancelledBilling: 0,
+    deliveredCount: 0,
+    pendingCount: 0,
+    cancelledCount: 0
+  });
+
+  // Today's Deliveries / En Reparto States
+  const [todayDeliveries, setTodayDeliveries] = useState<TodayDeliveryItem[]>([]);
+  const [todayDeliveryStats, setTodayDeliveryStats] = useState({
+    totalCount: 0,
+    totalAmount: 0,
+    deliveredCount: 0,
+    inTransitCount: 0,
+    pendingCount: 0
+  });
+  const [todayDeliveryFilter, setTodayDeliveryFilter] = useState<'all' | 'in_transit' | 'delivered' | 'pending'>('all');
+  const [todayDeliverySearch, setTodayDeliverySearch] = useState('');
+  const [isTodayDeliveriesOpen, setIsTodayDeliveriesOpen] = useState(true);
+
   const [topSellers, setTopSellers] = useState<any[]>([]);
   const [topCustomers, setTopCustomers] = useState<TopCustomer[]>([]);
   const [topLocalities, setTopLocalities] = useState<LocalityRank[]>([]);
@@ -213,7 +274,7 @@ export default function AdminDashboard() {
 
   const [categorySales, setCategorySales] = useState<CategoryData[]>([]);
   const [totalCategoryQty, setTotalCategoryQty] = useState<number>(0);
-  const [dailyCancelledData, setDailyCancelledData] = useState<DailyCancelledData[]>([]);
+  const [orderStatusData, setOrderStatusData] = useState<OrderStatusData[]>([]);
   const [dailyTrendData, setDailyTrendData] = useState<DailyTrendPoint[]>([]);
   const [selectedCatFilter, setSelectedCatFilter] = useState<string>("all");
   const [lastRefreshedAt, setLastRefreshedAt] = useState<string>("");
@@ -426,13 +487,24 @@ export default function AdminDashboard() {
   };
 
   const loadData = async (start: string, end: string, sellerId: string = selectedSellerId) => {
+    loadAbortControllerRef.current?.abort();
+    const controller = new AbortController();
+    const requestId = ++loadRequestIdRef.current;
+    loadAbortControllerRef.current = controller;
+    const timeoutId = window.setTimeout(() => controller.abort(), 30000);
+
     try {
       setLoading(true);
       setIsRefreshing(true);
 
+      const withSignal = <T extends { abortSignal: (signal: AbortSignal) => T }>(query: T) =>
+        query.abortSignal(controller.signal);
+
       const { prevStartStr, prevEndStr } = calculatePreviousPeriod(start, end);
       const weeklyStart = getMondayOfWeek(start);
       const weeklyEnd = getSundayOfWeek(end);
+      const todayStr = getTodayDate();
+      const startOfMonthStr = getStartOfMonth();
 
       let recentQuery = supabase.from("orders")
         .select("id, legacy_code, customer_name, total_amount, status, created_at, order_date, seller_id")
@@ -449,6 +521,15 @@ export default function AdminDashboard() {
         .gte("order_date", prevStartStr)
         .lte("order_date", prevEndStr);
 
+      let todayOrdersQuery = supabase.from("orders")
+        .select("id, legacy_code, customer_name, locality, total_amount, status, seller_id, order_date, created_at")
+        .eq("order_date", todayStr);
+
+      let monthOrdersQuery = supabase.from("orders")
+        .select("id, legacy_code, customer_name, locality, total_amount, status, seller_id, order_date, created_at")
+        .gte("order_date", startOfMonthStr)
+        .lte("order_date", todayStr);
+
       let itemsQuery = supabase
         .from("order_items")
         .select(`
@@ -458,7 +539,7 @@ export default function AdminDashboard() {
           products(sku, category),
           orders!inner(id, status, order_date, created_at, seller_id)
         `)
-        .neq("orders.status", "Cancelado")
+        .not("orders.status", "in", '("Cancelado","Anulado")')
         .gte("orders.order_date", start)
         .lte("orders.order_date", end);
 
@@ -471,35 +552,80 @@ export default function AdminDashboard() {
         recentQuery = recentQuery.eq("seller_id", sellerId);
         rangeQuery = rangeQuery.eq("seller_id", sellerId);
         prevRangeQuery = prevRangeQuery.eq("seller_id", sellerId);
+        todayOrdersQuery = todayOrdersQuery.eq("seller_id", sellerId);
+        monthOrdersQuery = monthOrdersQuery.eq("seller_id", sellerId);
         itemsQuery = itemsQuery.eq("orders.seller_id", sellerId);
         weeklyOrdersQuery = weeklyOrdersQuery.eq("seller_id", sellerId);
       }
 
+      // Keep the dashboard responsive without overwhelming Supabase. In
+      // development React can mount effects twice, so a single large
+      // Promise.all used to create more than twenty simultaneous requests.
       const [
         clientsCountRes,
         productsCountRes,
         sellersRes,
-        recentOrdersRes,
+        recentOrdersRes
+      ] = await Promise.all([
+        withSignal(supabase.from("clients").select("id", { count: "exact", head: true })),
+        withSignal(supabase.from("products").select("id", { count: "exact", head: true })),
+        withSignal(supabase.from("sellers").select("id, full_name")),
+        withSignal(recentQuery)
+      ]);
+      if (controller.signal.aborted || requestId !== loadRequestIdRef.current) return;
+
+      const [
         ordersInRangeRes,
         prevOrdersRes,
         itemsRes,
-        weeklyOrdersRes,
-        unimportedRes
+        weeklyOrdersRes
       ] = await Promise.all([
-        supabase.from("clients").select("id", { count: "exact", head: true }),
-        supabase.from("products").select("id", { count: "exact", head: true }),
-        supabase.from("sellers").select("id, full_name"),
-        recentQuery,
-        rangeQuery,
-        prevRangeQuery,
-        itemsQuery,
-        weeklyOrdersQuery,
-        fetch('/api/admin/unimported-orders').then(r => r.ok ? r.json() : null).catch(() => null)
+        withSignal(rangeQuery),
+        withSignal(prevRangeQuery),
+        withSignal(itemsQuery),
+        withSignal(weeklyOrdersQuery)
       ]);
+      if (controller.signal.aborted || requestId !== loadRequestIdRef.current) return;
 
-      if (ordersInRangeRes.error) throw ordersInRangeRes.error;
-      if (sellersRes.error) throw sellersRes.error;
-      if (itemsRes.error) throw itemsRes.error;
+      const [
+        unimportedRes,
+        todayOrdersRes,
+        monthOrdersRes
+      ] = await Promise.all([
+        fetch('/api/admin/unimported-orders', { signal: controller.signal })
+          .then(response => response.ok ? response.json() : null)
+          .catch(error => {
+            if (controller.signal.aborted) throw error;
+            console.warn("No se pudo cargar pedidos sin importar:", error);
+            return null;
+        }),
+        withSignal(todayOrdersQuery),
+        withSignal(monthOrdersQuery)
+      ]);
+      if (controller.signal.aborted || requestId !== loadRequestIdRef.current) return;
+
+      const queryResults = [
+        ["clients", clientsCountRes],
+        ["products", productsCountRes],
+        ["sellers", sellersRes],
+        ["recent orders", recentOrdersRes],
+        ["orders in range", ordersInRangeRes],
+        ["previous-period orders", prevOrdersRes],
+        ["order items", itemsRes],
+        ["weekly orders", weeklyOrdersRes],
+        ["today orders", todayOrdersRes],
+        ["month orders", monthOrdersRes]
+      ] as const;
+
+      const failedQuery = queryResults.find(([, result]) => result?.error);
+      const failedError = failedQuery?.[1]?.error;
+      if (failedQuery && failedError) {
+        throw new Error(`Error en ${failedQuery[0]}: ${failedError.message}`);
+      }
+
+      // Delivery data is intentionally excluded from this dashboard. Routing
+      // is managed in its own operational screen.
+      const todayDeliveriesRes = { data: [] as never[] };
 
       if (unimportedRes && unimportedRes.success) {
         setUnimportedSellerData({
@@ -540,11 +666,11 @@ export default function AdminDashboard() {
       });
 
       // Current Period Sales Sum (all except Cancelado)
-      const activeOrdersList = ordersInRange.filter(o => o.status !== "Cancelado");
+      const activeOrdersList = ordersInRange.filter(o => !isCancelledStatus(o.status));
       const salesSum = activeOrdersList.reduce((acc, o) => acc + (Number(o.total_amount) || 0), 0);
 
       // Previous Period Sales & AOV
-      const prevActiveOrders = prevOrdersInRange.filter(o => o.status !== "Cancelado");
+      const prevActiveOrders = prevOrdersInRange.filter(o => !isCancelledStatus(o.status));
       const prevSalesSum = prevActiveOrders.reduce((acc, o) => acc + (Number(o.total_amount) || 0), 0);
       const prevOrdersCount = prevOrdersInRange.length;
       const prevAOV = prevActiveOrders.length > 0 ? prevSalesSum / prevActiveOrders.length : 0;
@@ -567,18 +693,26 @@ export default function AdminDashboard() {
       });
 
       const deliveredCount = ordersInRange.filter(o => o.status === "Entregado").length;
-      const pendingCount = ordersInRange.filter(o => ["Pendiente", "Confirmado", "Entregando"].includes(o.status)).length;
-      const cancelledCount = ordersInRange.filter(o => o.status === "Cancelado").length;
+      const deliveringCount = ordersInRange.filter(o => o.status === "Entregando").length;
+      const cancelledCount = ordersInRange.filter(o => isCancelledStatus(o.status)).length;
       const totalOrdersCount = ordersInRange.length;
+      const pendingCount = totalOrdersCount - deliveredCount - deliveringCount - cancelledCount;
+
+      setOrderStatusData([
+        { label: "Pendientes", count: pendingCount, color: "#2563eb" },
+        { label: "Entregados", count: deliveredCount, color: "#10b981" },
+        { label: "Entregando", count: deliveringCount, color: "#f59e0b" },
+        { label: "Anulados", count: cancelledCount, color: "#e11d48" }
+      ]);
 
       const deliveredBilling = ordersInRange
         .filter(o => o.status === "Entregado")
         .reduce((acc, o) => acc + (Number(o.total_amount) || 0), 0);
       const pendingBilling = ordersInRange
-        .filter(o => ["Pendiente", "Confirmado", "Entregando"].includes(o.status))
+        .filter(o => o.status !== "Entregado" && !isCancelledStatus(o.status))
         .reduce((acc, o) => acc + (Number(o.total_amount) || 0), 0);
       const cancelledBilling = ordersInRange
-        .filter(o => o.status === "Cancelado")
+        .filter(o => isCancelledStatus(o.status))
         .reduce((acc, o) => acc + (Number(o.total_amount) || 0), 0);
       const totalBillingCount = deliveredBilling + pendingBilling + cancelledBilling;
 
@@ -588,7 +722,7 @@ export default function AdminDashboard() {
       // Top Sellers
       const sellerSales: Record<string, number> = {};
       ordersInRange
-        .filter(o => o.status !== "Cancelado")
+        .filter(o => !isCancelledStatus(o.status))
         .forEach(o => {
           if (o.seller_id) {
             sellerSales[o.seller_id] = (sellerSales[o.seller_id] || 0) + (Number(o.total_amount) || 0);
@@ -613,7 +747,7 @@ export default function AdminDashboard() {
       // Top Customers
       const customerSalesMap: Record<string, { name: string; totalSales: number; ordersCount: number }> = {};
       ordersInRange
-        .filter(o => o.status !== "Cancelado")
+        .filter(o => !isCancelledStatus(o.status))
         .forEach(o => {
           const name = (o.customer_name || 'Cliente sin Nombre').trim();
           if (!customerSalesMap[name]) {
@@ -630,7 +764,7 @@ export default function AdminDashboard() {
       // Top Localities
       const localityMap: Record<string, { locality: string; totalSales: number; ordersCount: number }> = {};
       ordersInRange
-        .filter(o => o.status !== "Cancelado")
+        .filter(o => !isCancelledStatus(o.status))
         .forEach(o => {
           const locName = (o.locality || 'Sin Localidad / Mostrador').trim();
           if (!localityMap[locName]) {
@@ -666,6 +800,135 @@ export default function AdminDashboard() {
         cancellationRate,
         avgSalesPerSeller,
         activeSellersCount
+      });
+
+      // Compute Today Stats
+      const rawTodayOrders = todayOrdersRes.data || [];
+      const seenTodayCodes = new Set<string>();
+      const todayOrders = rawTodayOrders.filter(o => {
+        if (o.legacy_code && String(o.legacy_code).trim() !== '') {
+          const code = String(o.legacy_code).trim();
+          if (seenTodayCodes.has(code)) return false;
+          seenTodayCodes.add(code);
+        }
+        return true;
+      });
+
+      const todayActiveOrders = todayOrders.filter(o => !isCancelledStatus(o.status));
+      const todaySales = todayActiveOrders.reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
+      const todayDeliveredBilling = todayOrders
+        .filter(o => o.status === "Entregado")
+        .reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
+      const todayPendingBilling = todayOrders
+        .filter(o => ["Pendiente", "Confirmado", "Entregando"].includes(o.status))
+        .reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
+      const todayCancelledBilling = todayOrders
+        .filter(o => isCancelledStatus(o.status))
+        .reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
+      const todayDeliveredCount = todayOrders.filter(o => o.status === "Entregado").length;
+      const todayPendingCount = todayOrders.filter(o => ["Pendiente", "Confirmado", "Entregando"].includes(o.status)).length;
+      const todayCancelledCount = todayOrders.filter(o => isCancelledStatus(o.status)).length;
+
+      setTodayStats({
+        sales: todaySales,
+        ordersCount: todayActiveOrders.length,
+        deliveredBilling: todayDeliveredBilling,
+        pendingBilling: todayPendingBilling,
+        cancelledBilling: todayCancelledBilling,
+        deliveredCount: todayDeliveredCount,
+        pendingCount: todayPendingCount,
+        cancelledCount: todayCancelledCount
+      });
+
+      // Compute Month Stats
+      const rawMonthOrders = monthOrdersRes.data || [];
+      const seenMonthCodes = new Set<string>();
+      const monthOrders = rawMonthOrders.filter(o => {
+        if (o.legacy_code && String(o.legacy_code).trim() !== '') {
+          const code = String(o.legacy_code).trim();
+          if (seenMonthCodes.has(code)) return false;
+          seenMonthCodes.add(code);
+        }
+        return true;
+      });
+
+      const monthActiveOrders = monthOrders.filter(o => !isCancelledStatus(o.status));
+      const monthSales = monthActiveOrders.reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
+      const monthDeliveredBilling = monthOrders
+        .filter(o => o.status === "Entregado")
+        .reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
+      const monthPendingBilling = monthOrders
+        .filter(o => ["Pendiente", "Confirmado", "Entregando"].includes(o.status))
+        .reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
+      const monthCancelledBilling = monthOrders
+        .filter(o => isCancelledStatus(o.status))
+        .reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
+      const monthDeliveredCount = monthOrders.filter(o => o.status === "Entregado").length;
+      const monthPendingCount = monthOrders.filter(o => ["Pendiente", "Confirmado", "Entregando"].includes(o.status)).length;
+      const monthCancelledCount = monthOrders.filter(o => isCancelledStatus(o.status)).length;
+
+      setMonthStats({
+        sales: monthSales,
+        ordersCount: monthActiveOrders.length,
+        deliveredBilling: monthDeliveredBilling,
+        pendingBilling: monthPendingBilling,
+        cancelledBilling: monthCancelledBilling,
+        deliveredCount: monthDeliveredCount,
+        pendingCount: monthPendingCount,
+        cancelledCount: monthCancelledCount
+      });
+
+      // Compute Deliveries Scheduled/In-Transit Today
+      const deliveriesMap = new Map<string, TodayDeliveryItem>();
+
+      (todayDeliveriesRes.data || []).forEach((d: any) => {
+        const o = d.orders;
+        if (o && !isCancelledStatus(o.status)) {
+          if (sellerId !== "all" && o.seller_id !== sellerId) return;
+          deliveriesMap.set(o.id, {
+            id: d.id || o.id,
+            order_id: o.id,
+            legacy_code: o.legacy_code || 'S/C',
+            customer_name: o.customer_name || 'Sin nombre',
+            locality: o.locality || 'Sin localidad',
+            address: o.address || '',
+            google_maps_link: o.google_maps_link || '',
+            total_amount: Number(o.total_amount) || 0,
+            order_status: o.status,
+            delivery_status: d.status || 'pendiente_ruteo',
+            carrier_name: d.carriers?.name || null,
+            run_number: d.run_number || null,
+            seller_id: o.seller_id,
+            freight_type: o.freight_type || 'Regular'
+          });
+        }
+      });
+
+      const deliveryItems = Array.from(deliveriesMap.values()).sort((a, b) => {
+        const getPriority = (item: TodayDeliveryItem) => {
+          if (item.delivery_status === 'en_recorrido' || item.order_status === 'Entregando') return 1;
+          if (item.delivery_status === 'ruteado' || item.delivery_status === 'pendiente_ruteo') return 2;
+          if (item.delivery_status === 'entregado' || item.order_status === 'Entregado') return 3;
+          return 4;
+        };
+        return getPriority(a) - getPriority(b);
+      });
+
+      const deliveryTotalAmount = deliveryItems.reduce((acc, item) => acc + item.total_amount, 0);
+      const delDelivered = deliveryItems.filter(i => i.delivery_status === 'entregado' || i.order_status === 'Entregado').length;
+      const delInTransit = deliveryItems.filter(i => 
+        (i.delivery_status === 'en_recorrido' || i.order_status === 'Entregando') && 
+        i.delivery_status !== 'entregado' && i.order_status !== 'Entregado'
+      ).length;
+      const delPending = Math.max(0, deliveryItems.length - delDelivered - delInTransit);
+
+      setTodayDeliveries(deliveryItems);
+      setTodayDeliveryStats({
+        totalCount: deliveryItems.length,
+        totalAmount: deliveryTotalAmount,
+        deliveredCount: delDelivered,
+        inTransitCount: delInTransit,
+        pendingCount: delPending
       });
 
       // Deduplicate weekly orders (covers full weeks including boundary days)
@@ -903,34 +1166,6 @@ export default function AdminDashboard() {
 
       const dateRange = generateDateRange(start, end);
 
-      const dailyCancelledList: DailyCancelledData[] = dateRange.map(dStr => {
-        const parts = dStr.split("-");
-        const displayDate = parts.length === 3 ? `${parts[2]}/${parts[1]}` : dStr;
-
-        const ordersOnDate = ordersInRange.filter(o => {
-          const oDate = (o.order_date || o.created_at || "").slice(0, 10);
-          return oDate === dStr;
-        });
-
-        const cancelledOrdersOnDate = ordersOnDate.filter(o => o.status === "Cancelado");
-
-        const cancelledCount = cancelledOrdersOnDate.length;
-        const totalOrdersCountOnDate = ordersOnDate.length;
-        const cancelledBillingOnDate = cancelledOrdersOnDate.reduce((acc, o) => acc + (Number(o.total_amount) || 0), 0);
-        const totalBillingOnDate = ordersOnDate.reduce((acc, o) => acc + (Number(o.total_amount) || 0), 0);
-
-        return {
-          date: dStr,
-          displayDate,
-          cancelledCount,
-          totalOrdersCount: totalOrdersCountOnDate,
-          cancelledBilling: cancelledBillingOnDate,
-          totalBilling: totalBillingOnDate
-        };
-      });
-
-      setDailyCancelledData(dailyCancelledList);
-
       const dailyTrendList: DailyTrendPoint[] = dateRange.map(dStr => {
         const parts = dStr.split("-");
         const displayDate = parts.length === 3 ? `${parts[2]}/${parts[1]}` : dStr;
@@ -940,7 +1175,7 @@ export default function AdminDashboard() {
           return oDate === dStr;
         });
 
-        const activeOnDate = ordersOnDate.filter(o => o.status !== "Cancelado");
+        const activeOnDate = ordersOnDate.filter(o => !isCancelledStatus(o.status));
         const salesOnDate = activeOnDate.reduce((acc, o) => acc + (Number(o.total_amount) || 0), 0);
 
         const deliveredOnDate = ordersOnDate.filter(o => o.status === "Entregado");
@@ -960,15 +1195,26 @@ export default function AdminDashboard() {
       setLastRefreshedAt(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
 
     } catch (err) {
-      console.error("Error loading admin dashboard stats:", err);
+      if (controller.signal.aborted || requestId !== loadRequestIdRef.current) return;
+
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      console.error("Error loading admin dashboard stats:", errorMessage, err);
     } finally {
-      setLoading(false);
-      setIsRefreshing(false);
+      window.clearTimeout(timeoutId);
+      if (loadAbortControllerRef.current === controller) {
+        loadAbortControllerRef.current = null;
+        setLoading(false);
+        setIsRefreshing(false);
+      }
     }
   };
 
   useEffect(() => {
     loadData(startDate, endDate);
+
+    return () => {
+      loadAbortControllerRef.current?.abort();
+    };
   }, []);
 
   useEffect(() => {
@@ -983,6 +1229,35 @@ export default function AdminDashboard() {
       </div>
     );
   }
+
+  const filteredTodayDeliveries = todayDeliveries
+    .filter((item) => {
+      if (todayDeliveryFilter === 'in_transit') {
+        return (item.delivery_status === 'en_recorrido' || item.order_status === 'Entregando') && 
+               item.delivery_status !== 'entregado' && item.order_status !== 'Entregado';
+      }
+      if (todayDeliveryFilter === 'delivered') {
+        return item.delivery_status === 'entregado' || item.order_status === 'Entregado';
+      }
+      if (todayDeliveryFilter === 'pending') {
+        return item.delivery_status !== 'entregado' && 
+               item.order_status !== 'Entregado' && 
+               item.delivery_status !== 'en_recorrido' && 
+               item.order_status !== 'Entregando';
+      }
+      return true;
+    })
+    .filter((item) => {
+      if (!todayDeliverySearch.trim()) return true;
+      const term = todayDeliverySearch.toLowerCase();
+      return (
+        item.customer_name.toLowerCase().includes(term) ||
+        item.legacy_code.toLowerCase().includes(term) ||
+        item.locality.toLowerCase().includes(term) ||
+        item.address.toLowerCase().includes(term) ||
+        (item.carrier_name && item.carrier_name.toLowerCase().includes(term))
+      );
+    });
 
   const sortedProductsSold = [...productsSold]
     .filter((p) => selectedCatFilter === "all" || p.category === selectedCatFilter)
@@ -1347,16 +1622,64 @@ export default function AdminDashboard() {
 
       {/* Expanded Metrics Grid (6 Executive KPI Cards with PoP comparison) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-        {/* KPI 1: Facturación Total */}
+        {/* KPI 1: Facturación Hoy */}
+        <div className="card-enterprise p-4 flex flex-col justify-between space-y-2.5 border-emerald-200/90 bg-gradient-to-br from-white via-emerald-50/10 to-emerald-50/25 shadow-xs">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                Facturación Hoy
+              </p>
+              <span className="text-[10px] text-slate-400 font-medium">Día en curso</span>
+            </div>
+            <div className="w-7 h-7 rounded-lg bg-emerald-100/70 border border-emerald-200 flex items-center justify-center text-emerald-700 shrink-0">
+              <DollarSign className="w-3.5 h-3.5" />
+            </div>
+          </div>
+          <div>
+            <h3 className="text-xl font-bold text-slate-900 leading-none tabular-nums">
+              {formatPrice(todayStats.sales)}
+            </h3>
+            
+            <div className="mt-1.5 flex items-center gap-1 text-[11px] font-semibold text-slate-600">
+              <span className="bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded-md text-[10px] font-bold">
+                {todayStats.ordersCount} {todayStats.ordersCount === 1 ? "pedido" : "pedidos"}
+              </span>
+              <span className="text-slate-400 text-[10px] font-normal">hoy</span>
+            </div>
+          </div>
+
+          <div className="border-t border-slate-100 pt-2 space-y-1 text-[10px] font-medium text-slate-500">
+            <div className="flex justify-between">
+              <span>Entregado:</span>
+              <span className="text-emerald-700 font-semibold tabular-nums">{formatPrice(todayStats.deliveredBilling)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Pendiente:</span>
+              <span className="text-blue-700 font-semibold tabular-nums">{formatPrice(todayStats.pendingBilling)}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* KPI 2: Facturación del Mes */}
         <div className="card-enterprise p-4 flex flex-col justify-between space-y-2.5">
           <div className="flex items-start justify-between">
-            <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Facturación Total</p>
-            <div className="w-7 h-7 rounded-lg bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 shrink-0">
+            <div>
+              <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                {presetRange === "mes" ? "Facturación Mes" : "Facturación Rango"}
+              </p>
+              <span className="text-[10px] text-slate-400 font-medium">
+                {presetRange === "mes" ? "Acumulado mensual" : "Período activo"}
+              </span>
+            </div>
+            <div className="w-7 h-7 rounded-lg bg-brand-50 border border-brand-100 flex items-center justify-center text-brand-600 shrink-0">
               <TrendingUp className="w-3.5 h-3.5" />
             </div>
           </div>
           <div>
-            <h3 className="text-xl font-bold text-slate-900 leading-none tabular-nums">{formatPrice(stats.monthlySales)}</h3>
+            <h3 className="text-xl font-bold text-slate-900 leading-none tabular-nums">
+              {formatPrice(presetRange === "mes" ? monthStats.sales : stats.monthlySales)}
+            </h3>
             
             {prevStats.salesVarPct !== null && (
               <div className="mt-1.5 flex items-center gap-1 text-[11px] font-semibold">
@@ -1377,19 +1700,26 @@ export default function AdminDashboard() {
           <div className="border-t border-slate-100 pt-2 space-y-1 text-[10px] font-medium text-slate-500">
             <div className="flex justify-between">
               <span>Entregado:</span>
-              <span className="text-emerald-700 font-semibold tabular-nums">{formatPrice(stats.deliveredBilling)}</span>
+              <span className="text-emerald-700 font-semibold tabular-nums">
+                {formatPrice(presetRange === "mes" ? monthStats.deliveredBilling : stats.deliveredBilling)}
+              </span>
             </div>
             <div className="flex justify-between">
               <span>Pendiente:</span>
-              <span className="text-blue-700 font-semibold tabular-nums">{formatPrice(stats.pendingBilling)}</span>
+              <span className="text-blue-700 font-semibold tabular-nums">
+                {formatPrice(presetRange === "mes" ? monthStats.pendingBilling : stats.pendingBilling)}
+              </span>
             </div>
           </div>
         </div>
 
-        {/* KPI 2: Pedidos en Rango */}
+        {/* KPI 3: Pedidos Totales */}
         <div className="card-enterprise p-4 flex flex-col justify-between space-y-2.5">
           <div className="flex items-start justify-between">
-            <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Pedidos Totales</p>
+            <div>
+              <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Pedidos Totales</p>
+              <span className="text-[10px] text-slate-400 font-medium">{presetRange === "mes" ? "Este mes" : "Período"}</span>
+            </div>
             <div className="w-7 h-7 rounded-lg bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 shrink-0">
               <Package className="w-3.5 h-3.5" />
             </div>
@@ -1425,10 +1755,13 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        {/* KPI 3: Ticket Promedio por Pedido (AOV) */}
+        {/* KPI 5: Ticket Promedio por Pedido (AOV) */}
         <div className="card-enterprise p-4 flex flex-col justify-between space-y-2.5">
           <div className="flex items-start justify-between">
-            <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Ticket Promedio</p>
+            <div>
+              <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Ticket Promedio</p>
+              <span className="text-[10px] text-slate-400 font-medium">Por pedido activo</span>
+            </div>
             <div className="w-7 h-7 rounded-lg bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-600 shrink-0">
               <DollarSign className="w-3.5 h-3.5" />
             </div>
@@ -1453,16 +1786,19 @@ export default function AdminDashboard() {
           </div>
 
           <div className="border-t border-slate-100 pt-2 text-[10px] text-slate-400 font-medium">
-            Valor medio por pedido activo
+            Valor medio período
           </div>
         </div>
 
-        {/* KPI 4: Cumplimiento Logístico */}
+        {/* KPI 6: Cumplimiento Logístico */}
         <div className="card-enterprise p-4 flex flex-col justify-between space-y-2.5">
           <div className="flex items-start justify-between">
-            <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Cumplimiento %</p>
+            <div>
+              <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Cumplimiento %</p>
+              <span className="text-[10px] text-slate-400 font-medium">Efectividad entrega</span>
+            </div>
             <div className="w-7 h-7 rounded-lg bg-teal-50 border border-teal-100 flex items-center justify-center text-teal-600 shrink-0">
-              <Truck className="w-3.5 h-3.5" />
+              <CheckCircle2 className="w-3.5 h-3.5" />
             </div>
           </div>
           <div>
@@ -1481,50 +1817,292 @@ export default function AdminDashboard() {
             <span className="text-teal-700 font-semibold tabular-nums">{stats.deliveredCount} / {stats.totalOrdersCount}</span>
           </div>
         </div>
-
-        {/* KPI 5: Tasa de Anulaciones */}
-        <div className="card-enterprise p-4 flex flex-col justify-between space-y-2.5">
-          <div className="flex items-start justify-between">
-            <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Cancelaciones %</p>
-            <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
-              stats.cancellationRate > 10 ? 'bg-rose-100 text-rose-700' : 'bg-rose-50 text-rose-600'
-            }`}>
-              <ShieldAlert className="w-3.5 h-3.5" />
-            </div>
-          </div>
-          <div>
-            <h3 className="text-xl font-bold text-slate-900 leading-none tabular-nums">{stats.cancellationRate.toFixed(1)}%</h3>
-            <p className="text-[10px] font-semibold text-rose-600 mt-1 tabular-nums">
-              {formatPrice(stats.cancelledBilling)}
-            </p>
-          </div>
-
-          <div className="border-t border-slate-100 pt-2 flex justify-between items-center text-[10px] font-medium text-slate-500">
-            <span>Anulados:</span>
-            <span className="text-rose-700 font-semibold tabular-nums">{stats.cancelledCount} pedidos</span>
-          </div>
-        </div>
-
-        {/* KPI 6: Rendimiento Vendedores */}
-        <div className="card-enterprise p-4 flex flex-col justify-between space-y-2.5">
-          <div className="flex items-start justify-between">
-            <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Vendedores</p>
-            <div className="w-7 h-7 rounded-lg bg-purple-50 border border-purple-100 flex items-center justify-center text-purple-600 shrink-0">
-              <Users className="w-3.5 h-3.5" />
-            </div>
-          </div>
-          <div>
-            <h3 className="text-xl font-bold text-slate-900 leading-none tabular-nums">{stats.activeSellersCount}</h3>
-            <p className="text-[10px] font-semibold text-purple-700 mt-1 tabular-nums">
-              Media: {formatPrice(stats.avgSalesPerSeller)}
-            </p>
-          </div>
-
-          <div className="border-t border-slate-100 pt-2 text-[10px] text-slate-400 font-medium">
-            Facturación media / vendedor
-          </div>
-        </div>
       </div>
+
+      {false && <>
+      <div className="card-enterprise overflow-hidden border-slate-200/90 shadow-xs">
+        {/* Header Bar */}
+        <div className="p-5 border-b border-slate-100 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 bg-gradient-to-r from-slate-50/80 via-white to-amber-50/10">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-amber-500 text-white flex items-center justify-center shadow-xs shrink-0">
+              <Truck className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm font-bold text-slate-900 tracking-tight flex items-center gap-1.5">
+                  Pedidos en Reparto Hoy
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                    {todayDeliveryStats.totalCount} en distribución
+                  </span>
+                </h2>
+              </div>
+              <p className="text-xs text-slate-500 font-normal mt-0.5">
+                Control de pedidos programados para entregar hoy ({formatInputDisplay(getTodayDate())}) y unidades en calle
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 self-stretch md:self-auto justify-between md:justify-end">
+            <span className="text-xs font-bold text-slate-700 bg-slate-100 border border-slate-200 px-3 py-1 rounded-xl">
+              Monto en calle: <strong className="text-emerald-700 font-mono">{formatPrice(todayDeliveryStats.totalAmount)}</strong>
+            </span>
+
+            <Link href="/vendedores/ruteo">
+              <button
+                type="button"
+                className="px-3 py-1 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
+              >
+                <span>Consola de Ruteo</span>
+                <ArrowUpRight className="w-3.5 h-3.5" />
+              </button>
+            </Link>
+
+            <button
+              type="button"
+              onClick={() => setIsTodayDeliveriesOpen(!isTodayDeliveriesOpen)}
+              className="p-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 cursor-pointer transition-colors"
+              title={isTodayDeliveriesOpen ? "Ocultar detalle" : "Mostrar detalle"}
+            >
+              {isTodayDeliveriesOpen ? (
+                <ChevronUp className="w-4 h-4 text-slate-500" />
+              ) : (
+                <ChevronDown className="w-4 h-4 text-slate-500" />
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Collapsible Content */}
+        {isTodayDeliveriesOpen && (
+          <div className="p-5 space-y-4">
+            {/* Filter Pills & Live Search */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+              {/* Filter Tabs */}
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                <button
+                  type="button"
+                  onClick={() => setTodayDeliveryFilter('all')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all whitespace-nowrap cursor-pointer ${
+                    todayDeliveryFilter === 'all'
+                      ? 'bg-slate-900 text-white shadow-xs'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  Todos ({todayDeliveryStats.totalCount})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTodayDeliveryFilter('in_transit')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
+                    todayDeliveryFilter === 'in_transit'
+                      ? 'bg-amber-600 text-white shadow-xs'
+                      : 'bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200'
+                  }`}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                  En Camino ({todayDeliveryStats.inTransitCount})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTodayDeliveryFilter('delivered')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all whitespace-nowrap cursor-pointer ${
+                    todayDeliveryFilter === 'delivered'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200'
+                  }`}
+                >
+                  Entregados ({todayDeliveryStats.deliveredCount})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTodayDeliveryFilter('pending')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all whitespace-nowrap cursor-pointer ${
+                    todayDeliveryFilter === 'pending'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200'
+                  }`}
+                >
+                  Pendientes ({todayDeliveryStats.pendingCount})
+                </button>
+              </div>
+
+              {/* Search Box */}
+              <div className="relative w-full sm:w-72">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Buscar cliente, pedido o chofer..."
+                  value={todayDeliverySearch}
+                  onChange={(e) => setTodayDeliverySearch(e.target.value)}
+                  className="input-standard pl-8.5 py-1.5 text-xs w-full"
+                />
+              </div>
+            </div>
+
+            {/* Deliveries Table / Cards */}
+            {filteredTodayDeliveries.length > 0 ? (
+              <div className="overflow-x-auto rounded-xl border border-slate-100">
+                <table className="w-full text-left">
+                  <thead>
+                    <tr className="border-b border-slate-100 bg-slate-50/70 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                      <th className="py-2.5 px-3">Pedido</th>
+                      <th className="py-2.5 px-3">Cliente</th>
+                      <th className="py-2.5 px-3">Destino / Dirección</th>
+                      <th className="py-2.5 px-3">Transporte / Chofer</th>
+                      <th className="py-2.5 px-3 text-right">Monto</th>
+                      <th className="py-2.5 px-3 text-center">Estado</th>
+                      <th className="py-2.5 px-3 text-center">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
+                    {filteredTodayDeliveries.map((item) => {
+                      const isDelivered = item.delivery_status === 'entregado' || item.order_status === 'Entregado';
+                      const isInTransit = (item.delivery_status === 'en_recorrido' || item.order_status === 'Entregando') && !isDelivered;
+
+                      return (
+                        <tr key={item.id} className="hover:bg-slate-50/70 transition-colors">
+                          <td className="py-3 px-3 font-mono font-bold text-brand-600 whitespace-nowrap">
+                            <Link 
+                              href={`/vendedores/pedidos?search=${encodeURIComponent(item.legacy_code)}`}
+                              className="hover:underline flex items-center gap-1"
+                              title="Ver en Pedidos"
+                            >
+                              <span>{item.legacy_code}</span>
+                              <ExternalLink className="w-3 h-3 text-slate-400" />
+                            </Link>
+                          </td>
+                          <td className="py-3 px-3 font-semibold text-slate-900">
+                            <span className="truncate block max-w-[180px]" title={item.customer_name}>
+                              {item.customer_name}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3">
+                            <div className="max-w-[240px]">
+                              <span className="font-semibold text-slate-800 text-xs block truncate">
+                                {item.locality}
+                              </span>
+                              {item.address && (
+                                <div className="flex items-center gap-1 text-[11px] text-slate-500 truncate mt-0.5">
+                                  {item.google_maps_link ? (
+                                    <a
+                                      href={item.google_maps_link}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-brand-600 hover:text-brand-700 flex items-center gap-0.5 hover:underline truncate"
+                                      title="Abrir en Google Maps"
+                                    >
+                                      <MapPin className="w-3 h-3 text-brand-500 shrink-0" />
+                                      <span className="truncate">{item.address}</span>
+                                    </a>
+                                  ) : (
+                                    <>
+                                      <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
+                                      <span className="truncate">{item.address}</span>
+                                    </>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-3 px-3">
+                            {item.carrier_name ? (
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-semibold text-slate-800 text-xs">{item.carrier_name}</span>
+                                {item.run_number && (
+                                  <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono font-medium">
+                                    V#{item.run_number}
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-slate-400 text-xs italic">A asignar</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-3 text-right font-bold text-slate-900 tabular-nums whitespace-nowrap font-mono">
+                            {formatPrice(item.total_amount)}
+                          </td>
+                          <td className="py-3 px-3 text-center whitespace-nowrap">
+                            {isDelivered ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                Entregado
+                              </span>
+                            ) : isInTransit ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                                <Truck className="w-3 h-3 text-amber-600" />
+                                En Recorrido
+                              </span>
+                            ) : item.delivery_status === 'ruteado' ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                                <Clock className="w-3 h-3 text-blue-600" />
+                                Ruteado
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
+                                <Clock className="w-3 h-3 text-slate-400" />
+                                Pendiente
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-3 text-center whitespace-nowrap">
+                            <div className="flex items-center justify-center gap-1">
+                              <Link href={`/vendedores/pedidos?search=${encodeURIComponent(item.legacy_code)}`}>
+                                <button
+                                  type="button"
+                                  className="px-2 py-1 text-[11px] font-semibold text-slate-600 hover:text-brand-700 hover:bg-brand-50 rounded-lg transition-colors cursor-pointer"
+                                  title="Ver detalle del pedido"
+                                >
+                                  Ver
+                                </button>
+                              </Link>
+                              {item.google_maps_link && (
+                                <a
+                                  href={item.google_maps_link}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="p-1 text-slate-400 hover:text-brand-600 hover:bg-slate-100 rounded-lg transition-colors"
+                                  title="Ver en Google Maps"
+                                >
+                                  <MapPin className="w-3.5 h-3.5" />
+                                </a>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="py-8 px-4 text-center bg-slate-50/50 rounded-xl border border-dashed border-slate-200">
+                <Truck className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                <p className="text-xs font-semibold text-slate-600">
+                  {todayDeliverySearch.trim() || todayDeliveryFilter !== 'all'
+                    ? 'No hay pedidos en entrega que coincidan con la búsqueda o filtro seleccionado.'
+                    : 'No se registran entregas programadas o en tránsito para el día de hoy.'}
+                </p>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Puedes coordinar nuevos despachos y asignar choferes desde la consola de Ruteo.
+                </p>
+                <div className="mt-3">
+                  <Link href="/vendedores/ruteo">
+                    <button
+                      type="button"
+                      className="px-3 py-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold transition-all shadow-2xs cursor-pointer inline-flex items-center gap-1"
+                    >
+                      <Truck className="w-3.5 h-3.5" />
+                      Gestionar Ruteo
+                    </button>
+                  </Link>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+      </>}
 
       {/* Interactive Sales Trend Chart (Evolución Diaria) */}
       <SalesTrendChart data={dailyTrendData} />
@@ -1532,7 +2110,7 @@ export default function AdminDashboard() {
       {/* Weekly Evolution & WoW Performance Comparison */}
       <WeeklyComparisonChart orders={allPeriodOrders} />
 
-      {/* Multi-Category Leaderboard Rankings (Vendedores / Clientes / Localidades) */}
+      {false && <>
       <div className="card-enterprise p-6 space-y-5">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-slate-100 pb-4">
           <div className="flex items-center gap-2.5">
@@ -1716,6 +2294,7 @@ export default function AdminDashboard() {
           </p>
         </div>
       </div>
+      </>}
 
       {/* Category Sales & Donut Chart */}
       <CategorySalesChart
@@ -1951,18 +2530,7 @@ export default function AdminDashboard() {
         )}
       </div>
 
-      {/* Cancelled Orders Percentage & Daily Chart at the very bottom */}
-      <CancelledOrdersChart
-        totalOrdersCount={stats.totalOrdersCount}
-        cancelledCount={stats.cancelledCount}
-        deliveredCount={stats.deliveredCount}
-        pendingCount={stats.pendingCount}
-        totalBillingCount={stats.totalBillingCount}
-        cancelledBilling={stats.cancelledBilling}
-        deliveredBilling={stats.deliveredBilling}
-        pendingBilling={stats.pendingBilling}
-        dailyData={dailyCancelledData}
-      />
+      <OrderStatusChart statuses={orderStatusData} />
     </div>
   );
 }

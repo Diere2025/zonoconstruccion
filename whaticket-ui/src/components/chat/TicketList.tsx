@@ -536,10 +536,13 @@ export const TicketList: React.FC = () => {
             )}
           </div>
 
-          <button type="button" onClick={openNewConversation} title="Nueva conversación"
-            className="inline-flex items-center gap-1 rounded-xl bg-blue-600 px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-blue-700">
-            <Plus className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Nuevo</span>
+          <button
+            type="button"
+            onClick={openNewConversation}
+            title="Nueva conversación"
+            className="w-7 h-7 rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-xs flex items-center justify-center transition-all active:scale-95 cursor-pointer shrink-0"
+          >
+            <Plus className="w-4 h-4 stroke-[2.5]" />
           </button>
 
         </div>

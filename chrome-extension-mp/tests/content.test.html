@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="es">
+<meta charset="utf-8">
+<title>Pruebas del monitor Mercado Pago</title>
+<h1>Pruebas de lectura y entrega al ERP</h1>
+<pre id="results">Ejecutando…</pre>
+<main></main>
+<script>
+  // Run the real content script against a local DOM with no external requests.
+  const NativeDate = Date;
+  let testNow = NativeDate.parse('2026-09-15T10:00:00-03:00');
+  window.Date = class extends NativeDate {
+    constructor(...args) { super(...(args.length ? args : [testNow])); }
+    static now() { return testNow; }
+  };
+  window.setInterval = () => 0;
+  window.chrome = {
+    storage: { local: { get(_keys, callback) { queueMicrotask(() => callback({ accountName: 'pagoszono.26' })); }, set() {} } },
+    runtime: {
+      getManifest: () => ({ version: '1.3.1' }),
+      onMessage: { addListener() {} },
+      sendMessage(request, callback) {
+        if (request.action === 'GET_MONITOR_STATE') callback({ active: true });
+        else throw new Error('Unexpected external request');
+      }
+    }
+  };
+</script>
+<script src="../content.js"></script>
+<script src="content.test.js"></script>
+</html>

@@ -41,6 +41,7 @@ export interface Ticket {
   updatedAt: string;
   createdAt: string;
   contact: Contact;
+  contactId?: number;
   user?: User | null;
   userId?: number | null;
   queue?: Queue | null;
@@ -94,4 +95,52 @@ export interface WhatsappConnection {
   importRecentUnreadDays?: number;
   importOldMessagesStatus?: 'idle' | 'importing' | 'completed' | 'error' | string;
   updatedAt: string;
+}
+
+export interface BudgetItem {
+  productId?: string;
+  name: string;
+  sku?: string;
+  quantity: number;
+  price: number;
+  subtotal?: number;
+  discountType?: 'percentage' | 'fixed';
+  discountValue?: number;
+  finalPrice?: number;
+}
+
+export interface Budget {
+  id: number;
+  code: string;
+  ticketId?: number | null;
+  contactId: number;
+  userId?: number | null;
+  companyId: number;
+  status: 'open' | 'pending' | 'won' | 'lost';
+  total: number;
+  subtotal: number;
+  discount: number;
+  shippingCost: number;
+  paymentMethod: string;
+  items: BudgetItem[];
+  summaryText?: string;
+  notes?: string;
+  validUntil?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  contact?: Contact;
+  user?: User;
+  ticket?: Ticket;
+}
+
+export interface BudgetMetrics {
+  totalCount: number;
+  openCount: number;
+  openTotalAmount: number;
+  pendingCount: number;
+  pendingTotalAmount: number;
+  wonCount: number;
+  wonTotalAmount: number;
+  lostCount: number;
+  lostTotalAmount: number;
 }

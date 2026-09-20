@@ -2,7 +2,15 @@ export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { fetchSpreadsheetCsv } from '@/lib/googleSheets';
+import { fetchSpreadsheetCsv, setOrderStatusInSellerSheetByCode } from '@/lib/googleSheets';
+import { splitOrderCodes } from '@/lib/orderSync';
+import { isDiscountProductLine, resolveImportedOrderChannel, sheetDiscountAmount } from '@/lib/wholesaleOrders';
+import {
+  isJazminCentralCancellation,
+  JAZMIN_SHEET_NAME,
+  JAZMIN_SPREADSHEET_ID,
+  PROCESSED_SELLER_STATUS
+} from '@/lib/importStatus';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.dummy';
@@ -108,7 +116,7 @@ export async function POST(request: Request) {
     const body = await request.json();
     const {
       sheetName,
-      rows,
+      rows: incomingRows,
       skipENC,
       skipCAMB,
       syncPaymentMethods,
@@ -116,10 +124,19 @@ export async function POST(request: Request) {
       defaultChannel,
       isCentralSheet
     } = body;
+    if (!Array.isArray(incomingRows) || incomingRows.some(row => !Array.isArray(row))) {
+      return NextResponse.json({ error: 'El lote debe contener filas de pedidos.' }, { status: 400 });
+    }
+    const rows = incomingRows.filter(row => {
+      const code = String(row[1] || '').trim().toUpperCase();
+      return code && !(skipENC && code.startsWith('ENC')) && !(skipCAMB && code.startsWith('CAMB'));
+    });
 
     const logs: string[] = [];
+    const warnings: string[] = [];
     const addLog = (msg: string) => {
       logs.push(`[${new Date().toLocaleTimeString()}] ${msg}`);
+      if (/❌|advertencia|⚠️/i.test(msg)) warnings.push(msg);
     };
 
     addLog(`Iniciando procesamiento de ${rows.length} pedidos en el servidor para ${sheetName}...`);
@@ -204,7 +221,7 @@ export async function POST(request: Request) {
       const orConditions = targetCodes.map(c => `legacy_code.ilike.%${c}%`).join(',');
       const { data, error } = await supabaseAdmin
         .from('orders')
-        .select('id, legacy_code, status, delivery_detail, whaticket_link, order_medium_id')
+        .select('id, legacy_code, status, delivery_detail, whaticket_link, order_medium_id, client_id, channel, advertising_source_id, totals')
         .or(orConditions)
         .limit(1000);
       if (error) throw error;
@@ -212,9 +229,22 @@ export async function POST(request: Request) {
     }
 
     // 2.5 Batch-preload Clients and Addresses for all phones in this chunk (saves ~30+ subrequests)
+    const knownCodes = new Set(dbOrders.flatMap(order => splitOrderCodes(order.legacy_code)));
+    const codesNeedingClient = new Set(
+      dbOrders
+        .filter(order => !order.client_id)
+        .flatMap(order => splitOrderCodes(order.legacy_code))
+    );
+    const newRows = rows.filter(row => {
+      const rowCodes = splitOrderCodes(row[1]);
+      return (
+        !rowCodes.some(code => knownCodes.has(code)) ||
+        rowCodes.some(code => codesNeedingClient.has(code))
+      );
+    });
     const allPhones = Array.from(
       new Set(
-        rows.flatMap((r: any) => [cleanPhone(r[6]), cleanPhone(r[7])]).filter(Boolean)
+        newRows.flatMap((r: any) => [cleanPhone(r[6]), cleanPhone(r[7])]).filter(Boolean)
       )
     );
 
@@ -225,7 +255,7 @@ export async function POST(request: Request) {
         .select('id, business_name, phone_primary, phone_secondary, is_wholesale')
         .or(`phone_primary.in.(${allPhones.join(',')}),phone_secondary.in.(${allPhones.join(',')})`);
       if (errClients) {
-        addLog(`Advertencia al buscar clientes agrupados: ${errClients.message}`);
+        throw errClients;
       } else {
         preloadedClients = clientsData || [];
       }
@@ -239,7 +269,7 @@ export async function POST(request: Request) {
         .select('id, client_id, full_address, locality_id, map_link')
         .in('client_id', preloadedClientIds);
       if (errAddresses) {
-        addLog(`Advertencia al buscar direcciones agrupadas: ${errAddresses.message}`);
+        throw errAddresses;
       } else {
         preloadedAddresses = addressesData || [];
       }
@@ -268,9 +298,9 @@ export async function POST(request: Request) {
         .from('order_items')
         .select('id, order_id, product_name, quantity, unit_price, product_id')
         .in('order_id', existingOrderDbIds);
-      if (!errItems) {
-        preloadedOrderItems = itemsData || [];
-      }
+      // Una lectura fallida no significa que el pedido no tenga artículos.
+      if (errItems) throw errItems;
+      preloadedOrderItems = itemsData || [];
     }
 
     // 3. Build Maps
@@ -292,7 +322,7 @@ export async function POST(request: Request) {
     const phoneLinesMap = new Map();
     dbPhoneLines.forEach(r => phoneLinesMap.set(r.phone_number, r.id));
 
-    const existingOrdersMap = new Map<string, { id: string; status: string; delivery_detail?: string; whaticket_link?: string; order_medium_id?: string }>();
+    const existingOrdersMap = new Map<string, any>();
     dbOrders.forEach((o: any) => {
       const rawCode = (o.legacy_code || "").trim();
       if (rawCode) {
@@ -304,7 +334,11 @@ export async function POST(request: Request) {
               status: o.status || "", 
               delivery_detail: o.delivery_detail || "",
               whaticket_link: o.whaticket_link || "",
-              order_medium_id: o.order_medium_id || ""
+              order_medium_id: o.order_medium_id || "",
+              client_id: o.client_id || null,
+              channel: o.channel || "",
+              advertising_source_id: o.advertising_source_id || null,
+              totals: o.totals || null
             });
           }
         });
@@ -410,8 +444,24 @@ export async function POST(request: Request) {
       if (skipENC && orderCode.toUpperCase().startsWith("ENC")) {
         continue;
       }
+      if (skipCAMB && orderCode.toUpperCase().startsWith("CAMB")) continue;
+      const dbOrder = findExistingOrder(orderCode);
 
       const rawStatus = (row[0] || "Pendiente").trim();
+
+      if (isJazminCentralCancellation(defaultSellerId, rawStatus)) {
+        const statusResult = await setOrderStatusInSellerSheetByCode(
+          JAZMIN_SPREADSHEET_ID,
+          JAZMIN_SHEET_NAME,
+          orderCode,
+          PROCESSED_SELLER_STATUS
+        );
+        if (statusResult.success) {
+          addLog(`ℹ️ Pedido ${orderCode}: cancelado en Central y marcado como Pasado en Jazmín.`);
+        } else {
+          addLog(`ℹ️ Pedido ${orderCode}: cancelado en Central; no se pudo marcar como Pasado en Jazmín.`);
+        }
+      }
       const rawSolDate = (row[3] || "").trim();
       const rawEntDate = (row[2] || "").trim();
       const rawLimDate = (row[4] || "").trim();
@@ -444,9 +494,17 @@ export async function POST(request: Request) {
       const advSourceId = advSourcesMap.get(normalizeText(rawAdvSource)) || null;
       const paymentMethodObj = payMethodsMap.get(normalizeText(rawPayMethod)) || null;
       const paymentMethodId = paymentMethodObj ? paymentMethodObj.id : null;
+      const sellerObj = dbSellers.find(s => s.id === sellerId);
+      const channel = resolveImportedOrderChannel({
+        orderCode,
+        advertisingSource: rawAdvSource,
+        sellerName: sellerObj?.full_name || rawSellerName || sheetName,
+        defaultChannel,
+        deliveryDetail: rawDeliveryDetail
+      });
       
       let localityId: string | null = null;
-      if (rawLocality) {
+      if (rawLocality && !dbOrder) {
         const normLoc = normalizeLocalityFuzzy(rawLocality);
         if (localitiesMap.has(normLoc)) {
           localityId = localitiesMap.get(normLoc);
@@ -494,13 +552,23 @@ export async function POST(request: Request) {
         ) || null;
       }
 
-      if (existingClient) {
+      // Un pedido existente sin cliente puede enlazarse a una cuenta ya conocida,
+      // pero no se crean clientes ni direcciones durante esa reimportación.
+      if (dbOrder && existingClient) {
         clientId = existingClient.id;
-        const isWholesaleCode = orderCode.toUpperCase().startsWith("AQU") || orderCode.toUpperCase().startsWith("POW") || orderCode.toUpperCase().startsWith("AQ-");
-        if (isWholesaleCode && !existingClient.is_wholesale) {
+        if (channel === 'mayorista' && !existingClient.is_wholesale) {
           await supabaseAdmin
             .from('clients')
-            .update({ is_wholesale: true })
+            .update({ is_wholesale: true, client_type: 'Mayorista' })
+            .eq('id', clientId);
+          existingClient.is_wholesale = true;
+        }
+      } else if (!dbOrder && existingClient) {
+        clientId = existingClient.id;
+        if (channel === 'mayorista' && !existingClient.is_wholesale) {
+          await supabaseAdmin
+            .from('clients')
+            .update({ is_wholesale: true, client_type: 'Mayorista' })
             .eq('id', clientId);
           existingClient.is_wholesale = true;
         }
@@ -537,8 +605,7 @@ export async function POST(request: Request) {
             map_link: rawMapsLink
           });
         }
-      } else {
-        const isWholesaleCode = orderCode.toUpperCase().startsWith("AQU") || orderCode.toUpperCase().startsWith("POW") || orderCode.toUpperCase().startsWith("AQ-");
+      } else if (!dbOrder) {
         const { data: newClient, error: errNc } = await supabaseAdmin
           .from('clients')
           .insert({
@@ -548,7 +615,8 @@ export async function POST(request: Request) {
             email: rawEmail || null,
             tax_id: rawTaxId || null,
             credit_limit: 0,
-            is_wholesale: isWholesaleCode
+            is_wholesale: channel === 'mayorista',
+            client_type: channel === 'mayorista' ? 'Mayorista' : 'Particular'
           })
           .select('id')
           .single();
@@ -559,7 +627,7 @@ export async function POST(request: Request) {
           business_name: rawClientName,
           phone_primary: rawPhone1 || rawPhone2 || "Sin teléfono",
           phone_secondary: rawPhone2 || null,
-          is_wholesale: isWholesaleCode
+          is_wholesale: channel === 'mayorista'
         });
 
         const { data: newAddr, error: errNa } = await supabaseAdmin
@@ -585,18 +653,6 @@ export async function POST(request: Request) {
         });
       }
 
-      let channel = defaultChannel;
-      const sellerObj = dbSellers.find(s => s.id === sellerId);
-      if (sellerObj) {
-        if (sellerObj.is_organic) channel = "web_organica";
-        else if (sellerObj.full_name === "Diego Bóveda") channel = "mostrador_minorista";
-        else channel = "web_organica";
-      }
-
-      if (rawDeliveryDetail.toUpperCase().includes("MAYORISTA")) {
-        channel = "mayorista";
-      }
-
       const orderDate = parseDate(rawSolDate);
       const initDelDate = parseDate(rawEntDate);
       const maxDelDate = rawLimDate ? parseDate(rawLimDate) : initDelDate;
@@ -605,13 +661,17 @@ export async function POST(request: Request) {
       if (rawPending <= 0) paymentStatus = 'Abonado';
       else if (rawAbonado > 0) paymentStatus = 'Seniado';
 
+      const importedDiscountAmount = sheetDiscountAmount(row);
       const calculatedTotal = rawSubtotal + rawFreight + rawSurcharge;
       const totalsJson = {
-        subtotal: rawSubtotal,
+        subtotal: rawSubtotal + importedDiscountAmount,
         freight: rawFreight,
         payment_surcharges: rawSurcharge,
         deposit_amount: rawAbonado,
-        pending_balance: rawPending
+        pending_balance: rawPending,
+        order_discount_type: importedDiscountAmount > 0 ? 'fixed' : null,
+        order_discount_value: importedDiscountAmount,
+        order_discount_amount: importedDiscountAmount
       };
 
       // Deduce category from products
@@ -689,8 +749,22 @@ export async function POST(request: Request) {
       
       const orderMediumId = orderMediumsMap.get(normalizeText(resolvedMediumName)) || null;
 
-      const dbOrder = findExistingOrder(orderCode);
       if (dbOrder) {
+        const classificationUpdate: Record<string, unknown> = {};
+        if (dbOrder.channel !== channel) classificationUpdate.channel = channel;
+        if (advSourceId && dbOrder.advertising_source_id !== advSourceId) classificationUpdate.advertising_source_id = advSourceId;
+        if (!dbOrder.client_id && clientId) classificationUpdate.client_id = clientId;
+        if (importedDiscountAmount > 0) {
+          classificationUpdate.order_discount_type = 'fixed';
+          classificationUpdate.order_discount_value = importedDiscountAmount;
+          classificationUpdate.order_discount_amount = importedDiscountAmount;
+          classificationUpdate.totals = { ...(dbOrder.totals || {}), ...totalsJson };
+        }
+        if (Object.keys(classificationUpdate).length > 0) {
+          const { error: classificationError } = await supabaseAdmin.from('orders').update(classificationUpdate).eq('id', dbOrder.id);
+          if (classificationError) throw classificationError;
+        }
+
         const activeStatuses = ['Pendiente', 'Confirmado', 'Entregando'];
         if (activeStatuses.includes(dbOrder.status)) {
           const rawStatusVal = (row[0] || "").trim();
@@ -938,10 +1012,11 @@ export async function POST(request: Request) {
             const prodQtyRaw = (row[pIdx + 1] || "").trim();
             const prodPriceRaw = (row[pIdx + 2] || "").trim();
 
-            if (!prodName || prodName === "0" || prodName.toLowerCase() === "descuento") continue;
+            if (!prodName || prodName === "0") continue;
             const qty = parseInt(prodQtyRaw.replace(/[^0-9.-]/g, ''), 10) || 0;
             const unitPrice = parseSpanishNumber(prodPriceRaw);
             if (qty <= 0) continue;
+            if (isDiscountProductLine(prodName, unitPrice)) continue;
 
             const csvCleanName = cleanProductName(prodName);
             const matchedProd = dbProducts.find(p => 
@@ -980,8 +1055,12 @@ export async function POST(request: Request) {
           }
 
           if (itemsChanged) {
+            if (sheetItems.length === 0) {
+              addLog(`⚠️ Pedido ${orderCode}: la planilla no tiene artículos válidos; se conservó el detalle del ERP.`);
+              continue;
+            }
             addLog(`  🔄 Sincronizando artículos modificados para pedido ${orderCode}...`);
-            await supabaseAdmin
+            const { error: totalsError } = await supabaseAdmin
               .from('orders')
               .update({
                 totals: totalsJson,
@@ -989,8 +1068,10 @@ export async function POST(request: Request) {
                 category: deducedCategory
               })
               .eq('id', dbOrder.id);
+            if (totalsError) throw totalsError;
 
-            await supabaseAdmin.from('order_items').delete().eq('order_id', dbOrder.id);
+            const { error: deleteItemsError } = await supabaseAdmin.from('order_items').delete().eq('order_id', dbOrder.id);
+            if (deleteItemsError) throw deleteItemsError;
 
             if (sheetItems.length > 0) {
               const { error: errInsItems } = await supabaseAdmin
@@ -1034,6 +1115,9 @@ export async function POST(request: Request) {
             freight_type: 'Regular',
             status: dbOrderStatus,
             total_amount: calculatedTotal,
+            order_discount_type: importedDiscountAmount > 0 ? 'fixed' : null,
+            order_discount_value: importedDiscountAmount,
+            order_discount_amount: importedDiscountAmount,
             order_date: orderDate.toISOString(),
             initial_delivery_date: initDelDate.toISOString(),
             max_delivery_date: maxDelDate.toISOString(),
@@ -1094,10 +1178,11 @@ export async function POST(request: Request) {
           const prodQtyRaw = (row[pIdx + 1] || "").trim();
           const prodPriceRaw = (row[pIdx + 2] || "").trim();
 
-          if (!prodName || prodName === "0" || prodName.toLowerCase() === "descuento") continue;
+          if (!prodName || prodName === "0") continue;
           const qty = parseInt(prodQtyRaw.replace(/[^0-9.-]/g, ''), 10) || 0;
           const unitPrice = parseSpanishNumber(prodPriceRaw);
           if (qty <= 0) continue;
+          if (isDiscountProductLine(prodName, unitPrice)) continue;
 
           const csvCleanName = cleanProductName(prodName);
           const matchedProd = dbProducts.find(p => 
@@ -1275,6 +1360,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       logs,
+      warnings,
       totalImported,
       totalUpdated,
       totalItemsImported

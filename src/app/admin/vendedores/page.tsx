@@ -62,6 +62,7 @@ const AVAILABLE_ROLES = [
   { id: "seller", label: "Vendedor", badgeColor: "bg-emerald-50 text-emerald-700 border-emerald-200" },
   { id: "admin", label: "Administrador", badgeColor: "bg-purple-50 text-purple-700 border-purple-200" },
   { id: "logistica", label: "Logística", badgeColor: "bg-cyan-50 text-cyan-700 border-cyan-200" },
+  { id: "compras", label: "Compras", badgeColor: "bg-blue-50 text-blue-700 border-blue-200" },
   { id: "fletero", label: "Fletero", badgeColor: "bg-amber-50 text-amber-700 border-amber-200" },
   { id: "administracion", label: "Administración", badgeColor: "bg-indigo-50 text-indigo-700 border-indigo-200" },
 ];
@@ -508,6 +509,7 @@ export default function VendedoresManagementPage() {
             <option value="seller">Vendedor (Seller)</option>
             <option value="admin">Administrador</option>
             <option value="logistica">Logística</option>
+            <option value="compras">Compras</option>
             <option value="fletero">Fletero</option>
             <option value="administracion">Administración</option>
           </select>
@@ -633,6 +635,13 @@ export default function VendedoresManagementPage() {
                                 return (
                                   <span key={r} className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-cyan-50 text-cyan-700 border border-cyan-200">
                                     Logística
+                                  </span>
+                                );
+                              }
+                              if (rLower === 'compras') {
+                                return (
+                                  <span key={r} className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-blue-50 text-blue-700 border border-blue-200">
+                                    Compras
                                   </span>
                                 );
                               }
