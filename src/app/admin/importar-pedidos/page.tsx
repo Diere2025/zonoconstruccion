@@ -618,24 +618,28 @@ export default function ImportarPedidosPage() {
           let done = false;
           let totalSynced = 0;
           let totalSkipped = 0;
+          let logisticsBatches = 0;
+          let logisticsServerMs = 0;
 
           while (!done && !cancelImportRef.current) {
             const logiRes = await fetch("/api/admin/audit-deliveries", {
               method: "POST",
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ cursor, batchSize: 8 })
+              body: JSON.stringify({ cursor, batchSize: 250 })
             });
             const logiData = await logiRes.json();
             if (!logiRes.ok || logiData.success === false) throw new Error(logiData.error || `HTTP ${logiRes.status}`);
 
             totalSynced += logiData.syncedOrdersCount || 0;
             totalSkipped += logiData.skippedOrdersCount || 0;
+            logisticsBatches++;
+            logisticsServerMs += logiData.metrics?.totalMs || 0;
             done = logiData.done !== false;
             cursor = logiData.nextCursor ?? cursor;
           }
 
           if (!cancelImportRef.current) {
-            addLog(`✅ Logística: ${totalSynced} pedidos actualizados y ${totalSkipped} sin cambios.`);
+            addLog(`✅ Logística: ${totalSynced} pedidos actualizados y ${totalSkipped} sin cambios (${(logisticsServerMs / 1000).toFixed(1)}s en ${logisticsBatches} lote${logisticsBatches === 1 ? '' : 's'}).`);
 
             if (syncStock) {
               const stockRes = await fetch("/api/admin/sync-stock", { method: "POST" });

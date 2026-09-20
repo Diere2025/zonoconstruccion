@@ -810,12 +810,14 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
       let done = false;
       let totalSynced = 0;
       let totalSkipped = 0;
+      let logisticsServerMs = 0;
+      let logisticsBatches = 0;
 
       while (!done) {
         const logiRes = await fetch(`${appUrl}/api/admin/audit-deliveries`, {
           method: "POST",
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ cursor, batchSize: 8 })
+          body: JSON.stringify({ cursor, batchSize: 250 })
         });
         const logiData = await logiRes.json();
         if (!logiRes.ok || logiData.success === false) {
@@ -823,11 +825,13 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
         }
         totalSynced += logiData.syncedOrdersCount || 0;
         totalSkipped += logiData.skippedOrdersCount || 0;
+        logisticsServerMs += logiData.metrics?.totalMs || 0;
+        logisticsBatches++;
         done = logiData.done !== false;
         cursor = logiData.nextCursor ?? cursor;
       }
 
-      await addLog(`✅ Logística: ${totalSynced} pedidos actualizados y ${totalSkipped} sin cambios.`);
+      await addLog(`✅ Logística: ${totalSynced} pedidos actualizados y ${totalSkipped} sin cambios (${(logisticsServerMs / 1000).toFixed(1)}s en ${logisticsBatches} lote${logisticsBatches === 1 ? '' : 's'}).`);
 
       const stockRes = await fetch(`${appUrl}/api/admin/sync-stock`, { method: "POST" });
       const stockData = await stockRes.json();

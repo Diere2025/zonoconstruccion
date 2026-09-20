@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { fetchSpreadsheetCsv } from '@/lib/googleSheets';
-import { isLogisticsOrderCode } from '@/lib/orderSync';
+import { isLogisticsOrderCode, mapWithConcurrency } from '@/lib/orderSync';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.dummy';
@@ -539,104 +539,72 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const startedAt = Date.now();
   try {
     const options = await request.json().catch(() => ({}));
     const cursor = Math.max(0, Number.parseInt(String(options.cursor ?? 0), 10) || 0);
-    // Keep each invocation comfortably below the 50 external-subrequest limit
-    // of Cloudflare Workers Free. Each changed order can require up to three
-    // Supabase mutations (order, item delete and item insert).
-    const requestedBatchSize = Number.parseInt(String(options.batchSize ?? 8), 10) || 8;
-    const batchSize = Math.min(10, Math.max(1, requestedBatchSize));
+    // Workers Paid allows a larger batch. The cap remains bounded so a very
+    // large sheet is resumable and does not turn into one unobservable job.
+    const requestedBatchSize = Number.parseInt(String(options.batchSize ?? 250), 10) || 250;
+    const batchSize = Math.min(500, Math.max(1, requestedBatchSize));
     const stockResult: { status: 'skipped' | 'completed' | 'failed'; error?: string } = { status: 'skipped' };
     console.log("POST: Starting logistics delivered sync...");
-    // 1. Fetch Logistics CSV from Google Sheets
-    const csvText = await fetchSpreadsheetCsv(LOGISTICS_SHEET_URL);
-    console.log("POST: Downloaded CSV text, length:", csvText.length);
-    const rows = parseCSV(csvText);
-    console.log("POST: Parsed CSV rows count:", rows.length);
-
-    // 2. Fetch all database orders (paginated to bypass Supabase 1000 limit)
-    console.log("POST: Fetching database orders...");
-    let dbOrdersList: any[] = [];
-    let page = 0;
-    const pageSize = 1000;
-    let hasMore = true;
-
-    while (hasMore) {
-      const { data, error } = await supabaseAdmin
-        .from('orders')
-        .select('id, legacy_code, status, total_amount, payment_method_id, customer_name')
-        .not('legacy_code', 'is', null)
-        .range(page * pageSize, (page + 1) * pageSize - 1);
-
-      if (error) {
-        console.error("POST: Error fetching orders page", page, error);
-        throw error;
-      }
-      dbOrdersList = dbOrdersList.concat(data || []);
-      if (!data || data.length < pageSize) {
-        hasMore = false;
-      } else {
-        page++;
-      }
-    }
-    console.log(`POST: Loaded ${dbOrdersList.length} database orders.`);
-
-    // Fetch all database order items (paginated)
-    console.log("POST: Fetching database order items...");
-    let dbItemsList: any[] = [];
-    page = 0;
-    hasMore = true;
-
-    while (hasMore) {
-      const { data, error } = await supabaseAdmin
-        .from('order_items')
-        .select('order_id, product_name, quantity, unit_price')
-        .range(page * pageSize, (page + 1) * pageSize - 1);
-
-      if (error) {
-        console.error("POST: Error fetching items page", page, error);
-        throw error;
-      }
-      dbItemsList = dbItemsList.concat(data || []);
-      if (!data || data.length < pageSize) {
-        hasMore = false;
-      } else {
-        page++;
-      }
-    }
-    console.log(`POST: Loaded ${dbItemsList.length} database order items.`);
-
-    // Helper function to fetch all products
-    async function fetchProductsAll() {
-      let allProducts: any[] = [];
-      let page = 0;
+    const fetchOrdersAll = async () => {
+      const result: any[] = [];
       const pageSize = 1000;
-      let hasMore = true;
-      while (hasMore) {
+      for (let page = 0; ; page++) {
+        const { data, error } = await supabaseAdmin
+          .from('orders')
+          .select('id, legacy_code, status, total_amount, payment_method_id, customer_name')
+          .not('legacy_code', 'is', null)
+          .range(page * pageSize, (page + 1) * pageSize - 1);
+        if (error) throw error;
+        result.push(...(data || []));
+        if (!data || data.length < pageSize) return result;
+      }
+    };
+
+    const fetchOrderItemsAll = async () => {
+      const result: any[] = [];
+      const pageSize = 1000;
+      for (let page = 0; ; page++) {
+        const { data, error } = await supabaseAdmin
+          .from('order_items')
+          .select('order_id, product_name, quantity, unit_price')
+          .range(page * pageSize, (page + 1) * pageSize - 1);
+        if (error) throw error;
+        result.push(...(data || []));
+        if (!data || data.length < pageSize) return result;
+      }
+    };
+
+    const fetchProductsAll = async () => {
+      const result: any[] = [];
+      const pageSize = 1000;
+      for (let page = 0; ; page++) {
         const { data, error } = await supabaseAdmin
           .from('products')
           .select('id, name, sku')
           .range(page * pageSize, (page + 1) * pageSize - 1);
         if (error) throw error;
-        if (data && data.length > 0) {
-          allProducts = [...allProducts, ...data];
-          if (data.length < pageSize) {
-            hasMore = false;
-          } else {
-            page++;
-          }
-        } else {
-          hasMore = false;
-        }
+        result.push(...(data || []));
+        if (!data || data.length < pageSize) return result;
       }
-      return allProducts;
-    }
+    };
 
-    const [products, payMethodsRes] = await Promise.all([
+    // These sources are independent. Loading them concurrently removes several
+    // full network round trips from every synchronization.
+    const loadStartedAt = Date.now();
+    const [csvText, dbOrdersList, dbItemsList, products, payMethodsRes] = await Promise.all([
+      fetchSpreadsheetCsv(LOGISTICS_SHEET_URL),
+      fetchOrdersAll(),
+      fetchOrderItemsAll(),
       fetchProductsAll(),
       supabaseAdmin.from('payment_methods').select('id, name')
     ]);
+    const loadMs = Date.now() - loadStartedAt;
+    const rows = parseCSV(csvText);
+    console.log(`POST: Loaded sheet (${rows.length} rows), ${dbOrdersList.length} orders and ${dbItemsList.length} items in ${loadMs}ms.`);
 
     
     if (payMethodsRes.error) throw payMethodsRes.error;
@@ -657,6 +625,7 @@ export async function POST(request: Request) {
     });
 
     const dbOrdersMap = new Map<string, any>();
+    const dbOrdersById = new Map<string, any>();
     dbOrdersList.forEach(o => {
       const codes = o.legacy_code.split(/[\/,]/).map((c: string) => c.trim().toUpperCase());
       const orderObj = {
@@ -671,19 +640,11 @@ export async function POST(request: Request) {
       codes.forEach((c: string) => {
         dbOrdersMap.set(c, orderObj);
       });
+      dbOrdersById.set(o.id, orderObj);
     });
 
     dbItemsList.forEach(item => {
-      for (const order of dbOrdersList) {
-        if (item.order_id === order.id) {
-          const firstCode = order.legacy_code.split(/[\/,]/)[0].trim().toUpperCase();
-          const mapped = dbOrdersMap.get(firstCode);
-          if (mapped) {
-            mapped.items.push(item);
-          }
-          break;
-        }
-      }
+      dbOrdersById.get(item.order_id)?.items.push(item);
     });
 
     // Synchronous read-only payment method lookup (prevents API calls inside loop)
@@ -820,7 +781,20 @@ export async function POST(request: Request) {
     const nextCursor = Math.min(cursor + batchOrders.length, allSheetOrders.length);
     const done = nextCursor >= allSheetOrders.length;
 
-    console.log(`POST: Processing logistics batch ${cursor}-${nextCursor} of ${allSheetOrders.length}...`);
+    const planStartedAt = Date.now();
+    const plannedUpdates: Array<{
+      code: string;
+      dbOrder: any;
+      targetStatus: string;
+      sheetTotal: number;
+      sheetPayment: string;
+      sheetPaymentId: string | null;
+      itemsDiffer: boolean;
+      sheetItems: any[];
+      finalPaymentId?: string | null;
+    }> = [];
+
+    console.log(`POST: Planning logistics batch ${cursor}-${nextCursor} of ${allSheetOrders.length}...`);
     for (const sheetOrder of batchOrders) {
       const code = sheetOrder.code;
       const firstCode = code.split(/[\/,]/)[0].trim().toUpperCase();
@@ -888,54 +862,76 @@ export async function POST(request: Request) {
           needsUpdate = true;
         }
 
-        if (needsUpdate) {
-          console.log(`POST: Updating order "${code}". Reason: statusDiff=${dbOrder.status !== targetStatus} (db="${dbOrder.status}", sheet="${targetStatus}"), totalDiff=${Math.abs(sheetTotal - dbTotal) > 1.0} (db="${dbTotal}", sheet="${sheetTotal}"), paymentDiff=${sheetPayment ? (dbOrder.payment_method_id !== sheetPaymentId) : false} (db="${dbOrder.payment_method_id}", sheet="${sheetPaymentId}"/"${sheetPayment}"), itemsDiff=${itemsDiffer}`);
-        }
-
-        // If no changes are needed, skip database updates entirely
         if (!needsUpdate) {
           skippedOrdersCount++;
           continue;
         }
 
-        // Resolve lazy payment method (create if missing since we are updating)
-        const finalPaymentId = (sheetPayment ? sheetPaymentId : null) || await getOrCreatePaymentMethodId(sheetPayment) || dbOrder.payment_method_id;
-
-        // Apply changes directly to DB:
-        // A. Update status, payment method and total amount on public.orders
-        const { error: errOrderUpdate } = await supabaseAdmin
-          .from('orders')
-          .update({
-            status: targetStatus,
-            total_amount: sheetTotal,
-            payment_method_id: finalPaymentId
-          })
-          .eq('id', dbOrder.id);
-
-        if (errOrderUpdate) throw errOrderUpdate;
-
-        // B. Recreate order items if we parsed valid sheet items
-        if (itemsDiffer && sheetItems.length > 0) {
-          // Delete old items
-          const { error: errDelete } = await supabaseAdmin
-            .from('order_items')
-            .delete()
-            .eq('order_id', dbOrder.id);
-          
-          if (errDelete) throw errDelete;
-
-          // Insert new items
-          const { error: errInsert } = await supabaseAdmin
-            .from('order_items')
-            .insert(sheetItems);
-          
-          if (errInsert) throw errInsert;
-        }
-
-        syncedOrdersCount++;
+        plannedUpdates.push({
+          code,
+          dbOrder,
+          targetStatus,
+          sheetTotal,
+          sheetPayment,
+          sheetPaymentId,
+          itemsDiffer,
+          sheetItems
+        });
       }
     }
-    console.log(`POST: Loop completed. Checked logistics rows: ${checkedLogiRows}, Synced orders: ${syncedOrdersCount}`);
+
+    // Resolve the small number of genuinely new payment methods once, before
+    // parallel order writes, to avoid duplicate inserts and race conditions.
+    const missingPaymentMethods = new Set(
+      plannedUpdates
+        .filter(update => update.sheetPayment && !update.sheetPaymentId)
+        .map(update => update.sheetPayment)
+    );
+    for (const paymentMethod of missingPaymentMethods) {
+      await getOrCreatePaymentMethodId(paymentMethod);
+    }
+    for (const update of plannedUpdates) {
+      update.finalPaymentId = getPaymentMethodId(update.sheetPayment) || update.dbOrder.payment_method_id;
+    }
+
+    const planMs = Date.now() - planStartedAt;
+    const applyStartedAt = Date.now();
+
+    // Five workers stay below Cloudflare's six simultaneous outgoing
+    // connections while removing the serial network wait per order.
+    await mapWithConcurrency(plannedUpdates, 5, async update => {
+      const { error } = await supabaseAdmin
+        .from('orders')
+        .update({
+          status: update.targetStatus,
+          total_amount: update.sheetTotal,
+          payment_method_id: update.finalPaymentId
+        })
+        .eq('id', update.dbOrder.id);
+      if (error) throw error;
+    });
+
+    // Keep each order's delete/insert pair isolated while processing several
+    // orders concurrently. This preserves the former failure scope (one order)
+    // instead of risking every replacement in one large destructive batch.
+    const itemReplacements = plannedUpdates.filter(update => update.itemsDiffer && update.sheetItems.length > 0);
+    await mapWithConcurrency(itemReplacements, 5, async update => {
+      const { error: deleteError } = await supabaseAdmin
+        .from('order_items')
+        .delete()
+        .eq('order_id', update.dbOrder.id);
+      if (deleteError) throw deleteError;
+
+      const { error: insertError } = await supabaseAdmin
+        .from('order_items')
+        .insert(update.sheetItems);
+      if (insertError) throw insertError;
+    });
+
+    syncedOrdersCount = plannedUpdates.length;
+    const applyMs = Date.now() - applyStartedAt;
+    const totalMs = Date.now() - startedAt;
+    console.log(`POST: Checked ${checkedLogiRows} logistics rows; synced ${syncedOrdersCount} orders in ${totalMs}ms.`);
 
     console.log(`POST: Batch completed successfully. Synced ${syncedOrdersCount} orders.`);
     return NextResponse.json({
@@ -948,6 +944,7 @@ export async function POST(request: Request) {
       syncedOrdersCount,
       skippedOrdersCount,
       stock: stockResult,
+      metrics: { loadMs, planMs, applyMs, totalMs },
       message: done
         ? `Conciliación con Logística completada: ${syncedOrdersCount} pedidos actualizados y ${skippedOrdersCount} sin cambios en el último lote.`
         : `Lote de Logística procesado (${nextCursor}/${allSheetOrders.length}).`

@@ -58,14 +58,33 @@ test('logistics accepts wholesale AQ codes with hyphen and retains existing code
   }
 });
 
-test('logistics reconciliation is split into Cloudflare-safe batches and stock runs separately', () => {
+test('logistics reconciliation uses paid-worker batches, bounded concurrency and separate stock sync', () => {
   const route = fs.readFileSync('src/app/api/admin/audit-deliveries/route.ts', 'utf8');
   const page = fs.readFileSync('src/app/admin/importar-pedidos/page.tsx', 'utf8');
 
-  assert.match(route, /Math\.min\(10, Math\.max\(1, requestedBatchSize\)\)/);
+  assert.match(route, /Math\.min\(500, Math\.max\(1, requestedBatchSize\)\)/);
   assert.match(route, /allSheetOrders\.slice\(cursor, cursor \+ batchSize\)/);
   assert.match(route, /done,\s*cursor,\s*nextCursor/);
+  assert.match(route, /mapWithConcurrency\(plannedUpdates, 5/);
+  assert.match(route, /mapWithConcurrency\(itemReplacements, 5/);
+  assert.match(route, /\.delete\(\)\s*\.eq\('order_id', update\.dbOrder\.id\)/);
+  assert.match(route, /metrics: \{ loadMs, planMs, applyMs, totalMs \}/);
   assert.match(page, /while \(!done && !cancelImportRef\.current\)/);
-  assert.match(page, /JSON\.stringify\(\{ cursor, batchSize: 8 \}\)/);
+  assert.match(page, /JSON\.stringify\(\{ cursor, batchSize: 250 \}\)/);
   assert.match(page, /fetch\("\/api\/admin\/sync-stock", \{ method: "POST" \}\)/);
+});
+
+test('bounded concurrency preserves order and never exceeds the requested worker count', async () => {
+  let active = 0;
+  let peak = 0;
+  const result = await lib.mapWithConcurrency([1, 2, 3, 4, 5, 6], 3, async value => {
+    active++;
+    peak = Math.max(peak, active);
+    await new Promise(resolve => setTimeout(resolve, value % 2));
+    active--;
+    return value * 10;
+  });
+
+  assert.deepEqual(Array.from(result), [10, 20, 30, 40, 50, 60]);
+  assert.equal(peak, 3);
 });
