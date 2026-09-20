@@ -551,6 +551,12 @@ export const DELIVERIES_CURRENT_SHEET = {
   columnOffset: -1
 };
 
+const LOGISTICS_CANCELLED_SHEET = {
+  spreadsheetId: '1TYeIyGbDleed1bTJyhuaxcM97KMbNbL--1OswOppROg',
+  sheetName: 'Cancelados',
+  codeColumn: 'D'
+};
+
 export interface OperationalSheetSyncResult {
   success: boolean;
   sheetName?: string;
@@ -1726,8 +1732,28 @@ export async function cancelOrderInAllSheets(sellerId: string, legacyCode: strin
       if (result.matchedCodes.length) sheets.push(name);
       if (!result.success && !result.message?.startsWith('No se encontraron estos códigos')) errors.push(result.message || name);
     }
-    const missing = expected.filter(code => !found.has(code));
-    if (missing.length) errors.push(`No se encontraron en Entregas Actual: ${missing.join(', ')}`);
+    let missing = expected.filter(code => !found.has(code));
+    if (missing.length) {
+      try {
+        const cancelledRows = await fetchSpreadsheetValues(
+          LOGISTICS_CANCELLED_SHEET.spreadsheetId,
+          `'${LOGISTICS_CANCELLED_SHEET.sheetName}'!${LOGISTICS_CANCELLED_SHEET.codeColumn}2:${LOGISTICS_CANCELLED_SHEET.codeColumn}`
+        );
+        const cancelledCodes = new Set(
+          cancelledRows
+            .flatMap(row => String(row?.[0] || '').split(/[\\/,]/))
+            .map(code => code.trim().toUpperCase())
+            .filter(Boolean)
+        );
+        const alreadyMoved = missing.filter(code => cancelledCodes.has(code));
+        alreadyMoved.forEach(code => found.add(code));
+        if (alreadyMoved.length) sheets.push(LOGISTICS_CANCELLED_SHEET.sheetName);
+        missing = expected.filter(code => !found.has(code));
+      } catch (error) {
+        errors.push(`No se pudo verificar Logística > Cancelados: ${error instanceof Error ? error.message : 'Error desconocido'}`);
+      }
+    }
+    if (missing.length) errors.push(`No se encontraron en Entregas Actual ni en Cancelados: ${missing.join(', ')}`);
     deliveriesCurrent = {success:!errors.length, sheets, message:errors.length ? errors.join('; ') : undefined};
   } catch (error) {
     deliveriesCurrent = {success:false, message:error instanceof Error ? error.message : 'Error en Entregas Actual'};
