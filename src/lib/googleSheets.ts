@@ -11,6 +11,7 @@ interface ServiceAccountCredentials {
 
 let cachedToken: string | null = null;
 let tokenExpiresAt = 0;
+let tokenRequestInFlight: Promise<string> | null = null;
 
 function base64UrlEncode(buffer: ArrayBuffer | Uint8Array): string {
   const bytes = new Uint8Array(buffer);
@@ -71,6 +72,22 @@ export async function getGoogleAccessToken(): Promise<string> {
     return cachedToken;
   }
 
+  // Several sheet reads usually start together. Reuse the same OAuth request
+  // instead of signing and exchanging one JWT per concurrent read.
+  if (tokenRequestInFlight) {
+    return tokenRequestInFlight;
+  }
+
+  tokenRequestInFlight = requestGoogleAccessToken(now);
+  try {
+    return await tokenRequestInFlight;
+  } finally {
+    tokenRequestInFlight = null;
+  }
+}
+
+async function requestGoogleAccessToken(now: number): Promise<string> {
+
   const creds = getCredentials();
   if (!creds) {
     throw new Error('Google Service Account credentials not found (missing GOOGLE_SERVICE_ACCOUNT_KEY env var)');
@@ -127,6 +144,39 @@ export async function getGoogleAccessToken(): Promise<string> {
   }
 
   throw new Error(`OAuth2 token error: ${JSON.stringify(data)}`);
+}
+
+/**
+ * Reads several ranges from the same spreadsheet in one Google Sheets request.
+ * Results preserve the order of the requested ranges.
+ */
+export async function fetchSpreadsheetValueRanges(
+  spreadsheetId: string,
+  ranges: string[]
+): Promise<string[][][]> {
+  if (ranges.length === 0) return [];
+
+  const token = await getGoogleAccessToken();
+  const query = ranges
+    .map((range) => `ranges=${encodeURIComponent(range)}`)
+    .join('&');
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchGet?${query}&valueRenderOption=FORMATTED_VALUE`;
+
+  const res = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`
+    },
+    cache: 'no-store'
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`Google Sheets batch API error: ${res.status} ${errorText}`);
+  }
+
+  const json = await res.json();
+  const valueRanges = Array.isArray(json.valueRanges) ? json.valueRanges : [];
+  return ranges.map((_, index) => valueRanges[index]?.values || []);
 }
 
 export async function fetchSpreadsheetValues(
