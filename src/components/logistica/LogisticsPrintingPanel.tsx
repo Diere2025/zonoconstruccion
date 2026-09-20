@@ -117,8 +117,11 @@ export default function LogisticsPrintingPanel() {
   const [source, setSource] = useState<DataSource>(initialSource);
   const [outputType, setOutputType] = useState<OutputType>(initialOutput);
   const [perPage, setPerPage] = useState<PerPage>(2);
-  const [orders, setOrders] = useState<LogisticsPrintOrder[]>([]);
+  const [rawOrders, setRawOrders] = useState<LogisticsPrintOrder[]>([]);
   const [remittances, setRemittances] = useState<LogisticsRemittance[]>([]);
+  const [ignoreEncCodes, setIgnoreEncCodes] = useState(true);
+  const [ignoredEncCodes, setIgnoredEncCodes] = useState<string[]>([]);
+  const [showIgnoredEncWarning, setShowIgnoredEncWarning] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pastedRows, setPastedRows] = useState<string[][]>([emptyGridRow()]);
   const [search, setSearch] = useState('');
@@ -131,11 +134,25 @@ export default function LogisticsPrintingPanel() {
   const [showPrintWarning, setShowPrintWarning] = useState(false);
   const remainingStages = useRef<Exclude<PrintStage, null>[]>([]);
 
+  const orders = useMemo(() => ignoreEncCodes
+    ? rawOrders.filter(order => !order.codes.some(code => /^ENC/i.test(code)))
+    : rawOrders,
+  [ignoreEncCodes, rawOrders]);
+
   const applyPayload = (payload: PrintingPayload) => {
     const nextOrders = payload.orders || [];
-    setOrders(nextOrders);
+    const nextIgnoredCodes = Array.from(new Set(nextOrders
+      .flatMap(order => order.codes)
+      .filter(code => /^ENC/i.test(code))));
+    setRawOrders(nextOrders);
     setRemittances(payload.remittances || []);
-    setSelected(new Set(nextOrders.map(order => order.id)));
+    setSelected(new Set(nextOrders
+      .filter(order => !ignoreEncCodes || !order.codes.some(code => /^ENC/i.test(code)))
+      .map(order => order.id)));
+    if (ignoreEncCodes && nextIgnoredCodes.length > 0) {
+      setIgnoredEncCodes(nextIgnoredCodes);
+      setShowIgnoredEncWarning(true);
+    }
   };
 
   const loadSource = async (nextSource: Exclude<DataSource, 'pegado'> = source as Exclude<DataSource, 'pegado'>) => {
@@ -156,7 +173,7 @@ export default function LogisticsPrintingPanel() {
   const processPastedRows = async (rows = pastedRows) => {
     const nonEmptyRows = rows.filter(row => row.some(cell => String(cell || '').trim()));
     if (nonEmptyRows.length === 0) {
-      setOrders([]);
+      setRawOrders([]);
       setRemittances([]);
       setSelected(new Set());
       return;
@@ -229,7 +246,7 @@ export default function LogisticsPrintingPanel() {
     setSource(nextSource);
     setError('');
     if (nextSource === 'pegado') {
-      setOrders([]);
+      setRawOrders([]);
       setRemittances([]);
       setSelected(new Set());
     } else {
@@ -268,7 +285,7 @@ export default function LogisticsPrintingPanel() {
   const clearGrid = () => {
     setSource('pegado');
     setPastedRows([emptyGridRow()]);
-    setOrders([]);
+    setRawOrders([]);
     setRemittances([]);
     setSelected(new Set());
     setSearch('');
@@ -297,6 +314,20 @@ export default function LogisticsPrintingPanel() {
       filtered.forEach(order => allSelected ? next.delete(order.id) : next.add(order.id));
       return next;
     });
+  };
+
+  const toggleIgnoreEncCodes = (ignore: boolean) => {
+    setIgnoreEncCodes(ignore);
+    const encOrders = rawOrders.filter(order => order.codes.some(code => /^ENC/i.test(code)));
+    setSelected(current => {
+      const next = new Set(current);
+      encOrders.forEach(order => ignore ? next.delete(order.id) : next.add(order.id));
+      return next;
+    });
+    if (ignore && encOrders.length > 0) {
+      setIgnoredEncCodes(Array.from(new Set(encOrders.flatMap(order => order.codes).filter(code => /^ENC/i.test(code)))));
+      setShowIgnoredEncWarning(true);
+    }
   };
 
   const startPrint = () => {
@@ -369,6 +400,10 @@ export default function LogisticsPrintingPanel() {
                 </select>
               </label>
             )}
+            <label className="flex h-[34px] items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-[10px] font-black uppercase text-slate-700">
+              <input type="checkbox" checked={ignoreEncCodes} onChange={event => toggleIgnoreEncCodes(event.target.checked)} className="h-4 w-4 accent-slate-900" />
+              Ignorar códigos ENC
+            </label>
             {source !== 'pegado' && (
               <button type="button" onClick={() => loadSource(source)} disabled={loading} className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-600 hover:bg-slate-100 disabled:opacity-50">
                 <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} /> Actualizar
@@ -490,6 +525,30 @@ export default function LogisticsPrintingPanel() {
               <button type="button" onClick={() => { setShowPrintWarning(false); startPrint(); }} className="flex items-center gap-1.5 rounded-xl bg-amber-600 px-4 py-2 text-xs font-black text-white hover:bg-amber-700">
                 <Printer className="h-3.5 w-3.5" /> Continuar e imprimir
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showIgnoredEncWarning && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+          <div role="dialog" aria-modal="true" aria-labelledby="ignored-enc-title" className="w-full max-w-md rounded-3xl border border-amber-200 bg-white p-6 shadow-2xl">
+            <div className="flex items-start gap-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
+                <AlertTriangle className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 id="ignored-enc-title" className="text-base font-black text-slate-900">Códigos ENC ignorados</h3>
+                <p className="mt-1 text-xs font-semibold leading-relaxed text-slate-600">
+                  Hay {ignoredEncCodes.length} {ignoredEncCodes.length === 1 ? 'código ENC que no se incluirá' : 'códigos ENC que no se incluirán'} en la impresión.
+                </p>
+              </div>
+            </div>
+            <div className="mt-4 flex max-h-40 flex-wrap gap-2 overflow-auto rounded-2xl border border-amber-200 bg-amber-50 p-3">
+              {ignoredEncCodes.map(code => <span key={code} className="rounded-lg bg-white px-2 py-1 font-mono text-xs font-black text-amber-900 shadow-sm">{code}</span>)}
+            </div>
+            <div className="mt-5 flex justify-end">
+              <button type="button" onClick={() => setShowIgnoredEncWarning(false)} className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-black text-white hover:bg-black">Entendido</button>
             </div>
           </div>
         </div>
