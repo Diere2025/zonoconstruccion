@@ -84,6 +84,17 @@ test('background import shares Central and avoids rewriting unchanged orders', (
   assert.match(route, /Object\.assign\(dbOrder, updatePayload\)/);
 });
 
+test('stock synchronization shares downloads and only writes changed stock', () => {
+  const unimported = fs.readFileSync('src/lib/unimportedOrders.ts', 'utf8');
+  const stock = fs.readFileSync('src/app/api/admin/sync-stock/route.ts', 'utf8');
+
+  assert.match(unimported, /const fetchSheetOnce = oncePerKey\(fetchSpreadsheetCsv\)/);
+  assert.match(stock, /const productLookup = buildProductLookup\(dbProducts\)/);
+  assert.match(stock, /if \(stockValuesChanged\(dbProd,/);
+  assert.match(stock, /unchangedCount: dbProducts\.length - updatesToUpsert\.length/);
+  assert.doesNotMatch(stock, /updatesToUpsertMap\.set\(dbProd\.id, \{\s*\.\.\.dbProd/);
+});
+
 test('bounded concurrency preserves order and never exceeds the requested worker count', async () => {
   let active = 0;
   let peak = 0;

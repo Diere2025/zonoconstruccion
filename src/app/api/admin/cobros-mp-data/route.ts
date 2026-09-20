@@ -222,11 +222,9 @@ export async function GET(request: Request) {
         query = query.or(`payer_name.ilike.%${search}%,formatted_amount.ilike.%${search}%,raw_body.ilike.%${search}%,order_code.ilike.%${search}%`);
       }
 
-      const { data, error } = await query.limit(300);
-      if (error) throw error;
-
-      // Calculate stats ONLY for Admin & Administracion using exact Argentina Today boundaries
-      let todayStats = null;
+      // Calculate stats ONLY for Admin & Administracion using exact Argentina Today boundaries.
+      // Start it together with the list query so the endpoint pays only the slower wait.
+      let todayStatsPromise: Promise<{ totalCount: number; totalAmount: number } | null> = Promise.resolve(null);
       if (isAdminOrAdminStaff) {
         let todayQ = supabaseAdmin
           .from('mp_payments')
@@ -239,12 +237,17 @@ export async function GET(request: Request) {
           todayQ = todayQ.or('is_internal.is.null,is_internal.eq.false');
         }
 
-        const { data: todayRecords } = await todayQ;
-
-        const totalCount = todayRecords ? todayRecords.length : 0;
-        const totalAmount = todayRecords ? todayRecords.reduce((acc, p) => acc + (Number(p.amount) || 0), 0) : 0;
-        todayStats = { totalCount, totalAmount };
+        todayStatsPromise = Promise.resolve(todayQ).then(({ data: todayRecords }) => ({
+          totalCount: todayRecords ? todayRecords.length : 0,
+          totalAmount: todayRecords ? todayRecords.reduce((acc, p) => acc + (Number(p.amount) || 0), 0) : 0
+        }));
       }
+
+      const [{ data, error }, todayStats] = await Promise.all([
+        query.limit(300),
+        todayStatsPromise
+      ]);
+      if (error) throw error;
 
       return NextResponse.json({
         success: true,

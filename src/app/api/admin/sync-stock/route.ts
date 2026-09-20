@@ -31,7 +31,8 @@ async function fetchProductsAll() {
   while (hasMore) {
     const { data, error } = await supabaseAdmin
       .from('products')
-      .select('*')
+      .select('id, name, sku, is_active, is_generic, mapped_real_product_id, stock_physical, stock_reserved, stock_current')
+      .order('id')
       .range(page * pageSize, (page + 1) * pageSize - 1);
     if (error) throw error;
     if (data && data.length > 0) {
@@ -59,6 +60,7 @@ async function fetchPendingOrderItems(dateLimitStr: string) {
       .select('product_id, product_name, quantity, orders!inner(id, legacy_code, status, order_date)')
       .in('orders.status', ['Pendiente', 'Confirmado'])
       .gte('orders.order_date', dateLimitStr)
+      .order('id')
       .range(page * pageSize, (page + 1) * pageSize - 1);
     if (error) throw error;
     if (data && data.length > 0) {
@@ -122,6 +124,56 @@ function parseCSV(text: string): any[] {
   return results;
 }
 
+function productPriority(product: any): number {
+  let score = 0;
+  if (product.is_active) score += 2;
+  if (!(product.sku || '').startsWith('AUTO-')) score += 1;
+  return score;
+}
+
+function buildProductLookup(products: any[]): Map<string, any[]> {
+  const lookup = new Map<string, any[]>();
+  for (const product of products) {
+    const aliases = new Set([
+      normalizeText(product.name || ''),
+      normalizeText(product.sku || ''),
+      normalizeText((product.name || '').replace(/^\[interno\]\s*/i, '').trim())
+    ].filter(Boolean));
+
+    for (const alias of aliases) {
+      const matches = lookup.get(alias) || [];
+      matches.push(product);
+      lookup.set(alias, matches);
+    }
+  }
+
+  for (const matches of lookup.values()) {
+    matches.sort((a, b) => productPriority(b) - productPriority(a));
+  }
+  return lookup;
+}
+
+function findBestProductMatch(lookup: Map<string, any[]>, ...aliases: string[]): any | null {
+  const candidates = new Map<string, any>();
+  for (const alias of aliases) {
+    if (!alias) continue;
+    for (const product of lookup.get(alias) || []) candidates.set(product.id, product);
+  }
+  return Array.from(candidates.values()).sort((a, b) => productPriority(b) - productPriority(a))[0] || null;
+}
+
+function stockValuesChanged(product: any, physical: number, reserved: number, current: number): boolean {
+  return Math.abs((parseFloat(product.stock_physical || '0') || 0) - physical) > 0.0001
+    || Math.abs((parseFloat(product.stock_reserved || '0') || 0) - reserved) > 0.0001
+    || Math.abs((parseFloat(product.stock_current || '0') || 0) - current) > 0.0001;
+}
+
+async function timed<T>(promise: Promise<T>): Promise<{ value: T; ms: number }> {
+  const startedAt = Date.now();
+  const value = await promise;
+  return { value, ms: Date.now() - startedAt };
+}
+
 function addCalculatedReserve(
   reserves: Map<string, number>,
   productsById: Map<string, any>,
@@ -160,19 +212,32 @@ function addCalculatedReserve(
 // GET: Download spreadsheet, fetch database calculated reserves, and return comparison preview
 export async function GET() {
   try {
-    // 1. Fetch CSV from Google Sheets
-    const csvText = await fetchSpreadsheetCsv(STOCK_SHEET_URL);
-    const sheetRows = parseCSV(csvText);
-
+    const startedAt = Date.now();
     // 30-day window (matching spreadsheet operational cutoff)
     const dateLimitStr = getArgentinaDaysAgoString(30);
 
-    // 2. Fetch products, active orders from database within 30-day window, and unimported seller orders
-    const [dbProducts, rawPendingItems, unimportedData] = await Promise.all([
-      fetchProductsAll(),
-      fetchPendingOrderItems(dateLimitStr),
-      getUnimportedSellerOrders().catch(() => null)
+    // Google Sheets and database reads are independent. Starting them together
+    // avoids paying the stock-sheet download time before the ERP queries begin.
+    const loadStartedAt = Date.now();
+    const [stockSheetLoad, productsLoad, pendingItemsLoad, unimportedLoad] = await Promise.all([
+      timed(fetchSpreadsheetCsv(STOCK_SHEET_URL)),
+      timed(fetchProductsAll()),
+      timed(fetchPendingOrderItems(dateLimitStr)),
+      timed(getUnimportedSellerOrders().catch(() => null))
     ]);
+    const loadMs = Date.now() - loadStartedAt;
+    const csvText = stockSheetLoad.value;
+    const dbProducts = productsLoad.value;
+    const rawPendingItems = pendingItemsLoad.value;
+    const unimportedData = unimportedLoad.value;
+    const sourcesMs = {
+      stockSheet: stockSheetLoad.ms,
+      products: productsLoad.ms,
+      pendingItems: pendingItemsLoad.ms,
+      unimportedOrders: unimportedLoad.ms,
+      unimportedBreakdown: unimportedData?.metrics || null
+    };
+    const sheetRows = parseCSV(csvText);
 
     // Deduplicate pending items by order legacy_code + product_id to prevent double counting
     const seenOrderKeys = new Set<string>();
@@ -189,6 +254,7 @@ export async function GET() {
 
     const productByIdMap = new Map<string, any>();
     dbProducts.forEach((p: any) => productByIdMap.set(p.id, p));
+    const productLookup = buildProductLookup(dbProducts);
 
     // Calculate DB reserves (by product_id AND by normalized name for consolidation)
     const dbCalculatedReservesMap = new Map<string, number>();
@@ -223,28 +289,7 @@ export async function GET() {
       const normProdName = normalizeText(prodName);
       const normCleanProdName = normalizeText(cleanProdName);
 
-      // Find match in DB (prefer active and non-AUTO SKU)
-      const matchingProds = dbProducts.filter((p: any) => {
-        const normName = normalizeText(p.name);
-        const normSku = normalizeText(p.sku || '');
-        return (
-          normName === normProdName ||
-          normSku === normProdName ||
-          (normCleanProdName && (normName === normCleanProdName || normSku === normCleanProdName))
-        );
-      });
-
-      matchingProds.sort((a: any, b: any) => {
-        if (a.is_active && !b.is_active) return -1;
-        if (!a.is_active && b.is_active) return 1;
-        const aIsAuto = (a.sku || '').startsWith('AUTO-');
-        const bIsAuto = (b.sku || '').startsWith('AUTO-');
-        if (aIsAuto && !bIsAuto) return 1;
-        if (!aIsAuto && bIsAuto) return -1;
-        return 0;
-      });
-
-      const dbProd = matchingProds[0];
+      const dbProd = findBestProductMatch(productLookup, normProdName, normCleanProdName);
 
       if (dbProd) {
         matchedProductIds.add(dbProd.id);
@@ -307,7 +352,8 @@ export async function GET() {
     return NextResponse.json({
       comparisonList,
       unmatchedSheetProducts,
-      onlyInDb
+      onlyInDb,
+      metrics: { loadMs, totalMs: Date.now() - startedAt, sourcesMs }
     });
 
   } catch (err: any) {
@@ -319,19 +365,30 @@ export async function GET() {
 // POST: Execute the actual synchronization updates
 export async function POST() {
   try {
-    // 1. Fetch CSV from Google Sheets
-    const csvText = await fetchSpreadsheetCsv(STOCK_SHEET_URL);
-    const sheetRows = parseCSV(csvText);
-
+    const startedAt = Date.now();
     // 30-day window (matching spreadsheet operational cutoff)
     const dateLimitStr = getArgentinaDaysAgoString(30);
 
-    // 2. Fetch products, active orders from database within 30-day window, and unimported seller orders
-    const [dbProducts, rawPostPendingItems, unimportedData] = await Promise.all([
-      fetchProductsAll(),
-      fetchPendingOrderItems(dateLimitStr),
-      getUnimportedSellerOrders().catch(() => null)
+    const loadStartedAt = Date.now();
+    const [stockSheetLoad, productsLoad, pendingItemsLoad, unimportedLoad] = await Promise.all([
+      timed(fetchSpreadsheetCsv(STOCK_SHEET_URL)),
+      timed(fetchProductsAll()),
+      timed(fetchPendingOrderItems(dateLimitStr)),
+      timed(getUnimportedSellerOrders().catch(() => null))
     ]);
+    const loadMs = Date.now() - loadStartedAt;
+    const csvText = stockSheetLoad.value;
+    const dbProducts = productsLoad.value;
+    const rawPostPendingItems = pendingItemsLoad.value;
+    const unimportedData = unimportedLoad.value;
+    const sourcesMs = {
+      stockSheet: stockSheetLoad.ms,
+      products: productsLoad.ms,
+      pendingItems: pendingItemsLoad.ms,
+      unimportedOrders: unimportedLoad.ms,
+      unimportedBreakdown: unimportedData?.metrics || null
+    };
+    const sheetRows = parseCSV(csvText);
 
     // Deduplicate pending items by order legacy_code + product_id to prevent double counting
     const seenPostOrderKeys = new Set<string>();
@@ -348,6 +405,7 @@ export async function POST() {
 
     const productByIdMap = new Map<string, any>();
     dbProducts.forEach((p: any) => productByIdMap.set(p.id, p));
+    const productLookup = buildProductLookup(dbProducts);
 
     // Calculate DB reserves (by product_id AND by normalized name for consolidation)
     const dbCalculatedReservesMap = new Map<string, number>();
@@ -383,28 +441,7 @@ export async function POST() {
       sheetProductNames.add(normProdName);
       if (normCleanProdName) sheetProductNames.add(normCleanProdName);
 
-      // Find match in DB (prefer active and non-AUTO SKU)
-      const matchingProds = dbProducts.filter((p: any) => {
-        const normName = normalizeText(p.name);
-        const normSku = normalizeText(p.sku || '');
-        return (
-          normName === normProdName ||
-          normSku === normProdName ||
-          (normCleanProdName && (normName === normCleanProdName || normSku === normCleanProdName))
-        );
-      });
-
-      matchingProds.sort((a: any, b: any) => {
-        if (a.is_active && !b.is_active) return -1;
-        if (!a.is_active && b.is_active) return 1;
-        const aIsAuto = (a.sku || '').startsWith('AUTO-');
-        const bIsAuto = (b.sku || '').startsWith('AUTO-');
-        if (aIsAuto && !bIsAuto) return 1;
-        if (!aIsAuto && bIsAuto) return -1;
-        return 0;
-      });
-
-      const dbProd = matchingProds[0];
+      const dbProd = findBestProductMatch(productLookup, normProdName, normCleanProdName);
 
       if (dbProd) {
         const sheetPhysical = parseFloat((row['Stock Actual'] || '0').replace(',', '.')) || 0;
@@ -420,12 +457,14 @@ export async function POST() {
         const effectiveReserved = dbCalculatedReserved;
         const newAvailable = sheetPhysical - effectiveReserved;
 
-        updatesToUpsertMap.set(dbProd.id, {
-          ...dbProd,
-          stock_physical: sheetPhysical,
-          stock_reserved: effectiveReserved,
-          stock_current: newAvailable
-        });
+        if (stockValuesChanged(dbProd, sheetPhysical, effectiveReserved, newAvailable)) {
+          updatesToUpsertMap.set(dbProd.id, {
+            id: dbProd.id,
+            stock_physical: sheetPhysical,
+            stock_reserved: effectiveReserved,
+            stock_current: newAvailable
+          });
+        }
       }
     }
 
@@ -441,11 +480,14 @@ export async function POST() {
         const physical = parseFloat(p.stock_physical || '0') || 0;
         const newAvailable = physical - dbCalculatedReserved;
 
-        updatesToUpsertMap.set(p.id, {
-          ...p,
-          stock_reserved: dbCalculatedReserved,
-          stock_current: newAvailable
-        });
+        if (stockValuesChanged(p, physical, dbCalculatedReserved, newAvailable)) {
+          updatesToUpsertMap.set(p.id, {
+            id: p.id,
+            stock_physical: physical,
+            stock_reserved: dbCalculatedReserved,
+            stock_current: newAvailable
+          });
+        }
       }
     }
 
@@ -469,7 +511,9 @@ export async function POST() {
     return NextResponse.json({
       success: true,
       updatedCount,
-      totalMatched: updatesToUpsert.length
+      totalMatched: updatesToUpsert.length,
+      unchangedCount: dbProducts.length - updatesToUpsert.length,
+      metrics: { loadMs, totalMs: Date.now() - startedAt, sourcesMs }
     });
 
   } catch (err: any) {

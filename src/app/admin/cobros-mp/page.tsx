@@ -812,13 +812,20 @@ export default function CobrosMercadoPagoPage() {
     loadPayments();
   }, [loadPayments]);
 
-  // Periodic background refresh fallback (every 12 seconds)
+  // Realtime handles normal updates. This slower, visible-tab-only poll is a
+  // safety net for a dropped subscription and corrects filtered views.
   useEffect(() => {
-    const interval = setInterval(() => {
-      loadPayments();
-      loadAccounts();
-    }, 12000);
-    return () => clearInterval(interval);
+    const refreshVisibleData = () => {
+      if (document.hidden) return;
+      void loadPayments();
+      void loadAccounts();
+    };
+    const interval = window.setInterval(refreshVisibleData, 60000);
+    window.addEventListener('focus', refreshVisibleData);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('focus', refreshVisibleData);
+    };
   }, [loadPayments, loadAccounts]);
 
   // Supabase Realtime Subscription

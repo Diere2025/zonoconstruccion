@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { fetchSpreadsheetCsv } from '@/lib/googleSheets';
+import { mapWithConcurrency, oncePerKey } from '@/lib/orderSync';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.dummy';
@@ -51,6 +52,12 @@ export interface UnimportedOrdersResult {
   totalReservedUnits: number;
   totalSalesUnits: number;
   cachedAt: number;
+  metrics?: {
+    legacyCodesMs: number;
+    productsMs: number;
+    sheetsMs: number;
+    totalMs: number;
+  };
 }
 
 export const SELLER_SHEETS = [
@@ -298,11 +305,31 @@ export async function getUnimportedSellerOrders(options: { forceRefresh?: boolea
     return cachedResult;
   }
 
-  // 1. Fetch DB legacy_codes and DB products concurrently
-  const [dbLegacyCodesSet, dbProducts] = await Promise.all([
-    fetchAllDbLegacyCodes(),
-    fetchDbProducts()
+  // Start the independent Google Sheets and database reads together. Four sheet
+  // workers plus the two DB reads stay within Cloudflare's six-connection limit.
+  const fetchSheetOnce = oncePerKey(fetchSpreadsheetCsv);
+  const measure = async <T,>(promise: Promise<T>) => {
+    const startedAt = Date.now();
+    const value = await promise;
+    return { value, ms: Date.now() - startedAt };
+  };
+  const sheetResultsPromise = measure(mapWithConcurrency(SELLER_SHEETS, 4, async (sheet) => {
+    try {
+      const csvText = await fetchSheetOnce(sheet.url);
+      return { status: 'fulfilled' as const, value: { sheet, csvText } };
+    } catch (reason) {
+      return { status: 'rejected' as const, reason };
+    }
+  }));
+
+  const [legacyCodesLoad, productsLoad, sheetsLoad] = await Promise.all([
+    measure(fetchAllDbLegacyCodes()),
+    measure(fetchDbProducts()),
+    sheetResultsPromise
   ]);
+  const dbLegacyCodesSet = legacyCodesLoad.value;
+  const dbProducts = productsLoad.value;
+  const sheetResults = sheetsLoad.value;
 
   // Build product lookup maps
   const cleanToProdMap = new Map<string, any>();
@@ -355,15 +382,7 @@ export async function getUnimportedSellerOrders(options: { forceRefresh?: boolea
 
   const seenUnimportedCodes = new Set<string>();
 
-  // 2. Fetch all seller sheets in parallel
-  const sheetResults = await Promise.allSettled(
-    SELLER_SHEETS.map(async (sheet) => {
-      const csvText = await fetchSpreadsheetCsv(sheet.url);
-      return { sheet, csvText };
-    })
-  );
-
-  // 3. Process each sheet
+  // Process each sheet
   for (const res of sheetResults) {
     if (res.status !== 'fulfilled' || !res.value.csvText) continue;
 
@@ -555,7 +574,13 @@ export async function getUnimportedSellerOrders(options: { forceRefresh?: boolea
     totalUnimportedCount,
     totalReservedUnits,
     totalSalesUnits,
-    cachedAt: now
+    cachedAt: now,
+    metrics: {
+      legacyCodesMs: legacyCodesLoad.ms,
+      productsMs: productsLoad.ms,
+      sheetsMs: sheetsLoad.ms,
+      totalMs: Date.now() - now
+    }
   };
   lastFetchTime = now;
 
@@ -564,43 +589,51 @@ export async function getUnimportedSellerOrders(options: { forceRefresh?: boolea
 
 async function fetchAllDbLegacyCodes(): Promise<Set<string>> {
   const codesSet = new Set<string>();
-  let page = 0;
   const pageSize = 1000;
-  let hasMore = true;
 
-  while (hasMore) {
-    const { data, error } = await supabaseAdmin
-      .from('orders')
-      .select('legacy_code')
-      .not('legacy_code', 'is', null)
-      .range(page * pageSize, (page + 1) * pageSize - 1);
-
-    if (error || !data || data.length === 0) {
-      break;
-    }
-
-    data.forEach((o: any) => {
-      if (o.legacy_code) {
-        const raw = o.legacy_code.toString().trim().toUpperCase();
-        codesSet.add(raw);
-        if (raw.startsWith('ORIG-')) {
-          codesSet.add(raw.replace(/^ORIG-/, ''));
-        }
-        const parts = raw.split(/[\/,]/).map((p: string) => p.trim()).filter(Boolean);
-        parts.forEach((p: string) => {
-          codesSet.add(p);
-          if (p.startsWith('ORIG-')) {
-            codesSet.add(p.replace(/^ORIG-/, ''));
-          }
-        });
-      }
+  const addCodes = (rows: Array<{ legacy_code?: string | null }>) => {
+    rows.forEach((o) => {
+      if (!o.legacy_code) return;
+      const raw = o.legacy_code.toString().trim().toUpperCase();
+      codesSet.add(raw);
+      if (raw.startsWith('ORIG-')) codesSet.add(raw.replace(/^ORIG-/, ''));
+      raw.split(/[\/,]/).map(part => part.trim()).filter(Boolean).forEach((part) => {
+        codesSet.add(part);
+        if (part.startsWith('ORIG-')) codesSet.add(part.replace(/^ORIG-/, ''));
+      });
     });
+  };
 
-    if (data.length < pageSize) {
-      hasMore = false;
-    } else {
-      page++;
-    }
+  const firstPage = await supabaseAdmin
+    .from('orders')
+    .select('legacy_code')
+    .not('legacy_code', 'is', null)
+    .order('id')
+    .range(0, pageSize - 1);
+
+  if (firstPage.error || !firstPage.data) return codesSet;
+  addCodes(firstPage.data);
+
+  // Fetch two subsequent pages per round. This avoids the cost of an exact
+  // database count and halves the sequential network waits.
+  let page = 1;
+  let previousLength = firstPage.data.length;
+  while (previousLength === pageSize) {
+    const pages = [page, page + 1];
+    const results = await Promise.all(pages.map(async (pageNumber) => {
+      const { data, error } = await supabaseAdmin
+        .from('orders')
+        .select('legacy_code')
+        .not('legacy_code', 'is', null)
+        .order('id')
+        .range(pageNumber * pageSize, (pageNumber + 1) * pageSize - 1);
+      return { data: data || [], error };
+    }));
+
+    if (results.some(result => result.error)) break;
+    results.forEach(result => addCodes(result.data));
+    previousLength = results[results.length - 1].data.length;
+    page += pages.length;
   }
 
   return codesSet;
