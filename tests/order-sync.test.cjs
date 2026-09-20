@@ -74,6 +74,16 @@ test('logistics reconciliation uses paid-worker batches, bounded concurrency and
   assert.match(page, /fetch\("\/api\/admin\/sync-stock", \{ method: "POST" \}\)/);
 });
 
+test('background import shares Central and avoids rewriting unchanged orders', () => {
+  const route = fs.readFileSync('src/app/api/admin/import-job/route.ts', 'utf8');
+
+  assert.match(route, /const fetchSheetOnce = oncePerKey\(fetchSpreadsheetCsv\)/);
+  assert.match(route, /const csvText = await sheetDownloads\.get\(sheet\.url\)!/);
+  assert.match(route, /order_discount_type, order_discount_value, order_discount_amount/);
+  assert.match(route, /if \(discountChanged \|\| totalsChanged\)/);
+  assert.match(route, /Object\.assign\(dbOrder, updatePayload\)/);
+});
+
 test('bounded concurrency preserves order and never exceeds the requested worker count', async () => {
   let active = 0;
   let peak = 0;
