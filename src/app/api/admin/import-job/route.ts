@@ -805,11 +805,36 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
     await addLog("🚚 Comparando estados, importes, medios de pago y artículos con Logística (Entregando/Entregado)...");
 
     try {
-      const logiRes = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'https://zonoconstruccion.pages.dev'}/api/admin/audit-deliveries`, { method: "POST" });
-      if (logiRes.ok) {
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://zono-erp.pages.dev';
+      let cursor = 0;
+      let done = false;
+      let totalSynced = 0;
+      let totalSkipped = 0;
+
+      while (!done) {
+        const logiRes = await fetch(`${appUrl}/api/admin/audit-deliveries`, {
+          method: "POST",
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cursor, batchSize: 8 })
+        });
         const logiData = await logiRes.json();
-        await addLog(`✅ Logística: ${logiData.message || 'Sincronización completada'}`);
+        if (!logiRes.ok || logiData.success === false) {
+          throw new Error(logiData.error || `HTTP ${logiRes.status}`);
+        }
+        totalSynced += logiData.syncedOrdersCount || 0;
+        totalSkipped += logiData.skippedOrdersCount || 0;
+        done = logiData.done !== false;
+        cursor = logiData.nextCursor ?? cursor;
       }
+
+      await addLog(`✅ Logística: ${totalSynced} pedidos actualizados y ${totalSkipped} sin cambios.`);
+
+      const stockRes = await fetch(`${appUrl}/api/admin/sync-stock`, { method: "POST" });
+      const stockData = await stockRes.json();
+      if (!stockRes.ok || stockData.success === false) {
+        throw new Error(`Stock: ${stockData.error || `HTTP ${stockRes.status}`}`);
+      }
+      await addLog(`📦 Stock sincronizado: ${stockData.updatedCount || 0} productos actualizados.`);
     } catch (syncErr: any) {
       await addLog(`⚠️ Logística: ${syncErr.message}`);
     }

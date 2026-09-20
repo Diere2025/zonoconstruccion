@@ -57,3 +57,15 @@ test('logistics accepts wholesale AQ codes with hyphen and retains existing code
     assert.equal(lib.isLogisticsOrderCode(code), false, code);
   }
 });
+
+test('logistics reconciliation is split into Cloudflare-safe batches and stock runs separately', () => {
+  const route = fs.readFileSync('src/app/api/admin/audit-deliveries/route.ts', 'utf8');
+  const page = fs.readFileSync('src/app/admin/importar-pedidos/page.tsx', 'utf8');
+
+  assert.match(route, /Math\.min\(10, Math\.max\(1, requestedBatchSize\)\)/);
+  assert.match(route, /allSheetOrders\.slice\(cursor, cursor \+ batchSize\)/);
+  assert.match(route, /done,\s*cursor,\s*nextCursor/);
+  assert.match(page, /while \(!done && !cancelImportRef\.current\)/);
+  assert.match(page, /JSON\.stringify\(\{ cursor, batchSize: 8 \}\)/);
+  assert.match(page, /fetch\("\/api\/admin\/sync-stock", \{ method: "POST" \}\)/);
+});

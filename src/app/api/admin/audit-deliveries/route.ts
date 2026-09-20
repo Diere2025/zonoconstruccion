@@ -541,7 +541,12 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const options = await request.json().catch(() => ({}));
-    const syncStock = options.syncStock !== false;
+    const cursor = Math.max(0, Number.parseInt(String(options.cursor ?? 0), 10) || 0);
+    // Keep each invocation comfortably below the 50 external-subrequest limit
+    // of Cloudflare Workers Free. Each changed order can require up to three
+    // Supabase mutations (order, item delete and item insert).
+    const requestedBatchSize = Number.parseInt(String(options.batchSize ?? 8), 10) || 8;
+    const batchSize = Math.min(10, Math.max(1, requestedBatchSize));
     const stockResult: { status: 'skipped' | 'completed' | 'failed'; error?: string } = { status: 'skipped' };
     console.log("POST: Starting logistics delivered sync...");
     // 1. Fetch Logistics CSV from Google Sheets
@@ -810,8 +815,13 @@ export async function POST(request: Request) {
     let syncedOrdersCount = 0;
     let skippedOrdersCount = 0;
 
-    console.log(`POST: Loop started over ${aggregatedSheetOrders.size} aggregated sheet orders...`);
-    for (const sheetOrder of aggregatedSheetOrders.values()) {
+    const allSheetOrders = Array.from(aggregatedSheetOrders.values());
+    const batchOrders = allSheetOrders.slice(cursor, cursor + batchSize);
+    const nextCursor = Math.min(cursor + batchOrders.length, allSheetOrders.length);
+    const done = nextCursor >= allSheetOrders.length;
+
+    console.log(`POST: Processing logistics batch ${cursor}-${nextCursor} of ${allSheetOrders.length}...`);
+    for (const sheetOrder of batchOrders) {
       const code = sheetOrder.code;
       const firstCode = code.split(/[\/,]/)[0].trim().toUpperCase();
 
@@ -927,110 +937,20 @@ export async function POST(request: Request) {
     }
     console.log(`POST: Loop completed. Checked logistics rows: ${checkedLogiRows}, Synced orders: ${syncedOrdersCount}`);
 
-    // 5. Trigger Stock Sync / Recalculate reserves after synchronization
-    console.log("POST: Triggering stock recalculation...");
-    const STOCK_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1vrI3WFH6W35sj9JJ4sa3yr7XlJDaKP920R6t54jLW6o/export?format=csv&gid=447948741';
-    if (syncStock) try {
-      const csvStockText = await fetchSpreadsheetCsv(STOCK_SHEET_URL);
-      const stockLines = csvStockText.split('\n');
-      if (stockLines.length > 0) {
-        const normalizeRowKey = (header: string): string => {
-          const cleaned = header.replace(/^"|"$/g, '').trim().toLowerCase();
-          if (cleaned.startsWith('producto')) return 'Producto';
-          if (cleaned.startsWith('stock actual')) return 'Stock Actual';
-          if (cleaned.startsWith('reservado')) return 'Reservado';
-          if (cleaned.startsWith('stock disponible')) return 'Stock Disponible';
-          if (cleaned.startsWith('marca')) return 'MARCA';
-          if (cleaned.startsWith('pedido')) return 'Pedido a Proveedor';
-          return header.replace(/^"|"$/g, '').trim();
-        };
-        const stockHeaders = stockLines[0].split(',').map(normalizeRowKey);
-        const stockRows: any[] = [];
-        for (let j = 1; j < stockLines.length; j++) {
-          const l = stockLines[j].trim();
-          if (!l) continue;
-          const cells: string[] = [];
-          let cur = '';
-          let q = false;
-          for (let c = 0; c < l.length; c++) {
-            if (l[c] === '"') q = !q;
-            else if (l[c] === ',' && !q) { cells.push(cur.trim()); cur = ''; }
-            else cur += l[c];
-          }
-          cells.push(cur.trim());
-          const obj: any = {};
-          stockHeaders.forEach((h, idx) => {
-            obj[h] = cells[idx] ? cells[idx].replace(/^"|"$/g, '').trim() : '';
-          });
-          stockRows.push(obj);
-        }
-        console.log(`POST: Parsed ${stockRows.length} stock rows.`);
-
-        // Fetch products and active orders (excluding Entregando!)
-        const [productsRes, pendingRes] = await Promise.all([
-          supabaseAdmin.from('products').select('id, name, sku, stock_physical, stock_reserved, stock_current'),
-          supabaseAdmin.from('order_items').select('product_id, quantity, orders!inner(status)').in('orders.status', ['Pendiente', 'Confirmado'])
-        ]);
-
-        if (!productsRes.error && !pendingRes.error) {
-          const products = productsRes.data || [];
-          const pendingItems = pendingRes.data || [];
-          const dbCalculatedReservesMap = new Map();
-          pendingItems.forEach(item => {
-            const current = dbCalculatedReservesMap.get(item.product_id) || 0;
-            dbCalculatedReservesMap.set(item.product_id, current + parseFloat(item.quantity || 0));
-          });
-
-          let updatedStockCount = 0;
-
-          for (const sRow of stockRows) {
-            const pName = sRow['Producto'] || '';
-            if (!pName || pName === 'Brida') continue;
-            const normPName = normalizeText(pName);
-            const dbP = products.find(p => normalizeText(p.name) === normPName || normalizeText(p.sku) === normPName);
-            if (dbP) {
-              const sheetPhys = parseFloat((sRow['Stock Actual'] || '0').replace(',', '.')) || 0;
-              const dbRes = dbCalculatedReservesMap.get(dbP.id) || 0;
-              const newAv = sheetPhys - dbRes;
-
-              // Skip DB update if stock levels are already perfectly matched (crucial optimization)
-              const curPhys = parseFloat((dbP as any).stock_physical || 0);
-              const curRes = parseFloat((dbP as any).stock_reserved || 0);
-              const curCur = parseFloat((dbP as any).stock_current || 0);
-
-              if (curPhys === sheetPhys && curRes === dbRes && curCur === newAv) {
-                continue;
-              }
-
-              updatedStockCount++;
-              const { error: stockUpdateError } = await supabaseAdmin
-                .from('products')
-                .update({
-                  stock_physical: sheetPhys,
-                  stock_reserved: dbRes,
-                  stock_current: newAv
-                })
-                .eq('id', dbP.id);
-              if (stockUpdateError) throw stockUpdateError;
-            }
-          }
-          console.log(`POST: Stock sync completed. Updated ${updatedStockCount} products.`);
-        } else {
-          throw productsRes.error || pendingRes.error;
-        }
-      }
-      stockResult.status = 'completed';
-    } catch (stockErr: any) {
-      stockResult.status = 'failed';
-      stockResult.error = stockErr.message || 'No se pudo completar la sincronización de stock.';
-      console.error("POST: Failed to download Stock sheet", stockErr);
-    }
-
-    console.log(`POST: Completed successfully. Synced ${syncedOrdersCount} orders.`);
+    console.log(`POST: Batch completed successfully. Synced ${syncedOrdersCount} orders.`);
     return NextResponse.json({
       success: true,
+      done,
+      cursor,
+      nextCursor,
+      batchSize: batchOrders.length,
+      totalOrders: allSheetOrders.length,
+      syncedOrdersCount,
+      skippedOrdersCount,
       stock: stockResult,
-      message: `Conciliación con Logística completada: ${syncedOrdersCount} pedidos actualizados y ${skippedOrdersCount} sin cambios. Se conciliaron estados (Entregando/Entregado), importes, medios de pago y artículos; no se registraron cobros.`
+      message: done
+        ? `Conciliación con Logística completada: ${syncedOrdersCount} pedidos actualizados y ${skippedOrdersCount} sin cambios en el último lote.`
+        : `Lote de Logística procesado (${nextCursor}/${allSheetOrders.length}).`
     });
 
   } catch (err: any) {

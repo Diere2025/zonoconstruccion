@@ -614,20 +614,40 @@ export default function ImportarPedidosPage() {
         addLog("🚚 Comparando estados, importes, medios de pago y artículos con Logística (Entregando/Entregado)...");
         
         try {
-          const logiRes = await fetch("/api/admin/audit-deliveries", {
-            method: "POST",
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ syncStock })
-          });
-          const logiData = await logiRes.json();
-          if (!logiRes.ok || logiData.success === false) throw new Error(logiData.error || `HTTP ${logiRes.status}`);
-          if (logiRes.ok) {
-            addLog(`✅ Logística: ${logiData.message || 'Sincronización completada'}`);
-            if (logiData.stock?.status === 'failed') {
-              problemCount++;
-              addLog(`⚠️ Stock: ${logiData.stock.error}`);
+          let cursor = 0;
+          let done = false;
+          let totalSynced = 0;
+          let totalSkipped = 0;
+
+          while (!done && !cancelImportRef.current) {
+            const logiRes = await fetch("/api/admin/audit-deliveries", {
+              method: "POST",
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ cursor, batchSize: 8 })
+            });
+            const logiData = await logiRes.json();
+            if (!logiRes.ok || logiData.success === false) throw new Error(logiData.error || `HTTP ${logiRes.status}`);
+
+            totalSynced += logiData.syncedOrdersCount || 0;
+            totalSkipped += logiData.skippedOrdersCount || 0;
+            done = logiData.done !== false;
+            cursor = logiData.nextCursor ?? cursor;
+          }
+
+          if (!cancelImportRef.current) {
+            addLog(`✅ Logística: ${totalSynced} pedidos actualizados y ${totalSkipped} sin cambios.`);
+
+            if (syncStock) {
+              const stockRes = await fetch("/api/admin/sync-stock", { method: "POST" });
+              const stockData = await stockRes.json();
+              if (!stockRes.ok || stockData.success === false) {
+                problemCount++;
+                addLog(`⚠️ Stock: ${stockData.error || `HTTP ${stockRes.status}`}`);
+              } else {
+                addLog(`📦 Stock sincronizado: ${stockData.updatedCount || 0} productos actualizados.`);
+              }
             } else {
-              addLog(`📦 Stock: ${logiData.stock?.status === 'skipped' ? 'omitido por configuración' : 'sincronizado'}.`);
+              addLog("📦 Stock: omitido por configuración.");
             }
           }
         } catch (syncErr: any) {
