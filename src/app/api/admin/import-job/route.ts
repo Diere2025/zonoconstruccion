@@ -73,6 +73,14 @@ const parseSpanishNumber = (val: any): number => {
   return isNaN(parsed) ? 0 : parsed;
 };
 
+// Database numeric columns may arrive as numbers or decimal strings. They are
+// not Spanish-formatted values, so dots must remain decimal separators here.
+const storedNumberEquals = (stored: any, incoming: number): boolean => {
+  if (stored === null || stored === undefined || stored === '') return false;
+  const parsed = typeof stored === 'number' ? stored : Number(stored);
+  return Number.isFinite(parsed) && Math.abs(parsed - incoming) < 0.005;
+};
+
 const parseDate = (dateStr: string): Date => {
   if (!dateStr) return new Date();
   const parts = dateStr.trim().split('/');
@@ -673,7 +681,7 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
             if (rawWhaticket && rawWhaticket !== dbOrder.whaticket_link) {
               updatePayload.whaticket_link = rawWhaticket;
             }
-            if (rawTotalAmount > 0 && parseSpanishNumber(dbOrder.total_amount) !== rawTotalAmount) {
+            if (rawTotalAmount > 0 && !storedNumberEquals(dbOrder.total_amount, rawTotalAmount)) {
               updatePayload.total_amount = rawTotalAmount;
             }
             if (dbOrder.channel !== channel) updatePayload.channel = channel;
@@ -682,11 +690,11 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
             if (importedDiscountAmount > 0) {
               const totals = dbOrder.totals || {};
               const discountChanged = dbOrder.order_discount_type !== 'fixed'
-                || parseSpanishNumber(dbOrder.order_discount_value) !== importedDiscountAmount
-                || parseSpanishNumber(dbOrder.order_discount_amount) !== importedDiscountAmount;
+                || !storedNumberEquals(dbOrder.order_discount_value, importedDiscountAmount)
+                || !storedNumberEquals(dbOrder.order_discount_amount, importedDiscountAmount);
               const totalsChanged = totals.order_discount_type !== 'fixed'
-                || parseSpanishNumber(totals.order_discount_value) !== importedDiscountAmount
-                || parseSpanishNumber(totals.order_discount_amount) !== importedDiscountAmount;
+                || !storedNumberEquals(totals.order_discount_value, importedDiscountAmount)
+                || !storedNumberEquals(totals.order_discount_amount, importedDiscountAmount);
 
               if (discountChanged || totalsChanged) {
                 updatePayload.order_discount_type = 'fixed';
