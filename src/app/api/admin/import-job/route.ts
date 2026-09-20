@@ -4,6 +4,7 @@ import { NextResponse, after } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { fetchSpreadsheetCsv, setOrderStatusInSellerSheetByCode } from '@/lib/googleSheets';
 import { isDiscountProductLine, resolveImportedOrderChannel, sheetDiscountAmount } from '@/lib/wholesaleOrders';
+import { oncePerKey } from '@/lib/orderSync';
 import {
   isJazminCentralCancellation,
   JAZMIN_SHEET_NAME,
@@ -246,6 +247,20 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
       sheets = []
     } = payload;
 
+    // Download each unique source only once per run. Central is represented by
+    // two filtered views (retail and wholesale) but both use the same CSV.
+    const fetchSheetOnce = oncePerKey(fetchSpreadsheetCsv);
+    const sheetDownloads = new Map<string, Promise<string>>();
+    for (const sheet of sheets) {
+      if (!sheetDownloads.has(sheet.url)) {
+        const pending = fetchSheetOnce(sheet.url);
+        // Attach a handler immediately; the original promise is still awaited
+        // below and preserves its error for the job result.
+        pending.catch(() => undefined);
+        sheetDownloads.set(sheet.url, pending);
+      }
+    }
+
     // Fetch all existing orders (with pagination)
     async function fetchOrdersAll() {
       let allOrders: any[] = [];
@@ -255,7 +270,7 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
       while (hasMore) {
         const { data, error } = await supabaseAdmin
           .from('orders')
-          .select('id, legacy_code, status, payment_status, delivery_detail, whaticket_link, order_medium_id, client_id, total_amount, totals, channel, advertising_source_id')
+          .select('id, legacy_code, status, payment_status, delivery_detail, whaticket_link, order_medium_id, client_id, total_amount, totals, channel, advertising_source_id, order_discount_type, order_discount_value, order_discount_amount')
           .range(page * pageSize, (page + 1) * pageSize - 1);
         if (error) throw error;
         if (data && data.length > 0) {
@@ -507,7 +522,7 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
       }).eq('id', jobId);
 
       await addLog(`📄 Descargando planilla de ${sheet.name}...`);
-      const csvText = await fetchSpreadsheetCsv(sheet.url);
+      const csvText = await sheetDownloads.get(sheet.url)!;
       const rawRows = parseCSV(csvText);
       const rows = mergeContiguousSheetRows(rawRows);
 
@@ -658,26 +673,37 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
             if (rawWhaticket && rawWhaticket !== dbOrder.whaticket_link) {
               updatePayload.whaticket_link = rawWhaticket;
             }
-            if (rawTotalAmount > 0 && dbOrder.total_amount !== rawTotalAmount) {
+            if (rawTotalAmount > 0 && parseSpanishNumber(dbOrder.total_amount) !== rawTotalAmount) {
               updatePayload.total_amount = rawTotalAmount;
             }
             if (dbOrder.channel !== channel) updatePayload.channel = channel;
             if (advSourceId && dbOrder.advertising_source_id !== advSourceId) updatePayload.advertising_source_id = advSourceId;
             if (!dbOrder.client_id && clientId) updatePayload.client_id = clientId;
             if (importedDiscountAmount > 0) {
-              updatePayload.order_discount_type = 'fixed';
-              updatePayload.order_discount_value = importedDiscountAmount;
-              updatePayload.order_discount_amount = importedDiscountAmount;
-              updatePayload.totals = {
-                ...(dbOrder.totals || {}),
-                order_discount_type: 'fixed',
-                order_discount_value: importedDiscountAmount,
-                order_discount_amount: importedDiscountAmount
-              };
+              const totals = dbOrder.totals || {};
+              const discountChanged = dbOrder.order_discount_type !== 'fixed'
+                || parseSpanishNumber(dbOrder.order_discount_value) !== importedDiscountAmount
+                || parseSpanishNumber(dbOrder.order_discount_amount) !== importedDiscountAmount;
+              const totalsChanged = totals.order_discount_type !== 'fixed'
+                || parseSpanishNumber(totals.order_discount_value) !== importedDiscountAmount
+                || parseSpanishNumber(totals.order_discount_amount) !== importedDiscountAmount;
+
+              if (discountChanged || totalsChanged) {
+                updatePayload.order_discount_type = 'fixed';
+                updatePayload.order_discount_value = importedDiscountAmount;
+                updatePayload.order_discount_amount = importedDiscountAmount;
+                updatePayload.totals = {
+                  ...totals,
+                  order_discount_type: 'fixed',
+                  order_discount_value: importedDiscountAmount,
+                  order_discount_amount: importedDiscountAmount
+                };
+              }
             }
 
             if (Object.keys(updatePayload).length > 0) {
               await supabaseAdmin.from('orders').update(updatePayload).eq('id', dbOrder.id);
+              Object.assign(dbOrder, updatePayload);
               sheetUpd++;
               totalUpdated++;
             }
@@ -770,8 +796,22 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
                   existingOrdersMap.set(code, {
                     id: newOrder.id,
                     status: dbOrderStatus,
+                    payment_status: dbPaymentStatus,
                     delivery_detail: rawDeliveryDetail,
-                    whaticket_link: rawWhaticket
+                    whaticket_link: rawWhaticket,
+                    client_id: clientId,
+                    total_amount: rawTotalAmount,
+                    totals: importedDiscountAmount > 0 ? {
+                      subtotal: rawTotalAmount + importedDiscountAmount,
+                      order_discount_type: 'fixed',
+                      order_discount_value: importedDiscountAmount,
+                      order_discount_amount: importedDiscountAmount
+                    } : null,
+                    channel,
+                    advertising_source_id: advSourceId,
+                    order_discount_type: importedDiscountAmount > 0 ? 'fixed' : null,
+                    order_discount_value: importedDiscountAmount,
+                    order_discount_amount: importedDiscountAmount
                   });
                 }
               });
