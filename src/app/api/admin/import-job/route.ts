@@ -675,6 +675,9 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
               updatePayload.status = 'Entregado';
               updatePayload.payment_status = 'Abonado';
             }
+            if (dbOrder.status !== 'Cancelado' && dbOrderStatus === 'Cancelado') {
+              updatePayload.status = 'Cancelado';
+            }
             if (rawDeliveryDetail && rawDeliveryDetail !== dbOrder.delivery_detail) {
               updatePayload.delivery_detail = rawDeliveryDetail;
             }
@@ -711,6 +714,12 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
 
             if (Object.keys(updatePayload).length > 0) {
               await supabaseAdmin.from('orders').update(updatePayload).eq('id', dbOrder.id);
+              if (updatePayload.status === 'Cancelado') {
+                await supabaseAdmin
+                  .from('deliveries')
+                  .update({ status: 'fallido' })
+                  .eq('order_id', dbOrder.id);
+              }
               Object.assign(dbOrder, updatePayload);
               sheetUpd++;
               totalUpdated++;
@@ -850,7 +859,7 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
       current_step: "Conciliando pedidos con Logística...",
       progress_percent: 90
     }).eq('id', jobId);
-    await addLog("🚚 Comparando estados, importes, medios de pago y artículos con Logística (Entregando/Entregado)...");
+    await addLog("🚚 Comparando estados, importes, medios de pago y artículos con Logística (Entregando/Entregado/Cancelados)...");
 
     try {
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://zono-erp.pages.dev';

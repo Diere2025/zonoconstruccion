@@ -2,14 +2,16 @@ export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { fetchSpreadsheetCsv } from '@/lib/googleSheets';
-import { isLogisticsOrderCode, mapWithConcurrency } from '@/lib/orderSync';
+import { fetchSpreadsheetCsv, fetchSpreadsheetValues } from '@/lib/googleSheets';
+import { isLogisticsOrderCode, mapWithConcurrency, splitOrderCodes } from '@/lib/orderSync';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.dummy';
 
 const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 const LOGISTICS_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1TYeIyGbDleed1bTJyhuaxcM97KMbNbL--1OswOppROg/gviz/tq?tqx=out:csv&gid=1438488516';
+const LOGISTICS_SPREADSHEET_ID = '1TYeIyGbDleed1bTJyhuaxcM97KMbNbL--1OswOppROg';
+const LOGISTICS_CANCELLED_CODES_RANGE = "'Cancelados'!D2:D";
 
 function parseCSV(text: string): string[][] {
   const results: string[][] = [];
@@ -595,8 +597,9 @@ export async function POST(request: Request) {
     // These sources are independent. Loading them concurrently removes several
     // full network round trips from every synchronization.
     const loadStartedAt = Date.now();
-    const [csvText, dbOrdersList, dbItemsList, products, payMethodsRes] = await Promise.all([
+    const [csvText, cancelledCodeRows, dbOrdersList, dbItemsList, products, payMethodsRes] = await Promise.all([
       fetchSpreadsheetCsv(LOGISTICS_SHEET_URL),
+      fetchSpreadsheetValues(LOGISTICS_SPREADSHEET_ID, LOGISTICS_CANCELLED_CODES_RANGE),
       fetchOrdersAll(),
       fetchOrderItemsAll(),
       fetchProductsAll(),
@@ -604,7 +607,12 @@ export async function POST(request: Request) {
     ]);
     const loadMs = Date.now() - loadStartedAt;
     const rows = parseCSV(csvText);
-    console.log(`POST: Loaded sheet (${rows.length} rows), ${dbOrdersList.length} orders and ${dbItemsList.length} items in ${loadMs}ms.`);
+    const cancelledCodes = new Set(
+      cancelledCodeRows
+        .flatMap(row => splitOrderCodes(row[0]))
+        .filter(isLogisticsOrderCode)
+    );
+    console.log(`POST: Loaded sheet (${rows.length} rows), ${cancelledCodes.size} cancelled codes, ${dbOrdersList.length} orders and ${dbItemsList.length} items in ${loadMs}ms.`);
 
     
     if (payMethodsRes.error) throw payMethodsRes.error;
@@ -690,6 +698,7 @@ export async function POST(request: Request) {
     const aggregatedSheetOrders = new Map<string, {
       code: string;
       status: string;
+      preserveCommercialData: boolean;
       sheetTotal: number;
       sheetPayment: string;
       sheetPayments: Set<string>;
@@ -761,12 +770,35 @@ export async function POST(request: Request) {
         aggregatedSheetOrders.set(key, {
           code: dbOrder ? dbOrder.legacy_code : code,
           status,
+          preserveCommercialData: false,
           sheetTotal: rowTotal,
           sheetPayment: rowPayment,
           sheetPayments: pSet,
           sheetItems: rowItems
         });
       }
+    }
+
+    // Los anulados dejan las hojas activas y pasan a "Cancelados". La columna
+    // D aporta únicamente el estado: importes, pago y artículos se preservan.
+    for (const cancelledCode of cancelledCodes) {
+      const dbOrder = dbOrdersMap.get(cancelledCode);
+      if (!dbOrder) continue;
+      const key = dbOrder.legacy_code.trim().toUpperCase();
+      if (dbOrder.status === 'Cancelado') {
+        // Evita que una copia rezagada en una hoja activa revierta el estado.
+        aggregatedSheetOrders.delete(key);
+        continue;
+      }
+      aggregatedSheetOrders.set(key, {
+        code: dbOrder.legacy_code,
+        status: 'Cancelado',
+        preserveCommercialData: true,
+        sheetTotal: parseFloat(dbOrder.total_amount || 0),
+        sheetPayment: '',
+        sheetPayments: new Set<string>(),
+        sheetItems: []
+      });
     }
 
     for (const sheetOrder of aggregatedSheetOrders.values()) {
@@ -791,6 +823,7 @@ export async function POST(request: Request) {
       sheetPaymentId: string | null;
       itemsDiffer: boolean;
       sheetItems: any[];
+      preserveCommercialData: boolean;
       finalPaymentId?: string | null;
     }> = [];
 
@@ -809,7 +842,9 @@ export async function POST(request: Request) {
         const sheetItems = sheetOrder.sheetItems;
         sheetItems.forEach(si => si.order_id = dbOrder.id);
 
-        const targetStatus = sheetOrder.status.toLowerCase().includes('entregando') ? 'Entregando' : 'Entregado';
+        const targetStatus = sheetOrder.status === 'Cancelado'
+          ? 'Cancelado'
+          : sheetOrder.status.toLowerCase().includes('entregando') ? 'Entregando' : 'Entregado';
 
         // --- OPTIMIZATION: Check if there is ANY difference ---
         let needsUpdate = false;
@@ -821,7 +856,7 @@ export async function POST(request: Request) {
 
         // B. Check total amount
         const dbTotal = parseFloat(dbOrder.total_amount || 0);
-        if (Math.abs(sheetTotal - dbTotal) > 1.0) {
+        if (!sheetOrder.preserveCommercialData && Math.abs(sheetTotal - dbTotal) > 1.0) {
           needsUpdate = true;
         }
 
@@ -832,7 +867,7 @@ export async function POST(request: Request) {
           if (id) sheetPaymentIds.add(id);
         });
 
-        if (sheetPaymentIds.size > 0) {
+        if (!sheetOrder.preserveCommercialData && sheetPaymentIds.size > 0) {
           if (!dbOrder.payment_method_id || !sheetPaymentIds.has(dbOrder.payment_method_id)) {
             needsUpdate = true;
           }
@@ -840,7 +875,9 @@ export async function POST(request: Request) {
 
         // D. Check items (using copy-and-delete index matching to handle duplicates)
         let itemsDiffer = false;
-        if (sheetItems.length !== dbOrder.items.length) {
+        if (sheetOrder.preserveCommercialData) {
+          itemsDiffer = false;
+        } else if (sheetItems.length !== dbOrder.items.length) {
           itemsDiffer = true;
         } else {
           const dbItemsCopy = [...dbOrder.items];
@@ -875,7 +912,8 @@ export async function POST(request: Request) {
           sheetPayment,
           sheetPaymentId,
           itemsDiffer,
-          sheetItems
+          sheetItems,
+          preserveCommercialData: sheetOrder.preserveCommercialData
         });
       }
     }
@@ -884,7 +922,7 @@ export async function POST(request: Request) {
     // parallel order writes, to avoid duplicate inserts and race conditions.
     const missingPaymentMethods = new Set(
       plannedUpdates
-        .filter(update => update.sheetPayment && !update.sheetPaymentId)
+        .filter(update => !update.preserveCommercialData && update.sheetPayment && !update.sheetPaymentId)
         .map(update => update.sheetPayment)
     );
     for (const paymentMethod of missingPaymentMethods) {
@@ -900,15 +938,26 @@ export async function POST(request: Request) {
     // Five workers stay below Cloudflare's six simultaneous outgoing
     // connections while removing the serial network wait per order.
     await mapWithConcurrency(plannedUpdates, 5, async update => {
+      const orderUpdate = update.preserveCommercialData
+        ? { status: update.targetStatus }
+        : {
+            status: update.targetStatus,
+            total_amount: update.sheetTotal,
+            payment_method_id: update.finalPaymentId
+          };
       const { error } = await supabaseAdmin
         .from('orders')
-        .update({
-          status: update.targetStatus,
-          total_amount: update.sheetTotal,
-          payment_method_id: update.finalPaymentId
-        })
+        .update(orderUpdate)
         .eq('id', update.dbOrder.id);
       if (error) throw error;
+
+      if (update.targetStatus === 'Cancelado') {
+        const { error: deliveryError } = await supabaseAdmin
+          .from('deliveries')
+          .update({ status: 'fallido' })
+          .eq('order_id', update.dbOrder.id);
+        if (deliveryError) throw deliveryError;
+      }
     });
 
     // Keep each order's delete/insert pair isolated while processing several
@@ -941,12 +990,13 @@ export async function POST(request: Request) {
       nextCursor,
       batchSize: batchOrders.length,
       totalOrders: allSheetOrders.length,
+      cancelledCodesCount: cancelledCodes.size,
       syncedOrdersCount,
       skippedOrdersCount,
       stock: stockResult,
       metrics: { loadMs, planMs, applyMs, totalMs },
       message: done
-        ? `Conciliación con Logística completada: ${syncedOrdersCount} pedidos actualizados y ${skippedOrdersCount} sin cambios en el último lote.`
+        ? `Conciliación con Logística completada: ${syncedOrdersCount} pedidos actualizados y ${skippedOrdersCount} sin cambios en el último lote (incluye Cancelados).`
         : `Lote de Logística procesado (${nextCursor}/${allSheetOrders.length}).`
     });
 
