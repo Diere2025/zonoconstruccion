@@ -304,7 +304,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   // Route guards per role
   useEffect(() => {
     if (!isRoleLoaded) return;
-    if (userRole === 'logistica' && pathname && pathname !== '/admin/cobros-mp' && pathname !== '/admin/fleteros' && pathname !== '/admin/control-planillas' && pathname !== '/vendedores/ruteo/comprobantes') {
+    if (userRole === 'logistica' && pathname && pathname !== '/admin/cobros-mp' && pathname !== '/admin/fleteros' && pathname !== '/admin/control-planillas' && pathname !== '/vendedores/ruteo/comprobantes' && pathname !== '/vendedores/ruteo/remitos') {
       router.replace('/admin/cobros-mp');
     } else if (userRole === 'fletero' && pathname && pathname !== '/admin/cobros-mp') {
       router.replace('/admin/cobros-mp');
@@ -398,7 +398,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       links: [
         { name: "Gestión de Transportistas", href: "/admin/fleteros", icon: Truck, adminOnly: true },
         { name: "Ruteo de Entregas", href: "/vendedores/ruteo", icon: Truck },
-        { name: "Comprobantes", href: "/vendedores/ruteo/comprobantes", icon: Printer },
+        { name: "Impresión Logística", href: "/vendedores/ruteo/comprobantes", icon: Printer },
         { name: "Facturación Pendiente", href: "/admin/facturacion-pendiente", icon: PackageCheck, adminOnly: true },
         { name: "Control de Planillas", href: "/admin/control-planillas", icon: ClipboardCheck },
         { name: "Auditoría de Entregas", href: "/admin/auditoria-logistica", icon: Clock, adminOnly: true },

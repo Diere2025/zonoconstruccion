@@ -74,3 +74,25 @@ test('calculates IVA 21% separately when payment is Transferencia con IVA', () =
   assert.equal(parsed.orderTotal, 584188);
   assert.equal(parsed.pendingBalance, 0);
 });
+
+test('uses the explicit ERP brand before the wholesale channel fallback', () => {
+  const parsed = lib.parseLogisticsPrintRows([
+    row('JS300', '', 'Tanque', 100000),
+    row('JS301', '', 'Tanque', 100000)
+  ]);
+  const merged = lib.mergeLogisticsPrintOrders(parsed, [
+    { legacyCode: 'JS300', commercialBrand: 'zono', channel: 'mayorista' },
+    { legacyCode: 'JS301', commercialBrand: null, channel: 'mayorista' }
+  ]);
+
+  assert.equal(merged[0].commercialBrand, 'zono');
+  assert.equal(merged[1].commercialBrand, 'aquafort');
+});
+
+test('shows the internal diegozono.mp alias as Transferencia', () => {
+  const values = row('JS500', '', 'Tanque', 100000);
+  values[21] = 'diegozono.mp (0%)';
+
+  const [parsed] = lib.parseLogisticsPrintRows([values]);
+  assert.equal(parsed.paymentMethod, 'Transferencia');
+});

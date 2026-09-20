@@ -36,7 +36,9 @@ export async function GET() {
       } else {
         metadata = (data || []).map(order => ({
           legacyCode: String(order.legacy_code || ''),
-          commercialBrand: order.commercial_brand === 'aquafort' ? 'aquafort' : 'zono',
+          commercialBrand: order.commercial_brand === 'aquafort' || order.commercial_brand === 'zono'
+            ? order.commercial_brand
+            : null,
           channel: order.channel
         }));
       }

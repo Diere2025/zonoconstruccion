@@ -99,7 +99,10 @@ export function parseLogisticsPrintRows(rows: string[][], firstRowNumber = 3): L
     }
 
     const productsSubtotal = parseSheetNumber(row[28]);
-    const paymentMethod = String(row[21] || '');
+    const rawPaymentMethod = String(row[21] || '').trim();
+    const paymentMethod = /diegozono\s*\.\s*mp/i.test(rawPaymentMethod)
+      ? 'Transferencia'
+      : rawPaymentMethod;
     const explicitSurcharge = parseSheetNumber(row[25]);
     const isVatTransfer = /transferencia[\s\S]*iva\s*21|iva\s*21[\s\S]*transferencia/i.test(paymentMethod);
     const surcharge = explicitSurcharge !== 0

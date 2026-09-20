@@ -3,11 +3,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { CheckSquare, Loader2, Printer, RefreshCw, Search, Square } from 'lucide-react';
+import QRCode from 'qrcode';
 import { LogisticsPrintOrder } from '@/lib/logisticsPrintOrders';
 
-type PerPage = 1 | 2;
+export type PerPage = 1 | 2;
 
-interface ReceiptSheet {
+export interface ReceiptSheet {
   layout: 'single' | 'double';
   orders: LogisticsPrintOrder[];
 }
@@ -51,8 +52,29 @@ export function buildReceiptSheets(orders: LogisticsPrintOrder[], perPage: PerPa
   return result;
 }
 
+function WhatsAppQr({ phone }: { phone: string }) {
+  const qr = QRCode.create(`https://wa.me/${phone}`, { errorCorrectionLevel: 'M' });
+  const quietZone = 4;
+  const viewSize = qr.modules.size + quietZone * 2;
+  let path = '';
+  for (let row = 0; row < qr.modules.size; row++) {
+    for (let column = 0; column < qr.modules.size; column++) {
+      if (qr.modules.get(row, column)) path += `M${column} ${row}h1v1h-1z`;
+    }
+  }
+
+  return (
+    <svg className="receipt-whatsapp-qr-code" viewBox={`0 0 ${viewSize} ${viewSize}`} aria-label="QR de WhatsApp">
+      <rect width={viewSize} height={viewSize} fill="#fff" />
+      <path d={path} transform={`translate(${quietZone} ${quietZone})`} fill="#000" />
+    </svg>
+  );
+}
+
 function Receipt({ order, compact }: { order: LogisticsPrintOrder; compact: boolean }) {
   const isAquafort = order.commercialBrand === 'aquafort';
+  const companyPhone = isAquafort ? '+54 9 11 6474-3375' : '+54 9 11 5769-4181';
+  const whatsappPhone = isAquafort ? '5491164743375' : '5491157694181';
   const discount = order.items.filter(item => item.unitPrice < 0 || /descuento|bonificaci/i.test(item.name));
   const regularItems = order.items.filter(item => !discount.includes(item));
   const items = [...regularItems, ...discount];
@@ -62,11 +84,16 @@ function Receipt({ order, compact }: { order: LogisticsPrintOrder; compact: bool
   return (
     <article className={`logistics-receipt ${compact ? 'is-compact' : 'is-full'}`}>
       <header className="receipt-header">
-        <div>
+        <div className="receipt-brand-block">
           <div className="receipt-company">{isAquafort ? 'AQUAFORT' : 'ZONO CONSTRUCCIÓN'}</div>
           <div className="receipt-company-detail">
             {isAquafort ? 'Soluciones para el agua' : 'Construcción y hogar'} · Quilmes 4541, Paso del Rey
           </div>
+          <div className="receipt-company-contact">WhatsApp: {companyPhone}</div>
+        </div>
+        <div className="receipt-whatsapp-qr">
+          <WhatsAppQr phone={whatsappPhone} />
+          <span>WhatsApp</span>
         </div>
         <div className="receipt-number">
           <strong>COMPROBANTE DE PEDIDO</strong>
@@ -115,9 +142,6 @@ function Receipt({ order, compact }: { order: LogisticsPrintOrder; compact: bool
             </div>
           )}
           <div><b>Estado:</b> {order.paymentStatus || 'No abonado'}</div>
-          {order.sourceRows.length > 1 && (
-            <div><b>Pedido unificado:</b> {order.sourceRows.length} filas de la planilla</div>
-          )}
         </div>
         <div className="receipt-totals">
           <div><span>Productos</span><b>{money(order.productsSubtotal)}</b></div>
@@ -142,7 +166,7 @@ function Receipt({ order, compact }: { order: LogisticsPrintOrder; compact: bool
   );
 }
 
-function PrintableReceipts({ sheets }: { sheets: ReceiptSheet[] }) {
+export function PrintableReceipts({ sheets }: { sheets: ReceiptSheet[] }) {
   if (typeof document === 'undefined') return null;
   return createPortal(
     <div id="print-logistics-receipts-root">
