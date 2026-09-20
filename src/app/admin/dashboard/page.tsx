@@ -1640,7 +1640,6 @@ export default function AdminDashboard() {
             <h3 className="text-xl font-bold text-slate-900 leading-none tabular-nums">
               {formatPrice(todayStats.sales)}
             </h3>
-
             <div className="mt-1.5 flex items-center gap-1 text-[11px] font-semibold text-slate-600">
               <span className="bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded-md text-[10px] font-bold">
                 {todayStats.ordersCount} {todayStats.ordersCount === 1 ? "pedido" : "pedidos"}

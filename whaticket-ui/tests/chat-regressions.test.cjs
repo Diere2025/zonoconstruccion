@@ -25,6 +25,7 @@ function harness() {
   const mediaSendPlan = loadTS('src/utils/mediaSendPlan.ts');
   const api = {
     get(url, config) {
+      if (url.includes('/ticket-notes/list')) return Promise.resolve({ data: [] });
       return new Promise((resolve, reject) => requests.push({ method: 'get', url, config, resolve: (data) => resolve({ data }), reject }));
     },
     put(url, data) {
@@ -239,4 +240,44 @@ test('multiple attachments use the composed text only for the first WhatsApp mes
   const { createMediaSendPlan } = loadTS('src/utils/mediaSendPlan.ts');
   const plan = createMediaSendPlan([{ name: 'uno.png' }, { name: 'dos.png' }], 'Oferta de la semana');
   assert.deepEqual(plan.map((step) => step.body), ['Oferta de la semana', '']);
+});
+
+test('fetchTicketsSilent merges new and existing tickets without setting isLoadingTickets', async () => {
+  const { store, requests } = harness();
+  store.setState({ tickets: [ticket(1)], isLoadingTickets: false });
+  const pending = store.getState().fetchTicketsSilent();
+  assert.equal(store.getState().isLoadingTickets, false);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].config.params.pageNumber, 1);
+  requests[0].resolve({
+    tickets: [
+      { ...ticket(2), updatedAt: '2026-09-01T01:00:00Z' },
+      { ...ticket(1), lastMessage: 'Hola!' }
+    ]
+  });
+  await pending;
+  assert.deepEqual(ids(store.getState().tickets), [2, 1]);
+  assert.equal(store.getState().tickets.find(t => t.id === 1).lastMessage, 'Hola!');
+  assert.equal(store.getState().isLoadingTickets, false);
+});
+
+test('handleSocketMessage adds ticket when socket payload contains ticket data', () => {
+  const { store } = harness();
+  store.setState({ tickets: [ticket(1)] });
+  store.getState().handleSocketMessage({
+    action: 'create',
+    message: message('m1', 99),
+    ticket: ticket(99),
+  });
+  assert.deepEqual(ids(store.getState().tickets), [99, 1]);
+  assert.equal(store.getState().tickets[0].lastMessage, 'm1');
+});
+
+test('handleSocketTicket accepts ticketId in delete action without dropping non-closed active ticket', () => {
+  const { store } = harness();
+  const openTicket = ticket(1, 'open');
+  store.setState({ tickets: [openTicket], activeTicket: openTicket });
+  store.getState().handleSocketTicket({ action: 'delete', ticketId: 1 });
+  assert.deepEqual(ids(store.getState().tickets), []);
+  assert.equal(store.getState().activeTicket.id, 1);
 });

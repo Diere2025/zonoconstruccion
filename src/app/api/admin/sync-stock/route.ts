@@ -122,6 +122,41 @@ function parseCSV(text: string): any[] {
   return results;
 }
 
+function addCalculatedReserve(
+  reserves: Map<string, number>,
+  productsById: Map<string, any>,
+  productId: string | null | undefined,
+  productName: string,
+  quantity: number
+) {
+  let targetId = productId || null;
+  const product = targetId ? productsById.get(targetId) : null;
+  if (product?.is_generic && product.mapped_real_product_id) {
+    targetId = product.mapped_real_product_id;
+  }
+
+  if (targetId) {
+    reserves.set(targetId, (reserves.get(targetId) || 0) + quantity);
+  }
+
+  const realProduct = (targetId ? productsById.get(targetId) : null) || product;
+  const normalizedName = normalizeText(realProduct?.name || productName || '');
+  const normalizedSku = normalizeText(realProduct?.sku || '');
+  const aliases = new Set([
+    normalizedName,
+    normalizedName.replace(/^interno/i, ''),
+    normalizedSku,
+    normalizedSku.replace(/^interno/i, '')
+  ].filter(Boolean));
+
+  // A name and SKU can normalize to the same value. Count each item only once
+  // for every alias, while still allowing legacy/current product IDs to merge.
+  aliases.forEach(alias => {
+    const key = `norm_${alias}`;
+    reserves.set(key, (reserves.get(key) || 0) + quantity);
+  });
+}
+
 // GET: Download spreadsheet, fetch database calculated reserves, and return comparison preview
 export async function GET() {
   try {
@@ -159,25 +194,7 @@ export async function GET() {
     const dbCalculatedReservesMap = new Map<string, number>();
     pendingItems.forEach((item: any) => {
       const qty = parseFloat(item.quantity || 0);
-      let targetId = item.product_id;
-      const prod = productByIdMap.get(item.product_id);
-      if (prod && prod.is_generic && prod.mapped_real_product_id) {
-        targetId = prod.mapped_real_product_id;
-      }
-      if (targetId) {
-        dbCalculatedReservesMap.set(targetId, (dbCalculatedReservesMap.get(targetId) || 0) + qty);
-      }
-
-      const realProd = (targetId ? productByIdMap.get(targetId) : null) || prod;
-      const normName = normalizeText(realProd ? realProd.name : (item.product_name || ''));
-      const normCleanName = normName.replace(/^interno\s*/i, "").trim();
-      const normSku = normalizeText(realProd ? (realProd.sku || '') : '');
-      const normCleanSku = normSku.replace(/^interno\s*/i, "").trim();
-
-      if (normName) dbCalculatedReservesMap.set(`norm_${normName}`, (dbCalculatedReservesMap.get(`norm_${normName}`) || 0) + qty);
-      if (normCleanName && normCleanName !== normName) dbCalculatedReservesMap.set(`norm_${normCleanName}`, (dbCalculatedReservesMap.get(`norm_${normCleanName}`) || 0) + qty);
-      if (normSku) dbCalculatedReservesMap.set(`norm_${normSku}`, (dbCalculatedReservesMap.get(`norm_${normSku}`) || 0) + qty);
-      if (normCleanSku && normCleanSku !== normSku) dbCalculatedReservesMap.set(`norm_${normCleanSku}`, (dbCalculatedReservesMap.get(`norm_${normCleanSku}`) || 0) + qty);
+      addCalculatedReserve(dbCalculatedReservesMap, productByIdMap, item.product_id, item.product_name, qty);
     });
 
     // Also include pending unimported seller orders in calculated reserves
@@ -187,29 +204,14 @@ export async function GET() {
         order.items.forEach(item => {
           const qty = item.quantity || 0;
           if (qty <= 0) return;
-          let targetId = item.productId;
-          const prod = targetId ? productByIdMap.get(targetId) : null;
-          if (prod && prod.is_generic && prod.mapped_real_product_id) {
-            targetId = prod.mapped_real_product_id;
-          }
-          if (targetId) {
-            dbCalculatedReservesMap.set(targetId, (dbCalculatedReservesMap.get(targetId) || 0) + qty);
-          }
-          const realProd = (targetId ? productByIdMap.get(targetId) : null) || prod;
-          const normName = normalizeText(realProd ? realProd.name : (item.productName || ''));
-          const normCleanName = normName.replace(/^interno\s*/i, "").trim();
-          const normSku = normalizeText(realProd ? (realProd.sku || '') : '');
-          const normCleanSku = normSku.replace(/^interno\s*/i, "").trim();
-
-          if (normName) dbCalculatedReservesMap.set(`norm_${normName}`, (dbCalculatedReservesMap.get(`norm_${normName}`) || 0) + qty);
-          if (normCleanName && normCleanName !== normName) dbCalculatedReservesMap.set(`norm_${normCleanName}`, (dbCalculatedReservesMap.get(`norm_${normCleanName}`) || 0) + qty);
-          if (normSku) dbCalculatedReservesMap.set(`norm_${normSku}`, (dbCalculatedReservesMap.get(`norm_${normSku}`) || 0) + qty);
-          if (normCleanSku && normCleanSku !== normSku) dbCalculatedReservesMap.set(`norm_${normCleanSku}`, (dbCalculatedReservesMap.get(`norm_${normCleanSku}`) || 0) + qty);
+          addCalculatedReserve(dbCalculatedReservesMap, productByIdMap, item.productId, item.productName, qty);
         });
       });
     }
 
-    const comparisonList: any[] = [];
+    // A sheet can contain duplicated rows that resolve to the same catalog item.
+    // Keep one comparison per DB product, matching the POST upsert behavior.
+    const comparisonByProductId = new Map<string, any>();
     const unmatchedSheetProducts: any[] = [];
     const matchedProductIds = new Set<string>();
 
@@ -252,16 +254,18 @@ export async function GET() {
 
         const dbPhysical = parseFloat(dbProd.stock_physical || '0') || 0;
         const dbReserved = parseFloat(dbProd.stock_reserved || '0') || 0;
+        // Prefer the consolidated name total: historical and current product IDs
+        // can represent the same physical SKU (for example, Flotante Eco).
         const dbCalculatedReserved = 
-          dbCalculatedReservesMap.get(dbProd.id) ||
           dbCalculatedReservesMap.get(`norm_${normCleanProdName}`) ||
           dbCalculatedReservesMap.get(`norm_${normProdName}`) ||
           dbCalculatedReservesMap.get(`norm_${normalizeText(dbProd.name)}`) ||
           dbCalculatedReservesMap.get(`norm_${normalizeText(dbProd.sku || '')}`) ||
+          dbCalculatedReservesMap.get(dbProd.id) ||
           0;
         const dbAvailable = parseFloat(dbProd.stock_current || '0') || 0;
 
-        comparisonList.push({
+        comparisonByProductId.set(dbProd.id, {
           productId: dbProd.id,
           name: dbProd.name,
           sku: dbProd.sku,
@@ -281,6 +285,8 @@ export async function GET() {
         });
       }
     });
+
+    const comparisonList = Array.from(comparisonByProductId.values());
 
     // Check database products only
     const onlyInDb: any[] = [];
@@ -347,25 +353,7 @@ export async function POST() {
     const dbCalculatedReservesMap = new Map<string, number>();
     pendingItems.forEach((item: any) => {
       const qty = parseFloat(item.quantity || 0);
-      let targetId = item.product_id;
-      const prod = productByIdMap.get(item.product_id);
-      if (prod && prod.is_generic && prod.mapped_real_product_id) {
-        targetId = prod.mapped_real_product_id;
-      }
-      if (targetId) {
-        dbCalculatedReservesMap.set(targetId, (dbCalculatedReservesMap.get(targetId) || 0) + qty);
-      }
-
-      const realProd = (targetId ? productByIdMap.get(targetId) : null) || prod;
-      const normName = normalizeText(realProd ? realProd.name : (item.product_name || ''));
-      const normCleanName = normName.replace(/^interno\s*/i, "").trim();
-      const normSku = normalizeText(realProd ? (realProd.sku || '') : '');
-      const normCleanSku = normSku.replace(/^interno\s*/i, "").trim();
-
-      if (normName) dbCalculatedReservesMap.set(`norm_${normName}`, (dbCalculatedReservesMap.get(`norm_${normName}`) || 0) + qty);
-      if (normCleanName && normCleanName !== normName) dbCalculatedReservesMap.set(`norm_${normCleanName}`, (dbCalculatedReservesMap.get(`norm_${normCleanName}`) || 0) + qty);
-      if (normSku) dbCalculatedReservesMap.set(`norm_${normSku}`, (dbCalculatedReservesMap.get(`norm_${normSku}`) || 0) + qty);
-      if (normCleanSku && normCleanSku !== normSku) dbCalculatedReservesMap.set(`norm_${normCleanSku}`, (dbCalculatedReservesMap.get(`norm_${normCleanSku}`) || 0) + qty);
+      addCalculatedReserve(dbCalculatedReservesMap, productByIdMap, item.product_id, item.product_name, qty);
     });
 
     // Also include pending unimported seller orders in calculated reserves
@@ -375,24 +363,7 @@ export async function POST() {
         order.items.forEach(item => {
           const qty = item.quantity || 0;
           if (qty <= 0) return;
-          let targetId = item.productId;
-          const prod = targetId ? productByIdMap.get(targetId) : null;
-          if (prod && prod.is_generic && prod.mapped_real_product_id) {
-            targetId = prod.mapped_real_product_id;
-          }
-          if (targetId) {
-            dbCalculatedReservesMap.set(targetId, (dbCalculatedReservesMap.get(targetId) || 0) + qty);
-          }
-          const realProd = (targetId ? productByIdMap.get(targetId) : null) || prod;
-          const normName = normalizeText(realProd ? realProd.name : (item.productName || ''));
-          const normCleanName = normName.replace(/^interno\s*/i, "").trim();
-          const normSku = normalizeText(realProd ? (realProd.sku || '') : '');
-          const normCleanSku = normSku.replace(/^interno\s*/i, "").trim();
-
-          if (normName) dbCalculatedReservesMap.set(`norm_${normName}`, (dbCalculatedReservesMap.get(`norm_${normName}`) || 0) + qty);
-          if (normCleanName && normCleanName !== normName) dbCalculatedReservesMap.set(`norm_${normCleanName}`, (dbCalculatedReservesMap.get(`norm_${normCleanName}`) || 0) + qty);
-          if (normSku) dbCalculatedReservesMap.set(`norm_${normSku}`, (dbCalculatedReservesMap.get(`norm_${normSku}`) || 0) + qty);
-          if (normCleanSku && normCleanSku !== normSku) dbCalculatedReservesMap.set(`norm_${normCleanSku}`, (dbCalculatedReservesMap.get(`norm_${normCleanSku}`) || 0) + qty);
+          addCalculatedReserve(dbCalculatedReservesMap, productByIdMap, item.productId, item.productName, qty);
         });
       });
     }
@@ -438,12 +409,13 @@ export async function POST() {
       if (dbProd) {
         const sheetPhysical = parseFloat((row['Stock Actual'] || '0').replace(',', '.')) || 0;
         const sheetReserved = parseFloat((row['Reservado'] || '0').replace(',', '.')) || 0;
+        // Prefer the consolidated name total so product aliases are not omitted.
         const dbCalculatedReserved = 
-          dbCalculatedReservesMap.get(dbProd.id) ||
           dbCalculatedReservesMap.get(`norm_${normCleanProdName}`) ||
           dbCalculatedReservesMap.get(`norm_${normProdName}`) ||
           dbCalculatedReservesMap.get(`norm_${normalizeText(dbProd.name)}`) ||
           dbCalculatedReservesMap.get(`norm_${normalizeText(dbProd.sku || '')}`) ||
+          dbCalculatedReservesMap.get(dbProd.id) ||
           0;
         const effectiveReserved = dbCalculatedReserved;
         const newAvailable = sheetPhysical - effectiveReserved;

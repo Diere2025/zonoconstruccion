@@ -2,7 +2,14 @@ export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 import { NextResponse, after } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { fetchSpreadsheetCsv } from '@/lib/googleSheets';
+import { fetchSpreadsheetCsv, setOrderStatusInSellerSheetByCode } from '@/lib/googleSheets';
+import { isDiscountProductLine, resolveImportedOrderChannel, sheetDiscountAmount } from '@/lib/wholesaleOrders';
+import {
+  isJazminCentralCancellation,
+  JAZMIN_SHEET_NAME,
+  JAZMIN_SPREADSHEET_ID,
+  PROCESSED_SELLER_STATUS
+} from '@/lib/importStatus';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.dummy';
@@ -248,7 +255,7 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
       while (hasMore) {
         const { data, error } = await supabaseAdmin
           .from('orders')
-          .select('id, legacy_code, status, payment_status, delivery_detail, whaticket_link, order_medium_id, client_id, total_amount')
+          .select('id, legacy_code, status, payment_status, delivery_detail, whaticket_link, order_medium_id, client_id, total_amount, totals, channel, advertising_source_id')
           .range(page * pageSize, (page + 1) * pageSize - 1);
         if (error) throw error;
         if (data && data.length > 0) {
@@ -390,6 +397,30 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
     if (paymentMethodsRes.error) throw paymentMethodsRes.error;
     if (phoneLinesRes.error) throw phoneLinesRes.error;
 
+    let advertisingSources = advSourcesRes.data || [];
+    if (!advertisingSources.some(source => normalizeText(source.name) === 'mayorista')) {
+      const { data: existingMayorista, error: findMayoristaError } = await supabaseAdmin
+        .from('advertising_sources')
+        .select('id, name')
+        .ilike('name', 'Mayorista')
+        .maybeSingle();
+      if (findMayoristaError) throw findMayoristaError;
+
+      let mayoristaSource = existingMayorista;
+      if (!mayoristaSource) {
+        const { data: createdMayorista, error: createMayoristaError } = await supabaseAdmin
+          .from('advertising_sources')
+          .insert({ name: 'Mayorista', is_active: true })
+          .select('id, name')
+          .single();
+        if (createMayoristaError) throw createMayoristaError;
+        mayoristaSource = createdMayorista;
+        await addLog('✅ Procedencia "Mayorista" creada en el ERP.');
+      }
+
+      if (mayoristaSource) advertisingSources = [...advertisingSources, mayoristaSource];
+    }
+
     await addLog(`📥 Datos maestros cargados: ${products.length} productos, ${dbOrders.length} pedidos y ${dbClients.length} clientes existentes.`);
 
     // Build Maps
@@ -400,7 +431,7 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
     (localitiesRes.data || []).forEach(r => localitiesMap.set(normalizeLocalityFuzzy(r.name), r.id));
 
     const advSourcesMap = new Map();
-    (advSourcesRes.data || []).forEach(r => advSourcesMap.set(normalizeText(r.name), r.id));
+    advertisingSources.forEach(r => advSourcesMap.set(normalizeText(r.name), r.id));
 
     const orderMediumsMap = new Map();
     (orderMediumsRes.data || []).forEach(r => orderMediumsMap.set(normalizeText(r.name), r.id));
@@ -508,6 +539,18 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
           const orderCode = (row[1] || "").trim().toUpperCase();
           if (!orderCode) continue;
 
+          if (isJazminCentralCancellation(sheet.defaultSellerId, rawEstado)) {
+            const statusResult = await setOrderStatusInSellerSheetByCode(
+              JAZMIN_SPREADSHEET_ID,
+              JAZMIN_SHEET_NAME,
+              orderCode,
+              PROCESSED_SELLER_STATUS
+            );
+            await addLog(statusResult.success
+              ? `ℹ️ Pedido ${orderCode}: cancelado en Central y marcado como Pasado en Jazmín.`
+              : `ℹ️ Pedido ${orderCode}: cancelado en Central; no se pudo marcar como Pasado en Jazmín.`);
+          }
+
           const rawOrderDate = (row[3] || "").trim();
           const rawClientName = (row[5] || "").trim();
           const rawPhone1 = (row[6] || "").trim();
@@ -561,11 +604,14 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
           let advSourceId = advSourcesMap.get(normalizeText(rawAdvSource)) || null;
           let orderMediumId = orderMediumsMap.get(normalizeText(rawMedium)) || null;
 
-          // Deduce Channel
-          let channel = sheet.defaultChannel || 'mostrador_minorista';
-          if (orderCode.startsWith("AQU") || orderCode.startsWith("POW") || orderCode.startsWith("AQ-") || rawDeliveryDetail.toUpperCase().includes("MAYORISTA")) {
-            channel = 'mayorista';
-          }
+          const channel = resolveImportedOrderChannel({
+            orderCode,
+            advertisingSource: rawAdvSource,
+            sellerName: matchedSeller?.full_name || rawSellerName || sheet.name,
+            defaultChannel: sheet.defaultChannel,
+            deliveryDetail: rawDeliveryDetail
+          });
+          const importedDiscountAmount = sheetDiscountAmount(row);
 
           // Client handling
           let clientId: string | null = null;
@@ -575,12 +621,17 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
 
           if (existingClient) {
             clientId = existingClient.id;
+            if (channel === 'mayorista' && !existingClient.is_wholesale) {
+              await supabaseAdmin.from('clients').update({ is_wholesale: true, client_type: 'Mayorista' }).eq('id', clientId);
+              existingClient.is_wholesale = true;
+            }
           } else if (rawClientName) {
             const { data: newClient } = await supabaseAdmin.from('clients').insert({
               business_name: rawClientName,
               phone_primary: rawPhone1 || rawPhone2 || "Sin teléfono",
               phone_secondary: rawPhone2 || null,
-              is_wholesale: channel === 'mayorista'
+              is_wholesale: channel === 'mayorista',
+              client_type: channel === 'mayorista' ? 'Mayorista' : 'Particular'
             }).select('id').single();
 
             if (newClient) {
@@ -609,6 +660,20 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
             }
             if (rawTotalAmount > 0 && dbOrder.total_amount !== rawTotalAmount) {
               updatePayload.total_amount = rawTotalAmount;
+            }
+            if (dbOrder.channel !== channel) updatePayload.channel = channel;
+            if (advSourceId && dbOrder.advertising_source_id !== advSourceId) updatePayload.advertising_source_id = advSourceId;
+            if (!dbOrder.client_id && clientId) updatePayload.client_id = clientId;
+            if (importedDiscountAmount > 0) {
+              updatePayload.order_discount_type = 'fixed';
+              updatePayload.order_discount_value = importedDiscountAmount;
+              updatePayload.order_discount_amount = importedDiscountAmount;
+              updatePayload.totals = {
+                ...(dbOrder.totals || {}),
+                order_discount_type: 'fixed',
+                order_discount_value: importedDiscountAmount,
+                order_discount_amount: importedDiscountAmount
+              };
             }
 
             if (Object.keys(updatePayload).length > 0) {
@@ -644,6 +709,9 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
               freight_type: 'Regular',
               status: dbOrderStatus,
               total_amount: rawTotalAmount,
+              order_discount_type: importedDiscountAmount > 0 ? 'fixed' : null,
+              order_discount_value: importedDiscountAmount,
+              order_discount_amount: importedDiscountAmount,
               order_date: orderDate.toISOString(),
               initial_delivery_date: initDelDate.toISOString(),
               max_delivery_date: maxDelDate.toISOString(),
@@ -651,7 +719,13 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
               channel,
               delivery_detail: rawDeliveryDetail || null,
               legacy_code: orderCode,
-              whaticket_link: rawWhaticket || null
+              whaticket_link: rawWhaticket || null,
+              totals: importedDiscountAmount > 0 ? {
+                subtotal: rawTotalAmount + importedDiscountAmount,
+                order_discount_type: 'fixed',
+                order_discount_value: importedDiscountAmount,
+                order_discount_amount: importedDiscountAmount
+              } : null
             }).select('id').single();
 
             if (!errIns && newOrder) {
@@ -666,10 +740,11 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
                 const prodPriceRaw = (row[pIdx + 2] || "").trim();
                 const prodSubtRaw = (row[pIdx + 3] || "").trim();
 
-                if (!prodName || prodName === "0" || prodName.toLowerCase() === "descuento") continue;
+                if (!prodName || prodName === "0") continue;
                 const qty = parseInt(prodQtyRaw.replace(/[^0-9.-]/g, ''), 10) || 1;
                 const unitPrice = parseSpanishNumber(prodPriceRaw) || 0;
                 const subtotal = parseSpanishNumber(prodSubtRaw) || (qty * unitPrice);
+                if (isDiscountProductLine(prodName, unitPrice)) continue;
 
                 const matchedProd = productMap.get(cleanProductName(prodName));
 
@@ -724,10 +799,10 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
 
     // 4. Audit Deliveries (Logística)
     await supabaseAdmin.from('import_jobs').update({
-      current_step: "Sincronizando entregas con Logística...",
+      current_step: "Conciliando pedidos con Logística...",
       progress_percent: 90
     }).eq('id', jobId);
-    await addLog("🚚 Sincronizando remitos y entregados con Logística...");
+    await addLog("🚚 Comparando estados, importes, medios de pago y artículos con Logística (Entregando/Entregado)...");
 
     try {
       const logiRes = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'https://zonoconstruccion.pages.dev'}/api/admin/audit-deliveries`, { method: "POST" });

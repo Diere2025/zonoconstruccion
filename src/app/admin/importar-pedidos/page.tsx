@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
+import { activeOrderCodes, hasActiveOrder, oncePerKey, syncOutcome } from "@/lib/orderSync";
 
 export default function ImportarPedidosPage() {
   // Import Orders Selection State
@@ -32,8 +33,9 @@ export default function ImportarPedidosPage() {
   const [importCentral, setImportCentral] = useState(true);
   const [importAquafort, setImportAquafort] = useState(true);
   const [syncPaymentMethods, setSyncPaymentMethods] = useState(false);
-  const [useClaimsSheet, setUseClaimsSheet] = useState(true);
-  const [claimsSheetUrl, setClaimsSheetUrl] = useState("https://docs.google.com/spreadsheets/d/1PzbotWVO-iLqV0rPvH2ZlXKkMGYPTIkmBd1owU45OCo/gviz/tq?tqx=out:csv&gid=1414092286");
+  const [syncLogistics, setSyncLogistics] = useState(true);
+  const [syncStock, setSyncStock] = useState(true);
+  const [summaryStatus, setSummaryStatus] = useState<'success' | 'partial' | 'cancelled' | 'error'>('success');
   const [showRules, setShowRules] = useState(false);
   
   // Real-Time Progress & Time Tracking
@@ -242,6 +244,11 @@ export default function ImportarPedidosPage() {
 
   // Main Import Process with Live Progress
   const handleImportOrders = async () => {
+    if (![importJazmin, importDiego, importLudmila, importFacundo, importCentral, importAquafort].some(Boolean)) {
+      setSummaryStatus('error');
+      setImportOrdersSummary('Seleccioná al menos una planilla para sincronizar.');
+      return;
+    }
     setImportingOrders(true);
     setImportOrdersLogs([]);
     setImportOrdersSummary(null);
@@ -267,6 +274,14 @@ export default function ImportarPedidosPage() {
       setImportOrdersLogs(prev => [...prev, `[${new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}] ${msg}`]);
     };
 
+    let problemCount = 0;
+    const failedCodes = new Set<string>();
+    const readSheet = oncePerKey(async (url: string) => {
+      const response = await fetch(`/api/admin/fetch-sheet?url=${encodeURIComponent(url)}`, { cache: 'no-store' });
+      if (!response.ok) throw new Error(`Error al descargar planilla (HTTP ${response.status})`);
+      return mergeContiguousSheetRows(parseCSV(await response.text()));
+    });
+
     try {
       addLog("🚀 Iniciando importación y sincronización de planillas...");
 
@@ -276,6 +291,7 @@ export default function ImportarPedidosPage() {
         setProgressPercent(10);
         try {
           const pmRes = await fetch("/api/admin/fetch-sheet?id=1nz545_xNUgdI2LMAGIDCjh6Qs8-vUDHdynzj7jU2wm0&gid=1294713859", { cache: 'no-store' });
+          if (!pmRes.ok) throw new Error(`HTTP ${pmRes.status}`);
           if (pmRes.ok) {
             const pmCsv = await pmRes.text();
             const pmRows = parseCSV(pmCsv);
@@ -295,15 +311,18 @@ export default function ImportarPedidosPage() {
               const existing = existingPms.find(pm => pm.name.toLowerCase() === name.toLowerCase());
               if (existing) {
                 if (existing.surcharge_percentage !== surchargePercentage || existing.installments !== installments) {
-                  await supabase.from('payment_methods').update({ surcharge_percentage: surchargePercentage, installments }).eq('id', existing.id);
+                  const { error } = await supabase.from('payment_methods').update({ surcharge_percentage: surchargePercentage, installments }).eq('id', existing.id);
+                  if (error) throw error;
                 }
               } else {
-                await supabase.from('payment_methods').insert({ name, surcharge_percentage: surchargePercentage, installments, is_active: true, is_default: false });
+                const { error } = await supabase.from('payment_methods').insert({ name, surcharge_percentage: surchargePercentage, installments, is_active: true, is_default: false });
+                if (error) throw error;
               }
             }
             addLog("💳 Medios de pago y recargos sincronizados.");
           }
         } catch (errPm: any) {
+          problemCount++;
           addLog(`⚠️ Medios de pago: ${errPm.message}`);
         }
       }
@@ -315,7 +334,7 @@ export default function ImportarPedidosPage() {
       let masterPayload: any = null;
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
-          const res = await fetch("/api/admin/import-master-data");
+          const res = await fetch("/api/admin/import-master-data?scope=orders");
           if (res.ok) {
             masterPayload = await res.json();
             break;
@@ -330,7 +349,8 @@ export default function ImportarPedidosPage() {
       }
 
       const serverOrders = masterPayload.orders || [];
-      addLog(`📥 Datos maestros cargados: ${masterPayload.products?.length || 0} productos y ${serverOrders.length} pedidos existentes en DB.`);
+      const activeCodes = activeOrderCodes(serverOrders);
+      addLog(`📥 Índice cargado: ${serverOrders.length} pedidos existentes.`);
 
       const defaultJazminSellerId = "13430e05-b61a-4a3f-9fc3-152d377c4b0c";
       const defaultDiegoSellerId = "381df0d1-183f-4ccb-aaf2-8147c76159a9";
@@ -418,18 +438,15 @@ export default function ImportarPedidosPage() {
         setCurrentStepText(`Planilla ${sIdx + 1}/${sheets.length}: ${sheet.name}...`);
 
         addLog(`📄 Descargando planilla de ${sheet.name}...`);
-        const response = await fetch(`/api/admin/fetch-sheet?url=${encodeURIComponent(sheet.url)}`, { cache: 'no-store' });
-        if (!response.ok) {
-          throw new Error(`Error al descargar ${sheet.name} (HTTP ${response.status})`);
-        }
-        const csvText = await response.text();
-        const rawRows = parseCSV(csvText);
-        const rows = mergeContiguousSheetRows(rawRows);
+        const rows = await readSheet(sheet.url);
+        if (cancelImportRef.current) break;
 
         const targetRows = rows.filter((row, idx) => {
           if (idx === 0) return false;
           const orderCode = (row[1] || "").trim();
           if (!orderCode) return false;
+          if (skipENC && orderCode.toUpperCase().startsWith('ENC')) return false;
+          if (skipCAMB && orderCode.toUpperCase().startsWith('CAMB')) return false;
 
           if (sheet.isCentralSheet) {
             const isWholesaleCode = orderCode.toUpperCase().startsWith("AQU") || orderCode.toUpperCase().startsWith("POW") || orderCode.toUpperCase().startsWith("AQ-");
@@ -439,22 +456,14 @@ export default function ImportarPedidosPage() {
             const status = (row[0] || "").trim().toLowerCase();
             const isCompleted = status === "entregado" || status === "cancelado" || status === "anulado" || status === "pasado";
             if (isCompleted) {
-              const parts = orderCode.split(/[/,]/).map(c => c.trim().toUpperCase());
-              const hasActiveDbOrder = parts.some(part => {
-                const dbOrd = serverOrders.find((o: any) => (o.legacy_code || "").toUpperCase().includes(part));
-                return dbOrd && ['Pendiente', 'Confirmado', 'Entregando'].includes(dbOrd.status);
-              });
+              const hasActiveDbOrder = hasActiveOrder(orderCode, activeCodes);
               if (!hasActiveDbOrder) return false;
             }
             return true;
           } else {
             const estado = (row[0] || "").trim().toLowerCase();
             if (estado === "no esta" || estado === "no está") return true;
-            const parts = orderCode.split(/[\/,]/).map(c => c.trim().toUpperCase());
-            const hasActiveDbOrder = parts.some(part => {
-              const dbOrd = serverOrders.find((o: any) => (o.legacy_code || "").toUpperCase().includes(part));
-              return dbOrd && ['Pendiente', 'Confirmado', 'Entregando'].includes(dbOrd.status);
-            });
+            const hasActiveDbOrder = hasActiveOrder(orderCode, activeCodes);
             return hasActiveDbOrder;
           }
         });
@@ -472,6 +481,7 @@ export default function ImportarPedidosPage() {
 
             let importRes: any = null;
             for (let retry = 1; retry <= 4; retry++) {
+              if (cancelImportRef.current) break;
               try {
                 importRes = await fetch("/api/admin/import-sheet", {
                   method: "POST",
@@ -502,6 +512,8 @@ export default function ImportarPedidosPage() {
               }
             }
 
+            if (cancelImportRef.current && (!importRes || !importRes.ok)) break;
+
             if (!importRes || !importRes.ok) {
               const errText = await importRes?.text().catch(() => "") || "Error de red";
               addLog(`⚠️ Lote ${chunkIdx + 1} no pudo completarse en bloque (${sanitizeErrorMessage(errText)}). Procesando pedidos individualmente para no detener la importación...`);
@@ -527,15 +539,21 @@ export default function ImportarPedidosPage() {
 
                   if (singleRes.ok) {
                     const singleData = await singleRes.json();
+                    for (const warning of singleData.warnings || []) {
+                      problemCount++;
+                      addLog(`⚠️ ${warning}`);
+                    }
                     totalImported += singleData.totalImported || 0;
                     totalUpdated += singleData.totalUpdated || 0;
                     totalItemsImported += singleData.totalItemsImported || 0;
                     addLog(`  ↳ ✅ Pedido ${singleCode}: procesado con éxito en modo unitario.`);
                   } else {
+                    failedCodes.add(singleCode);
                     const singleErr = await singleRes.text().catch(() => "");
                     addLog(`  ↳ ⚠️ Pedido ${singleCode}: no se pudo procesar (${sanitizeErrorMessage(singleErr)}). Se omite.`);
                   }
                 } catch (errSingle: any) {
+                  failedCodes.add(singleCode);
                   addLog(`  ↳ ⚠️ Pedido ${singleCode}: microcorte (${errSingle.message}). Se omite.`);
                 }
               }
@@ -551,6 +569,10 @@ export default function ImportarPedidosPage() {
             }
 
             const importData = await importRes.json();
+            for (const warning of importData.warnings || []) {
+              problemCount++;
+              addLog(`⚠️ ${warning}`);
+            }
             totalImported += importData.totalImported || 0;
             totalUpdated += importData.totalUpdated || 0;
             totalItemsImported += importData.totalItemsImported || 0;
@@ -574,6 +596,7 @@ export default function ImportarPedidosPage() {
           addLog(`ℹ️ ${sheet.name}: Sin pedidos nuevos para procesar.`);
         }
 
+        if (cancelImportRef.current) break;
         sheetsDone++;
         setStats({
           imported: totalImported,
@@ -585,30 +608,47 @@ export default function ImportarPedidosPage() {
       }
 
       // 3. Sincronización de Entregas de Logística
-      if (!cancelImportRef.current) {
+      if (!cancelImportRef.current && syncLogistics) {
         setProgressPercent(88);
-        setCurrentStepText("Sincronizando entregas con Logística...");
-        addLog("🚚 Sincronizando remitos y entregados de Logística...");
+        setCurrentStepText("Conciliando pedidos con Logística...");
+        addLog("🚚 Comparando estados, importes, medios de pago y artículos con Logística (Entregando/Entregado)...");
         
         try {
-          const logiRes = await fetch("/api/admin/audit-deliveries", { method: "POST" });
+          const logiRes = await fetch("/api/admin/audit-deliveries", {
+            method: "POST",
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ syncStock })
+          });
+          const logiData = await logiRes.json();
+          if (!logiRes.ok || logiData.success === false) throw new Error(logiData.error || `HTTP ${logiRes.status}`);
           if (logiRes.ok) {
-            const logiData = await logiRes.json();
             addLog(`✅ Logística: ${logiData.message || 'Sincronización completada'}`);
+            if (logiData.stock?.status === 'failed') {
+              problemCount++;
+              addLog(`⚠️ Stock: ${logiData.stock.error}`);
+            } else {
+              addLog(`📦 Stock: ${logiData.stock?.status === 'skipped' ? 'omitido por configuración' : 'sincronizado'}.`);
+            }
           }
         } catch (syncErr: any) {
+          problemCount++;
           addLog(`⚠️ Logística: ${syncErr.message}`);
         }
       }
 
-      setProgressPercent(100);
-      setCurrentStepText("¡Proceso completado!");
+      const outcome = syncOutcome(cancelImportRef.current, problemCount + failedCodes.size);
+      setSummaryStatus(outcome);
+      if (outcome !== 'cancelled') setProgressPercent(100);
+      const outcomeLabel = outcome === 'cancelled' ? 'Sincronización detenida' : outcome === 'partial' ? 'Sincronización con incidencias' : 'Sincronización completada';
+      setCurrentStepText(outcomeLabel);
       
       const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
-      setImportOrdersSummary(`Importación finalizada con éxito en ${totalTime}s. Se crearon ${totalImported} pedidos nuevos, ${totalUpdated} actualizados y ${totalItemsImported} artículos procesados.`);
-      addLog(`🏁 ¡PROCESO COMPLETADO EN ${totalTime}s! (Nuevos: ${totalImported} | Actualizados: ${totalUpdated})`);
+      setImportOrdersSummary(`${outcomeLabel} en ${totalTime}s. Nuevos: ${totalImported}; actualizaciones: ${totalUpdated}; artículos: ${totalItemsImported}. ${failedCodes.size ? `Pedidos fallidos: ${[...failedCodes].join(', ')}. ` : ''}${problemCount ? `Etapas con incidencias: ${problemCount}. ` : ''}${outcome === 'cancelled' ? 'Se conservaron los cambios ya procesados.' : ''}`);
+      addLog(`🏁 ${outcomeLabel} (${totalTime}s).`);
 
     } catch (err: any) {
+      setSummaryStatus('error');
+      setCurrentStepText('Sincronización interrumpida por un error');
       console.error("Error importando pedidos:", err);
       const cleanMsg = sanitizeErrorMessage(err);
       addLog(`❌ Error: ${cleanMsg}`);
@@ -637,7 +677,7 @@ export default function ImportarPedidosPage() {
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-xl font-black text-slate-900 tracking-tight">
-                  Importación de Pedidos
+                  Sincronizar con Planillas
                 </h1>
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200">
                   <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
@@ -645,7 +685,7 @@ export default function ImportarPedidosPage() {
                 </span>
               </div>
               <p className="text-xs text-slate-500 font-medium">
-                Sincronizá planillas de vendedores y central sin duplicar órdenes ni sobrescribir entregados.
+                Incorporá pedidos y conciliá cambios de vendedores, Central y Logística.
               </p>
             </div>
           </div>
@@ -788,6 +828,19 @@ export default function ImportarPedidosPage() {
           </label>
         </div>
 
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+          <p className="text-xs font-bold text-slate-700">Etapas posteriores a los pedidos</p>
+          <label className="flex items-center gap-2 text-xs text-slate-600">
+            <input type="checkbox" checked={syncLogistics} disabled={importingOrders} onChange={e => setSyncLogistics(e.target.checked)} />
+            Sincronizar entregas e importes finales de Logística
+          </label>
+          <label className="flex items-center gap-2 text-xs text-slate-600">
+            <input type="checkbox" checked={syncStock && syncLogistics} disabled={importingOrders || !syncLogistics} onChange={e => setSyncStock(e.target.checked)} />
+            Actualizar stock físico desde Planillas y recalcular reservas
+          </label>
+          <p className="text-[11px] text-slate-500">Los pedidos ya cargados en el ERP se comparan con Planillas. Logística puede actualizar sus estados, importes y artículos finales. Mantené esta página abierta durante la sincronización.</p>
+        </div>
+
         {/* Action Button & Controls */}
         <div className="space-y-4 pt-2">
           <div className="flex flex-col sm:flex-row gap-3">
@@ -804,7 +857,7 @@ export default function ImportarPedidosPage() {
               ) : (
                 <>
                   <RefreshCw className="w-5 h-5" />
-                  Iniciar Importación Segura
+                  Iniciar sincronización
                 </>
               )}
             </Button>
@@ -824,8 +877,8 @@ export default function ImportarPedidosPage() {
           </div>
 
           {importOrdersSummary && (
-            <div className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-2xl text-xs font-bold flex items-center gap-2.5 shadow-sm animate-in fade-in">
-              <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+            <div className={cn("p-4 border rounded-2xl text-xs font-bold flex items-center gap-2.5 shadow-sm animate-in fade-in", summaryStatus === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-amber-50 border-amber-200 text-amber-800')}>
+              {summaryStatus === 'success' ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
               {importOrdersSummary}
             </div>
           )}

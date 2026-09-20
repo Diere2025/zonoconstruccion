@@ -16,6 +16,78 @@ let config = {
 };
 
 let isConnectedToErp = true;
+let isMonitorTab = false;
+let widgetClockStarted = false;
+
+// The clock and office-hours badge are informational. Keep them live even in
+// passive tabs, while all polling and network activity stays limited to the
+// selected monitor tab.
+function refreshWidgetClock() {
+  const now = new Date();
+  const clientTime = now.toLocaleTimeString("es-AR", {
+    timeZone: "America/Argentina/Buenos_Aires",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  });
+  const clockEl = document.getElementById("zono-clock");
+  if (clockEl) clockEl.innerText = `🕒 ${clientTime} hs`;
+
+  const inOffice = isWorkHours();
+  const badgeEl = document.getElementById("zono-schedule-badge");
+  if (badgeEl) {
+    badgeEl.innerText = inOffice ? `🟢 OFICINA (${config.workStart}-${config.workEnd})` : "🌙 FUERA DE HORARIO";
+    badgeEl.style.background = inOffice ? "#064e3b" : "#312e81";
+    badgeEl.style.color = inOffice ? "#34d399" : "#a5b4fc";
+    badgeEl.style.borderColor = inOffice ? "#059669" : "#4338ca";
+  }
+}
+
+function startWidgetClock() {
+  refreshWidgetClock();
+  if (widgetClockStarted) return;
+  widgetClockStarted = true;
+  setInterval(refreshWidgetClock, 1000);
+}
+
+function updateMonitorWidget() {
+  const button = document.getElementById("zono-claim-monitor");
+  if (!button) return;
+  button.textContent = isMonitorTab ? "✓ Pestaña monitor" : "Activar aquí";
+  button.style.background = isMonitorTab ? "#065f46" : "#1e293b";
+  button.style.borderColor = isMonitorTab ? "#10b981" : "#3b82f6";
+  button.title = isMonitorTab
+    ? "Esta es la única pestaña que registra cobros y envía alertas"
+    : "Activar el monitoreo solamente en esta pestaña";
+  const countdown = document.getElementById("zono-countdown");
+  if (countdown) countdown.innerText = isMonitorTab ? formatCountdown(getActiveInterval()) : "en pausa";
+}
+
+function requestMonitorState() {
+  chrome.runtime.sendMessage({ action: "GET_MONITOR_STATE" }, (response) => {
+    isMonitorTab = Boolean(response?.active);
+    updateMonitorWidget();
+  });
+}
+
+function claimThisTabAsMonitor() {
+  if (!isActivitiesPage()) {
+    showToast("Abrí Actividad de Mercado Pago antes de activar el monitoreo", "error");
+    return;
+  }
+
+  chrome.runtime.sendMessage({ action: "CLAIM_MONITOR_TAB" }, (response) => {
+    if (!response?.ok) return;
+    isMonitorTab = true;
+    updateMonitorWidget();
+    showToast("✓ Esta pestaña quedó configurada para monitorear", "success");
+    if (isActivitiesPage()) {
+      scanDOMActivities();
+      sendHeartbeat();
+    }
+  });
+}
 
 function isWorkHours() {
   try {
@@ -74,8 +146,9 @@ chrome.storage.local.get(
     if (res.workDays) config.workDays = res.workDays;
     if (res.autoRefresh !== undefined) config.autoRefresh = res.autoRefresh;
 
-    console.log("[Zono MP Monitor] Active config:", config);
+    console.log("[Zono MP Monitor] Cuenta activa:", config.accountName);
     createFloatingStatusWidget();
+    requestMonitorState();
     startMonitoring();
   }
 );
@@ -105,11 +178,14 @@ function createFloatingStatusWidget() {
           <option value="diegozono.mp" ${config.accountName === "diegozono.mp" ? "selected" : ""}>diegozono.mp</option>
         </select>
       </div>
+      <div style="font-size: 11px; margin-top: 3px;"><span id="zono-reading-status" style="color: #cbd5e1;">Lectura: esperando listado…</span> <button id="zono-diagnose" style="background: transparent; color: #38bdf8; border: 0; cursor: pointer; font-size: 10px;">Diagnóstico</button></div>
     </div>
     <button id="zono-force-refresh" title="Presionar Actualizar listado ahora" style="background: #0069ff; color: white; border: none; border-radius: 8px; padding: 6px 11px; font-size: 11px; font-weight: 700; cursor: pointer; margin-left: 4px;">Actualizar ya</button>
     <button id="zono-manual-sync-history" title="Importar pagos visibles en pantalla manualmente" style="background: #1e293b; color: #38bdf8; border: 1px solid #3b82f6; border-radius: 8px; padding: 6px 9px; font-size: 10px; font-weight: 700; cursor: pointer;">📥 Sincronizar visibles</button>
+    <button id="zono-claim-monitor" style="background: #1e293b; color: #dbeafe; border: 1px solid #3b82f6; border-radius: 8px; padding: 6px 9px; font-size: 10px; font-weight: 700; cursor: pointer;">Activar aquí</button>
   `;
   document.body.appendChild(widget);
+  startWidgetClock();
 
   document.getElementById("zono-quick-account")?.addEventListener("change", (e) => {
     const newAcc = e.target.value;
@@ -127,6 +203,9 @@ function createFloatingStatusWidget() {
   document.getElementById("zono-manual-sync-history")?.addEventListener("click", () => {
     manualSyncVisibleActivities();
   });
+  document.getElementById("zono-diagnose")?.addEventListener("click", showReadingDiagnostics);
+  document.getElementById("zono-claim-monitor")?.addEventListener("click", claimThisTabAsMonitor);
+  updateMonitorWidget();
 
   if (!toastContainer) {
     toastContainer = document.createElement("div");
@@ -156,12 +235,75 @@ function showToast(message, type = "success") {
 }
 
 const knownTxIds = new Set();
+const pendingPayments = new Map();
+const failedPayments = new Map();
+const PAYMENT_RETRY_MS = 30000;
+let lastReadingCount = 0;
+
+function updateReadingStatus() {
+  const el = document.getElementById("zono-reading-status");
+  if (!el) return;
+  const failures = [...failedPayments.entries()].filter(([key]) => key.startsWith(`${config.accountName}:`));
+  el.textContent = `Lectura: ${lastReadingCount} cobros de hoy${failures.length ? ` · ${failures.length} sin confirmar (reintentando)` : ""}`;
+  el.style.color = failures.length ? "#fca5a5" : "#cbd5e1";
+  el.title = failures.map(([, failure]) => failure.message).join("\n");
+}
+
+// User-triggered, local diagnostic: only rendered movement text and DOM shape.
+// Never include storage, cookies, configuration secrets or page HTML/scripts.
+function getReadingDiagnostics() {
+  const elements = [...document.body.querySelectorAll("*")].filter(el =>
+    !el.closest("[id^='zono-'], script, style, nav, header, aside") && el.getClientRects().length);
+  const incoming = el => /transferencia\s+recibida|dinero\s+recibido|recibiste|cobro/i.test(el.innerText || "");
+  const leaves = elements.filter(el => incoming(el) && ![...el.children].some(incoming)).slice(0, 3);
+  return {
+    version: chrome.runtime.getManifest().version,
+    path: window.location.pathname,
+    detectedRows: getVisibleRows().length,
+    mainElements: document.querySelectorAll("main, [role='main']").length,
+    frameCount: document.querySelectorAll("iframe").length,
+    shadowHosts: elements.filter(el => el.shadowRoot).map(el => el.tagName).slice(0, 10),
+    samples: leaves.map(el => {
+      const ancestors = [];
+      for (let current = el; current && current !== document.body && ancestors.length < 7; current = current.parentElement) {
+        const text = (current.innerText || "").replace(/\u00a0/g, " ").trim();
+        ancestors.push({
+          tag: current.tagName, class: String(current.className || ""),
+          text: text.slice(0, 700),
+          timeCount: (text.match(/\b\d{1,2}:\d{2}\b/g) || []).length,
+          amountCount: (text.match(/\$\s*[\d.,]+/g) || []).length
+        });
+        if (text.length > 1400) break;
+      }
+      return ancestors;
+    })
+  };
+}
+
+function showReadingDiagnostics() {
+  document.getElementById("zono-diagnostics")?.remove();
+  const panel = document.createElement("div");
+  panel.id = "zono-diagnostics";
+  panel.style.cssText = "position:fixed;bottom:120px;right:20px;z-index:2147483647;width:560px;max-width:90vw;padding:16px;background:#001538;color:white;border:2px solid #38bdf8;border-radius:12px;font:13px sans-serif;";
+  const description = document.createElement("p");
+  description.textContent = "Diagnóstico local. Copiá este texto para revisar la lectura del listado:";
+  const text = document.createElement("textarea");
+  text.readOnly = true;
+  text.value = JSON.stringify(getReadingDiagnostics(), null, 2);
+  text.style.cssText = "width:100%;height:260px;box-sizing:border-box;font:11px monospace;";
+  const close = document.createElement("button");
+  close.textContent = "Cerrar";
+  close.addEventListener("click", () => panel.remove());
+  panel.append(description, text, close);
+  document.body.appendChild(panel);
+  text.focus();
+  text.select();
+}
 
 function isOutgoingMovement(rawText) {
   const lower = (rawText || "").toLowerCase();
   return (
-    lower.includes("-\x20$") ||
-    lower.includes("-$") ||
+    /[-−–]\s*\$/.test(lower) ||
     lower.includes("compra") ||
     lower.includes("recarga") ||
     lower.includes("recargas") ||
@@ -178,63 +320,77 @@ function isOutgoingMovement(rawText) {
   );
 }
 
-async function reportPayment(payment, isManualAction = false) {
+function reportPayment(payment, isManualAction = false) {
   if (isOutgoingMovement(`${payment.title} ${payment.payerName} ${payment.rawText}`)) {
-    return;
+    return Promise.resolve("skipped");
   }
 
-  if (knownTxIds.has(payment.id) && !isManualAction) {
-    return;
+  const account = config.accountName;
+  const key = `${account}:${payment.id}`;
+  if (pendingPayments.has(key)) return pendingPayments.get(key);
+  if (knownTxIds.has(key)) return Promise.resolve("duplicate");
+  if (!isManualAction && Date.now() < (failedPayments.get(key)?.retryAt || 0)) {
+    return Promise.resolve("retrying");
   }
 
-  knownTxIds.add(payment.id);
-  console.log("[Zono MP Monitor] Transmitiendo cobro entrante:", payment);
+  // The webhook parses Argentine-formatted text (a dot means thousands).
+  const amountText = payment.amount.toLocaleString("es-AR", { maximumFractionDigits: 2 });
 
   const payload = {
     id: payment.id,
     external_id: payment.id,
     title: payment.title || "Transferencia recibida",
-    text: `Recibiste $ ${payment.amount} De ${payment.payerName} desde su cuenta de Mercado Pago.`,
+    text: `Recibiste $ ${amountText} De ${payment.payerName} desde su cuenta de Mercado Pago.`,
     bigText: payment.rawText || `Recibiste $ ${payment.amount} De ${payment.payerName}`,
-    account: config.accountName,
+    account,
     token: config.secretToken,
     received_at: payment.receivedAt,
     date: payment.receivedAt,
     time: payment.time
   };
 
-  const url = new URL(config.webhookUrl);
-  url.searchParams.set("account", config.accountName);
-  url.searchParams.set("token", config.secretToken);
-
-  chrome.runtime.sendMessage({
-    action: "REPORT_PAYMENT",
-    url: url.toString(),
-    token: config.secretToken,
-    payload: payload,
-    paymentSummary: {
-      amount: payment.amount,
-      payerName: payment.payerName,
-      time: payment.time,
-      sentAt: payment.receivedAt || new Date().toISOString()
-    }
-  }, (response) => {
-    if (chrome.runtime.lastError) {
-      console.error("[Zono MP Monitor] Runtime error:", chrome.runtime.lastError);
-      return;
-    }
-
-    if (response && response.data?.isDuplicate) {
-      console.log("[Zono MP Monitor] Cobro ya estaba en el ERP (omitido):", payment);
-      return;
-    }
-
-    if (response && (response.ok || response.data?.success)) {
-      showToast(`✅ Cobro de $${payment.amount} (${payment.payerName}) ingresado al ERP!`, "success");
-    } else {
-      console.error("[Zono MP Monitor] Webhook error:", response);
+  const request = new Promise((resolve) => {
+    let settled = false;
+    const finish = (response, error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      if (!error && response?.ok && response.data?.success === true) {
+        knownTxIds.add(key);
+        failedPayments.delete(key);
+        if (!response.data.isDuplicate) showToast(`✅ Cobro de $${amountText} (${payment.payerName}) ingresado al ERP!`, "success");
+        resolve(response.data.isDuplicate ? "duplicate" : "confirmed");
+      } else {
+        const message = error || response?.data?.error || response?.data?.message || response?.error || `Error HTTP ${response?.status || "sin respuesta"}`;
+        failedPayments.set(key, { retryAt: Date.now() + PAYMENT_RETRY_MS, message });
+        console.error("[Zono MP Monitor] Cobro sin confirmar:", message);
+        resolve("failed");
+      }
+      updateReadingStatus();
+    };
+    const timeout = setTimeout(() => finish(null, "El ERP no respondió a tiempo"), 20000);
+    try {
+      const url = new URL(config.webhookUrl);
+      url.searchParams.set("account", account);
+      url.searchParams.set("token", config.secretToken);
+      chrome.runtime.sendMessage({
+        action: "REPORT_PAYMENT",
+        url: url.toString(),
+        token: config.secretToken,
+        payload,
+        paymentSummary: {
+          amount: payment.amount,
+          payerName: payment.payerName,
+          time: payment.time,
+          sentAt: payment.receivedAt || new Date().toISOString()
+        }
+      }, (response) => finish(response, chrome.runtime.lastError?.message));
+    } catch (error) {
+      finish(null, error.message);
     }
   });
+  pendingPayments.set(key, request);
+  return request.finally(() => pendingPayments.delete(key));
 }
 
 // Helper to extract the date section for a given row element
@@ -295,7 +451,7 @@ function getRowDate(rowElement) {
     const isToday = lower === "hoy" || lower.startsWith("hoy ") || lower.startsWith("hoy·") || lower.startsWith("hoy,") || lower.startsWith("hoy -");
     const isYesterday = lower === "ayer" || lower.startsWith("ayer ") || lower.startsWith("ayer·") || lower.startsWith("ayer,") || lower.startsWith("ayer -") || lower.includes("ayer") || lower === "antier" || lower === "anteayer";
     const dateMatch = lower.match(new RegExp(`(?:(\\d{1,2})\\s+de\\s+(${monthsRegex})(?:\\s+de\\s+(\\d{4}))?)`));
-    const weekdayMatch = lower.match(/(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)/);
+    const weekdayMatch = lower.match(/^(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)$/);
 
     if (isToday || isYesterday || dateMatch || weekdayMatch) {
       headers.push({
@@ -313,6 +469,7 @@ function getRowDate(rowElement) {
   // Find the header that immediately precedes this rowElement in document order
   let matchedHeader = null;
   for (const h of headers) {
+    if (h.el.contains(rowElement) || rowElement.contains(h.el)) continue;
     try {
       const pos = h.el.compareDocumentPosition(rowElement);
       // Node.DOCUMENT_POSITION_FOLLOWING = 4 means rowElement follows h.el
@@ -324,12 +481,21 @@ function getRowDate(rowElement) {
     }
   }
 
-  // Safeguard: If the row's time is in the future, it cannot be from today
-  if (isFutureTime) {
+  // Safeguard: If the row's time is in the future relative to now, it cannot be from today
+  if (!matchedHeader && isFutureTime) {
     return {
       dateStr: yesterdayStr,
       sectionLabel: "Ayer",
       isToday: false
+    };
+  }
+
+  // If no preceding header found, it means this row is at the very top of the list (before any header) -> it IS Hoy
+  if (!matchedHeader) {
+    return {
+      dateStr: todayStr,
+      sectionLabel: "Hoy",
+      isToday: true
     };
   }
 
@@ -395,8 +561,18 @@ function parseDOMRow(row) {
   const text = (row.innerText || "").replace(/\u00a0/g, " ").trim();
   if (!text || isOutgoingMovement(text)) return null;
 
-  const lower = text.toLowerCase();
-  const isIncoming = lower.includes("transferencia recibida") || lower.includes("recibiste") || lower.includes("+ $") || lower.includes("+$") || text.includes("+");
+  const lower = text.toLowerCase().replace(/\s+/g, " ");
+  if (/\b(pendiente|rechazad[oa]|cancelad[oa]|devuelt[oa]|en proceso)\b/.test(lower)) return null;
+  const isIncoming =
+    lower.includes("transferencia recibida") ||
+    lower.includes("recibiste") ||
+    lower.includes("dinero recibido") ||
+    lower.includes("cobro con point") ||
+    lower.includes("cobro con qr") ||
+    lower.includes("cobro") ||
+    lower.includes("+ $") ||
+    lower.includes("+$") ||
+    text.includes("+");
 
   if (!isIncoming) return null;
 
@@ -427,7 +603,7 @@ function parseDOMRow(row) {
     const lLower = l.toLowerCase();
     const isTime = /\b\d{1,2}:\d{2}\b/.test(l);
     const isAmount = l.includes("$");
-    const isKeyword = lLower.includes("aprobado") || lLower.includes("transferencia") || lLower.includes("recibiste") || lLower.includes("hoy") || lLower.includes("ayer") || lLower.includes("dinero disponible") || lLower.includes("en tu cuenta") || lLower.includes("compra");
+    const isKeyword = lLower.includes("aprobado") || lLower.includes("transferencia") || lLower.includes("recibiste") || lLower === "hoy" || lLower === "ayer" || lLower.includes("dinero disponible") || lLower.includes("dinero recibido") || lLower.includes("cobro") || lLower.includes("en tu cuenta") || lLower.includes("compra");
 
     if (!isTime && !isAmount && !isKeyword && l.length >= 3 && l.length <= 60) {
       payer = l;
@@ -461,80 +637,66 @@ function parseDOMRow(row) {
   };
 }
 
-// 2. DOM Scraper - Strictly scans ONLY top visible activities on screen (NO scrolling, NO pagination)
-// 2. DOM Scraper - Strictly scans ONLY top visible activities on screen (NO scrolling, NO pagination)
+// Scan loaded rows only; never scroll or paginate. Select individual movements,
+// not a wrapper containing several incoming/outgoing transactions.
 function getVisibleRows() {
   if (!isActivitiesPage()) return [];
 
-  const timeRegex = /\b\d{1,2}:\d{2}\b/;
-  const rows = [];
-  const seenSignatures = new Set();
-
-  const container = document.querySelector("main, [role='main'], [data-testid*='activities']") || document.body;
-  const candidates = Array.from(container.querySelectorAll("a, li, tr, [role='listitem'], div"));
-
+  // Some layouts have a separate (or hidden) main for navigation. Search the
+  // body and explicitly exclude navigation/our widget instead of trusting it.
+  const container = document.body;
+  if (!container) return [];
+  const candidates = container.querySelectorAll("a, li, tr, [role='row'], [role='listitem'], div, section, article");
+  const completeRows = [];
   for (const el of candidates) {
-    if (el.children.length > 6) continue;
-    const txt = (el.textContent || "").toLowerCase();
-    if (txt.includes("transferencia recibida") || txt.includes("recibiste")) {
-      let parent = el;
-      let depth = 0;
-      while (parent && parent !== container && depth < 6) {
-        const pText = (parent.innerText || "").replace(/\u00a0/g, " ").trim();
-        if (pText.includes("$") && timeRegex.test(pText) && pText.length < 350) {
-          const timeMatch = pText.match(/\b(\d{1,2}:\d{2})\b/);
-          const amountMatch = pText.match(/\+\s*\$\s*([\d\.,]+)/) || pText.match(/\$\s*([\d\.,]+)/);
-          if (timeMatch && amountMatch) {
-            const dateInfo = getRowDate(parent);
-            const sig = `${dateInfo.dateStr}_${amountMatch[1]}_${timeMatch[1]}`;
-            if (!seenSignatures.has(sig)) {
-              seenSignatures.add(sig);
-              rows.push(parent);
-            }
-          }
-          break;
-        }
-        parent = parent.parentElement;
-        depth++;
-      }
-    }
+    if (el.closest("[id^='zono-'], nav, header, aside, [hidden], [aria-hidden='true']")) continue;
+    if (!el.getClientRects().length) continue;
+    const text = (el.innerText || "").replace(/\s+/g, " ").trim();
+    if (!text || isOutgoingMovement(text)) continue;
+    if ((text.match(/\b\d{1,2}:\d{2}\b/g) || []).length !== 1) continue;
+    if ((text.match(/\$\s*[\d.,]+/g) || []).length !== 1) continue;
+    if (!/transferencia recibida|recibiste|dinero recibido|cobro|\+\s*\$/.test(text.toLowerCase())) continue;
+    completeRows.push(el);
   }
 
-  return rows.slice(0, 15);
+  return completeRows.filter(el => !completeRows.some(other => other !== el && el.contains(other)));
 }
 
 function scanDOMActivities() {
+  if (!isMonitorTab) return;
   if (!isActivitiesPage()) return;
   const err = detectMercadoPagoError();
   if (err.hasError) return;
 
   const topRows = getVisibleRows();
-  topRows.forEach(row => {
-    const parsed = parseDOMRow(row);
-    // In AUTO mode, only process rows that belong to "Hoy" (never auto-process yesterday or past days)
-    if (parsed && parsed.isToday) {
-      reportPayment(parsed, false);
-    }
-  });
+  const payments = topRows.map(parseDOMRow).filter(parsed => parsed?.isToday);
+  lastReadingCount = payments.length;
+  updateReadingStatus();
+  payments.forEach(parsed => reportPayment(parsed, false));
 }
 
 // Manual Action: user clicks "Sincronizar visibles"
-function manualSyncVisibleActivities() {
+async function manualSyncVisibleActivities() {
+  if (!isMonitorTab) {
+    showToast("Activá el monitoreo en esta pestaña para sincronizar", "error");
+    return;
+  }
   const topRows = getVisibleRows();
-  let count = 0;
-
-  topRows.forEach(row => {
-    const parsed = parseDOMRow(row);
-    if (parsed) {
-      reportPayment(parsed, true);
-      count++;
-    }
-  });
-
-  if (count === 0) {
+  const payments = topRows.map(parseDOMRow).filter(Boolean);
+  if (!payments.length) {
     showToast(`⚠️ Se encontraron ${topRows.length} filas pero 0 cobros entrantes`, "error");
-  } else {
-    showToast(`📥 Sincronización: ${count} cobros enviados al ERP!`, "success");
+    return;
+  }
+  const button = document.getElementById("zono-manual-sync-history");
+  if (button) button.disabled = true;
+  try {
+    const results = await Promise.all(payments.map(payment => reportPayment(payment, true)));
+    const confirmed = results.filter(result => result === "confirmed").length;
+    const duplicates = results.filter(result => result === "duplicate").length;
+    const failed = results.filter(result => result === "failed").length;
+    showToast(`📥 ${confirmed} ingresados · ${duplicates} ya registrados${failed ? ` · ${failed} fallaron (se reintentarán)` : ""}`, failed ? "error" : "success");
+  } finally {
+    if (button) button.disabled = false;
   }
 }
 
@@ -615,6 +777,7 @@ let wrongPageSeconds = 0;
 let wrongPageAlertSent = false;
 
 function handleWrongPage() {
+  if (!isMonitorTab) return;
   wrongPageSeconds++;
   setConnectionStatus(false);
 
@@ -657,6 +820,7 @@ let errorAlertSent = false;
 let isReloadingDueToError = false;
 
 function handleMercadoPagoError(errCheck) {
+  if (!isMonitorTab) return;
   setConnectionStatus(false);
 
   const widget = document.getElementById("zono-mp-widget");
@@ -740,6 +904,7 @@ function sendPageAlert(errorType, message, alertTitle) {
 let consecutiveFailedRefreshes = 0;
 
 function triggerActualizarListado() {
+  if (!isMonitorTab) return false;
   if (!isActivitiesPage()) {
     handleWrongPage();
     return false;
@@ -806,6 +971,7 @@ function setConnectionStatus(isOnline) {
 }
 
 function sendHeartbeat() {
+  if (!isMonitorTab) return;
   // 1. DO NOT send heartbeat if not on activities page!
   if (!isActivitiesPage()) {
     console.warn("[Zono MP Monitor] No se envía heartbeat: fuera de /activities");
@@ -838,7 +1004,7 @@ function sendHeartbeat() {
     account: config.accountName,
     isWorkHours: inOffice,
     currentInterval: interval,
-    version: "1.3.0",
+    version: chrome.runtime.getManifest().version,
     clientTime: clientTime,
     url: window.location.href,
     timestamp: now.toISOString()
@@ -871,6 +1037,7 @@ function startMonitoring() {
   let lastRefreshTime = Date.now();
 
   function checkRefresh() {
+    if (!isMonitorTab) return;
     const now = new Date();
     const clientTime = now.toLocaleTimeString("es-AR", {
       timeZone: "America/Argentina/Buenos_Aires",
@@ -965,6 +1132,7 @@ function startMonitoring() {
 
   // First scan after 1.5 seconds
   setTimeout(() => {
+    if (!isMonitorTab) return;
     if (isActivitiesPage() && !detectMercadoPagoError().hasError) {
       scanDOMActivities();
       sendHeartbeat();
@@ -993,7 +1161,13 @@ function startMonitoring() {
 
   // Listen to background service worker wakeup pulse
   chrome.runtime.onMessage.addListener((msg) => {
+    if (msg.action === "MONITOR_STATE") {
+      isMonitorTab = Boolean(msg.active);
+      updateMonitorWidget();
+      return;
+    }
     if (msg.action === "TRIGGER_POLL") {
+      if (!isMonitorTab) return;
       checkRefresh();
       scanDOMActivities();
     }

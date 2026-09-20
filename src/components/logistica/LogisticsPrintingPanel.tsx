@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { LogisticsPrintOrder } from '@/lib/logisticsPrintOrders';
 import { LogisticsRemittance } from '@/lib/logisticsRemittances';
+import { waitForPrintImages } from '@/lib/printAssets';
 import {
   LOGISTICS_MAX_COLUMNS,
   normalizeLogisticsPastedRows,
@@ -83,6 +84,12 @@ function displayDate(value: string): string {
 
 function emptyGridRow(): string[] {
   return Array(LOGISTICS_MAX_COLUMNS).fill('');
+}
+
+function ensureTrailingEmptyRow(rows: string[][]): string[][] {
+  const lastRow = rows[rows.length - 1];
+  const lastRowHasContent = lastRow?.some(cell => String(cell || '').trim());
+  return !lastRow || lastRowHasContent ? [...rows, emptyGridRow()] : rows;
 }
 
 function visibleProductSlots(rows: string[][]): number {
@@ -214,15 +221,23 @@ export default function LogisticsPrintingPanel() {
   useEffect(() => {
     if (!printStage) return;
     let pageStyle: HTMLStyleElement | null = null;
+    let cancelled = false;
+    let timer: number | null = null;
     if (printStage === 'remitos') {
       pageStyle = document.createElement('style');
       pageStyle.dataset.unifiedLogisticsPrint = 'true';
       pageStyle.textContent = '@media print { @page { size: A4 landscape; margin: 0; } }';
       document.head.appendChild(pageStyle);
     }
-    const timer = window.setTimeout(() => window.print(), 180);
+    const rootId = printStage === 'remitos'
+      ? 'print-legal-remittances-root'
+      : 'print-logistics-receipts-root';
+    void waitForPrintImages(rootId).then(() => {
+      if (!cancelled) timer = window.setTimeout(() => window.print(), 50);
+    });
     return () => {
-      window.clearTimeout(timer);
+      cancelled = true;
+      if (timer !== null) window.clearTimeout(timer);
       pageStyle?.remove();
     };
   }, [printStage]);
@@ -270,7 +285,7 @@ export default function LogisticsPrintingPanel() {
     const existingRows = pastedRows.filter(row => row.some(cell => String(cell || '').trim()));
     const combinedRows = existingRows.length > 0 ? [...existingRows, ...rows] : rows;
     setSource('pegado');
-    setPastedRows(combinedRows);
+    setPastedRows(ensureTrailingEmptyRow(combinedRows));
     processPastedRows(combinedRows);
   };
 
@@ -293,12 +308,12 @@ export default function LogisticsPrintingPanel() {
   };
 
   const updateCell = (rowIndex: number, columnIndex: number, value: string) => {
-    setPastedRows(current => current.map((row, index) => {
+    setPastedRows(current => ensureTrailingEmptyRow(current.map((row, index) => {
       if (index !== rowIndex) return row;
       const next = [...row];
       next[columnIndex] = value;
       return next;
-    }));
+    })));
   };
 
   const toggle = (id: string) => setSelected(current => {

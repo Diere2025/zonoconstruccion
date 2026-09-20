@@ -20,6 +20,7 @@ const USERS_TO_PROVISION = [
     email: 'matiasvega@zono.com.ar',
     fullName: 'Matías Vega',
     role: 'logistica',
+    roles: ['logistica', 'compras'],
     isOrganic: false
   },
   {
@@ -71,7 +72,8 @@ export async function GET(request: Request) {
           email_confirm: true,
           user_metadata: {
             full_name: targetUser.fullName,
-            role: targetUser.role
+            role: targetUser.role,
+            roles: 'roles' in targetUser ? targetUser.roles : [targetUser.role]
           }
         });
       } else {
@@ -81,7 +83,8 @@ export async function GET(request: Request) {
           email_confirm: true,
           user_metadata: {
             full_name: targetUser.fullName,
-            role: targetUser.role
+            role: targetUser.role,
+            roles: 'roles' in targetUser ? targetUser.roles : [targetUser.role]
           }
         });
 
@@ -100,6 +103,7 @@ export async function GET(request: Request) {
           full_name: targetUser.fullName,
           email: emailLower,
           role: targetUser.role,
+          roles: 'roles' in targetUser ? targetUser.roles : [targetUser.role],
           is_active: true,
           is_organic: targetUser.isOrganic
         });

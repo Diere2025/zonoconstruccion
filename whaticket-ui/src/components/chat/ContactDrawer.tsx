@@ -1,9 +1,11 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { format } from 'date-fns';
-import { X, Phone, Mail, Tag as TagIcon, Clock, Calendar, Copy, Check, Smartphone } from 'lucide-react';
+import { X, Phone, Mail, Tag as TagIcon, Clock, Calendar, Copy, Check, Smartphone, FileText } from 'lucide-react';
 import { useChatStore } from '../../store/chatStore';
 import { formatPhoneNumber, cleanPhoneForCopy } from '../../utils/phone';
 import { toast } from 'sonner';
+import { Budget } from '../../types';
+import { fetchTicketBudgets, updateBudgetStatus } from '../../services/catalogService';
 
 interface ContactDrawerProps {
   isOpen: boolean;
@@ -13,11 +15,63 @@ interface ContactDrawerProps {
 export const ContactDrawer: React.FC<ContactDrawerProps> = ({ isOpen, onClose }) => {
   const { activeTicket, whatsapps } = useChatStore();
   const [copied, setCopied] = React.useState(false);
+  const [budgets, setBudgets] = useState<Budget[]>([]);
+  const [loadingBudgets, setLoadingBudgets] = useState(false);
+
+  const contact = activeTicket?.contact;
+  const currentWhatsapp = activeTicket?.whatsapp || whatsapps.find((w) => w.id === activeTicket?.whatsappId);
+
+  const loadBudgets = async () => {
+    if (!activeTicket) return;
+    setLoadingBudgets(true);
+    try {
+      const data = await fetchTicketBudgets(activeTicket.id, contact?.id);
+      setBudgets(data || []);
+    } catch (err) {
+      console.error('Error fetching ticket budgets:', err);
+    } finally {
+      setLoadingBudgets(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTicket) {
+      loadBudgets();
+    }
+  }, [activeTicket?.id, contact?.id]);
+
+  useEffect(() => {
+    const handleBudgetCreated = (e: any) => {
+      const newBudget = e.detail as Budget;
+      if (newBudget) {
+        setBudgets((prev) => [newBudget, ...prev.filter((b) => b.id !== newBudget.id)]);
+      }
+    };
+    window.addEventListener('whaticket_budget_created', handleBudgetCreated);
+    return () => {
+      window.removeEventListener('whaticket_budget_created', handleBudgetCreated);
+    };
+  }, []);
+
+  const handleStatusChange = async (budgetId: number, status: 'open' | 'pending' | 'won' | 'lost') => {
+    try {
+      await updateBudgetStatus(budgetId, status);
+      setBudgets((prev) => prev.map((b) => (b.id === budgetId ? { ...b, status } : b)));
+      toast.success('Estado del presupuesto actualizado');
+    } catch (err) {
+      toast.error('Error al actualizar el estado');
+    }
+  };
+
+  const formatCurrency = (val: number) => {
+    return new Intl.NumberFormat('es-AR', {
+      style: 'currency',
+      currency: 'ARS',
+      maximumFractionDigits: 0,
+    }).format(val || 0);
+  };
 
   if (!isOpen || !activeTicket) return null;
-
-  const contact = activeTicket.contact;
-  const currentWhatsapp = activeTicket.whatsapp || whatsapps.find((w) => w.id === activeTicket.whatsappId);
 
   const handleCopy = () => {
     if (contact?.number) {
@@ -45,7 +99,7 @@ export const ContactDrawer: React.FC<ContactDrawerProps> = ({ isOpen, onClose })
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-4 flex flex-col items-center gap-4">
+      <div className="flex-1 overflow-y-auto p-4 pb-24 flex flex-col items-center gap-4">
         {/* Big Avatar */}
         <div className="w-20 h-20 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center font-bold text-slate-700 dark:text-slate-200 text-2xl overflow-hidden shadow-inner">
           {contact?.profilePicUrl ? (
@@ -115,25 +169,71 @@ export const ContactDrawer: React.FC<ContactDrawerProps> = ({ isOpen, onClose })
           </div>
         </div>
 
-        {/* Tags */}
-        {contact?.tags && contact.tags.length > 0 && (
-          <div className="w-full flex flex-col gap-1.5">
-            <span className="text-[11px] font-bold uppercase text-slate-400">
-              Etiquetas
+        {/* Presupuestos Section */}
+        <div className="w-full flex flex-col gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold uppercase text-slate-400 flex items-center gap-1.5">
+              <FileText className="w-3.5 h-3.5 text-rose-500" /> Presupuestos ({budgets.length})
             </span>
-            <div className="flex flex-wrap gap-1">
-              {contact.tags.map((tag) => (
-                <span
-                  key={tag.id}
-                  className="px-2 py-0.5 rounded-md text-[11px] font-semibold text-white"
-                  style={{ backgroundColor: tag.color || '#3b82f6' }}
+            <button
+              type="button"
+              onClick={loadBudgets}
+              className="text-[10px] text-blue-600 hover:underline cursor-pointer"
+            >
+              Actualizar
+            </button>
+          </div>
+
+          {loadingBudgets ? (
+            <div className="py-4 text-center text-xs text-slate-400">
+              Cargando cotizaciones...
+            </div>
+          ) : budgets.length === 0 ? (
+            <div className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-dashed border-slate-200 dark:border-slate-700 text-center text-slate-400 text-xs">
+              Sin presupuestos emitidos aún.
+            </div>
+          ) : (
+            <div className="space-y-2.5 w-full">
+              {budgets.map((b) => (
+                <div
+                  key={b.id}
+                  className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col gap-2 text-xs shadow-2xs hover:border-slate-300 dark:hover:border-slate-600 transition-colors"
                 >
-                  {tag.name}
-                </span>
+                  <div className="flex items-center justify-between">
+                    <span className="font-extrabold text-blue-600 dark:text-blue-400 font-mono text-[11px]">
+                      #{b.code}
+                    </span>
+                    <span className="font-extrabold text-slate-900 dark:text-slate-100 font-mono">
+                      {formatCurrency(b.total)}
+                    </span>
+                  </div>
+
+                  <div className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed break-words" title={b.items?.map(it => `${it.quantity}x ${it.name}`).join(', ')}>
+                    {b.items && b.items.length > 0
+                      ? b.items.map((it) => `${it.quantity}x ${it.name}`).join(', ')
+                      : 'Sin ítems'}
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1.5 border-t border-slate-100 dark:border-slate-700/60">
+                    <span className="text-[10px] text-slate-400 font-mono">
+                      {b.createdAt ? format(new Date(b.createdAt), 'dd/MM/yy HH:mm') : ''}
+                    </span>
+                    <select
+                      value={b.status}
+                      onChange={(e) => handleStatusChange(b.id, e.target.value as any)}
+                      className="text-[10px] font-bold rounded-md py-0.5 px-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 focus:outline-none cursor-pointer shadow-2xs"
+                    >
+                      <option value="open">Abierto</option>
+                      <option value="pending">En Seguimiento</option>
+                      <option value="won">Ganado</option>
+                      <option value="lost">Perdido</option>
+                    </select>
+                  </div>
+                </div>
               ))}
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );

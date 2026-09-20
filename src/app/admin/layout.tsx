@@ -137,7 +137,7 @@ export default function AdminLayoutWrapper({
 
     // 2. Check user metadata for instant role detection
     const metaRole = (user.user_metadata?.role || "").toLowerCase();
-    if (metaRole && ['admin', 'seller', 'logistica', 'administracion', 'fletero'].includes(metaRole)) {
+    if (metaRole && ['admin', 'seller', 'logistica', 'administracion', 'fletero', 'compras'].includes(metaRole)) {
       addLog(`User verified via metadata role: ${metaRole}`);
       globalCheckedUserId = user.id;
       globalIsAdmin = true;
@@ -149,7 +149,7 @@ export default function AdminLayoutWrapper({
 
     // 3. Check memory cache or session storage
     if (cachedUserId === user.id && cachedRole) {
-      const userIsAuthorized = cachedRole === 'admin' || cachedRole === 'seller' || cachedRole === 'logistica' || cachedRole === 'administracion' || cachedRole === 'fletero' || Boolean(cachedRole);
+      const userIsAuthorized = cachedRole === 'admin' || cachedRole === 'seller' || cachedRole === 'logistica' || cachedRole === 'administracion' || cachedRole === 'fletero' || cachedRole === 'compras' || Boolean(cachedRole);
       globalCheckedUserId = user.id;
       globalIsAdmin = userIsAuthorized;
       setCheckedUserId(user.id);
@@ -176,7 +176,7 @@ export default function AdminLayoutWrapper({
     try {
       const role = await getSellerRole(user.id, email);
       addLog(`Role from sellers table: ${role}`);
-      const userIsAuthorized = role === 'admin' || role === 'seller' || role === 'logistica' || role === 'administracion' || role === 'fletero' || Boolean(role);
+      const userIsAuthorized = role === 'admin' || role === 'seller' || role === 'logistica' || role === 'administracion' || role === 'fletero' || role === 'compras' || Boolean(role);
       
       if (typeof window !== "undefined" && role) {
         sessionStorage.setItem('zono_user_role', role);

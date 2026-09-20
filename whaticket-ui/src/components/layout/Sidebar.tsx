@@ -10,14 +10,15 @@ import {
   Sparkles,
   Shield,
   Menu,
-  ChevronLeft
+  ChevronLeft,
+  FileText
 } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import { useChatStore } from '../../store/chatStore';
 
 interface SidebarProps {
-  currentView: 'chats' | 'quick-messages' | 'contacts' | 'connections' | 'departments' | 'users';
-  onSelectView: (view: 'chats' | 'quick-messages' | 'contacts' | 'connections' | 'departments' | 'users') => void;
+  currentView: 'chats' | 'quick-messages' | 'contacts' | 'connections' | 'departments' | 'users' | 'budgets';
+  onSelectView: (view: 'chats' | 'quick-messages' | 'contacts' | 'connections' | 'departments' | 'users' | 'budgets') => void;
   soundEnabled: boolean;
   onToggleSound: () => void;
   isExpanded?: boolean;
@@ -41,6 +42,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const navItems = [
     { id: 'chats' as const, label: 'Chats', icon: MessageSquare },
+    { id: 'budgets' as const, label: 'Presupuestos', icon: FileText },
     { id: 'quick-messages' as const, label: 'Respuestas Rápidas', icon: Zap },
     { id: 'contacts' as const, label: 'Contactos', icon: Users },
     { id: 'connections' as const, label: 'Conexiones', icon: Smartphone },

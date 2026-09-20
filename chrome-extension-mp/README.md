@@ -44,9 +44,29 @@ En Google Chrome podés tener **Perfiles separados**:
    * En la extensión seleccionás `Cuenta MP4 (Logística)`.
 3. Dejás abierta la pestaña de **"Actividades"** en ambos perfiles.
 
+## Una sola pestaña de monitoreo por perfil
+
+Después de actualizar la extensión, abrí **Actividades** en la pestaña que querés usar y tocá **«Activar aquí»** en el widget. Esa será la única pestaña que refresca, registra cobros y envía alertas. Podés abrir otras pestañas de Mercado Pago para operar normalmente: quedan ignoradas por el monitor.
+
 ---
 
 ## 🛡️ Características
-* **Doble motor de captura:** Intercepta las llamadas de red internas de Mercado Pago y escanea el DOM visible con `MutationObserver`.
-* **Anti-duplicados:** Registra los IDs de pagos transmitidos para jamás enviar una misma transferencia dos veces.
-* **Widget visual:** Muestra una pequeña insignia verde en la esquina inferior derecha de la pantalla de Mercado Pago indicando que el monitoreo está activo y enviando pagos.
+* **Lectura del listado:** Escanea movimientos cargados en Actividades, sin desplazar ni paginar. El modo automático procesa los de hoy; «Sincronizar visibles» también procesa fechas anteriores cargadas.
+* **Confirmación y reintentos:** Un cobro se considera enviado cuando el ERP confirma `success: true`. Los errores se reintentan después de 30 segundos mientras el movimiento siga disponible en el listado; no se superponen envíos del mismo cobro.
+* **Widget visual:** El punto indica conexión. «Lectura» muestra los cobros de hoy detectados y los envíos sin confirmar; el botón manual informa ingresados, duplicados y fallos.
+
+## Actualizar y diagnosticar
+
+1. En `chrome://extensions/`, recargá **Zono - Mercado Pago Monitor**.
+2. Recargá también la pestaña de Mercado Pago para reemplazar el script que estaba ejecutándose.
+3. Revisá «Lectura». Si muestra 0 pese a haber ingresos, tocá **Diagnóstico** y copiá el texto seleccionado. Incluye estructura y texto de algunos movimientos para identificar diferencias de diseño; no incluye cookies, configuración ni claves, y no se transmite automáticamente.
+
+## Pruebas locales
+
+Desde la raíz del proyecto:
+
+```powershell
+node chrome-extension-mp/tests/serve.cjs
+```
+
+Abrí `http://127.0.0.1:8766/activities`. Ejecuta el script real sobre listados de prueba con respuestas simuladas de Chrome y ERP. No envía pagos a servicios externos.

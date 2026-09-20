@@ -45,7 +45,9 @@ import {
   Sparkles
 } from "lucide-react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/Button";
+import SupplierPurchaseOrderImageModal from "@/components/admin/SupplierPurchaseOrderImageModal";
 import { formatPrice, formatDateDDMMYYYY } from "@/lib/utils";
 
 interface Supplier {
@@ -239,8 +241,12 @@ const DatePickerDDMMYYYY = ({
 };
 
 export default function ComprasAdminPage() {
+  const searchParams = useSearchParams();
   const [activeSubTab, setActiveSubTab] = useState<'suppliers' | 'pricelists' | 'relations' | 'new_purchase' | 'purchases_history' | 'alerts' | 'hold_orders' | 'claims_exchanges' | 'boms' | 'production' | 'insumos' | 'make_vs_buy' | 'bom_explorer' | 'purchase_orders' | 'receptions' | 'import_compras' | 'purchase_calculator'>('purchase_orders');
   const [loading, setLoading] = useState(true);
+  const [purchaseAccessLoaded, setPurchaseAccessLoaded] = useState(false);
+  const [isPurchaseAdmin, setIsPurchaseAdmin] = useState(false);
+  const [isPurchaseOperator, setIsPurchaseOperator] = useState(false);
 
   // Costos & BOM (Recetas) States
   const [selectedBomProductId, setSelectedBomProductId] = useState("");
@@ -318,6 +324,7 @@ export default function ComprasAdminPage() {
   const [selectedPO, setSelectedPO] = useState<any | null>(null);
   const [poItemsDetail, setPoItemsDetail] = useState<any[]>([]);
   const [loadingPoDetail, setLoadingPoDetail] = useState(false);
+  const [showSupplierPOImage, setShowSupplierPOImage] = useState(false);
   const [showNewPOModal, setShowNewPOModal] = useState(false);
   const [selectedPoIdsForMerge, setSelectedPoIdsForMerge] = useState<string[]>([]);
   const [showMergePOModal, setShowMergePOModal] = useState(false);
@@ -418,7 +425,7 @@ export default function ComprasAdminPage() {
   const [calcEndDate, setCalcEndDate] = useState("");
   const [calcSeasonality, setCalcSeasonality] = useState("1.0");
   const [calcBudget, setCalcBudget] = useState("");
-  const [calcMinUnits, setCalcMinUnits] = useState("");
+  const [calcMaxUnits, setCalcMaxUnits] = useState("");
   const [calcDeliveryGraceDays, setCalcDeliveryGraceDays] = useState("2");
   const [calcLoading, setCalcLoading] = useState(false);
   const [syncingCosts, setSyncingCosts] = useState(false);
@@ -727,17 +734,52 @@ export default function ComprasAdminPage() {
   const calculatedDifferenceAmount = selectedClaim ? (calculatedExchangeAmount - selectedClaim.refund_amount) : 0;
 
   useEffect(() => {
-    loadAllData();
+    let mounted = true;
+    const loadAccess = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user || !mounted) return;
+        const email = (user.email || '').toLowerCase();
+        const metadataRoles = Array.isArray(user.user_metadata?.roles) ? user.user_metadata.roles : [];
+        const { data: seller } = await supabase
+          .from('sellers')
+          .select('role, roles')
+          .or(`id.eq.${user.id},email.ilike.${email}`)
+          .maybeSingle();
+        const roles = Array.from(new Set([
+          user.user_metadata?.role,
+          ...metadataRoles,
+          seller?.role,
+          ...(Array.isArray(seller?.roles) ? seller.roles : [])
+        ].map(role => String(role || '').toLowerCase()).filter(Boolean)));
+        const admin = roles.includes('admin') || email === 'diego.boveda@gmail.com' || email === 'caroibarra.93@gmail.com';
+        setIsPurchaseAdmin(admin);
+        setIsPurchaseOperator(admin || roles.includes('compras'));
+      } finally {
+        if (mounted) setPurchaseAccessLoaded(true);
+      }
+    };
+    void loadAccess();
+    return () => { mounted = false; };
   }, []);
 
   useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const tab = urlParams.get('tab');
+    if (!purchaseAccessLoaded) return;
+    if (isPurchaseOperator) void loadAllData();
+    else setLoading(false);
+  }, [purchaseAccessLoaded, isPurchaseOperator]);
+
+  useEffect(() => {
+    if (!purchaseAccessLoaded) return;
+    const tab = searchParams.get('tab');
     const validTabs = ['suppliers', 'pricelists', 'relations', 'new_purchase', 'purchases_history', 'alerts', 'hold_orders', 'boms', 'production', 'insumos', 'make_vs_buy', 'bom_explorer', 'purchase_orders', 'receptions', 'import_compras', 'purchase_calculator'];
-    if (tab && validTabs.includes(tab)) {
+    const operatorTabs = ['purchase_orders', 'purchase_calculator', 'alerts'];
+    if (tab && validTabs.includes(tab) && (isPurchaseAdmin || operatorTabs.includes(tab))) {
       setActiveSubTab(tab as any);
+    } else if (!isPurchaseAdmin) {
+      setActiveSubTab('purchase_orders');
     }
-  }, []);
+  }, [purchaseAccessLoaded, isPurchaseAdmin, searchParams]);
 
   async function loadAllData(silent = false) {
     try {
@@ -3050,46 +3092,14 @@ export default function ComprasAdminPage() {
         });
       });
 
-      // 1. Apply target / minimum units constraint if defined
-      const targetUnits = Number(calcMinUnits) || 0;
-      if (targetUnits > 0) {
+      // 1. Cap the suggestion at the configured maximum total units.
+      const maxUnits = Number(calcMaxUnits) || 0;
+      if (maxUnits > 0) {
         const totalIdealUnits = results.reduce((acc, item) => acc + item.quantityDefaultSuggested, 0);
 
-        if (targetUnits >= totalIdealUnits) {
-          // Keep ideal baseline and distribute extra units according to sales velocity (VPD)
-          const totalVpd = results.reduce((acc, item) => acc + item.vpd, 0);
-          const extraUnits = targetUnits - totalIdealUnits;
-          let assignedUnits = totalIdealUnits;
-
-          results.forEach(item => {
-            const vpdWeight = totalVpd > 0 ? (item.vpd / totalVpd) : (1 / Math.max(1, results.length));
-            const extraScaled = extraUnits * vpdWeight;
-            const extraFloored = Math.floor(extraScaled);
-            item.quantitySuggested = item.quantityDefaultSuggested + extraFloored;
-            item.remainder = extraScaled - extraFloored;
-            item.subtotal = item.quantitySuggested * item.unitCost;
-            assignedUnits += extraFloored;
-          });
-
-          let unitsDiff = targetUnits - assignedUnits;
-          const sortedByRemainder = [...results].sort((a, b) => {
-            const abcWeightA = a.abcClass === 'A' ? 2 : a.abcClass === 'B' ? 1 : 0;
-            const abcWeightB = b.abcClass === 'A' ? 2 : b.abcClass === 'B' ? 1 : 0;
-            if (abcWeightB !== abcWeightA) return abcWeightB - abcWeightA;
-            return (b.remainder || 0) - (a.remainder || 0);
-          });
-
-          let idx = 0;
-          while (unitsDiff > 0 && sortedByRemainder.length > 0) {
-            const item = sortedByRemainder[idx % sortedByRemainder.length];
-            item.quantitySuggested += 1;
-            item.subtotal = item.quantitySuggested * item.unitCost;
-            unitsDiff--;
-            idx++;
-          }
-        } else if (totalIdealUnits > 0) {
+        if (totalIdealUnits > maxUnits) {
           // Scale down proportionally from ideal suggestions
-          const ratio = targetUnits / totalIdealUnits;
+          const ratio = maxUnits / totalIdealUnits;
           let currentUnitsSum = 0;
 
           results.forEach(item => {
@@ -3101,24 +3111,23 @@ export default function ComprasAdminPage() {
             currentUnitsSum += floored;
           });
 
-          let unitsDiff = targetUnits - currentUnitsSum;
-          const sortedByDeduct = [...results].sort((a, b) => {
+          let unitsRemaining = maxUnits - currentUnitsSum;
+          const sortedByRemainder = [...results]
+            .filter(item => item.quantityDefaultSuggested > 0)
+            .sort((a, b) => {
             const abcWeightA = a.abcClass === 'A' ? 2 : a.abcClass === 'B' ? 1 : 0;
             const abcWeightB = b.abcClass === 'A' ? 2 : b.abcClass === 'B' ? 1 : 0;
-            if (abcWeightA !== abcWeightB) return abcWeightA - abcWeightB;
-            return (a.remainder || 0) - (b.remainder || 0);
+            if (abcWeightB !== abcWeightA) return abcWeightB - abcWeightA;
+            return (b.remainder || 0) - (a.remainder || 0);
           });
 
           let idx = 0;
-          while (unitsDiff < 0 && sortedByDeduct.length > 0) {
-            const item = sortedByDeduct[idx % sortedByDeduct.length];
-            if (item.quantitySuggested > 0) {
-              item.quantitySuggested -= 1;
-              item.subtotal = item.quantitySuggested * item.unitCost;
-              unitsDiff++;
-            }
+          while (unitsRemaining > 0 && sortedByRemainder.length > 0) {
+            const item = sortedByRemainder[idx % sortedByRemainder.length];
+            item.quantitySuggested += 1;
+            item.subtotal = item.quantitySuggested * item.unitCost;
+            unitsRemaining--;
             idx++;
-            if (idx > sortedByDeduct.length * 10) break;
           }
         }
       }
@@ -5173,6 +5182,16 @@ export default function ComprasAdminPage() {
     );
   }
 
+  if (purchaseAccessLoaded && !isPurchaseOperator) {
+    return (
+      <div className="min-h-[60vh] flex flex-col items-center justify-center gap-3 text-center">
+        <AlertTriangle className="w-10 h-10 text-amber-500" />
+        <h2 className="text-lg font-black text-slate-900">Sin acceso al módulo de Compras</h2>
+        <p className="max-w-md text-sm text-slate-500">Tu usuario no tiene asignado el rol Compras. Si necesitás operar este módulo, solicitá el permiso a un administrador.</p>
+      </div>
+    );
+  }
+
   // Filter products for relation management
   const filteredProducts = products.filter(p => {
     if (!searchRelationTerm) return true;
@@ -5213,44 +5232,60 @@ export default function ComprasAdminPage() {
     const matchSupplier = filterPoSupplierIds.length === 0 || filterPoSupplierIds.includes(po.supplier_id);
     return matchStatus && matchSupplier;
   });
+  const productionTabs = ['boms', 'production', 'insumos', 'make_vs_buy', 'bom_explorer'];
+  const logisticsTabs = ['hold_orders', 'claims_exchanges'];
+  const moduleHeading = productionTabs.includes(activeSubTab)
+    ? {
+        title: 'Fábrica y Producción',
+        description: 'Recetas, insumos, órdenes de producción y análisis de fabricación.'
+      }
+    : logisticsTabs.includes(activeSubTab)
+      ? {
+          title: 'Logística y Postventa',
+          description: 'Seguimiento de pedidos pendientes, reclamos y cambios.'
+        }
+      : {
+          title: 'Compras',
+          description: 'Órdenes, abastecimiento, proveedores y control de costos.'
+        };
 
   return (
     <div className="space-y-4">
       {/* Cabecera */}
       <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4">
         <div>
-          <h1 className="text-lg font-black text-slate-900 tracking-tight">Proveedores y Logística de Compras</h1>
-          <p className="text-[11px] text-slate-400 font-semibold">Carga de mercadería, listas de costos base y alertas de discrepancia.</p>
+          <h1 className="text-lg font-black text-slate-900 tracking-tight">{moduleHeading.title}</h1>
+          <p className="text-[11px] text-slate-400 font-semibold">{moduleHeading.description}</p>
         </div>
 
         <div className="flex bg-slate-200/50 p-0.5 rounded-xl flex-wrap gap-0.5">
           <button 
             onClick={() => setActiveSubTab('suppliers')}
-            className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${activeSubTab === 'suppliers' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            className={`${isPurchaseAdmin ? '' : 'hidden'} px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${activeSubTab === 'suppliers' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
           >
             Proveedores
           </button>
           <button 
             onClick={() => setActiveSubTab('pricelists')}
-            className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${activeSubTab === 'pricelists' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            className={`${isPurchaseAdmin ? '' : 'hidden'} px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${activeSubTab === 'pricelists' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
           >
             Listas de Fábrica
           </button>
           <button 
             onClick={() => setActiveSubTab('relations')}
-            className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${activeSubTab === 'relations' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            className={`${isPurchaseAdmin ? '' : 'hidden'} px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${activeSubTab === 'relations' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
           >
             Precios y Fórmulas
           </button>
           <button 
             onClick={() => setActiveSubTab('new_purchase')}
-            className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${activeSubTab === 'new_purchase' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            className={`${isPurchaseAdmin ? '' : 'hidden'} px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${activeSubTab === 'new_purchase' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
           >
             Registrar Compra
           </button>
           <button 
             onClick={() => setActiveSubTab('purchases_history')}
-            className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${activeSubTab === 'purchases_history' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            className={`${isPurchaseAdmin ? '' : 'hidden'} px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${activeSubTab === 'purchases_history' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
           >
             Historial de Compras
           </button>
@@ -5262,13 +5297,13 @@ export default function ComprasAdminPage() {
           </button>
           <button 
             onClick={() => setActiveSubTab('receptions')}
-            className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${activeSubTab === 'receptions' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            className={`${isPurchaseAdmin ? '' : 'hidden'} px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${activeSubTab === 'receptions' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
           >
             Recepción Remitos
           </button>
           <button 
             onClick={() => setActiveSubTab('import_compras')}
-            className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${activeSubTab === 'import_compras' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            className={`${isPurchaseAdmin ? '' : 'hidden'} px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${activeSubTab === 'import_compras' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
           >
             Importar Planilla
           </button>
@@ -5296,6 +5331,7 @@ export default function ComprasAdminPage() {
             )}
           </button>
           <button 
+            hidden
             onClick={() => setActiveSubTab('hold_orders')}
             className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all flex items-center gap-1.5 ${
               activeSubTab === 'hold_orders' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
@@ -5309,6 +5345,7 @@ export default function ComprasAdminPage() {
             )}
           </button>
           <button 
+            hidden
             onClick={() => setActiveSubTab('claims_exchanges')}
             className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all flex items-center gap-1.5 ${
               activeSubTab === 'claims_exchanges' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
@@ -5322,6 +5359,7 @@ export default function ComprasAdminPage() {
             )}
           </button>
           <button 
+            hidden
             onClick={() => {
               setActiveSubTab('boms');
               if (products.length > 0 && !selectedBomProductId) {
@@ -5337,6 +5375,7 @@ export default function ComprasAdminPage() {
             Recetas (BOM)
           </button>
           <button 
+            hidden
             onClick={() => {
               setActiveSubTab('production');
               setProdProductId("");
@@ -5347,12 +5386,14 @@ export default function ComprasAdminPage() {
             Ordenes de Producción
           </button>
           <button 
+            hidden
             onClick={() => setActiveSubTab('insumos')}
             className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${activeSubTab === 'insumos' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
           >
             Insumos / Stock
           </button>
           <button 
+            hidden
             onClick={() => {
               setActiveSubTab('make_vs_buy');
               setMakeVsBuySubTab('make_vs_buy_kpis');
@@ -5364,6 +5405,7 @@ export default function ComprasAdminPage() {
             Análisis Costos / Make vs Buy
           </button>
           <button 
+            hidden
             onClick={() => {
               setActiveSubTab('bom_explorer');
               setBomExplorerTab('tree');
@@ -5798,14 +5840,25 @@ export default function ComprasAdminPage() {
           {selectedPO && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/40 backdrop-blur-sm overflow-y-auto">
               <div className="bg-white rounded-3xl w-full max-w-3xl shadow-2xl p-4 sm:p-6 space-y-5 sm:space-y-6 my-4 sm:my-8 animate-in fade-in duration-200">
-                <div className="flex justify-between items-center border-b pb-4">
+                <div className="flex justify-between items-center gap-3 border-b pb-4">
                   <div>
                     <h3 className="text-lg font-black text-slate-900">Orden de Compra: {selectedPO.oc_code}</h3>
                     <p className="text-xs text-slate-400">Proveedor: {selectedPO.supplier?.name} | Fecha: {formatDateDDMMYYYY(selectedPO.order_date)}</p>
                   </div>
-                  <button onClick={() => setSelectedPO(null)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-colors">
-                    <X className="w-5 h-5" />
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {!loadingPoDetail && (
+                      <Button
+                        type="button"
+                        onClick={() => setShowSupplierPOImage(true)}
+                        className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-black text-blue-700 hover:bg-blue-100"
+                      >
+                        <FileText className="h-4 w-4" /> Versión para proveedor
+                      </Button>
+                    )}
+                    <button onClick={() => { setShowSupplierPOImage(false); setSelectedPO(null); }} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-colors">
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
                 </div>
 
                 {loadingPoDetail ? (
@@ -5989,6 +6042,13 @@ export default function ComprasAdminPage() {
               </div>
             </div>
           )}
+
+          <SupplierPurchaseOrderImageModal
+            isOpen={showSupplierPOImage && Boolean(selectedPO)}
+            onClose={() => setShowSupplierPOImage(false)}
+            order={selectedPO}
+            items={poItemsDetail}
+          />
 
           {/* Modal Unificar Ordenes de Compra */}
           {showMergePOModal && mergePreview && (
@@ -7734,13 +7794,13 @@ export default function ComprasAdminPage() {
               </div>
 
               <div className="w-44 space-y-1">
-                <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Mínimo Unidades (Opcional)</label>
+                <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Máximo Unidades (Opcional)</label>
                 <input
                   type="number"
                   placeholder="Ej. 20"
                   min="1"
-                  value={calcMinUnits}
-                  onChange={e => setCalcMinUnits(e.target.value)}
+                  value={calcMaxUnits}
+                  onChange={e => setCalcMaxUnits(e.target.value)}
                   className="w-full px-4 py-2.5 rounded-xl border bg-slate-50 font-bold text-xs"
                 />
               </div>
@@ -7830,7 +7890,7 @@ export default function ComprasAdminPage() {
                     {calcResults.reduce((acc, it) => acc + (it.quantitySuggested || 0), 0)} u.
                   </p>
                   <p className="text-[10px] text-slate-400">
-                    {calcMinUnits ? `Mínimo configurado: ${calcMinUnits} u.` : 'Suma total calculada'}
+                    {calcMaxUnits ? `Máximo configurado: ${calcMaxUnits} u.` : 'Suma total calculada'}
                   </p>
                 </div>
                 <div className="space-y-1 border-r border-slate-800 px-4">

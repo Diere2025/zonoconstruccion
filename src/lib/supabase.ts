@@ -17,6 +17,14 @@ const getSupabaseClient = (): SupabaseClient => {
           lock: async (name, acquireTimeout, fn) => {
             return await fn();
           }
+        },
+        global: {
+          headers: {
+            'Connection': 'keep-alive'
+          }
+        },
+        db: {
+          schema: 'public'
         }
       });
     }

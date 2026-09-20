@@ -4,7 +4,9 @@ import { Lock, Mail, AlertCircle, ArrowRight, Loader2 } from 'lucide-react';
 
 export const LoginView: React.FC = () => {
   const { login, isLoading } = useAuthStore();
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(
+    () => new URLSearchParams(window.location.search).get('email') ?? ''
+  );
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
 

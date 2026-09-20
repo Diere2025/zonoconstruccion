@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { 
   Truck, 
@@ -35,6 +35,7 @@ CreditCard,
 import { Button } from "@/components/ui/Button";
 import { formatPrice, formatDateDDMMYYYY } from "@/lib/utils";
 import { createBulkStockTransactions } from "@/lib/erp/stock";
+import LogisticsReceiptsPanel from "@/components/logistica/LogisticsReceiptsPanel";
 
 interface AppError {
   message: string;
@@ -54,6 +55,15 @@ function parseReturnItemsFromNotes(notes: string | null | undefined): string[] {
 function cleanTextForSearch(str: string | null | undefined): string {
   return (str || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
+
+// Routing is an operational view: only active ERP states are available to
+// plan or appear in an active route; held orders stay in the separate review queue.
+const ROUTING_ORDER_STATUSES = new Set(["Pendiente", "Entregando"]);
+const ROUTING_REVIEW_ORDER_STATUSES = new Set(["En Espera", "En Revisión"]);
+const ROUTING_VISIBLE_ORDER_STATUSES = new Set([
+  ...ROUTING_ORDER_STATUSES,
+  ...ROUTING_REVIEW_ORDER_STATUSES
+]);
 
 import { DateInput } from "./components/DateInput";
 import { 
@@ -145,8 +155,10 @@ function getOrderCategorySummary(orderItems: { product_name: string; quantity: n
 }
 
 export default function RuteoPage() {
-  const [activeTab, setActiveTab] = useState<'pending' | 'planned' | 'in_transit' | 'history' | 'take_away' | 'carriers'>('pending');
+  const [activeTab, setActiveTab] = useState<'pending' | 'review' | 'planned' | 'in_transit' | 'history' | 'take_away' | 'receipts' | 'carriers'>('pending');
   const [loading, setLoading] = useState(true);
+  const loadAbortControllerRef = useRef<AbortController | null>(null);
+  const loadRequestIdRef = useRef(0);
   const [carriers, setCarriers] = useState<Carrier[]>([]);
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [routeSheets, setRouteSheets] = useState<RouteSheet[]>([]);
@@ -501,7 +513,11 @@ export default function RuteoPage() {
   }, []);
 
   useEffect(() => {
-    loadAllData();
+    if (activeTab !== 'receipts') loadAllData();
+
+    return () => {
+      loadAbortControllerRef.current?.abort();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, selectedDateFilter]);
 
@@ -589,16 +605,29 @@ export default function RuteoPage() {
   }
 
   async function loadAllData() {
+    loadAbortControllerRef.current?.abort();
+    const controller = new AbortController();
+    const requestId = ++loadRequestIdRef.current;
+    loadAbortControllerRef.current = controller;
+    const timeoutId = window.setTimeout(() => controller.abort(), 30000);
+
     try {
       setLoading(true);
+
+      const withSignal = <T extends { abortSignal: (signal: AbortSignal) => T }>(query: T) =>
+        query.abortSignal(controller.signal);
       
-      // Prepare active deliveries query
-      const activeQuery = supabase
+      // Filter at the database: loading every unfinished delivery and then
+      // discarding most of them in the browser made this request prone to
+      // PostgREST timeouts. Orders and operational encomiendas need separate
+      // queries because an order inner join intentionally excludes encomiendas.
+      const activeOrdersQuery = supabase
         .from('deliveries')
         .select(`
           *,
-          orders:orders(
+          orders:orders!inner(
             id,
+            status,
             client_id,
             customer_name,
             locality,
@@ -611,6 +640,8 @@ export default function RuteoPage() {
             payment_method_id,
             max_delivery_date,
             order_date,
+            hold_reason,
+            hold_product_id,
             legacy_code,
             delivery_notes,
             delivery_detail,
@@ -643,24 +674,52 @@ export default function RuteoPage() {
           route_sheets:route_sheets(*)
         `)
         .not('status', 'in', '("entregado","fallido")')
+        .in('orders.status', Array.from(ROUTING_VISIBLE_ORDER_STATUSES))
         .order('delivery_date', { ascending: true })
         .order('run_number', { ascending: true })
         .order('delivery_order', { ascending: true });
 
-      // Run parallel requests
-      const promises = [
-        supabase.from('payment_methods').select('*').eq('is_active', true).order('name'),
-        supabase.from('localities').select('id, name').eq('is_active', true).order('name'),
-        supabase.from('carriers').select('*').order('name'),
-        supabase.from('route_sheets').select('*, carriers(*)'),
-        activeQuery,
-        supabase.from('vehicles').select('*').order('plate_number'),
-        supabase.from('carrier_rates').select('*, zones:zones(id, name)').order('name'),
-        supabase.from('zones').select('id, name, is_active, color').order('name'),
-        supabase.from('deliveries')
+      const activeEncomiendasQuery = supabase
+        .from('deliveries')
+        .select(`
+          *,
+          encomiendas:encomiendas!inner(
+            *,
+            purchase:supplier_purchases(
+              id,
+              invoice_number,
+              supplier:suppliers(name)
+            ),
+            supplier:suppliers(
+              id,
+              name
+            )
+          ),
+          carriers:carriers(*),
+          route_sheets:route_sheets(*)
+        `)
+        .not('status', 'in', '("entregado","fallido")')
+        .not('encomienda_id', 'is', null)
+        .order('delivery_date', { ascending: true })
+        .order('run_number', { ascending: true })
+        .order('delivery_order', { ascending: true });
+
+      // Every request shares one cancellation signal. A fresh load or a 30-second
+      // timeout cancels all of them instead of leaving timed-out requests running.
+      const promises: PromiseLike<any>[] = [
+        withSignal(supabase.from('payment_methods').select('*').eq('is_active', true).order('name')),
+        withSignal(supabase.from('localities').select('id, name').eq('is_active', true).order('name')),
+        withSignal(supabase.from('carriers').select('*').order('name')),
+        withSignal(supabase.from('route_sheets').select('*, carriers(*)')),
+        withSignal(activeOrdersQuery),
+        withSignal(activeEncomiendasQuery),
+        withSignal(supabase.from('vehicles').select('*').order('plate_number')),
+        withSignal(supabase.from('carrier_rates').select('*, zones:zones(id, name)').order('name')),
+        withSignal(supabase.from('zones').select('id, name, is_active, color').order('name')),
+        withSignal(supabase.from('deliveries')
           .select('id, order_id, encomienda_id, delivery_date, run_number, carriers(name), route_sheets(code)')
           .eq('status', 'fallido')
-          .order('delivery_date', { ascending: false })
+          .order('delivery_date', { ascending: false }))
       ];
 
       if (activeTab === 'history') {
@@ -670,6 +729,7 @@ export default function RuteoPage() {
             *,
             orders:orders(
               id,
+              status,
               client_id,
               customer_name,
               locality,
@@ -682,6 +742,8 @@ export default function RuteoPage() {
               payment_method_id,
               max_delivery_date,
               order_date,
+              hold_reason,
+              hold_product_id,
               legacy_code,
               delivery_notes,
               delivery_detail,
@@ -716,32 +778,35 @@ export default function RuteoPage() {
           .in('status', ['entregado', 'fallido'])
           .order('delivery_date', { ascending: false })
           .limit(200);
-        promises.push(historyQuery);
+        promises.push(withSignal(historyQuery));
       }
 
       const results = await Promise.all(promises);
+      if (controller.signal.aborted || requestId !== loadRequestIdRef.current) return;
 
       const payRes = results[0];
       const locRes = results[1];
       const carrierRes = results[2];
       const sheetsRes = results[3];
-      const activeRes = results[4];
-      const vehiclesRes = results[5];
-      const ratesRes = results[6];
-      const zonesRes = results[7];
-      const failedRes = results[8];
-      const historyRes = activeTab === 'history' ? results[9] : null;
+      const activeOrdersRes = results[4];
+      const activeEncomiendasRes = results[5];
+      const vehiclesRes = results[6];
+      const ratesRes = results[7];
+      const zonesRes = results[8];
+      const failedRes = results[9];
+      const historyRes = activeTab === 'history' ? results[10] : null;
 
-      if (payRes.error) throw payRes.error;
-      if (locRes.error) throw locRes.error;
-      if (carrierRes.error) throw carrierRes.error;
-      if (sheetsRes.error) throw sheetsRes.error;
-      if (activeRes.error) throw activeRes.error;
-      if (vehiclesRes.error) throw vehiclesRes.error;
-      if (ratesRes.error) throw ratesRes.error;
-      if (zonesRes.error) throw zonesRes.error;
-      if (failedRes.error) throw failedRes.error;
-      if (historyRes && historyRes.error) throw historyRes.error;
+      if (payRes.error) throw new Error(`Error en payment_methods: ${payRes.error.message}`);
+      if (locRes.error) throw new Error(`Error en localities: ${locRes.error.message}`);
+      if (carrierRes.error) throw new Error(`Error en carriers: ${carrierRes.error.message}`);
+      if (sheetsRes.error) throw new Error(`Error en route_sheets: ${sheetsRes.error.message}`);
+      if (activeOrdersRes.error) throw new Error(`Error en active order deliveries: ${activeOrdersRes.error.message}`);
+      if (activeEncomiendasRes.error) throw new Error(`Error en active encomienda deliveries: ${activeEncomiendasRes.error.message}`);
+      if (vehiclesRes.error) throw new Error(`Error en vehicles: ${vehiclesRes.error.message}`);
+      if (ratesRes.error) throw new Error(`Error en carrier_rates: ${ratesRes.error.message}`);
+      if (zonesRes.error) throw new Error(`Error en zones: ${zonesRes.error.message}`);
+      if (failedRes.error) throw new Error(`Error en failed deliveries: ${failedRes.error.message}`);
+      if (historyRes && historyRes.error) throw new Error(`Error en history: ${historyRes.error.message}`);
 
       const payData = (payRes.data || []) as PaymentMethod[];
       setPaymentMethods(payData);
@@ -759,16 +824,34 @@ export default function RuteoPage() {
       setZones((zonesRes.data || []) as Zone[]);
       setFailedHistory((failedRes.data || []) as any[]);
 
-      let allDeliveries = (activeRes.data || []) as Delivery[];
+      // Keep operational encomiendas, but only expose orders that are still
+      // pending or currently being delivered in the ERP.
+      let allDeliveries = [
+        ...((activeOrdersRes.data || []) as Delivery[]),
+        ...((activeEncomiendasRes.data || []) as Delivery[])
+      ];
       if (historyRes && historyRes.data) {
         allDeliveries = [...allDeliveries, ...(historyRes.data as Delivery[])];
       }
 
       setDeliveries(allDeliveries as Delivery[]);
     } catch (err) {
-      alert("Error al cargar datos de logística: " + (err as AppError).message);
+      if (controller.signal.aborted || requestId !== loadRequestIdRef.current) return;
+
+      const errorMessage = (err as Error).message;
+      console.error("Error al cargar datos de logística:", err);
+      
+      if (errorMessage.includes("Timeout") || errorMessage.includes("504")) {
+        alert("Error de conexión con Supabase (timeout 504). Verifica tu conexión a internet o el estado de Supabase.");
+      } else {
+        alert("Error al cargar datos de logística: " + errorMessage);
+      }
     } finally {
-      setLoading(false);
+      window.clearTimeout(timeoutId);
+      if (loadAbortControllerRef.current === controller) {
+        loadAbortControllerRef.current = null;
+        setLoading(false);
+      }
     }
   }
 
@@ -1442,6 +1525,41 @@ export default function RuteoPage() {
     }
   };
 
+  const handleReturnReviewToPlanning = async (delivery: Delivery) => {
+    if (!delivery.order_id) return;
+
+    if (!confirm("¿Enviar este pedido nuevamente a la bandeja de pendientes de ruteo?")) {
+      return;
+    }
+
+    try {
+      const { error: orderError } = await supabase
+        .from('orders')
+        .update({
+          status: 'Pendiente',
+          hold_reason: null,
+          hold_product_id: null
+        })
+        .eq('id', delivery.order_id);
+
+      if (orderError) throw orderError;
+
+      const { error: deliveryError } = await supabase
+        .from('deliveries')
+        .update({
+          status: 'pendiente_ruteo',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', delivery.id);
+
+      if (deliveryError) throw deliveryError;
+
+      await loadAllData();
+    } catch (err) {
+      alert("No se pudo devolver el pedido a pendientes: " + (err as AppError).message);
+    }
+  };
+
   const handleSaveRouteBulk = async () => {
     if (selectedDeliveryIds.size === 0) return;
     if (!bulkCarrierId) {
@@ -1655,10 +1773,10 @@ export default function RuteoPage() {
         .in('id', deliveryIds);
       if (delError) throw delError;
       
-      // Update orders to 'En Reparto'
+      // Keep the order status aligned with the ERP's active routing statuses.
       const { error: orderError } = await supabase
         .from('orders')
-        .update({ status: 'En Reparto' })
+        .update({ status: 'Entregando' })
         .in('id', orderIds);
       if (orderError) throw orderError;
 
@@ -3116,7 +3234,7 @@ export default function RuteoPage() {
   const pendingZones = Array.from(
     new Set(
       deliveries
-        .filter(d => d.status === 'pendiente_ruteo')
+        .filter(d => d.status === 'pendiente_ruteo' && (Boolean(d.encomienda_id) || ROUTING_ORDER_STATUSES.has(d.orders?.status || "")))
         .map(d => d.orders ? (d.orders.zones?.name || "Sin Zona") : "Diligencia")
     )
   ).sort() as string[];
@@ -3124,7 +3242,7 @@ export default function RuteoPage() {
   const pendingLocalities = Array.from(
     new Set(
       deliveries
-        .filter(d => d.status === 'pendiente_ruteo')
+        .filter(d => d.status === 'pendiente_ruteo' && (Boolean(d.encomienda_id) || ROUTING_ORDER_STATUSES.has(d.orders?.status || "")))
         .map(d => d.orders ? d.orders.locality : d.encomiendas?.locality)
         .filter((loc): loc is string => !!loc)
     )
@@ -3137,6 +3255,7 @@ export default function RuteoPage() {
       const order = d.orders;
       const encomienda = d.encomiendas;
       if (!order && !encomienda) return false;
+      if (!encomienda && !ROUTING_ORDER_STATUSES.has(order?.status || "")) return false;
 
       // Identify warehouse pickups but do NOT exclude them from logistics planning pending list
       const zoneName = order ? (order.zones?.name || "Sin Zona") : "Diligencia";
@@ -3245,6 +3364,19 @@ export default function RuteoPage() {
       }
       
       return sortDirection === 'asc' ? comparison : -comparison;
+    });
+
+  const reviewDeliveries = deliveries
+    .filter(delivery =>
+      delivery.status === 'pendiente_ruteo' &&
+      !delivery.route_sheet_id &&
+      !delivery.encomienda_id &&
+      Boolean(delivery.orders && ROUTING_REVIEW_ORDER_STATUSES.has(delivery.orders.status))
+    )
+    .sort((a, b) => {
+      const dateA = a.orders?.max_delivery_date ? new Date(a.orders.max_delivery_date).getTime() : Number.MAX_SAFE_INTEGER;
+      const dateB = b.orders?.max_delivery_date ? new Date(b.orders.max_delivery_date).getTime() : Number.MAX_SAFE_INTEGER;
+      return dateA - dateB;
     });
 
   const getPlannedGroups = () => {
@@ -3407,6 +3539,18 @@ export default function RuteoPage() {
 
         <button 
           type="button"
+          onClick={() => setActiveTab('review')}
+          className={`px-3 py-1.5 text-xs font-black uppercase tracking-wider border-b-2 transition-all cursor-pointer ${
+            activeTab === 'review'
+              ? 'border-amber-500 text-amber-700'
+              : 'border-transparent text-slate-400 hover:text-slate-600'
+          }`}
+        >
+          En revisión ({reviewDeliveries.length})
+        </button>
+
+        <button
+          type="button"
           onClick={() => {
             setActiveTab('planned');
             setPlannedSubTab('Borrador');
@@ -3486,6 +3630,18 @@ export default function RuteoPage() {
           Historial Entregas
         </button>
 
+        <button
+          type="button"
+          onClick={() => setActiveTab('receipts')}
+          className={`px-3 py-1.5 text-xs font-black uppercase tracking-wider border-b-2 transition-all cursor-pointer ${
+            activeTab === 'receipts'
+              ? 'border-slate-900 text-slate-900'
+              : 'border-transparent text-slate-400 hover:text-slate-600'
+          }`}
+        >
+          Comprobantes
+        </button>
+
         <button 
           type="button"
           onClick={() => setActiveTab('carriers')}
@@ -3501,7 +3657,7 @@ export default function RuteoPage() {
 
       {/* Main Panel Content */}
       <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6">
-        {loading && activeTab !== 'take_away' ? (
+        {loading && activeTab !== 'take_away' && activeTab !== 'receipts' ? (
           <div className="flex flex-col items-center justify-center py-20 gap-3">
             <Loader2 className="w-10 h-10 animate-spin text-brand-600" />
             <p className="text-slate-500 font-semibold text-xs">Cargando datos de logística...</p>
@@ -3509,7 +3665,7 @@ export default function RuteoPage() {
         ) : (
           <>
             {/* SEARCH & FILTERS BAR */}
-            {activeTab !== 'carriers' && activeTab !== 'planned' && activeTab !== 'take_away' && (
+            {activeTab !== 'carriers' && activeTab !== 'planned' && activeTab !== 'take_away' && activeTab !== 'receipts' && (
               <div className="mb-6">
                 {activeTab === 'pending' ? (
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 bg-slate-50/70 p-4 border rounded-3xl border-slate-100 shadow-sm">
@@ -3827,6 +3983,8 @@ export default function RuteoPage() {
               </div>
             )}
 
+            {activeTab === 'receipts' && <LogisticsReceiptsPanel />}
+
             {/* PENDIENTES TAB */}
             {activeTab === 'pending' && (
               <div className="space-y-4 min-w-max">
@@ -3946,6 +4104,7 @@ export default function RuteoPage() {
                               className="w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500/10 cursor-pointer accent-brand-600"
                             />
                           </th>
+                          <th className="px-3 py-3">Código</th>
                           <th 
                             className="px-3 py-3 cursor-pointer hover:text-slate-600 hover:bg-slate-100/50 transition-colors"
                             onClick={() => handleSort('vencimiento')}
@@ -3959,7 +4118,6 @@ export default function RuteoPage() {
                               )}
                             </div>
                           </th>
-                          <th className="px-3 py-3">Código</th>
                           <th className="px-3 py-3">Cliente</th>
                           <th className="px-3 py-3">Detalle Entrega</th>
                           <th 
@@ -4046,11 +4204,6 @@ export default function RuteoPage() {
                                 />
                               </td>
                               <td className="px-3 py-2">
-                                <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black uppercase border ${getLimitDateColorClass(isEncomienda ? encomienda?.delivery_date : order?.max_delivery_date)}`}>
-                                  {limitDateStr}
-                                </span>
-                              </td>
-                              <td className="px-3 py-2">
                                 <button
                                   type="button"
                                   onClick={() => setPreviewDelivery(del)}
@@ -4062,6 +4215,11 @@ export default function RuteoPage() {
                                 >
                                   {code}
                                 </button>
+                              </td>
+                              <td className="px-3 py-2">
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black uppercase border ${getLimitDateColorClass(isEncomienda ? encomienda?.delivery_date : order?.max_delivery_date)}`}>
+                                  {limitDateStr}
+                                </span>
                               </td>
                               <td className="px-3 py-2">
                                 <div className="flex items-center gap-1.5 whitespace-nowrap">
@@ -4204,6 +4362,94 @@ export default function RuteoPage() {
               </div>
             )}
 
+            {/* REVIEW QUEUE: orders held for stock or operational validation */}
+            {activeTab === 'review' && (
+              <div className="space-y-4 min-w-max">
+                <div className="flex items-start gap-3 p-3.5 rounded-2xl border border-amber-200 bg-amber-50 text-amber-900">
+                  <AlertTriangle className="w-5 h-5 mt-0.5 text-amber-600 shrink-0" />
+                  <div>
+                    <p className="text-xs font-black">Pedidos fuera de la planificación</p>
+                    <p className="text-[11px] font-semibold text-amber-800 mt-0.5">
+                      Acá quedan los pedidos en espera o revisión, por ejemplo por falta de stock o para pasar a otro día. Al resolverlos, volvelos a Pendientes.
+                    </p>
+                  </div>
+                </div>
+
+                {reviewDeliveries.length === 0 ? (
+                  <div className="text-center py-16 text-slate-400 space-y-2">
+                    <CheckCircle className="w-10 h-10 mx-auto text-emerald-300" />
+                    <p className="font-bold text-xs">No hay pedidos pendientes de revisión.</p>
+                  </div>
+                ) : (
+                  <div className="min-w-max border border-slate-200/60 rounded-3xl bg-white shadow-sm overflow-hidden">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-100 font-black text-slate-400 text-[10px] uppercase tracking-wider">
+                          <th className="px-3 py-3">Código</th>
+                          <th className="px-3 py-3">Vencimiento</th>
+                          <th className="px-3 py-3">Cliente</th>
+                          <th className="px-3 py-3">Zona</th>
+                          <th className="px-3 py-3">Localidad y dirección</th>
+                          <th className="px-3 py-3">Motivo</th>
+                          <th className="px-3 py-3">Productos</th>
+                          <th className="px-3 py-3 text-right">Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 font-bold text-slate-700">
+                        {reviewDeliveries.map(delivery => {
+                          const order = delivery.orders!;
+                          const zoneName = order.zones?.name || 'Sin zona';
+                          const code = order.legacy_code || order.id.substring(0, 8);
+                          const reason = order.hold_reason || (order.status === 'En Espera' ? 'En espera operativa' : 'Revisión operativa');
+
+                          return (
+                            <tr key={delivery.id} className="hover:bg-amber-50/30 transition-colors">
+                              <td className="px-3 py-2">
+                                <button type="button" onClick={() => setPreviewDelivery(delivery)} className="font-mono text-[10px] px-1.5 py-0.5 rounded border border-slate-200 bg-slate-100 text-slate-600 hover:bg-slate-200 cursor-pointer">
+                                  {code}
+                                </button>
+                              </td>
+                              <td className="px-3 py-2">
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black uppercase border ${getLimitDateColorClass(order.max_delivery_date)}`}>
+                                  {order.max_delivery_date ? formatDateDDMMYYYY(order.max_delivery_date) : 'S/D'}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 text-xs font-extrabold text-slate-800">{order.customer_name}</td>
+                              <td className="px-3 py-2">
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded text-[9px] font-black uppercase border ${getZoneColorClass(zoneName, order.zones?.color)}`}>
+                                  {zoneName}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 whitespace-nowrap">
+                                <span className="text-slate-800 font-black">{order.locality || 'S/D'}</span>
+                                <span className="text-slate-500 font-medium text-[10px]"> — {order.address || 'Sin dirección'}</span>
+                              </td>
+                              <td className="px-3 py-2">
+                                <span className="inline-flex items-center px-2 py-1 rounded-lg text-[10px] font-black bg-amber-50 border border-amber-200 text-amber-800">
+                                  {reason}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 max-w-[260px] truncate text-[10px] text-slate-600" title={formatCompactItems(order.order_items || [])}>
+                                {formatCompactItems(order.order_items || [])}
+                              </td>
+                              <td className="px-3 py-2 text-right whitespace-nowrap">
+                                <button type="button" onClick={() => setPreviewDelivery(delivery)} className="px-2.5 py-1.5 mr-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 text-[10px] font-black uppercase cursor-pointer">
+                                  Ver
+                                </button>
+                                <button type="button" onClick={() => handleReturnReviewToPlanning(delivery)} className="px-2.5 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-[10px] font-black uppercase cursor-pointer">
+                                  A pendientes
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* PLANIFICADOS / HOJAS DE RUTA TAB */}
             {activeTab === 'planned' && (
               <div className="space-y-4 min-w-max">
@@ -4232,9 +4478,9 @@ export default function RuteoPage() {
                                   {group.routeSheet.delivery_date ? new Date(group.routeSheet.delivery_date + 'T00:00:00').toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : 'S/D'}
                                 </span>
                                 <span className="px-1.5 py-0.5 rounded bg-brand-500 text-white text-[9px] font-black uppercase tracking-wider">
-                                  R{group.run_number}
+                                  Recorrido {group.run_number}
                                 </span>
-                                <h3 className="font-black text-xs tracking-tight">{group.carrier.name}</h3>
+                                <h3 className="font-black text-xs tracking-tight">Fletero: {group.carrier.name}</h3>
                                 <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase ${
                                   group.status === 'Cerrada' 
                                     ? 'bg-slate-800 text-slate-400' 
@@ -4252,7 +4498,7 @@ export default function RuteoPage() {
                               <div className="flex items-center gap-3">
                                 <button
                                   type="button"
-                                  onClick={() => handleCopyRouteSheetWhatsApp(group.items, `${group.carrier.name} - R${group.run_number}`)}
+                                  onClick={() => handleCopyRouteSheetWhatsApp(group.items, `${group.carrier.name} - Recorrido ${group.run_number}`)}
                                   className="px-3 py-2 bg-slate-800 hover:bg-slate-700 hover:text-emerald-400 text-slate-300 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer border-none"
                                   title="Copiar enlaces de WhatsApp de todos los clientes en esta ruta"
                                 >
@@ -4261,7 +4507,7 @@ export default function RuteoPage() {
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => handleCopyRouteSheetMaps(group.items, `${group.carrier.name} - R${group.run_number}`)}
+                                  onClick={() => handleCopyRouteSheetMaps(group.items, `${group.carrier.name} - Recorrido ${group.run_number}`)}
                                   className="px-3 py-2 bg-slate-800 hover:bg-slate-700 hover:text-blue-400 text-slate-300 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer border-none"
                                   title="Copiar enlaces de mapas (uno por línea) de esta ruta"
                                 >
@@ -4270,7 +4516,7 @@ export default function RuteoPage() {
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => handleOpenProductSummary(group.items, `${group.carrier.name} - R${group.run_number}`)}
+                                  onClick={() => handleOpenProductSummary(group.items, `${group.carrier.name} - Recorrido ${group.run_number}`)}
                                   className="px-3 py-2 bg-slate-800 hover:bg-slate-700 hover:text-emerald-400 text-slate-300 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer border-none"
                                   title="Ver listado consolidado de productos y cantidades de esta ruta"
                                 >
@@ -4288,7 +4534,7 @@ export default function RuteoPage() {
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => handleOpenImportOrderModal(group.items, group.routeSheet.id, `${group.carrier.name} - R${group.run_number}`)}
+                                  onClick={() => handleOpenImportOrderModal(group.items, group.routeSheet.id, `${group.carrier.name} - Recorrido ${group.run_number}`)}
                                   className="px-3 py-2 bg-slate-800 hover:bg-slate-700 hover:text-amber-400 text-slate-300 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer border-none"
                                   title="Pegar el orden de paradas optimizado desde la app de ruteo"
                                 >
@@ -4400,8 +4646,8 @@ export default function RuteoPage() {
                                   <tr className="bg-slate-50/75 border-b border-slate-100 font-black text-slate-400 text-[10px] uppercase tracking-wider select-none">
                                     <th className="px-3 py-3 w-8 text-center">#</th>
                                     <th className="px-3 py-3 w-20 text-center">Viaje</th>
-                                    <th className="px-3 py-3">Vencimiento (Límite)</th>
                                     <th className="px-3 py-3">Código</th>
+                                    <th className="px-3 py-3">Vencimiento (Límite)</th>
                                     <th className="px-3 py-3 text-center w-24">Tipo Cliente</th>
                                     <th className="px-3 py-3">Cliente</th>
                                     <th className="px-3 py-3">Detalle Entrega</th>
@@ -4498,12 +4744,6 @@ export default function RuteoPage() {
                                         </td>
 
                                         <td className="px-3 py-2">
-                                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black uppercase border ${getLimitDateColorClass(isEncomienda ? encomienda?.delivery_date : order?.max_delivery_date)}`}>
-                                            {limitDateStr}
-                                          </span>
-                                        </td>
-                                        
-                                        <td className="px-3 py-2">
                                           <button
                                             type="button"
                                             onClick={() => setPreviewDelivery(del)}
@@ -4515,6 +4755,12 @@ export default function RuteoPage() {
                                           >
                                             {code}
                                           </button>
+                                        </td>
+
+                                        <td className="px-3 py-2">
+                                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black uppercase border ${getLimitDateColorClass(isEncomienda ? encomienda?.delivery_date : order?.max_delivery_date)}`}>
+                                            {limitDateStr}
+                                          </span>
                                         </td>
 
                                         {/* Tipo Cliente: Mayorista / Minorista / Encomienda */}

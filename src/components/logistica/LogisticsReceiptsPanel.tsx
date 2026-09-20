@@ -2,9 +2,12 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
+import Image from 'next/image';
 import { CheckSquare, Loader2, Printer, RefreshCw, Search, Square } from 'lucide-react';
 import QRCode from 'qrcode';
 import { LogisticsPrintOrder } from '@/lib/logisticsPrintOrders';
+import { optimizeTwoUpOrder } from '@/lib/logisticsReceiptPagination';
+import { waitForPrintImages } from '@/lib/printAssets';
 
 export type PerPage = 1 | 2;
 
@@ -31,9 +34,10 @@ function displayDate(value: string): string {
 export function buildReceiptSheets(orders: LogisticsPrintOrder[], perPage: PerPage): ReceiptSheet[] {
   if (perPage === 1) return orders.map(order => ({ layout: 'single', orders: [order] }));
 
+  const orderedForPrinting = optimizeTwoUpOrder(orders, order => order.items.length > 10);
   const result: ReceiptSheet[] = [];
   let pending: LogisticsPrintOrder | null = null;
-  for (const order of orders) {
+  for (const order of orderedForPrinting) {
     // Un comprobante unificado extenso conserva toda la hoja para no cortar productos.
     if (order.items.length > 10) {
       if (pending) result.push({ layout: 'double', orders: [pending] });
@@ -83,6 +87,16 @@ function Receipt({ order, compact }: { order: LogisticsPrintOrder; compact: bool
 
   return (
     <article className={`logistics-receipt ${compact ? 'is-compact' : 'is-full'}`}>
+      <Image
+        className={`receipt-watermark ${isAquafort ? 'receipt-watermark-aquafort' : 'receipt-watermark-zono'}`}
+        src={isAquafort ? '/aquafort-watermark.png' : '/zono-watermark.png'}
+        alt=""
+        width={isAquafort ? 2163 : 512}
+        height={isAquafort ? 727 : 512}
+        unoptimized
+        loading="eager"
+        aria-hidden="true"
+      />
       <header className="receipt-header">
         <div className="receipt-brand-block">
           <div className="receipt-company">{isAquafort ? 'AQUAFORT' : 'ZONO CONSTRUCCIÓN'}</div>
@@ -221,6 +235,15 @@ export default function LogisticsReceiptsPanel() {
     return () => window.removeEventListener('afterprint', clearPrintQueue);
   }, []);
 
+  useEffect(() => {
+    if (printOrders.length === 0) return;
+    let cancelled = false;
+    void waitForPrintImages('print-logistics-receipts-root').then(() => {
+      if (!cancelled) window.print();
+    });
+    return () => { cancelled = true; };
+  }, [printOrders]);
+
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
     if (!term) return orders;
@@ -251,7 +274,6 @@ export default function LogisticsReceiptsPanel() {
   const handlePrint = () => {
     if (selectedOrders.length === 0) return;
     setPrintOrders(selectedOrders);
-    window.setTimeout(() => window.print(), 150);
   };
 
   return (
