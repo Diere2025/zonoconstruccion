@@ -9,6 +9,13 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT
 
 const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 
+type CashTransactionRow = {
+  financial_account_id: string | null;
+  amount: number | string | null;
+  type: string;
+  [key: string]: unknown;
+};
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -65,6 +72,13 @@ export async function GET(request: Request) {
       });
     }
 
+    if (action === 'accounts') {
+      const { data, error } = await supabaseAdmin.rpc('get_financial_accounts_balances');
+      if (error) throw error;
+
+      return NextResponse.json({ financialAccounts: data || [] });
+    }
+
     if (action === 'transactions') {
       const endDate = searchParams.get('endDate') || new Date().toISOString().split('T')[0];
       const startDate = searchParams.get('startDate') || '';
@@ -88,58 +102,68 @@ export async function GET(request: Request) {
         }
       }
 
-      // 2. Query transactions directly filtered by date range on the database
-      let query = supabaseAdmin
-        .from('cash_transactions')
-        .select(`
-          *,
-          financial_accounts(name, type),
-          cost_centers(name, code),
-          employees(full_name),
-          route_sheets!cash_transactions_route_sheet_id_fkey(
-            id,
-            delivery_date,
-            run_number,
-            carriers(name)
-          ),
-          client_payments(
-            id,
-            order_id,
-            amount,
-            orders(
+      // 2. Query transactions directly filtered by date range on the database.
+      // Supabase/PostgREST returns at most 1000 rows per request, even when a
+      // larger limit is requested. Fetch the selected period in pages so newer
+      // movements are not silently omitted after the first 1000 records.
+      const pageSize = 1000;
+      const allData: CashTransactionRow[] = [];
+
+      for (let from = 0; ; from += pageSize) {
+        let query = supabaseAdmin
+          .from('cash_transactions')
+          .select(`
+            *,
+            financial_accounts(name, type),
+            cost_centers(name, code),
+            employees(full_name),
+            route_sheets!cash_transactions_route_sheet_id_fkey(
               id,
-              legacy_code,
-              customer_name
-            )
-          ),
-          supplier_payments(
-            id,
-            purchase_id,
-            amount,
-            supplier_purchases(
-              id,
-              invoice_number
+              delivery_date,
+              run_number,
+              carriers(name)
             ),
-            suppliers(
+            client_payments(
               id,
-              name
+              order_id,
+              amount,
+              orders(
+                id,
+                legacy_code,
+                customer_name
+              )
+            ),
+            supplier_payments(
+              id,
+              purchase_id,
+              amount,
+              supplier_purchases(
+                id,
+                invoice_number
+              ),
+              suppliers(
+                id,
+                name
+              )
             )
-          )
-        `)
-        .lte('created_at', endIso)
-        .order('created_at', { ascending: true });
+          `)
+          .lte('created_at', endIso)
+          .order('created_at', { ascending: true })
+          .order('id', { ascending: true })
+          .range(from, from + pageSize - 1);
 
-      if (startIso) {
-        query = query.gte('created_at', startIso);
+        if (startIso) {
+          query = query.gte('created_at', startIso);
+        }
+
+        const { data, error } = await query;
+        if (error) throw error;
+
+        const page = data || [];
+        allData.push(...page);
+
+        if (page.length < pageSize) break;
       }
-
-      // Limit to 3000 rows to prevent edge timeout
-      query = query.limit(3000);
-
-      const { data, error } = await query;
-      if (error) throw error;
-
-      const allData = data || [];
 
       // 3. Compute running balance
       const txsWithRunningBalance = allData.map(t => {

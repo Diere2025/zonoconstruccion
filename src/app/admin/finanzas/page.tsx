@@ -21,6 +21,7 @@ import {
   X,
   Lock,
   Edit2,
+  Copy,
   FileText,
   Calendar,
   CheckCircle2,
@@ -337,7 +338,7 @@ function DateInput({
             }
           }
         }}
-        className={className || "relative flex items-center justify-between px-3 py-1.5 rounded-xl border border-slate-200 font-bold text-xs bg-slate-50 text-slate-700 cursor-pointer hover:bg-white hover:border-slate-300 transition-colors"}
+        className={`relative ${className || "flex items-center justify-between px-3 py-1.5 rounded-xl border border-slate-200 font-bold text-xs bg-slate-50 text-slate-700 cursor-pointer hover:bg-white hover:border-slate-300 transition-colors"}`}
       >
         <span className="tabular-nums select-none">{displayValue}</span>
         <Calendar className="w-3.5 h-3.5 text-slate-400 ml-2 pointer-events-none shrink-0" />
@@ -360,6 +361,7 @@ export default function AdminFinanzasPage() {
   const [userId, setUserId] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncProgress, setSyncProgress] = useState("");
+  const [transactionNotice, setTransactionNotice] = useState<string | null>(null);
 
   // Lists from DB
   const [financialAccounts, setFinancialAccounts] = useState<FinancialAccount[]>([]);
@@ -381,8 +383,15 @@ export default function AdminFinanzasPage() {
   // Modales
   const [isTxModalOpen, setIsTxModalOpen] = useState(false);
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
+  const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
   const [submittingTx, setSubmittingTx] = useState(false);
   const [submittingTransfer, setSubmittingTransfer] = useState(false);
+  const [submittingAccount, setSubmittingAccount] = useState(false);
+
+  // Form de nueva caja / cuenta financiera
+  const [accountName, setAccountName] = useState("");
+  const [accountType, setAccountType] = useState<FinancialAccount['type']>('efectivo');
+  const [accountCurrency, setAccountCurrency] = useState<FinancialAccount['currency']>('ARS');
 
   // Form de Transacción Manual
   const [txType, setTxType] = useState<'ingreso' | 'egreso'>('egreso');
@@ -452,6 +461,7 @@ export default function AdminFinanzasPage() {
 
   // States for editing transactions and route sheets costing
   const [editingTx, setEditingTx] = useState<CashTransactionWithRelations | null>(null);
+  const [duplicatingTx, setDuplicatingTx] = useState(false);
   const [routeSheets, setRouteSheets] = useState<any[]>([]);
   const [txRouteSheetId, setTxRouteSheetId] = useState("");
   const [linkRouteSheetId, setLinkRouteSheetId] = useState("");
@@ -468,7 +478,7 @@ export default function AdminFinanzasPage() {
   const loadHelperLists = async () => {};
   const loadFinancialAccounts = async () => {
     try {
-      const res = await fetch("/api/admin/finanzas-data?action=init");
+      const res = await fetch("/api/admin/finanzas-data?action=accounts");
       if (!res.ok) return;
       const payload = await res.json();
       if (payload.financialAccounts) {
@@ -562,8 +572,14 @@ export default function AdminFinanzasPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, startDate, endDate]);
 
-  const loadTransactions = async () => {
-    setLoading(true);
+  useEffect(() => {
+    if (!transactionNotice) return;
+    const timer = window.setTimeout(() => setTransactionNotice(null), 3500);
+    return () => window.clearTimeout(timer);
+  }, [transactionNotice]);
+
+  const loadTransactions = async (showLoading = true) => {
+    if (showLoading) setLoading(true);
     try {
       const res = await fetch(`/api/admin/finanzas-data?action=transactions&startDate=${startDate}&endDate=${endDate}`);
       if (!res.ok) {
@@ -577,7 +593,7 @@ export default function AdminFinanzasPage() {
     } catch (err: any) {
       console.error("Error al cargar transacciones generales:", err?.message || err);
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   };
 
@@ -1149,6 +1165,81 @@ export default function AdminFinanzasPage() {
     }
   };
 
+  const handleCreateAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    const normalizedName = accountName.trim();
+    if (!normalizedName) {
+      alert("Ingresá un nombre para la nueva caja.");
+      return;
+    }
+
+    const alreadyExists = financialAccounts.some(
+      account => account.name.trim().toLocaleLowerCase('es-AR') === normalizedName.toLocaleLowerCase('es-AR')
+    );
+    if (alreadyExists) {
+      alert("Ya existe una caja o cuenta con ese nombre.");
+      return;
+    }
+
+    setSubmittingAccount(true);
+    try {
+      const { data: newAccount, error } = await supabase
+        .from('financial_accounts')
+        .insert({
+          name: normalizedName,
+          type: accountType,
+          currency: accountCurrency,
+          is_active: true
+        })
+        .select('id, name, type, currency, is_active, created_at')
+        .single();
+
+      if (error) throw error;
+
+      setIsAccountModalOpen(false);
+      setAccountName("");
+      setAccountType('efectivo');
+      setAccountCurrency('ARS');
+
+      await loadFinancialAccounts();
+      if (newAccount?.id) {
+        setTxAccountId(newAccount.id);
+      }
+      alert("¡Caja creada correctamente!");
+    } catch (err) {
+      console.error(err);
+      alert("Error al crear la caja: " + (err as Error).message);
+    } finally {
+      setSubmittingAccount(false);
+    }
+  };
+
+  const handleDuplicateTx = (transaction: CashTransactionWithRelations) => {
+    setEditingTx(null);
+    setDuplicatingTx(true);
+    setTxType(transaction.type);
+    setTxAccountId(transaction.financial_account_id || "");
+    setTxCategory(transaction.category);
+    setTxSubCategory(transaction.sub_category || "");
+    setTxAmount(transaction.amount.toString());
+    setTxConcept(transaction.concept || "");
+    setTxCostCenterId(transaction.cost_center_id || "");
+    setTxNotes(transaction.notes || "");
+    setTxCreatedAt(transaction.created_at ? transaction.created_at.split('T')[0] : "");
+    setSelectedEmployeeId(transaction.employee_id || "");
+
+    // Las asociaciones externas no se duplican para evitar imputar dos veces
+    // una venta, compra u hoja de ruta. Se pueden elegir nuevamente en el modal.
+    setTxRouteSheetId("");
+    setSelectedSupplierId("");
+    setSelectedPurchaseId("");
+    setSelectedOrderId("");
+    setLinkToOrder(false);
+    setLinkToPurchase(false);
+    setIsTxModalOpen(true);
+  };
+
   // Registrar Transacción Manual
   const handleRegisterTx = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1317,6 +1408,7 @@ export default function AdminFinanzasPage() {
 
       setIsTxModalOpen(false);
       setEditingTx(null);
+      setDuplicatingTx(false);
       setTxAmount("");
       setTxConcept("");
       setTxSubCategory("");
@@ -1328,14 +1420,20 @@ export default function AdminFinanzasPage() {
       setSelectedOrderId("");
       setLinkToOrder(false);
       setLinkToPurchase(false);
-      
-      await Promise.all([
-        loadTransactions(),
-        loadFinancialAccounts(),
-        loadHelperLists(),
-        loadValidationOrders()
-      ]);
-      alert(editingTx ? "Movimiento actualizado con éxito!" : "Movimiento registrado con éxito!");
+
+      setTransactionNotice(editingTx ? "Movimiento actualizado correctamente." : "Movimiento registrado correctamente.");
+
+      // Refrescar en segundo plano sin ocultar la tabla ni bloquear la pantalla.
+      const refreshTasks: Promise<unknown>[] = [
+        loadTransactions(false),
+        loadFinancialAccounts()
+      ];
+      if (txCategory === 'Recaudación' && linkToOrder) {
+        refreshTasks.push(loadValidationOrders());
+      }
+      void Promise.all(refreshTasks).catch(refreshError => {
+        console.error("El movimiento se guardó, pero no se pudo refrescar la vista:", refreshError);
+      });
     } catch (err) {
       console.error(err);
       alert("Error al guardar movimiento: " + (err as Error).message);
@@ -1882,6 +1980,13 @@ export default function AdminFinanzasPage() {
 
   return (
     <div className="space-y-6 w-full pb-12">
+      {transactionNotice && (
+        <div className="fixed right-5 top-20 z-[70] flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-black text-emerald-800 shadow-lg pointer-events-none animate-in fade-in slide-in-from-top-2 duration-200">
+          <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+          {transactionNotice}
+        </div>
+      )}
+
       {/* Header */}
       <div className="bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
@@ -2062,7 +2167,7 @@ export default function AdminFinanzasPage() {
                 />
 
                 <button
-                  onClick={loadTransactions}
+                  onClick={() => loadTransactions()}
                   className="p-2 border border-slate-200 rounded-xl hover:bg-slate-50 text-slate-400 hover:text-slate-600 transition-colors shrink-0"
                   title="Recargar datos"
                 >
@@ -2075,6 +2180,7 @@ export default function AdminFinanzasPage() {
                 <Button
                   onClick={() => {
                     setEditingTx(null);
+                    setDuplicatingTx(false);
                     setTxAmount("");
                     setTxConcept("");
                     setTxSubCategory("");
@@ -2401,6 +2507,7 @@ export default function AdminFinanzasPage() {
                                     <button
                                       onClick={() => {
                                         setEditingTx(t);
+                                        setDuplicatingTx(false);
                                         setTxType(t.type);
                                         setTxAccountId(t.financial_account_id || "");
                                         setTxCategory(t.category);
@@ -2441,6 +2548,13 @@ export default function AdminFinanzasPage() {
                                       title="Editar movimiento"
                                     >
                                       <Edit2 className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      onClick={() => handleDuplicateTx(t)}
+                                      className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
+                                      title="Duplicar movimiento"
+                                    >
+                                      <Copy className="w-3.5 h-3.5" />
                                     </button>
                                     <button
                                       onClick={() => handleDeleteTx(t.id, t.concept)}
@@ -2503,7 +2617,13 @@ export default function AdminFinanzasPage() {
               <h2 className="text-sm font-black text-slate-800 uppercase tracking-wider">Arqueo y Cajas</h2>
               <p className="text-slate-400 text-xs font-semibold">Control de saldos en tiempo real y conciliación con planillas externas.</p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <Button
+                onClick={() => setIsAccountModalOpen(true)}
+                className="flex items-center gap-1.5 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-sm transition-all"
+              >
+                <PlusCircle className="w-4 h-4" /> Nueva Caja
+              </Button>
               <Button
                 onClick={() => setIsReconciliationModalOpen(true)}
                 className="flex items-center gap-1.5 px-4 py-2 border border-brand-200 bg-brand-50 hover:bg-brand-100 text-brand-700 font-black text-xs uppercase tracking-wider rounded-xl shadow-sm transition-all"
@@ -2781,6 +2901,87 @@ export default function AdminFinanzasPage() {
       )}
 
       {/* =========================================================================
+          MODAL: CREAR CAJA / CUENTA FINANCIERA
+          ========================================================================= */}
+      {isAccountModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="bg-white rounded-[2rem] border border-slate-100 p-6 shadow-2xl w-full max-w-md space-y-4 animate-in zoom-in-95 duration-150">
+            <div className="flex justify-between items-center pb-2.5 border-b border-slate-100">
+              <div>
+                <h3 className="font-black text-slate-900 text-sm uppercase tracking-wider flex items-center gap-1.5">
+                  <Wallet className="w-4 h-4 text-brand-600" /> Crear nueva caja
+                </h3>
+                <p className="text-[10px] text-slate-400 font-bold mt-1">La caja se crea con saldo inicial cero.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAccountModalOpen(false)}
+                className="p-1 hover:bg-slate-100 rounded-lg text-slate-400"
+                title="Cerrar"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateAccount} className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-[9px] font-black uppercase text-slate-400">Nombre *</label>
+                <input
+                  type="text"
+                  required
+                  autoFocus
+                  maxLength={100}
+                  placeholder="Ej. Caja Depósito"
+                  value={accountName}
+                  onChange={e => setAccountName(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black uppercase text-slate-400">Tipo *</label>
+                  <select
+                    value={accountType}
+                    onChange={e => setAccountType(e.target.value as FinancialAccount['type'])}
+                    required
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
+                  >
+                    <option value="efectivo">Efectivo</option>
+                    <option value="banco">Banco</option>
+                    <option value="virtual">Virtual</option>
+                    <option value="tarjeta">Tarjeta</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black uppercase text-slate-400">Moneda *</label>
+                  <select
+                    value={accountCurrency}
+                    onChange={e => setAccountCurrency(e.target.value as FinancialAccount['currency'])}
+                    required
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
+                  >
+                    <option value="ARS">Pesos (ARS)</option>
+                    <option value="USD">Dólares (USD)</option>
+                  </select>
+                </div>
+              </div>
+
+              <Button
+                type="submit"
+                disabled={submittingAccount}
+                className="w-full py-2.5 bg-brand-600 hover:bg-brand-700 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-md flex items-center justify-center gap-1.5"
+              >
+                {submittingAccount ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlusCircle className="w-4 h-4" />}
+                {submittingAccount ? "Creando..." : "Crear Caja"}
+              </Button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
           MODAL 1: REGISTRAR MOVIMIENTO MANUAL
           ========================================================================= */}
       {isTxModalOpen && (
@@ -2788,12 +2989,20 @@ export default function AdminFinanzasPage() {
           <div className="bg-white rounded-[2rem] border border-slate-100 p-6 shadow-2xl w-full max-w-xl space-y-4 animate-in zoom-in-95 duration-150">
             <div className="flex justify-between items-center pb-2.5 border-b border-slate-100">
               <h3 className="font-black text-slate-900 text-sm uppercase tracking-wider flex items-center gap-1.5">
-                <PlusCircle className="w-4 h-4 text-brand-600" /> {editingTx ? "Editar Movimiento Manual" : "Registrar Movimiento Manual"}
+                {duplicatingTx ? <Copy className="w-4 h-4 text-indigo-600" /> : <PlusCircle className="w-4 h-4 text-brand-600" />}
+                {editingTx ? "Editar Movimiento Manual" : duplicatingTx ? "Duplicar Movimiento" : "Registrar Movimiento Manual"}
               </h3>
-              <button onClick={() => { setIsTxModalOpen(false); setEditingTx(null); }} className="p-1 hover:bg-slate-100 rounded-lg text-slate-400">
+              <button onClick={() => { setIsTxModalOpen(false); setEditingTx(null); setDuplicatingTx(false); }} className="p-1 hover:bg-slate-100 rounded-lg text-slate-400">
                 <X className="w-4 h-4" />
               </button>
             </div>
+
+            {duplicatingTx && (
+              <div className="flex items-start gap-2 rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2 text-[10px] font-bold text-indigo-700">
+                <Copy className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                Se creará un movimiento nuevo. Revisá los datos y modificá lo necesario antes de guardar.
+              </div>
+            )}
 
             <form onSubmit={handleRegisterTx} className="space-y-4">
               <div className="grid grid-cols-2 gap-2">
@@ -2962,7 +3171,7 @@ export default function AdminFinanzasPage() {
 
               {txCategory === "Sueldos" && (
                 <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl space-y-1 animate-in fade-in duration-200">
-                  <label className="text-[9px] font-black uppercase text-slate-400">Empleado *</label>
+                  <label className="text-[9px] font-black uppercase text-slate-400">Empleado (Opcional)</label>
                   <select
                     value={selectedEmployeeId}
                     onChange={e => {
@@ -2973,7 +3182,6 @@ export default function AdminFinanzasPage() {
                         setTxConcept(`Liquidación de Sueldo - ${emp.full_name}`);
                       }
                     }}
-                    required={txCategory === "Sueldos"}
                     className="w-full px-3 py-1.5 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
                   >
                     <option value="">-- Seleccionar Empleado --</option>
@@ -3096,7 +3304,7 @@ export default function AdminFinanzasPage() {
                 disabled={submittingTx}
                 className="w-full py-2.5 bg-brand-600 hover:bg-brand-700 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-md flex items-center justify-center gap-1.5"
               >
-                {submittingTx ? <Loader2 className="w-4 h-4 animate-spin" /> : (editingTx ? "Guardar Cambios" : "Registrar Movimiento")}
+                {submittingTx ? <Loader2 className="w-4 h-4 animate-spin" /> : (editingTx ? "Guardar Cambios" : duplicatingTx ? "Crear Duplicado" : "Registrar Movimiento")}
               </Button>
             </form>
           </div>
