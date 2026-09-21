@@ -127,6 +127,22 @@ function asNumber(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function readableError(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  if (error && typeof error === "object") {
+    const candidate = error as { message?: unknown; details?: unknown };
+    if (typeof candidate.message === "string") return candidate.message;
+    if (typeof candidate.details === "string") return candidate.details;
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return "Ocurrió un error inesperado al consultar las rendiciones.";
+    }
+  }
+  return "Ocurrió un error inesperado al consultar las rendiciones.";
+}
+
 export async function GET(request: Request) {
   const authorization = await authorize(request);
   if (!authorization.actor) return unauthorized(authorization.reason);
@@ -285,7 +301,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ error: "Acción inválida." }, { status: 400 });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = readableError(error);
     console.error("[Rendiciones GET]", error);
     return NextResponse.json({ error: message }, { status: 500 });
   }
@@ -350,7 +366,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true, settlement: data });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = readableError(error);
     console.error("[Rendiciones POST]", error);
     return NextResponse.json({ error: message }, { status: 500 });
   }

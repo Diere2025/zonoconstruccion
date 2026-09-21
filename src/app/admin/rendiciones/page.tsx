@@ -187,7 +187,13 @@ export default function RendicionesPage() {
     }
 
     const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || "No se pudo completar la operación.");
+    if (!response.ok) {
+      const apiError = payload?.error;
+      const message = typeof apiError === "string"
+        ? apiError
+        : apiError?.message || apiError?.details || "No se pudo completar la operación.";
+      throw new Error(message);
+    }
     return payload;
   }, []);
 
