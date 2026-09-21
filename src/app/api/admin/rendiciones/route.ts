@@ -134,7 +134,7 @@ export async function GET(request: Request) {
         if (row.status === "confirmed") acc.confirmed += 1;
         else if (row.count_date || asNumber(row.counted_cash) > 0) acc.drafts += 1;
         else acc.pending += 1;
-        if (Math.abs(asNumber(row.difference)) > 300) acc.differences += 1;
+        if (row.status !== "confirmed" && Math.abs(asNumber(row.difference)) > 300) acc.differences += 1;
         return acc;
       }, { pending: 0, drafts: 0, differences: 0, confirmed: 0 });
       return NextResponse.json({ rows, stats });
