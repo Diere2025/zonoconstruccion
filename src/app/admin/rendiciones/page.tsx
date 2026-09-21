@@ -6,7 +6,7 @@ import {
   ClipboardCopy, FileSpreadsheet, Loader2, Plus, RefreshCw, Save, Search, Trash2, Truck, X,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { formatDateDDMMYYYY, formatPrice } from "@/lib/utils";
+import { formatPrice } from "@/lib/utils";
 import {
   buildSettlementMessage, buildTreasuryMovementRows, CASH_DENOMINATIONS,
   getSettlementHealth, treasuryMovementRowsToTsv,
@@ -53,6 +53,10 @@ const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Argent
 const inputNumber = (value: string) => {
   const parsed = Number(value.replace(/[^\d.-]/g, ""));
   return Number.isFinite(parsed) ? parsed : 0;
+};
+const displayDate = (value?: string | null) => {
+  const match = String(value || "").slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : "-";
 };
 const cashKey = (kind: string, denomination: number) => `${kind}-${denomination}`;
 const isPending = (row: SettlementRecord) => row.status === "draft" && !row.count_date && Number(row.counted_cash || 0) === 0;
@@ -173,7 +177,7 @@ export default function RendicionesPage() {
 
   const filteredRows = useMemo(() => rows.filter(row => {
     const term = search.trim().toLowerCase();
-    const matchesSearch = !term || [row.code, row.carrier_name, row.route_detail, formatDateDDMMYYYY(row.settlement_date)]
+    const matchesSearch = !term || [row.code, row.carrier_name, row.route_detail, displayDate(row.settlement_date)]
       .some(value => String(value || "").toLowerCase().includes(term));
     const matchesFilter = filter === "all" || (filter === "confirmed" && row.status === "confirmed")
       || (filter === "pending" && isPending(row)) || (filter === "draft" && row.status === "draft" && !isPending(row));
@@ -234,7 +238,7 @@ export default function RendicionesPage() {
     ? detail.settlement.whatsapp_message
     : buildSettlementMessage({ routeDate: settlementDate, difference: totals.difference, changeFund, tollsTotal: totals.tollsTotal, extraordinaryTotal: totals.extraordinaryTotal });
   const movementRows = useMemo(() => buildTreasuryMovementRows({
-    movementDate: formatDateDDMMYYYY(countDate || settlementDate),
+    movementDate: displayDate(countDate || settlementDate),
     countedCash: totals.countedCash,
     expenses,
     shortageRecovered,
@@ -308,7 +312,7 @@ export default function RendicionesPage() {
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-300">{detail.settlement.source === "spreadsheet" ? "Importada desde planilla" : "Carga manual"}</p>
                 <h1 className="mt-2 text-3xl font-black tracking-tight">{code}</h1>
-                <p className="mt-2 text-sm text-slate-300">{carrierName} · {formatDateDDMMYYYY(settlementDate)}{routeDetail ? ` · ${routeDetail}` : ""}</p>
+                <p className="mt-2 text-sm text-slate-300">{carrierName} · {displayDate(settlementDate)}{routeDetail ? ` · ${routeDetail}` : ""}</p>
               </div>
               <span className={`w-fit rounded-full border px-3 py-1.5 text-xs font-black ${statusClasses(detail.settlement)}`}>{statusLabel(detail.settlement)}</span>
             </div>
@@ -436,7 +440,7 @@ export default function RendicionesPage() {
             : filteredRows.length === 0 ? <div className="flex min-h-72 flex-col items-center justify-center px-6 text-center"><CheckCircle2 className="mb-3 h-10 w-10 text-emerald-500" /><h2 className="font-black text-slate-900">No hay rendiciones en esta vista</h2><p className="mt-1 text-sm text-slate-500">Creá una rendición manual o importá las del mes actual.</p></div>
               : <div className="divide-y divide-slate-100">{filteredRows.map(row => <button key={row.id} type="button" onClick={() => void openSettlement(row.id)} className="grid w-full gap-3 px-5 py-4 text-left transition-colors hover:bg-slate-50 md:grid-cols-[minmax(220px,1.4fr)_150px_130px_150px_42px] md:items-center">
                 <div className="min-w-0"><p className="truncate text-sm font-black text-slate-950">{row.carrier_name}</p><p className="mt-1 truncate text-xs text-slate-500">{row.code}{row.route_detail ? ` · ${row.route_detail}` : ""} · {row.source === "spreadsheet" ? "Planilla" : "Manual"}</p></div>
-                <div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 md:hidden">Fecha</p><p className="text-sm font-bold text-slate-700">{formatDateDDMMYYYY(row.settlement_date)}</p></div>
+                <div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 md:hidden">Fecha</p><p className="text-sm font-bold text-slate-700">{displayDate(row.settlement_date)}</p></div>
                 <div><span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold ${statusClasses(row)}`}>{statusLabel(row)}</span></div>
                 <div className="md:text-right"><p className={`text-sm font-black ${Math.abs(Number(row.difference)) <= 300 ? "text-emerald-700" : Number(row.difference) < 0 ? "text-rose-700" : "text-amber-700"}`}>{formatPrice(Number(row.difference) || 0)}</p><p className="text-[10px] text-slate-400">Diferencia</p></div>
                 <ChevronRight className="hidden h-5 w-5 justify-self-end text-slate-300 md:block" />
