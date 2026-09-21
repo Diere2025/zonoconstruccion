@@ -640,7 +640,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       title: "Tesorería y Finanzas",
       links: [
         { name: "Rendiciones de Recorridos", href: "/admin/rendiciones", icon: ClipboardList, allowedRoles: ['admin', 'administracion'] },
-        { name: "Caja Diaria", href: "/vendedores/caja", icon: Wallet, adminOnly: true },
+        { name: "Caja Diaria", href: "/admin/caja", icon: Wallet, adminOnly: true },
         { name: "Estado de Resultados (EERR)", href: "/admin/finanzas/eerr", icon: FileSpreadsheet, adminOnly: true },
         { name: "Administración y Finanzas", href: "/admin/finanzas", icon: Coins, adminOnly: true },
         { name: "Comisiones de Vendedores", href: "/admin/comisiones", icon: Coins, adminOnly: true }
