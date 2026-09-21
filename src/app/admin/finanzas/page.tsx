@@ -1814,6 +1814,25 @@ export default function AdminFinanzasPage() {
     return filteredTransactions.slice(startIndex, startIndex + itemsPerPage);
   }, [filteredTransactions, currentPage]);
 
+  const financialAccountGroups = useMemo(() => {
+    const groups: Array<{
+      type: FinancialAccount['type'];
+      label: string;
+      accounts: FinancialAccount[];
+    }> = [
+      { type: 'efectivo', label: 'Efectivo', accounts: [] },
+      { type: 'banco', label: 'Bancos', accounts: [] },
+      { type: 'virtual', label: 'Cuentas virtuales', accounts: [] },
+      { type: 'tarjeta', label: 'Tarjetas', accounts: [] },
+    ];
+
+    financialAccounts.forEach(account => {
+      groups.find(group => group.type === account.type)?.accounts.push(account);
+    });
+
+    return groups.filter(group => group.accounts.length > 0);
+  }, [financialAccounts]);
+
   const totalPages = Math.ceil(filteredTransactions.length / itemsPerPage);
 
   // Exportar a CSV
@@ -2547,7 +2566,20 @@ export default function AdminFinanzasPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-semibold text-slate-700">
-                  {financialAccounts.map((acc, idx) => {
+                  {financialAccountGroups.map(group => (
+                    <React.Fragment key={group.type}>
+                      <tr className="bg-slate-50/90 border-y border-slate-200">
+                        <td colSpan={6} className="px-3 py-2">
+                          <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-slate-500">
+                            <span>{group.label}</span>
+                            <span className="rounded-full bg-white border border-slate-200 px-2 py-0.5 text-[9px] text-slate-400">
+                              {group.accounts.length}
+                            </span>
+                          </div>
+                        </td>
+                      </tr>
+                      {group.accounts.map(acc => {
+                    const idx = financialAccounts.findIndex(account => account.id === acc.id);
                     const balance = acc.balance || 0;
                     const rec = reconciliationReport.find(r => r.id === acc.id || r.accountName === acc.name);
                     const typeLabel = 
@@ -2645,7 +2677,9 @@ export default function AdminFinanzasPage() {
                         </td>
                       </tr>
                     );
-                  })}
+                      })}
+                    </React.Fragment>
+                  ))}
                 </tbody>
               </table>
             </div>
