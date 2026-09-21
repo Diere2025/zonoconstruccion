@@ -425,7 +425,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     }
     if (hasRole('fletero')) allowedPaths.add('/admin/cobros-mp');
     if (hasRole('administracion')) {
-      ['/admin/cobros-mp', '/admin/dashboard', '/admin/dashboard-mayorista', '/vendedores/pedidos', '/admin/finanzas', '/admin/facturacion-pendiente']
+      ['/admin/cobros-mp', '/admin/finanzas', '/admin/rendiciones']
         .forEach(route => allowedPaths.add(route));
     }
     if (hasRole('compras')) {
@@ -433,7 +433,12 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       allowedPaths.add('/admin/compras');
     }
 
-    const pathAllowed = Array.from(allowedPaths).some(route => path === route || path.startsWith(`${route}/`));
+    const pathAllowed = Array.from(allowedPaths).some(route => {
+      // Administración puede usar la pantalla financiera principal, pero EERR
+      // conserva su permiso exclusivo de administrador.
+      if (hasRole('administracion') && route === '/admin/finanzas') return path === route;
+      return path === route || path.startsWith(`${route}/`);
+    });
     if (!pathAllowed) return false;
 
     if (path === '/admin/compras' && hasRole('compras')) {
@@ -636,6 +641,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     {
       title: "Tesorería y Finanzas",
       links: [
+        { name: "Rendiciones de Recorridos", href: "/admin/rendiciones", icon: ClipboardList, allowedRoles: ['admin', 'administracion'] },
         { name: "Caja Diaria", href: "/vendedores/caja", icon: Wallet, adminOnly: true },
         { name: "Estado de Resultados (EERR)", href: "/admin/finanzas/eerr", icon: FileSpreadsheet, adminOnly: true },
         { name: "Administración y Finanzas", href: "/admin/finanzas", icon: Coins, adminOnly: true },
@@ -839,14 +845,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                 if (isSpecializedOperator) {
                   if (link.allowedRoles?.some(role => userRoles.includes(role))) return true;
                   if (hasRole('administracion')) {
-                    return (
-                      link.href.startsWith("/admin/dashboard-mayorista") ||
-                      link.href === "/admin/dashboard" ||
-                      link.href === "/vendedores/pedidos?client_type=minoristas" ||
-                      link.href === "/vendedores/pedidos?tab=list&list_type=todos&status=Todos&client_type=mayoristas" ||
-                      link.href.startsWith("/admin/finanzas") ||
-                      link.href === "/admin/facturacion-pendiente"
-                    );
+                    return link.href === "/admin/finanzas";
                   }
                   return false;
                 }
