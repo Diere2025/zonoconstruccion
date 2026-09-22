@@ -116,10 +116,21 @@ function carrierTokens(value: string) {
     .match(/[a-z0-9]+/g)?.sort().join(" ") || "";
 }
 
+function carrierWords(value: string) {
+  return carrierTokens(value).split(" ").filter(Boolean);
+}
+
 function findCarrier(name: string, carriers: Array<{ id: string; name: string }>) {
   const normalized = carrierTokens(name);
   if (normalized.includes("gyv")) return carriers.find(carrier => carrier.name.toLowerCase() === "gyv") || null;
-  return carriers.find(carrier => carrierTokens(carrier.name) === normalized) || null;
+  const exact = carriers.find(carrier => carrierTokens(carrier.name) === normalized);
+  if (exact) return exact;
+  const sourceWords = carrierWords(name);
+  const candidates = carriers.filter(carrier => {
+    const candidateWords = carrierWords(carrier.name);
+    return sourceWords.length >= 2 && sourceWords.every(word => candidateWords.includes(word));
+  });
+  return candidates.length === 1 ? candidates[0] : null;
 }
 
 function readableError(error: unknown): string {
