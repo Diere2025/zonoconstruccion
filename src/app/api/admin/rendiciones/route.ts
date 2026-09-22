@@ -34,6 +34,7 @@ type SavePayload = {
   code?: string;
   settlementDate?: string;
   carrierName?: string;
+  carrierId?: string;
   routeDetail?: string;
   deliveriesTotal?: number;
   electronicTotal?: number;
@@ -107,6 +108,20 @@ function argentinaMonth() {
   };
 }
 
+function carrierTokens(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .match(/[a-z0-9]+/g)?.sort().join(" ") || "";
+}
+
+function findCarrier(name: string, carriers: Array<{ id: string; name: string }>) {
+  const normalized = carrierTokens(name);
+  if (normalized.includes("gyv")) return carriers.find(carrier => carrier.name.toLowerCase() === "gyv") || null;
+  return carriers.find(carrier => carrierTokens(carrier.name) === normalized) || null;
+}
+
 function readableError(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (typeof error === "string") return error;
@@ -138,6 +153,15 @@ export async function GET(request: Request) {
         return acc;
       }, { pending: 0, drafts: 0, differences: 0, confirmed: 0 });
       return NextResponse.json({ rows, stats });
+    }
+    if (action === "carriers") {
+      const { data, error } = await supabaseAdmin
+        .from("carriers")
+        .select("id, name, vehicle_description")
+        .eq("is_active", true)
+        .order("name");
+      if (error) throw error;
+      return NextResponse.json({ carriers: data || [] });
     }
     if (action === "detail") {
       const settlementId = searchParams.get("settlementId");
@@ -175,12 +199,19 @@ async function importCurrentMonth(actor: AuthorizedUser) {
     const code = String(row[0] || "").trim().toUpperCase();
     if (code) countsByCode.set(code, row);
   });
+  const { data: activeCarriers, error: carriersError } = await supabaseAdmin
+    .from("carriers")
+    .select("id, name")
+    .eq("is_active", true);
+  if (carriersError) throw carriersError;
 
   let countsAssociated = 0;
   for (const item of monthRows) {
     const row = item.row;
     const code = String(row[1]).trim().toUpperCase();
     const countRow = countsByCode.get(code);
+    const importedCarrierName = String(row[3] || countRow?.[2] || "Sin fletero").trim() || "Sin fletero";
+    const matchedCarrier = findCarrier(importedCarrierName, activeCarriers || []);
     const countDate = parseSheetDate(countRow?.[1]);
     const confirmed = /^(true|verdadero|si|sí|x)$/i.test(String(row[0] || "").trim());
     const tollTickets = row.slice(8, 17).map(asNumber);
@@ -213,7 +244,8 @@ async function importCurrentMonth(actor: AuthorizedUser) {
       code,
       route_sheet_id: null,
       settlement_date: item.date,
-      carrier_name: String(row[3] || countRow?.[2] || "Sin fletero").trim() || "Sin fletero",
+      carrier_id: matchedCarrier?.id || null,
+      carrier_name: matchedCarrier?.name || importedCarrierName,
       route_detail: String(row[4] || "").trim() || null,
       source: "spreadsheet",
       source_spreadsheet_id: SOURCE_SPREADSHEET_ID,
@@ -264,19 +296,27 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, ...result });
     }
     if (!body.action || !["create", "save", "confirm"].includes(body.action)) return NextResponse.json({ error: "Acción inválida." }, { status: 400 });
-    if (!body.settlementDate || !body.carrierName?.trim()) return NextResponse.json({ error: "Completá la fecha y el fletero." }, { status: 400 });
+    if (!body.settlementDate || !body.carrierId) return NextResponse.json({ error: "Completá la fecha y seleccioná un transportista." }, { status: 400 });
     if (body.action !== "create" && !body.settlementId) return NextResponse.json({ error: "Falta la rendición." }, { status: 400 });
     const expenses = Array.isArray(body.expenses) ? body.expenses.slice(0, 100) : [];
     const cashCounts = Array.isArray(body.cashCounts) ? body.cashCounts.slice(0, 30) : [];
     if (expenses.some(expense => !["toll", "extraordinary"].includes(expense.type || "") || asNumber(expense.amount) < 0)) {
       return NextResponse.json({ error: "Hay gastos inválidos en la rendición." }, { status: 400 });
     }
+    const { data: carrier, error: carrierError } = await supabaseAdmin
+      .from("carriers")
+      .select("id, name")
+      .eq("id", body.carrierId)
+      .eq("is_active", true)
+      .single();
+    if (carrierError || !carrier) return NextResponse.json({ error: "El transportista seleccionado no está disponible." }, { status: 400 });
+
     const { data, error } = await supabaseAdmin.rpc("save_manual_treasury_settlement", {
       p_actor_id: actor.id,
       p_settlement_id: body.action === "create" ? null : body.settlementId,
       p_code: String(body.code || "").slice(0, 80),
       p_settlement_date: body.settlementDate,
-      p_carrier_name: body.carrierName.trim().slice(0, 250),
+      p_carrier_name: carrier.name,
       p_route_detail: String(body.routeDetail || "").slice(0, 500),
       p_deliveries_total: Math.max(0, asNumber(body.deliveriesTotal)),
       p_electronic_total: Math.max(0, asNumber(body.electronicTotal)),
@@ -296,6 +336,11 @@ export async function POST(request: Request) {
       p_confirm: body.action === "confirm",
     });
     if (error) throw error;
+    const { error: carrierUpdateError } = await supabaseAdmin
+      .from("treasury_settlements")
+      .update({ carrier_id: carrier.id, carrier_name: carrier.name })
+      .eq("id", data.id);
+    if (carrierUpdateError) throw carrierUpdateError;
     return NextResponse.json({ success: true, settlement: data });
   } catch (error) {
     console.error("[Rendiciones POST]", error);

@@ -19,6 +19,7 @@ interface SettlementRecord {
   status: SettlementStatus;
   settlement_date: string;
   carrier_name: string;
+  carrier_id?: string | null;
   route_detail?: string | null;
   source: "manual" | "spreadsheet" | "route";
   count_date?: string | null;
@@ -34,6 +35,11 @@ interface SettlementRecord {
   whatsapp_message?: string | null;
   notes?: string | null;
   confirmed_at?: string | null;
+}
+interface Carrier {
+  id: string;
+  name: string;
+  vehicle_description?: string | null;
 }
 interface ExpenseRow {
   localId: string;
@@ -75,6 +81,7 @@ const statusClasses = (row: SettlementRecord) => row.status === "confirmed"
 
 export default function RendicionesPage() {
   const [rows, setRows] = useState<SettlementRecord[]>([]);
+  const [carriers, setCarriers] = useState<Carrier[]>([]);
   const [stats, setStats] = useState(emptyStats);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -87,11 +94,12 @@ export default function RendicionesPage() {
   const [importing, setImporting] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [createForm, setCreateForm] = useState({ code: "", settlementDate: today(), carrierName: "", routeDetail: "" });
+  const [createForm, setCreateForm] = useState({ code: "", settlementDate: today(), carrierId: "", routeDetail: "" });
 
   const [settlementDate, setSettlementDate] = useState("");
   const [code, setCode] = useState("");
   const [carrierName, setCarrierName] = useState("");
+  const [carrierId, setCarrierId] = useState("");
   const [routeDetail, setRouteDetail] = useState("");
   const [deliveriesTotal, setDeliveriesTotal] = useState(0);
   const [electronicTotal, setElectronicTotal] = useState(0);
@@ -142,12 +150,24 @@ export default function RendicionesPage() {
 
   useEffect(() => { void loadList(); }, [loadList]);
 
+  const loadCarriers = useCallback(async () => {
+    try {
+      const payload = await authenticatedFetch("/api/admin/rendiciones?action=carriers");
+      setCarriers(payload.carriers || []);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "No se pudieron cargar los transportistas.");
+    }
+  }, [authenticatedFetch]);
+
+  useEffect(() => { void loadCarriers(); }, [loadCarriers]);
+
   const hydrateDetail = useCallback((payload: DetailPayload) => {
     const settlement = payload.settlement;
     setDetail(payload);
     setSettlementDate(settlement.settlement_date || "");
     setCode(settlement.code || "");
     setCarrierName(settlement.carrier_name || "");
+    setCarrierId(settlement.carrier_id || "");
     setRouteDetail(settlement.route_detail || "");
     setDeliveriesTotal(Number(settlement.deliveries_total) || 0);
     setElectronicTotal(Number(settlement.electronic_total) || 0);
@@ -208,8 +228,8 @@ export default function RendicionesPage() {
   };
 
   const createSettlement = async () => {
-    if (!createForm.settlementDate || !createForm.carrierName.trim()) {
-      setError("Completá la fecha y el fletero.");
+    if (!createForm.settlementDate || !createForm.carrierId) {
+      setError("Completá la fecha y seleccioná un transportista.");
       return;
     }
     setCreating(true);
@@ -220,7 +240,7 @@ export default function RendicionesPage() {
         body: JSON.stringify({ action: "create", ...createForm, expenses: [], cashCounts: [] }),
       });
       setCreateOpen(false);
-      setCreateForm({ code: "", settlementDate: today(), carrierName: "", routeDetail: "" });
+      setCreateForm({ code: "", settlementDate: today(), carrierId: "", routeDetail: "" });
       await loadList();
       await openSettlement(payload.settlement.id);
     } catch (requestError) {
@@ -271,7 +291,7 @@ export default function RendicionesPage() {
         body: JSON.stringify({
           action,
           settlementId: detail.settlement.id,
-          code, settlementDate, carrierName, routeDetail,
+          code, settlementDate, carrierName, carrierId, routeDetail,
           deliveriesTotal, electronicTotal, changeFund, shortageRecovered,
           notes, whatsappMessage: message, countDate: countDate || null,
           countedCashOverride: hasDetailedCash ? null : countedCashManual,
@@ -334,7 +354,10 @@ export default function RendicionesPage() {
                 <div className="mt-4 grid gap-4 sm:grid-cols-2">
                   <TextInput label="Código" value={code} disabled={readOnly} onChange={setCode} />
                   <DateInput label="Fecha de la rendición" value={settlementDate} disabled={readOnly} onChange={setSettlementDate} />
-                  <TextInput label="Fletero" value={carrierName} disabled={readOnly} onChange={setCarrierName} />
+                  <CarrierSelect label="Transportista" value={carrierId} carriers={carriers} disabled={readOnly} onChange={nextCarrierId => {
+                    setCarrierId(nextCarrierId);
+                    setCarrierName(carriers.find(carrier => carrier.id === nextCarrierId)?.name || "");
+                  }} />
                   <TextInput label="Detalle / recorrido" value={routeDetail} disabled={readOnly} onChange={setRouteDetail} placeholder="Ej.: R2" />
                   <MoneyInput label="Total de entregas" value={deliveriesTotal} disabled={readOnly} onChange={setDeliveriesTotal} />
                   <MoneyInput label="Transferencias / postnet" value={electronicTotal} disabled={readOnly} onChange={setElectronicTotal} />
@@ -462,7 +485,7 @@ export default function RendicionesPage() {
           <div className="mt-5 grid gap-4 sm:grid-cols-2">
             <TextInput label="Código (opcional)" value={createForm.code} onChange={value => setCreateForm(current => ({ ...current, code: value }))} placeholder="Se genera automáticamente" />
             <DateInput label="Fecha" value={createForm.settlementDate} onChange={value => setCreateForm(current => ({ ...current, settlementDate: value }))} />
-            <div className="sm:col-span-2"><TextInput label="Fletero" value={createForm.carrierName} onChange={value => setCreateForm(current => ({ ...current, carrierName: value }))} placeholder="Nombre del fletero" /></div>
+            <div className="sm:col-span-2"><CarrierSelect label="Transportista" value={createForm.carrierId} carriers={carriers} onChange={value => setCreateForm(current => ({ ...current, carrierId: value }))} /></div>
             <div className="sm:col-span-2"><TextInput label="Detalle / recorrido (opcional)" value={createForm.routeDetail} onChange={value => setCreateForm(current => ({ ...current, routeDetail: value }))} placeholder="Ej.: R2" /></div>
           </div>
           <div className="mt-6 flex justify-end gap-2"><button type="button" onClick={() => setCreateOpen(false)} className="rounded-xl px-4 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-100">Cancelar</button><button type="button" onClick={() => void createSettlement()} disabled={creating} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">{creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Crear rendición</button></div>
@@ -482,6 +505,9 @@ function StatCard({ label, value, icon, color }: { label: string; value: number;
 }
 function TextInput({ label, value, disabled = false, onChange, placeholder }: { label: string; value: string; disabled?: boolean; onChange: (value: string) => void; placeholder?: string }) {
   return <label><span className="mb-1.5 block text-xs font-bold text-slate-600">{label}</span><input type="text" value={value} disabled={disabled} onChange={event => onChange(event.target.value)} placeholder={placeholder} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-blue-500 disabled:bg-slate-100" /></label>;
+}
+function CarrierSelect({ label, value, carriers, disabled = false, onChange }: { label: string; value: string; carriers: Carrier[]; disabled?: boolean; onChange: (value: string) => void }) {
+  return <label><span className="mb-1.5 block text-xs font-bold text-slate-600">{label}</span><select value={value} disabled={disabled} onChange={event => onChange(event.target.value)} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-blue-500 disabled:bg-slate-100"><option value="">Seleccionar transportista</option>{carriers.map(carrier => <option key={carrier.id} value={carrier.id}>{carrier.name}{carrier.vehicle_description ? ` · ${carrier.vehicle_description}` : ""}</option>)}</select></label>;
 }
 function DateInput({ label, value, disabled = false, onChange }: { label: string; value: string; disabled?: boolean; onChange: (value: string) => void }) {
   const [text, setText] = useState(value ? displayDate(value) : "");
