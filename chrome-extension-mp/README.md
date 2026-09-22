@@ -48,6 +48,8 @@ En Google Chrome podés tener **Perfiles separados**:
 
 Después de actualizar la extensión, abrí **Actividades** en la pestaña que querés usar y tocá **«Activar aquí»** en el widget. Esa será la única pestaña que refresca, registra cobros y envía alertas. Podés abrir otras pestañas de Mercado Pago para operar normalmente: quedan ignoradas por el monitor.
 
+Desde la versión 1.3.4, la pestaña elegida conserva la activación durante actualizaciones de la extensión y se recupera automáticamente cuando Chrome restaura una sesión con IDs de pestaña nuevos. **«Activar aquí»** solo hace falta para elegir otra pestaña de Actividades de forma manual.
+
 ---
 
 ## 🛡️ Características
