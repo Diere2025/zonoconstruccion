@@ -1782,9 +1782,11 @@ export default function AdminFinanzasPage() {
   const handleDeleteTx = async (txId: string, concept: string | null) => {
     if (!confirm(`¿Estás seguro de que deseas eliminar el movimiento "${concept || 'Sin concepto'}"?`)) return;
 
+    // Actualización optimista: removemos el movimiento de la vista al instante
+    const previousTransactions = [...transactions];
+    setTransactions(prev => prev.filter(t => t.id !== txId));
+
     try {
-      setLoading(true);
-      
       // Revert and clean links first
       await reverseAndCleanLinks(txId);
 
@@ -1794,17 +1796,15 @@ export default function AdminFinanzasPage() {
         .eq('id', txId);
 
       if (error) throw error;
-      
-      await Promise.all([
-        loadTransactions(),
-        loadFinancialAccounts()
-      ]);
-      alert("Movimiento eliminado correctamente.");
+
+      // Actualizamos los saldos de las cajas en segundo plano sin recargar toda la pantalla
+      void loadFinancialAccounts();
     } catch (err) {
       console.error(err);
       alert("Error al eliminar movimiento: " + (err as Error).message);
-    } finally {
-      setLoading(false);
+      // Revertimos en caso de error
+      setTransactions(previousTransactions);
+      void loadTransactions();
     }
   };
 
