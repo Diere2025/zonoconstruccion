@@ -58,6 +58,14 @@ const displayDate = (value?: string | null) => {
   const match = String(value || "").slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
   return match ? `${match[3]}/${match[2]}/${match[1]}` : "-";
 };
+const parseDisplayDate = (value: string) => {
+  const match = value.trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!match) return null;
+  const [, day, month, year] = match;
+  const parsed = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+  if (parsed.getUTCFullYear() !== Number(year) || parsed.getUTCMonth() !== Number(month) - 1 || parsed.getUTCDate() !== Number(day)) return null;
+  return `${year}-${month}-${day}`;
+};
 const cashKey = (kind: string, denomination: number) => `${kind}-${denomination}`;
 const isPending = (row: SettlementRecord) => row.status === "draft" && !row.count_date && Number(row.counted_cash || 0) === 0;
 const statusLabel = (row: SettlementRecord) => row.status === "confirmed" ? "Confirmada" : isPending(row) ? "Pendiente" : "En preparación";
@@ -476,7 +484,19 @@ function TextInput({ label, value, disabled = false, onChange, placeholder }: { 
   return <label><span className="mb-1.5 block text-xs font-bold text-slate-600">{label}</span><input type="text" value={value} disabled={disabled} onChange={event => onChange(event.target.value)} placeholder={placeholder} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-blue-500 disabled:bg-slate-100" /></label>;
 }
 function DateInput({ label, value, disabled = false, onChange }: { label: string; value: string; disabled?: boolean; onChange: (value: string) => void }) {
-  return <label><span className="mb-1.5 block text-xs font-bold text-slate-600">{label}</span><input type="date" value={value} disabled={disabled} onChange={event => onChange(event.target.value)} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-blue-500 disabled:bg-slate-100" /></label>;
+  const [text, setText] = useState(value ? displayDate(value) : "");
+
+  useEffect(() => {
+    setText(value ? displayDate(value) : "");
+  }, [value]);
+
+  return <label><span className="mb-1.5 block text-xs font-bold text-slate-600">{label}</span><input type="text" inputMode="numeric" maxLength={10} value={text} disabled={disabled} placeholder="dd/mm/aaaa" onChange={event => {
+    const next = event.target.value;
+    setText(next);
+    if (!next) onChange("");
+    const parsed = parseDisplayDate(next);
+    if (parsed) onChange(parsed);
+  }} onBlur={() => setText(value ? displayDate(value) : "")} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-blue-500 disabled:bg-slate-100" /></label>;
 }
 function MoneyInput({ label, value, disabled = false, onChange, allowNegative = false }: { label: string; value: number; disabled?: boolean; onChange: (value: number) => void; allowNegative?: boolean }) {
   return <label><span className="mb-1.5 block text-xs font-bold text-slate-600">{label}</span><div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-black text-slate-400">$</span><input type="number" min={allowNegative ? undefined : 0} step="1" value={value || ""} disabled={disabled} onChange={event => { const next = inputNumber(event.target.value); onChange(allowNegative ? next : Math.max(0, next)); }} placeholder="0" className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-8 pr-3 text-right text-sm font-black text-slate-900 outline-none focus:border-blue-500 disabled:bg-slate-100" /></div></label>;
