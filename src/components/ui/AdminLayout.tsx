@@ -30,6 +30,7 @@ import {
   PackageCheck,
   AlertTriangle,
   ChevronRight,
+  ChevronDown,
   Shield,
   ShieldCheck,
   Layers,
@@ -223,6 +224,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   const [isLoadingImpersonationUsers, setIsLoadingImpersonationUsers] = useState(false);
   const [isSwitchingSession, setIsSwitchingSession] = useState(false);
   const [impersonationError, setImpersonationError] = useState('');
+  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     let mounted = true;
@@ -746,6 +748,47 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     return cleanPathname === pathOnly || cleanPathname.startsWith(pathOnly + "/");
   };
 
+  useEffect(() => {
+    // Asegurar que la sección que contiene la página activa esté expandida al navegar
+    for (const section of linkSections) {
+      if (section.links.some(l => isActive(l.href))) {
+        setCollapsedSections(prev => {
+          if (prev[section.title] === true) {
+            const next = { ...prev };
+            delete next[section.title];
+            return next;
+          }
+          return prev;
+        });
+        break;
+      }
+    }
+  }, [pathname]);
+
+  const isSectionCollapsed = (sectionTitle: string, visibleLinks: SidebarLink[]) => {
+    // 1. Si el usuario clickeó manualmente para abrir o cerrar esta sección durante su sesión
+    if (collapsedSections[sectionTitle] !== undefined) {
+      return collapsedSections[sectionTitle];
+    }
+    // 2. Si contiene la página actualmente activa, permanece abierta para no perder contexto
+    const hasActive = visibleLinks.some(link => isActive(link.href));
+    if (hasActive) return false;
+
+    // 3. Para administradores, las secciones con muchas opciones (> 2 opciones) aparecen contraídas por defecto
+    if (isAdminRole && visibleLinks.length > 2) {
+      return true;
+    }
+
+    return false;
+  };
+
+  const toggleSection = (sectionTitle: string, currentlyCollapsed: boolean) => {
+    setCollapsedSections(prev => ({
+      ...prev,
+      [sectionTitle]: !currentlyCollapsed,
+    }));
+  };
+
   // Compute dynamic breadcrumbs from current pathname
   const getBreadcrumbs = () => {
     for (const section of linkSections) {
@@ -873,41 +916,69 @@ export function AdminLayout({ children }: AdminLayoutProps) {
 
               if (visibleLinks.length === 0) return null;
 
+              const collapsed = isSectionCollapsed(section.title, visibleLinks);
+              const hasActive = visibleLinks.some(link => isActive(link.href));
+
               return (
-                <div key={sIdx} className="space-y-1.5">
-                  <h4 className="px-3 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
-                    {section.title}
-                  </h4>
-                  <div className="space-y-0.5">
-                    {visibleLinks.map(link => {
-                      const Icon = link.icon;
-                      const active = isActive(link.href);
-                      return (
-                        <Link 
-                          key={link.href}
-                          href={link.href}
-                          onClick={() => {
-                            closeSidebarOnMobile();
-                            if (link.href.includes('/vendedores/pedidos')) {
-                              window.dispatchEvent(new CustomEvent('zono_nav_pedidos', { detail: { href: link.href } }));
-                            }
-                          }}
-                          className={`group flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all duration-150 ${
-                            active 
-                              ? "bg-brand-600 text-white font-semibold shadow-xs" 
-                              : "text-slate-300 hover:text-white hover:bg-slate-800/60"
-                          }`}
-                        >
-                          <Icon className={`w-4 h-4 shrink-0 transition-colors ${
-                            active 
-                              ? "text-white" 
-                              : "text-slate-400 group-hover:text-slate-200"
-                          }`} />
-                          <span className="truncate">{link.name}</span>
-                        </Link>
-                      );
-                    })}
-                  </div>
+                <div key={sIdx} className="space-y-1">
+                  <button
+                    type="button"
+                    onClick={() => toggleSection(section.title, collapsed)}
+                    className="w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-[10px] font-bold text-slate-400 uppercase tracking-wider hover:text-slate-200 hover:bg-slate-800/50 transition-colors group cursor-pointer text-left select-none"
+                    aria-expanded={!collapsed}
+                  >
+                    <span className="flex items-center gap-1.5 truncate">
+                      {section.title}
+                      {hasActive && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-brand-400 shrink-0" title="Página activa en este módulo" />
+                      )}
+                    </span>
+                    <div className="flex items-center gap-1.5 shrink-0 ml-1">
+                      {collapsed && (
+                        <span className="text-[9px] font-bold text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded group-hover:text-slate-300">
+                          {visibleLinks.length}
+                        </span>
+                      )}
+                      <ChevronDown 
+                        className={`w-3.5 h-3.5 text-slate-500 group-hover:text-slate-300 transition-transform duration-200 ${
+                          collapsed ? '-rotate-90' : 'rotate-0'
+                        }`} 
+                      />
+                    </div>
+                  </button>
+
+                  {!collapsed && (
+                    <div className="space-y-0.5 animate-in fade-in-50 duration-150">
+                      {visibleLinks.map(link => {
+                        const Icon = link.icon;
+                        const active = isActive(link.href);
+                        return (
+                          <Link 
+                            key={link.href}
+                            href={link.href}
+                            onClick={() => {
+                              closeSidebarOnMobile();
+                              if (link.href.includes('/vendedores/pedidos')) {
+                                window.dispatchEvent(new CustomEvent('zono_nav_pedidos', { detail: { href: link.href } }));
+                              }
+                            }}
+                            className={`group flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all duration-150 ${
+                              active 
+                                ? "bg-brand-600 text-white font-semibold shadow-xs" 
+                                : "text-slate-300 hover:text-white hover:bg-slate-800/60"
+                            }`}
+                          >
+                            <Icon className={`w-4 h-4 shrink-0 transition-colors ${
+                              active 
+                                ? "text-white" 
+                                : "text-slate-400 group-hover:text-slate-200"
+                            }`} />
+                            <span className="truncate">{link.name}</span>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               );
             })

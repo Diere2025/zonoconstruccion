@@ -50,10 +50,6 @@ export const CASH_DENOMINATIONS: Array<{ denomination: number; kind: "bill" | "c
   { denomination: 50, kind: "bill" },
   { denomination: 20, kind: "bill" },
   { denomination: 10, kind: "bill" },
-  { denomination: 10, kind: "coin" },
-  { denomination: 5, kind: "coin" },
-  { denomination: 2, kind: "coin" },
-  { denomination: 1, kind: "coin" },
 ];
 
 export function isElectronicPaymentMethod(name?: string | null): boolean {
