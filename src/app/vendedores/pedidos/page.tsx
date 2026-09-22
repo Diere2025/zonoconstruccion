@@ -64,6 +64,7 @@ import { calculateBulkPrices } from "@/lib/erp/prices";
 import { createBulkStockTransactions } from "@/lib/erp/stock";
 import { evaluateDiscountSuggestions, DiscountSuggestion } from "@/lib/discountRules";
 import { buildSheetOrderItems, normalizeProductNameForSheet } from "@/lib/googleSheets";
+import { getWholesaleCatalogKind } from "@/lib/visualSelectorConfig";
 
 interface OrderItem extends Product {
   quantity: number;
@@ -1428,7 +1429,9 @@ export default function PedidosPage() {
         // su fila exacta (con otro precio) cuando se procesaba después.
         const exactProductByWholesaleIndex = new Map<number, Product>();
         const reservedExactProductIds = new Set<string>();
-        data.products.forEach((wholesale, index) => {
+        const wholesaleTankCatalog = data.products.filter(wholesale => getWholesaleCatalogKind(wholesale));
+
+        wholesaleTankCatalog.forEach((wholesale, index) => {
           const wholesaleName = normalizeText(wholesale.name || '').trim();
           if (!wholesaleName) return;
           const exactProduct = allProducts.find((product) => {
@@ -1443,7 +1446,7 @@ export default function PedidosPage() {
         });
 
         const usedProductIds = new Set<string>();
-        const matchedProducts = data.products.flatMap((wholesale, wholesaleIndex) => {
+        const matchedProducts = wholesaleTankCatalog.flatMap((wholesale, wholesaleIndex) => {
           const wholesaleTokens = getTokens(wholesale.name || '');
           const wholesaleText = wholesaleTokens.join(' ');
           const wholesaleCapacity = wholesaleTokens.find((token: string) => /^\d{2,4}l$/.test(token));
@@ -1915,6 +1918,7 @@ export default function PedidosPage() {
           if (data.quoteId) setSourceQuoteId(data.quoteId);
           if (data.clientId) setSelectedClientId(data.clientId);
           if (data.customerName) setCliente(data.customerName);
+          if (data.customerPhone) setNewClientPhone(data.customerPhone);
           if (data.notes) setAclaraciones(data.notes);
           if (data.paymentType) setPaymentType(data.paymentType);
           if (data.cardInstallments) setCardInstallments(data.cardInstallments);

@@ -69,6 +69,44 @@ export interface VisualCatalogConfig {
   families: VisualFamily[];
 }
 
+type WholesaleCatalogProduct = Pick<Product, 'name'> & Partial<Pick<Product, 'category' | 'sku'>>;
+
+export type WholesaleCatalogKind = 'tank' | 'accessory';
+
+/**
+ * The B2B channel currently sells only water tanks and the tank accessories
+ * published in its price list. Keep this rule independent from the retail
+ * visual tree so adding a retail family never exposes it to wholesalers.
+ */
+export function getWholesaleCatalogKind(product: WholesaleCatalogProduct): WholesaleCatalogKind | null {
+  const text = `${product.name || ''} ${product.sku || ''} ${product.category || ''}`
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+
+  if (text.includes('termotanque')) return null;
+
+  const isAccessory =
+    text.includes('flotante') ||
+    (text.includes('base') && text.includes('hierro')) ||
+    text.includes('automatico tanque') ||
+    text.includes('automatico cisterna') ||
+    /\b(flotantes|bases|automaticos|accesorios)\b/.test(text);
+  if (isAccessory) return 'accessory';
+
+  const isTank =
+    text.includes('cisterna') ||
+    text.includes('tricapa') ||
+    /\btric\b/.test(text) ||
+    text.includes('cuatricapa') ||
+    /\bcuatr\b/.test(text) ||
+    text.includes('bicapa') ||
+    /\bbic\b/.test(text) ||
+    text.includes('tanque de agua');
+
+  return isTank ? 'tank' : null;
+}
+
 /**
  * Complete installation kits charge only their first item (the kit itself).
  * Every following component is included at $0, without an item-level discount.
@@ -749,4 +787,121 @@ export function generateDefaultVisualConfig(products: Product[]): VisualCatalogC
       }
     ]
   };
+}
+
+export function generateWholesaleVisualConfig(products: Product[]): VisualCatalogConfig {
+  const allowedProducts = products.filter(product => getWholesaleCatalogKind(product));
+  const defaultConfig = generateDefaultVisualConfig(allowedProducts);
+  const tankFamily = defaultConfig.families.find(family => family.id === 'tanques');
+
+  const accessoryProducts = allowedProducts.filter(product => getWholesaleCatalogKind(product) === 'accessory');
+  const accessoryGroups = [
+    {
+      id: 'flotantes',
+      name: 'Flotantes',
+      description: 'Flotantes disponibles para tanques de agua',
+      matches: (product: Product) => normalizeCatalogText(product).includes('flotante')
+    },
+    {
+      id: 'bases',
+      name: 'Bases para Tanques',
+      description: 'Bases de hierro reforzadas por medida',
+      matches: (product: Product) => {
+        const text = normalizeCatalogText(product);
+        return text.includes('base') && text.includes('hierro');
+      }
+    },
+    {
+      id: 'automaticos',
+      name: 'Automáticos',
+      description: 'Automáticos para tanque y cisterna',
+      matches: (product: Product) => normalizeCatalogText(product).includes('automatico')
+    }
+  ];
+
+  const accessorySubgroups: VisualSubGroup[] = accessoryGroups.flatMap(group => {
+    const matches = accessoryProducts.filter(group.matches);
+    if (matches.length === 0) return [];
+
+    return [{
+      id: `mayorista_${group.id}`,
+      name: group.name,
+      description: group.description,
+      imageUrl: matches.find(product => product.image_url)?.image_url,
+      isActive: true,
+      itemsViewMode: 'grid' as const,
+      showItemImages: true,
+      items: matches.map(product => ({
+        id: `item_${product.id}`,
+        label: product.name,
+        description: product.name,
+        imageUrl: product.image_url,
+        isActive: true,
+        productId: product.id
+      }))
+    }];
+  });
+
+  const assignedAccessoryIds = new Set(
+    accessorySubgroups.flatMap(subgroup => subgroup.items.map(item => item.productId).filter(Boolean))
+  );
+  const otherAccessories = accessoryProducts.filter(product => !assignedAccessoryIds.has(product.id));
+  if (otherAccessories.length > 0) {
+    accessorySubgroups.push({
+      id: 'mayorista_accesorios',
+      name: 'Otros Accesorios',
+      description: 'Accesorios publicados en la lista mayorista',
+      imageUrl: otherAccessories.find(product => product.image_url)?.image_url,
+      isActive: true,
+      itemsViewMode: 'grid',
+      showItemImages: true,
+      items: otherAccessories.map(product => ({
+        id: `item_${product.id}`,
+        label: product.name,
+        description: product.name,
+        imageUrl: product.image_url,
+        isActive: true,
+        productId: product.id
+      }))
+    });
+  }
+
+  const families: VisualFamily[] = [];
+  if (tankFamily) {
+    const subgroups = tankFamily.subgroups
+      .map(subgroup => ({
+        ...subgroup,
+        items: subgroup.items.filter(item => {
+          const product = allowedProducts.find(candidate => candidate.id === item.productId);
+          return product && getWholesaleCatalogKind(product) === 'tank';
+        })
+      }))
+      .filter(subgroup => subgroup.items.length > 0);
+
+    if (subgroups.length > 0) families.push({ ...tankFamily, subgroups });
+  }
+
+  if (accessorySubgroups.length > 0) {
+    families.push({
+      id: 'accesorios_mayorista',
+      name: 'Accesorios para Tanques',
+      description: 'Bases, flotantes y automáticos de la lista mayorista',
+      imageUrl: accessoryProducts.find(product => product.image_url)?.image_url,
+      isActive: true,
+      subgroups: accessorySubgroups
+    });
+  }
+
+  return {
+    ...defaultConfig,
+    updatedAt: new Date().toISOString(),
+    families
+  };
+}
+
+function normalizeCatalogText(product: WholesaleCatalogProduct): string {
+  return `${product.name || ''} ${product.sku || ''} ${product.category || ''}`
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
 }
