@@ -81,9 +81,24 @@ export async function GET(request: NextRequest) {
   ]);
   const error = vouchers.error || accounts.error || suppliers.error || orders.error || clients.error;
   if (error) return jsonError(error.message, 500);
+  const visibleFiles = (vouchers.data || []).map(voucher => {
+    const files = Array.isArray(voucher.files) ? voucher.files : [];
+    return files.find((file: { mime?: string }) => file.mime?.startsWith('image/')) || files[0];
+  });
+  const paths = [...new Set(visibleFiles.map(file => file?.path).filter((path): path is string => typeof path === 'string'))];
+  const signedUrls = new Map<string, string>();
+  if (paths.length) {
+    const { data: signed, error: signedError } = await db.storage.from(BUCKET).createSignedUrls(paths, 60 * 60);
+    if (signedError) console.warn('[treasury-vouchers] No se pudieron firmar las miniaturas:', signedError.message);
+    for (const file of signed || []) if (file.path && file.signedUrl) signedUrls.set(file.path, file.signedUrl);
+  }
   return NextResponse.json({
     success: true,
-    vouchers: (vouchers.data || []).map(voucher => ({ ...voucher, order_ids: (voucher.treasury_voucher_orders || []).map((link: { order_id: string }) => link.order_id) })),
+    vouchers: (vouchers.data || []).map((voucher, index) => ({
+      ...voucher,
+      files: (Array.isArray(voucher.files) ? voucher.files : []).map((file: { path: string }) => ({ ...file, url: file.path === visibleFiles[index]?.path ? signedUrls.get(file.path) || null : null })),
+      order_ids: (voucher.treasury_voucher_orders || []).map((link: { order_id: string }) => link.order_id)
+    })),
     accounts: accounts.data || [],
     suppliers: suppliers.data || [],
     orders: orders.data || [],

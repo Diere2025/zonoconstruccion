@@ -1,8 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { AdminLayout } from '@/components/ui/AdminLayout';
 import { supabase } from '@/lib/supabase';
 
 type Option = { id: string; label: string };
@@ -11,7 +10,7 @@ type Voucher = {
   id: string; voucher_date: string; category: Category; movement_direction: 'income' | 'outflow';
   amount: number | null; currency: string; financial_account_id: string | null; supplier_id: string | null;
   client_id: string | null; order_ids: string[]; destination_account: string | null; counterparty: string | null;
-  notes: string | null; status: string; files: Array<{ name: string; url?: string | null }>;
+  notes: string | null; status: string; files: Array<{ name: string; mime?: string; url?: string | null }>;
 };
 type Form = { date: string; category: Category; amount: string; currency: string; accountId: string; supplierId: string; clientId: string; orderIds: string[]; destinationAccount: string; counterparty: string; notes: string };
 
@@ -41,6 +40,7 @@ function SearchPicker({ label, value, options, onChange, lookup, requestApi, mul
   const [query, setQuery] = useState('');
   const [remote, setRemote] = useState<Option[]>([]);
   const [open, setOpen] = useState(false);
+  const inputId = useId();
   const box = useRef<HTMLDivElement>(null);
   const all = useMemo(() => [...options, ...remote.filter(item => !options.some(base => base.id === item.id))], [options, remote]);
   useEffect(() => {
@@ -51,7 +51,7 @@ function SearchPicker({ label, value, options, onChange, lookup, requestApi, mul
         const found = (data.options || []).map((row: any) => ({ id: row.id, label: lookup === 'orders' ? `${row.legacy_code || 'Pedido'} · ${row.customer_name || ''}` : lookup === 'clients' ? `${row.business_name || 'Cliente'}${row.phone_primary ? ` · ${row.phone_primary}` : ''}` : row.name }));
         return [...current, ...found.filter((item: Option) => !current.some(existing => existing.id === item.id))];
       });
-    }).catch(() => { if (!cancelled) setRemote([]); }), 250);
+    }).catch(() => { /* La selección actual sigue visible si falla una búsqueda. */ }), 250);
     return () => { cancelled = true; clearTimeout(timer); };
   }, [lookup, query, requestApi]);
   useEffect(() => {
@@ -62,12 +62,39 @@ function SearchPicker({ label, value, options, onChange, lookup, requestApi, mul
   const filtered = all.filter(item => (!query || item.label.toLocaleLowerCase().includes(query.toLocaleLowerCase())) && (!multiple || !values.includes(item.id))).slice(0, 30);
   const selected = all.find(item => item.id === value);
   return <div ref={box} className="relative min-w-0">
-    <label className="mb-1 block text-xs font-semibold text-slate-600">{label}</label>
+    <label htmlFor={inputId} className="mb-1 block text-xs font-semibold text-slate-600">{label}</label>
     {multiple && values.length > 0 && <div className="mb-2 flex flex-wrap gap-1">{values.map(id => <button key={id} type="button" onClick={() => onValuesChange?.(values.filter(x => x !== id))} className="rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-xs text-blue-800" title="Quitar vínculo">{all.find(item => item.id === id)?.label || 'Pedido vinculado'} ×</button>)}</div>}
-    {!multiple && value && <button type="button" onClick={() => { onChange?.(''); setQuery(''); }} className="mb-1 flex max-w-full items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-left text-xs text-blue-800"><span className="truncate">{selected?.label || 'Selección vinculada'}</span><span>×</span></button>}
-    <input value={query} onChange={event => { setQuery(event.target.value); setOpen(true); }} onFocus={() => setOpen(true)} placeholder={placeholder} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400" />
+    <div className="relative">
+      <input id={inputId} role="combobox" aria-expanded={open} aria-autocomplete="list" value={!multiple && !open && value ? selected?.label || 'Selección vinculada' : query} onChange={event => { setQuery(event.target.value); setOpen(true); }} onFocus={() => { setQuery(''); setOpen(true); }} placeholder={placeholder} className="w-full rounded-xl border border-slate-200 px-3 py-2 pr-16 text-sm outline-none focus:border-blue-400" />
+      {!multiple && value && <button type="button" onClick={() => { onChange?.(''); setQuery(''); setOpen(false); }} aria-label={`Quitar ${label.toLowerCase()}`} className="absolute right-8 top-1/2 -translate-y-1/2 px-1 text-slate-400 hover:text-slate-700">×</button>}
+      <span aria-hidden="true" className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500">▾</span>
+    </div>
     {open && <div className="absolute z-30 mt-1 max-h-52 w-full overflow-auto rounded-xl border border-slate-200 bg-white p-1 shadow-lg">{filtered.length ? filtered.map(item => <button key={item.id} type="button" onClick={() => { if (multiple) onValuesChange?.([...values, item.id]); else onChange?.(item.id); setQuery(''); setOpen(false); }} className="block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-blue-50">{item.label}</button>) : <p className="px-3 py-2 text-xs text-slate-500">Sin coincidencias</p>}</div>}
   </div>;
+}
+
+function FileThumbnail({ file, onClick, large = false }: { file: { name: string; mime?: string; url?: string | null }; onClick?: () => void; large?: boolean }) {
+  const isImage = file.mime?.startsWith('image/') || /\.(png|jpe?g|webp)$/i.test(file.name);
+  const isPdf = file.mime === 'application/pdf' || /\.pdf$/i.test(file.name);
+  const content = file.url && isImage
+    ? <img src={file.url} alt={`Comprobante ${file.name}`} className={`h-full w-full ${large ? 'object-contain' : 'object-cover object-top'}`} />
+    : file.url && isPdf
+      ? <iframe title={`Vista previa de ${file.name}`} src={`${file.url}#toolbar=0&navpanes=0`} className="pointer-events-none h-full w-full" />
+      : <span className="flex h-full w-full items-center justify-center text-sm text-slate-500">{isPdf ? 'PDF · abrir comprobante' : 'Sin vista previa'}</span>;
+  const size = large ? 'h-[65vh] min-h-96 w-full' : 'h-72 w-52 shrink-0';
+  return onClick
+    ? <button type="button" onClick={onClick} aria-label={`Ampliar ${file.name}`} className={`block ${size} overflow-hidden rounded-xl border border-slate-200 bg-slate-50 text-left shadow-sm hover:border-blue-400`}>{content}</button>
+    : <div className={`${size} overflow-hidden rounded-xl border border-slate-200 bg-slate-50`}>{content}</div>;
+}
+
+function NewFileThumbnail({ file }: { file: File }) {
+  const [url, setUrl] = useState('');
+  useEffect(() => {
+    const objectUrl = URL.createObjectURL(file);
+    setUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [file]);
+  return <FileThumbnail file={{ name: file.name, mime: file.type, url }} />;
 }
 
 export default function TreasuryVouchersPage() {
@@ -165,7 +192,7 @@ export default function TreasuryVouchersPage() {
   const thirdParty = form.category === 'third_party_collection';
   const outflow = !collection && !thirdParty;
   const input = 'w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400';
-  return <AdminLayout><main className="mx-auto max-w-7xl space-y-5 p-4 md:p-6 text-slate-800">
+  return <main className="mx-auto max-w-7xl space-y-5 p-4 md:p-6 text-slate-800">
     <header className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div><h1 className="text-xl font-bold">Comprobantes de tesorería</h1><p className="text-sm text-slate-500">Cobranzas, pagos y extracciones vinculados a cuentas, clientes, pedidos y proveedores.</p></div>
       <div className="flex gap-2"><Link href="/admin/finanzas" className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold">Ver finanzas</Link><button onClick={openNew} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white">+ Subir comprobante</button></div>
@@ -191,13 +218,25 @@ export default function TreasuryVouchersPage() {
       <label className="block text-xs font-semibold text-slate-600">Aclaraciones · opcional<textarea value={form.notes} onChange={event => update({ notes: event.target.value })} rows={2} placeholder="Detalle necesario para administración" className={`mt-1 ${input}`} /></label>
       <input ref={fileInput} type="file" multiple accept="image/jpeg,image/png,image/webp,application/pdf" onChange={event => { if (event.target.files) addFiles(event.target.files); event.target.value = ''; }} className="hidden" />
       <button type="button" onClick={() => fileInput.current?.click()} className="w-full rounded-xl border border-dashed border-blue-300 bg-blue-50 px-4 py-5 text-sm font-semibold text-blue-700">Elegir fotos o PDF · también podés pegar una captura con Ctrl+V</button>
-      {(existingFiles.length > 0 || files.length > 0) && <div className="flex flex-wrap gap-2 text-xs">{existingFiles.map((file, index) => <span key={index} className="rounded-full border px-2 py-1">{file.name}</span>)}{files.map((file, index) => <button type="button" key={index} onClick={() => setFiles(current => current.filter((_, i) => i !== index))} className="rounded-full border px-2 py-1">{file.name} ×</button>)}</div>}
+      {(existingFiles.length > 0 || files.length > 0) && <div className="flex flex-wrap gap-3">{existingFiles.map((file, index) => <div key={`existing-${index}`} className="space-y-1"><FileThumbnail file={file} /><p className="max-w-52 truncate text-xs text-slate-600" title={file.name}>{file.name}</p></div>)}{files.map((file, index) => <div key={`${file.name}-${index}`} className="space-y-1"><NewFileThumbnail file={file} /><button type="button" onClick={() => setFiles(current => current.filter((_, i) => i !== index))} className="max-w-52 truncate text-xs text-blue-700" title="Quitar archivo">{file.name} ×</button></div>)}</div>}
       <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-slate-500">Hasta 5 archivos de 10 MB. Subir un comprobante no crea un movimiento ni duplica un pago en caja.</p><button disabled={saving} className="rounded-xl bg-emerald-600 px-5 py-2 text-sm font-semibold text-white disabled:opacity-50">{saving ? 'Guardando…' : 'Guardar comprobante'}</button></div>
     </form>}
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><h2 className="font-bold">Comprobantes cargados</h2><div className="flex gap-2"><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Buscar" className="rounded-xl border border-slate-200 px-3 py-2 text-sm" /><select value={directionFilter} onChange={event => setDirectionFilter(event.target.value)} className="rounded-xl border border-slate-200 px-3 py-2 text-sm"><option value="all">Todos</option><option value="income">Cobranzas</option><option value="outflow">Pagos y extracciones</option></select></div></div>
-      {loading ? <p className="text-sm text-slate-500">Cargando comprobantes…</p> : !shown.length ? <p className="rounded-xl border border-dashed p-8 text-center text-sm text-slate-500">No hay comprobantes para mostrar.</p> : <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm"><thead className="border-b text-xs uppercase text-slate-500"><tr><th className="py-2">Fecha</th><th>Tipo</th><th>Vínculos</th><th>Cuenta / destino</th><th>Importe</th><th>Estado</th><th></th></tr></thead><tbody>{shown.map(v => <tr key={v.id} className="border-b last:border-0"><td className="py-3">{displayDate(v.voucher_date)}</td><td><span className={v.movement_direction === 'income' ? 'text-emerald-700' : 'text-amber-700'}>{labels[v.category]}</span></td><td className="text-xs text-slate-600">{v.client_id ? clients.find(x => x.id === v.client_id)?.label || 'Cliente vinculado' : ''}{v.order_ids?.length ? ` · ${v.order_ids.length} pedido${v.order_ids.length === 1 ? '' : 's'}` : ''}{v.supplier_id ? ` · ${suppliers.find(x => x.id === v.supplier_id)?.label || 'Proveedor'}` : ''}</td><td className="text-xs">{accounts.find(x => x.id === v.financial_account_id)?.label || v.destination_account || '—'}</td><td className="font-semibold">{money(v.amount, v.currency)}</td><td className="text-xs">{v.status === 'reviewed' ? 'Revisado' : v.status === 'needs_info' ? 'Pedir datos' : 'Pendiente'}</td><td className="whitespace-nowrap text-right"><button onClick={() => inspect(v)} className="mr-2 font-semibold text-blue-600">Ver</button><button onClick={() => edit(v)} className="font-semibold text-blue-600">Editar</button></td></tr>)}</tbody></table></div>}
+      {loading ? <p className="text-sm text-slate-500">Cargando comprobantes…</p> : !shown.length ? <p className="rounded-xl border border-dashed p-8 text-center text-sm text-slate-500">No hay comprobantes para mostrar.</p> : <div className="space-y-3">{shown.map(v => {
+        const thumbnail = v.files.find(file => file.mime?.startsWith('image/')) || v.files[0];
+        return <article key={v.id} className="flex flex-col gap-4 rounded-2xl border border-slate-200 p-4 sm:flex-row">
+          {thumbnail && <FileThumbnail file={thumbnail} onClick={() => inspect(v)} />}
+          <div className="min-w-0 flex-1 space-y-2 text-sm">
+            <div className="flex flex-wrap items-start justify-between gap-2"><div><p className="text-xs text-slate-500">{displayDate(v.voucher_date)} · {v.movement_direction === 'income' ? 'Cobranza' : 'Pago / extracción'}</p><h3 className="font-bold">{labels[v.category]}</h3></div><strong className="text-lg text-slate-900">{money(v.amount, v.currency)}</strong></div>
+            <p className="text-slate-600">{accounts.find(x => x.id === v.financial_account_id)?.label || v.destination_account || 'Sin cuenta vinculada'}</p>
+            {(v.client_id || v.supplier_id || v.order_ids?.length > 0) && <p className="text-xs text-slate-500">{v.client_id ? clients.find(x => x.id === v.client_id)?.label || 'Cliente vinculado' : ''}{v.order_ids?.length ? ` · ${v.order_ids.length} pedido${v.order_ids.length === 1 ? '' : 's'}` : ''}{v.supplier_id ? ` · ${suppliers.find(x => x.id === v.supplier_id)?.label || 'Proveedor'}` : ''}</p>}
+            <p className="text-xs text-slate-500">{v.status === 'reviewed' ? 'Revisado' : v.status === 'needs_info' ? 'Pedir datos' : 'Pendiente'} · {v.files.length} archivo{v.files.length === 1 ? '' : 's'}</p>
+            <div className="flex gap-3 pt-1"><button onClick={() => inspect(v)} className="font-semibold text-blue-600">Ver comprobante</button><button onClick={() => edit(v)} className="font-semibold text-blue-600">Editar</button></div>
+          </div>
+        </article>;
+      })}</div>}
     </section>
-    {preview && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" onClick={() => setPreview(null)}><div className="max-h-[90vh] w-full max-w-xl overflow-auto rounded-2xl bg-white p-5 shadow-xl" onClick={event => event.stopPropagation()}><div className="mb-4 flex justify-between"><h2 className="font-bold">{labels[preview.category]} · {displayDate(preview.voucher_date)}</h2><button onClick={() => setPreview(null)}>✕</button></div><p className="mb-3 text-sm">{money(preview.amount, preview.currency)} · {preview.movement_direction === 'income' ? 'Cobranza' : 'Pago / extracción'}</p>{preview.notes && <p className="mb-3 text-sm text-slate-600">{preview.notes}</p>}<div className="space-y-2">{preview.files.map((file, index) => <a key={index} href={file.url || '#'} target="_blank" rel="noreferrer" className="block rounded-xl border p-3 text-sm text-blue-700">Abrir {file.name} ↗</a>)}</div><div className="mt-5 flex flex-wrap gap-2"><button onClick={() => { edit(preview); setPreview(null); }} className="rounded-xl border px-3 py-2 text-sm">Editar</button><button onClick={() => changeStatus(preview.id, 'reviewed')} className="rounded-xl bg-emerald-600 px-3 py-2 text-sm text-white">Marcar revisado</button><button onClick={() => changeStatus(preview.id, 'needs_info')} className="rounded-xl border px-3 py-2 text-sm">Pedir datos</button></div></div></div>}
-  </main></AdminLayout>;
+    {preview && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" onClick={() => setPreview(null)}><div className="max-h-[95vh] w-full max-w-3xl overflow-auto rounded-2xl bg-white p-5 shadow-xl" onClick={event => event.stopPropagation()}><div className="mb-4 flex justify-between"><h2 className="font-bold">{labels[preview.category]} · {displayDate(preview.voucher_date)}</h2><button onClick={() => setPreview(null)}>✕</button></div><p className="mb-3 text-sm">{money(preview.amount, preview.currency)} · {preview.movement_direction === 'income' ? 'Cobranza' : 'Pago / extracción'}</p>{preview.notes && <p className="mb-3 text-sm text-slate-600">{preview.notes}</p>}<div className="space-y-4">{preview.files.map((file, index) => <div key={index} className="space-y-2"><FileThumbnail file={file} large />{file.url && <a href={file.url} target="_blank" rel="noreferrer" className="text-sm font-semibold text-blue-700">Abrir archivo completo: {file.name} ↗</a>}</div>)}</div><div className="mt-5 flex flex-wrap gap-2"><button onClick={() => { edit(preview); setPreview(null); }} className="rounded-xl border px-3 py-2 text-sm">Editar</button><button onClick={() => changeStatus(preview.id, 'reviewed')} className="rounded-xl bg-emerald-600 px-3 py-2 text-sm text-white">Marcar revisado</button><button onClick={() => changeStatus(preview.id, 'needs_info')} className="rounded-xl border px-3 py-2 text-sm">Pedir datos</button></div></div></div>}
+  </main>;
 }
