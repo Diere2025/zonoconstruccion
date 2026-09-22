@@ -41,6 +41,7 @@ import {
   AlertCircle,
   Loader2,
   FileSpreadsheet,
+  FileText,
   PlusCircle,
   ClipboardCheck,
   Printer,
@@ -427,7 +428,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     }
     if (hasRole('fletero')) allowedPaths.add('/admin/cobros-mp');
     if (hasRole('administracion')) {
-      ['/admin/cobros-mp', '/admin/finanzas', '/admin/rendiciones']
+      ['/admin/cobros-mp', '/admin/finanzas', '/admin/rendiciones', '/admin/comprobantes-tesoreria']
         .forEach(route => allowedPaths.add(route));
     }
     if (hasRole('compras')) {
@@ -647,6 +648,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         { name: "Caja Diaria", href: "/admin/caja", icon: Wallet, adminOnly: true },
         { name: "Estado de Resultados (EERR)", href: "/admin/finanzas/eerr", icon: FileSpreadsheet, adminOnly: true },
         { name: "Administración y Finanzas", href: "/admin/finanzas", icon: Coins, adminOnly: true },
+        { name: "Comprobantes de Tesorería", href: "/admin/comprobantes-tesoreria", icon: FileText, allowedRoles: ['admin', 'administracion'] },
         { name: "Comisiones de Vendedores", href: "/admin/comisiones", icon: Coins, adminOnly: true }
       ]
     },
@@ -888,7 +890,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                 if (isSpecializedOperator) {
                   if (link.allowedRoles?.some(role => userRoles.includes(role))) return true;
                   if (hasRole('administracion')) {
-                    return link.href === "/admin/finanzas";
+                    return link.href === "/admin/finanzas" || link.href === "/admin/comprobantes-tesoreria";
                   }
                   return false;
                 }

@@ -86,12 +86,12 @@ function parseSpanishNumber(val: unknown): number {
 }
 
 function slugifyProductId(name: string): string {
-  return `sheet-${name
+  return name
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')}`;
+    .replace(/^-+|-+$/g, '');
 }
 
 function inferProductMetadata(name: string) {
@@ -133,6 +133,7 @@ function buildHistoricalListItems(csvText: string, listNumber: string) {
     return [{
       id: slugifyProductId(name),
       name,
+      sku: name,
       ...metadata,
       originType: 'Histórico hoja LISTAS',
       rawInsumosColE: 0,

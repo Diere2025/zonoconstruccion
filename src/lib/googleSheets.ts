@@ -451,6 +451,9 @@ export function buildSheetOrderItems(
     let effectivePrice = currentPrice;
     if (totalDiscount > 0) {
       effectivePrice = item.basePrice ?? catalogProduct?.price ?? item.price ?? currentPrice;
+      // If the sheet shows list price, include the item's own reduction in the
+      // single fixed adjustment so its final total still matches the ERP order.
+      totalDiscount += Math.max(0, effectivePrice - currentPrice) * qty;
     }
     if (effectivePrice === 0 && item.customPrice === undefined && item.unit_price === undefined) {
       effectivePrice = item.price ?? item.basePrice ?? catalogProduct?.price ?? 0;

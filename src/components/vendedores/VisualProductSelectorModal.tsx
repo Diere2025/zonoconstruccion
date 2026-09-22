@@ -1,16 +1,16 @@
 "use client";
 
 import React, { useState, useMemo, useEffect } from "react";
-import { 
-  X, 
-  ChevronRight, 
+import {
+  X,
+  ChevronRight,
   ChevronDown,
   ChevronUp,
-  ArrowLeft, 
-  Sparkles, 
-  Check, 
-  Plus, 
-  Layers, 
+  ArrowLeft,
+  Sparkles,
+  Check,
+  Plus,
+  Layers,
   Info,
   Settings,
   List,
@@ -23,8 +23,9 @@ import {
   ShoppingBag,
   ShoppingCart
 } from "lucide-react";
-import { Product } from "@/types";
-import { 
+import { Product, OrderDiscountItem } from "@/types";
+export type { OrderDiscountItem };
+import {
   VisualCatalogConfig,
   VisualFamily,
   VisualSubGroup,
@@ -50,7 +51,7 @@ export interface VisualOrderItem extends Product {
   baseQuantity?: number;
 }
 
-interface VisualProductSelectorModalProps {
+export interface VisualProductSelectorModalProps {
   isOpen: boolean;
   onClose: () => void;
   products: Product[];
@@ -67,9 +68,44 @@ interface VisualProductSelectorModalProps {
   orderDiscountType?: 'percentage' | 'fixed';
   orderDiscountValue?: number;
   onUpdateOrderDiscount?: (type: 'percentage' | 'fixed', value: number) => void;
+  orderDiscounts?: OrderDiscountItem[];
+  suggestedOrderDiscount?: OrderDiscountItem;
+  onApplySuggestedOrderDiscount?: () => void;
+  onUpdateOrderDiscounts?: (discounts: OrderDiscountItem[]) => void;
   onApplyDiscountSuggestion?: (sug: DiscountSuggestion) => void;
   isAdmin?: boolean;
   isWholesaleContext?: boolean;
+  context?: 'pedido' | 'presupuesto';
+}
+
+export function QuantityInput({ value, onChange }: { value: number; onChange?: (quantity: number) => void }) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => setDraft(String(value)), [value]);
+
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      aria-label="Cantidad"
+      title="Escribí la cantidad"
+      value={draft}
+      onFocus={event => event.currentTarget.select()}
+      onChange={event => {
+        const next = event.target.value;
+        if (!/^\d*$/.test(next)) return;
+        setDraft(next);
+        const quantity = Number(next);
+        if (next && quantity > 0) onChange?.(quantity);
+      }}
+      onBlur={() => {
+        const quantity = Number(draft);
+        if (quantity > 0) onChange?.(quantity);
+        else setDraft(String(value));
+      }}
+      onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }}
+      className="w-8 min-w-0 bg-transparent text-center font-black text-xs text-slate-800 outline-none focus:bg-white focus:ring-1 focus:ring-brand-400"
+    />
+  );
 }
 
 export default function VisualProductSelectorModal({
@@ -89,10 +125,17 @@ export default function VisualProductSelectorModal({
   orderDiscountType = 'percentage',
   orderDiscountValue = 0,
   onUpdateOrderDiscount,
+  orderDiscounts,
+  suggestedOrderDiscount,
+  onApplySuggestedOrderDiscount,
+  onUpdateOrderDiscounts,
   onApplyDiscountSuggestion,
   isAdmin = false,
-  isWholesaleContext = false
+  isWholesaleContext = false,
+  context = 'pedido'
 }: VisualProductSelectorModalProps) {
+  const contextTitle = context === 'presupuesto' ? 'Presupuesto' : 'Pedido';
+  const contextName = context === 'presupuesto' ? 'presupuesto' : 'pedido';
   const [config, setConfig] = useState<VisualCatalogConfig | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -245,13 +288,30 @@ export default function VisualProductSelectorModal({
     const q = normalizeText(searchQuery);
     if (!q) return [];
     const words = q.split(/\s+/).filter(Boolean);
-    return products
-      .filter(p => {
-        const full = normalizeText(`${p.name} ${p.sku || ""} ${p.category || ""}`);
-        return words.every(w => full.includes(w));
-      })
-      .slice(0, 40);
-  }, [products, searchQuery]);
+    const matches = products.filter(p => {
+      const full = normalizeText(`${p.name} ${p.sku || ""} ${p.category || ""}`);
+      return words.every(w => full.includes(w));
+    });
+
+    if (isWholesaleContext && !q.includes('ciego')) {
+      // Ocultar variantes ciegas hijas duplicadas si su versión estándar ya aparece en los resultados
+      return matches.filter(p => {
+        const isCiego = (p.variant_type || '').toLowerCase() === 'ciego' ||
+                        p.id.endsWith('::ciego') ||
+                        p.name.toLowerCase().includes('(ciego)');
+        if (!isCiego) return true;
+        const parentExists = matches.some(other =>
+          other.id !== p.id &&
+          ((p.parent_id && other.id === p.parent_id) ||
+           `${other.id}::ciego` === p.id ||
+           (other.name && p.name.toLowerCase().startsWith(other.name.toLowerCase().replace(/\s*\((?:ciego|CIEGO)\)/gi, '').trim())))
+        );
+        return !parentExists;
+      }).slice(0, 40);
+    }
+
+    return matches.slice(0, 40);
+  }, [products, searchQuery, isWholesaleContext]);
 
   // Product resolution for selected item options
   const resolvedMainProduct = useMemo(() => {
@@ -320,12 +380,12 @@ export default function VisualProductSelectorModal({
   const handleQuickAdd = (item: VisualItemOption) => {
     // 1. Combo / Kit
     if (item.isCombo && item.comboItems && item.comboItems.length > 0) {
-      const itemsToAdd: (Product & { 
-        customPrice?: number; 
-        quantity?: number; 
-        bundleParentId?: string; 
-        isIncludedInKit?: boolean; 
-        baseQuantity?: number; 
+      const itemsToAdd: (Product & {
+        customPrice?: number;
+        quantity?: number;
+        bundleParentId?: string;
+        isIncludedInKit?: boolean;
+        baseQuantity?: number;
       })[] = [];
 
       const isKit = (item.label || "").toLowerCase().includes("kit") || (item.badge || "").toLowerCase().includes("kit");
@@ -362,7 +422,7 @@ export default function VisualProductSelectorModal({
         } else {
           itemsToAdd.forEach(p => onAddProduct(p as any));
         }
-        setAddedFeedback(`¡${item.label} agregado al pedido!`);
+        setAddedFeedback(`¡${item.label} agregado al ${contextName}!`);
         setTimeout(() => setAddedFeedback(null), 1200);
         return;
       }
@@ -376,7 +436,7 @@ export default function VisualProductSelectorModal({
     }
     const finalProduct = item.price !== undefined ? { ...p, price: item.price, customPrice: item.price } : p;
     onAddProduct(finalProduct as any);
-    setAddedFeedback(`¡${item.label || p.name} agregado al pedido!`);
+    setAddedFeedback(`¡${item.label || p.name} agregado al ${contextName}!`);
     setTimeout(() => setAddedFeedback(null), 1200);
   };
 
@@ -437,13 +497,51 @@ export default function VisualProductSelectorModal({
     }, 0);
   }, [orderItems]);
 
-  const orderDiscountAmount = useMemo(() => {
-    if (!orderDiscountValue || orderDiscountValue <= 0) return 0;
-    if (orderDiscountType === 'percentage') {
-      return Math.round(itemsGrossSubtotal * (Math.min(100, orderDiscountValue) / 100));
+  const currentDiscounts = useMemo<OrderDiscountItem[]>(() => {
+    if (orderDiscounts && orderDiscounts.length > 0) {
+      return orderDiscounts;
     }
-    return Math.min(itemsGrossSubtotal, orderDiscountValue);
-  }, [itemsGrossSubtotal, orderDiscountType, orderDiscountValue]);
+    return [
+      {
+        id: 'default-1',
+        description: 'Descuento volumen',
+        type: orderDiscountType,
+        value: orderDiscountValue || 0
+      }
+    ];
+  }, [orderDiscounts, orderDiscountType, orderDiscountValue]);
+
+  const handleUpdateDiscountList = (newList: OrderDiscountItem[]) => {
+    if (onUpdateOrderDiscounts) {
+      onUpdateOrderDiscounts(newList);
+    } else if (onUpdateOrderDiscount && newList.length > 0) {
+      onUpdateOrderDiscount(newList[0].type, newList[0].value);
+    }
+  };
+
+  // Descuentos en cascada / sucesivos (20+5 no es 25%, se calculan secuencialmente sobre el saldo remanente)
+  const discountBreakdown = useMemo(() => {
+    let remaining = itemsGrossSubtotal;
+    return currentDiscounts.map(disc => {
+      const val = disc.value ? Math.max(0, disc.value) : 0;
+      if (val <= 0 || remaining <= 0) {
+        return { ...disc, amount: 0, balanceBefore: remaining, balanceAfter: remaining };
+      }
+      let amount = 0;
+      if (disc.type === 'percentage') {
+        amount = Math.round(remaining * (Math.min(100, val) / 100));
+      } else {
+        amount = Math.min(remaining, val);
+      }
+      const balanceBefore = remaining;
+      remaining = Math.max(0, remaining - amount);
+      return { ...disc, amount, balanceBefore, balanceAfter: remaining };
+    });
+  }, [itemsGrossSubtotal, currentDiscounts]);
+
+  const orderDiscountAmount = useMemo(() => {
+    return discountBreakdown.reduce((sum, d) => sum + d.amount, 0);
+  }, [discountBreakdown]);
 
   const subtotal = Math.max(0, itemsGrossSubtotal - orderDiscountAmount);
 
@@ -490,7 +588,7 @@ export default function VisualProductSelectorModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-sm p-1.5 sm:p-2.5 md:p-3.5 overflow-hidden animate-in fade-in duration-200">
       <div className="relative bg-white rounded-2xl shadow-2xl border border-slate-200/90 w-full max-w-[98vw] 2xl:max-w-[1760px] h-[96vh] flex flex-col overflow-hidden">
-        
+
         {/* ======================= MODAL HEADER ======================= */}
         <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between bg-gradient-to-r from-slate-50 via-white to-slate-50 shrink-0">
           <div className="flex items-center gap-3">
@@ -500,7 +598,7 @@ export default function VisualProductSelectorModal({
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-base font-black text-slate-800 tracking-tight">
-                  Selector de Productos y Detalle del Pedido
+                  Selector de Productos y Detalle del {contextTitle}
                 </h3>
                 <span className="hidden sm:inline-flex px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-brand-100 text-brand-700">
                   Carga Rápida
@@ -524,15 +622,15 @@ export default function VisualProductSelectorModal({
             </div>
 
             {isAdmin && (
-              <a 
-                href="/admin/ajustes" 
-                target="_blank" 
+              <a
+                href={isWholesaleContext ? '/admin/lista-mayorista?listNumber=12' : '/admin/ajustes'}
+                target="_blank"
                 rel="noreferrer"
-                title="Configurar opciones e imágenes del catálogo"
+                title={isWholesaleContext ? 'Habilitar o deshabilitar productos de Lista 12' : 'Configurar opciones e imágenes del catálogo'}
                 className="hidden xl:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:text-brand-600 hover:border-brand-300 text-xs font-bold transition-colors"
               >
                 <Settings className="w-3.5 h-3.5" />
-                <span>Configurar Catálogo</span>
+                <span>{isWholesaleContext ? 'Productos de Lista 12' : 'Configurar Catálogo'}</span>
               </a>
             )}
 
@@ -589,20 +687,20 @@ export default function VisualProductSelectorModal({
             }`}
           >
             <ShoppingCart className="w-3.5 h-3.5" />
-            <span>2. Detalle del Pedido ({totalOrderCount})</span>
+            <span>2. Detalle del {contextTitle} ({totalOrderCount})</span>
           </button>
         </div>
 
         {/* ======================= MODAL BODY (SPLIT 2 COLUMNS) ======================= */}
         <div className="flex-1 overflow-hidden grid grid-cols-1 lg:grid-cols-12 divide-y lg:divide-y-0 lg:divide-x divide-slate-200 min-h-0">
-          
+
           {/* ========================================================= */}
           {/* LEFT COLUMN: BUSCADOR MANUAL + SELECTOR VISUAL EN CASCADA */}
           {/* ========================================================= */}
           <div className={`lg:col-span-7 flex flex-col h-full overflow-hidden bg-white ${
             mobileTab === 'cart' ? 'hidden lg:flex' : 'flex'
           }`}>
-            
+
             {/* SEARCH BAR AT TOP OF LEFT COLUMN */}
             <div className="p-3.5 border-b border-slate-100 bg-slate-50/70 shrink-0">
               <div className="relative">
@@ -653,6 +751,28 @@ export default function VisualProductSelectorModal({
                     {searchResults.map(p => {
                       const isDiscontinued = (p as any).is_discontinued || false;
                       const currentStock = (p as any).stock_current !== undefined ? (p as any).stock_current : 999;
+                      const rawSku = (p.sku || '').trim();
+                      const isIgnoredSku = !rawSku ||
+                        rawSku.toUpperCase().startsWith('SHEET-') ||
+                        rawSku.toUpperCase().startsWith('AUTO-') ||
+                        rawSku.toUpperCase().startsWith('AUTO_') ||
+                        rawSku.toLowerCase() === p.name.toLowerCase();
+
+                      const isCiegoProduct = (p.variant_type || '').toLowerCase() === 'ciego' ||
+                        p.name.toLowerCase().includes('(ciego)') ||
+                        p.name.toLowerCase().endsWith(' ciego');
+
+                      // Buscar si tiene variante ciega para ofrecer ambos botones
+                      const ciegoMatch = (!isCiegoProduct && isWholesaleContext)
+                        ? products.find(cp =>
+                            cp.id !== p.id &&
+                            ((cp.variant_type || '').toLowerCase() === 'ciego' || cp.name.toLowerCase().includes('ciego')) &&
+                            (cp.parent_id === p.id || cp.id === `${p.id}::ciego` || cp.name.toLowerCase().includes(p.name.toLowerCase()))
+                          )
+                        : null;
+
+                      const cleanTitle = p.name.replace(/\s*\((?:ciego|CIEGO)\)\s*\((?:ciego|CIEGO)\)/gi, ' (Ciego)');
+
                       return (
                         <div
                           key={p.id}
@@ -662,19 +782,24 @@ export default function VisualProductSelectorModal({
                           <div className="flex items-center gap-3 min-w-0 flex-1">
                             <div className="w-10 h-10 rounded-lg bg-slate-100 p-1 flex items-center justify-center shrink-0 border border-slate-200 overflow-hidden group-hover:border-brand-300 group-hover:bg-white transition-colors">
                               {p.image_url ? (
-                                <img src={p.image_url} alt={p.name} className="max-h-full max-w-full object-contain" />
+                                <img src={p.image_url} alt={cleanTitle} className="max-h-full max-w-full object-contain" />
                               ) : (
                                 <Package className="w-5 h-5 text-slate-400 group-hover:text-brand-500 transition-colors" />
                               )}
                             </div>
                             <div className="min-w-0 flex-1">
-                              {p.sku && (
+                              {!isIgnoredSku && (
                                 <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block group-hover:text-slate-500 transition-colors">
                                   {p.sku}
                                 </span>
                               )}
-                              <p className="font-bold text-xs text-slate-800 truncate group-hover:text-brand-600 transition-colors" title={p.name}>
-                                {p.name}
+                              <p className="font-bold text-xs text-slate-800 truncate group-hover:text-brand-600 transition-colors flex items-center gap-1.5" title={cleanTitle}>
+                                <span>{cleanTitle}</span>
+                                {isCiegoProduct && (
+                                  <span className="text-[8px] font-black uppercase px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 border border-amber-300">
+                                    🔘 Ciego
+                                  </span>
+                                )}
                               </p>
                               <div className="flex items-center gap-2 mt-0.5">
                                 <span className="font-black text-xs text-emerald-600">{fmt(p.price)}</span>
@@ -687,17 +812,42 @@ export default function VisualProductSelectorModal({
                             </div>
                           </div>
 
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleAddSearchItem(p);
-                            }}
-                            className="px-3 py-1.5 bg-brand-600 group-hover:bg-brand-700 active:scale-95 text-white rounded-lg text-xs font-black flex items-center gap-1 shrink-0 transition-all shadow-2xs cursor-pointer"
-                          >
-                            <Plus className="w-3.5 h-3.5" />
-                            <span>Agregar</span>
-                          </button>
+                          {isWholesaleContext && ciegoMatch ? (
+                            <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleAddSearchItem(p);
+                                }}
+                                className="rounded-lg border border-brand-200 bg-brand-50 hover:bg-brand-600 hover:text-white px-2.5 py-1.5 text-[10px] font-black text-brand-700 transition-all cursor-pointer shadow-2xs"
+                              >
+                                + Estándar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleAddSearchItem(ciegoMatch);
+                                }}
+                                className="rounded-lg border border-amber-200 bg-amber-50 hover:bg-amber-500 hover:text-white px-2.5 py-1.5 text-[10px] font-black text-amber-700 transition-all cursor-pointer shadow-2xs"
+                              >
+                                + Ciego
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleAddSearchItem(p);
+                              }}
+                              className="px-3 py-1.5 bg-brand-600 group-hover:bg-brand-700 active:scale-95 text-white rounded-lg text-xs font-black flex items-center gap-1 shrink-0 transition-all shadow-2xs cursor-pointer"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>{isCiegoProduct ? '+ Ciego' : 'Agregar'}</span>
+                            </button>
+                          )}
                         </div>
                       );
                     })}
@@ -710,7 +860,7 @@ export default function VisualProductSelectorModal({
                 {/* BREADCRUMBS BAR */}
                 <div className="px-4 py-2.5 bg-slate-50/90 border-b border-slate-200/70 flex items-center justify-between text-xs font-bold text-slate-600 shrink-0 overflow-x-auto">
                   <div className="flex items-center gap-1.5 flex-nowrap">
-                    <button 
+                    <button
                       type="button"
                       onClick={handleReset}
                       className={`hover:text-brand-600 transition-colors cursor-pointer ${!selectedFamilyId ? 'text-brand-600 font-extrabold' : ''}`}
@@ -782,7 +932,7 @@ export default function VisualProductSelectorModal({
 
                 {/* SCROLLABLE CASCADE CONTAINER */}
                 <div className="flex-1 overflow-y-auto p-4 min-h-0 bg-white">
-                  
+
                   {/* LEVEL 1: FAMILIAS PRINCIPALES */}
                   {!selectedFamilyId && (
                     <div className="space-y-4">
@@ -791,7 +941,7 @@ export default function VisualProductSelectorModal({
                           Elegí la familia de productos
                         </h4>
                         <p className="text-[11px] text-slate-500 font-medium">
-                          Navegá para armar tu pedido o kit
+                          Navegá para armar tu {contextName} o kit
                         </p>
                       </div>
 
@@ -809,8 +959,8 @@ export default function VisualProductSelectorModal({
                           >
                             <div className="w-full h-28 rounded-lg bg-slate-50 flex items-center justify-center overflow-hidden mb-2.5 p-2 group-hover:bg-brand-50/40 transition-colors">
                               {fam.imageUrl ? (
-                                <img 
-                                  src={fam.imageUrl} 
+                                <img
+                                  src={fam.imageUrl}
                                   alt={fam.name}
                                   className="max-h-full max-w-full object-contain group-hover:scale-105 transition-transform duration-300"
                                 />
@@ -850,8 +1000,8 @@ export default function VisualProductSelectorModal({
                           >
                             <div className="w-20 h-20 rounded-lg bg-slate-50 p-1 flex items-center justify-center shrink-0 border border-slate-100 overflow-hidden">
                               {sub.imageUrl ? (
-                                <img 
-                                  src={sub.imageUrl} 
+                                <img
+                                  src={sub.imageUrl}
                                   alt={sub.name}
                                   className="max-h-full max-w-full object-contain group-hover:scale-105 transition-transform"
                                 />
@@ -1058,8 +1208,8 @@ export default function VisualProductSelectorModal({
                                   }
                                 }}
                                 className={`p-3 rounded-2xl border transition-all flex flex-col justify-between relative group ${
-                                  isAvailable 
-                                    ? 'border-slate-200 hover:border-brand-500 hover:shadow-lg cursor-pointer bg-white hover:-translate-y-1' 
+                                  isAvailable
+                                    ? 'border-slate-200 hover:border-brand-500 hover:shadow-lg cursor-pointer bg-white hover:-translate-y-1'
                                     : 'border-slate-100 bg-slate-50/60 opacity-60'
                                 }`}
                               >
@@ -1072,8 +1222,8 @@ export default function VisualProductSelectorModal({
                                       </span>
                                     )}
                                     {imgSrc ? (
-                                      <img 
-                                        src={imgSrc} 
+                                      <img
+                                        src={imgSrc}
                                         alt={item.label}
                                         className="max-h-full max-w-full object-contain drop-shadow-xs group-hover:scale-105 transition-transform duration-300"
                                       />
@@ -1163,8 +1313,8 @@ export default function VisualProductSelectorModal({
                       {/* Product Header */}
                       <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center gap-3">
                         <div className="w-16 h-16 bg-white rounded-lg border border-slate-200 p-1.5 flex items-center justify-center shrink-0">
-                          <img 
-                            src={resolvedMainProduct?.image_url || selectedItem.imageUrl || currentSubgroup?.imageUrl} 
+                          <img
+                            src={resolvedMainProduct?.image_url || selectedItem.imageUrl || currentSubgroup?.imageUrl}
                             alt={selectedItem.label}
                             className="max-h-full max-w-full object-contain"
                           />
@@ -1193,11 +1343,11 @@ export default function VisualProductSelectorModal({
                             1. Perforaciones de Fábrica
                           </label>
                           <div className="grid grid-cols-2 gap-2">
-                            <div 
+                            <div
                               onClick={() => setIsCiego(false)}
                               className={`p-2.5 rounded-xl border cursor-pointer transition-all ${
-                                !isCiego 
-                                  ? 'border-brand-500 bg-brand-50/40 ring-1 ring-brand-500/20' 
+                                !isCiego
+                                  ? 'border-brand-500 bg-brand-50/40 ring-1 ring-brand-500/20'
                                   : 'border-slate-200 bg-white hover:border-slate-300'
                               }`}
                             >
@@ -1208,11 +1358,11 @@ export default function VisualProductSelectorModal({
                               <p className="text-[9.5px] text-slate-500 mt-0.5">Con orificios originales.</p>
                             </div>
 
-                            <div 
+                            <div
                               onClick={() => setIsCiego(true)}
                               className={`p-2.5 rounded-xl border cursor-pointer transition-all ${
-                                isCiego 
-                                  ? 'border-amber-500 bg-amber-50/40 ring-1 ring-amber-500/20' 
+                                isCiego
+                                  ? 'border-amber-500 bg-amber-50/40 ring-1 ring-amber-500/20'
                                   : 'border-slate-200 bg-white hover:border-slate-300'
                               }`}
                             >
@@ -1234,19 +1384,19 @@ export default function VisualProductSelectorModal({
                           </label>
                           <div className="space-y-2">
                             {resolvedBaseProduct && (
-                              <div 
+                              <div
                                 onClick={() => setIncludeBase(!includeBase)}
                                 className={`p-2.5 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${
-                                  includeBase 
-                                    ? 'border-brand-500 bg-brand-50/30 ring-1 ring-brand-500/20' 
+                                  includeBase
+                                    ? 'border-brand-500 bg-brand-50/30 ring-1 ring-brand-500/20'
                                     : 'border-slate-200 bg-white hover:border-slate-300'
                                 }`}
                               >
                                 <div className="flex items-center gap-2.5">
-                                  <input 
-                                    type="checkbox" 
-                                    checked={includeBase} 
-                                    onChange={() => {}} 
+                                  <input
+                                    type="checkbox"
+                                    checked={includeBase}
+                                    onChange={() => {}}
                                     className="w-3.5 h-3.5 rounded text-brand-600 focus:ring-brand-500 border-slate-300"
                                   />
                                   <div>
@@ -1264,19 +1414,19 @@ export default function VisualProductSelectorModal({
                             )}
 
                             {resolvedFlotanteProduct && (
-                              <div 
+                              <div
                                 onClick={() => setIncludeFlotante(!includeFlotante)}
                                 className={`p-2.5 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${
-                                  includeFlotante 
-                                    ? 'border-brand-500 bg-brand-50/30 ring-1 ring-brand-500/20' 
+                                  includeFlotante
+                                    ? 'border-brand-500 bg-brand-50/30 ring-1 ring-brand-500/20'
                                     : 'border-slate-200 bg-white hover:border-slate-300'
                                 }`}
                               >
                                 <div className="flex items-center gap-2.5">
-                                  <input 
-                                    type="checkbox" 
-                                    checked={includeFlotante} 
-                                    onChange={() => {}} 
+                                  <input
+                                    type="checkbox"
+                                    checked={includeFlotante}
+                                    onChange={() => {}}
                                     className="w-3.5 h-3.5 rounded text-brand-600 focus:ring-brand-500 border-slate-300"
                                   />
                                   <div>
@@ -1309,7 +1459,7 @@ export default function VisualProductSelectorModal({
                           className="px-5 py-2 rounded-xl bg-brand-500 hover:bg-brand-600 text-white font-black text-xs uppercase tracking-wider shadow-md hover:shadow-brand-500/30 transition-all flex items-center gap-1.5 cursor-pointer"
                         >
                           <Plus className="w-3.5 h-3.5" />
-                          <span>Agregar al Pedido</span>
+                          <span>Agregar al {contextTitle}</span>
                         </button>
                       </div>
                     </div>
@@ -1322,7 +1472,7 @@ export default function VisualProductSelectorModal({
             {/* Mobile Footer for Left Column */}
             <div className="lg:hidden p-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between shrink-0">
               <span className="text-xs font-bold text-slate-600">
-                {totalOrderCount} {totalOrderCount === 1 ? 'producto' : 'productos'} en pedido
+                {totalOrderCount} {totalOrderCount === 1 ? 'producto' : 'productos'} en {contextName}
               </span>
               <button
                 type="button"
@@ -1330,7 +1480,7 @@ export default function VisualProductSelectorModal({
                 className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-black flex items-center gap-1.5"
               >
                 <ShoppingCart className="w-3.5 h-3.5" />
-                <span>Ver Pedido ({fmt(subtotal)})</span>
+                <span>Ver {contextTitle} ({fmt(subtotal)})</span>
               </button>
             </div>
 
@@ -1342,13 +1492,13 @@ export default function VisualProductSelectorModal({
           <div className={`lg:col-span-5 flex flex-col h-full bg-slate-50/70 overflow-hidden ${
             mobileTab === 'catalog' ? 'hidden lg:flex' : 'flex'
           }`}>
-            
+
             {/* RIGHT COLUMN HEADER */}
             <div className="p-3.5 border-b border-slate-200 bg-white flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2">
                 <ShoppingCart className="w-4 h-4 text-emerald-600" />
                 <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">
-                  Detalle del Pedido
+                  Detalle del {contextTitle}
                 </h4>
                 {totalOrderCount > 0 && (
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-200">
@@ -1361,7 +1511,7 @@ export default function VisualProductSelectorModal({
                 <button
                   type="button"
                   onClick={() => {
-                    if (confirm("¿Vaciar todos los artículos seleccionados del pedido?")) {
+                    if (confirm(`¿Vaciar todos los artículos seleccionados del ${contextName}?`)) {
                       onClearOrderItems();
                     }
                   }}
@@ -1376,7 +1526,7 @@ export default function VisualProductSelectorModal({
 
             {/* LIVE CART ITEMS LIST */}
             <div className="flex-1 overflow-y-auto p-3 space-y-1.5 min-h-0">
-              
+
               {orderItems.length === 0 ? (
                 <div className="p-8 border-2 border-dashed border-slate-200 rounded-2xl text-center bg-white space-y-3 my-auto">
                   <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mx-auto text-slate-400">
@@ -1384,10 +1534,10 @@ export default function VisualProductSelectorModal({
                   </div>
                   <div>
                     <p className="font-black text-slate-700 text-xs uppercase tracking-wide">
-                      El pedido está vacío
+                      El {contextName} está vacío
                     </p>
                     <p className="text-[11px] text-slate-400 mt-1 max-w-xs mx-auto">
-                      Buscá o seleccioná productos o kits desde el panel izquierdo para agregarlos al pedido.
+                      Buscá o seleccioná productos o kits desde el panel izquierdo para agregarlos al {contextName}.
                     </p>
                   </div>
                 </div>
@@ -1397,8 +1547,8 @@ export default function VisualProductSelectorModal({
                   {discountSuggestions.length > 0 && (
                     <div className="space-y-1.5 mb-2 shrink-0">
                       {discountSuggestions.map((sug) => (
-                        <div 
-                          key={sug.ruleId} 
+                        <div
+                          key={sug.ruleId}
                           className="bg-gradient-to-r from-amber-500/10 via-amber-100 to-amber-50 border border-amber-300 rounded-xl p-2.5 flex items-center justify-between gap-2 shadow-xs animate-in slide-in-from-top duration-200"
                         >
                           <div className="flex items-center gap-2 min-w-0">
@@ -1439,19 +1589,28 @@ export default function VisualProductSelectorModal({
                     const isKitService = (nameLower.includes("kit instalaci") || nameLower.includes("kit de instalaci") || nameLower.startsWith("kit ")) && item.customPrice > 0;
                     const isIncludedZero = item.customPrice === 0 || item.isIncludedInKit;
 
-                    // Mostrar prioritariamente el SKU si existe (salvo AUTO-); si no, usar el nombre
+                    // Descartar SKUs que empiezan con AUTO- o SHEET-
                     const rawSku = (item.sku || "").trim();
-                    const isAutoSku = rawSku.toUpperCase().startsWith("AUTO-") || rawSku.toUpperCase().startsWith("AUTO_");
-                    const displayName = (rawSku && !isAutoSku) ? rawSku : item.name;
+                    const isIgnoredSku = !rawSku ||
+                      rawSku.toUpperCase().startsWith("AUTO-") ||
+                      rawSku.toUpperCase().startsWith("AUTO_") ||
+                      rawSku.toUpperCase().startsWith("SHEET-") ||
+                      rawSku.toLowerCase() === item.name.toLowerCase();
+
+                    const isCiegoItem = (item.variant_type || '').toLowerCase() === 'ciego' ||
+                      (item.name || '').toLowerCase().includes('(ciego)') ||
+                      (item.name || '').toLowerCase().endsWith(' ciego');
+
+                    const cleanDisplayName = (item.name || rawSku).replace(/\s*\((?:ciego|CIEGO)\)\s*\((?:ciego|CIEGO)\)/gi, ' (Ciego)');
 
                     return (
                       <React.Fragment key={`${item.id}-${idx}`}>
-                        <div 
+                        <div
                           className={`rounded-lg py-1.5 px-2.5 border transition-all flex items-center justify-between gap-2 ${
-                          isKitService 
-                            ? 'bg-emerald-50/50 border-emerald-300' 
-                            : isIncludedZero 
-                              ? 'bg-slate-50/70 border-slate-200' 
+                          isKitService
+                            ? 'bg-emerald-50/50 border-emerald-300'
+                            : isIncludedZero
+                              ? 'bg-slate-50/70 border-slate-200'
                               : 'bg-white border-slate-200 hover:border-slate-300'
                         }`}
                       >
@@ -1467,13 +1626,18 @@ export default function VisualProductSelectorModal({
                               $0
                             </span>
                           )}
+                          {isCiegoItem && (
+                            <span className="inline-flex items-center gap-0.5 text-[7.5px] font-black uppercase tracking-wider px-1.5 py-0.5 bg-amber-100 text-amber-900 rounded border border-amber-300 shrink-0">
+                              🔘 Ciego
+                            </span>
+                          )}
                           {Boolean(item.discountValue && item.discountValue > 0) && (
                             <span className="inline-flex items-center gap-0.5 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded border border-amber-300 shrink-0">
                               {item.discountType === 'percentage' ? `${item.discountValue}% OFF` : `-$${formatPrice(item.discountValue || 0)}`}
                             </span>
                           )}
-                          <p className="font-bold text-slate-800 text-xs truncate" title={displayName}>
-                            {displayName}
+                          <p className="font-bold text-slate-800 text-xs truncate" title={cleanDisplayName}>
+                            {cleanDisplayName}
                           </p>
                           {Boolean(item.basePrice && item.basePrice > item.customPrice) && (
                             <span className="text-[10px] text-slate-400 line-through shrink-0">
@@ -1486,20 +1650,18 @@ export default function VisualProductSelectorModal({
                         <div className="flex items-center gap-1.5 shrink-0">
                           {/* Stepper compacto */}
                           <div className="flex items-center bg-slate-100 border border-slate-200 rounded-md overflow-hidden h-6.5">
-                            <button 
-                              type="button" 
-                              onClick={() => onUpdateQuantity?.(item.id, item.quantity - 1)} 
+                            <button
+                              type="button"
+                              onClick={() => onUpdateQuantity?.(item.id, item.quantity - 1)}
                               className="px-1.5 font-black text-slate-500 hover:bg-slate-200 text-xs h-full cursor-pointer transition-colors"
                               title="Restar 1 unidad"
                             >
                               -
                             </button>
-                            <span className="px-1.5 font-black text-xs min-w-[1.2rem] text-center text-slate-800">
-                              {item.quantity}
-                            </span>
-                            <button 
-                              type="button" 
-                              onClick={() => onUpdateQuantity?.(item.id, item.quantity + 1)} 
+                            <QuantityInput value={item.quantity} onChange={quantity => onUpdateQuantity?.(item.id, quantity)} />
+                            <button
+                              type="button"
+                              onClick={() => onUpdateQuantity?.(item.id, item.quantity + 1)}
                               className="px-1.5 font-black text-slate-500 hover:bg-slate-200 text-xs h-full cursor-pointer transition-colors"
                               title="Sumar 1 unidad"
                             >
@@ -1510,8 +1672,8 @@ export default function VisualProductSelectorModal({
                           {/* Precio unitario editable compacto */}
                           <div className="flex items-center bg-slate-50 border border-slate-200 rounded-md px-1.5 h-6.5">
                             <span className="text-[9.5px] font-bold text-slate-400 mr-0.5">$</span>
-                            <input 
-                              type="number" 
+                            <input
+                              type="number"
                               value={item.customPrice}
                               onChange={(e) => onUpdateCustomPrice?.(item.id, Number(e.target.value))}
                               className="w-16 text-xs font-bold text-right outline-none bg-transparent text-slate-800"
@@ -1538,11 +1700,11 @@ export default function VisualProductSelectorModal({
 
                           {/* Botón para SACAR producto */}
                           {onRemoveItem && (
-                            <button 
+                            <button
                               type="button"
                               onClick={() => onRemoveItem(item.id)}
                               className="text-slate-300 hover:text-red-500 p-1 rounded hover:bg-red-50 transition-colors cursor-pointer"
-                              title="Sacar del pedido"
+                              title={`Sacar del ${contextName}`}
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
@@ -1605,8 +1767,8 @@ export default function VisualProductSelectorModal({
 
                 {/* 3. DESCUENTOS Y BONIFICACIONES COMPACTO */}
                 {discountItems.map((item, idx) => (
-                  <div 
-                    key={`${item.id}-${idx}`} 
+                  <div
+                    key={`${item.id}-${idx}`}
                     className="bg-amber-50/60 border border-amber-200 rounded-lg py-1.5 px-2.5 flex items-center justify-between gap-2"
                   >
                     <div className="flex items-center gap-1.5 min-w-0 flex-1">
@@ -1619,20 +1781,18 @@ export default function VisualProductSelectorModal({
                     <div className="flex items-center gap-1.5 shrink-0">
                       {/* Selector de cantidad compacto para bonificaciones */}
                       <div className="flex items-center bg-white border border-amber-200 rounded-md overflow-hidden h-6.5">
-                        <button 
-                          type="button" 
-                          onClick={() => onUpdateQuantity?.(item.id, item.quantity - 1)} 
+                        <button
+                          type="button"
+                          onClick={() => onUpdateQuantity?.(item.id, item.quantity - 1)}
                           className="px-1.5 font-black text-slate-500 hover:bg-amber-100 text-xs h-full cursor-pointer transition-colors"
                           title="Restar 1 unidad"
                         >
                           -
                         </button>
-                        <span className="px-1.5 font-black text-xs min-w-[1.2rem] text-center text-slate-800">
-                          {item.quantity}
-                        </span>
-                        <button 
-                          type="button" 
-                          onClick={() => onUpdateQuantity?.(item.id, item.quantity + 1)} 
+                        <QuantityInput value={item.quantity} onChange={quantity => onUpdateQuantity?.(item.id, quantity)} />
+                        <button
+                          type="button"
+                          onClick={() => onUpdateQuantity?.(item.id, item.quantity + 1)}
                           className="px-1.5 font-black text-slate-500 hover:bg-amber-100 text-xs h-full cursor-pointer transition-colors"
                           title="Sumar 1 unidad"
                         >
@@ -1643,8 +1803,8 @@ export default function VisualProductSelectorModal({
                       {/* Precio editable con -$ */}
                       <div className="flex items-center bg-white border border-amber-300 rounded-md px-1.5 h-6.5">
                         <span className="text-[9.5px] font-bold text-amber-700 mr-0.5">-$</span>
-                        <input 
-                          type="number" 
+                        <input
+                          type="number"
                           value={Math.abs(item.customPrice) || ""}
                           placeholder="0"
                           onChange={(e) => onUpdateCustomPrice?.(item.id, -Math.abs(Number(e.target.value)))}
@@ -1658,7 +1818,7 @@ export default function VisualProductSelectorModal({
                       </span>
 
                       {onRemoveItem && (
-                        <button 
+                        <button
                           type="button"
                           onClick={() => onRemoveItem(item.id)}
                           className="text-slate-400 hover:text-red-500 p-1 rounded hover:bg-red-50 transition-colors cursor-pointer"
@@ -1677,55 +1837,165 @@ export default function VisualProductSelectorModal({
 
           {/* CART FOOTER WITH SUBTOTAL AND CONFIRM BUTTON */}
           <div className="p-3.5 border-t border-slate-200 bg-white shrink-0 space-y-2.5">
-            {/* Descuento al total del pedido en modal */}
-            <div className="bg-slate-50 p-2 rounded-xl border border-slate-200/80 space-y-1.5">
+            {/* DESCUENTO TOTAL PEDIDO (MÚLTIPLES DESCUENTOS EN CASCADA) */}
+            <div className="bg-amber-50/70 border border-amber-200/80 rounded-xl p-2.5 space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-[10px] font-black uppercase tracking-wider text-slate-600 flex items-center gap-1">
-                  <Tag className="w-3 h-3 text-amber-600" /> Descuento Total Pedido
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-700 flex items-center gap-1">
+                  <Tag className="w-3 h-3 text-amber-600" /> Descuentos del {contextTitle}
                 </span>
                 {orderDiscountAmount > 0 && (
-                  <span className="text-[10px] font-black text-amber-700 bg-amber-100/70 px-1.5 py-0.2 rounded border border-amber-200">
-                    -{fmt(orderDiscountAmount)}
+                  <span className="text-[10px] font-black text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded border border-amber-200">
+                    Total: -{fmt(orderDiscountAmount)}
                   </span>
                 )}
               </div>
-              <div className="flex items-center gap-1.5">
-                <div className="flex items-center bg-white border border-slate-200 rounded-lg overflow-hidden text-xs shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => onUpdateOrderDiscount?.('percentage', orderDiscountValue || 0)}
-                    className={`px-2 py-1 font-black cursor-pointer ${orderDiscountType === 'percentage' ? 'bg-amber-500 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
-                  >
-                    %
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onUpdateOrderDiscount?.('fixed', orderDiscountValue || 0)}
-                    className={`px-2 py-1 font-black cursor-pointer ${orderDiscountType === 'fixed' ? 'bg-amber-500 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
-                  >
-                    $
-                  </button>
-                </div>
-                <input
-                  type="number"
-                  value={orderDiscountValue || ""}
-                  placeholder={orderDiscountType === 'percentage' ? "% Desc. general" : "$ Desc. general"}
-                  onChange={(e) => onUpdateOrderDiscount?.(orderDiscountType || 'percentage', Number(e.target.value))}
-                  className="flex-1 px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none text-slate-800 placeholder:text-slate-400"
-                />
-                {orderDiscountValue > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => onUpdateOrderDiscount?.('percentage', 0)}
-                    className="text-slate-400 hover:text-red-500 p-1 text-xs font-bold cursor-pointer"
-                    title="Eliminar descuento general"
-                  >
-                    ✕
-                  </button>
-                )}
+
+              {/* LISTA DINÁMICA DE DESCUENTOS */}
+              <div className="space-y-2">
+                {suggestedOrderDiscount?.value ? (
+                  <div className="flex items-center justify-between gap-2 rounded-lg border border-amber-200 bg-white px-2.5 py-2 text-[11px] font-bold text-amber-800">
+                    <span>Sugerencia: {suggestedOrderDiscount.value}% por volumen {suggestedOrderDiscount.description.match(/\([^)]*\)/)?.[0] || ''}</span>
+                    {currentDiscounts.some(d => d.id === suggestedOrderDiscount.id && d.value === suggestedOrderDiscount.value) ? (
+                      <span className="shrink-0 text-emerald-700">Aplicado</span>
+                    ) : (
+                      <button type="button" onClick={onApplySuggestedOrderDiscount} className="shrink-0 rounded-md bg-amber-500 px-2 py-1 text-white hover:bg-amber-600 cursor-pointer">
+                        Aplicar descuento
+                      </button>
+                    )}
+                  </div>
+                ) : null}
+                {currentDiscounts.map((disc, idx) => {
+                  const b = discountBreakdown[idx];
+                  const rowAmount = b ? b.amount : 0;
+
+                  return (
+                    <div key={disc.id || idx} className="bg-white p-2 rounded-lg border border-amber-200/60 shadow-2xs space-y-1.5">
+                      {/* Fila 1: Descripción editable con botón de eliminación si hay > 1 */}
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="text"
+                          value={disc.description}
+                          onChange={(e) => {
+                            const updated = currentDiscounts.map((d, i) => i === idx ? { ...d, description: e.target.value } : d);
+                            handleUpdateDiscountList(updated);
+                          }}
+                          placeholder="Descripción (ej: Descuento volumen)..."
+                          className="flex-1 px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs font-bold text-slate-800 placeholder:text-slate-400 outline-none focus:border-amber-400 focus:bg-white"
+                        />
+                        {currentDiscounts.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated = currentDiscounts.filter((_, i) => i !== idx);
+                              handleUpdateDiscountList(updated);
+                            }}
+                            className="text-slate-400 hover:text-red-500 p-1 cursor-pointer transition-colors"
+                            title="Eliminar este descuento"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Presets rápidos */}
+                      <div className="flex items-center gap-1 overflow-x-auto pb-0.5">
+                        {['Descuento volumen', 'Descuento retiro en fábrica', 'Otros'].map(preset => (
+                          <button
+                            key={preset}
+                            type="button"
+                            onClick={() => {
+                              const updated = currentDiscounts.map((d, i) => i === idx ? { ...d, description: preset } : d);
+                              handleUpdateDiscountList(updated);
+                            }}
+                            className={`text-[9px] px-1.5 py-0.5 rounded border transition-colors cursor-pointer shrink-0 font-medium ${
+                              disc.description === preset
+                                ? 'bg-amber-100 border-amber-400 text-amber-800 font-bold'
+                                : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-amber-50 hover:text-amber-700'
+                            }`}
+                          >
+                            {preset}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Fila 2: Conmutador % / $, Input de valor y Monto descontado en cascada */}
+                      <div className="flex items-center gap-1.5">
+                        <div className="flex items-center bg-slate-100 border border-slate-200 rounded overflow-hidden text-xs shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated = currentDiscounts.map((d, i) => i === idx ? { ...d, type: 'percentage' as const } : d);
+                              handleUpdateDiscountList(updated);
+                            }}
+                            className={`px-2 py-1 font-black cursor-pointer transition-colors ${
+                              disc.type === 'percentage' ? 'bg-amber-500 text-white' : 'text-slate-600 hover:bg-slate-200'
+                            }`}
+                          >
+                            %
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated = currentDiscounts.map((d, i) => i === idx ? { ...d, type: 'fixed' as const } : d);
+                              handleUpdateDiscountList(updated);
+                            }}
+                            className={`px-2 py-1 font-black cursor-pointer transition-colors ${
+                              disc.type === 'fixed' ? 'bg-amber-500 text-white' : 'text-slate-600 hover:bg-slate-200'
+                            }`}
+                          >
+                            $
+                          </button>
+                        </div>
+
+                        <input
+                          type="number"
+                          value={disc.value === 0 ? '' : disc.value}
+                          placeholder={disc.type === 'percentage' ? "0%" : "$0"}
+                          onChange={(e) => {
+                            const val = e.target.value === '' ? 0 : Math.max(0, Number(e.target.value));
+                            const updated = currentDiscounts.map((d, i) => i === idx ? { ...d, value: val } : d);
+                            handleUpdateDiscountList(updated);
+                          }}
+                          className="w-24 px-2 py-1 bg-white border border-slate-200 rounded text-xs font-bold text-slate-800 text-right outline-none focus:border-amber-400"
+                        />
+
+                        <div className="flex-1 text-right">
+                          {rowAmount > 0 ? (
+                            <span className="text-[11px] font-black text-amber-700">
+                              -{fmt(rowAmount)}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-slate-400">Sin descuento</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
+
+              {/* Botón para agregar otro descuento */}
+              <button
+                type="button"
+                onClick={() => {
+                  const nextId = `disc-${Date.now()}`;
+                  const presets = ['Descuento volumen', 'Descuento retiro en fábrica', 'Otros'];
+                  const usedDescriptions = currentDiscounts.map(d => d.description);
+                  const nextPreset = presets.find(p => !usedDescriptions.includes(p)) || 'Otros';
+                  const updated = [
+                    ...currentDiscounts,
+                    { id: nextId, description: nextPreset, type: 'percentage' as const, value: 0 }
+                  ];
+                  handleUpdateDiscountList(updated);
+                }}
+                className="w-full py-1.5 px-2 bg-amber-100/60 hover:bg-amber-100 text-amber-800 rounded-lg text-[10px] font-bold border border-dashed border-amber-300 flex items-center justify-center gap-1 cursor-pointer transition-colors"
+              >
+                <Plus className="w-3 h-3" />
+                <span>Agregar otro descuento</span>
+              </button>
+
               <p className="text-[9px] text-slate-400 font-medium italic mt-1">
-                💡 En planilla se registra como <strong>Descuento Compra Mayorista</strong> y los artículos van a precio de lista.
+                💡 Los descuentos se aplican en cascada sobre el saldo remanente. En planilla los artículos van a precio de lista.
               </p>
             </div>
 
@@ -1752,7 +2022,7 @@ export default function VisualProductSelectorModal({
               className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-md hover:shadow-emerald-600/20 transition-all flex items-center justify-center gap-2 cursor-pointer"
             >
               <Check className="w-4 h-4" />
-              <span>Confirmar Productos y Volver al Pedido</span>
+              <span>Confirmar Productos y Volver al {contextTitle}</span>
             </button>
           </div>
 

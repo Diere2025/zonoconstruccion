@@ -4,13 +4,16 @@ import { cancelOrderInAllSheets } from '@/lib/googleSheets';
 export async function processOrderCancellation(
   db: SupabaseClient, origin: string,
   job: {order_id:string; seller_id:string; payload:{reason?:string}},
-  order: {legacy_code?:string | null; customer_name?:string}
+  order: {legacy_code?:string | null; customer_name?:string},
+  skipSheets = false
 ) {
   const warnings: string[] = [];
   const code = order.legacy_code || '';
   const reason = job.payload.reason || 'Anulado desde ERP';
   let cancellationSync;
-  if (code) {
+  if (skipSheets) {
+    cancellationSync = { skipped: true };
+  } else if (code) {
     cancellationSync = await cancelOrderInAllSheets(job.seller_id, code, reason);
     for (const [key,label] of [['seller','Planilla de la vendedora'],['central','Central'],['deliveriesCurrent','Entregas Actual']] as const) {
       if (!cancellationSync[key].success) warnings.push(`${label}: ${cancellationSync[key].message || 'No se pudo anular'}`);
@@ -39,5 +42,5 @@ export async function processOrderCancellation(
     warnings.push('Telegram anulación: error de conexión');
   }
   return {code, warnings, result:{cancellationSync,telegramSent},
-    message:code ? 'Anulación aplicada en las planillas y aviso enviado.' : 'Pedido anulado antes de su carga en planillas. Aviso enviado.'};
+    message:skipSheets ? 'Pedido mayorista anulado en el ERP y aviso enviado.' : code ? 'Anulación aplicada en las planillas y aviso enviado.' : 'Pedido anulado antes de su carga en planillas. Aviso enviado.'};
 }

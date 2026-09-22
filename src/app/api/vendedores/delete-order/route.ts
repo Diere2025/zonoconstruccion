@@ -9,6 +9,7 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT
 const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 
 type TelegramReference = {
+  type?: string;
   telegram_message_id?: number;
   telegram_chat_id?: string;
   messageId?: number;
@@ -34,16 +35,16 @@ async function verifyAdmin(req: NextRequest): Promise<{ id: string; email?: stri
   return seller?.role === 'admin' ? { id: user.id, email: user.email } : null;
 }
 
-function getTelegramReferences(totals: any): Array<{ messageId: number; chatId: string }> {
+function getTelegramReferences(totals: any): Array<{ messageId: number; chatId: string; type?: string }> {
   const rawReferences: TelegramReference[] = [
     ...(Array.isArray(totals?.payments_breakdown) ? totals.payments_breakdown : []),
     ...(Array.isArray(totals?.telegram_notifications) ? totals.telegram_notifications : [])
   ];
-  const unique = new Map<string, { messageId: number; chatId: string }>();
+  const unique = new Map<string, { messageId: number; chatId: string; type?: string }>();
   for (const reference of rawReferences) {
     const messageId = Number(reference.telegram_message_id || reference.messageId || 0);
     const chatId = String(reference.telegram_chat_id || reference.chatId || '').trim();
-    if (messageId && chatId) unique.set(`${chatId}:${messageId}`, { messageId, chatId });
+    if (messageId && chatId) unique.set(`${chatId}:${messageId}`, { messageId, chatId, type: reference.type });
   }
   return Array.from(unique.values());
 }
@@ -53,15 +54,28 @@ async function deleteTelegramMessages(totals: any) {
   if (references.length === 0) return { attempted: 0, deleted: 0, failures: [] as string[] };
 
   const botToken = process.env.LOGISTICS_TELEGRAM_BOT_TOKEN?.trim();
-  if (!botToken) {
-    return { attempted: references.length, deleted: 0, failures: ['Falta LOGISTICS_TELEGRAM_BOT_TOKEN'] };
+  let personalBotToken = process.env.PERSONAL_ORDERS_TELEGRAM_BOT_TOKEN?.trim();
+  if (references.some(reference => reference.type === 'personalAlert') && !personalBotToken) {
+    try {
+      const { data } = await supabaseAdmin.from('site_settings').select('value')
+        .eq('id', 'mp_telegram_config').maybeSingle();
+      const config = typeof data?.value === 'string' ? JSON.parse(data.value) : data?.value;
+      personalBotToken = String(config?.bot_token || '').trim();
+    } catch (error) {
+      console.warn('[Delete order] No se pudo leer el bot personal:', error);
+    }
   }
 
   let deleted = 0;
   const failures: string[] = [];
   for (const reference of references) {
     try {
-      const response = await fetch(`https://api.telegram.org/bot${botToken}/deleteMessage`, {
+      const token = reference.type === 'personalAlert' ? personalBotToken : botToken;
+      if (!token) {
+        failures.push(`Falta el bot de Telegram para borrar ${reference.messageId}`);
+        continue;
+      }
+      const response = await fetch(`https://api.telegram.org/bot${token}/deleteMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ chat_id: reference.chatId, message_id: reference.messageId })
@@ -97,7 +111,7 @@ export async function POST(req: NextRequest) {
 
     const { data: order, error: orderErr } = await supabaseAdmin
       .from('orders')
-      .select('id, legacy_code, customer_name, client_id, seller_id, totals')
+      .select('id, legacy_code, customer_name, client_id, seller_id, channel, totals')
       .eq('id', orderId)
       .maybeSingle();
     if (orderErr) throw orderErr;
@@ -138,7 +152,9 @@ export async function POST(req: NextRequest) {
     };
     await deleteRows('order_sync_jobs', 'order_id', orderId);
 
-    const sheetCleanup = await removeTestOrderFromSheets(order.seller_id, legacyCode);
+    const sheetCleanup = order.channel === 'mayorista'
+      ? { success: true, skipped: true }
+      : await removeTestOrderFromSheets(order.seller_id, legacyCode);
     if (!sheetCleanup.success) {
       return NextResponse.json({
         error: 'No se pudo revertir el pedido en todas las planillas. No se borró del ERP para evitar una limpieza parcial.',

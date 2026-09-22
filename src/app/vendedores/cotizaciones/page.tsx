@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowRight, CalendarClock, FileText, MessageCircle, Plus, RefreshCw, Search } from "lucide-react";
+import { ArrowRight, CalendarClock, FileText, MessageCircle, Pencil, Plus, RefreshCw, Search } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { formatPrice } from "@/lib/utils";
 import { SalesQuoteStatus, updateSalesQuoteStatus } from "@/lib/salesQuotes";
@@ -94,8 +94,11 @@ export default function CotizacionesPage() {
       customerName: quote.customer_name,
       customerPhone: quote.customer_phone,
       notes: quote.notes,
-      orderDiscountType: quote.discount_type,
-      orderDiscountValue: quote.discount_value,
+      orderDiscountType: quote.channel === 'mayorista' ? 'fixed' : quote.discount_type,
+      orderDiscountValue: quote.channel === 'mayorista'
+        ? Number(quote.discount_amount || conditions.orderDiscountAmount || 0)
+        : Number(quote.discount_value || 0),
+      orderDiscounts: Array.isArray(conditions.orderDiscounts) ? conditions.orderDiscounts : [],
       paymentType: conditions.paymentType,
       cardInstallments: conditions.cardInstallments,
       cardSurcharge: conditions.cardSurcharge,
@@ -114,7 +117,6 @@ export default function CotizacionesPage() {
         baseQuantity: item.metadata?.baseQuantity
       }))
     }));
-    await changeStatus(quote.id, "accepted");
     router.push(`/vendedores/pedidos?tab=form&client_type=${quote.channel === "mayorista" ? "mayoristas" : "minoristas"}`);
   };
 
@@ -152,7 +154,7 @@ export default function CotizacionesPage() {
                   <td className="p-3 font-black text-slate-900">{formatPrice(Number(quote.total_amount))}</td>
                   <td className="p-3"><select value={quote.status} disabled={quote.status === "converted"} onChange={event => changeStatus(quote.id, event.target.value as SalesQuoteStatus)} className={`rounded-lg border-0 px-2 py-1 text-[10px] font-black ${statusConfig.tone}`}>{STATUSES.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></td>
                   <td className="p-3"><CalendarClock className="mr-1 inline h-3.5 w-3.5 text-slate-400" />{quote.valid_until ? new Date(`${quote.valid_until}T12:00:00`).toLocaleDateString("es-AR") : "Sin fecha"}</td>
-                  <td className="p-3"><div className="flex justify-end gap-2"><button onClick={() => addFollowUp(quote)} className="rounded-lg border border-slate-200 px-2.5 py-1.5 font-bold text-slate-600"><MessageCircle className="mr-1 inline h-3.5 w-3.5" />Seguimiento</button><button onClick={() => convertToOrder(quote)} disabled={quote.status === "converted" || quote.status === "rejected"} className="rounded-lg bg-blue-600 px-2.5 py-1.5 font-black text-white disabled:opacity-30">Convertir <ArrowRight className="ml-1 inline h-3.5 w-3.5" /></button></div></td>
+                  <td className="p-3"><div className="flex justify-end gap-2">{quote.channel === 'mayorista' && quote.status !== 'converted' && !quote.converted_order_id && <Link href={`/vendedores/presupuestos-mayorista?quoteId=${quote.id}`} className="rounded-lg border border-blue-200 px-2.5 py-1.5 font-bold text-blue-700"><Pencil className="mr-1 inline h-3.5 w-3.5" />Editar</Link>}<button onClick={() => addFollowUp(quote)} className="rounded-lg border border-slate-200 px-2.5 py-1.5 font-bold text-slate-600"><MessageCircle className="mr-1 inline h-3.5 w-3.5" />Seguimiento</button><button onClick={() => convertToOrder(quote)} disabled={quote.status === "converted" || quote.status === "rejected"} className="rounded-lg bg-blue-600 px-2.5 py-1.5 font-black text-white disabled:opacity-30">Convertir <ArrowRight className="ml-1 inline h-3.5 w-3.5" /></button></div></td>
                 </tr>;
               })}
             </tbody>

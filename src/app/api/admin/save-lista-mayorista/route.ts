@@ -48,20 +48,18 @@ export async function POST(req: Request) {
         value: JSON.stringify(payloadToStore)
       });
 
-    if (settingsError) {
-      console.warn('[save-lista-mayorista] Warning site_settings upsert:', settingsError);
-    }
+    if (settingsError) throw settingsError;
 
     // 2. Guardar también como lista activa principal
-    await supabaseAdmin
+    const { error: activeSettingsError } = await supabaseAdmin
       .from('site_settings')
       .upsert({
         id: 'active_wholesale_price_list',
         value: JSON.stringify(payloadToStore)
       });
+    if (activeSettingsError) throw activeSettingsError;
 
     // 3. Intentar guardar en la tabla relacional wholesale_price_lists si existe
-    try {
       const { data: listData, error: listError } = await supabaseAdmin
         .from('wholesale_price_lists')
         .upsert({
@@ -83,7 +81,8 @@ export async function POST(req: Request) {
         .select('id')
         .maybeSingle();
 
-      if (!listError && listData?.id && items.length > 0) {
+      if (listError || !listData?.id) throw listError || new Error('No se pudo guardar la lista mayorista');
+      if (items.length > 0) {
         // Upsert items
         const rowsToInsert = items.map((p: any) => ({
           price_list_id: listData.id,
@@ -105,13 +104,11 @@ export async function POST(req: Request) {
           updated_at: new Date().toISOString()
         }));
 
-        await supabaseAdmin
+        const { error: itemsError } = await supabaseAdmin
           .from('wholesale_price_list_items')
           .upsert(rowsToInsert, { onConflict: 'price_list_id,product_id' });
+        if (itemsError) throw itemsError;
       }
-    } catch (tblErr) {
-      console.warn('[save-lista-mayorista] wholesale_price_lists table sync skipped (using site_settings):', tblErr);
-    }
 
     return NextResponse.json({
       success: true,

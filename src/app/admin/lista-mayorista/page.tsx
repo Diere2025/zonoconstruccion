@@ -62,6 +62,7 @@ interface ProductData {
   costBaseReal: number;
   isFeatured: boolean;
   defaultCommercialized?: boolean;
+  isCommercialized?: boolean;
   suggestedListPrice?: number;
   priceList?: number;
 }
@@ -226,7 +227,7 @@ export default function ListaMayoristaConfigPage() {
           initialStates[p.id] = savedStates[p.id];
         } else if (p.suggestedListPrice || p.priceList) {
           initialStates[p.id] = {
-            isCommercialized: true,
+            isCommercialized: p.isCommercialized ?? p.defaultCommercialized !== false,
             isConfirmed: true,
             mode: "fixed_price",
             customFixedListPrice: Number(p.suggestedListPrice || p.priceList)
@@ -234,7 +235,7 @@ export default function ListaMayoristaConfigPage() {
         } else {
           // Default: 1100L not commercialized, others true
           initialStates[p.id] = {
-            isCommercialized: p.defaultCommercialized !== false,
+            isCommercialized: p.isCommercialized ?? p.defaultCommercialized !== false,
             isConfirmed: false,
             mode: "auto"
           };
@@ -251,7 +252,7 @@ export default function ListaMayoristaConfigPage() {
   };
 
   useEffect(() => {
-    fetchData();
+    fetchData(new URLSearchParams(window.location.search).get('listNumber') || undefined);
   }, []);
 
   const handleLoadList = async (number: string) => {
@@ -1193,7 +1194,7 @@ export default function ListaMayoristaConfigPage() {
                               ? "bg-indigo-50 border-indigo-200 text-indigo-600 hover:bg-indigo-100" 
                               : "bg-slate-100 border-slate-200 text-slate-400 hover:bg-slate-200"
                           )}
-                          title={p.isCommercialized ? "Excluir de Lista 13" : "Incluir en Lista 13"}
+                          title={p.isCommercialized ? `Excluir de Lista ${listNumber}` : `Incluir en Lista ${listNumber}`}
                         >
                           {p.isCommercialized ? (
                             <CheckSquare className="w-4 h-4" />
@@ -1292,7 +1293,7 @@ export default function ListaMayoristaConfigPage() {
                                     ? "bg-emerald-600 text-white shadow-xs hover:bg-emerald-700" 
                                     : "bg-slate-100 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700 border border-slate-200"
                                 )}
-                                title={p.isConfirmed ? "Desmarcar confirmación" : "Confirmar precio para Lista 13"}
+                                title={p.isConfirmed ? "Desmarcar confirmación" : `Confirmar precio para Lista ${listNumber}`}
                               >
                                 <Check className="w-3.5 h-3.5" />
                                 <span>{p.isConfirmed ? "OK" : "Aprobar"}</span>

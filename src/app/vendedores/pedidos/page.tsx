@@ -53,8 +53,8 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { supabase } from "@/lib/supabase";
-import { Product } from "@/types";
-import VisualProductSelectorModal from "@/components/vendedores/VisualProductSelectorModal";
+import { Product, OrderDiscountItem } from "@/types";
+import VisualProductSelectorModal, { QuantityInput } from "@/components/vendedores/VisualProductSelectorModal";
 import ImportWhatsAppBudgetModal from "@/components/vendedores/ImportWhatsAppBudgetModal";
 import PrintableOrderModal, { PrintableOrderData } from "@/components/vendedores/PrintableOrderModal";
 import ViewOrderModal from "@/components/vendedores/ViewOrderModal";
@@ -65,6 +65,7 @@ import { createBulkStockTransactions } from "@/lib/erp/stock";
 import { evaluateDiscountSuggestions, DiscountSuggestion } from "@/lib/discountRules";
 import { buildSheetOrderItems, normalizeProductNameForSheet } from "@/lib/googleSheets";
 import { getWholesaleCatalogKind } from "@/lib/visualSelectorConfig";
+import { calculateCascadingDiscounts } from "@/lib/orderDiscounts";
 
 interface OrderItem extends Product {
   quantity: number;
@@ -229,13 +230,14 @@ interface Locality {
 }
 
 interface DateInputProps {
-  label: string;
+  label?: string;
   value: string; // YYYY-MM-DD format
   onChange: (val: string) => void;
   required?: boolean;
+  className?: string;
 }
 
-const DateInput: React.FC<DateInputProps> = ({ label, value, onChange, required = false }) => {
+const DateInput: React.FC<DateInputProps> = ({ label, value, onChange, required = false, className }) => {
   const [typedValue, setTypedValue] = useState("");
 
   useEffect(() => {
@@ -252,14 +254,17 @@ const DateInput: React.FC<DateInputProps> = ({ label, value, onChange, required 
   }, [value]);
 
   const handleTextChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const isDeleting = (e.nativeEvent as any)?.inputType?.startsWith('delete');
     let input = e.target.value;
     input = input.replace(/[^0-9/]/g, '');
 
-    // Auto slashes
-    if (input.length === 2 && !input.includes('/')) {
-      input += '/';
-    } else if (input.length === 5 && input.split('/').length === 2) {
-      input += '/';
+    // Auto slashes (only when adding characters)
+    if (!isDeleting) {
+      if (input.length === 2 && !input.includes('/')) {
+        input += '/';
+      } else if (input.length === 5 && input.split('/').length === 2) {
+        input += '/';
+      }
     }
 
     if (input.length > 10) {
@@ -268,16 +273,31 @@ const DateInput: React.FC<DateInputProps> = ({ label, value, onChange, required 
 
     setTypedValue(input);
 
+    if (!input.trim()) {
+      onChange('');
+      return;
+    }
+
     const parts = input.split('/');
     if (parts.length === 3 && parts[0].length === 2 && parts[1].length === 2 && parts[2].length === 4) {
-      const yyyy = parts[2];
-      const mm = parts[1];
       const dd = parts[0];
-      onChange(`${yyyy}-${mm}-${dd}`);
+      const mm = parts[1];
+      const yyyy = parts[2];
+      const dNum = parseInt(dd, 10);
+      const mNum = parseInt(mm, 10);
+      const yNum = parseInt(yyyy, 10);
+      if (mNum >= 1 && mNum <= 12 && dNum >= 1 && dNum <= 31 && yNum >= 1900 && yNum <= 2100) {
+        onChange(`${yyyy}-${mm}-${dd}`);
+      }
     }
   };
 
   const handleBlur = () => {
+    if (!typedValue.trim()) {
+      onChange('');
+      setTypedValue("");
+      return;
+    }
     const parts = typedValue.split('/');
     if (parts.length !== 3 || parts[0].length !== 2 || parts[1].length !== 2 || parts[2].length !== 4) {
       if (value) {
@@ -306,8 +326,8 @@ const DateInput: React.FC<DateInputProps> = ({ label, value, onChange, required 
   };
 
   return (
-    <div className="space-y-1">
-      <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">{label}</label>
+    <div className={label ? "space-y-1" : ""}>
+      {label && <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">{label}</label>}
       <div className="relative">
         <input
           type="text"
@@ -316,12 +336,12 @@ const DateInput: React.FC<DateInputProps> = ({ label, value, onChange, required 
           onChange={handleTextChange}
           onBlur={handleBlur}
           placeholder="dd/mm/yyyy"
-          className="w-full pl-2.5 pr-8 py-1.5 rounded-lg border border-slate-200 bg-white font-bold text-xs focus:ring-2 focus:ring-brand-500/10 outline-none"
+          className={className || "w-full pl-2.5 pr-8 py-1.5 rounded-lg border border-slate-200 bg-white font-bold text-xs focus:ring-2 focus:ring-brand-500/10 outline-none text-slate-800"}
         />
         <button
           type="button"
           onClick={handleCalendarClick}
-          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
         >
           <Calendar className="w-3.5 h-3.5" />
         </button>
@@ -427,6 +447,13 @@ const formatDateInput = (date: Date | null): string => {
   const mm = String(date.getMonth() + 1).padStart(2, '0');
   const dd = String(date.getDate()).padStart(2, '0');
   return `${yyyy}-${mm}-${dd}`;
+};
+
+const getCurrentMonthRange = () => {
+  const now = new Date();
+  const firstDay = formatDateInput(new Date(now.getFullYear(), now.getMonth(), 1));
+  const today = formatDateInput(now);
+  return { firstDay, today };
 };
 
 const isDateValidForFlete = (
@@ -686,6 +713,7 @@ export default function PedidosPage() {
   // Order Discount States (Global)
   const [orderDiscountType, setOrderDiscountType] = useState<'percentage' | 'fixed'>('percentage');
   const [orderDiscountValue, setOrderDiscountValue] = useState<number>(0);
+  const [orderDiscounts, setOrderDiscounts] = useState<OrderDiscountItem[]>([]);
 
   const isWholesaleContext = selectedChannels.length === 1 && selectedChannels[0] === 'mayoristas';
   const isWholesaleForm = activeTab === 'form' && isWholesaleContext;
@@ -808,8 +836,24 @@ export default function PedidosPage() {
   const [showCustomViewsDropdown, setShowCustomViewsDropdown] = useState(false);
   const [showSaveViewModal, setShowSaveViewModal] = useState(false);
   const [newViewName, setNewViewName] = useState("");
-  const [dateFrom, setDateFrom] = useState<string>("");
-  const [dateTo, setDateTo] = useState<string>("");
+  const [dateFrom, setDateFrom] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.has("date_from")) return params.get("date_from") || "";
+      if (params.has("date_to")) return "";
+      return getCurrentMonthRange().firstDay;
+    }
+    return getCurrentMonthRange().firstDay;
+  });
+  const [dateTo, setDateTo] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.has("date_to")) return params.get("date_to") || "";
+      if (params.has("date_from")) return "";
+      return getCurrentMonthRange().today;
+    }
+    return getCurrentMonthRange().today;
+  });
   const [showDateDropdown, setShowDateDropdown] = useState<boolean>(false);
   const isInitialMount = useRef(true);
 
@@ -898,8 +942,32 @@ export default function PedidosPage() {
       if (urlDateTo) {
         setDateTo(urlDateTo);
       }
+      if (!params.has("date_from") && !params.has("date_to")) {
+        const { firstDay, today } = getCurrentMonthRange();
+        setDateFrom(firstDay);
+        setDateTo(today);
+      }
     }
   }, []);
+
+  // Recuperar el desglose en formularios abiertos antes de que la precarga
+  // empezara a transmitir los descuentos por separado.
+  useEffect(() => {
+    if (!sourceQuoteId || orderDiscounts.length > 0 || orderDiscountType !== 'fixed' || orderDiscountValue <= 0) return;
+    let cancelled = false;
+    supabase.from('sales_quotes').select('commercial_conditions').eq('id', sourceQuoteId).maybeSingle()
+      .then(({ data }) => {
+        if (cancelled) return;
+        const conditions = data?.commercial_conditions || {};
+        const savedDiscounts = conditions.orderDiscounts;
+        if (Array.isArray(savedDiscounts) && savedDiscounts.length > 0 &&
+          Number(conditions.orderDiscountAmount) === orderDiscountValue) {
+          setOrderDiscounts(savedDiscounts);
+          setOrderDiscountValue(0);
+        }
+      });
+    return () => { cancelled = true; };
+  }, [sourceQuoteId, orderDiscounts.length, orderDiscountType, orderDiscountValue]);
 
   // Update browser URL query string smoothly whenever active filters change
   useEffect(() => {
@@ -1005,8 +1073,14 @@ export default function PedidosPage() {
       setSelectedProducts(params.get("products") ? params.get("products")!.split(',').filter(Boolean) : []);
       setOrderSearchQuery(params.get("search") || '');
       setListType((params.get("list_type") as any) || 'mis_pedidos');
-      setDateFrom(params.get("date_from") || '');
-      setDateTo(params.get("date_to") || '');
+      if (params.has("date_from") || params.has("date_to")) {
+        setDateFrom(params.get("date_from") || '');
+        setDateTo(params.get("date_to") || '');
+      } else {
+        const { firstDay, today } = getCurrentMonthRange();
+        setDateFrom(firstDay);
+        setDateTo(today);
+      }
     };
 
     const handleCustomNav = (e: any) => {
@@ -1026,6 +1100,14 @@ export default function PedidosPage() {
       } else if (urlClientType) {
         const parsed = urlClientType.split(',').map((s: string) => s.trim()).filter((s: string) => ['minoristas', 'mayoristas'].includes(s)) as ('minoristas' | 'mayoristas')[];
         if (parsed.length > 0) setSelectedChannels(parsed);
+      }
+      if (params.has("date_from") || params.has("date_to")) {
+        setDateFrom(params.get("date_from") || '');
+        setDateTo(params.get("date_to") || '');
+      } else {
+        const { firstDay, today } = getCurrentMonthRange();
+        setDateFrom(firstDay);
+        setDateTo(today);
       }
     };
 
@@ -1116,8 +1198,9 @@ export default function PedidosPage() {
     setSelectedProducts([]);
     setOrderSearchQuery("");
     setListType('mis_pedidos');
-    setDateFrom("");
-    setDateTo("");
+    const { firstDay, today } = getCurrentMonthRange();
+    setDateFrom(firstDay);
+    setDateTo(today);
     setShowCustomViewsDropdown(false);
   };
 
@@ -1139,13 +1222,14 @@ export default function PedidosPage() {
   const hasActiveCustomFilters = useMemo(() => {
     const isDefaultStatus = selectedStatuses.length === 1 && selectedStatuses[0] === 'Pendientes';
     const isDefaultChannel = selectedChannels.length === 2 || selectedChannels.length === 0;
+    const { firstDay, today } = getCurrentMonthRange();
+    const isDefaultDate = (dateFrom === firstDay && dateTo === today);
     return !isDefaultStatus ||
            !isDefaultChannel ||
            selectedProducts.length > 0 || 
            orderSearchQuery.trim() !== '' ||
            listType !== 'mis_pedidos' ||
-           dateFrom !== '' ||
-           dateTo !== '';
+           !isDefaultDate;
   }, [selectedStatuses, selectedChannels, selectedProducts, orderSearchQuery, listType, dateFrom, dateTo]);
 
   // Kits & Payment States
@@ -1436,7 +1520,7 @@ export default function PedidosPage() {
       if (allProducts.length === 0) return;
 
       try {
-        const response = await fetch('/api/admin/lista-mayorista-data?listNumber=12');
+        const response = await fetch('/api/vendedores/wholesale-catalog?listNumber=12');
         const data: { success?: boolean; products?: WholesaleCatalogItem[] } = await response.json();
         if (!data.success || !Array.isArray(data.products)) throw new Error('No se pudo obtener la lista mayorista');
 
@@ -1948,6 +2032,10 @@ export default function PedidosPage() {
           if (data.cardSurcharge) setCardSurcharge(data.cardSurcharge);
           if (data.orderDiscountType) setOrderDiscountType(data.orderDiscountType);
           if (data.orderDiscountValue !== undefined) setOrderDiscountValue(data.orderDiscountValue);
+          if (Array.isArray(data.orderDiscounts) && data.orderDiscounts.length > 0) {
+            setOrderDiscounts(data.orderDiscounts);
+            setOrderDiscountValue(0);
+          }
           
           sessionStorage.removeItem("preloaded_budget");
           setActiveTab('form');
@@ -2384,8 +2472,12 @@ export default function PedidosPage() {
       console.log('[generateNextLegacyCode] Omitido: el formulario está en modo edición');
       return;
     }
+    if (isWholesaleContext) {
+      setLegacyCode('');
+      return;
+    }
     try {
-      // 1. Intentar consultar el próximo código disponible en la planilla del vendedor
+      // Los pedidos minoristas conservan el código de la planilla del vendedor.
       try {
         const sheetRes = await fetch(`/api/vendedores/create-sheet-order?sellerId=${userId}`);
         if (sheetRes.ok) {
@@ -2977,7 +3069,7 @@ export default function PedidosPage() {
         }
       }
 
-      if (isWholesaleContext) {
+      if (isWholesaleContext && !sourceQuoteId) {
         const { data: wholesaleClient } = await supabase
           .from('clients')
           .select('default_discount_coef, default_discount_label')
@@ -3052,7 +3144,7 @@ export default function PedidosPage() {
       }
     }
     fetchAddresses();
-  }, [selectedClientId, clients, isWholesaleContext, localities]);
+  }, [selectedClientId, clients, isWholesaleContext, localities, sourceQuoteId]);
 
   // Handle Address change
   const handleAddressChange = (addressId: string) => {
@@ -3519,6 +3611,12 @@ export default function PedidosPage() {
       } else {
         setOrderDiscountValue(0);
       }
+      if (Array.isArray(totalsObj.order_discounts) && totalsObj.order_discounts.length > 0) {
+        setOrderDiscounts(totalsObj.order_discounts);
+        setOrderDiscountValue(0);
+      } else {
+        setOrderDiscounts([]);
+      }
       
       const payStatus = order.payment_status;
       if (payStatus === 'Abonado') {
@@ -3726,6 +3824,7 @@ export default function PedidosPage() {
     setOrderItems([]);
     setOrderDiscountType('percentage');
     setOrderDiscountValue(0);
+    setOrderDiscounts([]);
     setOrderCategory("auto");
     setCommercialBrand(isWholesaleContext || FACUNDO_SELLER_IDS.includes(currentUserId) ? 'aquafort' : 'zono');
     setSelectedSellerId(currentUserId);
@@ -3871,6 +3970,7 @@ export default function PedidosPage() {
       order_discount_type: totalsObj.order_discount_type,
       order_discount_value: totalsObj.order_discount_value,
       order_discount_amount: totalsObj.order_discount_amount,
+      order_discounts: totalsObj.order_discounts,
       freight_cost: totalsObj.freight,
       surcharges: totalsObj.payment_surcharges,
       tax: totalsObj.tax,
@@ -3967,6 +4067,7 @@ export default function PedidosPage() {
       order_discount_type: orderDiscountType,
       order_discount_value: orderDiscountValue,
       order_discount_amount: orderDiscountAmount,
+      order_discounts: orderDiscounts,
       freight_cost: shippingAmount,
       surcharges: totalSurcharges,
       tax: ivaAmount,
@@ -4002,6 +4103,10 @@ export default function PedidosPage() {
 
   // Reintentar o sincronizar un pedido existente en BD directamente a la Planilla de Google
   const handleSyncExistingOrderToSheet = async (order: any) => {
+    if (order.channel === 'mayorista') {
+      setOrderSaveNotice('Los pedidos mayoristas se gestionan en el ERP y no se sincronizan con planillas.');
+      return;
+    }
     if (order.totals?.integration_payload) {
       setOrderSaveNotice('Este pedido tiene una sincronización registrada en la bandeja. Revisá allí el resultado antes de repetir una carga en planillas.');
       return;
@@ -4583,13 +4688,23 @@ export default function PedidosPage() {
     return acc + itemVal * item.quantity;
   }, 0);
 
-  const orderDiscountAmount = useMemo(() => {
-    if (!orderDiscountValue || orderDiscountValue <= 0) return 0;
-    if (orderDiscountType === 'percentage') {
-      return Math.round(itemsGrossSubtotal * (Math.min(100, orderDiscountValue) / 100));
-    }
-    return Math.min(itemsGrossSubtotal, Math.max(0, orderDiscountValue));
-  }, [itemsGrossSubtotal, orderDiscountType, orderDiscountValue]);
+  const effectiveOrderDiscounts = useMemo<OrderDiscountItem[]>(() =>
+    orderDiscounts.length > 0 ? orderDiscounts : orderDiscountValue > 0
+      ? [{ id: 'single-order-discount', description: appliedWholesaleDiscountLabel || 'Descuento del pedido', type: orderDiscountType, value: orderDiscountValue }]
+      : [],
+  [orderDiscounts, orderDiscountType, orderDiscountValue, appliedWholesaleDiscountLabel]);
+
+  const orderDiscountBreakdown = useMemo(() =>
+    calculateCascadingDiscounts(itemsGrossSubtotal, effectiveOrderDiscounts),
+  [effectiveOrderDiscounts, itemsGrossSubtotal]);
+
+  const orderDiscountAmount = orderDiscountBreakdown.reduce((sum, discount) => sum + discount.amount, 0);
+  const persistedOrderDiscountType = orderDiscounts.length > 0 ? 'fixed' : orderDiscountType;
+  const persistedOrderDiscountValue = orderDiscounts.length > 0 ? orderDiscountAmount : orderDiscountValue;
+  const updateOrderDiscounts = (discounts: OrderDiscountItem[]) => {
+    setOrderDiscounts(discounts);
+    setOrderDiscountValue(0);
+  };
 
   const subtotal = Math.max(0, itemsGrossSubtotal - orderDiscountAmount);
   const shippingAmount = isFreeShipping ? 0 : shippingCost;
@@ -5132,14 +5247,15 @@ export default function PedidosPage() {
             payment_method_id: paymentsList[0]?.payment_method_id || 'a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3',
             freight_type: flete,
             total_amount: total,
-            order_discount_type: orderDiscountAmount > 0 ? orderDiscountType : null,
-            order_discount_value: orderDiscountAmount > 0 ? orderDiscountValue : 0,
+            order_discount_type: orderDiscountAmount > 0 ? persistedOrderDiscountType : null,
+            order_discount_value: orderDiscountAmount > 0 ? persistedOrderDiscountValue : 0,
             order_discount_amount: orderDiscountAmount,
             totals: {
               items_subtotal: itemsGrossSubtotal,
-              order_discount_type: orderDiscountType,
-              order_discount_value: orderDiscountValue,
+              order_discount_type: persistedOrderDiscountType,
+              order_discount_value: persistedOrderDiscountValue,
               order_discount_amount: orderDiscountAmount,
+              order_discounts: orderDiscounts,
               subtotal,
               freight: shippingAmount,
               tax: ivaAmount,
@@ -5358,16 +5474,17 @@ export default function PedidosPage() {
           payment_method_id: paymentsList[0]?.payment_method_id || 'a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3',
           freight_type: flete,
           total_amount: total,
-          order_discount_type: orderDiscountAmount > 0 ? orderDiscountType : null,
-          order_discount_value: orderDiscountAmount > 0 ? orderDiscountValue : 0,
+          order_discount_type: orderDiscountAmount > 0 ? persistedOrderDiscountType : null,
+          order_discount_value: orderDiscountAmount > 0 ? persistedOrderDiscountValue : 0,
           order_discount_amount: orderDiscountAmount,
           status: orderStatus,
           totals: {
             integration_payload: integrationPayload,
             items_subtotal: itemsGrossSubtotal,
-            order_discount_type: orderDiscountType,
-            order_discount_value: orderDiscountValue,
+            order_discount_type: persistedOrderDiscountType,
+            order_discount_value: persistedOrderDiscountValue,
             order_discount_amount: orderDiscountAmount,
+            order_discounts: orderDiscounts,
             subtotal,
             freight: shippingAmount,
             tax: ivaAmount,
@@ -5567,8 +5684,8 @@ export default function PedidosPage() {
           central?: { success: boolean; sheetName?: string; message?: string };
           deliveriesCurrent?: { success: boolean; sheetName?: string; message?: string };
         } | undefined;
-        let operationalSyncSkipped = false;
-        try {
+        let operationalSyncSkipped = isWholesaleContext;
+        if (!isWholesaleContext) try {
           const clientPhone = isNewClient 
             ? (newClientPhones.map(cleanPhoneForSaving).filter(Boolean)[0] || '')
             : (clients.find(c => c.id === selectedClientId)?.phone_primary || '');
@@ -5672,8 +5789,9 @@ export default function PedidosPage() {
         // Enviar automáticamente a Telegram SOLO si hay cambios que afectan a Logística
         const hasOperationalSyncFailure = !!operationalSync &&
           (!operationalSync.central?.success || !operationalSync.deliveriesCurrent?.success);
-        const shouldNotifyLogistics = !operationalSyncSkipped &&
-          (isLogisticallyRelevantChange(editChangesSummary, logisticsObservation) || hasOperationalSyncFailure);
+        const shouldNotifyLogistics = isWholesaleContext
+          ? isLogisticallyRelevantChange(editChangesSummary, logisticsObservation)
+          : !operationalSyncSkipped && (isLogisticallyRelevantChange(editChangesSummary, logisticsObservation) || hasOperationalSyncFailure);
         setIsLogisticallyRelevant(shouldNotifyLogistics);
 
         let telegramSuccess = false;
@@ -5703,7 +5821,9 @@ export default function PedidosPage() {
         // Actualizar estado local
         setOrders(prev => prev.map(o => o.id === orderData.id ? { ...o, ...orderData } : o));
       } else {
-        setOrderSaveNotice('Pedido guardado. Las planillas y Telegram se procesan en segundo plano. Podés cargar el siguiente pedido.');
+        setOrderSaveNotice(isWholesaleContext
+          ? 'Pedido mayorista guardado en el ERP. Los avisos de Telegram se procesan en segundo plano. Podés cargar el siguiente pedido.'
+          : 'Pedido guardado. Las planillas y Telegram se procesan en segundo plano. Podés cargar el siguiente pedido.');
         window.dispatchEvent(new Event('order-sync-updated'));
       }
 
@@ -5848,6 +5968,7 @@ export default function PedidosPage() {
       setOrderItems([]);
       setOrderDiscountType('percentage');
       setOrderDiscountValue(0);
+      setOrderDiscounts([]);
       setOrderCategory("auto");
       setCommercialBrand(isWholesaleContext || FACUNDO_SELLER_IDS.includes(seller_id) ? 'aquafort' : 'zono');
       
@@ -6020,12 +6141,12 @@ export default function PedidosPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-start pb-3 border-b border-slate-200/70">
                 {/* Código de Pedido Legacy */}
                 <div className="space-y-1">
-                  <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">{editingOrderId ? 'Código de Pedido' : 'Código estimado (se confirma al sincronizar)'}</label>
+                  <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">{editingOrderId ? 'Código de Pedido' : isWholesaleContext ? 'Código asignado al guardar en ERP' : 'Código estimado (se confirma al sincronizar)'}</label>
                   <input
                     type="text"
                     value={legacyCode}
                     readOnly
-                    placeholder="Generando..."
+                    placeholder={isWholesaleContext ? 'Automático' : 'Generando...'}
                     className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-100 text-slate-500 font-bold text-xs outline-none cursor-not-allowed select-all h-[34px]"
                   />
                 </div>
@@ -7220,9 +7341,7 @@ export default function PedidosPage() {
                                   >
                                     -
                                   </button>
-                                  <span className="px-1.5 font-black text-xs min-w-[1.2rem] text-center text-slate-800">
-                                    {item.quantity}
-                                  </span>
+                                  <QuantityInput value={item.quantity} onChange={quantity => updateQuantity(item.id, quantity)} />
                                   <button 
                                     type="button" 
                                     onClick={() => updateQuantity(item.id, item.quantity + 1)} 
@@ -7351,9 +7470,7 @@ export default function PedidosPage() {
                               >
                                 -
                               </button>
-                              <span className="px-1.5 font-black text-xs min-w-[1.2rem] text-center text-slate-800">
-                                {item.quantity}
-                              </span>
+                              <QuantityInput value={item.quantity} onChange={quantity => updateQuantity(item.id, quantity)} />
                               <button 
                                 type="button" 
                                 onClick={() => updateQuantity(item.id, item.quantity + 1)} 
@@ -7440,6 +7557,31 @@ export default function PedidosPage() {
                 <div className="space-y-2.5 pt-3 border-t border-slate-200/60">
                   
                   {/* Bloque Descuento al Total del Pedido */}
+                  {isWholesaleContext ? (
+                  <div className="flex flex-col gap-2 p-2.5 bg-white rounded-xl border border-slate-200">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[9.5px] font-black text-slate-700 uppercase tracking-wide flex items-center gap-1"><Tag className="w-3.5 h-3.5 text-amber-600" /> Descuentos del pedido</span>
+                      {orderDiscountAmount > 0 && <span className="text-[10.5px] font-black text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md">-{formatPrice(orderDiscountAmount)}</span>}
+                    </div>
+                    {orderDiscountBreakdown.map(discount => (
+                      <div key={discount.id} className="rounded-lg border border-amber-200 bg-amber-50/40 p-2 space-y-1.5">
+                        <div className="flex gap-1.5">
+                          <input aria-label="Descripción del descuento" value={discount.description} onChange={event => updateOrderDiscounts(effectiveOrderDiscounts.map(item => item.id === discount.id ? { ...item, description: event.target.value } : item))} className="min-w-0 flex-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-bold" />
+                          <button type="button" aria-label="Quitar descuento" onClick={() => updateOrderDiscounts(effectiveOrderDiscounts.filter(item => item.id !== discount.id))} className="px-1.5 text-slate-400 hover:text-red-600"><X className="w-3.5 h-3.5" /></button>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <div className="flex overflow-hidden rounded-md border border-slate-200 bg-slate-100 text-xs">
+                            {(['percentage', 'fixed'] as const).map(type => <button key={type} type="button" onClick={() => updateOrderDiscounts(effectiveOrderDiscounts.map(item => item.id === discount.id ? { ...item, type } : item))} className={`px-2 py-1 font-black ${discount.type === type ? 'bg-amber-500 text-white' : 'text-slate-600'}`}>{type === 'percentage' ? '%' : '$'}</button>)}
+                          </div>
+                          <input aria-label={`Valor de ${discount.description}`} type="number" min="0" value={discount.value || ''} onChange={event => updateOrderDiscounts(effectiveOrderDiscounts.map(item => item.id === discount.id ? { ...item, value: Math.max(0, Number(event.target.value)) } : item))} className="min-w-0 flex-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-bold" />
+                          <span className="min-w-20 text-right text-xs font-black text-amber-700">-{formatPrice(discount.amount)}</span>
+                        </div>
+                      </div>
+                    ))}
+                    <button type="button" onClick={() => updateOrderDiscounts([...effectiveOrderDiscounts, { id: crypto.randomUUID(), description: 'Otro descuento', type: 'percentage', value: 0 }])} className="rounded-lg border border-dashed border-amber-300 py-1.5 text-[10px] font-bold text-amber-700 hover:bg-amber-50">+ Agregar otro descuento</button>
+                    <p className="text-[9.5px] text-slate-400 font-medium italic">En planilla se registra el total como monto fijo en Descuento Compra Mayorista.</p>
+                  </div>
+                  ) : (
                   <div className="flex flex-col gap-2 p-2.5 bg-white rounded-xl border border-slate-200">
                     <div className="flex items-center justify-between">
                       <span className="text-[9.5px] font-black text-slate-700 uppercase tracking-wide flex items-center gap-1">
@@ -7527,6 +7669,7 @@ export default function PedidosPage() {
                       💡 En planilla se registra como <strong>Descuento Compra Mayorista</strong> y los artículos van a precio de lista.
                     </p>
                   </div>
+                  )}
                   
                   {/* Costo de Envío / Flete */}
                   <div className="flex flex-col gap-1.5 p-2.5 bg-white rounded-xl border border-slate-200">
@@ -8169,12 +8312,12 @@ export default function PedidosPage() {
                     <span>Subtotal Artículos</span>
                     <span>{formatPrice(itemsGrossSubtotal)}</span>
                   </div>
-                  {orderDiscountAmount > 0 && (
-                    <div className="flex justify-between text-xs font-black text-amber-600 bg-amber-50/70 p-1.5 rounded-lg border border-amber-200/70">
-                      <span>Descuento Pedido ({orderDiscountType === 'percentage' ? `${orderDiscountValue}%` : 'Monto Fijo'})</span>
-                      <span>-{formatPrice(orderDiscountAmount)}</span>
+                  {orderDiscountBreakdown.filter(discount => discount.amount > 0).map(discount => (
+                    <div key={discount.id} className="flex justify-between text-xs font-black text-amber-600 bg-amber-50/70 p-1.5 rounded-lg border border-amber-200/70">
+                      <span>{discount.description} ({discount.type === 'percentage' ? `${discount.value}%` : 'Monto Fijo'})</span>
+                      <span>-{formatPrice(discount.amount)}</span>
                     </div>
-                  )}
+                  ))}
                   {orderDiscountAmount > 0 && (
                     <div className="flex justify-between text-xs font-bold text-slate-700">
                       <span>Subtotal Neto</span>
@@ -8769,7 +8912,7 @@ export default function PedidosPage() {
                         <button
                           type="button"
                           onClick={() => {
-                            const today = new Date().toISOString().split('T')[0];
+                            const today = formatDateInput(new Date());
                             setDateFrom(today);
                             setDateTo(today);
                           }}
@@ -8780,7 +8923,9 @@ export default function PedidosPage() {
                         <button
                           type="button"
                           onClick={() => {
-                            const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+                            const d = new Date();
+                            d.setDate(d.getDate() - 1);
+                            const yesterday = formatDateInput(d);
                             setDateFrom(yesterday);
                             setDateTo(yesterday);
                           }}
@@ -8791,8 +8936,10 @@ export default function PedidosPage() {
                         <button
                           type="button"
                           onClick={() => {
-                            const today = new Date().toISOString().split('T')[0];
-                            const last7 = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
+                            const today = formatDateInput(new Date());
+                            const d = new Date();
+                            d.setDate(d.getDate() - 7);
+                            const last7 = formatDateInput(d);
                             setDateFrom(last7);
                             setDateTo(today);
                           }}
@@ -8803,9 +8950,7 @@ export default function PedidosPage() {
                         <button
                           type="button"
                           onClick={() => {
-                            const now = new Date();
-                            const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-                            const today = now.toISOString().split('T')[0];
+                            const { firstDay, today } = getCurrentMonthRange();
                             setDateFrom(firstDay);
                             setDateTo(today);
                           }}
@@ -8816,25 +8961,17 @@ export default function PedidosPage() {
                       </div>
 
                       {/* Inputs manuales */}
-                      <div className="space-y-1.5 pt-1 border-t border-slate-100">
-                        <div className="flex flex-col gap-0.5">
-                          <label className="text-[9px] font-black uppercase text-slate-400">Desde</label>
-                          <input
-                            type="date"
-                            value={dateFrom}
-                            onChange={(e) => setDateFrom(e.target.value)}
-                            className="w-full px-2 py-1 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 outline-none focus:ring-1 focus:ring-brand-500"
-                          />
-                        </div>
-                        <div className="flex flex-col gap-0.5">
-                          <label className="text-[9px] font-black uppercase text-slate-400">Hasta</label>
-                          <input
-                            type="date"
-                            value={dateTo}
-                            onChange={(e) => setDateTo(e.target.value)}
-                            className="w-full px-2 py-1 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 outline-none focus:ring-1 focus:ring-brand-500"
-                          />
-                        </div>
+                      <div className="space-y-2 pt-1 border-t border-slate-100">
+                        <DateInput
+                          label="Desde"
+                          value={dateFrom}
+                          onChange={setDateFrom}
+                        />
+                        <DateInput
+                          label="Hasta"
+                          value={dateTo}
+                          onChange={setDateTo}
+                        />
                       </div>
                     </div>
                   </>
@@ -9045,7 +9182,7 @@ export default function PedidosPage() {
                         >
                           <Copy className="w-3.5 h-3.5" />
                         </button>
-                        <button
+                        {p.channel !== 'mayorista' && <button
                           type="button"
                           onClick={() => handleSyncExistingOrderToSheet(p)}
                           disabled={syncingOrderId === p.id}
@@ -9055,7 +9192,7 @@ export default function PedidosPage() {
                           title={p.legacy_code ? `Re-enviar a Planilla (Código actual: ${p.legacy_code})` : "Sincronizar a Planilla Google Sheets"}
                         >
                           <FileSpreadsheet className={`w-3.5 h-3.5 ${syncingOrderId === p.id ? 'animate-spin text-emerald-600' : ''}`} />
-                        </button>
+                        </button>}
                         <button
                           type="button"
                           onClick={() => handleOpenCancelModal(p)}
@@ -9360,12 +9497,12 @@ export default function PedidosPage() {
                    <span>Subtotal Artículos</span>
                    <span>{formatPrice(itemsGrossSubtotal)}</span>
                  </div>
-                 {orderDiscountAmount > 0 && (
-                   <div className="flex justify-between text-sm font-black text-amber-600 bg-amber-50 p-1.5 rounded-lg border border-amber-200">
-                     <span>Descuento Pedido ({orderDiscountType === 'percentage' ? `${orderDiscountValue}%` : 'Monto Fijo'})</span>
-                     <span>-{formatPrice(orderDiscountAmount)}</span>
+                 {orderDiscountBreakdown.filter(discount => discount.amount > 0).map(discount => (
+                   <div key={discount.id} className="flex justify-between text-sm font-black text-amber-600 bg-amber-50 p-1.5 rounded-lg border border-amber-200">
+                     <span>{discount.description} ({discount.type === 'percentage' ? `${discount.value}%` : 'Monto Fijo'})</span>
+                     <span>-{formatPrice(discount.amount)}</span>
                    </div>
-                 )}
+                 ))}
                  {orderDiscountAmount > 0 && (
                    <div className="flex justify-between text-sm font-bold text-slate-700">
                      <span>Subtotal Neto</span>
@@ -10469,7 +10606,7 @@ export default function PedidosPage() {
                         {/* Actions for this order */}
                         <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
                           {/* Sync to Sheet */}
-                          <button
+                          {order.channel !== 'mayorista' && <button
                             type="button"
                             disabled={syncingOrderId === order.id}
                             onClick={() => handleSyncExistingOrderToSheet(order)}
@@ -10482,7 +10619,7 @@ export default function PedidosPage() {
                           >
                             <FileSpreadsheet className={`w-3.5 h-3.5 ${syncingOrderId === order.id ? 'animate-spin text-emerald-600' : 'text-emerald-600'}`} />
                             <span className="text-[11px]">{order.legacy_code ? 'Re-sincronizar' : 'A Planilla'}</span>
-                          </button>
+                          </button>}
 
                           {/* Clone into form */}
                           <button
@@ -10573,6 +10710,8 @@ export default function PedidosPage() {
         isWholesaleContext={isWholesaleContext}
         orderDiscountType={orderDiscountType}
         orderDiscountValue={orderDiscountValue}
+        orderDiscounts={isWholesaleContext ? effectiveOrderDiscounts : undefined}
+        onUpdateOrderDiscounts={isWholesaleContext ? updateOrderDiscounts : undefined}
         onUpdateOrderDiscount={(type, value) => {
           setOrderDiscountType(type);
           setOrderDiscountValue(value);

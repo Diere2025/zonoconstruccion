@@ -71,12 +71,10 @@ export interface VisualCatalogConfig {
 
 type WholesaleCatalogProduct = Pick<Product, 'name'> & Partial<Pick<Product, 'category' | 'sku'>>;
 
-export type WholesaleCatalogKind = 'tank' | 'accessory';
+export type WholesaleCatalogKind = 'tank' | 'accessory' | 'sanitation';
 
 /**
- * The B2B channel currently sells only water tanks and the tank accessories
- * published in its price list. Keep this rule independent from the retail
- * visual tree so adding a retail family never exposes it to wholesalers.
+ * Include only product families published in the wholesale price list.
  */
 export function getWholesaleCatalogKind(product: WholesaleCatalogProduct): WholesaleCatalogKind | null {
   const text = `${product.name || ''} ${product.sku || ''} ${product.category || ''}`
@@ -93,6 +91,16 @@ export function getWholesaleCatalogKind(product: WholesaleCatalogProduct): Whole
     text.includes('automatico cisterna') ||
     /\b(flotantes|bases|automaticos|accesorios)\b/.test(text);
   if (isAccessory) return 'accessory';
+
+  const isSanitation =
+    text.includes('biodigest') ||
+    text.includes('autolimp') ||
+    text.includes('septica') ||
+    text.includes('desengras') ||
+    text.includes('registro lodos') ||
+    text.includes('registro de lodos') ||
+    text.includes('inspeccion');
+  if (isSanitation) return 'sanitation';
 
   const isTank =
     text.includes('cisterna') ||
@@ -879,6 +887,40 @@ export function generateWholesaleVisualConfig(products: Product[]): VisualCatalo
       .filter(subgroup => subgroup.items.length > 0);
 
     if (subgroups.length > 0) families.push({ ...tankFamily, subgroups });
+  }
+
+  const sanitationProducts = allowedProducts.filter(product => getWholesaleCatalogKind(product) === 'sanitation');
+  const sanitationGroups = [
+    { id: 'biodigestores', name: 'Biodigestores', matches: (text: string) => text.includes('biodigest') || text.includes('autolimp') },
+    { id: 'septicas', name: 'Cámaras Sépticas', matches: (text: string) => text.includes('septica') },
+    { id: 'desengrasadoras', name: 'Desengrasadoras', matches: (text: string) => text.includes('desengras') },
+    { id: 'lodos', name: 'Lodos', matches: (text: string) => text.includes('registro lodos') || text.includes('registro de lodos') },
+    { id: 'inspeccion', name: 'Inspección', matches: (text: string) => text.includes('inspeccion') }
+  ];
+  for (const group of sanitationGroups) {
+    const matches = sanitationProducts.filter(product => group.matches(normalizeCatalogText(product)));
+    if (matches.length === 0) continue;
+    families.push({
+      id: `mayorista_${group.id}`,
+      name: group.name,
+      description: 'Productos de la Lista Mayorista',
+      imageUrl: matches.find(product => product.image_url)?.image_url,
+      isActive: true,
+      subgroups: [{
+        id: `mayorista_${group.id}_productos`,
+        name: group.name,
+        isActive: true,
+        itemsViewMode: 'list',
+        items: matches.map(product => ({
+          id: `item_${product.id}`,
+          label: product.name,
+          description: product.name,
+          imageUrl: product.image_url,
+          isActive: true,
+          productId: product.id
+        }))
+      }]
+    });
   }
 
   if (accessorySubgroups.length > 0) {

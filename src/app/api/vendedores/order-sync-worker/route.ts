@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { processSheetOrder } from '@/lib/processSheetOrder';
+import { isExpressFreight, processSheetOrder, sendExpressOrderAlert, sendRouteFormationAlert } from '@/lib/processSheetOrder';
 import { processOrderCancellation } from '@/lib/processOrderCancellation';
+import { sendPersonalOrderAlert } from '@/lib/personalOrderTelegram';
 
 export const runtime = 'edge';
 
@@ -24,10 +25,10 @@ export async function POST(req: NextRequest) {
     let successMessage = 'Planillas y avisos procesados correctamente.';
     let confirmedCode = job.code;
     try {
-      const current = await db.from('orders').select('status,legacy_code,customer_name').eq('id',job.order_id).single();
+      const current = await db.from('orders').select('status,legacy_code,customer_name,channel').eq('id',job.order_id).single();
       if (current.error || !current.data) throw new Error('No se pudo consultar el estado actual del pedido');
       if (job.kind === 'cancel') {
-        const cancellation = await processOrderCancellation(db, req.url, job, current.data);
+        const cancellation = await processOrderCancellation(db, req.url, job, current.data, current.data.channel === 'mayorista');
         result = cancellation.result;
         warnings.push(...cancellation.warnings);
         successMessage = cancellation.message;
@@ -35,6 +36,16 @@ export async function POST(req: NextRequest) {
       } else if (current.data.status === 'Cancelado') {
         result = {skipped:true, reason:'cancelled'};
         successMessage = 'Carga omitida: el pedido fue anulado antes de sincronizar.';
+      } else {
+      if (current.data.channel === 'mayorista') {
+        confirmedCode = current.data.legacy_code || job.order_id.slice(0, 8);
+        const origin = new URL(req.url).origin;
+        const formationAlert = await sendRouteFormationAlert(origin, confirmedCode, job.payload.order, null);
+        const expressAlert = isExpressFreight(job.payload.order.freightType)
+          ? await sendExpressOrderAlert(origin, confirmedCode, job.payload.order)
+          : { attempted: false, sent: false };
+        result = { synced: true, code: confirmedCode, sheetsSkipped: true, formationAlert, expressAlert };
+        successMessage = 'Pedido mayorista procesado en el ERP y avisos enviados.';
       } else {
       const response = await processSheetOrder(new NextRequest(new URL('/api/vendedores/create-sheet-order', req.url), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -54,6 +65,7 @@ export async function POST(req: NextRequest) {
         for (const [key, label] of [['central','Central'], ['deliveriesCurrent','Entregas Actual'], ['sellerStatusSync','Estado de la vendedora'], ['centralStatusSync','Estado de Central']]) {
           if (!sync?.[key]?.success) warnings.push(`${label}: ${sync?.[key]?.message || 'No se completó'}`);
         }
+      }
       }
       for (const [key, label] of [['formationAlert','Telegram recorridos'], ['expressAlert','Telegram Express']]) {
         if (result[key]?.attempted && !result[key]?.sent) warnings.push(`${label}: ${result[key].message || 'No se pudo enviar'}`);
@@ -106,6 +118,31 @@ export async function POST(req: NextRequest) {
       }
     } catch (error) {
       warnings.push(error instanceof Error ? error.message : 'Error de sincronización');
+    }
+    if (job.kind === 'create') {
+      try {
+        const personalAlert = await sendPersonalOrderAlert(db, job.order_id, confirmedCode, job.created_at);
+        result.personalAlert = personalAlert;
+        if (personalAlert.attempted && !personalAlert.sent) {
+          warnings.push(`Telegram personal: ${personalAlert.message || 'No se pudo enviar'}`);
+        }
+        if (personalAlert.sent && personalAlert.messageId && personalAlert.chatId) {
+          const { data: order } = await db.from('orders').select('totals').eq('id', job.order_id).single();
+          if (order) {
+            const notifications = Array.isArray(order.totals?.telegram_notifications)
+              ? order.totals.telegram_notifications : [];
+            const savedAlert = await db.from('orders').update({ totals: {
+              ...order.totals,
+              telegram_notifications: [...notifications, {
+                type: 'personalAlert', messageId: personalAlert.messageId, chatId: personalAlert.chatId
+              }]
+            }}).eq('id', job.order_id);
+            if (savedAlert.error) warnings.push('Aviso personal enviado, pero no se pudo guardar su identificador en el ERP.');
+          }
+        }
+      } catch (error) {
+        warnings.push(`Telegram personal: ${error instanceof Error ? error.message : 'Error inesperado'}`);
+      }
     }
     const saved = await db.from('order_sync_jobs').update({
       status: warnings.length ? 'attention' : 'completed', result, code:confirmedCode,

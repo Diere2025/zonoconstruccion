@@ -98,6 +98,13 @@ export interface OrderItem {
   created_at?: string;
 }
 
+export interface OrderDiscountItem {
+  id: string;
+  description: string;
+  type: 'percentage' | 'fixed';
+  value: number;
+}
+
 export interface FAQ {
   id: string;
   question: string;

@@ -36,7 +36,7 @@ function escapeTelegramHtml(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-function isExpressFreight(freightType?: string): boolean {
+export function isExpressFreight(freightType?: string): boolean {
   return (freightType || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().includes('express');
 }
 
@@ -96,7 +96,7 @@ async function sendOperationalTelegramMessage(
   };
 }
 
-async function sendExpressOrderAlert(origin: string, code: string, order: SheetOrderPayload): Promise<ExpressAlertResult> {
+export async function sendExpressOrderAlert(origin: string, code: string, order: SheetOrderPayload): Promise<ExpressAlertResult> {
   const botToken = process.env.LOGISTICS_TELEGRAM_BOT_TOKEN;
   const chatId = await getExpressChatId(botToken?.trim() || '');
   if (!chatId) {
@@ -178,7 +178,7 @@ async function getRouteFormationChatId(botToken: string): Promise<string | null>
   return FALLBACK_ROUTE_FORMATION_CHAT_ID;
 }
 
-async function sendRouteFormationAlert(origin: string, code: string, order: SheetOrderPayload): Promise<ExpressAlertResult> {
+export async function sendRouteFormationAlert(origin: string, code: string, order: SheetOrderPayload, sequenceOverride?: number | null): Promise<ExpressAlertResult> {
   const botToken = process.env.LOGISTICS_TELEGRAM_BOT_TOKEN;
   const chatId = await getRouteFormationChatId(botToken?.trim() || '');
   if (!chatId) {
@@ -189,13 +189,15 @@ async function sendRouteFormationAlert(origin: string, code: string, order: Shee
     };
   }
 
-  const dailySequence = await getCentralOrderDailySequence(order.orderDate);
+  const dailySequence = sequenceOverride === undefined
+    ? await getCentralOrderDailySequence(order.orderDate)
+    : sequenceOverride;
   const icon = isExpressFreight(order.freightType) ? '🟢' : '📌';
   const items = (order.items || [])
     .map(item => `➖${item.quantity || 1} ${escapeTelegramHtml(item.name)}`)
     .join('\n');
   const text = [
-    `<b>${icon} ${dailySequence}. ${escapeTelegramHtml(order.locality || 'Sin localidad')} (${escapeTelegramHtml(code)})</b>`,
+    `<b>${icon} ${dailySequence ? `${dailySequence}. ` : ''}${escapeTelegramHtml(order.locality || 'Sin localidad')} (${escapeTelegramHtml(code)})</b>`,
     items,
     '──────────────────'
   ].filter(Boolean).join('\n');

@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { formatPrice, cleanDeliveryNotes } from "@/lib/utils";
 import { PrintableOrderData } from "./PrintableOrderModal";
+import { calculateCascadingDiscounts } from "@/lib/orderDiscounts";
 
 interface ViewOrderModalProps {
   isOpen: boolean;
@@ -67,6 +68,8 @@ export default function ViewOrderModal({
   const discountLabel = order.order_discount_type === 'percentage'
     ? `Descuento Pedido (${order.order_discount_value || 0}%)`
     : 'Descuento Pedido (Monto Fijo)';
+  const discountBreakdown = calculateCascadingDiscounts(itemsSubtotal, order.order_discounts || [])
+    .filter(discount => discount.amount > 0);
   const deposit = order.deposit_amount || 0;
   const balance = order.pending_balance !== undefined 
     ? order.pending_balance 
@@ -403,10 +406,17 @@ export default function ViewOrderModal({
               </div>
               {orderDiscountAmount > 0 && (
                 <>
-                  <div className="flex justify-between text-amber-700 font-semibold">
-                    <span>{discountLabel}:</span>
-                    <span className="font-mono">-{formatPrice(orderDiscountAmount)}</span>
-                  </div>
+                  {discountBreakdown.length > 0 ? discountBreakdown.map(discount => (
+                    <div key={discount.id} className="flex justify-between text-amber-700 font-semibold">
+                      <span>{discount.description} ({discount.type === 'percentage' ? `${discount.value}%` : 'Monto Fijo'}):</span>
+                      <span className="font-mono">-{formatPrice(discount.amount)}</span>
+                    </div>
+                  )) : (
+                    <div className="flex justify-between text-amber-700 font-semibold">
+                      <span>{discountLabel}:</span>
+                      <span className="font-mono">-{formatPrice(orderDiscountAmount)}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between text-slate-600 font-semibold">
                     <span>Subtotal Neto:</span>
                     <span className="font-mono">{formatPrice(netSubtotal)}</span>
