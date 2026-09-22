@@ -4,6 +4,31 @@ chrome.runtime.onInstalled.addListener(() => {
   setupAlarms();
 });
 
+chrome.runtime.onStartup.addListener(() => {
+  setupAlarms();
+});
+
+function isActivitiesTab(tab) {
+  try {
+    const url = new URL(tab?.url || "");
+    return url.hostname === "mercadopago.com.ar" || url.hostname.endsWith(".mercadopago.com.ar")
+      ? url.pathname.startsWith("/activities")
+      : false;
+  } catch {
+    return false;
+  }
+}
+
+function saveMonitorTab(nextTabId, previousTabId, sendResponse) {
+  chrome.storage.local.set({ monitorTabId: nextTabId }, () => {
+    if (previousTabId && previousTabId !== nextTabId) {
+      chrome.tabs.sendMessage(previousTabId, { action: "MONITOR_STATE", active: false }).catch(() => {});
+    }
+    chrome.tabs.sendMessage(nextTabId, { action: "MONITOR_STATE", active: true }).catch(() => {});
+    sendResponse?.({ ok: true, active: true, recovered: !previousTabId || previousTabId !== nextTabId });
+  });
+}
+
 // Only one tab per Chrome profile is allowed to monitor Mercado Pago. Other
 // Mercado Pago tabs are intentionally passive so normal browsing never emits
 // false outage alerts.
@@ -11,7 +36,12 @@ function pingAllTabs() {
   chrome.storage.local.get(["monitorTabId"], ({ monitorTabId }) => {
     if (!monitorTabId) return;
     chrome.tabs.sendMessage(monitorTabId, { action: "TRIGGER_POLL" }).catch(() => {
-      chrome.storage.local.remove("monitorTabId");
+      // A content script is temporarily unreachable while Chrome updates the
+      // extension or reloads a page. Keep the selection if the tab still
+      // exists; otherwise the next /activities tab will recover it.
+      chrome.tabs.get(monitorTabId, () => {
+        if (chrome.runtime.lastError) chrome.storage.local.remove("monitorTabId");
+      });
     });
   });
 }
@@ -38,7 +68,30 @@ setInterval(pingAllTabs, 10000);
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "GET_MONITOR_STATE") {
     chrome.storage.local.get(["monitorTabId"], ({ monitorTabId }) => {
-      sendResponse({ active: Boolean(sender.tab?.id && monitorTabId === sender.tab.id) });
+      const senderTabId = sender.tab?.id;
+      if (!senderTabId || !isActivitiesTab(sender.tab)) {
+        sendResponse({ active: false });
+        return;
+      }
+      if (monitorTabId === senderTabId) {
+        sendResponse({ active: true });
+        return;
+      }
+      if (!monitorTabId) {
+        saveMonitorTab(senderTabId, null, sendResponse);
+        return;
+      }
+
+      // Tab ids are not durable across a full Chrome/session restore. If the
+      // stored id disappeared, let the first restored Activities tab reclaim
+      // monitoring without requiring a manual click.
+      chrome.tabs.get(monitorTabId, (storedTab) => {
+        if (chrome.runtime.lastError || !storedTab || !isActivitiesTab(storedTab)) {
+          saveMonitorTab(senderTabId, monitorTabId, sendResponse);
+          return;
+        }
+        sendResponse({ active: false });
+      });
     });
     return true;
   }
@@ -50,13 +103,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       return;
     }
     chrome.storage.local.get(["monitorTabId"], ({ monitorTabId: previousTabId }) => {
-      chrome.storage.local.set({ monitorTabId: nextTabId }, () => {
-        if (previousTabId && previousTabId !== nextTabId) {
-          chrome.tabs.sendMessage(previousTabId, { action: "MONITOR_STATE", active: false }).catch(() => {});
-        }
-        chrome.tabs.sendMessage(nextTabId, { action: "MONITOR_STATE", active: true }).catch(() => {});
-        sendResponse({ ok: true, active: true });
-      });
+      saveMonitorTab(nextTabId, previousTabId, sendResponse);
     });
     return true;
   }
