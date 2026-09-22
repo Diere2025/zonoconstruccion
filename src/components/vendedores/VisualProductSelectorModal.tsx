@@ -30,6 +30,7 @@ import {
   VisualSubGroup,
   VisualItemOption,
   generateDefaultVisualConfig,
+  generateWholesaleVisualConfig,
   includeInstallationKitCuplas,
   findRecommendedBase,
   findFlotanteProduct
@@ -152,6 +153,11 @@ export default function VisualProductSelectorModal({
     async function loadTree() {
       setLoading(true);
       try {
+        if (isWholesaleContext) {
+          setConfig(generateWholesaleVisualConfig(products));
+          return;
+        }
+
         const { data } = await supabase
           .from('site_settings')
           .select('value')
@@ -189,7 +195,7 @@ export default function VisualProductSelectorModal({
       }
     }
     loadTree();
-  }, [isOpen, products]);
+  }, [isOpen, products, isWholesaleContext]);
 
   // Reset cascade
   const handleReset = () => {

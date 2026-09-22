@@ -19,21 +19,19 @@ import {
   CreditCard, 
   FileText, 
   ShieldCheck, 
-  Sparkles, 
-  CheckCircle2, 
   Package, 
-  ArrowRight,
   RefreshCw,
   Layers,
-  Database,
-  Sliders,
-  AlertCircle
+  Sliders
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { formatPrice, cn } from "@/lib/utils";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { defaultQuoteValidity, saveSalesQuote } from "@/lib/salesQuotes";
+import { getWholesaleCatalogKind } from "@/lib/visualSelectorConfig";
+import { Product } from "@/types";
+import VisualProductSelectorModal, { VisualOrderItem } from "@/components/vendedores/VisualProductSelectorModal";
 
 interface WholesaleProduct {
   id: string;
@@ -55,6 +53,7 @@ interface QuoteCartItem {
   category: string;
   liters?: string;
   variant: "standard" | "ciego";
+  allowsCiego: boolean;
   quantity: number;
   priceList: number;
   priceCorralon: number;
@@ -77,7 +76,6 @@ export default function PresupuestosMayoristaPage() {
 
   // State: Master Wholesale Catalog from DB
   const [products, setProducts] = useState<WholesaleProduct[]>([]);
-  const [categories, setCategories] = useState<string[]>([]);
   const listNumber = "12";
   const [listDate, setListDate] = useState("Junio 2026");
   const [discountCorralonPct, setDiscountCorralonPct] = useState(8);
@@ -89,6 +87,8 @@ export default function PresupuestosMayoristaPage() {
   const [clientSearch, setClientSearch] = useState("");
   const [loadingClients, setLoadingClients] = useState(false);
   const [selectedClient, setSelectedClient] = useState<ClientOption | null>(null);
+  const [leadName, setLeadName] = useState("");
+  const [leadContact, setLeadContact] = useState("");
   const [showNewClientModal, setShowNewClientModal] = useState(false);
   const [newClientName, setNewClientName] = useState("");
   const [newClientTaxId, setNewClientTaxId] = useState("");
@@ -98,11 +98,8 @@ export default function PresupuestosMayoristaPage() {
 
   // State: Cart Items
   const [cartItems, setCartItems] = useState<QuoteCartItem[]>([]);
-  const [selectedCategory, setSelectedCategory] = useState<string>("all");
-  const [productSearch, setProductSearch] = useState("");
 
   // Commercial Controls
-  const [forcedTier, setForcedTier] = useState<"auto" | "list" | "corralon" | "distributor">("auto");
   const [freightType, setFreightType] = useState<string>("Flete Incluido (En depósito)");
   const [customFreightAmount, setCustomFreightAmount] = useState<number>(0);
   const [paymentCondition, setPaymentCondition] = useState<string>("Contado / Transferencia contra entrega");
@@ -113,6 +110,7 @@ export default function PresupuestosMayoristaPage() {
   // UI status
   const [copiedWhatsapp, setCopiedWhatsapp] = useState(false);
   const [isCreatingOrder, setIsCreatingOrder] = useState(false);
+  const [showProductSelector, setShowProductSelector] = useState(false);
 
   // Load the selected published wholesale list. Historical lists retain their
   // saved item prices instead of being recalculated from today's costs.
@@ -135,7 +133,11 @@ export default function PresupuestosMayoristaPage() {
           const distPct = activeList?.globalDiscountDistributorPct ?? 14;
 
           const prods: WholesaleProduct[] = json.products
-            .filter((p: any) => p.defaultCommercialized !== false && p.isCommercialized !== false)
+            .filter((p: any) =>
+              p.defaultCommercialized !== false &&
+              p.isCommercialized !== false &&
+              getWholesaleCatalogKind(p)
+            )
             .map((p: any) => {
               const baseCost = p.costBaseReal || 50000;
               const priceList = json.isPersistedList ? Number(p.priceList || 0) : Math.round(baseCost * 1.35);
@@ -157,7 +159,6 @@ export default function PresupuestosMayoristaPage() {
             });
 
           setProducts(prods);
-          setCategories(json.categories || []);
         }
       } catch (err) {
         console.error("Error loading wholesale catalog:", err);
@@ -218,15 +219,14 @@ export default function PresupuestosMayoristaPage() {
 
   // Compute Volume Tier and Totals
   const totalTanksCount = useMemo(() => {
-    return cartItems.reduce((acc, item) => acc + item.quantity, 0);
+    return cartItems.reduce((acc, item) => acc + (item.allowsCiego ? item.quantity : 0), 0);
   }, [cartItems]);
 
   const activeTier = useMemo(() => {
-    if (forcedTier !== "auto") return forcedTier;
     if (totalTanksCount >= 20) return "distributor";
     if (totalTanksCount >= 10) return "corralon";
     return "list";
-  }, [totalTanksCount, forcedTier]);
+  }, [totalTanksCount]);
 
   const activeTierLabel = useMemo(() => {
     switch (activeTier) {
@@ -272,11 +272,62 @@ export default function PresupuestosMayoristaPage() {
     return subtotalProducts + totalFreight + ivaAmount;
   }, [subtotalProducts, totalFreight, ivaAmount]);
 
+  const effectiveLeadName = selectedClient?.business_name || leadName.trim();
+  const effectiveLeadContact = selectedClient?.phone_primary || leadContact.trim();
+  const hasLeadIdentity = Boolean(selectedClient || (effectiveLeadName && effectiveLeadContact));
+
+  const visualProducts = useMemo<Product[]>(() => products.flatMap(product => {
+    const price = activeTier === 'distributor'
+      ? product.priceDistributor
+      : activeTier === 'corralon'
+        ? product.priceCorralon
+        : product.priceList;
+    const baseProduct: Product = {
+      id: product.id,
+      name: product.name,
+      description: product.name,
+      price,
+      image_url: '',
+      category: product.category,
+      sku: product.id,
+      is_active: true,
+      variant_type: 'standard'
+    };
+
+    if (getWholesaleCatalogKind(product) !== 'tank') return [baseProduct];
+    return [
+      baseProduct,
+      {
+        ...baseProduct,
+        id: `${product.id}::ciego`,
+        name: `${product.name} (Ciego)`,
+        parent_id: product.id,
+        variant_type: 'ciego'
+      }
+    ];
+  }), [products, activeTier]);
+
+  const visualOrderItems = useMemo<VisualOrderItem[]>(() => calculatedItems.map(item => ({
+    id: item.id,
+    name: `${item.name}${item.allowsCiego && item.variant === 'ciego' ? ' (Ciego)' : ''}`,
+    description: item.name,
+    price: item.effectiveUnitPrice,
+    image_url: '',
+    category: item.category,
+    sku: item.productId,
+    is_active: true,
+    quantity: item.quantity,
+    customPrice: item.effectiveUnitPrice,
+    basePrice: item.priceList
+  })), [calculatedItems]);
+
   // Cart Actions
   const handleAddToCart = (product: WholesaleProduct, variant: "standard" | "ciego" = "standard") => {
+    const allowsCiego = getWholesaleCatalogKind(product) === 'tank';
+    const effectiveVariant = allowsCiego ? variant : 'standard';
     setCartItems(prev => {
       const existingIdx = prev.findIndex(
-        i => i.productId === product.id && i.variant === variant
+        i => i.productId === product.id && i.variant === effectiveVariant
       );
       if (existingIdx >= 0) {
         const copy = [...prev];
@@ -286,12 +337,13 @@ export default function PresupuestosMayoristaPage() {
       return [
         ...prev,
         {
-          id: `${product.id}-${variant}-${Date.now()}`,
+          id: `${product.id}-${effectiveVariant}-${Date.now()}`,
           productId: product.id,
           name: product.name,
           category: product.category,
           liters: product.liters,
-          variant,
+          variant: effectiveVariant,
+          allowsCiego,
           quantity: 1,
           priceList: product.priceList,
           priceCorralon: product.priceCorralon,
@@ -299,6 +351,24 @@ export default function PresupuestosMayoristaPage() {
         }
       ];
     });
+  };
+
+  const handleAddVisualProduct = (product: Product) => {
+    const isCiego = product.variant_type?.toLowerCase() === 'ciego' || product.id.endsWith('::ciego');
+    const baseId = product.parent_id || product.id.replace(/::ciego$/, '');
+    const wholesaleProduct = products.find(candidate => candidate.id === baseId);
+    if (!wholesaleProduct) return;
+    handleAddToCart(wholesaleProduct, isCiego ? 'ciego' : 'standard');
+  };
+
+  const handleAddVisualProducts = (selectedProducts: Product[]) => {
+    selectedProducts.forEach(handleAddVisualProduct);
+  };
+
+  const handleUpdateCustomPrice = (cartItemId: string, price: number) => {
+    setCartItems(previous => previous.map(item => item.id === cartItemId
+      ? { ...item, customPrice: Math.max(0, price) }
+      : item));
   };
 
   const handleUpdateQuantity = (cartItemId: string, newQty: number) => {
@@ -314,7 +384,7 @@ export default function PresupuestosMayoristaPage() {
   const handleToggleVariant = (cartItemId: string) => {
     setCartItems(prev =>
       prev.map(item =>
-        item.id === cartItemId
+        item.id === cartItemId && item.allowsCiego
           ? { ...item, variant: item.variant === "standard" ? "ciego" : "standard" }
           : item
       )
@@ -368,7 +438,7 @@ export default function PresupuestosMayoristaPage() {
 
   // WhatsApp Quote Text Generation
   const generateWhatsAppMessage = () => {
-    const clientName = selectedClient ? selectedClient.business_name : "Estimado Cliente";
+    const clientName = effectiveLeadName || "Estimado Cliente";
     const dateStr = new Date().toLocaleDateString("es-AR");
 
     const lines: string[] = [
@@ -384,7 +454,7 @@ export default function PresupuestosMayoristaPage() {
     ];
 
     calculatedItems.forEach(item => {
-      const variantTag = item.variant === "ciego" ? " [CIEGO]" : "";
+      const variantTag = item.allowsCiego && item.variant === "ciego" ? " [CIEGO]" : "";
       lines.push(`• *${item.quantity}x* ${item.name}${variantTag}`);
       lines.push(`   Unit: $${item.effectiveUnitPrice.toLocaleString("es-AR")} | Subtotal: $${item.subtotal.toLocaleString("es-AR")}`);
     });
@@ -431,7 +501,7 @@ export default function PresupuestosMayoristaPage() {
     }
 
     const doc = new jsPDF();
-    const clientName = selectedClient ? selectedClient.business_name : "Cliente Mayorista";
+    const clientName = effectiveLeadName || "Lead Mayorista";
 
     // Header Branding
     doc.setFillColor(0, 21, 56);
@@ -465,8 +535,8 @@ export default function PresupuestosMayoristaPage() {
     doc.setFont("helvetica", "bold");
     doc.text(`CLIENTE: ${clientName}`, 18, 45);
     doc.setFont("helvetica", "normal");
-    doc.text(`CUIT: ${selectedClient?.tax_id || "Consumidor Final / No informado"}`, 18, 51);
-    doc.text(`Dirección: ${selectedClient?.billing_address || "A convenir"}`, 18, 56);
+    doc.text(`CUIT: ${selectedClient?.tax_id || "No informado"}`, 18, 51);
+    doc.text(`Contacto: ${effectiveLeadContact || "No informado"}`, 18, 56);
 
     doc.text(`Condición Pago: ${paymentCondition}`, 115, 45);
     doc.text(`Entrega: ${deliveryDays}`, 115, 51);
@@ -475,7 +545,7 @@ export default function PresupuestosMayoristaPage() {
     // Items Table
     const tableBody = calculatedItems.map(item => [
       item.quantity.toString(),
-      `${item.name}${item.variant === "ciego" ? " (CIEGO)" : " (Estándar)"}`,
+      `${item.name}${item.allowsCiego ? (item.variant === "ciego" ? " (CIEGO)" : " (Estándar)") : ""}`,
       item.category,
       `$${item.effectiveUnitPrice.toLocaleString("es-AR")}`,
       `$${item.subtotal.toLocaleString("es-AR")}`
@@ -549,8 +619,8 @@ export default function PresupuestosMayoristaPage() {
   const buildWholesaleQuote = (status: 'sent' | 'accepted') => ({
     channel: 'mayorista' as const,
     clientId: selectedClient?.id || null,
-    customerName: selectedClient?.business_name || '',
-    customerPhone: selectedClient?.phone_primary || '',
+    customerName: effectiveLeadName,
+    customerPhone: effectiveLeadContact,
     subtotal: subtotalProducts,
     freightAmount: totalFreight,
     taxAmount: ivaAmount,
@@ -585,8 +655,8 @@ export default function PresupuestosMayoristaPage() {
   });
 
   const handleSaveWholesaleQuote = async () => {
-    if (!cartItems.length || !selectedClient) {
-      alert('Seleccioná un cliente y agregá productos antes de guardar.');
+    if (!cartItems.length || !hasLeadIdentity) {
+      alert('Agregá productos e identificá el lead con nombre y un medio de contacto.');
       return;
     }
     try {
@@ -607,12 +677,12 @@ export default function PresupuestosMayoristaPage() {
       alert("Agregá productos al presupuesto antes de confirmar el pedido.");
       return;
     }
-    if (!selectedClient) {
-      alert("Por favor seleccioná un cliente para registrar el pedido.");
+    if (!hasLeadIdentity) {
+      alert("Identificá el lead con nombre y un medio de contacto antes de continuar.");
       return;
     }
 
-    if (!confirm(`¿Aceptar el presupuesto de "${selectedClient.business_name}" y continuar a la carga del pedido? Todavía no se enviará nada a Logística.`)) {
+    if (!confirm(`¿Aceptar el presupuesto de "${effectiveLeadName}" y continuar a la carga del pedido? Todavía no se enviará nada a Logística.`)) {
       return;
     }
 
@@ -623,13 +693,13 @@ export default function PresupuestosMayoristaPage() {
         quoteId: quote.id,
         quoteNumber: quote.quote_number,
         channel: 'mayorista',
-        clientId: selectedClient.id,
-        customerName: selectedClient.business_name,
-        customerPhone: selectedClient.phone_primary || '',
+        clientId: selectedClient?.id || null,
+        customerName: effectiveLeadName,
+        customerPhone: effectiveLeadContact,
         notes: `[Presupuesto ${quote.quote_number} · Lista ${listNumber}] ${notes}`.trim(),
         items: calculatedItems.map(item => ({
           id: item.productId,
-          name: `${item.name}${item.variant === 'ciego' ? ' (CIEGO)' : ' (Estándar)'}`,
+          name: `${item.name}${item.allowsCiego ? (item.variant === 'ciego' ? ' (CIEGO)' : ' (Estándar)') : ''}`,
           sku: item.name,
           quantity: item.quantity,
           customPrice: item.effectiveUnitPrice,
@@ -656,31 +726,6 @@ export default function PresupuestosMayoristaPage() {
       .replace(/[\u0300-\u036f]/g, "") // remove accents
       .replace(/[-_()]/g, " "); // replace hyphens and parentheses with spaces
   };
-
-  // Filter Catalog (Multi-word search)
-  const filteredProducts = useMemo(() => {
-    const trimmed = productSearch.trim();
-    const searchTerms = trimmed ? normalizeText(trimmed).split(/\s+/).filter(Boolean) : [];
-
-    return products.filter(p => {
-      const matchCat = selectedCategory === "all" || p.category === selectedCategory;
-
-      if (searchTerms.length === 0) {
-        return matchCat;
-      }
-
-      const targetText = normalizeText(
-        `${p.name} ${p.category} ${p.family || ""} ${p.liters || ""}`
-      );
-
-      const matchesSearch = searchTerms.every(term => targetText.includes(term));
-
-      if (selectedCategory !== "all") {
-        return matchCat && matchesSearch;
-      }
-      return matchesSearch;
-    });
-  }, [products, selectedCategory, productSearch]);
 
   // Filter Clients (Multi-word search)
   const filteredClients = useMemo(() => {
@@ -715,7 +760,7 @@ export default function PresupuestosMayoristaPage() {
               </span>
             </div>
             <p className="text-xs text-slate-500 font-medium mt-0.5">
-              Armá cotizaciones por volumen para Corralones y Distribuidores, alterná variantes estándar/ciego y convertí en pedido mayorista.
+              Armá cotizaciones por volumen para Corralones y Distribuidores. Las variantes estándar/ciego se aplican únicamente a tanques y cisternas.
             </p>
           </div>
         </div>
@@ -828,174 +873,79 @@ export default function PresupuestosMayoristaPage() {
                     No se encontró un cliente mayorista con ese nombre, CUIT o teléfono.
                   </div>
                 ) : null}
+
+                <div className="rounded-2xl border border-dashed border-blue-200 bg-blue-50/40 p-3.5 space-y-3">
+                  <div>
+                    <p className="text-xs font-black text-slate-800">¿Todavía no es cliente?</p>
+                    <p className="text-[11px] text-slate-500">Podés presupuestar igual. Dejá los datos mínimos para poder hacer seguimiento.</p>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="mb-1 block text-[10px] font-black uppercase tracking-wide text-slate-500">Nombre / razón social *</label>
+                      <input
+                        value={leadName}
+                        onChange={event => setLeadName(event.target.value)}
+                        placeholder="Ej: Corralón El Sol"
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold outline-none focus:border-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-[10px] font-black uppercase tracking-wide text-slate-500">Contacto / cómo ubicarlo *</label>
+                      <input
+                        value={leadContact}
+                        onChange={event => setLeadContact(event.target.value)}
+                        placeholder="WhatsApp, teléfono o email"
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold outline-none focus:border-blue-500"
+                      />
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
           </div>
 
-          {/* 2. Product Catalog Selection */}
+          {/* 2. Same visual selector used by order entry */}
           <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-xs space-y-4">
-            <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 <Package className="w-4 h-4 text-blue-600" />
-                <h2 className="text-sm font-black text-slate-900 uppercase tracking-wider">
-                  2. Catálogo Lista {listNumber}
-                </h2>
+                <div>
+                  <h2 className="text-sm font-black text-slate-900 uppercase tracking-wider">2. Productos del presupuesto</h2>
+                  <p className="text-[11px] text-slate-500">Usá el mismo selector visual disponible en la carga de pedidos.</p>
+                </div>
               </div>
-              <div className="relative w-48">
-                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
-                <input
-                  type="text"
-                  placeholder="Filtrar modelo..."
-                  value={productSearch}
-                  onChange={(e) => setProductSearch(e.target.value)}
-                  className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:bg-white focus:border-blue-500"
-                />
-              </div>
+              <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-black text-blue-700">Lista {listNumber}</span>
             </div>
 
-            {/* Category Pills */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
-              <button
-                onClick={() => setSelectedCategory("all")}
-                className={cn(
-                  "px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition-all cursor-pointer",
-                  selectedCategory === "all" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                )}
-              >
-                Todos ({products.length})
-              </button>
-              {categories.map(cat => (
-                <button
-                  key={cat}
-                  onClick={() => setSelectedCategory(cat)}
-                  className={cn(
-                    "px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition-all cursor-pointer",
-                    selectedCategory === cat ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                  )}
-                >
-                  {cat}
-                </button>
-              ))}
+            <button
+              type="button"
+              onClick={() => setShowProductSelector(true)}
+              disabled={loadingCatalog}
+              className="w-full rounded-2xl bg-blue-600 px-4 py-4 text-sm font-black text-white shadow-md shadow-blue-600/20 transition hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {loadingCatalog ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+              {loadingCatalog ? `Cargando Lista ${listNumber}...` : 'Agregar productos'}
+            </button>
+
+            <div className="grid grid-cols-3 gap-2 text-center">
+              <div className="rounded-xl bg-slate-50 p-2.5">
+                <p className="text-[9px] font-black uppercase text-slate-400">Ítems</p>
+                <p className="text-sm font-black text-slate-800">{cartItems.length}</p>
+              </div>
+              <div className="rounded-xl bg-slate-50 p-2.5">
+                <p className="text-[9px] font-black uppercase text-slate-400">Unidades</p>
+                <p className="text-sm font-black text-slate-800">{cartItems.reduce((sum, item) => sum + item.quantity, 0)}</p>
+              </div>
+              <div className="rounded-xl bg-slate-50 p-2.5">
+                <p className="text-[9px] font-black uppercase text-slate-400">Subtotal</p>
+                <p className="text-sm font-black text-emerald-600">{formatPrice(subtotalProducts)}</p>
+              </div>
             </div>
-
-            {/* Product Table / Cards */}
-            {loadingCatalog ? (
-              <div className="py-12 text-center text-slate-400 text-xs flex items-center justify-center gap-2">
-                <RefreshCw className="w-4 h-4 animate-spin text-blue-600" />
-                <span>Cargando catálogo oficial de Lista {listNumber}...</span>
-              </div>
-            ) : filteredProducts.length === 0 ? (
-              <div className="py-10 text-center text-slate-400 text-xs border border-dashed border-slate-200 rounded-2xl space-y-2">
-                <p>No se encontraron productos para <strong className="text-slate-700">&quot;{productSearch}&quot;</strong>.</p>
-                <button
-                  onClick={() => { setProductSearch(""); setSelectedCategory("all"); }}
-                  className="text-blue-600 font-bold hover:underline cursor-pointer"
-                >
-                  Limpiar búsqueda y ver todo el catálogo
-                </button>
-              </div>
-            ) : (
-              <div className="max-h-[500px] overflow-y-auto space-y-2 pr-1">
-                {filteredProducts.map(p => {
-                  const displayPrice = activeTier === "distributor" ? p.priceDistributor : (activeTier === "corralon" ? p.priceCorralon : p.priceList);
-
-                  return (
-                    <div
-                      key={p.id}
-                      className="p-3 bg-slate-50 hover:bg-slate-100/80 border border-slate-200/70 rounded-2xl flex items-center justify-between gap-3 transition-colors"
-                    >
-                      <div className="space-y-0.5 min-w-0 flex-1">
-                        <div className="font-bold text-slate-900 text-xs truncate">
-                          {p.name}
-                        </div>
-                        <div className="text-[11px] text-slate-500 flex items-center gap-2">
-                          <span className="font-medium text-slate-400">{p.category}</span>
-                          <span className="text-slate-300">•</span>
-                          <span>Lista: ${p.priceList.toLocaleString("es-AR")}</span>
-                          <span className="text-slate-300">•</span>
-                          <span className="text-blue-600 font-bold">Corr: ${p.priceCorralon.toLocaleString("es-AR")}</span>
-                          <span className="text-slate-300">•</span>
-                          <span className="text-indigo-600 font-bold">Dist: ${p.priceDistributor.toLocaleString("es-AR")}</span>
-                        </div>
-                      </div>
-
-                      {/* Quick Add Buttons: Estándar & Ciego */}
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <button
-                          onClick={() => handleAddToCart(p, "standard")}
-                          className="px-2.5 py-1.5 bg-white hover:bg-blue-600 hover:text-white border border-slate-200 text-slate-700 rounded-xl text-[11px] font-bold transition-all flex items-center gap-1 shadow-xs cursor-pointer"
-                          title="Agregar con salida estándar"
-                        >
-                          <Plus className="w-3 h-3" />
-                          <span>Estándar</span>
-                        </button>
-                        <button
-                          onClick={() => handleAddToCart(p, "ciego")}
-                          className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-500 hover:text-white border border-amber-200 text-amber-800 rounded-xl text-[11px] font-bold transition-all flex items-center gap-1 shadow-xs cursor-pointer"
-                          title="Agregar variante CIEGO (sin salida)"
-                        >
-                          <Plus className="w-3 h-3" />
-                          <span>CIEGO</span>
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
           </div>
         </div>
 
-        {/* RIGHT COLUMN: Cart, Volume Tier & Presupuesto Summary (5 cols) */}
+        {/* RIGHT COLUMN: Quote detail and commercial basics */}
         <div className="lg:col-span-5 space-y-6">
-          {/* Volume Scale Status Card */}
-          <div className="bg-slate-900 text-white p-5 rounded-3xl shadow-md space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-amber-400" />
-                <span className="text-xs font-black uppercase tracking-wider text-slate-300">
-                  Escala de Volumen Activa
-                </span>
-              </div>
-              <span className="text-xs font-black bg-blue-500/30 text-blue-300 border border-blue-400/30 px-2.5 py-0.5 rounded-full">
-                {totalTanksCount} {totalTanksCount === 1 ? "tanque" : "tanques"} en total
-              </span>
-            </div>
-
-            <div className="p-3 bg-slate-800/80 rounded-2xl border border-slate-700/60 space-y-1">
-              <div className="text-sm font-black text-white flex items-center gap-1.5">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                <span>{activeTierLabel}</span>
-              </div>
-              <p className="text-[11px] text-slate-400">
-                {totalTanksCount < 10 && (
-                  <span>Agregá <strong className="text-amber-300">{10 - totalTanksCount} tanques más</strong> para alcanzar la Escala Corralón (-{discountCorralonPct}%).</span>
-                )}
-                {totalTanksCount >= 10 && totalTanksCount < 20 && (
-                  <span>Agregá <strong className="text-amber-300">{20 - totalTanksCount} tanques más</strong> para alcanzar la Escala Distribuidor (-{discountDistributorPct}%).</span>
-                )}
-                {totalTanksCount >= 20 && (
-                  <span className="text-emerald-300 font-bold">¡Máxima escala de Distribuidor alcanzada! (-{discountDistributorPct}%)</span>
-                )}
-              </p>
-            </div>
-
-            {/* Forced Tier Selector */}
-            <div className="flex items-center justify-between text-[11px] pt-1 border-t border-slate-800">
-              <span className="text-slate-400">Forzar escala manual:</span>
-              <select
-                value={forcedTier}
-                onChange={(e) => setForcedTier(e.target.value as any)}
-                className="bg-slate-800 text-white text-xs font-bold px-2 py-1 rounded-lg border border-slate-700 outline-none"
-              >
-                <option value="auto">Automático por Cantidad</option>
-                <option value="list">Fijo Precio Lista (3-9u)</option>
-                <option value="corralon">Fijo Corralón (10-19u)</option>
-                <option value="distributor">Fijo Distribuidor (20+u)</option>
-              </select>
-            </div>
-          </div>
-
           {/* Cart Items Detail */}
           <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-xs space-y-4">
             <div className="flex items-center justify-between">
@@ -1015,7 +965,7 @@ export default function PresupuestosMayoristaPage() {
 
             {cartItems.length === 0 ? (
               <div className="py-10 text-center text-slate-400 text-xs border border-dashed border-slate-200 rounded-2xl">
-                Seleccioná tanques del catálogo de la izquierda para armar el presupuesto.
+                Usá “Agregar productos” para armar el presupuesto con el mismo selector de pedidos.
               </div>
             ) : (
               <div className="space-y-2.5 max-h-[350px] overflow-y-auto pr-1">
@@ -1029,6 +979,7 @@ export default function PresupuestosMayoristaPage() {
                         <div className="font-bold text-slate-900 text-xs leading-tight">
                           {item.name}
                         </div>
+                        {item.allowsCiego && (
                         <div className="flex items-center gap-1.5 mt-1">
                           <button
                             onClick={() => handleToggleVariant(item.id)}
@@ -1042,6 +993,7 @@ export default function PresupuestosMayoristaPage() {
                             {item.variant === "ciego" ? "CIEGO (Sin salida)" : "Estándar (Con salida)"}
                           </button>
                         </div>
+                        )}
                       </div>
 
                       <button
@@ -1147,7 +1099,7 @@ export default function PresupuestosMayoristaPage() {
             {/* Totals Summary */}
             <div className="p-4 bg-slate-900 text-white rounded-2xl space-y-2">
               <div className="flex justify-between text-xs text-slate-400">
-                <span>Subtotal ({totalTanksCount} tanques):</span>
+                <span>Subtotal ({cartItems.reduce((sum, item) => sum + item.quantity, 0)} unidades):</span>
                 <span>${subtotalProducts.toLocaleString("es-AR")}</span>
               </div>
               {totalFreight > 0 && (
@@ -1193,7 +1145,7 @@ export default function PresupuestosMayoristaPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <button
                   onClick={handleSaveWholesaleQuote}
-                  disabled={isCreatingOrder || cartItems.length === 0 || !selectedClient}
+                  disabled={isCreatingOrder || cartItems.length === 0 || !hasLeadIdentity}
                   className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-2xl text-xs font-black transition-all flex items-center justify-center gap-2 shadow-md shadow-emerald-600/20 cursor-pointer"
                 >
                   <FileText className="w-4 h-4" />
@@ -1201,7 +1153,7 @@ export default function PresupuestosMayoristaPage() {
                 </button>
                 <button
                   onClick={handleCreateWholesaleOrder}
-                  disabled={isCreatingOrder || cartItems.length === 0 || !selectedClient}
+                  disabled={isCreatingOrder || cartItems.length === 0 || !hasLeadIdentity}
                   className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-2xl text-xs font-black transition-all flex items-center justify-center gap-2 shadow-md shadow-blue-600/20 cursor-pointer"
                 >
                   {isCreatingOrder ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Package className="w-4 h-4" />}
@@ -1212,6 +1164,21 @@ export default function PresupuestosMayoristaPage() {
           </div>
         </div>
       </div>
+
+      <VisualProductSelectorModal
+        isOpen={showProductSelector}
+        onClose={() => setShowProductSelector(false)}
+        products={visualProducts}
+        orderItems={visualOrderItems}
+        onAddProduct={handleAddVisualProduct}
+        onAddProducts={handleAddVisualProducts}
+        onUpdateQuantity={handleUpdateQuantity}
+        onUpdateCustomPrice={handleUpdateCustomPrice}
+        onRemoveItem={handleRemoveItem}
+        onClearOrderItems={() => setCartItems([])}
+        isAdmin={true}
+        isWholesaleContext={true}
+      />
 
       {/* Modal: Create Client */}
       {showNewClientModal && (
