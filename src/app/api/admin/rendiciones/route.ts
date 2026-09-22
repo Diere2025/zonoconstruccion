@@ -6,10 +6,8 @@ import { createClient } from "@supabase/supabase-js";
 import { fetchSpreadsheetValueRanges } from "@/lib/googleSheets";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false, autoRefreshToken: false } });
-const supabaseAuth = createClient(supabaseUrl, anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
 const SOURCE_SPREADSHEET_ID = "1NEXHZbDJhXCHpsZEyKq3k3rq_O_foLDtct-hvsFeifI";
 const DENOMINATIONS = [
   { denomination: 20000, kind: "bill" }, { denomination: 10000, kind: "bill" },
@@ -51,8 +49,8 @@ type SavePayload = {
 async function authorize(request: Request): Promise<AuthorizationResult> {
   const token = request.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
   if (!token) return { actor: null, reason: "missing_token" };
-  if (!supabaseUrl || !anonKey || !serviceRoleKey) return { actor: null, reason: "server_config" };
-  const { data: { user }, error } = await supabaseAuth.auth.getUser(token);
+  if (!supabaseUrl || !serviceRoleKey) return { actor: null, reason: "server_config" };
+  const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
   if (error || !user) return { actor: null, reason: "invalid_session" };
   let { data: seller } = await supabaseAdmin.from("sellers")
     .select("id, full_name, email, role, roles, is_active").eq("id", user.id).maybeSingle();
