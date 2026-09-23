@@ -81,6 +81,9 @@ export async function POST(request: Request) {
     }
   }
 
+  // This group is dedicated to Meta balance notices; acknowledge its other messages.
+  if (targetChat) return NextResponse.json({ ok: true, ignored: true });
+
   // Keep every existing bot workflow on its current webhook service.
   const existingWebhook = process.env.TELEGRAM_EXISTING_WEBHOOK_URL;
   if (!existingWebhook) return NextResponse.json({ error: 'Falta el webhook existente' }, { status: 503 });
