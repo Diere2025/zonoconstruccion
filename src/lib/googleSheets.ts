@@ -1842,3 +1842,59 @@ export async function formatSheetNoteCell(
   });
 }
 
+export const LOCALITIES_SPREADSHEET_ID = '1iNciz2d6Do7m7weYP5o9gYLIu_F-15vYL933FrAX2cs';
+
+export async function appendLocalityToGoogleSheet(
+  localityName: string,
+  zoneName: string,
+  schedule?: string
+): Promise<{ success: boolean; message?: string }> {
+  try {
+    const token = await getGoogleAccessToken();
+    const range = encodeURIComponent('Localidades!A:C');
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${LOCALITIES_SPREADSHEET_ID}/values/${range}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        range: 'Localidades!A:C',
+        majorDimension: 'ROWS',
+        values: [
+          [localityName, zoneName, schedule || '']
+        ]
+      })
+    });
+
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.warn(`[GoogleSheets] Error al agregar fila en Localidades: ${res.status} ${errorText}`);
+      if (errorText.includes('protected cell') || errorText.includes('protected range') || errorText.includes('edit a protected')) {
+        return {
+          success: false,
+          message: 'La hoja "Localidades" tiene un rango protegido (candado) en Google Sheets. Se requiere permitir a la cuenta de servicio la edición para sincronizar.'
+        };
+      }
+      return {
+        success: false,
+        message: `Google Sheets error (${res.status}): ${errorText}`
+      };
+    }
+
+    return {
+      success: true,
+      message: 'Localidad agregada exitosamente a la planilla de Google Sheets'
+    };
+  } catch (err: any) {
+    console.error('[GoogleSheets] Excepción en appendLocalityToGoogleSheet:', err);
+    return {
+      success: false,
+      message: err.message || 'Error al conectar con Google Sheets'
+    };
+  }
+}
+
+

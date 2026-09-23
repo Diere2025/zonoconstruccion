@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { usePathname } from 'next/navigation';
 import {
   AlertTriangle,
   CheckSquare,
@@ -18,21 +17,25 @@ import {
 import { LogisticsPrintOrder } from '@/lib/logisticsPrintOrders';
 import { LogisticsRemittance } from '@/lib/logisticsRemittances';
 import { waitForPrintImages } from '@/lib/printAssets';
+import { supabase } from '@/lib/supabase';
 import {
   LOGISTICS_MAX_COLUMNS,
+  noteTripFromPastedRows,
   normalizeLogisticsPastedRows,
-  parseLogisticsClipboardText
+  parseQuotedTsv
 } from '@/lib/logisticsPaste';
+import { DEFAULT_ORDER_NOTE_RATES } from '@/lib/logisticsOrderNotes';
 import {
   buildReceiptSheets,
   PerPage,
   PrintableReceipts
 } from '@/components/logistica/LogisticsReceiptsPanel';
 import { PrintableRemittances } from '@/components/logistica/LogisticsRemittancesPanel';
+import { OrderNoteSettings, PrintableOrderNotes } from '@/components/logistica/LogisticsOrderNotesPanel';
 
 type DataSource = 'comprobantes' | 'remitos' | 'pegado';
-type OutputType = 'comprobantes' | 'remitos';
-type PrintStage = 'comprobantes' | 'remitos' | null;
+type OutputType = 'comprobantes' | 'remitos' | 'nota-pedido';
+type PrintStage = OutputType | null;
 
 interface PrintingPayload {
   orders: LogisticsPrintOrder[];
@@ -86,6 +89,17 @@ function emptyGridRow(): string[] {
   return Array(LOGISTICS_MAX_COLUMNS).fill('');
 }
 
+function emptyNoteSettings(): OrderNoteSettings {
+  return {
+    driver: '',
+    companion: '',
+    vehicle: '',
+    departure: '',
+    changeAmount: '',
+    posnetRates: [...DEFAULT_ORDER_NOTE_RATES]
+  };
+}
+
 function ensureTrailingEmptyRow(rows: string[][]): string[][] {
   const lastRow = rows[rows.length - 1];
   const lastRowHasContent = lastRow?.some(cell => String(cell || '').trim());
@@ -118,11 +132,8 @@ function gridColumns(rows: string[][]): GridColumn[] {
 }
 
 export default function LogisticsPrintingPanel() {
-  const pathname = usePathname();
   const initialSource: DataSource = 'pegado';
-  const initialOutput: OutputType = pathname?.endsWith('/remitos') ? 'remitos' : 'comprobantes';
   const [source, setSource] = useState<DataSource>(initialSource);
-  const [outputType, setOutputType] = useState<OutputType>(initialOutput);
   const [perPage, setPerPage] = useState<PerPage>(2);
   const [rawOrders, setRawOrders] = useState<LogisticsPrintOrder[]>([]);
   const [remittances, setRemittances] = useState<LogisticsRemittance[]>([]);
@@ -137,9 +148,74 @@ export default function LogisticsPrintingPanel() {
   const [printStage, setPrintStage] = useState<PrintStage>(null);
   const [printOrders, setPrintOrders] = useState<LogisticsPrintOrder[]>([]);
   const [printRemittances, setPrintRemittances] = useState<LogisticsRemittance[]>([]);
+  const [noteSettings, setNoteSettings] = useState<OrderNoteSettings>(emptyNoteSettings);
+  const [paywayDraft, setPaywayDraft] = useState<string[]>(DEFAULT_ORDER_NOTE_RATES.map(String));
+  const [paywaySavedRates, setPaywaySavedRates] = useState<number[]>([...DEFAULT_ORDER_NOTE_RATES]);
+  const [paywayCanEdit, setPaywayCanEdit] = useState(false);
+  const [paywayStatus, setPaywayStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [paywaySaving, setPaywaySaving] = useState(false);
+  const [paywayMessage, setPaywayMessage] = useState('');
   const [multipleDocumentWarnings, setMultipleDocumentWarnings] = useState<MultipleDocumentWarning[]>([]);
   const [showPrintWarning, setShowPrintWarning] = useState(false);
   const remainingStages = useRef<Exclude<PrintStage, null>[]>([]);
+  const pendingPrintType = useRef<OutputType>('comprobantes');
+
+  const loadPaywayRates = async () => {
+    setPaywayStatus('loading');
+    setPaywayMessage('');
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('Iniciá sesión para consultar los recargos de cuotas.');
+      const response = await fetch('/api/logistica/nota-pedido-config', {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+        cache: 'no-store'
+      });
+      const payload = await response.json() as { rates?: number[]; canEdit?: boolean; error?: string };
+      if (!response.ok || !payload.rates) throw new Error(payload.error || 'No se pudieron cargar los recargos de cuotas.');
+      setPaywaySavedRates(payload.rates);
+      setPaywayDraft(payload.rates.map(String));
+      setPaywayCanEdit(payload.canEdit === true);
+      setNoteSettings(current => ({ ...current, posnetRates: payload.rates! }));
+      setPaywayStatus('ready');
+    } catch (loadError) {
+      setPaywayStatus('error');
+      setPaywayMessage(loadError instanceof Error ? loadError.message : 'No se pudieron cargar los recargos de cuotas.');
+    }
+  };
+
+  useEffect(() => {
+    if (paywayStatus === 'idle') void loadPaywayRates();
+  }, [paywayStatus]);
+
+  const savePaywayRates = async () => {
+    if (!paywayCanEdit || paywaySaving) return;
+    const rates = paywayDraft.map(value => Number(value));
+    if (paywayDraft.some(value => !value.trim()) || rates.some(value => !Number.isFinite(value) || value < 0 || value > 300)) {
+      setPaywayMessage('Ingresá cinco recargos válidos entre 0% y 300%.');
+      return;
+    }
+    setPaywaySaving(true);
+    setPaywayMessage('');
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('La sesión venció. Volvé a iniciar sesión.');
+      const response = await fetch('/api/logistica/nota-pedido-config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ rates })
+      });
+      const payload = await response.json() as { rates?: number[]; error?: string };
+      if (!response.ok || !payload.rates) throw new Error(payload.error || 'No se pudieron guardar los recargos de cuotas.');
+      setPaywaySavedRates(payload.rates);
+      setPaywayDraft(payload.rates.map(String));
+      setNoteSettings(current => ({ ...current, posnetRates: payload.rates! }));
+      setPaywayMessage('Recargos de cuotas guardados.');
+    } catch (saveError) {
+      setPaywayMessage(saveError instanceof Error ? saveError.message : 'No se pudieron guardar los recargos de cuotas.');
+    } finally {
+      setPaywaySaving(false);
+    }
+  };
 
   const orders = useMemo(() => ignoreEncCodes
     ? rawOrders.filter(order => !order.codes.some(code => /^ENC/i.test(code)))
@@ -223,7 +299,7 @@ export default function LogisticsPrintingPanel() {
     let pageStyle: HTMLStyleElement | null = null;
     let cancelled = false;
     let timer: number | null = null;
-    if (printStage === 'remitos') {
+    if (printStage === 'remitos' || printStage === 'nota-pedido') {
       pageStyle = document.createElement('style');
       pageStyle.dataset.unifiedLogisticsPrint = 'true';
       pageStyle.textContent = '@media print { @page { size: A4 landscape; margin: 0; } }';
@@ -231,7 +307,9 @@ export default function LogisticsPrintingPanel() {
     }
     const rootId = printStage === 'remitos'
       ? 'print-legal-remittances-root'
-      : 'print-logistics-receipts-root';
+      : printStage === 'nota-pedido'
+        ? 'print-order-notes-root'
+        : 'print-logistics-receipts-root';
     void waitForPrintImages(rootId).then(() => {
       if (!cancelled) timer = window.setTimeout(() => window.print(), 50);
     });
@@ -250,6 +328,7 @@ export default function LogisticsPrintingPanel() {
   }, [orders, search]);
 
   const selectedOrders = useMemo(() => orders.filter(order => selected.has(order.id)), [orders, selected]);
+  const paywayDirty = paywayCanEdit && paywayDraft.some((value, index) => !value.trim() || Number(value) !== paywaySavedRates[index]);
   const selectedRemittances = useMemo(() => {
     const codes = new Set(selectedOrders.flatMap(order => order.codes));
     return remittances.filter(remittance => remittance.orderCodes.some(code => codes.has(code)));
@@ -271,18 +350,27 @@ export default function LogisticsPrintingPanel() {
 
   const handlePaste = (event: React.ClipboardEvent<HTMLDivElement>) => {
     const html = event.clipboardData.getData('text/html');
-    let rows: string[][] = [];
+    let clipboardRows: string[][] = [];
     if (html) {
       const documentFragment = new DOMParser().parseFromString(html, 'text/html');
-      const tableRows = Array.from(documentFragment.querySelectorAll('table tr')).map(tableRow =>
+      clipboardRows = Array.from(documentFragment.querySelectorAll('table tr')).map(tableRow =>
         Array.from(tableRow.querySelectorAll('th, td')).map(cell => cell.textContent || '')
       );
-      rows = normalizeLogisticsPastedRows(tableRows);
     }
-    if (rows.length === 0) rows = parseLogisticsClipboardText(event.clipboardData.getData('text/plain'));
+    if (clipboardRows.length === 0) clipboardRows = parseQuotedTsv(event.clipboardData.getData('text/plain'));
+    const rows = normalizeLogisticsPastedRows(clipboardRows);
     if (rows.length === 0) return;
     event.preventDefault();
     const existingRows = pastedRows.filter(row => row.some(cell => String(cell || '').trim()));
+    if (existingRows.length === 0) {
+      const trip = noteTripFromPastedRows(clipboardRows);
+      if (trip) setNoteSettings(current => ({
+        ...current,
+        driver: trip.driver || current.driver,
+        vehicle: trip.vehicle || current.vehicle,
+        companion: trip.companion || current.companion
+      }));
+    }
     const combinedRows = existingRows.length > 0 ? [...existingRows, ...rows] : rows;
     setSource('pegado');
     setPastedRows(ensureTrailingEmptyRow(combinedRows));
@@ -305,6 +393,7 @@ export default function LogisticsPrintingPanel() {
     setSelected(new Set());
     setSearch('');
     setError('');
+    setNoteSettings(current => ({ ...emptyNoteSettings(), posnetRates: current.posnetRates }));
   };
 
   const updateCell = (rowIndex: number, columnIndex: number, value: string) => {
@@ -345,20 +434,24 @@ export default function LogisticsPrintingPanel() {
     }
   };
 
-  const startPrint = () => {
+  const startPrint = (type: OutputType) => {
     if (selectedOrders.length === 0) return;
-    const stages: Exclude<PrintStage, null>[] = [outputType];
     setPrintOrders(selectedOrders);
     setPrintRemittances(selectedRemittances);
-    setPrintStage(stages.shift() || null);
-    remainingStages.current = stages;
+    setPrintStage(type);
+    remainingStages.current = [];
   };
 
-  const handlePrint = () => {
+  const handlePrint = (type: OutputType) => {
     if (selectedOrders.length === 0) return;
+    if (type === 'nota-pedido') {
+      if (paywayStatus !== 'ready' || paywaySaving || paywayDirty) return;
+      startPrint(type);
+      return;
+    }
     const counts = new Map<string, number>();
 
-    if (outputType === 'remitos') {
+    if (type === 'remitos') {
       for (const remittance of selectedRemittances) {
         const code = remittance.orderCode || remittance.sheetLabel;
         counts.set(code, (counts.get(code) || 0) + 1);
@@ -372,14 +465,15 @@ export default function LogisticsPrintingPanel() {
 
     const warnings = Array.from(counts.entries())
       .filter(([, count]) => count > 1)
-      .map(([code, count]) => ({ code, count, documentLabel: outputType }));
+      .map(([code, count]) => ({ code, count, documentLabel: type }));
 
     if (warnings.length > 0) {
+      pendingPrintType.current = type;
       setMultipleDocumentWarnings(warnings);
       setShowPrintWarning(true);
       return;
     }
-    startPrint();
+    startPrint(type);
   };
 
   return (
@@ -388,7 +482,7 @@ export default function LogisticsPrintingPanel() {
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div>
             <h2 className="text-sm font-black text-slate-900">Origen y formato de impresión</h2>
-            <p className="mt-1 text-[11px] font-semibold text-slate-500">Elegí de dónde leer los pedidos y qué documentos generar para la selección.</p>
+            <p className="mt-1 text-[11px] font-semibold text-slate-500">Elegí el origen y después imprimí directamente el documento que necesitás.</p>
           </div>
           <div className="flex flex-wrap items-end gap-3">
             <label>
@@ -400,21 +494,12 @@ export default function LogisticsPrintingPanel() {
               </select>
             </label>
             <label>
-              <span className="mb-1 block text-[9px] font-black uppercase tracking-wider text-slate-400">Imprimir</span>
-              <select value={outputType} onChange={event => setOutputType(event.target.value as OutputType)} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 outline-none">
-                <option value="comprobantes">Comprobantes</option>
-                <option value="remitos">Remitos</option>
+              <span className="mb-1 block text-[9px] font-black uppercase tracking-wider text-slate-400">Comprobantes por hoja</span>
+              <select value={perPage} onChange={event => setPerPage(Number(event.target.value) as PerPage)} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 outline-none">
+                <option value={1}>1 por hoja</option>
+                <option value={2}>2 por hoja</option>
               </select>
             </label>
-            {outputType === 'comprobantes' && (
-              <label>
-                <span className="mb-1 block text-[9px] font-black uppercase tracking-wider text-slate-400">Comprobantes por hoja</span>
-                <select value={perPage} onChange={event => setPerPage(Number(event.target.value) as PerPage)} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 outline-none">
-                  <option value={1}>1 por hoja</option>
-                  <option value={2}>2 por hoja</option>
-                </select>
-              </label>
-            )}
             <label className="flex h-[34px] items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-[10px] font-black uppercase text-slate-700">
               <input type="checkbox" checked={ignoreEncCodes} onChange={event => toggleIgnoreEncCodes(event.target.checked)} className="h-4 w-4 accent-slate-900" />
               Ignorar códigos ENC
@@ -424,11 +509,78 @@ export default function LogisticsPrintingPanel() {
                 <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} /> Actualizar
               </button>
             )}
-            <button type="button" onClick={handlePrint} disabled={selectedOrders.length === 0 || loading || printStage !== null} className="flex items-center gap-1.5 rounded-xl bg-slate-900 px-4 py-2 text-xs font-black text-white hover:bg-black disabled:cursor-not-allowed disabled:opacity-40">
-              <Printer className="h-3.5 w-3.5" /> Imprimir {selectedOrders.length || ''}
-            </button>
           </div>
         </div>
+        <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-200 pt-4">
+          <span className="mr-1 text-[10px] font-black uppercase tracking-wide text-slate-500">Imprimir selección</span>
+          <button type="button" onClick={() => handlePrint('comprobantes')} disabled={selectedOrders.length === 0 || loading || printStage !== null} className="flex items-center gap-1.5 rounded-xl bg-slate-900 px-4 py-2 text-xs font-black text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40">
+            <Printer className="h-3.5 w-3.5" /> Comprobantes
+          </button>
+          <button type="button" onClick={() => handlePrint('remitos')} disabled={selectedOrders.length === 0 || selectedRemittances.length === 0 || loading || printStage !== null} className="flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-black text-slate-800 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40">
+            <Printer className="h-3.5 w-3.5" /> Remitos
+          </button>
+          <button type="button" onClick={() => handlePrint('nota-pedido')} disabled={selectedOrders.length === 0 || loading || printStage !== null || paywayStatus !== 'ready' || paywaySaving || paywayDirty} className="flex items-center gap-1.5 rounded-xl border border-blue-300 bg-blue-50 px-4 py-2 text-xs font-black text-blue-900 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-40">
+            <Printer className="h-3.5 w-3.5" /> Nota de pedidos
+          </button>
+          {selectedOrders.length > 0 && <span className="ml-auto text-[10px] font-bold text-slate-500">{selectedOrders.length} {selectedOrders.length === 1 ? 'pedido seleccionado' : 'pedidos seleccionados'}</span>}
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-4">
+          <h3 className="text-xs font-black text-slate-800">Datos de la nota de pedidos</h3>
+          <p className="mt-1 text-[10px] font-semibold text-slate-500">La fecha y los importes se toman de los pedidos seleccionados. Si la planilla pegada incluye datos del viaje, se completan automáticamente.</p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            {([
+              ['driver', 'Chofer'],
+              ['companion', 'Acompañante'],
+              ['vehicle', 'Vehículo'],
+              ['departure', 'Salida'],
+              ['changeAmount', 'Lleva cambio ($)']
+            ] as const).map(([field, label]) => (
+              <label key={field} className="block">
+                <span className="mb-1 block text-[9px] font-black uppercase tracking-wider text-slate-500">{label}</span>
+                <input
+                  type={field === 'changeAmount' ? 'number' : 'text'}
+                  min={field === 'changeAmount' ? 0 : undefined}
+                  value={noteSettings[field]}
+                  onChange={event => setNoteSettings(current => ({ ...current, [field]: event.target.value }))}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:border-blue-500"
+                />
+              </label>
+            ))}
+          </div>
+          <div className="mt-3 flex flex-wrap items-end gap-3 border-t border-slate-100 pt-3">
+            <div className="min-w-40 pb-1">
+              <span className="block text-[10px] font-black text-slate-700">Recargos de cuotas</span>
+              <span className="text-[10px] text-slate-500">{paywayCanEdit ? 'Configuración compartida · solo administradores' : 'Configurados por administración'}</span>
+            </div>
+            {['PAYWAY 1 cuota', 'PAYWAY 3 cuotas', 'PAYWAY 6 cuotas', 'PAYWAY 12 cuotas', 'Cuota Simple 6 cuotas'].map((label, index) => (
+              <label key={label}>
+                <span className="mb-1 block text-[9px] font-black uppercase tracking-wider text-slate-500">{label}</span>
+                <div className={`flex items-center rounded-xl border px-2 ${paywayCanEdit ? 'border-slate-200' : 'border-slate-100 bg-slate-50'}`}>
+                  <input
+                    type="number"
+                    min="0"
+                    max="300"
+                    step="0.01"
+                    value={paywayDraft[index]}
+                    disabled={!paywayCanEdit || paywayStatus !== 'ready' || paywaySaving}
+                    onChange={event => setPaywayDraft(current => current.map((value, rateIndex) => rateIndex === index ? event.target.value : value))}
+                    className="w-14 bg-transparent py-2 text-right text-xs font-bold text-slate-700 outline-none disabled:opacity-75"
+                  />
+                  <span className="text-xs font-bold text-slate-500">%</span>
+                </div>
+              </label>
+            ))}
+            {paywayCanEdit && (
+              <button type="button" onClick={savePaywayRates} disabled={paywaySaving || paywayStatus !== 'ready' || !paywayDirty} className="rounded-xl bg-blue-600 px-3 py-2 text-[10px] font-black text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40">
+                {paywaySaving ? 'Guardando...' : 'Guardar recargos'}
+              </button>
+            )}
+            {paywayStatus === 'error' && <button type="button" onClick={loadPaywayRates} className="rounded-xl border border-rose-200 px-3 py-2 text-[10px] font-black text-rose-700">Reintentar</button>}
+          </div>
+          {paywayDirty && <p className="mt-2 text-[10px] font-semibold text-amber-700">Guardá los nuevos recargos de cuotas antes de imprimir.</p>}
+          {paywayMessage && <p className={`mt-2 text-[10px] font-bold ${paywayMessage.includes('guardados') ? 'text-emerald-700' : 'text-rose-700'}`}>{paywayMessage}</p>}
       </section>
 
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
@@ -514,6 +666,7 @@ export default function LogisticsPrintingPanel() {
 
       {printStage === 'comprobantes' && <PrintableReceipts sheets={receiptSheets} />}
       {printStage === 'remitos' && <PrintableRemittances remittances={printRemittances} />}
+      {printStage === 'nota-pedido' && <PrintableOrderNotes orders={printOrders} settings={noteSettings} />}
 
       {showPrintWarning && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
@@ -537,7 +690,7 @@ export default function LogisticsPrintingPanel() {
             </div>
             <div className="mt-5 flex justify-end gap-2">
               <button type="button" onClick={() => setShowPrintWarning(false)} className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-black text-slate-600 hover:bg-slate-50">Cancelar</button>
-              <button type="button" onClick={() => { setShowPrintWarning(false); startPrint(); }} className="flex items-center gap-1.5 rounded-xl bg-amber-600 px-4 py-2 text-xs font-black text-white hover:bg-amber-700">
+              <button type="button" onClick={() => { setShowPrintWarning(false); startPrint(pendingPrintType.current); }} className="flex items-center gap-1.5 rounded-xl bg-amber-600 px-4 py-2 text-xs font-black text-white hover:bg-amber-700">
                 <Printer className="h-3.5 w-3.5" /> Continuar e imprimir
               </button>
             </div>

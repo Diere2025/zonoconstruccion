@@ -59,6 +59,7 @@ import ImportWhatsAppBudgetModal from "@/components/vendedores/ImportWhatsAppBud
 import PrintableOrderModal, { PrintableOrderData } from "@/components/vendedores/PrintableOrderModal";
 import ViewOrderModal from "@/components/vendedores/ViewOrderModal";
 import WholesaleClientModal, { WholesaleClientOption } from "@/components/vendedores/WholesaleClientModal";
+import AddLocalityModal, { ZoneOption } from "@/components/vendedores/AddLocalityModal";
 import { cn, formatPrice, cleanDeliveryNotes } from "@/lib/utils";
 import { calculateBulkPrices } from "@/lib/erp/prices";
 import { createBulkStockTransactions } from "@/lib/erp/stock";
@@ -1286,6 +1287,7 @@ export default function PedidosPage() {
   // DB Entity lists
   const [clients, setClients] = useState<Client[]>([]);
   const [localities, setLocalities] = useState<Locality[]>([]);
+  const [zones, setZones] = useState<ZoneOption[]>([]);
   const [clientAddresses, setClientAddresses] = useState<Address[]>([]);
   const [deliveryTimes, setDeliveryTimes] = useState<DeliveryTime[]>([]);
 
@@ -1692,6 +1694,63 @@ export default function PedidosPage() {
   const [linkMaps, setLinkMaps] = useState("");
   
   const [flete, setFlete] = useState("");
+
+  // New Locality Modal State
+  const [isAddLocalityModalOpen, setIsAddLocalityModalOpen] = useState(false);
+  const [initialLocalityModalName, setInitialLocalityModalName] = useState("");
+
+  const handleOpenAddLocalityModal = async (initialName?: string) => {
+    setInitialLocalityModalName(initialName !== undefined ? initialName : localitySearch);
+    setIsLocalityDropdownOpen(false);
+    setIsAddLocalityModalOpen(true);
+
+    if (zones.length === 0) {
+      try {
+        const { data, error } = await supabase
+          .from('zones')
+          .select('id, name, delivery_schedule, delivery_time_id, delivery_times(name, description, delivery_days), is_active, color')
+          .eq('is_active', true)
+          .order('name');
+        if (!error && data) {
+          const mappedZones: ZoneOption[] = (data || []).map((z: any) => ({
+            id: z.id,
+            name: z.name,
+            delivery_schedule: z.delivery_schedule,
+            delivery_time_id: z.delivery_time_id,
+            delivery_times: Array.isArray(z.delivery_times) ? z.delivery_times[0] : z.delivery_times,
+            is_active: z.is_active,
+            color: z.color
+          }));
+          setZones(mappedZones);
+          try {
+            sessionStorage.setItem("cached_pedidos_zones", JSON.stringify(mappedZones));
+          } catch (e) {}
+        }
+      } catch (err) {
+        console.error("Error al cargar zonas:", err);
+      }
+    }
+  };
+
+  const handleLocalityCreated = (newLoc: any) => {
+    setLocalities(prev => {
+      const exists = prev.some(l => l.id === newLoc.id);
+      const updated = exists
+        ? prev.map(l => l.id === newLoc.id ? newLoc : l)
+        : [...prev, newLoc].sort((a, b) => a.name.localeCompare(b.name));
+      try {
+        sessionStorage.setItem("cached_pedidos_localities", JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+
+    setLocalidadId(newLoc.id);
+    setLocalitySearch(newLoc.name);
+
+    if (newLoc.zones?.delivery_times?.name) {
+      setFlete(newLoc.zones.delivery_times.name);
+    }
+  };
 
   // Helper to extract coordinates from Google Maps link
   const parseCoordinates = (link: string) => {
@@ -2656,6 +2715,10 @@ export default function PedidosPage() {
           setProducts(validCachedProducts);
           setClients(JSON.parse(cachedClients));
           setLocalities(JSON.parse(cachedLocalities));
+          const cachedZones = sessionStorage.getItem("cached_pedidos_zones");
+          if (cachedZones) {
+            try { setZones(JSON.parse(cachedZones)); } catch (e) {}
+          }
           setDeliveryTimes(JSON.parse(cachedDt));
           if (cachedKits) setKits(JSON.parse(cachedKits));
           try {
@@ -2885,6 +2948,11 @@ export default function PedidosPage() {
         if (payload.localities) {
           setLocalities(payload.localities);
           sessionStorage.setItem("cached_pedidos_localities", JSON.stringify(payload.localities));
+        }
+
+        if (payload.zones) {
+          setZones(payload.zones);
+          sessionStorage.setItem("cached_pedidos_zones", JSON.stringify(payload.zones));
         }
 
         if (payload.deliveryTimes) {
@@ -6718,68 +6786,126 @@ export default function PedidosPage() {
               <div className="space-y-3">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div className="space-y-1 relative">
-                    <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Localidad *</label>
-                    <div className="relative">
-                      <input
-                        type="text"
-                        placeholder="Buscar localidad..."
-                        value={localitySearch}
-                        onChange={e => {
-                          setLocalitySearch(e.target.value);
-                          setIsLocalityDropdownOpen(true);
-                        }}
-                        onFocus={() => {
-                          setIsLocalityDropdownOpen(true);
-                          setLocalitySearch("");
-                        }}
-                        onBlur={() => {
-                          setTimeout(() => {
-                            setIsLocalityDropdownOpen(false);
-                            const selected = localities.find(l => l.id === localidadId);
-                            if (selected) {
-                              setLocalitySearch(selected.name);
-                            } else {
-                              setLocalitySearch("");
-                            }
-                          }, 200);
-                        }}
-                        className="w-full pl-2.5 pr-8 py-1.5 rounded-lg border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 transition-all cursor-pointer"
-                        required={!localidadId}
-                      />
-                      <Search className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
-                      
-                      {isLocalityDropdownOpen && (
-                        <div className="absolute left-0 right-0 mt-1 max-h-48 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg z-50 py-1">
-                          {localities.filter(l => 
-                            l.name.toLowerCase().includes(localitySearch.toLowerCase())
-                          ).length === 0 ? (
-                            <p className="text-[10px] text-slate-400 font-bold p-2 text-center">No se encontraron localidades</p>
-                          ) : (
-                            localities
-                              .filter(l => 
+                    <div className="flex items-center justify-between">
+                      <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Localidad *</label>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenAddLocalityModal(localitySearch)}
+                        className="inline-flex items-center gap-1 text-[10px] font-bold text-brand-600 hover:text-brand-700 hover:underline transition-colors cursor-pointer"
+                        title="Agregar nueva localidad con zona"
+                      >
+                        <Plus className="w-3 h-3 stroke-[2.5]" />
+                        <span>Nueva Localidad</span>
+                      </button>
+                    </div>
+                    <div className="flex gap-1.5">
+                      <div className="relative flex-1">
+                        <input
+                          type="text"
+                          placeholder="Buscar localidad..."
+                          value={localitySearch}
+                          onChange={e => {
+                            setLocalitySearch(e.target.value);
+                            setIsLocalityDropdownOpen(true);
+                          }}
+                          onFocus={() => {
+                            setIsLocalityDropdownOpen(true);
+                            setLocalitySearch("");
+                          }}
+                          onBlur={() => {
+                            setTimeout(() => {
+                              setIsLocalityDropdownOpen(false);
+                              const selected = localities.find(l => l.id === localidadId);
+                              if (selected) {
+                                setLocalitySearch(selected.name);
+                              } else {
+                                setLocalitySearch("");
+                              }
+                            }, 250);
+                          }}
+                          className="w-full pl-2.5 pr-8 py-1.5 rounded-lg border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 transition-all cursor-pointer"
+                          required={!localidadId}
+                        />
+                        <Search className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                        
+                        {isLocalityDropdownOpen && (
+                          <div className="absolute left-0 right-0 mt-1 max-h-56 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg z-50 py-1">
+                            {(() => {
+                              const filtered = localities.filter(l => 
                                 l.name.toLowerCase().includes(localitySearch.toLowerCase())
-                              )
-                              .map(l => (
-                                <button
-                                  key={l.id}
-                                  type="button"
-                                  onMouseDown={() => {
-                                    setLocalidadId(l.id);
-                                    setLocalitySearch(l.name);
-                                    setIsLocalityDropdownOpen(false);
-                                  }}
-                                  className={`w-full px-2.5 py-1.5 text-left text-[10px] font-bold transition-all block ${
-                                    localidadId === l.id 
-                                      ? 'bg-brand-50 text-brand-700 font-black' 
-                                      : 'text-slate-700 hover:bg-slate-50'
-                                  }`}
-                                >
-                                  {l.name}
-                                </button>
-                              ))
-                          )}
-                        </div>
-                      )}
+                              );
+                              if (filtered.length === 0) {
+                                return (
+                                  <div className="p-3 text-center space-y-2">
+                                    <p className="text-[11px] text-slate-400 font-bold">No se encontró &ldquo;{localitySearch}&rdquo;</p>
+                                    <button
+                                      type="button"
+                                      onMouseDown={(e) => {
+                                        e.preventDefault();
+                                        handleOpenAddLocalityModal(localitySearch);
+                                      }}
+                                      className="w-full inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 bg-brand-50 hover:bg-brand-100 text-brand-700 text-xs font-bold rounded-lg border border-brand-200 transition-colors cursor-pointer"
+                                    >
+                                      <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                                      <span>Agregar &ldquo;{localitySearch.trim() || 'nueva localidad'}&rdquo;</span>
+                                    </button>
+                                  </div>
+                                );
+                              }
+
+                              return (
+                                <>
+                                  {filtered.map(l => (
+                                    <button
+                                      key={l.id}
+                                      type="button"
+                                      onMouseDown={() => {
+                                        setLocalidadId(l.id);
+                                        setLocalitySearch(l.name);
+                                        setIsLocalityDropdownOpen(false);
+                                      }}
+                                      className={`w-full px-2.5 py-1.5 text-left text-[10px] font-bold transition-all flex items-center justify-between ${
+                                        localidadId === l.id 
+                                          ? 'bg-brand-50 text-brand-700 font-black' 
+                                          : 'text-slate-700 hover:bg-slate-50'
+                                      }`}
+                                    >
+                                      <span>{l.name}</span>
+                                      {l.zones?.name && (
+                                        <span className="text-[9px] font-semibold text-slate-400">
+                                          {l.zones.name}
+                                        </span>
+                                      )}
+                                    </button>
+                                  ))}
+                                  <div className="border-t border-slate-100 mt-1 pt-1 px-1">
+                                    <button
+                                      type="button"
+                                      onMouseDown={(e) => {
+                                        e.preventDefault();
+                                        handleOpenAddLocalityModal(localitySearch);
+                                      }}
+                                      className="w-full inline-flex items-center gap-1.5 px-2 py-1.5 text-left text-[10px] font-bold text-brand-600 hover:bg-brand-50 rounded transition-colors cursor-pointer"
+                                    >
+                                      <Plus className="w-3 h-3 stroke-[2.5]" />
+                                      <span>+ Agregar nueva localidad...</span>
+                                    </button>
+                                  </div>
+                                </>
+                              );
+                            })()}
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenAddLocalityModal(localitySearch)}
+                        className="px-2.5 py-1.5 bg-brand-50 hover:bg-brand-100 border border-brand-200 text-brand-700 font-bold rounded-lg text-xs transition-all duration-200 active:scale-95 flex items-center justify-center gap-1 shrink-0 cursor-pointer shadow-xs"
+                        title="Agregar nueva localidad con zona"
+                      >
+                        <Plus className="w-4 h-4 text-brand-600 stroke-[2.5]" />
+                        <span className="hidden sm:inline text-[11px]">Agregar</span>
+                      </button>
                     </div>
                     <input type="hidden" required value={localidadId ?? ""} onChange={() => {}} />
                     {(() => {
@@ -10854,6 +10980,15 @@ export default function PedidosPage() {
           setIsPrintOrderModalOpen(false);
           handleEditOrder(ord);
         }}
+      />
+
+      {/* MODAL PARA AGREGAR NUEVA LOCALIDAD Y ASIGNAR ZONA */}
+      <AddLocalityModal
+        isOpen={isAddLocalityModalOpen}
+        onClose={() => setIsAddLocalityModalOpen(false)}
+        zones={zones}
+        initialName={initialLocalityModalName}
+        onLocalityCreated={handleLocalityCreated}
       />
     </div>
   );

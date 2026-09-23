@@ -222,6 +222,283 @@
   display: none;
 }
 
+#print-order-notes-root {
+  display: none;
+}
+
+@media print {
+  @page order-notes {
+    size: A4 landscape;
+    margin: 0;
+  }
+
+  body:has(#print-order-notes-root:not(:empty)) > :not(#print-order-notes-root) {
+    display: none !important;
+  }
+
+  #print-order-notes-root,
+  #print-order-notes-root * {
+    box-sizing: border-box !important;
+    print-color-adjust: exact !important;
+    -webkit-print-color-adjust: exact !important;
+  }
+
+  #print-order-notes-root {
+    display: block !important;
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+    width: 100% !important;
+    background: #fff !important;
+    z-index: 1000002 !important;
+  }
+
+  .order-note-sheet {
+    page: order-notes;
+    width: 297mm !important;
+    height: 210mm !important;
+    padding: 8mm !important;
+    overflow: hidden !important;
+    background: #fff !important;
+    font-family: Arial, Helvetica, sans-serif !important;
+    color: #17212e !important;
+    page-break-after: always !important;
+    break-after: page !important;
+  }
+
+  .order-note-sheet:last-child {
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+
+  .order-note-header {
+    display: flex !important;
+    align-items: flex-start !important;
+    justify-content: space-between !important;
+    height: 17mm !important;
+    padding-bottom: 3mm !important;
+    border-bottom: 0.55mm solid #17212e !important;
+  }
+
+  .order-note-eyebrow {
+    font-size: 7pt !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.11em !important;
+    color: #586575 !important;
+  }
+
+  .order-note-eyebrow span {
+    margin: 0 1mm !important;
+    color: #9aa4ae !important;
+  }
+
+  .order-note-header h1 {
+    margin: 1.5mm 0 0 !important;
+    font-size: 18pt !important;
+    line-height: 1 !important;
+    font-weight: 800 !important;
+    letter-spacing: -0.025em !important;
+  }
+
+  .order-note-header-right {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-end !important;
+    gap: 0.5mm !important;
+    text-align: right !important;
+  }
+
+  .order-note-header-right span {
+    font-size: 7pt !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.1em !important;
+    color: #586575 !important;
+  }
+
+  .order-note-header-right strong {
+    font-size: 11pt !important;
+  }
+
+  .order-note-header-right small {
+    font-size: 7pt !important;
+    color: #586575 !important;
+  }
+
+  .order-note-meta {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 5mm !important;
+    margin: 4mm 0 5mm !important;
+  }
+
+  .order-note-meta-group {
+    border: 0.2mm solid #c7ced6 !important;
+    border-radius: 1.5mm !important;
+    overflow: hidden !important;
+  }
+
+  .order-note-meta-group > div {
+    display: grid !important;
+    grid-template-columns: 31mm 1fr !important;
+    height: 6.5mm !important;
+    align-items: center !important;
+    border-bottom: 0.2mm solid #dce1e6 !important;
+    font-size: 8.5pt !important;
+  }
+
+  .order-note-meta-group > div:last-child {
+    border-bottom: 0 !important;
+  }
+
+  .order-note-meta-group b {
+    height: 100% !important;
+    padding: 1.5mm 2.5mm !important;
+    background: #f0f3f6 !important;
+    border-right: 0.2mm solid #dce1e6 !important;
+    color: #4f5b68 !important;
+    font-size: 7pt !important;
+    font-weight: 700 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.04em !important;
+  }
+
+  .order-note-meta-group span {
+    overflow: hidden !important;
+    padding: 1mm 2.5mm !important;
+    white-space: nowrap !important;
+    text-overflow: ellipsis !important;
+    font-weight: 700 !important;
+  }
+
+  .order-note-table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    table-layout: fixed !important;
+    font-size: 8pt !important;
+  }
+
+  .order-note-table th,
+  .order-note-table td {
+    border: 0.2mm solid #c7ced6 !important;
+    padding: 0.8mm 1.2mm !important;
+  }
+
+  .order-note-table th {
+    height: 11mm !important;
+    background: #e9eef2 !important;
+    color: #273442 !important;
+    font-size: 7.3pt !important;
+    font-weight: 700 !important;
+    text-align: center !important;
+    vertical-align: middle !important;
+  }
+
+  .order-note-table .order-note-posnet-heading th {
+    height: 4mm !important;
+    padding: 0.5mm !important;
+    border: 0 !important;
+    background: transparent !important;
+  }
+
+  .order-note-table .order-note-posnet-heading th:nth-child(2) {
+    border: 0.2mm solid #c7ced6 !important;
+    border-bottom: 0 !important;
+    background: #dde6ee !important;
+    color: #4f5b68 !important;
+    font-size: 6.5pt !important;
+    letter-spacing: 0.09em !important;
+  }
+
+  .order-note-table .order-note-posnet-heading .order-note-cuota-heading {
+    border: 0.2mm solid #c7ced6 !important;
+    border-bottom: 0 !important;
+    background: #e6ebf1 !important;
+    color: #4f5b68 !important;
+    font-size: 6pt !important;
+    letter-spacing: 0.04em !important;
+    white-space: nowrap !important;
+  }
+
+  .order-note-table .order-note-installment {
+    background: #e7eef4 !important;
+    border-left-color: #aebcca !important;
+    font-size: 7.7pt !important;
+  }
+
+  .order-note-table .order-note-cuota-column {
+    background: #edf1f5 !important;
+    font-size: 7pt !important;
+  }
+
+  .order-note-table .order-note-delivery-heading {
+    font-size: 6.8pt !important;
+  }
+
+  .order-note-table tbody tr {
+    height: 6.1mm !important;
+    break-inside: avoid !important;
+  }
+
+  .order-note-table tbody tr:nth-child(even) {
+    background: #f7f9fa !important;
+  }
+
+  .order-note-table td {
+    overflow: hidden !important;
+    white-space: nowrap !important;
+    text-overflow: ellipsis !important;
+  }
+
+  .order-note-table .order-note-number {
+    text-align: center !important;
+    color: #586575 !important;
+    font-weight: 700 !important;
+  }
+
+  .order-note-table .order-note-amount {
+    text-align: center !important;
+    font-variant-numeric: tabular-nums !important;
+  }
+
+  .order-note-table td:nth-child(5) {
+    font-weight: 700 !important;
+  }
+
+  .order-note-table .order-note-posnet {
+    background: #f2f6f9 !important;
+    border-left-color: #aebcca !important;
+  }
+
+  .order-note-table .order-note-cuota-amount {
+    background: #f6f8fa !important;
+    border-left-color: #aebcca !important;
+  }
+
+  .order-note-table .order-note-selected-option {
+    background: #dce8f0 !important;
+    font-weight: 800 !important;
+  }
+
+  .order-note-selected-mark {
+    color: #253b4d !important;
+    font-size: 8pt !important;
+    line-height: 1 !important;
+  }
+
+  .order-note-table .order-note-delivery {
+    background: #fff !important;
+  }
+
+  .order-note-footer {
+    display: flex !important;
+    justify-content: space-between !important;
+    margin-top: 4mm !important;
+    padding-top: 2mm !important;
+    border-top: 0.2mm solid #c7ced6 !important;
+    color: #667381 !important;
+    font-size: 7pt !important;
+  }
+}
+
 @media print {
   @page logistics-receipts {
     size: A4 portrait;
