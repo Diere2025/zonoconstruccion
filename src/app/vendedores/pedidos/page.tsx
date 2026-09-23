@@ -1837,8 +1837,10 @@ export default function PedidosPage() {
 
   const activePaymentMethods = useMemo(() => {
     const seen = new Set<string>();
-    const list = (dbPaymentMethods || [])
+    // Excluir opciones individuales de Payway para agruparlas bajo la opción principal "Payway"
+    const nonPaywayList = (dbPaymentMethods || [])
       .filter(pm => pm.is_active !== false)
+      .filter(pm => !(pm.name || '').toLowerCase().includes('payway'))
       .filter(pm => {
         const key = (pm.name || '').trim().toLowerCase();
         if (!key || seen.has(key)) return false;
@@ -1846,14 +1848,37 @@ export default function PedidosPage() {
         return true;
       });
 
-    return list.sort((a, b) => {
+    const hasPayway = (dbPaymentMethods || []).some(pm => (pm.name || '').toLowerCase().includes('payway'));
+    if (hasPayway) {
+      nonPaywayList.push({
+        id: 'payway_group',
+        name: 'Payway',
+        surcharge_percentage: 0,
+        installments: 1
+      });
+    }
+
+    return nonPaywayList.sort((a, b) => {
       const isCashA = a.id === "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3" || (a.name || "").toLowerCase().includes("efectivo");
       const isCashB = b.id === "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3" || (b.name || "").toLowerCase().includes("efectivo");
       if (isCashA && !isCashB) return -1;
       if (!isCashA && isCashB) return 1;
-      return (a.name || "").localeCompare(b.name || "");
+      return (a.name || "").localeCompare(b.name || "", undefined, { numeric: true });
     });
   }, [dbPaymentMethods]);
+
+  const getPaywayMethodByInstallments = (inst: number) => {
+    return (
+      (dbPaymentMethods || []).find(m => (m.name || '').toLowerCase().includes('payway') && m.installments === inst) ||
+      (dbPaymentMethods || []).find(m => (m.name || '').toLowerCase().includes('payway'))
+    );
+  };
+
+  const isPaywayPaymentMethod = (methodId: string) => {
+    if (methodId === 'payway_group') return true;
+    const pm = (dbPaymentMethods || []).find(m => m.id === methodId);
+    return !!(pm && (pm.name || '').toLowerCase().includes('payway'));
+  };
   const [isFreeShipping, setIsFreeShipping] = useState(true);
   const [shippingCost, setShippingCost] = useState<number>(0);
   const [includeIVA, setIncludeIVA] = useState(false);
@@ -1990,7 +2015,7 @@ export default function PedidosPage() {
     if (matched) {
       const isCard = matched.id !== "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3" && 
                      ((matched.surcharge_percentage || 0) > 0 || 
-                      (matched.name && (matched.name.toLowerCase().includes("tarjeta") || matched.name.toLowerCase().includes("cuota") || matched.name.toLowerCase().includes("link"))));
+                      (matched.name && (matched.name.toLowerCase().includes("tarjeta") || matched.name.toLowerCase().includes("cuota") || matched.name.toLowerCase().includes("link") || matched.name.toLowerCase().includes("payway"))));
       const surcharge = isCard 
         ? (paymentsList[0]?.card_surcharge !== undefined ? paymentsList[0].card_surcharge : (matched.surcharge_percentage || 0))
         : 0;
@@ -4760,7 +4785,7 @@ export default function PedidosPage() {
     // If it's a card method (excluding the default cash/transfer ID and checking for card-like names or surcharge)
     const isCard = pm.id && pm.id !== "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3" && 
                    ((pm.surcharge_percentage || 0) > 0 || 
-                    (pm.name && (pm.name.toLowerCase().includes("tarjeta") || pm.name.toLowerCase().includes("cuota") || pm.name.toLowerCase().includes("link"))));
+                    (pm.name && (pm.name.toLowerCase().includes("tarjeta") || pm.name.toLowerCase().includes("cuota") || pm.name.toLowerCase().includes("link") || pm.name.toLowerCase().includes("payway"))));
     
     const surchargePct = isCard 
       ? (p.card_surcharge !== undefined ? p.card_surcharge : pm.surcharge_percentage) 
@@ -7945,21 +7970,36 @@ export default function PedidosPage() {
                         <div className="flex flex-col gap-1">
                           <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider">Medio de Pago</span>
                           <select
-                            value={p.payment_method_id}
+                            value={isPaywayPaymentMethod(p.payment_method_id) ? 'payway_group' : p.payment_method_id}
                             onChange={(e) => {
                               const val = e.target.value;
-                              const pm = dbPaymentMethods.find(m => m.id === val);
-                              setPaymentsList(prev => prev.map(item => {
-                                if (item.id === p.id) {
-                                  return {
-                                    ...item,
-                                    payment_method_id: val,
-                                    card_surcharge: pm ? pm.surcharge_percentage : 0,
-                                    card_installments: pm ? pm.installments : 1
-                                  };
-                                }
-                                return item;
-                              }));
+                              if (val === 'payway_group') {
+                                const targetPm = getPaywayMethodByInstallments(1);
+                                setPaymentsList(prev => prev.map(item => {
+                                  if (item.id === p.id) {
+                                    return {
+                                      ...item,
+                                      payment_method_id: targetPm ? targetPm.id : val,
+                                      card_surcharge: targetPm ? targetPm.surcharge_percentage : 13.5,
+                                      card_installments: targetPm ? targetPm.installments : 1
+                                    };
+                                  }
+                                  return item;
+                                }));
+                              } else {
+                                const pm = dbPaymentMethods.find(m => m.id === val);
+                                setPaymentsList(prev => prev.map(item => {
+                                  if (item.id === p.id) {
+                                    return {
+                                      ...item,
+                                      payment_method_id: val,
+                                      card_surcharge: pm ? pm.surcharge_percentage : 0,
+                                      card_installments: pm ? pm.installments : 1
+                                    };
+                                  }
+                                  return item;
+                                }));
+                              }
                             }}
                             className="w-full px-2.5 py-1.5 text-xs font-bold border border-slate-200 rounded-lg outline-none bg-slate-50 text-slate-700 focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500"
                           >
@@ -7999,6 +8039,60 @@ export default function PedidosPage() {
                           </div>
                         </div>
                       </div>
+
+                      {/* Sub-selector de Planes de Cuotas Payway */}
+                      {isPaywayPaymentMethod(p.payment_method_id) && (
+                        <div className="bg-blue-50/70 p-2.5 rounded-lg border border-blue-200/80 flex flex-col gap-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[8.5px] font-black text-blue-900 uppercase tracking-wider">
+                              💳 Planes de Cuotas Payway
+                            </span>
+                            <span className="text-[8px] font-bold text-blue-600">
+                              Seleccioná el plan de cuotas y recargo
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                            {[
+                              { inst: 1, sur: 13.5, label: "1 cuota", tag: "+13,5%" },
+                              { inst: 3, sur: 32.0, label: "3 cuotas", tag: "+32%" },
+                              { inst: 6, sur: 43.2, label: "6 cuotas", tag: "+43,2%" },
+                              { inst: 12, sur: 61.4, label: "12 cuotas", tag: "+61,4%" },
+                            ].map((plan) => {
+                              const isSelected = (p.card_installments === plan.inst && p.card_surcharge === plan.sur) || (!p.card_installments && plan.inst === 1);
+                              return (
+                                <button
+                                  key={plan.inst}
+                                  type="button"
+                                  onClick={() => {
+                                    const targetPm = getPaywayMethodByInstallments(plan.inst);
+                                    setPaymentsList(prev => prev.map(item => {
+                                      if (item.id === p.id) {
+                                        return {
+                                          ...item,
+                                          payment_method_id: targetPm ? targetPm.id : item.payment_method_id,
+                                          card_surcharge: plan.sur,
+                                          card_installments: plan.inst
+                                        };
+                                      }
+                                      return item;
+                                    }));
+                                  }}
+                                  className={`px-2 py-1.5 rounded-lg border text-center transition-all cursor-pointer ${
+                                    isSelected
+                                      ? "bg-blue-600 border-blue-600 text-white shadow-sm font-black ring-2 ring-blue-300"
+                                      : "bg-white border-blue-200 text-slate-700 hover:bg-blue-100/60 font-bold"
+                                  }`}
+                                >
+                                  <div className="text-[11px] leading-tight">{plan.label}</div>
+                                  <div className={`text-[9.5px] leading-tight mt-0.5 ${isSelected ? "text-blue-100" : "text-blue-600"}`}>
+                                    {plan.tag}
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
 
                       {/* Configuración de Tarjeta Específica si corresponde */}
                       {p.isCard && (

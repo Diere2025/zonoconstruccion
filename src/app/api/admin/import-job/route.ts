@@ -362,15 +362,28 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
           
           for (const row of pmRows) {
             if (row.length < 2) continue;
-            const name = row[0].trim();
+            let name = row[0].trim();
             const surchargeStr = row[1].trim();
             if (!name) continue;
             const floatVal = parseFloat(surchargeStr.replace(',', '.'));
             if (isNaN(floatVal)) continue;
-            const surchargePercentage = Math.round(floatVal * 100);
-            let installments = name.toLowerCase().includes("cuota simple") ? 6 : (name.match(/(\d+)\s*cuota/i) ? parseInt(name.match(/(\d+)\s*cuota/i)![1], 10) : 1);
+            const surchargePercentage = floatVal <= 1 ? (Math.round(floatVal * 1000) / 10) : floatVal;
+            let installments = 1;
+            const pwMatch = name.match(/payway\s*(\d+)/i);
+            if (pwMatch) {
+              installments = parseInt(pwMatch[1], 10);
+              name = `Payway${installments} (Sept-26)`;
+            } else if (name.toLowerCase().includes("cuota simple")) {
+              installments = 6;
+            } else if (name.match(/(\d+)\s*cuota/i)) {
+              installments = parseInt(name.match(/(\d+)\s*cuota/i)![1], 10);
+            }
             
-            const existing = existingPms.find(pm => pm.name.toLowerCase() === name.toLowerCase());
+            const existing = existingPms.find(pm => 
+              pm.name.toLowerCase() === name.toLowerCase() ||
+              (pwMatch && pm.name.toLowerCase().includes(`payway${installments}`)) ||
+              (pwMatch && pm.name.toLowerCase().includes(`payway (${installments}`))
+            );
             if (existing) {
               if (existing.surcharge_percentage !== surchargePercentage || existing.installments !== installments) {
                 await supabaseAdmin.from('payment_methods').update({ surcharge_percentage: surchargePercentage, installments }).eq('id', existing.id);
@@ -624,6 +637,14 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
 
           let localityId = localitiesMap.get(normalizeLocalityFuzzy(rawLocality)) || null;
           let paymentMethodId = payMethodsMap.get(normalizeText(rawPaymentMethod)) || null;
+          if (!paymentMethodId && rawPaymentMethod) {
+            const pw = rawPaymentMethod.match(/payway\s*(\d+)/i);
+            if (pw) {
+              const inst = parseInt(pw[1], 10);
+              paymentMethodId = payMethodsMap.get(normalizeText(`Payway${inst} (Sept-26)`)) ||
+                                payMethodsMap.get(normalizeText(`Payway (${inst} cuota${inst > 1 ? 's' : ''})`)) || null;
+            }
+          }
           let advSourceId = advSourcesMap.get(normalizeText(rawAdvSource)) || null;
           let orderMediumId = orderMediumsMap.get(normalizeText(rawMedium)) || null;
 
