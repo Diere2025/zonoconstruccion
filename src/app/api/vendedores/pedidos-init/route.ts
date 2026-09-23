@@ -50,6 +50,7 @@ export async function GET(request: Request) {
       clientsRes,
       localitiesRes,
       dtRes,
+      zonesRes,
       kitsRes,
       advRes,
       mediumRes,
@@ -77,6 +78,11 @@ export async function GET(request: Request) {
       supabaseAdmin
         .from("delivery_times")
         .select("id, name, description, category, delivery_days")
+        .eq("is_active", true)
+        .order("name"),
+      supabaseAdmin
+        .from("zones")
+        .select("id, name, delivery_schedule, delivery_time_id, delivery_times(name, description, delivery_days), is_active, color")
         .eq("is_active", true)
         .order("name"),
       supabaseAdmin
@@ -119,6 +125,7 @@ export async function GET(request: Request) {
     if (clientsRes.error) throw clientsRes.error;
     if (localitiesRes.error) throw localitiesRes.error;
     if (dtRes.error) throw dtRes.error;
+    if (zonesRes.error) throw zonesRes.error;
     if (kitsRes.error) throw kitsRes.error;
     if (advRes.error) throw advRes.error;
     if (mediumRes.error) throw mediumRes.error;
@@ -243,6 +250,7 @@ export async function GET(request: Request) {
       products: productsWithPrices,
       clients: clientsRes.data || [],
       localities: mappedLocalities,
+      zones: zonesRes.data || [],
       deliveryTimes: dtRes.data || [],
       kits: mappedKits,
       advertisingSources,

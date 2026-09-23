@@ -337,16 +337,25 @@ export default function LocalidadesZonasAdminPage() {
         if (error) throw error;
         showStatus('success', "Localidad actualizada correctamente.");
       } else {
-        const { error } = await supabase
-          .from('localities')
-          .insert([{
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData.session?.access_token;
+        const res = await fetch('/api/vendedores/create-locality', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify({
             name: localityName.trim(),
-            zone_id: localityZoneId,
-            is_active: localityActive
-          }]);
-
-        if (error) throw error;
-        showStatus('success', "Localidad creada correctamente.");
+            zone_id: localityZoneId
+          })
+        });
+        const resData = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(resData.error || "Error al crear la localidad.");
+        }
+        const extraMsg = resData.sheetSync?.success ? " y agregada a la planilla." : ".";
+        showStatus('success', `Localidad creada correctamente${extraMsg}`);
       }
       handleResetLocalityForm();
       await loadData();

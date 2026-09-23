@@ -73,3 +73,23 @@ export function normalizeLogisticsPastedRows(inputRows: string[][]): string[][] 
 export function parseLogisticsClipboardText(text: string): string[][] {
   return normalizeLogisticsPastedRows(parseQuotedTsv(text));
 }
+
+/** La hoja "Pegar" trae datos del viaje después de los 12 productos. */
+export function noteTripFromPastedRows(rows: string[][]): {
+  driver: string;
+  vehicle: string;
+  companion: string;
+} | null {
+  const row = rows.find(candidate => {
+    const firstIsCode = ORDER_CODE_PATTERN.test(String(candidate[0] || '').trim());
+    const secondIsCode = ORDER_CODE_PATTERN.test(String(candidate[1] || '').trim());
+    return firstIsCode || secondIsCode;
+  });
+  if (!row) return null;
+
+  const offset = ORDER_CODE_PATTERN.test(String(row[0] || '').trim()) ? 0 : 1;
+  const driver = String(row[79 + offset] || '').trim();
+  const vehicle = String(row[80 + offset] || '').trim();
+  const companion = String(row[81 + offset] || '').trim();
+  return driver || vehicle || companion ? { driver, vehicle, companion } : null;
+}
