@@ -300,15 +300,28 @@ export default function ImportarPedidosPage() {
             
             for (const row of pmRows) {
               if (row.length < 2) continue;
-              const name = row[0].trim();
+              let name = row[0].trim();
               const surchargeStr = row[1].trim();
               if (!name) continue;
               const floatVal = parseFloat(surchargeStr.replace(',', '.'));
               if (isNaN(floatVal)) continue;
-              const surchargePercentage = Math.round(floatVal * 100);
-              let installments = name.toLowerCase().includes("cuota simple") ? 6 : (name.match(/(\d+)\s*cuota/i) ? parseInt(name.match(/(\d+)\s*cuota/i)![1], 10) : 1);
+              const surchargePercentage = floatVal <= 1 ? (Math.round(floatVal * 1000) / 10) : floatVal;
+              let installments = 1;
+              const pwMatch = name.match(/payway\s*(\d+)/i);
+              if (pwMatch) {
+                installments = parseInt(pwMatch[1], 10);
+                name = `Payway${installments} (Sept-26)`;
+              } else if (name.toLowerCase().includes("cuota simple")) {
+                installments = 6;
+              } else if (name.match(/(\d+)\s*cuota/i)) {
+                installments = parseInt(name.match(/(\d+)\s*cuota/i)![1], 10);
+              }
               
-              const existing = existingPms.find(pm => pm.name.toLowerCase() === name.toLowerCase());
+              const existing = existingPms.find(pm => 
+                pm.name.toLowerCase() === name.toLowerCase() ||
+                (pwMatch && pm.name.toLowerCase().includes(`payway${installments}`)) ||
+                (pwMatch && pm.name.toLowerCase().includes(`payway (${installments}`))
+              );
               if (existing) {
                 if (existing.surcharge_percentage !== surchargePercentage || existing.installments !== installments) {
                   const { error } = await supabase.from('payment_methods').update({ surcharge_percentage: surchargePercentage, installments }).eq('id', existing.id);
