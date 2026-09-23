@@ -5,6 +5,7 @@ export const dynamic = 'force-dynamic';
 
 type TelegramUpdate = {
   message?: { text?: string; chat?: { id?: number | string }; message_id?: number };
+  edited_message?: { text?: string; chat?: { id?: number | string }; message_id?: number };
 };
 
 function isBalanceRequest(text: string): boolean {
@@ -59,11 +60,20 @@ export async function POST(request: Request) {
   try { update = JSON.parse(raw); }
   catch { return NextResponse.json({ error: 'Solicitud inválida' }, { status: 400 }); }
 
-  const chatId = String(update.message?.chat?.id || '');
+  const message = update.message || update.edited_message;
+  const chatId = String(message?.chat?.id || '');
   const targetChatId = process.env.META_BALANCE_TELEGRAM_CHAT_ID;
-  if (targetChatId && chatId === targetChatId && isBalanceRequest(update.message?.text || '')) {
+  const targetChat = Boolean(targetChatId && chatId === targetChatId);
+  const balanceRequest = targetChat && isBalanceRequest(message?.text || '');
+  console.log('[Telegram webhook update]', {
+    kind: update.message ? 'message' : update.edited_message ? 'edited_message' : 'other',
+    targetChat,
+    balanceRequest,
+    configured: Boolean(targetChatId)
+  });
+  if (balanceRequest) {
     try {
-      await sendBalance(chatId, update.message?.message_id);
+      await sendBalance(chatId, message?.message_id);
       return NextResponse.json({ ok: true });
     } catch (error) {
       console.error('[Meta balance webhook]', error);
