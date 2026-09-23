@@ -100,6 +100,8 @@ function parseSourceRows(rows: string[][], firstRowNumber: number): RemittanceSo
       const start = PRODUCT_START_INDEX + slot * PRODUCT_SLOT_SIZE;
       const name = String(row[start] || '').trim();
       if (!name) continue;
+      const unitPrice = parseSheetNumber(row[start + 2]);
+      if (unitPrice < 0 || /descuento|bonificaci/i.test(name)) continue;
       items.push({
         name,
         quantity: Math.max(1, parseSheetNumber(row[start + 1]) || 1)
@@ -167,13 +169,12 @@ export function parseLogisticsRemittanceRows(
     const orderCodes = Array.from(new Set(bucket.flatMap(row => row.orderCodes)));
     const orderCode = orderCodes.join(' / ');
     const allItems = bucket.flatMap(row => row.items);
+    if (allItems.length === 0) continue;
     const itemChunks: LogisticsRemittanceItem[][] = [];
 
     for (let index = 0; index < allItems.length; index += ITEMS_PER_REMITTANCE) {
       itemChunks.push(allItems.slice(index, index + ITEMS_PER_REMITTANCE));
     }
-    if (itemChunks.length === 0) itemChunks.push([]);
-
     // Respeta huecos previos (R2 empieza en 502), pero cuando un pedido ocupa
     // más de un formulario desplaza los siguientes números para no repetirlos.
     nextRemittanceNumber = Math.max(
