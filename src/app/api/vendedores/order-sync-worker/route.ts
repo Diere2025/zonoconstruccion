@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { isExpressFreight, processSheetOrder, sendExpressOrderAlert, sendRouteFormationAlert } from '@/lib/processSheetOrder';
 import { processOrderCancellation } from '@/lib/processOrderCancellation';
+import { processOrderReactivation } from '@/lib/processOrderReactivation';
 import { sendPersonalOrderAlert } from '@/lib/personalOrderTelegram';
 
 export const runtime = 'edge';
@@ -27,12 +28,19 @@ export async function POST(req: NextRequest) {
     try {
       const current = await db.from('orders').select('status,legacy_code,customer_name,channel').eq('id',job.order_id).single();
       if (current.error || !current.data) throw new Error('No se pudo consultar el estado actual del pedido');
-      if (job.kind === 'cancel') {
+      if (job.kind === 'cancel' && current.data.status !== 'Cancelado' && current.data.status !== 'Anulado') {
+        result = { skipped: true, reason: 'El pedido ya no está anulado' };
+        successMessage = 'Anulación omitida: el pedido fue reactivado.';
+      } else if (job.kind === 'cancel') {
         const cancellation = await processOrderCancellation(db, req.url, job, current.data, current.data.channel === 'mayorista');
         result = cancellation.result;
         warnings.push(...cancellation.warnings);
         successMessage = cancellation.message;
         confirmedCode = cancellation.code || null;
+      } else if (job.kind === 'reactivate') {
+        result = await processOrderReactivation(db, job.order_id, job.seller_id);
+        confirmedCode = result.code || current.data.legacy_code || null;
+        successMessage = result.skipped ? result.reason : 'Pedido reactivado en Central y Entregas Actual; retirado de Cancelados.';
       } else if (current.data.status === 'Cancelado') {
         result = {skipped:true, reason:'cancelled'};
         successMessage = 'Carga omitida: el pedido fue anulado antes de sincronizar.';

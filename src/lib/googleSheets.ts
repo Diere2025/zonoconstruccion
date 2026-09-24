@@ -1764,6 +1764,105 @@ export async function cancelOrderInAllSheets(sellerId: string, legacyCode: strin
   return {seller, central, deliveriesCurrent};
 }
 
+/** Reconciles a reactivated order by code; safe to run again after a partial failure. */
+export async function reactivateOrderInAllSheets(
+  sellerId: string, legacyCode: string, order: SheetOrderPayload
+) {
+  const codes = [...new Set(legacyCode.split(/[\\/,]/).map(code => code.trim().toUpperCase()).filter(Boolean))];
+  if (!codes.length) throw new Error('El pedido no tiene código de planilla');
+  const itemChunks = splitOrderItemsForRows(order, codes.length);
+  const deliveryResults: OperationalSheetSyncResult[] = [];
+
+  for (const [index, code] of codes.entries()) {
+    const rowOrder = makeContinuationOrder(order, itemChunks[index], codes, index);
+    let location: string | undefined;
+    for (const sheetName of DELIVERIES_CURRENT_SHEET.sheetNames) {
+      if ((await findOrderRowsInSheet(DELIVERIES_CURRENT_SHEET.spreadsheetId,
+        sheetName, DELIVERIES_CURRENT_SHEET.codeColumn, code)).length) {
+        location = sheetName;
+        break;
+      }
+    }
+    const result = location
+      ? await updateOrderInOperationalSheet(DELIVERIES_CURRENT_SHEET.spreadsheetId,
+          location, DELIVERIES_CURRENT_SHEET.codeColumn,
+          DELIVERIES_CURRENT_SHEET.columnOffset, code, rowOrder)
+      : await appendOrderToOperationalSheet(DELIVERIES_CURRENT_SHEET.spreadsheetId,
+          'Vendedores', DELIVERIES_CURRENT_SHEET.columnOffset, [code], rowOrder);
+    deliveryResults.push(result);
+    if (!result.success) throw new Error(`Entregas Actual (${code}): ${result.message || 'No se pudo actualizar'}`);
+    if (location) {
+      const locationRows = await findOrderRowsInSheet(DELIVERIES_CURRENT_SHEET.spreadsheetId,
+        location, DELIVERIES_CURRENT_SHEET.codeColumn, code);
+      const rowNumber = locationRows[0]?.rowNumber;
+      if (!rowNumber) throw new Error(`No se pudo verificar ${code} en Entregas Actual`);
+      const token = await getGoogleAccessToken();
+      const statusRange = `'${location.replace(/'/g, "''")}'!P${rowNumber}`;
+      const status = String((await fetchSpreadsheetValues(DELIVERIES_CURRENT_SHEET.spreadsheetId, statusRange))[0]?.[0] || '');
+      if (/anulad|cancelad/i.test(status)) {
+        const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${DELIVERIES_CURRENT_SHEET.spreadsheetId}/values:batchUpdate`, {
+          method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ valueInputOption: 'RAW',
+            data: [{ range: statusRange, values: [['🔸 Validado']] }] })
+        });
+        if (!response.ok) throw new Error(`No se pudo reactivar el estado de ${code} en Entregas Actual`);
+      }
+    }
+  }
+
+  // Remove all matching archive rows, including duplicates from an earlier attempt.
+  const token = await getGoogleAccessToken();
+  const archiveId = LOGISTICS_CANCELLED_SHEET.spreadsheetId;
+  const archiveName = LOGISTICS_CANCELLED_SHEET.sheetName;
+  const metadataRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${archiveId}?fields=sheets.properties`,
+    { headers: { Authorization: `Bearer ${token}` } });
+  if (!metadataRes.ok) throw new Error('No se pudo consultar Cancelados');
+  const metadata = await metadataRes.json() as { sheets?: Array<{properties: {title: string; sheetId: number}}> };
+  const archiveSheet = metadata.sheets?.map(sheet => sheet.properties)
+    .find(sheet => sheet.title === archiveName);
+  if (!archiveSheet) throw new Error('No se encontró la hoja Cancelados');
+  const archivedCodes = await fetchSpreadsheetValues(archiveId, `'${archiveName}'!D3:D`);
+  const archiveRows = archivedCodes.flatMap((row, index) =>
+    codes.includes(String(row[0] || '').trim().toUpperCase()) ? [index + 3] : []);
+  if (archiveRows.length) {
+    const deleteResponse = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${archiveId}:batchUpdate`, {
+      method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requests: archiveRows.sort((a, b) => b - a).map(row => ({
+        deleteDimension: { range: { sheetId: archiveSheet.sheetId,
+          dimension: 'ROWS', startIndex: row - 1, endIndex: row } }
+      })) })
+    });
+    if (!deleteResponse.ok) throw new Error(`No se pudo retirar el pedido de Cancelados: ${await deleteResponse.text()}`);
+  }
+  const remaining = await fetchSpreadsheetValues(archiveId, `'${archiveName}'!D3:D`);
+  if (remaining.some(row => codes.includes(String(row[0] || '').trim().toUpperCase()))) {
+    throw new Error('El pedido todavía figura en Cancelados');
+  }
+
+  const centralResults: OperationalSheetSyncResult[] = [];
+  for (const [index, code] of codes.entries()) {
+    const rowOrder = makeContinuationOrder(order, itemChunks[index], codes, index);
+    const exists = (await findOrderRowsInSheet(CENTRAL_ORDERS_SHEET.spreadsheetId,
+      CENTRAL_ORDERS_SHEET.sheetName, CENTRAL_ORDERS_SHEET.codeColumn, code)).length > 0;
+    const result = exists
+      ? await updateOrderInOperationalSheet(CENTRAL_ORDERS_SHEET.spreadsheetId,
+          CENTRAL_ORDERS_SHEET.sheetName, CENTRAL_ORDERS_SHEET.codeColumn,
+          CENTRAL_ORDERS_SHEET.columnOffset, code, rowOrder, undefined, '🔹 Pasado')
+      : await appendOrderToOperationalSheet(CENTRAL_ORDERS_SHEET.spreadsheetId,
+          CENTRAL_ORDERS_SHEET.sheetName, CENTRAL_ORDERS_SHEET.columnOffset, [code], rowOrder);
+    centralResults.push(result);
+    if (!result.success) throw new Error(`Central (${code}): ${result.message || 'No se pudo actualizar'}`);
+  }
+
+  const config = SELLER_SHEET_CONFIG[sellerId];
+  const seller = config?.enabled
+    ? await updateOrderInSellerSheet(config.spreadsheetId, config.sheetName,
+        legacyCode, order, undefined, '🔹 Pasado')
+    : { success: true, message: 'Sin planilla de vendedora habilitada' };
+  return { deliveriesCurrent: deliveryResults, cancelledRowsRemoved: archiveRows,
+    central: centralResults, seller };
+}
+
 const sheetIdCache: Record<string, number> = {
   'Pendientes': 1414092286
 };

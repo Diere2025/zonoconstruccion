@@ -46,6 +46,7 @@ import {
   CheckCheck,
   Database,
   XCircle,
+  RotateCcw,
   Ban,
   Printer,
   ExternalLink,
@@ -2192,6 +2193,7 @@ export default function PedidosPage() {
   const [cancelReason, setCancelReason] = useState("");
   const [cancelReasonError, setCancelReasonError] = useState<string | null>(null);
   const [isSubmittingCancel, setIsSubmittingCancel] = useState(false);
+  const [reactivatingOrderId, setReactivatingOrderId] = useState<string | null>(null);
   const [showCancelSuccessModal, setShowCancelSuccessModal] = useState(false);
   const [generatedCancelMessage, setGeneratedCancelMessage] = useState("");
   const [copiedCancelMessage, setCopiedCancelMessage] = useState(false);
@@ -2525,6 +2527,24 @@ export default function PedidosPage() {
       alert(`Error al anular el pedido: ${err.message || 'Error desconocido'}`);
     } finally {
       setIsSubmittingCancel(false);
+    }
+  };
+
+  const handleReactivateOrder = async (order: { id: string; legacy_code?: string | null }) => {
+    if (!window.confirm(`¿Reactivar el pedido ${order.legacy_code || ''}? Se volverá a reservar el stock y se actualizarán las planillas.`)) return;
+    try {
+      setReactivatingOrderId(order.id);
+      const { error } = await supabase.rpc('reactivate_order', { p_order_id: order.id });
+      if (error) throw error;
+      setOrders(prev => prev.map(item => item.id === order.id
+        ? { ...item, status: 'Pendiente', cancel_reason: null } : item));
+      setOrderSaveNotice('Pedido reactivado en el ERP. Central, Entregas Actual y Cancelados se sincronizan en segundo plano; el resultado aparecerá en la bandeja.');
+      window.dispatchEvent(new Event('order-sync-updated'));
+      setRefreshTrigger(prev => prev + 1);
+    } catch (error: any) {
+      alert(`No se pudo reactivar el pedido: ${error.message || 'Error desconocido'}`);
+    } finally {
+      setReactivatingOrderId(null);
     }
   };
 
@@ -3501,6 +3521,10 @@ export default function PedidosPage() {
 
   // Generic loader: can be used for editing (isClone=false) or cloning/re-creating (isClone=true)
   const handleLoadOrderIntoForm = async (order: any, isClone: boolean = false) => {
+    if (!isClone && (order.status === 'Cancelado' || order.status === 'Anulado')) {
+      setOrderSaveNotice('Reactivá el pedido desde la lista antes de editarlo.');
+      return;
+    }
     if (!isClone && order.totals?.integration_payload) {
       const { data: job, error } = await supabase.from('order_sync_jobs').select('status').eq('order_id',order.id)
         .in('status', ['awaiting_items','pending','processing']).limit(1).maybeSingle();
@@ -7240,6 +7264,7 @@ export default function PedidosPage() {
                     <label className="text-[9px] font-black uppercase tracking-wider text-slate-400 font-bold">Estado del Pedido</label>
                     <select
                       value={orderStatus}
+                      disabled={originalOrderSnapshot?.status === 'Cancelado' || originalOrderSnapshot?.status === 'Anulado'}
                       onChange={e => {
                         const val = e.target.value;
                         setOrderStatus(val);
@@ -7256,6 +7281,8 @@ export default function PedidosPage() {
                       <option value="Entregado">Entregado</option>
                       <option value="Cancelado">Cancelado</option>
                     </select>
+                    {(originalOrderSnapshot?.status === 'Cancelado' || originalOrderSnapshot?.status === 'Anulado') &&
+                      <p className="text-xs text-amber-700">Para cambiar este estado, usá «Reactivar pedido» en la lista.</p>}
                   </div>
 
                   {orderStatus === 'En Espera' && (
@@ -9381,6 +9408,7 @@ export default function PedidosPage() {
                         <button
                           type="button"
                           onClick={() => handleEditOrder(p)}
+                          disabled={p.status === 'Cancelado' || p.status === 'Anulado'}
                           className="p-1.5 bg-slate-50 hover:bg-brand-600 text-slate-500 hover:text-white rounded-lg border border-slate-200 hover:border-brand-600 transition-all duration-150 active:scale-90 shadow-2xs cursor-pointer"
                           title="Editar Pedido"
                         >
@@ -9405,7 +9433,7 @@ export default function PedidosPage() {
                         {p.channel !== 'mayorista' && <button
                           type="button"
                           onClick={() => handleSyncExistingOrderToSheet(p)}
-                          disabled={syncingOrderId === p.id}
+                          disabled={syncingOrderId === p.id || p.status === 'Cancelado' || p.status === 'Anulado'}
                           className={`p-1.5 bg-slate-50 hover:bg-emerald-600 text-slate-500 hover:text-white rounded-lg border border-slate-200 hover:border-emerald-600 transition-all duration-150 active:scale-90 shadow-2xs cursor-pointer ${
                             syncingOrderId === p.id ? 'opacity-50 cursor-not-allowed' : ''
                           }`}
@@ -9424,6 +9452,16 @@ export default function PedidosPage() {
                         >
                           <XCircle className="w-3.5 h-3.5" />
                         </button>
+                        {(p.status === 'Cancelado' || p.status === 'Anulado') && (
+                          <button type="button" onClick={() => handleReactivateOrder(p)}
+                            disabled={reactivatingOrderId === p.id}
+                            className="p-1.5 bg-emerald-50 hover:bg-emerald-600 text-emerald-700 hover:text-white rounded-lg border border-emerald-200 disabled:opacity-50"
+                            title="Reactivar pedido">
+                            {reactivatingOrderId === p.id
+                              ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              : <RotateCcw className="w-3.5 h-3.5" />}
+                          </button>
+                        )}
                         {role === 'admin' && (
                           <button
                             type="button"
