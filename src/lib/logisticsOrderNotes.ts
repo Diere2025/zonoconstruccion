@@ -51,9 +51,22 @@ export function selectedOrderNoteCardIndex(paymentMethod: string): number | null
   return index < 0 ? null : index;
 }
 
+function simpleAmount(order: LogisticsPrintOrder): number {
+  return Math.max(0, order.pendingBalance - Math.max(0, order.surcharge));
+}
+
 export function orderNoteBaseAmount(order: LogisticsPrintOrder, rates: readonly number[]): number {
   const selectedIndex = selectedOrderNoteCardIndex(order.paymentMethod);
   if (selectedIndex === null && !/payway/i.test(order.paymentMethod)) return order.pendingBalance;
+  if (selectedIndex === 4) {
+    // En Cuota Simple los precios de los artículos ya incluyen el recargo.
+    // La columna de recargo de la planilla vuelve a sumarlo al saldo.
+    const appliedRate = order.surcharge > 0 && order.productsSubtotal > 0
+      ? order.surcharge / order.productsSubtotal
+      : (rates[4] || 0) / 100;
+    const subtotalWithoutRate = order.productsSubtotal / (1 + appliedRate);
+    return Math.max(0, Math.round(simpleAmount(order) - order.productsSubtotal + subtotalWithoutRate));
+  }
   if (order.surcharge > 0) return Math.max(0, order.pendingBalance - order.surcharge);
   if (selectedIndex === null) return order.pendingBalance;
   return Math.round(order.pendingBalance / (1 + (rates[selectedIndex] || 0) / 100));
@@ -62,7 +75,10 @@ export function orderNoteBaseAmount(order: LogisticsPrintOrder, rates: readonly 
 export function orderNoteCardAmounts(order: LogisticsPrintOrder, rates: readonly number[]): Array<number | null> {
   const selectedIndex = selectedOrderNoteCardIndex(order.paymentMethod);
   const baseAmount = orderNoteBaseAmount(order, rates);
+  const selectedAmount = selectedIndex === 4
+    ? simpleAmount(order)
+    : order.pendingBalance;
   return rates.map((rate, index) => index === selectedIndex
-    ? order.pendingBalance
+    ? selectedAmount
     : Math.round(baseAmount * (1 + rate / 100)));
 }
