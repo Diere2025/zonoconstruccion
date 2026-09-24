@@ -35,7 +35,7 @@ export function PrintableOrderNotes({ orders, settings }: { orders: LogisticsPri
           <header className="order-note-header">
             <div>
               <div className="order-note-eyebrow">ZONO CONSTRUCCIÓN <span>·</span> OPERACIONES Y DISTRIBUCIÓN</div>
-              <h1>Nota de pedidos</h1>
+              <h1>Planilla de entregas y cobros</h1>
             </div>
             <div className="order-note-header-right">
               <span>CONTROL DE ENTREGAS</span>
@@ -57,27 +57,29 @@ export function PrintableOrderNotes({ orders, settings }: { orders: LogisticsPri
           </div>
           <table className="order-note-table">
             <colgroup>
-              <col style={{ width: '4%' }} />
-              <col style={{ width: '16%' }} />
-              <col style={{ width: '11%' }} />
+              <col style={{ width: '3%' }} />
+              <col style={{ width: '9%' }} />
               <col style={{ width: '14%' }} />
               <col style={{ width: '9%' }} />
-              <col style={{ width: '8%' }} />
-              <col style={{ width: '8%' }} />
-              <col style={{ width: '8%' }} />
-              <col style={{ width: '8%' }} />
+              <col style={{ width: '12%' }} />
+              <col style={{ width: '9%' }} />
+              <col style={{ width: '7.5%' }} />
+              <col style={{ width: '7.5%' }} />
+              <col style={{ width: '7.5%' }} />
+              <col style={{ width: '7.5%' }} />
               <col style={{ width: '8%' }} />
               <col style={{ width: '6%' }} />
             </colgroup>
             <thead>
               <tr className="order-note-posnet-heading">
-                <th colSpan={5}></th>
+                <th colSpan={6}></th>
                 <th colSpan={4}>PAYWAY</th>
                 <th className="order-note-cuota-heading">CUOTA SIMPLE</th>
                 <th></th>
               </tr>
               <tr>
                 <th>N°</th>
+                <th>Código</th>
                 <th>Cliente</th>
                 <th>Localidad</th>
                 <th>Medio de pago</th>
@@ -96,6 +98,7 @@ export function PrintableOrderNotes({ orders, settings }: { orders: LogisticsPri
                 return (
                   <tr key={order.id}>
                     <td className="order-note-number">{page.firstRowNumber + index}</td>
+                    <td className="order-note-code">{order.codes.join(' / ') || order.legacyCode}</td>
                     <td>{order.customerName}</td>
                     <td>{order.locality}</td>
                     <td>{order.paymentMethod}</td>
