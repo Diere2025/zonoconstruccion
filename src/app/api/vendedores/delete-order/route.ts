@@ -54,13 +54,14 @@ async function deleteTelegramMessages(totals: any) {
   if (references.length === 0) return { attempted: 0, deleted: 0, failures: [] as string[] };
 
   const botToken = process.env.LOGISTICS_TELEGRAM_BOT_TOKEN?.trim();
-  let personalBotToken = process.env.PERSONAL_ORDERS_TELEGRAM_BOT_TOKEN?.trim();
-  if (references.some(reference => reference.type === 'personalAlert') && !personalBotToken) {
+  // Los avisos anteriores usaban el bot de Mercado Pago; conservarlo para borrar pedidos de prueba históricos.
+  let legacyOrderBotToken = process.env.PERSONAL_ORDERS_TELEGRAM_BOT_TOKEN?.trim();
+  if (references.some(reference => reference.type === 'personalAlert') && !legacyOrderBotToken) {
     try {
       const { data } = await supabaseAdmin.from('site_settings').select('value')
         .eq('id', 'mp_telegram_config').maybeSingle();
       const config = typeof data?.value === 'string' ? JSON.parse(data.value) : data?.value;
-      personalBotToken = String(config?.bot_token || '').trim();
+      legacyOrderBotToken = String(config?.bot_token || '').trim();
     } catch (error) {
       console.warn('[Delete order] No se pudo leer el bot personal:', error);
     }
@@ -70,7 +71,7 @@ async function deleteTelegramMessages(totals: any) {
   const failures: string[] = [];
   for (const reference of references) {
     try {
-      const token = reference.type === 'personalAlert' ? personalBotToken : botToken;
+      const token = reference.type === 'personalAlert' ? legacyOrderBotToken : botToken;
       if (!token) {
         failures.push(`Falta el bot de Telegram para borrar ${reference.messageId}`);
         continue;

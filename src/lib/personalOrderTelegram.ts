@@ -62,14 +62,10 @@ export async function sendPersonalOrderAlert(
     if (!data || data.length < 1000) break;
   }
 
-  const { data: setting, error: settingError } = await db.from('site_settings')
-    .select('value').eq('id', 'mp_telegram_config').maybeSingle();
-  if (settingError) throw new Error(`No se pudo leer la configuración del Telegram personal: ${settingError.message}`);
-  const config = typeof setting?.value === 'string' ? JSON.parse(setting.value) : setting?.value;
-  const chatId = String(process.env.PERSONAL_ORDERS_TELEGRAM_CHAT_ID || config?.chat_id || '').trim();
-  const botToken = String(process.env.PERSONAL_ORDERS_TELEGRAM_BOT_TOKEN || config?.bot_token || '').trim();
+  const chatId = '-5320088914';
+  const botToken = process.env.LOGISTICS_TELEGRAM_BOT_TOKEN?.trim();
   if (!chatId || !botToken) {
-    return { attempted: true, sent: false, message: 'Falta configurar el bot o chat personal de Telegram.' };
+    return { attempted: true, sent: false, message: 'Falta configurar el bot de modificaciones de Telegram.' };
   }
 
   const label = code || order.id.slice(0, 8);
@@ -90,7 +86,7 @@ export async function sendPersonalOrderAlert(
   });
   const payload = await response.json();
   if (!response.ok || !payload.ok) {
-    return { attempted: true, sent: false, message: payload.description || 'Telegram rechazó el aviso personal.' };
+    return { attempted: true, sent: false, message: payload.description || 'Telegram rechazó el aviso de nuevo pedido.' };
   }
   return { attempted: true, sent: true, messageId: payload.result?.message_id, chatId };
 }
