@@ -90,6 +90,16 @@ interface MPAccount {
   client_time?: string | null;
 }
 
+function getAliasTextColor(color: string) {
+  if (!/^#[0-9a-fA-F]{6}$/.test(color)) return '#ffffff';
+  const channels = [1, 3, 5].map(i => {
+    const value = parseInt(color.slice(i, i + 2), 16) / 255;
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  });
+  const luminance = channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+  return luminance > 0.179 ? '#111827' : '#ffffff';
+}
+
 interface MPInternalPayer {
   id: string;
   name: string;
@@ -745,6 +755,22 @@ export default function CobrosMercadoPagoPage() {
       console.error('Error loading MP accounts:', e);
     }
   }, []);
+
+  const updateAccountColor = async (id: string, color: string) => {
+    try {
+      const res = await fetch('/api/admin/cobros-mp-data?action=update-account-color', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, color })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo guardar el color');
+      setAccounts(current => current.map(acc => acc.id === id ? { ...acc, color } : acc));
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'No se pudo guardar el color');
+      void loadAccounts();
+    }
+  };
 
   // Load Internal Payers
   const loadInternalPayers = useCallback(async () => {
@@ -2021,8 +2047,8 @@ export default function CobrosMercadoPagoPage() {
 
                               {/* Mini Account Badge */}
                               <span 
-                                className="px-1.5 py-0.5 rounded text-[9px] font-black text-white shrink-0 tracking-wider shadow-2xs"
-                                style={{ backgroundColor: accountInfo.color }}
+                                className="px-1.5 py-0.5 rounded text-[9px] font-black shrink-0 tracking-wider shadow-2xs"
+                                style={{ backgroundColor: accountInfo.color, color: getAliasTextColor(accountInfo.color) }}
                                 title={`Cuenta: ${accountInfo.fullName}`}
                               >
                                 {accountInfo.displayName}
@@ -2228,8 +2254,8 @@ export default function CobrosMercadoPagoPage() {
                     </div>
                     <div className="flex items-center gap-2">
                       <span 
-                        className="px-2.5 py-0.5 rounded-full text-[10px] font-black text-white"
-                        style={{ backgroundColor: acc.color || '#0069ff' }}
+                        className="px-2.5 py-0.5 rounded-full text-[10px] font-black"
+                        style={{ backgroundColor: acc.color || '#0069ff', color: getAliasTextColor(acc.color || '#0069ff') }}
                       >
                         {acc.alias || acc.name}
                       </span>
@@ -2296,6 +2322,18 @@ export default function CobrosMercadoPagoPage() {
                       />
                     </div>
                   </div>
+                  <label className="flex items-center gap-3 text-[11px] font-bold text-slate-700">
+                    <span>Color del alias</span>
+                    <input
+                      type="color"
+                      value={acc.color || '#0069ff'}
+                      onChange={(e) => void updateAccountColor(acc.id, e.target.value)}
+                      className="h-8 w-12 cursor-pointer rounded border border-slate-200 bg-white p-0.5"
+                      title={`Cambiar color de ${acc.alias || acc.name}`}
+                      aria-label={`Color del alias ${acc.alias || acc.name}`}
+                    />
+                    <span className="font-mono text-slate-500">{acc.color || '#0069ff'}</span>
+                  </label>
                 </div>
               ))}
             </div>
@@ -2973,8 +3011,8 @@ x-webhook-token: mpchecker_secret_key_123`}
                 <h3 className="text-base font-black text-[#001538] truncate">{selectedPaymentDetail.payer_name}</h3>
                 <div className="flex items-center gap-1.5 mt-0.5">
                   <span 
-                    className="px-2 py-0.5 rounded text-[10px] font-black text-white"
-                    style={{ backgroundColor: getAccountDisplay(selectedPaymentDetail.account_name).color }}
+                    className="px-2 py-0.5 rounded text-[10px] font-black"
+                    style={{ backgroundColor: getAccountDisplay(selectedPaymentDetail.account_name).color, color: getAliasTextColor(getAccountDisplay(selectedPaymentDetail.account_name).color) }}
                   >
                     {getAccountDisplay(selectedPaymentDetail.account_name).displayName}
                   </span>

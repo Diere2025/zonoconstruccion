@@ -507,6 +507,23 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, message: 'Pago eliminado con éxito', id: data?.id });
     }
 
+    if (action === 'update-account-color') {
+      const { id, color } = body;
+      if (!id || typeof color !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(color)) {
+        return NextResponse.json({ error: 'Cuenta o color inválido' }, { status: 400 });
+      }
+
+      const { data, error } = await supabaseAdmin
+        .from('mp_accounts')
+        .update({ color })
+        .eq('id', id)
+        .select('id, color')
+        .single();
+
+      if (error) throw error;
+      return NextResponse.json({ success: true, data });
+    }
+
     if (action === 'save-account') {
       const { id, name, alias, color } = body;
       if (!name) return NextResponse.json({ error: 'Nombre de cuenta requerido' }, { status: 400 });
