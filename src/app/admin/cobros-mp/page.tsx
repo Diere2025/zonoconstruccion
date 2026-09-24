@@ -2074,7 +2074,7 @@ export default function CobrosMercadoPagoPage() {
                 {/* Compact MP-Style Rows for this Date */}
                 <div
                   className={paymentView === 'columns'
-                    ? 'grid items-start gap-2 pb-2'
+                    ? 'grid items-start gap-1.5 pb-2'
                     : 'bg-white rounded-2xl sm:rounded-3xl border border-slate-200/80 shadow-xs divide-y divide-slate-100 overflow-hidden'}
                   style={paymentView === 'columns' ? {
                     gridTemplateColumns: `repeat(${columnAccounts.length}, minmax(320px, 1fr))`,
@@ -2099,7 +2099,7 @@ export default function CobrosMercadoPagoPage() {
                           <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">{count}</span>
                         </div>
                         {count === 0 && (
-                          <div className="rounded-2xl border border-dashed border-slate-200 bg-white/70 px-3 py-5 text-center text-xs text-slate-400" style={{ gridColumn: index + 1, gridRow: 2 }}>
+                          <div className="rounded-xl border border-dashed border-slate-200 bg-white/70 px-3 py-3 text-center text-xs text-slate-400" style={{ gridColumn: index + 1, gridRow: 2 }}>
                             Sin cobros en esta fecha
                           </div>
                         )}
@@ -2117,7 +2117,7 @@ export default function CobrosMercadoPagoPage() {
                         key={payment.id}
                         onClick={() => setSelectedPaymentDetail(payment)}
                         style={paymentView === 'columns' && placement ? { gridColumn: placement.column + 1, gridRow: placement.row + 1 } : undefined}
-                        className={`px-3 py-2.5 sm:px-4 sm:py-3 transition-colors cursor-pointer select-none ${paymentView === 'columns' ? 'flex flex-col gap-2 rounded-2xl border border-slate-200/80 shadow-xs' : 'flex items-center justify-between gap-2.5 sm:gap-3'} ${
+                        className={`transition-colors cursor-pointer select-none ${paymentView === 'columns' ? 'flex items-center justify-between gap-2 rounded-xl border border-slate-200/80 px-2.5 py-2 shadow-xs' : 'flex items-center justify-between gap-2.5 sm:gap-3 px-3 py-2.5 sm:px-4 sm:py-3'} ${
                           isInternalItem
                             ? 'bg-purple-50/40 hover:bg-purple-50/80'
                             : isHiddenItem 
@@ -2126,9 +2126,9 @@ export default function CobrosMercadoPagoPage() {
                         }`}
                       >
                         {/* Left: Compact Circular Icon (MP Style) */}
-                        <div className={`flex items-center gap-2.5 sm:gap-3 min-w-0 ${paymentView === 'columns' ? 'w-full' : 'flex-1'}`}>
+                        <div className={`flex items-center min-w-0 flex-1 ${paymentView === 'columns' ? 'gap-2' : 'gap-2.5 sm:gap-3'}`}>
                           <div 
-                            className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center font-bold shrink-0 shadow-2xs ${
+                            className={`${paymentView === 'columns' ? 'w-8 h-8' : 'w-9 h-9 sm:w-10 sm:h-10'} rounded-full flex items-center justify-center font-bold shrink-0 shadow-2xs ${
                               isInternalItem ? 'bg-purple-100 text-purple-700 border border-purple-200' :
                               payment.payment_type === 'QR' ? 'bg-amber-50 text-amber-600 border border-amber-200' :
                               payment.payment_type === 'POINT' ? 'bg-indigo-50 text-indigo-600 border border-indigo-200' :
@@ -2144,18 +2144,20 @@ export default function CobrosMercadoPagoPage() {
                           {/* Center: Title & Subtitle Line */}
                           <div className="min-w-0 flex-1 space-y-0.5">
                             <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className={`font-black text-xs sm:text-sm tracking-tight truncate max-w-[160px] sm:max-w-xs ${isInternalItem ? 'text-purple-950' : 'text-slate-900'}`}>
+                              <span className={`font-black text-xs sm:text-sm tracking-tight truncate ${paymentView === 'columns' ? 'max-w-full' : 'max-w-[160px] sm:max-w-xs'} ${isInternalItem ? 'text-purple-950' : 'text-slate-900'}`}>
                                 {payment.payer_name}
                               </span>
 
                               {/* Mini Account Badge */}
-                              <span 
-                                className="px-1.5 py-0.5 rounded text-[9px] font-black shrink-0 tracking-wider shadow-2xs"
-                                style={{ backgroundColor: accountInfo.color, color: getAliasTextColor(accountInfo.color) }}
-                                title={`Cuenta: ${accountInfo.fullName}`}
-                              >
-                                {accountInfo.displayName}
-                              </span>
+                              {paymentView === 'list' && (
+                                <span
+                                  className="px-1.5 py-0.5 rounded text-[9px] font-black shrink-0 tracking-wider shadow-2xs"
+                                  style={{ backgroundColor: accountInfo.color, color: getAliasTextColor(accountInfo.color) }}
+                                  title={`Cuenta: ${accountInfo.fullName}`}
+                                >
+                                  {accountInfo.displayName}
+                                </span>
+                              )}
 
                               {/* Internal Badge */}
                               {isInternalItem && (
@@ -2202,7 +2204,7 @@ export default function CobrosMercadoPagoPage() {
                             </div>
 
                             {/* Subtitle: Type · Time · + Vincular */}
-                            <div className="flex items-center gap-1 text-[11px] text-slate-500 font-medium truncate">
+                            <div className={`flex items-center gap-1 text-slate-500 font-medium ${paymentView === 'columns' ? 'flex-wrap text-[10px]' : 'truncate text-[11px]'}`}>
                               <span>{payment.payment_type === 'TRANSFERENCIA' ? 'Transferencia' : payment.payment_type === 'POINT' ? 'Point Smart' : 'Código QR'}</span>
                               <span>·</span>
                               <span>{formatTimeOnly(payment.received_at)}</span>
@@ -2225,10 +2227,10 @@ export default function CobrosMercadoPagoPage() {
                         </div>
 
                         {/* Right: Fletero Quick Action Button & Amount */}
-                        <div className={`flex items-center gap-2 sm:gap-3 shrink-0 ${paymentView === 'columns' ? 'w-full justify-between flex-wrap' : ''}`}>
+                        <div className={`flex shrink-0 ${paymentView === 'columns' ? 'min-w-[96px] flex-col items-end gap-0.5' : 'items-center gap-2 sm:gap-3'}`}>
                           {/* Fletero 1-tap button */}
                           {isFleteroRole && (
-                            <div onClick={(e) => e.stopPropagation()} className="shrink-0">
+                            <div onClick={(e) => e.stopPropagation()} className={`shrink-0 ${paymentView === 'columns' ? 'order-2' : ''}`}>
                               {payment.confirmed_by_fletero_name ? (
                                 payment.confirmed_by_fletero_name === currentUserName || payment.confirmed_by_fletero_id === currentUserId ? (
                                   <button
@@ -2265,7 +2267,7 @@ export default function CobrosMercadoPagoPage() {
                             </div>
                           )}
 
-                          <div className="text-right">
+                          <div className={`text-right whitespace-nowrap ${paymentView === 'columns' ? 'order-1' : ''}`}>
                             <div className={`text-xs sm:text-sm font-black tracking-tight ${isInternalItem ? 'text-purple-700' : 'text-emerald-600'}`}>
                               + {formatMPAmount(payment.amount)}
                             </div>
@@ -2275,7 +2277,7 @@ export default function CobrosMercadoPagoPage() {
                           </div>
 
                           {/* Desktop Quick Actions */}
-                          <div className="hidden sm:flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
+                          <div className={`hidden sm:flex items-center gap-0.5 ${paymentView === 'columns' ? 'order-3' : ''}`} onClick={(e) => e.stopPropagation()}>
                             <button
                               onClick={() => handleCopy(`${payment.payer_name} - ${formatMPAmount(payment.amount)} - ${accountInfo.displayName} - ${payment.order_code ? 'Pedido ' + payment.order_code : ''}`, payment.id)}
                               className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-all"
@@ -2310,7 +2312,7 @@ export default function CobrosMercadoPagoPage() {
                           </div>
 
                           {/* Mobile Chevron */}
-                          <div className="sm:hidden text-slate-300">
+                          <div className={`sm:hidden text-slate-300 ${paymentView === 'columns' ? 'order-3' : ''}`}>
                             <ChevronRight className="w-4 h-4" />
                           </div>
                         </div>
