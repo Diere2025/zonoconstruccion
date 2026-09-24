@@ -24,7 +24,7 @@ Extensión de navegador para monitorear transferencias y cobros entrantes en **M
 
 1. Tocá el ícono de extensiones (el rompecabezas 🧩) en Chrome y fijá **Zono MP Monitor**.
 2. Al abrir la extensión podés configurar:
-   * **Cuenta:** Seleccioná si esa ventana monitorea `diegozono.mp (Cuenta MP3)` o `Cuenta MP4 (Logística)`.
+   * **Cuenta:** Seleccioná el alias de la cuenta de Mercado Pago abierta en ese perfil de Chrome.
    * **Webhook URL:** `https://zono-erp.pages.dev/api/mp-webhook` (o tu URL local si estás probando).
    * **Clave secreta:** `mpchecker_secret_key_123`
    * **Intervalo de refresco:** 25 segundos (recomendado).
@@ -33,7 +33,7 @@ Extensión de navegador para monitorear transferencias y cobros entrantes en **M
 
 ---
 
-## 👥 Cómo monitorear las 2 cuentas de Mercado Pago a la vez
+## 👥 Cómo monitorear varias cuentas de Mercado Pago a la vez
 
 En Google Chrome podés tener **Perfiles separados**:
 1. **Perfil 1 de Chrome:**
@@ -41,8 +41,11 @@ En Google Chrome podés tener **Perfiles separados**:
    * En la extensión seleccionás `diegozono.mp`.
 2. **Perfil 2 de Chrome (Nuevo perfil de usuario):**
    * Entrás a `mercadopago.com.ar` y te logueás con la **Cuenta MP4**.
-   * En la extensión seleccionás `Cuenta MP4 (Logística)`.
-3. Dejás abierta la pestaña de **"Actividades"** en ambos perfiles.
+   * En la extensión seleccionás `pagoszono.26`.
+3. **Perfil 3 de Chrome:**
+   * Entrás a `mercadopago.com.ar` y te logueás con la cuenta `cesara.daiana.010.mp`.
+   * En la extensión seleccionás `cesara.daiana.010.mp`.
+4. Dejás abierta la pestaña de **"Actividades"** en cada perfil.
 
 ## Una sola pestaña de monitoreo por perfil
 

@@ -176,6 +176,7 @@ function createFloatingStatusWidget() {
         <select id="zono-quick-account" style="background: #0f172a; color: #38bdf8; border: 1px solid #334155; border-radius: 6px; font-size: 11px; font-weight: 700; padding: 2px 6px; outline: none; cursor: pointer;">
           <option value="pagoszono.26" ${config.accountName === "pagoszono.26" ? "selected" : ""}>pagoszono.26</option>
           <option value="diegozono.mp" ${config.accountName === "diegozono.mp" ? "selected" : ""}>diegozono.mp</option>
+          <option value="cesara.daiana.010.mp" ${config.accountName === "cesara.daiana.010.mp" ? "selected" : ""}>cesara.daiana.010.mp</option>
         </select>
       </div>
       <div style="font-size: 11px; margin-top: 3px;"><span id="zono-reading-status" style="color: #cbd5e1;">Lectura: esperando listado…</span> <button id="zono-diagnose" style="background: transparent; color: #38bdf8; border: 0; cursor: pointer; font-size: 10px;">Diagnóstico</button></div>
@@ -1075,6 +1076,7 @@ function startMonitoring() {
           <select id="zono-quick-account" style="background: #0f172a; color: #38bdf8; border: 1px solid #334155; border-radius: 6px; font-size: 11px; font-weight: 700; padding: 2px 6px; outline: none; cursor: pointer;">
             <option value="pagoszono.26" ${config.accountName === "pagoszono.26" ? "selected" : ""}>pagoszono.26</option>
             <option value="diegozono.mp" ${config.accountName === "diegozono.mp" ? "selected" : ""}>diegozono.mp</option>
+            <option value="cesara.daiana.010.mp" ${config.accountName === "cesara.daiana.010.mp" ? "selected" : ""}>cesara.daiana.010.mp</option>
           </select>
         `;
         document.getElementById("zono-quick-account")?.addEventListener("change", (e) => {

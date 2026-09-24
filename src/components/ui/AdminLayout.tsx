@@ -636,7 +636,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     {
       title: "Operaciones y Control",
       links: [
-        { name: "Chequeo de Pagos", href: "/admin/cobros-mp", icon: ShieldCheck, allowedRoles: ['logistica', 'fletero', 'administracion'] },
+        { name: "Chequeo de Pagos", href: "/admin/cobros-mp", icon: ShieldCheck, allowedRoles: ['admin', 'logistica', 'fletero', 'administracion'] },
         { name: "Sincronizar Planillas", href: "/admin/importar-pedidos", icon: Upload, adminOnly: true }
       ]
     },

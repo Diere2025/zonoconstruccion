@@ -9,6 +9,17 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT
 
 const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 
+function resolveMpAccount(account: string) {
+  const cleanAccount = (account || '').trim().toLowerCase();
+  if (cleanAccount === 'cesara.daiana.010.mp') {
+    return { id: 'cesara_daiana_010_mp', name: 'cesara.daiana.010.mp' };
+  }
+  if (cleanAccount.includes('pagos') || cleanAccount.includes('mp4') || cleanAccount.includes('26') || cleanAccount.includes('zonopagos')) {
+    return { id: 'pagoszono_26', name: 'pagoszono.26' };
+  }
+  return { id: 'diegozono_mp', name: 'diegozono.mp' };
+}
+
 // Comprehensive Mercado Pago Parser
 function parseMpNotification(title: string, text: string, bigText?: string) {
   const cleanTitle = (title || '').replace(/%(?:an[a-z]+|evtprm[0-9]+)/gi, '').trim();
@@ -189,13 +200,9 @@ async function handleProcessNotification(
 
   // Each Mercado Pago account has its own activity stream. Resolve it before
   // checking duplicates so equal transfers in two accounts remain independent.
-  let resolvedAccountId = 'diegozono_mp';
+  const resolvedAccount = resolveMpAccount(account);
+  const resolvedAccountId = resolvedAccount.id;
   try {
-    const cleanAccount = (account || 'diegozono.mp').trim().toLowerCase();
-    if (cleanAccount.includes('pagos') || cleanAccount.includes('mp4') || cleanAccount.includes('26') || cleanAccount.includes('zonopagos')) {
-      resolvedAccountId = 'pagoszono_26';
-    }
-
     await supabaseAdmin.from('mp_accounts').update({
       last_seen_at: new Date().toISOString(),
       status: 'online'
@@ -272,7 +279,7 @@ async function handleProcessNotification(
   const paymentRecord = {
     id: paymentId,
     account_id: resolvedAccountId,
-    account_name: resolvedAccountId === 'pagoszono_26' ? 'pagoszono.26' : 'diegozono.mp',
+    account_name: resolvedAccount.name,
     amount: parsed.amount,
     formatted_amount: parsed.formattedAmount,
     payer_name: parsed.payerName,
@@ -325,16 +332,9 @@ export async function POST(request: Request) {
 
       // Handle page error alert from Chrome extension (crashed page or wrong link)
       if (body.type === 'ALERT_PAGE_ERROR' || body.action === 'ALERT_PAGE_ERROR') {
-        let resolvedAccountId = 'pagoszono_26';
-        let resolvedAccountName = 'pagoszono.26';
-        const cleanAccount = (body.account || account || '').trim().toLowerCase();
-        if (cleanAccount.includes('diego')) {
-          resolvedAccountId = 'diegozono_mp';
-          resolvedAccountName = 'diegozono.mp';
-        } else {
-          resolvedAccountId = 'pagoszono_26';
-          resolvedAccountName = 'pagoszono.26';
-        }
+        const resolvedAccount = resolveMpAccount(body.account || account);
+        const resolvedAccountId = resolvedAccount.id;
+        const resolvedAccountName = resolvedAccount.name;
 
         try {
           await supabaseAdmin
@@ -386,13 +386,7 @@ ${body.clientTime ? `🕒 *Reloj extensión:* ${body.clientTime} hs\n` : ''}
 
       // Handle heartbeat ping from Chrome extension
       if (body.type === 'HEARTBEAT' || body.action === 'HEARTBEAT') {
-        let resolvedAccountId = 'pagoszono_26';
-        const cleanAccount = (body.account || account || '').trim().toLowerCase();
-        if (cleanAccount.includes('diego')) {
-          resolvedAccountId = 'diegozono_mp';
-        } else {
-          resolvedAccountId = 'pagoszono_26';
-        }
+        const resolvedAccountId = resolveMpAccount(body.account || account).id;
 
         try {
           await supabaseAdmin
