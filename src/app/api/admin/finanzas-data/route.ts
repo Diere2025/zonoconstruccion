@@ -23,11 +23,11 @@ export async function GET(request: Request) {
 
     if (action === 'init') {
       // Load helper lists, financial accounts, cost centers, and validation orders in parallel
+      // NOTE: Pending orders are NOT loaded in bulk here to avoid slow payload. They are searched dynamically (min 3 chars).
       const [
         employeesRes,
         suppliersRes,
         purchasesRes,
-        ordersRes,
         routeSheetsRes,
         accountsRes,
         costCentersRes,
@@ -36,7 +36,6 @@ export async function GET(request: Request) {
         supabaseAdmin.from('employees').select('*').eq('is_active', true).order('full_name'),
         supabaseAdmin.from('suppliers').select('*').order('name'),
         supabaseAdmin.from('supplier_purchases').select('*, supplier:suppliers(name)').neq('status', 'Pagado').neq('status', 'Anulado').order('purchase_date', { ascending: false }),
-        supabaseAdmin.from('orders').select('*, clients(business_name)').neq('payment_status', 'Abonado').neq('status', 'Cancelado').order('order_date', { ascending: false }),
         supabaseAdmin.from('route_sheets').select('*, carriers(name)').order('delivery_date', { ascending: false }).limit(200),
         supabaseAdmin.rpc('get_financial_accounts_balances'),
         supabaseAdmin.from('cost_centers').select('*').eq('is_active', true).order('name'),
@@ -46,7 +45,6 @@ export async function GET(request: Request) {
       if (employeesRes.error) throw employeesRes.error;
       if (suppliersRes.error) throw suppliersRes.error;
       if (purchasesRes.error) throw purchasesRes.error;
-      if (ordersRes.error) throw ordersRes.error;
       if (routeSheetsRes.error) throw routeSheetsRes.error;
       if (accountsRes.error) throw accountsRes.error;
       if (costCentersRes.error) throw costCentersRes.error;
@@ -64,12 +62,36 @@ export async function GET(request: Request) {
         employees: employeesRes.data || [],
         suppliers: suppliersRes.data || [],
         pendingPurchases: purchasesRes.data || [],
-        pendingOrders: ordersRes.data || [],
+        pendingOrders: [],
         routeSheets: routeSheetsRes.data || [],
         financialAccounts: accountsRes.data || [],
         costCenters: costCentersRes.data || [],
         validationOrders: filteredValidationOrders
       });
+    }
+
+    if (action === 'search-pending-orders') {
+      const q = (searchParams.get('q') || '').trim();
+      if (!q || q.length < 3) {
+        return NextResponse.json({ pendingOrders: [] });
+      }
+
+      const cleanQ = q.replace(/[%_,\.()]/g, ' ').trim();
+      if (cleanQ.length < 3) {
+        return NextResponse.json({ pendingOrders: [] });
+      }
+
+      const { data, error } = await supabaseAdmin
+        .from('orders')
+        .select('*, clients(business_name)')
+        .neq('payment_status', 'Abonado')
+        .neq('status', 'Cancelado')
+        .or(`legacy_code.ilike.%${cleanQ}%,customer_name.ilike.%${cleanQ}%`)
+        .order('order_date', { ascending: false })
+        .limit(30);
+
+      if (error) throw error;
+      return NextResponse.json({ pendingOrders: data || [] });
     }
 
     if (action === 'accounts') {
