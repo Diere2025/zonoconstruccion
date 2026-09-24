@@ -1,5 +1,33 @@
 export type CommercialBrand = 'zono' | 'aquafort';
 
+export interface LogisticsTrip {
+  zone: string;
+  route: string;
+  carrier: string;
+  driver: string;
+  vehicle: string;
+  companion: string;
+  departure: string;
+}
+
+export const LOGISTICS_TRIP_FIELDS = ['zone', 'route', 'carrier', 'driver', 'vehicle', 'companion', 'departure'] as const;
+
+export function normalizedDeliveryDate(value: string): string {
+  const date = value.trim();
+  const local = date.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  if (local) return `${local[3]}-${local[2].padStart(2, '0')}-${local[1].padStart(2, '0')}`;
+  const iso = date.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (iso) return `${iso[1]}-${iso[2].padStart(2, '0')}-${iso[3].padStart(2, '0')}`;
+  return date;
+}
+
+export function logisticsTripKey(deliveryDate: string, trip?: Partial<LogisticsTrip>): string {
+  return JSON.stringify([normalizedDeliveryDate(deliveryDate), ...LOGISTICS_TRIP_FIELDS.map(field => {
+    const value = (trip?.[field] || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('es');
+    return field === 'departure' ? value.replace(/^(\d):/, '0$1:') : value;
+  })]);
+}
+
 export interface LogisticsPrintItem {
   name: string;
   quantity: number;
@@ -31,6 +59,7 @@ export interface LogisticsPrintOrder {
   pendingBalance: number;
   items: LogisticsPrintItem[];
   commercialBrand: CommercialBrand;
+  trip?: LogisticsTrip;
 }
 
 export interface LogisticsOrderMetadata {
@@ -121,6 +150,15 @@ export function parseLogisticsPrintRows(rows: string[][], firstRowNumber = 3): L
       codes: [code],
       legacyCode: code,
       deliveryDate: String(row[2] || ''),
+      trip: {
+        zone: String(row[13] || '').trim(),
+        route: String(row[14] || '').trim(),
+        carrier: String(row[78] || '').trim(),
+        driver: String(row[80] || '').trim(),
+        vehicle: String(row[81] || '').trim(),
+        companion: String(row[82] || '').trim(),
+        departure: String(row[83] || '').trim()
+      },
       orderDate: String(row[3] || ''),
       customerName: String(row[5] || ''),
       phonePrimary: String(row[6] || ''),
@@ -198,8 +236,16 @@ export function mergeLogisticsPrintOrders(
 
   const buckets = new Map<string, LogisticsPrintOrder[]>();
   for (const row of rows) {
-    const root = groups.find(row.codes[0]);
+    // Pedidos vinculados de distintos viajes deben conservar su propia hoja.
+    const root = JSON.stringify([groups.find(row.codes[0]), logisticsTripKey(row.deliveryDate, row.trip)]);
     buckets.set(root, [...(buckets.get(root) || []), row]);
+  }
+
+  const codeTripCounts = new Map<string, number>();
+  for (const bucket of buckets.values()) {
+    for (const code of new Set(bucket.flatMap(order => order.codes))) {
+      codeTripCounts.set(code, (codeTripCounts.get(code) || 0) + 1);
+    }
   }
 
   return Array.from(buckets.values())
@@ -216,7 +262,7 @@ export function mergeLogisticsPrintOrders(
 
       return {
         ...bucket[0],
-        id: codes.join('|'),
+        id: codes.join('|') + (codes.some(code => (codeTripCounts.get(code) || 0) > 1) ? `@${bucket[0].sourceRows[0]}` : ''),
         sourceRows: bucket.flatMap(order => order.sourceRows),
         codes,
         legacyCode: metadata?.legacyCode || codes.join(' / '),

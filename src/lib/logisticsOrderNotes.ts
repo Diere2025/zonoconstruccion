@@ -1,45 +1,49 @@
-import type { LogisticsPrintOrder } from './logisticsPrintOrders';
+import { LogisticsPrintOrder, LogisticsTrip, LOGISTICS_TRIP_FIELDS, logisticsTripKey, normalizedDeliveryDate } from './logisticsPrintOrders';
 
 export const ORDER_NOTE_ROWS_PER_PAGE = 18;
 export const DEFAULT_ORDER_NOTE_RATES = [13.5, 32, 43.2, 61.4, 42] as const;
 
-export interface OrderNotePage {
+export interface OrderNoteGroup {
+  key: string;
   deliveryDate: string;
+  trip: LogisticsTrip;
+  orders: LogisticsPrintOrder[];
+}
+
+export interface OrderNotePage extends OrderNoteGroup {
   pageNumber: number;
   pageCount: number;
   firstRowNumber: number;
   orders: LogisticsPrintOrder[];
 }
 
-function normalizedDeliveryDate(value: string): string {
-  const date = value.trim();
-  const local = date.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
-  if (local) return `${local[3]}-${local[2].padStart(2, '0')}-${local[1].padStart(2, '0')}`;
-  const iso = date.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-  if (iso) return `${iso[1]}-${iso[2].padStart(2, '0')}-${iso[3].padStart(2, '0')}`;
-  return date;
+export function buildOrderNoteGroups(orders: LogisticsPrintOrder[], fallback: Partial<LogisticsTrip> = {}): OrderNoteGroup[] {
+  const groups = new Map<string, OrderNoteGroup>();
+  for (const order of orders) {
+    const deliveryDate = normalizedDeliveryDate(order.deliveryDate);
+    const trip = Object.fromEntries(LOGISTICS_TRIP_FIELDS.map(field => [field, order.trip?.[field]?.trim() || fallback[field]?.trim() || ''])) as unknown as LogisticsTrip;
+    const key = logisticsTripKey(deliveryDate, trip);
+    const group = groups.get(key);
+    if (group) group.orders.push(order);
+    else groups.set(key, { key, deliveryDate, trip, orders: [order] });
+  }
+  return [...groups.values()];
 }
 
-export function buildOrderNotePages(orders: LogisticsPrintOrder[]): OrderNotePage[] {
-  const byDate = new Map<string, LogisticsPrintOrder[]>();
-  for (const order of orders) {
-    const date = normalizedDeliveryDate(order.deliveryDate);
-    byDate.set(date, [...(byDate.get(date) || []), order]);
-  }
-
-  return Array.from(byDate, ([deliveryDate, datedOrders]) => {
-    const pageCount = Math.ceil(datedOrders.length / ORDER_NOTE_ROWS_PER_PAGE);
+export function buildOrderNotePages(orders: LogisticsPrintOrder[], fallback: Partial<LogisticsTrip> = {}): OrderNotePage[] {
+  return buildOrderNoteGroups(orders, fallback).flatMap(group => {
+    const pageCount = Math.ceil(group.orders.length / ORDER_NOTE_ROWS_PER_PAGE);
     return Array.from({ length: pageCount }, (_, pageIndex) => ({
-      deliveryDate,
+      ...group,
       pageNumber: pageIndex + 1,
       pageCount,
       firstRowNumber: pageIndex * ORDER_NOTE_ROWS_PER_PAGE + 1,
-      orders: datedOrders.slice(
+      orders: group.orders.slice(
         pageIndex * ORDER_NOTE_ROWS_PER_PAGE,
         (pageIndex + 1) * ORDER_NOTE_ROWS_PER_PAGE
       )
     }));
-  }).flat();
+  });
 }
 
 export function selectedOrderNoteCardIndex(paymentMethod: string): number | null {

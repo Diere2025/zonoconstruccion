@@ -182,11 +182,10 @@ function Receipt({ order, compact }: { order: LogisticsPrintOrder; compact: bool
 
 export function PrintableReceipts({ sheets }: { sheets: ReceiptSheet[] }) {
   if (typeof document === 'undefined') return null;
-  return createPortal(
+  const content = (
     <div id="print-logistics-receipts-root">
       {sheets.map((sheet, index) => (
-        <section
-          key={`${sheet.orders.map(order => order.id).join('-')}-${index}`}
+        <section key={`${sheet.orders.map(order => order.id).join('-')}-${index}`}
           className={`logistics-receipt-sheet ${sheet.layout === 'double' ? 'two-up' : 'one-up'}`}
         >
           {sheet.orders.map(order => (
@@ -194,9 +193,9 @@ export function PrintableReceipts({ sheets }: { sheets: ReceiptSheet[] }) {
           ))}
         </section>
       ))}
-    </div>,
-    document.body
+    </div>
   );
+  return createPortal(content, document.body);
 }
 
 export default function LogisticsReceiptsPanel() {

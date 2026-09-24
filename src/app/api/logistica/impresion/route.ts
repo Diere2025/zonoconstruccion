@@ -10,11 +10,12 @@ import {
   parseLogisticsPrintRows
 } from '@/lib/logisticsPrintOrders';
 import { parseLogisticsRemittanceRows } from '@/lib/logisticsRemittances';
+import { LOGISTICS_TRIP_MAX_COLUMNS } from '@/lib/logisticsPaste';
 
 const RECEIPTS_SPREADSHEET_ID = '1t1fNJ4O-gSSxyvUTvDuswWihRyLue_Y0VpAaiG-2dXk';
 const REMITTANCES_SPREADSHEET_ID = '1AogvMaQJH1JFlikdWfdGYPkgvnXfe-DecYbkHmxGR-s';
 const MAX_ROWS = 200;
-const MAX_COLUMNS = 78; // A:BZ, termina con el importe del producto 12.
+const MAX_COLUMNS = LOGISTICS_TRIP_MAX_COLUMNS;
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
@@ -62,7 +63,7 @@ export async function GET(request: NextRequest) {
     const isRemittances = source === 'remitos';
     const values = await fetchSpreadsheetValues(
       isRemittances ? REMITTANCES_SPREADSHEET_ID : RECEIPTS_SPREADSHEET_ID,
-      isRemittances ? "'Imprimir'!A1:BZ40" : "'Imprimir'!A3:BZ42"
+      isRemittances ? "'Imprimir'!A1:CF40" : "'Imprimir'!A3:CF42"
     );
     return NextResponse.json(await buildPayload(values, isRemittances ? 1 : 3, source));
   } catch (error) {
