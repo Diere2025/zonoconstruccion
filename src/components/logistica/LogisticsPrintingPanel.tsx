@@ -19,12 +19,11 @@ import { LogisticsRemittance } from '@/lib/logisticsRemittances';
 import { waitForPrintImages } from '@/lib/printAssets';
 import { supabase } from '@/lib/supabase';
 import {
-  LOGISTICS_MAX_COLUMNS,
-  noteTripFromPastedRows,
+  LOGISTICS_TRIP_MAX_COLUMNS,
   normalizeLogisticsPastedRows,
   parseQuotedTsv
 } from '@/lib/logisticsPaste';
-import { DEFAULT_ORDER_NOTE_RATES } from '@/lib/logisticsOrderNotes';
+import { buildOrderNoteGroups, DEFAULT_ORDER_NOTE_RATES, ORDER_NOTE_ROWS_PER_PAGE, OrderNoteGroup } from '@/lib/logisticsOrderNotes';
 import {
   buildReceiptSheets,
   PerPage,
@@ -32,12 +31,9 @@ import {
 } from '@/components/logistica/LogisticsReceiptsPanel';
 import { PrintableRemittances } from '@/components/logistica/LogisticsRemittancesPanel';
 import { OrderNoteSettings, PrintableOrderNotes } from '@/components/logistica/LogisticsOrderNotesPanel';
-import { PrintableConformity } from '@/components/logistica/LogisticsConformityPanel';
 
 type DataSource = 'comprobantes' | 'remitos' | 'pegado';
-type OutputType = 'comprobantes' | 'remitos' | 'nota-pedido' | 'conformidad';
-type PrintStage = OutputType | null;
-const PRINT_OUTPUTS: OutputType[] = ['comprobantes', 'remitos', 'nota-pedido', 'conformidad'];
+type OutputType = 'comprobantes' | 'remitos' | 'nota-pedido';
 
 interface PrintingPayload {
   orders: LogisticsPrintOrder[];
@@ -60,6 +56,13 @@ const BASE_COLUMNS: GridColumn[] = [
   { index: 1, label: 'Código', width: '120px' },
   { index: 2, label: 'Entrega', width: '105px' },
   { index: 5, label: 'Cliente', width: '190px' },
+  { index: 13, label: 'Zona', width: '140px' },
+  { index: 14, label: 'Recorrido', width: '100px' },
+  { index: 78, label: 'Fletero', width: '140px' },
+  { index: 80, label: 'Chofer', width: '180px' },
+  { index: 81, label: 'Vehículo', width: '100px' },
+  { index: 82, label: 'Acompañante', width: '180px' },
+  { index: 83, label: 'Salida', width: '80px' },
   { index: 10, label: 'Detalle / vinculación', width: '190px' },
   { index: 17, label: 'Localidad', width: '140px' },
   { index: 18, label: 'Dirección', width: '220px' },
@@ -88,7 +91,7 @@ function displayDate(value: string): string {
 }
 
 function emptyGridRow(): string[] {
-  return Array(LOGISTICS_MAX_COLUMNS).fill('');
+  return Array(LOGISTICS_TRIP_MAX_COLUMNS).fill('');
 }
 
 function emptyNoteSettings(): OrderNoteSettings {
@@ -144,10 +147,12 @@ export default function LogisticsPrintingPanel() {
   const [showIgnoredEncWarning, setShowIgnoredEncWarning] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pastedRows, setPastedRows] = useState<string[][]>([emptyGridRow()]);
+  const [gridDirty, setGridDirty] = useState(false);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [printStage, setPrintStage] = useState<PrintStage>(null);
+  const [printType, setPrintType] = useState<OutputType | null>(null);
+  const printing = printType !== null;
   const [printOrders, setPrintOrders] = useState<LogisticsPrintOrder[]>([]);
   const [printRemittances, setPrintRemittances] = useState<LogisticsRemittance[]>([]);
   const [noteSettings, setNoteSettings] = useState<OrderNoteSettings>(emptyNoteSettings);
@@ -159,14 +164,9 @@ export default function LogisticsPrintingPanel() {
   const [paywayMessage, setPaywayMessage] = useState('');
   const [multipleDocumentWarnings, setMultipleDocumentWarnings] = useState<MultipleDocumentWarning[]>([]);
   const [showPrintWarning, setShowPrintWarning] = useState(false);
-  const [multiSelected, setMultiSelected] = useState<Record<OutputType, boolean>>({
-    comprobantes: true,
-    remitos: true,
-    'nota-pedido': true,
-    conformidad: true
-  });
-  const remainingStages = useRef<Exclude<PrintStage, null>[]>([]);
-  const pendingPrintTypes = useRef<OutputType[]>([]);
+  const pendingPrintType = useRef<OutputType | null>(null);
+  const processingVersion = useRef(0);
+  const [tripWarning, setTripWarning] = useState<{ groups: OrderNoteGroup[]; printing: boolean } | null>(null);
 
   const loadPaywayRates = async () => {
     setPaywayStatus('loading');
@@ -240,6 +240,8 @@ export default function LogisticsPrintingPanel() {
     setSelected(new Set(nextOrders
       .filter(order => !ignoreEncCodes || !order.codes.some(code => /^ENC/i.test(code)))
       .map(order => order.id)));
+    const groups = buildOrderNoteGroups(nextOrders.filter(order => !ignoreEncCodes || !order.codes.some(code => /^ENC/i.test(code))), noteSettings);
+    setTripWarning(groups.length > 1 ? { groups, printing: false } : null);
     if (ignoreEncCodes && nextIgnoredCodes.length > 0) {
       setIgnoredEncCodes(nextIgnoredCodes);
       setShowIgnoredEncWarning(true);
@@ -247,26 +249,32 @@ export default function LogisticsPrintingPanel() {
   };
 
   const loadSource = async (nextSource: Exclude<DataSource, 'pegado'> = source as Exclude<DataSource, 'pegado'>) => {
+    const version = ++processingVersion.current;
     try {
       setLoading(true);
       setError('');
       const response = await fetch(`/api/logistica/impresion?source=${nextSource}`, { cache: 'no-store' });
       const payload = await response.json();
+      if (version !== processingVersion.current) return;
       if (!response.ok) throw new Error(payload.error || 'No se pudo leer la planilla.');
       applyPayload(payload);
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'No se pudo leer la planilla.');
+      if (version === processingVersion.current) setError(loadError instanceof Error ? loadError.message : 'No se pudo leer la planilla.');
     } finally {
-      setLoading(false);
+      if (version === processingVersion.current) setLoading(false);
     }
   };
 
   const processPastedRows = async (rows = pastedRows) => {
+    const version = ++processingVersion.current;
     const nonEmptyRows = rows.filter(row => row.some(cell => String(cell || '').trim()));
     if (nonEmptyRows.length === 0) {
       setRawOrders([]);
       setRemittances([]);
       setSelected(new Set());
+      setLoading(false);
+      setGridDirty(false);
+      setTripWarning(null);
       return;
     }
     try {
@@ -275,51 +283,44 @@ export default function LogisticsPrintingPanel() {
       const response = await fetch('/api/logistica/impresion', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows: nonEmptyRows.map(row => row.slice(0, LOGISTICS_MAX_COLUMNS)) })
+        body: JSON.stringify({ rows: nonEmptyRows.map(row => row.slice(0, LOGISTICS_TRIP_MAX_COLUMNS)) })
       });
       const payload = await response.json();
+      if (version !== processingVersion.current) return;
       if (!response.ok) throw new Error(payload.error || 'No se pudo procesar el contenido pegado.');
       applyPayload(payload);
+      setGridDirty(false);
     } catch (pasteError) {
-      setError(pasteError instanceof Error ? pasteError.message : 'No se pudo procesar el contenido pegado.');
+      if (version === processingVersion.current) setError(pasteError instanceof Error ? pasteError.message : 'No se pudo procesar el contenido pegado.');
     } finally {
-      setLoading(false);
+      if (version === processingVersion.current) setLoading(false);
     }
   };
 
   useEffect(() => {
     const afterPrint = () => {
-      const nextStage = remainingStages.current.shift() || null;
-      if (nextStage) {
-        setPrintStage(nextStage);
-      } else {
-        setPrintStage(null);
-        setPrintOrders([]);
-        setPrintRemittances([]);
-      }
+      setPrintType(null);
+      setPrintOrders([]);
+      setPrintRemittances([]);
     };
     window.addEventListener('afterprint', afterPrint);
     return () => window.removeEventListener('afterprint', afterPrint);
   }, []);
 
   useEffect(() => {
-    if (!printStage) return;
+    if (!printType) return;
     let pageStyle: HTMLStyleElement | null = null;
     let cancelled = false;
     let timer: number | null = null;
-    if (printStage === 'remitos' || printStage === 'nota-pedido' || printStage === 'conformidad') {
+    if (printType !== 'comprobantes') {
       pageStyle = document.createElement('style');
       pageStyle.dataset.unifiedLogisticsPrint = 'true';
-      pageStyle.textContent = `@media print { @page { size: A4 ${printStage === 'conformidad' ? 'portrait' : 'landscape'}; margin: 0; } }`;
+      pageStyle.textContent = '@media print { @page { size: A4 landscape; margin: 0; } }';
       document.head.appendChild(pageStyle);
     }
-    const rootId = printStage === 'remitos'
-      ? 'print-legal-remittances-root'
-      : printStage === 'nota-pedido'
-        ? 'print-order-notes-root'
-        : printStage === 'conformidad'
-          ? 'print-conformity-root'
-          : 'print-logistics-receipts-root';
+    const rootId = printType === 'comprobantes'
+      ? 'print-logistics-receipts-root'
+      : printType === 'remitos' ? 'print-legal-remittances-root' : 'print-order-notes-root';
     void waitForPrintImages(rootId).then(() => {
       if (!cancelled) timer = window.setTimeout(() => window.print(), 50);
     });
@@ -328,7 +329,7 @@ export default function LogisticsPrintingPanel() {
       if (timer !== null) window.clearTimeout(timer);
       pageStyle?.remove();
     };
-  }, [printStage]);
+  }, [printType]);
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -338,7 +339,7 @@ export default function LogisticsPrintingPanel() {
   }, [orders, search]);
 
   const selectedOrders = useMemo(() => orders.filter(order => selected.has(order.id)), [orders, selected]);
-  const multiPrintTypes = PRINT_OUTPUTS.filter(type => multiSelected[type]);
+  const selectedTripGroups = useMemo(() => buildOrderNoteGroups(selectedOrders, noteSettings), [selectedOrders, noteSettings]);
   const paywayDirty = paywayCanEdit && paywayDraft.some((value, index) => !value.trim() || Number(value) !== paywaySavedRates[index]);
   const selectedRemittances = useMemo(() => {
     const codes = new Set(selectedOrders.flatMap(order => order.codes));
@@ -351,6 +352,8 @@ export default function LogisticsPrintingPanel() {
     setSource(nextSource);
     setError('');
     if (nextSource === 'pegado') {
+      processingVersion.current++;
+      setLoading(false);
       setRawOrders([]);
       setRemittances([]);
       setSelected(new Set());
@@ -369,21 +372,13 @@ export default function LogisticsPrintingPanel() {
       );
     }
     if (clipboardRows.length === 0) clipboardRows = parseQuotedTsv(event.clipboardData.getData('text/plain'));
-    const rows = normalizeLogisticsPastedRows(clipboardRows);
+    const rows = normalizeLogisticsPastedRows(clipboardRows, true);
     if (rows.length === 0) return;
     event.preventDefault();
     const existingRows = pastedRows.filter(row => row.some(cell => String(cell || '').trim()));
-    if (existingRows.length === 0) {
-      const trip = noteTripFromPastedRows(clipboardRows);
-      if (trip) setNoteSettings(current => ({
-        ...current,
-        driver: trip.driver || current.driver,
-        vehicle: trip.vehicle || current.vehicle,
-        companion: trip.companion || current.companion
-      }));
-    }
     const combinedRows = existingRows.length > 0 ? [...existingRows, ...rows] : rows;
     setSource('pegado');
+    setGridDirty(true);
     setPastedRows(ensureTrailingEmptyRow(combinedRows));
     processPastedRows(combinedRows);
   };
@@ -397,17 +392,26 @@ export default function LogisticsPrintingPanel() {
   };
 
   const clearGrid = () => {
+    processingVersion.current++;
+    setLoading(false);
     setSource('pegado');
     setPastedRows([emptyGridRow()]);
+    setGridDirty(false);
     setRawOrders([]);
     setRemittances([]);
     setSelected(new Set());
     setSearch('');
     setError('');
     setNoteSettings(current => ({ ...emptyNoteSettings(), posnetRates: current.posnetRates }));
+    setTripWarning(null);
+    setShowIgnoredEncWarning(false);
+    setIgnoredEncCodes([]);
   };
 
   const updateCell = (rowIndex: number, columnIndex: number, value: string) => {
+    processingVersion.current++;
+    setLoading(false);
+    setGridDirty(true);
     setPastedRows(current => ensureTrailingEmptyRow(current.map((row, index) => {
       if (index !== rowIndex) return row;
       const next = [...row];
@@ -445,22 +449,24 @@ export default function LogisticsPrintingPanel() {
     }
   };
 
-  const startPrint = (types: OutputType[]) => {
-    if (selectedOrders.length === 0 || types.length === 0) return;
+  const startPrint = (type: OutputType) => {
+    if (selectedOrders.length === 0) return;
     setPrintOrders(selectedOrders);
     setPrintRemittances(selectedRemittances);
-    remainingStages.current = types.slice(1);
-    setPrintStage(types[0]);
+    setPrintType(type);
   };
 
-  const handlePrint = (types: OutputType[]) => {
-    if (selectedOrders.length === 0 || types.length === 0 || printStage !== null) return;
-    if (types.includes('remitos') && selectedRemittances.length === 0) return;
-    if (types.includes('nota-pedido') && (paywayStatus !== 'ready' || paywaySaving || paywayDirty)) return;
+  const handlePrint = (type: OutputType, tripsConfirmed = false) => {
+    if (selectedOrders.length === 0 || printing || loading || (source === 'pegado' && gridDirty)) return;
+    if (type === 'remitos' && selectedRemittances.length === 0) return;
+    if (type === 'nota-pedido' && (paywayStatus !== 'ready' || paywaySaving || paywayDirty)) return;
+    if (type === 'nota-pedido' && selectedTripGroups.length > 1 && !tripsConfirmed) {
+      pendingPrintType.current = type;
+      setTripWarning({ groups: selectedTripGroups, printing: true });
+      return;
+    }
     const warnings: MultipleDocumentWarning[] = [];
-
-    for (const type of types) {
-      if (type !== 'comprobantes' && type !== 'remitos') continue;
+    if (type === 'comprobantes' || type === 'remitos') {
       const counts = new Map<string, number>();
       if (type === 'remitos') {
         for (const remittance of selectedRemittances) {
@@ -479,12 +485,12 @@ export default function LogisticsPrintingPanel() {
     }
 
     if (warnings.length > 0) {
-      pendingPrintTypes.current = types;
+      pendingPrintType.current = type;
       setMultipleDocumentWarnings(warnings);
       setShowPrintWarning(true);
       return;
     }
-    startPrint(types);
+    startPrint(type);
   };
 
   return (
@@ -495,30 +501,17 @@ export default function LogisticsPrintingPanel() {
           {([
             ['comprobantes', 'Comprobantes'],
             ['remitos', 'Remitos'],
-            ['nota-pedido', 'Planilla de entregas y cobros'],
-            ['conformidad', 'Conformidad']
+            ['nota-pedido', 'Planilla de entregas y cobros']
           ] as const).map(([type, label]) => (
             <div key={type} className="flex items-center rounded-xl border border-slate-300 bg-white p-1">
-              <label className="flex h-7 w-7 items-center justify-center" title={`Incluir ${label} en Imprimir varios`}>
-                <input
-                  type="checkbox"
-                  aria-label={`Incluir ${label} en Imprimir varios`}
-                  checked={multiSelected[type]}
-                  onChange={event => setMultiSelected(current => ({ ...current, [type]: event.target.checked }))}
-                  className="h-4 w-4 accent-slate-900"
-                />
-              </label>
-              <button type="button" onClick={() => handlePrint([type])} disabled={selectedOrders.length === 0 || loading || printStage !== null || (type === 'remitos' && selectedRemittances.length === 0) || (type === 'nota-pedido' && (paywayStatus !== 'ready' || paywaySaving || paywayDirty))} className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-black text-slate-800 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40">
+              <button type="button" onClick={() => handlePrint(type)} disabled={selectedOrders.length === 0 || loading || printing || (source === 'pegado' && gridDirty) || (type === 'remitos' && selectedRemittances.length === 0) || (type === 'nota-pedido' && (paywayStatus !== 'ready' || paywaySaving || paywayDirty))} className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-black text-slate-800 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40">
                 <Printer className="h-3.5 w-3.5" /> {label}
               </button>
             </div>
           ))}
-          <button type="button" onClick={() => handlePrint(multiPrintTypes)} disabled={selectedOrders.length === 0 || multiPrintTypes.length === 0 || loading || printStage !== null || (multiSelected.remitos && selectedRemittances.length === 0) || (multiSelected['nota-pedido'] && (paywayStatus !== 'ready' || paywaySaving || paywayDirty))} className="flex items-center gap-1.5 rounded-xl bg-slate-900 px-4 py-2 text-xs font-black text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40">
-            <Printer className="h-3.5 w-3.5" /> Imprimir varios
-          </button>
           {selectedOrders.length > 0 && <span className="ml-auto text-[10px] font-bold text-slate-500">{selectedOrders.length} {selectedOrders.length === 1 ? 'pedido seleccionado' : 'pedidos seleccionados'}</span>}
         </div>
-        <p className="mt-2 text-[10px] font-semibold text-slate-500">Las casillas definen qué documentos incluye “Imprimir varios”. Se abrirá una vista de impresión por cada tipo seleccionado; los botones también funcionan por separado.</p>
+        {source === 'pegado' && gridDirty && <p className="mt-2 text-xs font-bold text-amber-700">Hay cambios en la grilla: pulsá Aplicar grilla antes de imprimir.</p>}
         <div className="mt-4 flex flex-col gap-3 border-t border-slate-200 pt-4 xl:flex-row xl:items-end xl:justify-between">
           <div>
             <h2 className="text-sm font-black text-slate-900">Origen y formato de impresión</h2>
@@ -555,7 +548,11 @@ export default function LogisticsPrintingPanel() {
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4">
           <h3 className="text-xs font-black text-slate-800">Datos del viaje</h3>
-          <p className="mt-1 text-[10px] font-semibold text-slate-500">Chofer, acompañante, vehículo y salida figuran en la planilla de entregas y cobros y en Conformidad. Si la planilla pegada incluye esos datos, se completan automáticamente.</p>
+          <p className="mt-1 text-[10px] font-semibold text-slate-500">Cada hoja usa el fletero y recorrido de sus pedidos. Podés corregir esos datos en la grilla y pulsar Aplicar grilla. Los siguientes campos completan únicamente los datos que falten; el cambio se indica en todas las hojas.</p>
+          {selectedTripGroups.length > 0 && <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs">
+            <div className="flex items-center justify-between gap-3"><strong>{selectedTripGroups.length} {selectedTripGroups.length === 1 ? 'viaje en la selección' : 'viajes en la selección'}</strong><button type="button" onClick={() => setTripWarning({ groups: selectedTripGroups, printing: false })} className="font-bold text-blue-700">Ver fechas y recorridos</button></div>
+            {selectedTripGroups.length === 1 && <p className="mt-1 text-slate-600">{displayDate(selectedTripGroups[0].deliveryDate)} · {selectedTripGroups[0].trip.carrier || selectedTripGroups[0].trip.driver || 'Sin fletero'} · {[selectedTripGroups[0].trip.zone, selectedTripGroups[0].trip.route].filter(Boolean).join(' / ') || 'Sin recorrido'}</p>}
+          </div>}
           <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             {([
               ['driver', 'Chofer'],
@@ -691,10 +688,31 @@ export default function LogisticsPrintingPanel() {
         </div>
       )}
 
-      {printStage === 'comprobantes' && <PrintableReceipts sheets={receiptSheets} />}
-      {printStage === 'remitos' && <PrintableRemittances remittances={printRemittances} />}
-      {printStage === 'nota-pedido' && <PrintableOrderNotes orders={printOrders} settings={noteSettings} />}
-      {printStage === 'conformidad' && <PrintableConformity orders={printOrders} settings={noteSettings} />}
+      {printType === 'comprobantes' && <PrintableReceipts sheets={receiptSheets} />}
+      {printType === 'remitos' && <PrintableRemittances remittances={printRemittances} />}
+      {printType === 'nota-pedido' && <PrintableOrderNotes orders={printOrders} settings={noteSettings} />}
+
+      {tripWarning && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+          <div role="dialog" aria-modal="true" aria-labelledby="trip-warning-title" className="flex max-h-[90vh] w-full max-w-2xl flex-col rounded-3xl border border-amber-200 bg-white p-6 shadow-2xl">
+            <h3 id="trip-warning-title" className="flex items-center gap-2 text-base font-black text-slate-900"><AlertTriangle className="h-5 w-5 text-amber-600" /> {tripWarning.groups.length > 1 ? 'Se detectaron distintos viajes' : 'Resumen del viaje'}</h3>
+            <p className="mt-2 text-xs leading-relaxed text-slate-600">{tripWarning.groups.length > 1 ? 'Hay diferencias de fecha, fletero, recorrido o datos del viaje. La planilla de entregas y cobros generará hojas separadas para los siguientes grupos. Si es intencional, podés continuar; si no, corregí los datos en la grilla y volvé a aplicarla.' : 'Estos son los datos que se usarán en la planilla de entregas y cobros.'}</p>
+            <div className="mt-4 space-y-3 overflow-y-auto">
+              {tripWarning.groups.map(group => <div key={group.key} className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs">
+                <div className="flex justify-between gap-3 font-black text-slate-900"><span>{displayDate(group.deliveryDate)} · {group.trip.carrier || group.trip.driver || 'Sin fletero'}</span><span>{Math.ceil(group.orders.length / ORDER_NOTE_ROWS_PER_PAGE)} hoja(s)</span></div>
+                <p className="mt-1">Recorrido: {[group.trip.zone, group.trip.route].filter(Boolean).join(' / ') || 'Sin recorrido'}</p>
+                <p className="mt-1">Chofer: {group.trip.driver || 'Sin dato'} · Vehículo: {group.trip.vehicle || 'Sin dato'}</p>
+                <p className="mt-1">Acompañante: {group.trip.companion || 'Sin dato'} · Salida: {group.trip.departure || 'Sin dato'}</p>
+                <p className="mt-2 break-words font-mono text-[11px] text-slate-700">{group.orders.flatMap(order => order.codes).join(' · ')}</p>
+              </div>)}
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" onClick={() => setTripWarning(null)} className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-black text-slate-600">{tripWarning.printing ? 'Volver y corregir' : 'Entendido'}</button>
+              {tripWarning.printing && <button type="button" onClick={() => { setTripWarning(null); if (pendingPrintType.current) handlePrint(pendingPrintType.current, true); }} className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-black text-white">Continuar e imprimir</button>}
+            </div>
+          </div>
+        </div>
+      )}
 
       {showPrintWarning && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
@@ -718,7 +736,7 @@ export default function LogisticsPrintingPanel() {
             </div>
             <div className="mt-5 flex justify-end gap-2">
               <button type="button" onClick={() => setShowPrintWarning(false)} className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-black text-slate-600 hover:bg-slate-50">Cancelar</button>
-              <button type="button" onClick={() => { setShowPrintWarning(false); startPrint(pendingPrintTypes.current); }} className="flex items-center gap-1.5 rounded-xl bg-amber-600 px-4 py-2 text-xs font-black text-white hover:bg-amber-700">
+              <button type="button" onClick={() => { setShowPrintWarning(false); if (pendingPrintType.current) startPrint(pendingPrintType.current); }} className="flex items-center gap-1.5 rounded-xl bg-amber-600 px-4 py-2 text-xs font-black text-white hover:bg-amber-700">
                 <Printer className="h-3.5 w-3.5" /> Continuar e imprimir
               </button>
             </div>

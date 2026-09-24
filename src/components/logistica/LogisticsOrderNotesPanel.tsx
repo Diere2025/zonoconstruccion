@@ -26,12 +26,12 @@ function displayDate(value: string): string {
 
 export function PrintableOrderNotes({ orders, settings }: { orders: LogisticsPrintOrder[]; settings: OrderNoteSettings }) {
   if (typeof document === 'undefined') return null;
-  const pages = buildOrderNotePages(orders);
+  const pages = buildOrderNotePages(orders, settings);
 
-  return createPortal(
+  const content = (
     <div id="print-order-notes-root">
       {pages.map((page, pageIndex) => (
-        <section className="order-note-sheet" key={`${page.deliveryDate}-${page.pageNumber}-${pageIndex}`}>
+        <section className="order-note-sheet" key={`${page.key}-${page.pageNumber}-${pageIndex}`}>
           <header className="order-note-header">
             <div>
               <div className="order-note-eyebrow">ZONO CONSTRUCCIÓN <span>·</span> OPERACIONES Y DISTRIBUCIÓN</div>
@@ -45,16 +45,17 @@ export function PrintableOrderNotes({ orders, settings }: { orders: LogisticsPri
           </header>
           <div className="order-note-meta">
             <div className="order-note-meta-group">
-              <div><b>Chofer</b><span>{settings.driver || '—'}</span></div>
-              <div><b>Acompañante</b><span>{settings.companion || '—'}</span></div>
+              <div><b>Chofer</b><span>{page.trip.driver || '—'}</span></div>
+              <div><b>Acompañante</b><span>{page.trip.companion || '—'}</span></div>
               <div><b>Lleva cambio</b><span>{settings.changeAmount.trim() ? `$ ${formatNumber(Number(settings.changeAmount))}` : '—'}</span></div>
             </div>
             <div className="order-note-meta-group">
               <div><b>Fecha</b><span>{displayDate(page.deliveryDate)}</span></div>
-              <div><b>Vehículo</b><span>{settings.vehicle || '—'}</span></div>
-              <div><b>Salida</b><span>{settings.departure || '—'}</span></div>
+              <div><b>Vehículo</b><span>{page.trip.vehicle || '—'}</span></div>
+              <div><b>Salida</b><span>{page.trip.departure || '—'}</span></div>
             </div>
           </div>
+          {(page.trip.carrier || page.trip.zone || page.trip.route) && <div className="order-note-route">Fletero: {page.trip.carrier || '—'} · Recorrido: {[page.trip.zone, page.trip.route].filter(Boolean).join(' / ') || '—'}</div>}
           <table className="order-note-table">
             <colgroup>
               <col style={{ width: '3%' }} />
@@ -120,7 +121,7 @@ export function PrintableOrderNotes({ orders, settings }: { orders: LogisticsPri
           </footer>
         </section>
       ))}
-    </div>,
-    document.body
+    </div>
   );
+  return createPortal(content, document.body);
 }
