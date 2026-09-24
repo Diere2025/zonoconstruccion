@@ -43,7 +43,9 @@ import {
   Settings,
   Truck,
   ThumbsUp,
-  Bell
+  Bell,
+  LayoutList,
+  Columns3
 } from 'lucide-react';
 
 interface MPPayment {
@@ -171,6 +173,7 @@ export default function CobrosMercadoPagoPage() {
   // Filters (Synchronously aligned with detected role)
   const [search, setSearch] = useState('');
   const [selectedAccountId, setSelectedAccountId] = useState('ALL');
+  const [paymentView, setPaymentView] = useState<'list' | 'columns'>('list');
   const [selectedType, setSelectedType] = useState<string>(() => {
     if (typeof window !== 'undefined') {
       const r = cachedCobrosRole || (sessionStorage.getItem('zono_user_role') as UserRole);
@@ -435,6 +438,38 @@ export default function CobrosMercadoPagoPage() {
 
     return Object.values(groups);
   }, [filteredPayments, getDayInfo]);
+
+  const columnAccounts = useMemo(() => {
+    const byAlias = new Map<string, { label: string; color: string }>();
+    accounts.filter(acc => acc.is_active !== false).forEach(acc => {
+      const label = acc.alias || acc.name;
+      byAlias.set(label.toLowerCase(), { label, color: acc.color || '#0069ff' });
+    });
+    filteredPayments.forEach(payment => {
+      const display = getAccountDisplay(payment.account_name);
+      const key = display.displayName.toLowerCase();
+      if (!byAlias.has(key)) byAlias.set(key, { label: display.displayName, color: display.color });
+    });
+    const values = Array.from(byAlias.values()).sort((a, b) => a.label.localeCompare(b.label));
+    return selectedAccountId === 'ALL'
+      ? values
+      : values.filter(acc => acc.label.toLowerCase() === selectedAccountId.toLowerCase());
+  }, [accounts, filteredPayments, getAccountDisplay, selectedAccountId]);
+
+  const columnPlacement = useMemo(() => {
+    const placements = new Map<string, { column: number; row: number }>();
+    groupedPayments.forEach(group => {
+      const counts = new Map<number, number>();
+      group.payments.forEach(payment => {
+        const alias = getAccountDisplay(payment.account_name).displayName.toLowerCase();
+        const column = Math.max(0, columnAccounts.findIndex(acc => acc.label.toLowerCase() === alias));
+        const row = (counts.get(column) || 0) + 1;
+        counts.set(column, row);
+        placements.set(payment.id, { column, row });
+      });
+    });
+    return placements;
+  }, [groupedPayments, columnAccounts, getAccountDisplay]);
 
   // 1. Detect User and Role
   useEffect(() => {
@@ -755,6 +790,17 @@ export default function CobrosMercadoPagoPage() {
       console.error('Error loading MP accounts:', e);
     }
   }, []);
+
+  useEffect(() => {
+    if (!currentUserId) return;
+    const saved = localStorage.getItem(`zono_mp_payment_view_${currentUserId}`);
+    setPaymentView(saved === 'columns' ? 'columns' : 'list');
+  }, [currentUserId]);
+
+  const changePaymentView = (view: 'list' | 'columns') => {
+    setPaymentView(view);
+    if (currentUserId) localStorage.setItem(`zono_mp_payment_view_${currentUserId}`, view);
+  };
 
   const updateAccountColor = async (id: string, color: string) => {
     try {
@@ -1946,6 +1992,28 @@ export default function CobrosMercadoPagoPage() {
           </div>
         )}
 
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-xs font-medium text-slate-500">Elegí cómo ver los cobros. La vista se guarda para tu usuario en este navegador.</p>
+          <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1 shadow-xs" role="group" aria-label="Vista de cobros">
+            <button
+              type="button"
+              onClick={() => changePaymentView('list')}
+              aria-pressed={paymentView === 'list'}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold ${paymentView === 'list' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+            >
+              <LayoutList className="h-3.5 w-3.5" /> Lista
+            </button>
+            <button
+              type="button"
+              onClick={() => changePaymentView('columns')}
+              aria-pressed={paymentView === 'columns'}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold ${paymentView === 'columns' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+            >
+              <Columns3 className="h-3.5 w-3.5" /> Por cuenta
+            </button>
+          </div>
+        </div>
+
         {/* Payments List Grouped by Date */}
         <div className="space-y-6">
           {isLoading && payments.length === 0 ? (
@@ -1973,7 +2041,7 @@ export default function CobrosMercadoPagoPage() {
             </div>
           ) : (
             groupedPayments.map((group) => (
-              <div key={group.key} className="space-y-3">
+              <div key={group.key} className={paymentView === 'columns' ? 'space-y-3 overflow-x-auto' : 'space-y-3'}>
                 {/* Date Header Separator */}
                 <div className="flex items-center gap-3 pt-2">
                   <div className={`flex items-center gap-2 px-3 py-1.5 rounded-2xl text-xs font-black tracking-wide border shadow-2xs ${
@@ -2004,17 +2072,52 @@ export default function CobrosMercadoPagoPage() {
                 </div>
 
                 {/* Compact MP-Style Rows for this Date */}
-                <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200/80 shadow-xs divide-y divide-slate-100 overflow-hidden">
+                <div
+                  className={paymentView === 'columns'
+                    ? 'grid items-start gap-2 pb-2'
+                    : 'bg-white rounded-2xl sm:rounded-3xl border border-slate-200/80 shadow-xs divide-y divide-slate-100 overflow-hidden'}
+                  style={paymentView === 'columns' ? {
+                    gridTemplateColumns: `repeat(${columnAccounts.length}, minmax(320px, 1fr))`,
+                    minWidth: columnAccounts.length * 320
+                  } : undefined}
+                >
+                  {paymentView === 'columns' && columnAccounts.map((account, index) => {
+                    const count = group.payments.filter(payment => getAccountDisplay(payment.account_name).displayName.toLowerCase() === account.label.toLowerCase()).length;
+                    return (
+                      <React.Fragment key={account.label}>
+                        <div
+                          className="flex items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-xs"
+                          style={{ gridColumn: index + 1, gridRow: 1, borderTopColor: account.color, borderTopWidth: 3 }}
+                        >
+                          <span
+                            className="truncate rounded-md px-2 py-1 text-xs font-black"
+                            style={{ backgroundColor: account.color, color: getAliasTextColor(account.color) }}
+                            title={account.label}
+                          >
+                            {account.label}
+                          </span>
+                          <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">{count}</span>
+                        </div>
+                        {count === 0 && (
+                          <div className="rounded-2xl border border-dashed border-slate-200 bg-white/70 px-3 py-5 text-center text-xs text-slate-400" style={{ gridColumn: index + 1, gridRow: 2 }}>
+                            Sin cobros en esta fecha
+                          </div>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
                   {group.payments.map((payment) => {
                     const accountInfo = getAccountDisplay(payment.account_name);
                     const isHiddenItem = Boolean(payment.is_hidden);
                     const isInternalItem = Boolean(payment.is_internal);
+                    const placement = columnPlacement.get(payment.id);
 
                     return (
                       <div
                         key={payment.id}
                         onClick={() => setSelectedPaymentDetail(payment)}
-                        className={`px-3 py-2.5 sm:px-4 sm:py-3 transition-colors flex items-center justify-between gap-2.5 sm:gap-3 cursor-pointer select-none ${
+                        style={paymentView === 'columns' && placement ? { gridColumn: placement.column + 1, gridRow: placement.row + 1 } : undefined}
+                        className={`px-3 py-2.5 sm:px-4 sm:py-3 transition-colors cursor-pointer select-none ${paymentView === 'columns' ? 'flex flex-col gap-2 rounded-2xl border border-slate-200/80 shadow-xs' : 'flex items-center justify-between gap-2.5 sm:gap-3'} ${
                           isInternalItem
                             ? 'bg-purple-50/40 hover:bg-purple-50/80'
                             : isHiddenItem 
@@ -2023,7 +2126,7 @@ export default function CobrosMercadoPagoPage() {
                         }`}
                       >
                         {/* Left: Compact Circular Icon (MP Style) */}
-                        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
+                        <div className={`flex items-center gap-2.5 sm:gap-3 min-w-0 ${paymentView === 'columns' ? 'w-full' : 'flex-1'}`}>
                           <div 
                             className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center font-bold shrink-0 shadow-2xs ${
                               isInternalItem ? 'bg-purple-100 text-purple-700 border border-purple-200' :
@@ -2122,7 +2225,7 @@ export default function CobrosMercadoPagoPage() {
                         </div>
 
                         {/* Right: Fletero Quick Action Button & Amount */}
-                        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+                        <div className={`flex items-center gap-2 sm:gap-3 shrink-0 ${paymentView === 'columns' ? 'w-full justify-between flex-wrap' : ''}`}>
                           {/* Fletero 1-tap button */}
                           {isFleteroRole && (
                             <div onClick={(e) => e.stopPropagation()} className="shrink-0">
