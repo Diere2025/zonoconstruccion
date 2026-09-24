@@ -8,6 +8,32 @@ type TelegramUpdate = {
   edited_message?: { text?: string; chat?: { id?: number | string }; message_id?: number };
 };
 
+function latestSpendLimitIncrease(activities: Array<{ event_time?: string; event_type?: string; extra_data?: string | Record<string, unknown> }> = []) {
+  const candidates = activities
+    .filter(activity => activity.event_type === 'ad_account_update_spend_limit')
+    .map(activity => {
+      try {
+        const details = typeof activity.extra_data === 'string' ? JSON.parse(activity.extra_data) : activity.extra_data;
+        const oldValue = Number(details?.old_value);
+        const newValue = Number(details?.new_value);
+        const timestamp = Date.parse(activity.event_time || '');
+        if (details?.type !== 'payment_amount' || !Number.isFinite(oldValue) || !Number.isFinite(newValue) || newValue <= oldValue || !Number.isFinite(timestamp)) return null;
+        return { timestamp, amount: (newValue - oldValue) / 100 };
+      } catch {
+        return null;
+      }
+    })
+    .filter((value): value is { timestamp: number; amount: number } => value !== null)
+    .sort((a, b) => b.timestamp - a.timestamp);
+  if (!candidates.length) return '';
+  const latest = candidates[0];
+  const date = new Intl.DateTimeFormat('es-AR', {
+    timeZone: 'America/Argentina/Buenos_Aires', dateStyle: 'short', timeStyle: 'short'
+  }).format(new Date(latest.timestamp));
+  const amount = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'USD' }).format(latest.amount);
+  return `\nÚltimo aumento del límite: ${date} — +${amount}.`;
+}
+
 function isBalanceRequest(text: string): boolean {
   return /^(?:saldo|\/saldo(?:@ModificacionesZono_Bot)?)\s*$/i.test(text.trim());
 }
@@ -20,7 +46,7 @@ async function sendBalance(chatId: string, replyToMessageId?: number) {
   const accountId = process.env.META_AD_ACCOUNT_ID || 'act_1077861488005193';
   const version = process.env.META_API_VERSION || 'v21.0';
   const url = new URL(`https://graph.facebook.com/${version}/${accountId}`);
-  url.searchParams.set('fields', 'id,name,currency,amount_spent,spend_cap,is_prepay_account');
+  url.searchParams.set('fields', 'id,name,currency,amount_spent,spend_cap,is_prepay_account,activities.limit(100){event_time,event_type,extra_data}');
   url.searchParams.set('access_token', token);
   const metaResponse = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(20000) });
   const account = await metaResponse.json();
@@ -35,10 +61,11 @@ async function sendBalance(chatId: string, replyToMessageId?: number) {
   if (cap <= 0) throw new Error('La cuenta no tiene un límite de gasto definido.');
   const remaining = Math.max(0, cap - Number(account.amount_spent)) / 100;
   const display = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'USD' }).format(remaining);
+  const limitIncrease = latestSpendLimitIncrease(account.activities?.data || []);
   const urgent = remaining < 500;
   const message = urgent
-    ? `🚨🚨 SALDO PUBLICITARIO BAJO 🚨🚨\n\nCuenta Meta S731.04\nDisponible hasta el límite de gasto: ${display}\n\n⚠️ CARGAR SALDO O AUMENTAR EL LÍMITE DE INMEDIATO PARA EVITAR CORTES.`
-    : `📊 Saldo publicitario Meta\n\nCuenta S731.04\nDisponible hasta el límite de gasto: ${display}`;
+    ? `🚨🚨 SALDO PUBLICITARIO BAJO 🚨🚨\n\nCuenta Meta S731.04\nDisponible hasta el límite de gasto: ${display}${limitIncrease}\n\n⚠️ CARGAR SALDO O AUMENTAR EL LÍMITE DE INMEDIATO PARA EVITAR CORTES.`
+    : `📊 Saldo publicitario Meta\n\nCuenta S731.04\nDisponible hasta el límite de gasto: ${display}${limitIncrease}`;
   const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
