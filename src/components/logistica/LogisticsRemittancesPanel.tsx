@@ -61,16 +61,16 @@ function LegalRemittance({ remittance }: { remittance: LogisticsRemittance }) {
 export function PrintableRemittances({ remittances }: { remittances: LogisticsRemittance[] }) {
   if (typeof document === 'undefined') return null;
   const sheets = buildSheets(remittances);
-  return createPortal(
+  const content = (
     <div id="print-legal-remittances-root">
       {sheets.map((sheet, index) => (
         <section className="legal-remittance-sheet" key={`${sheet.map(item => item.id).join('-')}-${index}`}>
           {sheet.map(remittance => <LegalRemittance key={remittance.id} remittance={remittance} />)}
         </section>
       ))}
-    </div>,
-    document.body
+    </div>
   );
+  return createPortal(content, document.body);
 }
 
 export default function LogisticsRemittancesPanel() {

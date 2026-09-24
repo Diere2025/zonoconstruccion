@@ -1,4 +1,6 @@
 export const LOGISTICS_MAX_COLUMNS = 78; // A:BZ
+// Se conservan también los datos del viaje, sin importar las columnas de mensajes.
+export const LOGISTICS_TRIP_MAX_COLUMNS = 84;
 
 const ORDER_CODE_PATTERN = /^[A-Z]{1,8}(?:-[A-Z]{1,8})?-?\d+$/i;
 const DATE_PATTERN = /^\d{1,4}[/-]\d{1,2}[/-]\d{1,4}/;
@@ -26,8 +28,13 @@ export function parseQuotedTsv(text: string): string[][] {
       if (quoted && text[index + 1] === '"') {
         cell += '"';
         index++;
+      } else if (quoted) {
+        quoted = false;
+      } else if (cell.length === 0) {
+        quoted = true;
       } else {
-        quoted = !quoted;
+        // Una comilla de pulgadas (1/2") no abre una celda entrecomillada.
+        cell += character;
       }
     } else if (character === '\t' && !quoted) {
       pushCell();
@@ -43,15 +50,11 @@ export function parseQuotedTsv(text: string): string[][] {
   return rows;
 }
 
-export function normalizeLogisticsPastedRows(inputRows: string[][]): string[][] {
-  let rows = inputRows.map(row => row.map(cell => String(cell ?? '').replace(/\r?\n+/g, ' ').trim()));
+export function normalizeLogisticsPastedRows(inputRows: string[][], includeTripData = false): string[][] {
+  const rows = inputRows.map(row => row.map(cell => String(cell ?? '').replace(/\r?\n+/g, ' ').trim()));
   while (rows.length > 0 && rows[rows.length - 1].every(cell => !cell)) rows.pop();
 
-  if (rows[0]) {
-    const heading = rows[0].join(' ').toLowerCase();
-    if (heading.includes('código') && heading.includes('cliente')) rows = rows.slice(1);
-  }
-
+  const maxColumns = includeTripData ? LOGISTICS_TRIP_MAX_COLUMNS : LOGISTICS_MAX_COLUMNS;
   return rows.flatMap(row => {
     if (!row.some(Boolean)) return [];
     const normalized = [...row];
@@ -64,32 +67,12 @@ export function normalizeLogisticsPastedRows(inputRows: string[][]): string[][] 
     if (!ORDER_CODE_PATTERN.test(normalized[1] || '')) return [];
 
     return [normalized
-      .slice(0, LOGISTICS_MAX_COLUMNS)
-      .concat(Array(LOGISTICS_MAX_COLUMNS).fill(''))
-      .slice(0, LOGISTICS_MAX_COLUMNS)];
+      .slice(0, maxColumns)
+      .concat(Array(maxColumns).fill(''))
+      .slice(0, maxColumns)];
   });
 }
 
 export function parseLogisticsClipboardText(text: string): string[][] {
   return normalizeLogisticsPastedRows(parseQuotedTsv(text));
-}
-
-/** La hoja "Pegar" trae datos del viaje después de los 12 productos. */
-export function noteTripFromPastedRows(rows: string[][]): {
-  driver: string;
-  vehicle: string;
-  companion: string;
-} | null {
-  const row = rows.find(candidate => {
-    const firstIsCode = ORDER_CODE_PATTERN.test(String(candidate[0] || '').trim());
-    const secondIsCode = ORDER_CODE_PATTERN.test(String(candidate[1] || '').trim());
-    return firstIsCode || secondIsCode;
-  });
-  if (!row) return null;
-
-  const offset = ORDER_CODE_PATTERN.test(String(row[0] || '').trim()) ? 0 : 1;
-  const driver = String(row[79 + offset] || '').trim();
-  const vehicle = String(row[80 + offset] || '').trim();
-  const companion = String(row[81 + offset] || '').trim();
-  return driver || vehicle || companion ? { driver, vehicle, companion } : null;
 }
