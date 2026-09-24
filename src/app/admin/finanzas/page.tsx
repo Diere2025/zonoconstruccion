@@ -33,6 +33,92 @@ import { Button } from "@/components/ui/Button";
 import { formatPrice, formatDateDDMMYYYY } from "@/lib/utils";
 import EstadoResultadosView from "@/components/finanzas/EstadoResultadosView";
 
+const COMMON_SUBCATEGORIES_BY_CATEGORY: Record<string, string[]> = {
+  "Recaudación": [
+    "Venta - Recorridos",
+    "Cambio Entregas",
+    "Venta Aquafort",
+    "Venta - Alias",
+    "Venta - Depósito",
+    "Cobro Venta Directa"
+  ],
+  "Gastos Operativos": [
+    "Servicio de Limpieza",
+    "Alimentos",
+    "Gastos Financieros",
+    "Gasto en Transporte",
+    "Mantenimiento Maquinaria",
+    "Insumos de Librería",
+    "Servicios de Marketing y Publicidad",
+    "Art. Limpieza",
+    "Gastos de Recorridos",
+    "Mantenimiento Instalaciones",
+    "Indumentaria Personal",
+    "Gastos de Suministros",
+    "Combustible",
+    "Peajes"
+  ],
+  "Servicio de Flete": [
+    "Servicio de Flete",
+    "Flete",
+    "Gastos de Recorridos",
+    "Combustible",
+    "Peajes"
+  ],
+  "Peajes": ["Peajes"],
+  "Servicio de Limpieza": ["Servicio de Limpieza", "Art. Limpieza"],
+  "Sueldos": [
+    "Sueldos y Jornales",
+    "Liquidación Sueldo",
+    "Sueldos Eventuales",
+    "Adelanto de Sueldo",
+    "Acuerdos Legales",
+    "Extracciones Carolina"
+  ],
+  "Proveedores": [
+    "Proveedores",
+    "Proveedores (Deuda)",
+    "Pago Factura",
+    "Insumo de Producto"
+  ],
+  "Insumo de Producto": [
+    "Insumo de Producto",
+    "Materia Prima",
+    "Fábrica"
+  ],
+  "Publicidad": [
+    "Publicidad",
+    "Meta Ads",
+    "Servicios de Marketing y Publicidad"
+  ],
+  "Impuestos": [
+    "Impuestos",
+    "IIGG",
+    "IVA",
+    "Ingresos Brutos",
+    "Tasas Municipales"
+  ],
+  "Deuda bancaria": [
+    "Deuda bancaria",
+    "Préstamo",
+    "Intereses"
+  ],
+  "Comisiones Bancarias": [
+    "Comisiones Bancarias",
+    "Gastos de Mantenimiento",
+    "Impuesto al Débito/Crédito"
+  ],
+  "Otro": [
+    "Extracciones",
+    "Extracciones Diego",
+    "Tarjetas - Diego",
+    "Gastos Fijos - Diego",
+    "Rendir/Rendido",
+    "Saldo Inicial",
+    "Movimiento de cuentas"
+  ]
+};
+
 interface FinancialAccount {
   id: string;
   name: string;
@@ -446,6 +532,10 @@ export default function AdminFinanzasPage() {
   const [selectedSupplierId, setSelectedSupplierId] = useState("");
   const [selectedPurchaseId, setSelectedPurchaseId] = useState("");
   const [selectedOrderId, setSelectedOrderId] = useState("");
+  const [selectedOrder, setSelectedOrder] = useState<PendingOrder | null>(null);
+  const [orderSearchQuery, setOrderSearchQuery] = useState("");
+  const [orderSearchResults, setOrderSearchResults] = useState<PendingOrder[]>([]);
+  const [isSearchingOrders, setIsSearchingOrders] = useState(false);
   const [linkToOrder, setLinkToOrder] = useState(false);
   const [linkToPurchase, setLinkToPurchase] = useState(false);
 
@@ -455,6 +545,10 @@ export default function AdminFinanzasPage() {
   const [linkSupplierId, setLinkSupplierId] = useState("");
   const [linkPurchaseId, setLinkPurchaseId] = useState("");
   const [linkOrderId, setLinkOrderId] = useState("");
+  const [linkSelectedOrder, setLinkSelectedOrder] = useState<PendingOrder | null>(null);
+  const [linkOrderSearchQuery, setLinkOrderSearchQuery] = useState("");
+  const [linkOrderSearchResults, setLinkOrderSearchResults] = useState<PendingOrder[]>([]);
+  const [isSearchingLinkOrders, setIsSearchingLinkOrders] = useState(false);
   const [linkEmployeeId, setLinkEmployeeId] = useState("");
   const [linkAmount, setLinkAmount] = useState("");
   const [submittingLink, setSubmittingLink] = useState(false);
@@ -577,6 +671,66 @@ export default function AdminFinanzasPage() {
     const timer = window.setTimeout(() => setTransactionNotice(null), 3500);
     return () => window.clearTimeout(timer);
   }, [transactionNotice]);
+
+  // Lista de subcategorías disponibles según la categoría seleccionada y el histórico
+  const availableSubCategories = useMemo(() => {
+    const defaults = COMMON_SUBCATEGORIES_BY_CATEGORY[txCategory] || [];
+    const fromTxs = transactions
+      .filter(t => !txCategory || t.category === txCategory)
+      .map(t => t.sub_category)
+      .filter((s): s is string => Boolean(s && s.trim()));
+    return Array.from(new Set([...defaults, ...fromTxs])).sort();
+  }, [txCategory, transactions]);
+
+  // Búsqueda dinámica de ventas pendientes para registrar movimiento (min 3 caracteres)
+  useEffect(() => {
+    if (!linkToOrder) return;
+    const q = orderSearchQuery.trim();
+    if (q.length < 3) {
+      setOrderSearchResults([]);
+      setIsSearchingOrders(false);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setIsSearchingOrders(true);
+      try {
+        const res = await fetch(`/api/admin/finanzas-data?action=search-pending-orders&q=${encodeURIComponent(q)}`);
+        const data = await res.json();
+        setOrderSearchResults((data.pendingOrders || []) as PendingOrder[]);
+      } catch (err) {
+        console.error("Error buscando ventas pendientes:", err);
+        setOrderSearchResults([]);
+      } finally {
+        setIsSearchingOrders(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [orderSearchQuery, linkToOrder]);
+
+  // Búsqueda dinámica de ventas pendientes para modal de conciliación/vinculación
+  useEffect(() => {
+    if (!isLinkModalOpen || !reconcilingTx || reconcilingTx.type !== 'ingreso') return;
+    const q = linkOrderSearchQuery.trim();
+    if (q.length < 3) {
+      setLinkOrderSearchResults([]);
+      setIsSearchingLinkOrders(false);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setIsSearchingLinkOrders(true);
+      try {
+        const res = await fetch(`/api/admin/finanzas-data?action=search-pending-orders&q=${encodeURIComponent(q)}`);
+        const data = await res.json();
+        setLinkOrderSearchResults((data.pendingOrders || []) as PendingOrder[]);
+      } catch (err) {
+        console.error("Error buscando ventas pendientes:", err);
+        setLinkOrderSearchResults([]);
+      } finally {
+        setIsSearchingLinkOrders(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [linkOrderSearchQuery, isLinkModalOpen, reconcilingTx]);
 
   const loadTransactions = async (showLoading = true) => {
     if (showLoading) setLoading(true);
@@ -1235,6 +1389,9 @@ export default function AdminFinanzasPage() {
     setSelectedSupplierId("");
     setSelectedPurchaseId("");
     setSelectedOrderId("");
+    setSelectedOrder(null);
+    setOrderSearchQuery("");
+    setOrderSearchResults([]);
     setLinkToOrder(false);
     setLinkToPurchase(false);
     setIsTxModalOpen(true);
@@ -1370,7 +1527,7 @@ export default function AdminFinanzasPage() {
 
       // Vincular Cobro/Ventas si corresponde
       if (txCategory === "Recaudación" && linkToOrder && selectedOrderId) {
-        const ord = pendingOrders.find(o => o.id === selectedOrderId);
+        const ord = selectedOrder || pendingOrders.find(o => o.id === selectedOrderId);
         const { error: payErr } = await supabase
           .from('client_payments')
           .insert({
@@ -1418,6 +1575,9 @@ export default function AdminFinanzasPage() {
       setSelectedSupplierId("");
       setSelectedPurchaseId("");
       setSelectedOrderId("");
+      setSelectedOrder(null);
+      setOrderSearchQuery("");
+      setOrderSearchResults([]);
       setLinkToOrder(false);
       setLinkToPurchase(false);
 
@@ -1559,10 +1719,10 @@ export default function AdminFinanzasPage() {
 
       if (reconcilingTx.type === 'ingreso') {
         if (!linkOrderId) {
-          alert("Por favor seleccione una venta.");
+          alert("Por favor busque y seleccione una venta pendiente.");
           return;
         }
-        const ord = pendingOrders.find(o => o.id === linkOrderId);
+        const ord = linkSelectedOrder || pendingOrders.find(o => o.id === linkOrderId);
         
         const { error: payErr } = await supabase
           .from('client_payments')
@@ -1656,7 +1816,15 @@ export default function AdminFinanzasPage() {
       
       setIsLinkModalOpen(false);
       setReconcilingTx(null);
+      setLinkSupplierId("");
+      setLinkPurchaseId("");
+      setLinkOrderId("");
+      setLinkSelectedOrder(null);
+      setLinkOrderSearchQuery("");
+      setLinkOrderSearchResults([]);
+      setLinkEmployeeId("");
       setLinkRouteSheetId("");
+      setLinkAmount("");
       await Promise.all([
         loadTransactions(),
         loadFinancialAccounts(),
@@ -2190,6 +2358,9 @@ export default function AdminFinanzasPage() {
                     setSelectedSupplierId("");
                     setSelectedPurchaseId("");
                     setSelectedOrderId("");
+                    setSelectedOrder(null);
+                    setOrderSearchQuery("");
+                    setOrderSearchResults([]);
                     setLinkToOrder(false);
                     setLinkToPurchase(false);
                     setIsTxModalOpen(true);
@@ -2452,6 +2623,9 @@ export default function AdminFinanzasPage() {
                                               onClick={() => {
                                                 setReconcilingTx(t);
                                                 setLinkOrderId("");
+                                                setLinkSelectedOrder(null);
+                                                setLinkOrderSearchQuery("");
+                                                setLinkOrderSearchResults([]);
                                                 setLinkAmount(t.amount.toString());
                                                 setIsLinkModalOpen(true);
                                               }}
@@ -2527,10 +2701,27 @@ export default function AdminFinanzasPage() {
                                         // Initialize link variables from existing client/supplier payments if editing
                                         if (t.category === 'Recaudación' && t.client_payments && t.client_payments.length > 0) {
                                           setLinkToOrder(true);
-                                          setSelectedOrderId(t.client_payments[0].order_id || "");
+                                          const cp = t.client_payments[0];
+                                          setSelectedOrderId(cp.order_id || "");
+                                          if (cp.orders) {
+                                            setSelectedOrder({
+                                              id: cp.orders.id,
+                                              legacy_code: cp.orders.legacy_code,
+                                              customer_name: cp.orders.customer_name,
+                                              total_amount: Number(cp.amount) || 0,
+                                              payment_status: 'Abonado',
+                                              payment_approved: true,
+                                              order_date: t.created_at || ''
+                                            });
+                                          } else {
+                                            setSelectedOrder(null);
+                                          }
                                         } else {
                                           setLinkToOrder(false);
                                           setSelectedOrderId("");
+                                          setSelectedOrder(null);
+                                          setOrderSearchQuery("");
+                                          setOrderSearchResults([]);
                                         }
                                         if (t.category === 'Proveedores' && t.supplier_payments && t.supplier_payments.length > 0) {
                                           setLinkToPurchase(true);
@@ -2992,7 +3183,7 @@ export default function AdminFinanzasPage() {
                 {duplicatingTx ? <Copy className="w-4 h-4 text-indigo-600" /> : <PlusCircle className="w-4 h-4 text-brand-600" />}
                 {editingTx ? "Editar Movimiento Manual" : duplicatingTx ? "Duplicar Movimiento" : "Registrar Movimiento Manual"}
               </h3>
-              <button onClick={() => { setIsTxModalOpen(false); setEditingTx(null); setDuplicatingTx(false); }} className="p-1 hover:bg-slate-100 rounded-lg text-slate-400">
+              <button onClick={() => { setIsTxModalOpen(false); setEditingTx(null); setDuplicatingTx(false); setSelectedOrder(null); setOrderSearchQuery(""); setOrderSearchResults([]); }} className="p-1 hover:bg-slate-100 rounded-lg text-slate-400">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -3049,7 +3240,16 @@ export default function AdminFinanzasPage() {
                   <label className="text-[9px] font-black uppercase text-slate-400">Categoría *</label>
                   <select
                     value={txCategory}
-                    onChange={e => setTxCategory(e.target.value)}
+                    onChange={e => {
+                      setTxCategory(e.target.value);
+                      if (e.target.value !== "Recaudación") {
+                        setLinkToOrder(false);
+                        setSelectedOrderId("");
+                        setSelectedOrder(null);
+                        setOrderSearchQuery("");
+                        setOrderSearchResults([]);
+                      }
+                    }}
                     required
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
                   >
@@ -3071,33 +3271,50 @@ export default function AdminFinanzasPage() {
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-[9px] font-black uppercase text-slate-400">Hoja de Ruta (Opcional)</label>
-                  <select
-                    value={txRouteSheetId}
-                    onChange={e => {
-                      setTxRouteSheetId(e.target.value);
-                      const sheet = routeSheets.find(s => s.id === e.target.value);
-                      if (sheet) {
-                        const carrierName = sheet.carriers?.name || "Chofer";
-                        const dateStr = formatDateDDMMYYYY(sheet.delivery_date);
-                        if (!txConcept || txConcept === "Gastos Operativos" || txConcept === "Flete") {
-                          setTxConcept(`Flete HR ${sheet.code || sheet.run_number} - ${carrierName} (${dateStr})`);
-                        }
-                      }
-                    }}
+                  <label className="text-[9px] font-black uppercase text-slate-400">Subcategoría (Opcional)</label>
+                  <input
+                    type="text"
+                    list="available-tx-subcategories"
+                    value={txSubCategory}
+                    onChange={e => setTxSubCategory(e.target.value)}
+                    placeholder="Ej. Peajes, Combustible..."
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
-                  >
-                    <option value="">-- Sin Hoja de Ruta --</option>
-                    {routeSheets.map(s => {
-                      const dateStr = formatDateDDMMYYYY(s.delivery_date);
-                      return (
-                        <option key={s.id} value={s.id}>
-                          {s.code || `HR #${s.run_number}`} - {s.carriers?.name || 'S/D'} ({dateStr})
-                        </option>
-                      );
-                    })}
-                  </select>
+                  />
+                  <datalist id="available-tx-subcategories">
+                    {availableSubCategories.map(sc => (
+                      <option key={sc} value={sc} />
+                    ))}
+                  </datalist>
                 </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[9px] font-black uppercase text-slate-400">Hoja de Ruta (Opcional)</label>
+                <select
+                  value={txRouteSheetId}
+                  onChange={e => {
+                    setTxRouteSheetId(e.target.value);
+                    const sheet = routeSheets.find(s => s.id === e.target.value);
+                    if (sheet) {
+                      const carrierName = sheet.carriers?.name || "Chofer";
+                      const dateStr = formatDateDDMMYYYY(sheet.delivery_date);
+                      if (!txConcept || txConcept === "Gastos Operativos" || txConcept === "Flete") {
+                        setTxConcept(`Flete HR ${sheet.code || sheet.run_number} - ${carrierName} (${dateStr})`);
+                      }
+                    }
+                  }}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
+                >
+                  <option value="">-- Sin Hoja de Ruta --</option>
+                  {routeSheets.map(s => {
+                    const dateStr = formatDateDDMMYYYY(s.delivery_date);
+                    return (
+                      <option key={s.id} value={s.id}>
+                        {s.code || `HR #${s.run_number}`} - {s.carriers?.name || 'S/D'} ({dateStr})
+                      </option>
+                    );
+                  })}
+                </select>
               </div>
 
               {/* Campos condicionales para vinculación de Proveedores / Sueldos / Ventas */}
@@ -3199,7 +3416,15 @@ export default function AdminFinanzasPage() {
                       type="checkbox"
                       id="linkToOrder"
                       checked={linkToOrder}
-                      onChange={e => setLinkToOrder(e.target.checked)}
+                      onChange={e => {
+                        setLinkToOrder(e.target.checked);
+                        if (!e.target.checked) {
+                          setSelectedOrderId("");
+                          setSelectedOrder(null);
+                          setOrderSearchQuery("");
+                          setOrderSearchResults([]);
+                        }
+                      }}
                       className="w-4 h-4 text-brand-600 rounded border-slate-300 focus:ring-brand-500/10 cursor-pointer"
                     />
                     <label htmlFor="linkToOrder" className="text-[10px] font-black uppercase text-slate-500 cursor-pointer select-none">
@@ -3207,32 +3432,139 @@ export default function AdminFinanzasPage() {
                     </label>
                   </div>
                   {linkToOrder && (
-                    <div className="space-y-1 animate-in slide-in-from-top-1 duration-150">
-                      <label className="text-[9px] font-black uppercase text-slate-400">Venta Pendiente *</label>
-                      <select
-                        value={selectedOrderId}
-                        onChange={e => {
-                          setSelectedOrderId(e.target.value);
-                          const ord = pendingOrders.find(o => o.id === e.target.value);
-                          if (ord) {
-                            const pendingAmt = Number(ord.totals?.pending_balance) || Number(ord.total_amount);
-                            setTxAmount(pendingAmt.toString());
-                            setTxConcept(`Cobro Venta ${ord.legacy_code || ord.id.substring(0, 8)} - ${ord.customer_name}`);
-                          }
-                        }}
-                        required={linkToOrder}
-                        className="w-full px-3 py-1.5 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
-                      >
-                        <option value="">-- Seleccionar Venta --</option>
-                        {pendingOrders.map(o => {
-                          const pendingAmt = Number(o.totals?.pending_balance) || Number(o.total_amount);
-                          return (
-                            <option key={o.id} value={o.id}>
-                              {o.legacy_code || o.id.substring(0, 8)} - {o.customer_name} (Total: {formatPrice(o.total_amount)} - Resta: {formatPrice(pendingAmt)})
-                            </option>
-                          );
-                        })}
-                      </select>
+                    <div className="space-y-2 animate-in slide-in-from-top-1 duration-150">
+                      {selectedOrderId && selectedOrder ? (
+                        <div className="p-2.5 bg-emerald-50/80 border border-emerald-200 rounded-xl flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="w-7 h-7 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="font-black text-xs text-slate-900">
+                                  {selectedOrder.legacy_code || selectedOrder.id.substring(0, 8)}
+                                </span>
+                                <span className="text-[10px] text-slate-600 font-bold truncate">
+                                  • {selectedOrder.customer_name}
+                                </span>
+                              </div>
+                              <div className="text-[10px] text-emerald-800 font-bold">
+                                Saldo Restante: {formatPrice(Number(selectedOrder.totals?.pending_balance) || Number(selectedOrder.total_amount))}
+                                <span className="text-slate-400 font-normal ml-1">(Total: {formatPrice(selectedOrder.total_amount)})</span>
+                              </div>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedOrderId("");
+                              setSelectedOrder(null);
+                              setOrderSearchQuery("");
+                              setOrderSearchResults([]);
+                            }}
+                            className="px-2.5 py-1 text-[10px] font-bold text-slate-600 hover:text-rose-600 bg-white hover:bg-rose-50 border border-slate-200 hover:border-rose-200 rounded-lg shrink-0 transition-colors"
+                          >
+                            Cambiar
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="space-y-1.5">
+                          <label className="text-[9px] font-black uppercase text-slate-400 flex items-center justify-between">
+                            <span>Buscar Venta por Código *</span>
+                            <span className="text-[9px] text-slate-400 font-semibold lowercase">mínimo 3 caracteres</span>
+                          </label>
+                          <div className="relative">
+                            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                            <input
+                              type="text"
+                              value={orderSearchQuery}
+                              onChange={e => setOrderSearchQuery(e.target.value)}
+                              placeholder="Ingresá código (ej. JS23839) o nombre..."
+                              className="w-full pl-8 pr-8 py-2 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
+                              autoFocus
+                            />
+                            {orderSearchQuery && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setOrderSearchQuery("");
+                                  setOrderSearchResults([]);
+                                }}
+                                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 text-slate-400 hover:text-slate-600 rounded"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+
+                          {orderSearchQuery.trim().length > 0 && orderSearchQuery.trim().length < 3 && (
+                            <p className="text-[10px] text-amber-600 font-medium px-1">
+                              Escribí al menos 3 caracteres para iniciar la búsqueda...
+                            </p>
+                          )}
+
+                          {isSearchingOrders && (
+                            <div className="flex items-center gap-2 px-2 py-2 text-[10px] font-bold text-slate-500">
+                              <Loader2 className="w-3.5 h-3.5 animate-spin text-brand-600" />
+                              Buscando ventas pendientes...
+                            </div>
+                          )}
+
+                          {!isSearchingOrders && orderSearchQuery.trim().length >= 3 && orderSearchResults.length === 0 && (
+                            <div className="px-3 py-2 bg-amber-50/70 border border-amber-100 rounded-xl text-center">
+                              <p className="text-[11px] font-bold text-amber-800">
+                                No se encontraron ventas pendientes para "{orderSearchQuery}"
+                              </p>
+                              <p className="text-[9px] text-amber-600 mt-0.5">
+                                Asegurate de que el código sea correcto y que el pedido no esté ya saldado.
+                              </p>
+                            </div>
+                          )}
+
+                          {!isSearchingOrders && orderSearchResults.length > 0 && (
+                            <div className="max-h-48 overflow-y-auto rounded-xl border border-slate-200 bg-white divide-y divide-slate-100 shadow-sm">
+                              {orderSearchResults.map(ord => {
+                                const pendingAmt = Number(ord.totals?.pending_balance) || Number(ord.total_amount);
+                                return (
+                                  <button
+                                    key={ord.id}
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedOrderId(ord.id);
+                                      setSelectedOrder(ord);
+                                      setTxAmount(pendingAmt.toString());
+                                      setTxConcept(`Cobro Venta ${ord.legacy_code || ord.id.substring(0, 8)} - ${ord.customer_name}`);
+                                    }}
+                                    className="w-full text-left px-3 py-2 hover:bg-brand-50/60 transition-colors flex items-center justify-between gap-2 group"
+                                  >
+                                    <div className="min-w-0">
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="font-black text-xs text-slate-900 group-hover:text-brand-600">
+                                          {ord.legacy_code || ord.id.substring(0, 8)}
+                                        </span>
+                                        <span className="text-[11px] text-slate-600 truncate font-semibold">
+                                          • {ord.customer_name}
+                                        </span>
+                                      </div>
+                                      <div className="text-[9px] text-slate-400">
+                                        Fecha: {formatDateDDMMYYYY(ord.order_date)}
+                                      </div>
+                                    </div>
+                                    <div className="text-right shrink-0">
+                                      <div className="text-xs font-black text-emerald-700">
+                                        Resta: {formatPrice(pendingAmt)}
+                                      </div>
+                                      <div className="text-[9px] text-slate-400">
+                                        Total: {formatPrice(ord.total_amount)}
+                                      </div>
+                                    </div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -3517,7 +3849,7 @@ export default function AdminFinanzasPage() {
               <h3 className="font-black text-slate-900 text-sm uppercase tracking-wider flex items-center gap-1.5">
                 <Coins className="w-4 h-4 text-brand-600" /> Vincular Movimiento Financiero
               </h3>
-              <button onClick={() => { setIsLinkModalOpen(false); setReconcilingTx(null); }} className="p-1 hover:bg-slate-100 rounded-lg text-slate-400">
+              <button onClick={() => { setIsLinkModalOpen(false); setReconcilingTx(null); setLinkOrderId(""); setLinkSelectedOrder(null); setLinkOrderSearchQuery(""); setLinkOrderSearchResults([]); }} className="p-1 hover:bg-slate-100 rounded-lg text-slate-400">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -3541,31 +3873,132 @@ export default function AdminFinanzasPage() {
 
             <form onSubmit={handleSaveLink} className="space-y-4">
               {reconcilingTx.type === 'ingreso' ? (
-                <div className="space-y-1">
+                <div className="space-y-2">
                   <label className="text-[9px] font-black uppercase text-slate-400">Venta Pendiente *</label>
-                  <select
-                    value={linkOrderId}
-                    onChange={e => {
-                      setLinkOrderId(e.target.value);
-                      const ord = pendingOrders.find(o => o.id === e.target.value);
-                      if (ord) {
-                        const pendingAmt = Number(ord.totals?.pending_balance) || Number(ord.total_amount);
-                        setLinkAmount(Math.min(pendingAmt, reconcilingTx.amount).toString());
-                      }
-                    }}
-                    required
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
-                  >
-                    <option value="">-- Seleccionar Venta --</option>
-                    {pendingOrders.map(o => {
-                      const pendingAmt = Number(o.totals?.pending_balance) || Number(o.total_amount);
-                      return (
-                        <option key={o.id} value={o.id}>
-                          {o.legacy_code || o.id.substring(0, 8)} - {o.customer_name} (Resta: {formatPrice(pendingAmt)})
-                        </option>
-                      );
-                    })}
-                  </select>
+                  {linkOrderId && linkSelectedOrder ? (
+                    <div className="p-2.5 bg-emerald-50/80 border border-emerald-200 rounded-xl flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="w-7 h-7 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-black text-xs text-slate-900">
+                              {linkSelectedOrder.legacy_code || linkSelectedOrder.id.substring(0, 8)}
+                            </span>
+                            <span className="text-[10px] text-slate-600 font-bold truncate">
+                              • {linkSelectedOrder.customer_name}
+                            </span>
+                          </div>
+                          <div className="text-[10px] text-emerald-800 font-bold">
+                            Saldo: {formatPrice(Number(linkSelectedOrder.totals?.pending_balance) || Number(linkSelectedOrder.total_amount))}
+                            <span className="text-slate-400 font-normal ml-1">(Total: {formatPrice(linkSelectedOrder.total_amount)})</span>
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLinkOrderId("");
+                          setLinkSelectedOrder(null);
+                          setLinkOrderSearchQuery("");
+                          setLinkOrderSearchResults([]);
+                        }}
+                        className="px-2.5 py-1 text-[10px] font-bold text-slate-600 hover:text-rose-600 bg-white hover:bg-rose-50 border border-slate-200 hover:border-rose-200 rounded-lg shrink-0 transition-colors"
+                      >
+                        Cambiar
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5">
+                      <div className="relative">
+                        <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        <input
+                          type="text"
+                          value={linkOrderSearchQuery}
+                          onChange={e => setLinkOrderSearchQuery(e.target.value)}
+                          placeholder="Buscar venta por código (ej. JS23839) o cliente..."
+                          className="w-full pl-8 pr-8 py-2 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
+                          autoFocus
+                        />
+                        {linkOrderSearchQuery && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setLinkOrderSearchQuery("");
+                              setLinkOrderSearchResults([]);
+                            }}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 text-slate-400 hover:text-slate-600 rounded"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+
+                      {linkOrderSearchQuery.trim().length > 0 && linkOrderSearchQuery.trim().length < 3 && (
+                        <p className="text-[10px] text-amber-600 font-medium px-1">
+                          Escribí al menos 3 caracteres para buscar...
+                        </p>
+                      )}
+
+                      {isSearchingLinkOrders && (
+                        <div className="flex items-center gap-2 px-2 py-2 text-[10px] font-bold text-slate-500">
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-brand-600" />
+                          Buscando ventas pendientes...
+                        </div>
+                      )}
+
+                      {!isSearchingLinkOrders && linkOrderSearchQuery.trim().length >= 3 && linkOrderSearchResults.length === 0 && (
+                        <div className="px-3 py-2 bg-amber-50/70 border border-amber-100 rounded-xl text-center">
+                          <p className="text-[11px] font-bold text-amber-800">
+                            No se encontraron ventas pendientes para "{linkOrderSearchQuery}"
+                          </p>
+                        </div>
+                      )}
+
+                      {!isSearchingLinkOrders && linkOrderSearchResults.length > 0 && (
+                        <div className="max-h-48 overflow-y-auto rounded-xl border border-slate-200 bg-white divide-y divide-slate-100 shadow-sm">
+                          {linkOrderSearchResults.map(ord => {
+                            const pendingAmt = Number(ord.totals?.pending_balance) || Number(ord.total_amount);
+                            return (
+                              <button
+                                key={ord.id}
+                                type="button"
+                                onClick={() => {
+                                  setLinkOrderId(ord.id);
+                                  setLinkSelectedOrder(ord);
+                                  setLinkAmount(Math.min(pendingAmt, reconcilingTx.amount).toString());
+                                }}
+                                className="w-full text-left px-3 py-2 hover:bg-brand-50/60 transition-colors flex items-center justify-between gap-2 group"
+                              >
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="font-black text-xs text-slate-900 group-hover:text-brand-600">
+                                      {ord.legacy_code || ord.id.substring(0, 8)}
+                                    </span>
+                                    <span className="text-[11px] text-slate-600 truncate font-semibold">
+                                      • {ord.customer_name}
+                                    </span>
+                                  </div>
+                                  <div className="text-[9px] text-slate-400">
+                                    Fecha: {formatDateDDMMYYYY(ord.order_date)}
+                                  </div>
+                                </div>
+                                <div className="text-right shrink-0">
+                                  <div className="text-xs font-black text-emerald-700">
+                                    Resta: {formatPrice(pendingAmt)}
+                                  </div>
+                                  <div className="text-[9px] text-slate-400">
+                                    Total: {formatPrice(ord.total_amount)}
+                                  </div>
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               ) : reconcilingTx.category === 'Proveedores' ? (
                 <div className="space-y-3">
