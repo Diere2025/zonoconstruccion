@@ -80,7 +80,11 @@ document.addEventListener("DOMContentLoaded", () => {
       "history"
     ],
     (res) => {
-      if (res.accountName) accountNameEl.value = res.accountName;
+      if (res.accountName) {
+        const accountName = res.accountName === "cesara.daiana.010.mp" ? "cobroszono" : res.accountName;
+        accountNameEl.value = accountName;
+        if (accountName !== res.accountName) chrome.storage.local.set({ accountName });
+      }
       if (res.webhookUrl) webhookUrlEl.value = res.webhookUrl;
       if (res.secretToken) secretTokenEl.value = res.secretToken;
       if (res.workStart) workStartEl.value = res.workStart;

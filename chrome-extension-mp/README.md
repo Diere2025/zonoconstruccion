@@ -43,8 +43,8 @@ En Google Chrome podés tener **Perfiles separados**:
    * Entrás a `mercadopago.com.ar` y te logueás con la **Cuenta MP4**.
    * En la extensión seleccionás `pagoszono.26`.
 3. **Perfil 3 de Chrome:**
-   * Entrás a `mercadopago.com.ar` y te logueás con la cuenta `cesara.daiana.010.mp`.
-   * En la extensión seleccionás `cesara.daiana.010.mp`.
+   * Entrás a `mercadopago.com.ar` y te logueás con la cuenta `cobroszono`.
+   * En la extensión seleccionás `cobroszono`.
 4. Dejás abierta la pestaña de **"Actividades"** en cada perfil.
 
 ## Una sola pestaña de monitoreo por perfil

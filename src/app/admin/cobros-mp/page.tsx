@@ -274,9 +274,11 @@ export default function CobrosMercadoPagoPage() {
   }, []);
 
   // Account Display Resolver (Resolves Alias, Name, Color)
-  const getAccountDisplay = useCallback((accountNameOrId: string) => {
+  const getAccountDisplay = useCallback((accountNameOrId: string, accountId?: string) => {
     const clean = (accountNameOrId || '').toLowerCase().trim();
-    const acc = accounts.find(a => 
+    const cleanId = (accountId || '').toLowerCase().trim();
+    const acc = accounts.find(a =>
+      (cleanId && a.id.toLowerCase() === cleanId) ||
       a.id.toLowerCase() === clean || 
       a.name.toLowerCase() === clean || 
       (a.alias && a.alias.toLowerCase() === clean)
@@ -353,7 +355,7 @@ export default function CobrosMercadoPagoPage() {
     return payments.filter((p) => {
       // Account filter
       if (selectedAccountId && selectedAccountId !== 'ALL') {
-        const display = getAccountDisplay(p.account_name);
+        const display = getAccountDisplay(p.account_name, p.account_id);
         const target = selectedAccountId.toLowerCase();
         const matchesDisplay = display.displayName.toLowerCase() === target;
         const matchesFull = display.fullName.toLowerCase() === target;
@@ -402,7 +404,7 @@ export default function CobrosMercadoPagoPage() {
     // Also include any accounts that appear in loaded payments
     payments.forEach(p => {
       if (p.account_name) {
-        const display = getAccountDisplay(p.account_name);
+        const display = getAccountDisplay(p.account_name, p.account_id);
         const label = display.displayName;
         if (label && !map.has(label.toLowerCase())) {
           map.set(label.toLowerCase(), {
@@ -446,7 +448,7 @@ export default function CobrosMercadoPagoPage() {
       byAlias.set(label.toLowerCase(), { label, color: acc.color || '#0069ff' });
     });
     filteredPayments.forEach(payment => {
-      const display = getAccountDisplay(payment.account_name);
+      const display = getAccountDisplay(payment.account_name, payment.account_id);
       const key = display.displayName.toLowerCase();
       if (!byAlias.has(key)) byAlias.set(key, { label: display.displayName, color: display.color });
     });
@@ -461,7 +463,7 @@ export default function CobrosMercadoPagoPage() {
     groupedPayments.forEach(group => {
       const counts = new Map<number, number>();
       group.payments.forEach(payment => {
-        const alias = getAccountDisplay(payment.account_name).displayName.toLowerCase();
+        const alias = getAccountDisplay(payment.account_name, payment.account_id).displayName.toLowerCase();
         const column = Math.max(0, columnAccounts.findIndex(acc => acc.label.toLowerCase() === alias));
         const row = (counts.get(column) || 0) + 1;
         counts.set(column, row);
@@ -2082,7 +2084,7 @@ export default function CobrosMercadoPagoPage() {
                   } : undefined}
                 >
                   {paymentView === 'columns' && columnAccounts.map((account, index) => {
-                    const count = group.payments.filter(payment => getAccountDisplay(payment.account_name).displayName.toLowerCase() === account.label.toLowerCase()).length;
+                    const count = group.payments.filter(payment => getAccountDisplay(payment.account_name, payment.account_id).displayName.toLowerCase() === account.label.toLowerCase()).length;
                     return (
                       <React.Fragment key={account.label}>
                         <div
@@ -2107,7 +2109,7 @@ export default function CobrosMercadoPagoPage() {
                     );
                   })}
                   {group.payments.map((payment) => {
-                    const accountInfo = getAccountDisplay(payment.account_name);
+                    const accountInfo = getAccountDisplay(payment.account_name, payment.account_id);
                     const isHiddenItem = Boolean(payment.is_hidden);
                     const isInternalItem = Boolean(payment.is_internal);
                     const placement = columnPlacement.get(payment.id);
@@ -3117,9 +3119,9 @@ x-webhook-token: mpchecker_secret_key_123`}
                 <div className="flex items-center gap-1.5 mt-0.5">
                   <span 
                     className="px-2 py-0.5 rounded text-[10px] font-black"
-                    style={{ backgroundColor: getAccountDisplay(selectedPaymentDetail.account_name).color, color: getAliasTextColor(getAccountDisplay(selectedPaymentDetail.account_name).color) }}
+                    style={{ backgroundColor: getAccountDisplay(selectedPaymentDetail.account_name, selectedPaymentDetail.account_id).color, color: getAliasTextColor(getAccountDisplay(selectedPaymentDetail.account_name, selectedPaymentDetail.account_id).color) }}
                   >
-                    {getAccountDisplay(selectedPaymentDetail.account_name).displayName}
+                    {getAccountDisplay(selectedPaymentDetail.account_name, selectedPaymentDetail.account_id).displayName}
                   </span>
                   <span className="text-[11px] text-slate-500 font-medium">
                     {selectedPaymentDetail.payment_type === 'TRANSFERENCIA' ? 'Transferencia' : selectedPaymentDetail.payment_type === 'POINT' ? 'Point Smart' : 'Código QR'}
@@ -3316,7 +3318,7 @@ x-webhook-token: mpchecker_secret_key_123`}
             <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 text-xs">
               <button
                 onClick={() => {
-                  handleCopy(`${selectedPaymentDetail.payer_name} - ${formatMPAmount(selectedPaymentDetail.amount)} - ${getAccountDisplay(selectedPaymentDetail.account_name).displayName} - ${selectedPaymentDetail.order_code ? 'Pedido ' + selectedPaymentDetail.order_code : ''}`, 'detail-summary');
+                  handleCopy(`${selectedPaymentDetail.payer_name} - ${formatMPAmount(selectedPaymentDetail.amount)} - ${getAccountDisplay(selectedPaymentDetail.account_name, selectedPaymentDetail.account_id).displayName} - ${selectedPaymentDetail.order_code ? 'Pedido ' + selectedPaymentDetail.order_code : ''}`, 'detail-summary');
                 }}
                 className="py-2.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold flex items-center justify-center gap-1.5 cursor-pointer"
               >

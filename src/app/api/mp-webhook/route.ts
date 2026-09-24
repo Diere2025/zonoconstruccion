@@ -11,8 +11,8 @@ const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 
 function resolveMpAccount(account: string) {
   const cleanAccount = (account || '').trim().toLowerCase();
-  if (cleanAccount === 'cesara.daiana.010.mp') {
-    return { id: 'cesara_daiana_010_mp', name: 'cesara.daiana.010.mp' };
+  if (cleanAccount === 'cobroszono' || cleanAccount === 'cesara.daiana.010.mp') {
+    return { id: 'cesara_daiana_010_mp', name: 'cobroszono' };
   }
   if (cleanAccount.includes('pagos') || cleanAccount.includes('mp4') || cleanAccount.includes('26') || cleanAccount.includes('zonopagos')) {
     return { id: 'pagoszono_26', name: 'pagoszono.26' };
