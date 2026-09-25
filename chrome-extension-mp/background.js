@@ -45,7 +45,7 @@ async function checkMonitorPage() {
 
   const token = secretToken || "mpchecker_secret_key_123";
   const url = new URL(webhookUrl || "https://zono-erp.pages.dev/api/mp-webhook");
-  const account = accountName || "pagoszono.26";
+  const account = accountName === "cesara.daiana.010.mp" ? "cobroszono" : accountName || "pagoszono.26";
   url.searchParams.set("account", account);
   url.searchParams.set("token", token);
   const payload = {

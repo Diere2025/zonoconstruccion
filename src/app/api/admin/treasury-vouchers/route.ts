@@ -131,8 +131,8 @@ export async function POST(request: NextRequest) {
   const currentFiles = Array.isArray(existing?.files) ? existing.files : [];
   if ((!existingId && !files.length) || currentFiles.length + files.length > 5) return jsonError('Adjuntá entre 1 y 5 imágenes o PDF en total.');
   for (const file of files) {
-    if (!ALLOWED_TYPES[file.type] || file.size > MAX_FILE_BYTES) {
-      return jsonError('Cada archivo debe ser JPG, PNG, WEBP o PDF y pesar hasta 10 MB.');
+    if (!ALLOWED_TYPES[file.type] || file.size > (file.type === 'application/pdf' ? MAX_FILE_BYTES : 2 * 1024 * 1024)) {
+      return jsonError('Cada imagen debe pesar hasta 2 MB y cada PDF hasta 10 MB.');
     }
   }
   const rawAmount = optionalText(form.get('amount'));

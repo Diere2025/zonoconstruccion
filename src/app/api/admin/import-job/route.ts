@@ -880,13 +880,15 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
       current_step: "Conciliando pedidos con Logística...",
       progress_percent: 90
     }).eq('id', jobId);
-    await addLog("🚚 Comparando estados, importes, medios de pago y artículos con Logística (Entregando/Entregado/Cancelados)...");
+    await addLog("🚚 Comparando estados, fechas reales de entrega, importes, medios de pago y artículos con Logística...");
 
     try {
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://zono-erp.pages.dev';
       let cursor = 0;
       let done = false;
       let totalSynced = 0;
+      let totalDeliveryDatesSynced = 0;
+      let totalDeliveryDateConflicts = 0;
       let totalSkipped = 0;
       let logisticsServerMs = 0;
       let logisticsBatches = 0;
@@ -902,6 +904,8 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
           throw new Error(logiData.error || `HTTP ${logiRes.status}`);
         }
         totalSynced += logiData.syncedOrdersCount || 0;
+        totalDeliveryDatesSynced += logiData.syncedDeliveryDatesCount || 0;
+        totalDeliveryDateConflicts += logiData.conflictingDeliveryDatesCount || 0;
         totalSkipped += logiData.skippedOrdersCount || 0;
         logisticsServerMs += logiData.metrics?.totalMs || 0;
         logisticsBatches++;
@@ -909,7 +913,10 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
         cursor = logiData.nextCursor ?? cursor;
       }
 
-      await addLog(`✅ Logística: ${totalSynced} pedidos actualizados y ${totalSkipped} sin cambios (${(logisticsServerMs / 1000).toFixed(1)}s en ${logisticsBatches} lote${logisticsBatches === 1 ? '' : 's'}).`);
+      await addLog(`✅ Logística: ${totalSynced} pedidos y ${totalDeliveryDatesSynced} fechas reales actualizadas; ${totalSkipped} pedidos sin cambios (${(logisticsServerMs / 1000).toFixed(1)}s en ${logisticsBatches} lote${logisticsBatches === 1 ? '' : 's'}).`);
+      if (totalDeliveryDateConflicts > 0) {
+        await addLog(`⚠️ Logística: ${totalDeliveryDateConflicts} fechas reales difieren de la planilla y se conservaron para revisión.`);
+      }
 
       const stockRes = await fetch(`${appUrl}/api/admin/sync-stock`, { method: "POST" });
       const stockData = await stockRes.json();

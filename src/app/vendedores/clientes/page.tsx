@@ -130,6 +130,7 @@ export default function ClientesPage() {
   const [openRegister, setOpenRegister] = useState<any | null>(null);
   const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [canEditSharedData, setCanEditSharedData] = useState(false);
   
   // Form Registrar Cobro States
   const [paymentAmount, setPaymentAmount] = useState("");
@@ -183,9 +184,10 @@ export default function ClientesPage() {
   useEffect(() => {
     console.log("[ClientesPage] search/filter changed, reloading clients. debouncedSearchQuery:", debouncedSearchQuery, "filterType:", filterType);
     loadClients();
-  }, [debouncedSearchQuery, filterType, isWholesaleView]);
+  }, [debouncedSearchQuery, filterType, isWholesaleView, currentUserId]);
 
   async function loadClients() {
+    if (isWholesaleView && !currentUserId) return;
     console.log("[ClientesPage] loadClients started");
     try {
       setLoading(true);
@@ -272,6 +274,8 @@ export default function ClientesPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         setCurrentUserId(user.id);
+        const { data: seller } = await supabase.from('sellers').select('role, roles').eq('id', user.id).maybeSingle();
+        setCanEditSharedData(seller?.role === 'admin' || (Array.isArray(seller?.roles) && seller.roles.includes('admin')));
       }
 
       // Check for active open cash register
@@ -719,6 +723,7 @@ export default function ClientesPage() {
       };
 
       if (editingClient) {
+        if (!canEditSharedData) throw new Error('La ficha compartida solo puede editarla un administrador. Los datos nuevos van en el pedido.');
         // Update client
         const { error } = await supabase
           .from("clients")
@@ -744,6 +749,7 @@ export default function ClientesPage() {
 
   // Delete Client
   const handleDeleteClient = async (clientId: string, name: string) => {
+    if (!canEditSharedData) return;
     if (!confirm(`¿Estás seguro de que deseas eliminar al cliente "${name}"? Esto eliminará también todas sus direcciones de entrega.`)) {
       return;
     }
@@ -828,7 +834,7 @@ export default function ClientesPage() {
       const clientId = selectedClientForAddresses.id;
 
       // If set as default, we make all other addresses for this client non-default first
-      if (addressIsDefault) {
+      if (addressIsDefault && canEditSharedData) {
         await supabase
           .from("addresses")
           .update({ is_default: false })
@@ -842,10 +848,11 @@ export default function ClientesPage() {
         locality_id: addressLocalityId,
         map_link: addressMapLink.trim() || null,
         delivery_notes: addressDeliveryNotes.trim() || null,
-        is_default: addressIsDefault
+        is_default: canEditSharedData && addressIsDefault
       };
 
       if (editingAddress) {
+        if (!canEditSharedData) throw new Error('Para conservar la dirección actual, agregá una dirección nueva.');
         // Update Address
         const { error } = await supabase
           .from("addresses")
@@ -859,7 +866,7 @@ export default function ClientesPage() {
           .from("addresses")
           .insert({
             ...payload,
-            is_default: isFirst ? true : addressIsDefault
+            is_default: isFirst ? true : canEditSharedData && addressIsDefault
           });
         if (error) throw error;
       }
@@ -876,6 +883,7 @@ export default function ClientesPage() {
 
   // Toggle address as default directly
   const handleSetAddressDefault = async (addr: Address) => {
+    if (!canEditSharedData) return;
     try {
       await supabase
         .from("addresses")
@@ -897,6 +905,7 @@ export default function ClientesPage() {
 
   // Delete Address
   const handleDeleteAddress = async (addrId: string) => {
+    if (!canEditSharedData) return;
     if (!confirm("¿Estás seguro de eliminar esta dirección de entrega?")) return;
     try {
       const { error } = await supabase
@@ -1168,20 +1177,20 @@ export default function ClientesPage() {
                     <MapPin className="w-3 h-3" />
                     Direcciones
                   </button>
-                  <button 
+                  {canEditSharedData && <button
                     onClick={() => handleOpenClientModal(client)}
                     className="flex items-center justify-center p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-500 hover:text-slate-700 font-bold text-[9px] uppercase transition-all"
                     title="Editar"
                   >
                     <Edit2 className="w-3 h-3" />
-                  </button>
-                  <button 
+                  </button>}
+                  {canEditSharedData && <button
                     onClick={() => handleDeleteClient(client.id, client.business_name)}
                     className="flex items-center justify-center p-1.5 rounded-lg border border-red-100 hover:bg-red-50 text-red-500 hover:text-red-600 font-bold text-[9px] uppercase transition-all"
                     title="Eliminar"
                   >
                     <Trash2 className="w-3 h-3" />
-                  </button>
+                  </button>}
                 </div>
               </div>
             );
@@ -1447,7 +1456,7 @@ export default function ClientesPage() {
                     />
                   </div>
 
-                  <div className="flex items-center gap-2 py-1">
+                  {canEditSharedData && <div className="flex items-center gap-2 py-1">
                     <input 
                       type="checkbox"
                       id="isDefaultAddress"
@@ -1458,7 +1467,7 @@ export default function ClientesPage() {
                     <label htmlFor="isDefaultAddress" className="text-xs font-bold text-slate-600 cursor-pointer select-none">
                       Establecer como dirección de entrega predeterminada
                     </label>
-                  </div>
+                  </div>}
 
                   <div className="flex gap-2 pt-2">
                     {editingAddress && (
@@ -1554,7 +1563,7 @@ export default function ClientesPage() {
 
                         {/* Address Quick Actions */}
                         <div className="flex flex-wrap items-center gap-2 mt-4 pt-2.5 border-t border-slate-100 justify-end">
-                          {!addr.is_default && (
+                          {canEditSharedData && !addr.is_default && (
                             <button 
                               onClick={() => handleSetAddressDefault(addr)}
                               className="text-[9px] font-black uppercase tracking-wider text-brand-600 hover:text-brand-700 bg-brand-50/50 hover:bg-brand-50 px-2.5 py-1.5 rounded-lg transition-all"
@@ -1569,20 +1578,20 @@ export default function ClientesPage() {
                             <ShoppingBag className="w-3 h-3" />
                             Usar en Pedido
                           </button>
-                          <button 
+                          {canEditSharedData && <button
                             onClick={() => handleEditAddressInit(addr)}
                             className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 transition-colors"
                             title="Editar Dirección"
                           >
                             <Edit2 className="w-3.5 h-3.5" />
-                          </button>
-                          <button 
+                          </button>}
+                          {canEditSharedData && <button
                             onClick={() => handleDeleteAddress(addr.id)}
                             className="p-1.5 rounded-lg hover:bg-red-50 text-red-500 transition-colors"
                             title="Eliminar Dirección"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          </button>}
                         </div>
                       </div>
                     ))}

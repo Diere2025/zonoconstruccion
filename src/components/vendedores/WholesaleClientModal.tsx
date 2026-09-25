@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 
 export interface WholesaleClientOption {
   id: string;
+  owner_seller_id?: string | null;
   business_name: string;
   tax_id?: string | null;
   phone_primary: string;
@@ -62,12 +63,15 @@ export default function WholesaleClientModal({ open, selectedClientId, onClose, 
       setLoading(true);
       setError("");
       try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) throw new Error('Iniciá sesión para buscar clientes.');
         let request = supabase
           .from("clients")
-          .select("id, business_name, tax_id, phone_primary, phone_secondary, billing_address, is_wholesale, internal_code, default_discount_label, default_discount_coef, notes")
+          .select("id, owner_seller_id, business_name, tax_id, phone_primary, phone_secondary, billing_address, is_wholesale, internal_code, default_discount_label, default_discount_coef, notes")
           .eq("is_wholesale", true)
           .order("business_name")
           .limit(80);
+        if (user.id === '9876203c-8e16-48db-958e-37c54441fd9b') request = request.eq('owner_seller_id', user.id);
 
         const cleanQuery = query.trim();
         if (cleanQuery) {
@@ -100,6 +104,8 @@ export default function WholesaleClientModal({ open, selectedClientId, onClose, 
     setSaving(true);
     setError("");
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Iniciá sesión para crear clientes.');
       const discountCoefficient = Math.round((1 - normalizedDiscount / 100) * 10000) / 10000;
       const { data, error: createError } = await supabase
         .from("clients")
@@ -116,7 +122,7 @@ export default function WholesaleClientModal({ open, selectedClientId, onClose, 
           default_discount_label: form.discountLabel.trim() || (normalizedDiscount > 0 ? `Descuento habitual ${normalizedDiscount}%` : null),
           notes: form.notes.trim() || null
         })
-        .select("id, business_name, tax_id, phone_primary, phone_secondary, billing_address, is_wholesale, internal_code, default_discount_label, default_discount_coef, notes")
+        .select("id, owner_seller_id, business_name, tax_id, phone_primary, phone_secondary, billing_address, is_wholesale, internal_code, default_discount_label, default_discount_coef, notes")
         .single();
       if (createError) throw createError;
       setForm(emptyForm);

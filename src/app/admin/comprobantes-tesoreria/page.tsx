@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
+import { optimizeImageUpload } from '@/lib/optimizeImageUpload';
 
 type Option = { id: string; label: string };
 type Category = 'collection' | 'third_party_collection' | 'ads' | 'owner_withdrawal' | 'owner_bill' | 'supplier' | 'order' | 'other';
@@ -145,7 +146,7 @@ export default function TreasuryVouchersPage() {
     setEditingId(voucher.id); setFiles([]); setExistingFiles(voucher.files || []); setError(''); setShowForm(true); window.scrollTo({ top: 0, behavior: 'smooth' });
   };
   const addFiles = (incoming: FileList | File[]) => {
-    const added = Array.from(incoming).filter(file => ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(file.type) && file.size <= 10 * 1024 * 1024);
+    const added = Array.from(incoming).filter(file => ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(file.type) && file.size <= (file.type === 'application/pdf' ? 10 : 30) * 1024 * 1024);
     setFiles(current => [...current, ...added].slice(0, Math.max(0, 5 - existingFiles.length)));
   };
   useEffect(() => {
@@ -173,9 +174,12 @@ export default function TreasuryVouchersPage() {
       accountId: usesAccount ? form.accountId : '', supplierId: isSupplier ? form.supplierId : '', clientId: isCollection ? form.clientId : '',
       orderIds: JSON.stringify(isCollection ? form.orderIds : []), destinationAccount: usesDestination ? form.destinationAccount : '',
       counterparty: ['owner_bill', 'other'].includes(form.category) ? form.counterparty : '', notes: form.notes }).forEach(([key, value]) => body.set(key, value));
-    files.forEach(file => body.append('files', file));
     setSaving(true);
-    try { await requestApi('', { method: 'POST', body }); setShowForm(false); setEditingId(null); setFiles([]); await load(); }
+    try {
+      const preparedFiles = await Promise.all(files.map(file => optimizeImageUpload(file, 'document')));
+      preparedFiles.forEach(file => body.append('files', file));
+      await requestApi('', { method: 'POST', body }); setShowForm(false); setEditingId(null); setFiles([]); await load();
+    }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'No se pudo guardar.'); }
     finally { setSaving(false); }
   };

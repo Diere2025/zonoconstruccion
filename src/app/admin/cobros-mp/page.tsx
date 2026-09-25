@@ -125,6 +125,13 @@ type UserRole = 'admin' | 'administracion' | 'logistica' | 'seller' | 'fletero';
 let cachedCobrosRole: UserRole | null = null;
 let cachedCobrosName: string | null = null;
 
+async function fetchCobrosData(input: string, init?: RequestInit) {
+  const { data: { session } } = await supabase.auth.getSession();
+  const headers = new Headers(init?.headers);
+  if (session?.access_token) headers.set('Authorization', `Bearer ${session.access_token}`);
+  return fetch(input, { ...init, headers });
+}
+
 export default function CobrosMercadoPagoPage() {
   const [payments, setPayments] = useState<MPPayment[]>([]);
   const [accounts, setAccounts] = useState<MPAccount[]>([]);
@@ -783,7 +790,7 @@ export default function CobrosMercadoPagoPage() {
   // Load Accounts
   const loadAccounts = useCallback(async () => {
     try {
-      const res = await fetch('/api/admin/cobros-mp-data?action=accounts');
+      const res = await fetchCobrosData('/api/admin/cobros-mp-data?action=accounts');
       const data = await res.json();
       if (data.success && data.data) {
         setAccounts(data.data);
@@ -806,7 +813,7 @@ export default function CobrosMercadoPagoPage() {
 
   const updateAccountColor = async (id: string, color: string) => {
     try {
-      const res = await fetch('/api/admin/cobros-mp-data?action=update-account-color', {
+      const res = await fetchCobrosData('/api/admin/cobros-mp-data?action=update-account-color', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, color })
@@ -823,7 +830,7 @@ export default function CobrosMercadoPagoPage() {
   // Load Internal Payers
   const loadInternalPayers = useCallback(async () => {
     try {
-      const res = await fetch('/api/admin/cobros-mp-data?action=internal-payers');
+      const res = await fetchCobrosData('/api/admin/cobros-mp-data?action=internal-payers');
       const data = await res.json();
       if (data.success && data.data) {
         setInternalPayers(data.data);
@@ -836,7 +843,7 @@ export default function CobrosMercadoPagoPage() {
   // Load Fleteros List
   const loadFleteros = useCallback(async () => {
     try {
-      const res = await fetch('/api/admin/cobros-mp-data?action=fleteros');
+      const res = await fetchCobrosData('/api/admin/cobros-mp-data?action=fleteros');
       const data = await res.json();
       if (data.success && data.data) {
         setFleterosList(data.data);
@@ -863,7 +870,7 @@ export default function CobrosMercadoPagoPage() {
         showHidden: showHidden ? 'true' : 'false',
         hideInternal: hideInternal ? 'true' : 'false'
       });
-      const res = await fetch(`/api/admin/cobros-mp-data?${params.toString()}`);
+      const res = await fetchCobrosData(`/api/admin/cobros-mp-data?${params.toString()}`);
       const data = await res.json();
       if (data.success) {
         setPayments(data.data || []);
@@ -904,6 +911,7 @@ export default function CobrosMercadoPagoPage() {
 
   // Supabase Realtime Subscription
   useEffect(() => {
+    if (!isRoleLoaded || currentUserRole === 'seller') return;
     const channel = supabase
       .channel('mp_payments_realtime')
       .on(
@@ -964,7 +972,7 @@ export default function CobrosMercadoPagoPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [playChime, stats, currentUserRole, loadAccounts]);
+  }, [playChime, stats, currentUserRole, isRoleLoaded, loadAccounts]);
 
   const handleCopy = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
@@ -976,7 +984,7 @@ export default function CobrosMercadoPagoPage() {
   const searchOrders = async (queryText: string) => {
     setIsSearchingOrders(true);
     try {
-      const res = await fetch(`/api/admin/cobros-mp-data?action=search-orders&q=${encodeURIComponent(queryText)}`);
+      const res = await fetchCobrosData(`/api/admin/cobros-mp-data?action=search-orders&q=${encodeURIComponent(queryText)}`);
       const data = await res.json();
       if (data.success) {
         setOrderSearchResults(data.data || []);
@@ -1008,7 +1016,7 @@ export default function CobrosMercadoPagoPage() {
 
     setIsSavingLink(true);
     try {
-      const res = await fetch('/api/admin/cobros-mp-data?action=link-order', {
+      const res = await fetchCobrosData('/api/admin/cobros-mp-data?action=link-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1038,7 +1046,7 @@ export default function CobrosMercadoPagoPage() {
   const handleUnlinkOrder = async (paymentId: string) => {
     if (!confirm('¿Desea desvincular el pedido asignado a esta transacción?')) return;
     try {
-      const res = await fetch('/api/admin/cobros-mp-data?action=unlink-order', {
+      const res = await fetchCobrosData('/api/admin/cobros-mp-data?action=unlink-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ paymentId, userRole: currentUserRole })
@@ -1078,7 +1086,7 @@ export default function CobrosMercadoPagoPage() {
         } : null);
       }
 
-      const res = await fetch('/api/admin/cobros-mp-data?action=fletero-confirm', {
+      const res = await fetchCobrosData('/api/admin/cobros-mp-data?action=fletero-confirm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1126,7 +1134,7 @@ export default function CobrosMercadoPagoPage() {
         } : null);
       }
 
-      const res = await fetch('/api/admin/cobros-mp-data?action=fletero-unconfirm', {
+      const res = await fetchCobrosData('/api/admin/cobros-mp-data?action=fletero-unconfirm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ paymentId, userRole: currentUserRole })
@@ -1159,7 +1167,7 @@ export default function CobrosMercadoPagoPage() {
     if (!confirm(confirmMsg)) return;
 
     try {
-      const res = await fetch('/api/admin/cobros-mp-data?action=toggle-internal-payer', {
+      const res = await fetchCobrosData('/api/admin/cobros-mp-data?action=toggle-internal-payer', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1189,7 +1197,7 @@ export default function CobrosMercadoPagoPage() {
     if (!newInternalName.trim()) return;
     setIsSavingInternal(true);
     try {
-      const res = await fetch('/api/admin/cobros-mp-data?action=add-internal-payer', {
+      const res = await fetchCobrosData('/api/admin/cobros-mp-data?action=add-internal-payer', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1215,7 +1223,7 @@ export default function CobrosMercadoPagoPage() {
   const handleRemoveInternalPayer = async (payer: MPInternalPayer) => {
     if (!confirm(`¿Eliminar a "${payer.name}" de la lista de personas ocultas/propias?`)) return;
     try {
-      const res = await fetch('/api/admin/cobros-mp-data?action=remove-internal-payer', {
+      const res = await fetchCobrosData('/api/admin/cobros-mp-data?action=remove-internal-payer', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: payer.id, name: payer.name })
@@ -1235,7 +1243,7 @@ export default function CobrosMercadoPagoPage() {
     if (!accName.trim()) return;
     setIsSavingAccount(true);
     try {
-      const res = await fetch('/api/admin/cobros-mp-data?action=save-account', {
+      const res = await fetchCobrosData('/api/admin/cobros-mp-data?action=save-account', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1265,7 +1273,7 @@ export default function CobrosMercadoPagoPage() {
   const handleToggleHide = async (payment: MPPayment) => {
     const newHide = !payment.is_hidden;
     try {
-      const res = await fetch('/api/admin/cobros-mp-data?action=toggle-hide', {
+      const res = await fetchCobrosData('/api/admin/cobros-mp-data?action=toggle-hide', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ paymentId: payment.id, isHidden: newHide, userRole: currentUserRole })
@@ -1293,7 +1301,7 @@ export default function CobrosMercadoPagoPage() {
     }
     if (!confirm(`¿Está seguro de eliminar definitivamente la transacción de ${payer} por ${amountFormatted}?`)) return;
     try {
-      const res = await fetch('/api/admin/cobros-mp-data?action=delete-payment', {
+      const res = await fetchCobrosData('/api/admin/cobros-mp-data?action=delete-payment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ paymentId, userRole: currentUserRole })
@@ -2370,7 +2378,7 @@ export default function CobrosMercadoPagoPage() {
                         <button
                           onClick={async () => {
                             if (confirm(`¿Eliminar la cuenta "${acc.name}"?`)) {
-                              await fetch('/api/admin/cobros-mp-data?action=delete-account', {
+                              await fetchCobrosData('/api/admin/cobros-mp-data?action=delete-account', {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({ id: acc.id })
@@ -2396,7 +2404,7 @@ export default function CobrosMercadoPagoPage() {
                         defaultValue={acc.name}
                         onBlur={(e) => {
                           if (e.target.value !== acc.name) {
-                            fetch('/api/admin/cobros-mp-data?action=save-account', {
+                            fetchCobrosData('/api/admin/cobros-mp-data?action=save-account', {
                               method: 'POST',
                               headers: { 'Content-Type': 'application/json' },
                               body: JSON.stringify({ id: acc.id, name: e.target.value, alias: acc.alias, color: acc.color })
@@ -2415,7 +2423,7 @@ export default function CobrosMercadoPagoPage() {
                         placeholder="Ej: diegozono.mp"
                         onBlur={(e) => {
                           if (e.target.value !== acc.alias) {
-                            fetch('/api/admin/cobros-mp-data?action=save-account', {
+                            fetchCobrosData('/api/admin/cobros-mp-data?action=save-account', {
                               method: 'POST',
                               headers: { 'Content-Type': 'application/json' },
                               body: JSON.stringify({ id: acc.id, name: acc.name, alias: e.target.value, color: acc.color })
@@ -3017,7 +3025,7 @@ x-webhook-token: mpchecker_secret_key_123`}
                 onClick={async () => {
                   setSimLoading(true);
                   try {
-                    await fetch('/api/admin/cobros-mp-data?action=simulate', {
+                    await fetchCobrosData('/api/admin/cobros-mp-data?action=simulate', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({
@@ -3068,7 +3076,7 @@ x-webhook-token: mpchecker_secret_key_123`}
                 onClick={async () => {
                   setPurgeLoading(true);
                   try {
-                    const res = await fetch('/api/admin/cobros-mp-data?action=purge-tests', { method: 'POST' });
+                    const res = await fetchCobrosData('/api/admin/cobros-mp-data?action=purge-tests', { method: 'POST' });
                     const d = await res.json();
                     setMaintenanceMsg(d.message || 'Pruebas purgadas');
                     loadPayments();

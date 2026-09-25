@@ -73,6 +73,24 @@ function parseDate(dateStr: string): Date | null {
   return isNaN(parsed.getTime()) ? null : parsed;
 }
 
+function sheetDeliveryDate(dateStr: string): string | null {
+  const match = dateStr.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
+  if (!match) return null;
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  const year = match[3].length === 2 ? 2000 + Number(match[3]) : Number(match[3]);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  if (parsed.getUTCFullYear() !== year || parsed.getUTCMonth() !== month - 1 || parsed.getUTCDate() !== day) return null;
+  return parsed.toISOString().slice(0, 10);
+}
+
+function isDeliveredSheetStatus(status: string): boolean {
+  const normalized = status.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  return /\bentregado\b/.test(normalized) &&
+    !/\b(?:no entregado|postergado|anulado|cancelado)\b/.test(normalized);
+}
+
 const cleanProductName = (name: string): string => {
   if (!name) return "";
   let clean = name.toString().toLowerCase().trim();
@@ -241,7 +259,7 @@ export async function GET() {
       });
 
       // Audit discrepancies only for rows with "Entregado" status
-      const isDelivered = status.toLowerCase().includes("entregado") && !status.toLowerCase().includes("no entregado");
+      const isDelivered = isDeliveredSheetStatus(status);
       if (isDelivered) {
         checkedCount++;
       }
@@ -302,7 +320,7 @@ export async function GET() {
         continue;
       }
 
-      const isDelivered = status.toLowerCase().includes("entregado") && !status.toLowerCase().includes("no entregado");
+      const isDelivered = isDeliveredSheetStatus(status);
       if (!isDelivered) continue;
 
       const rowTotal = parseSpanishNumber(row[27]) + parseSpanishNumber(row[24]);
@@ -487,7 +505,7 @@ export async function GET() {
         });
       }
 
-      const deliveredAttempt = info.attempts.find((a: any) => a.status.toLowerCase().includes("entregado") && !a.status.toLowerCase().includes("no entregado"));
+      const deliveredAttempt = info.attempts.find((a: any) => isDeliveredSheetStatus(a.status));
       if (deliveredAttempt) {
         const initDate = parseDate(info.initialDateStr);
         const delDate = parseDate(deliveredAttempt.dateStr);
@@ -698,6 +716,8 @@ export async function POST(request: Request) {
     const aggregatedSheetOrders = new Map<string, {
       code: string;
       status: string;
+      realDeliveryDate: string | null;
+      ambiguousDeliveryDate: boolean;
       preserveCommercialData: boolean;
       sheetTotal: number;
       sheetPayment: string;
@@ -719,8 +739,10 @@ export async function POST(request: Request) {
 
       const normSt = status.toLowerCase();
       const isDelivering = normSt.includes("entregando");
-      const isDelivered = normSt.includes("entregado") && !normSt.includes("no entregado");
+      const isDelivered = isDeliveredSheetStatus(status);
       if (!isDelivered && !isDelivering) continue;
+
+      const realDeliveryDate = isDelivered ? sheetDeliveryDate(row[1] || '') : null;
 
       checkedLogiRows++;
 
@@ -756,6 +778,18 @@ export async function POST(request: Request) {
 
       if (aggregatedSheetOrders.has(key)) {
         const existing = aggregatedSheetOrders.get(key)!;
+        if (isDelivered) {
+          existing.status = status;
+          if (realDeliveryDate && !existing.ambiguousDeliveryDate) {
+            if (existing.realDeliveryDate && existing.realDeliveryDate !== realDeliveryDate) {
+              // Un código repetido con fechas distintas no identifica una entrega única.
+              existing.realDeliveryDate = null;
+              existing.ambiguousDeliveryDate = true;
+            } else {
+              existing.realDeliveryDate = realDeliveryDate;
+            }
+          }
+        }
         existing.sheetTotal += rowTotal;
         if (rowPayment) {
           existing.sheetPayments.add(rowPayment);
@@ -770,6 +804,8 @@ export async function POST(request: Request) {
         aggregatedSheetOrders.set(key, {
           code: dbOrder ? dbOrder.legacy_code : code,
           status,
+          realDeliveryDate,
+          ambiguousDeliveryDate: false,
           preserveCommercialData: false,
           sheetTotal: rowTotal,
           sheetPayment: rowPayment,
@@ -793,6 +829,8 @@ export async function POST(request: Request) {
       aggregatedSheetOrders.set(key, {
         code: dbOrder.legacy_code,
         status: 'Cancelado',
+        realDeliveryDate: null,
+        ambiguousDeliveryDate: false,
         preserveCommercialData: true,
         sheetTotal: parseFloat(dbOrder.total_amount || 0),
         sheetPayment: '',
@@ -960,6 +998,40 @@ export async function POST(request: Request) {
       }
     });
 
+    // La fecha real proviene de la columna B de "🔴 Entregados". Se sincroniza
+    // también cuando estado, monto y artículos del pedido no cambiaron.
+    const deliveredOrdersWithDates = batchOrders.flatMap(sheetOrder => {
+      if (!sheetOrder.realDeliveryDate || sheetOrder.status === 'Cancelado') return [];
+      const firstCode = sheetOrder.code.split(/[\/,]/)[0].trim().toUpperCase();
+      const dbOrder = dbOrdersMap.get(firstCode);
+      return dbOrder ? [{ orderId: dbOrder.id as string, realDeliveryDate: sheetOrder.realDeliveryDate }] : [];
+    });
+    let syncedDeliveryDatesCount = 0;
+    let conflictingDeliveryDatesCount = 0;
+    if (deliveredOrdersWithDates.length > 0) {
+      const { data: storedDeliveries, error: storedDeliveriesError } = await supabaseAdmin
+        .from('deliveries')
+        .select('order_id, real_delivery_date')
+        .in('order_id', deliveredOrdersWithDates.map(delivery => delivery.orderId));
+      if (storedDeliveriesError) throw storedDeliveriesError;
+      const storedDateByOrderId = new Map((storedDeliveries || []).map(delivery => [delivery.order_id, delivery.real_delivery_date]));
+      const datesToSync = deliveredOrdersWithDates.filter(delivery =>
+        storedDateByOrderId.has(delivery.orderId) && !storedDateByOrderId.get(delivery.orderId)
+      );
+      conflictingDeliveryDatesCount = deliveredOrdersWithDates.filter(delivery => {
+        const storedDate = storedDateByOrderId.get(delivery.orderId);
+        return storedDate && storedDate !== delivery.realDeliveryDate;
+      }).length;
+      await mapWithConcurrency(datesToSync, 5, async delivery => {
+        const { error } = await supabaseAdmin.from('deliveries')
+          .update({ status: 'entregado', real_delivery_date: delivery.realDeliveryDate })
+          .eq('order_id', delivery.orderId)
+          .is('real_delivery_date', null);
+        if (error) throw error;
+      });
+      syncedDeliveryDatesCount = datesToSync.length;
+    }
+
     // Keep each order's delete/insert pair isolated while processing several
     // orders concurrently. This preserves the former failure scope (one order)
     // instead of risking every replacement in one large destructive batch.
@@ -980,7 +1052,7 @@ export async function POST(request: Request) {
     syncedOrdersCount = plannedUpdates.length;
     const applyMs = Date.now() - applyStartedAt;
     const totalMs = Date.now() - startedAt;
-    console.log(`POST: Checked ${checkedLogiRows} logistics rows; synced ${syncedOrdersCount} orders in ${totalMs}ms.`);
+    console.log(`POST: Checked ${checkedLogiRows} logistics rows; synced ${syncedOrdersCount} orders and ${syncedDeliveryDatesCount} actual delivery dates; ${conflictingDeliveryDatesCount} date conflicts in ${totalMs}ms.`);
 
     console.log(`POST: Batch completed successfully. Synced ${syncedOrdersCount} orders.`);
     return NextResponse.json({
@@ -992,6 +1064,8 @@ export async function POST(request: Request) {
       totalOrders: allSheetOrders.length,
       cancelledCodesCount: cancelledCodes.size,
       syncedOrdersCount,
+      syncedDeliveryDatesCount,
+      conflictingDeliveryDatesCount,
       skippedOrdersCount,
       stock: stockResult,
       metrics: { loadMs, planMs, applyMs, totalMs },

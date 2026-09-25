@@ -18,7 +18,7 @@ interface SalesTrendChartProps {
 }
 
 export default function SalesTrendChart({ data }: SalesTrendChartProps) {
-  const [metric, setMetric] = useState<"sales" | "orders" | "delivered">("sales");
+  const [metric, setMetric] = useState<"amounts" | "orders">("amounts");
   const [excludeSundays, setExcludeSundays] = useState<boolean>(true);
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
 
@@ -32,7 +32,7 @@ export default function SalesTrendChart({ data }: SalesTrendChartProps) {
     try {
       const dt = new Date(d.date + "T00:00:00");
       return dt.getDay() !== 0; // Exclude Sunday
-    } catch (e) {
+    } catch {
       return true;
     }
   });
@@ -40,26 +40,24 @@ export default function SalesTrendChart({ data }: SalesTrendChartProps) {
   const chartPointsData = filteredData.length > 0 ? filteredData : data;
 
   // Calculate maximum values for scaling based on chartPointsData
-  const maxSales = Math.max(...chartPointsData.map((d) => d.sales), 1);
   const maxOrders = Math.max(...chartPointsData.map((d) => d.ordersCount), 1);
-  const maxDelivered = Math.max(...chartPointsData.map((d) => d.deliveredSales), 1);
+  const maxAmount = Math.max(...chartPointsData.map((d) => Math.max(d.sales, d.deliveredSales)), 1);
 
   const getActiveValue = (point: DailyTrendPoint) => {
-    if (metric === "sales") return point.sales;
     if (metric === "orders") return point.ordersCount;
-    return point.deliveredSales;
+    return point.sales;
   };
 
   const getMaxValue = () => {
-    if (metric === "sales") return maxSales;
     if (metric === "orders") return maxOrders;
-    return maxDelivered;
+    return maxAmount;
   };
 
   const maxValue = getMaxValue();
   const totalMetricSum = chartPointsData.reduce((acc, point) => acc + getActiveValue(point), 0);
   const activeDaysCount = chartPointsData.length;
   const avgMetric = totalMetricSum / Math.max(1, activeDaysCount);
+  const totalDelivered = chartPointsData.reduce((acc, point) => acc + point.deliveredSales, 0);
   const sundayCount = data.filter(d => new Date(d.date + "T00:00:00").getDay() === 0).length;
 
   // SVG Dimensions & Padding
@@ -82,6 +80,10 @@ export default function SalesTrendChart({ data }: SalesTrendChartProps) {
     const y = paddingTop + chartHeight - (val / maxValue) * chartHeight;
     return { x, y, val, dataPoint: d };
   });
+  const deliveredPoints = chartPointsData.map((d, idx) => ({
+    x: points[idx].x,
+    y: paddingTop + chartHeight - (d.deliveredSales / maxValue) * chartHeight,
+  }));
 
   // Build SVG Path string
   const pathD =
@@ -93,6 +95,14 @@ export default function SalesTrendChart({ data }: SalesTrendChartProps) {
           const cX = (prev.x + p.x) / 2;
           return `${acc} C ${cX} ${prev.y}, ${cX} ${p.y}, ${p.x} ${p.y}`;
         }, "");
+  const deliveredPathD = deliveredPoints.length === 1
+    ? `M ${deliveredPoints[0].x} ${deliveredPoints[0].y}`
+    : deliveredPoints.reduce((acc, p, idx) => {
+        if (idx === 0) return `M ${p.x} ${p.y}`;
+        const prev = deliveredPoints[idx - 1];
+        const cX = (prev.x + p.x) / 2;
+        return `${acc} C ${cX} ${prev.y}, ${cX} ${p.y}, ${p.x} ${p.y}`;
+      }, "");
 
   const areaD =
     points.length > 0
@@ -115,7 +125,7 @@ export default function SalesTrendChart({ data }: SalesTrendChartProps) {
                 Evolución Diaria del Período
               </h2>
               <p className="text-[11px] font-semibold text-slate-400">
-                Variación día a día de ventas, pedidos y entregas {excludeSundays ? "(Días Hábiles)" : "(Calendario Completo)"}
+                Ventas por fecha de pedido y entregas por fecha real {excludeSundays ? "(Lun–Sáb)" : "(calendario completo)"}
               </p>
             </div>
           </div>
@@ -126,20 +136,20 @@ export default function SalesTrendChart({ data }: SalesTrendChartProps) {
           <div className="flex items-center bg-slate-100/80 p-1 rounded-2xl border border-slate-200/50">
             <button
               type="button"
-              onClick={() => setMetric("sales")}
+              onClick={() => { setMetric("amounts"); setHoveredIdx(null); }}
               className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
-                metric === "sales"
+                metric === "amounts"
                   ? "bg-white text-brand-700 shadow-sm border border-slate-200/80"
                   : "text-slate-500 hover:text-slate-800"
               }`}
             >
               <TrendingUp className="w-3.5 h-3.5 text-brand-600" />
-              Facturado ($)
+              Ventas vs. entregas ($)
             </button>
 
             <button
               type="button"
-              onClick={() => setMetric("orders")}
+              onClick={() => { setMetric("orders"); setHoveredIdx(null); }}
               className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
                 metric === "orders"
                   ? "bg-white text-blue-700 shadow-sm border border-slate-200/80"
@@ -150,18 +160,6 @@ export default function SalesTrendChart({ data }: SalesTrendChartProps) {
               Pedidos (#)
             </button>
 
-            <button
-              type="button"
-              onClick={() => setMetric("delivered")}
-              className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
-                metric === "delivered"
-                  ? "bg-white text-emerald-700 shadow-sm border border-slate-200/80"
-                  : "text-slate-500 hover:text-slate-800"
-              }`}
-            >
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-              Entregado ($)
-            </button>
           </div>
         </div>
       </div>
@@ -170,7 +168,7 @@ export default function SalesTrendChart({ data }: SalesTrendChartProps) {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50/70 p-3 rounded-2xl border border-slate-100">
         <div>
           <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">
-            Total del Período
+            {metric === "orders" ? "Pedidos del período" : "Ventas del período"}
           </span>
           <span className="text-sm font-black text-slate-900">
             {metric === "orders" ? `${totalMetricSum} pedidos` : formatPrice(totalMetricSum)}
@@ -180,7 +178,7 @@ export default function SalesTrendChart({ data }: SalesTrendChartProps) {
         <div>
           <div className="flex items-center justify-between">
             <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">
-              Promedio Diario {excludeSundays ? "(Días Hábiles)" : ""}
+              {metric === "orders" ? "Promedio diario" : "Entregado en el período"}
             </span>
             <button
               type="button"
@@ -194,7 +192,7 @@ export default function SalesTrendChart({ data }: SalesTrendChartProps) {
             </button>
           </div>
           <span className="text-sm font-black text-brand-700">
-            {metric === "orders" ? `${avgMetric.toFixed(1)} / día` : formatPrice(avgMetric)}
+            {metric === "orders" ? `${avgMetric.toFixed(1)} / día` : formatPrice(totalDelivered)}
           </span>
           <span className="text-[8px] text-slate-400 block font-semibold">
             {excludeSundays ? `${activeDaysCount} días hábiles (domingos omitidos)` : `${activeDaysCount} días calendario`}
@@ -220,6 +218,16 @@ export default function SalesTrendChart({ data }: SalesTrendChartProps) {
         </div>
       </div>
 
+      {metric === "amounts" && (
+        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-bold text-slate-600" aria-label="Series del gráfico">
+          <div className="flex items-center gap-5">
+            <span className="flex items-center gap-1.5"><TrendingUp className="w-3.5 h-3.5 text-blue-600" /> Ventas</span>
+            <span className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Entregados</span>
+          </div>
+          <span className="text-[9px] font-medium text-slate-400">Solo entregas confirmadas con fecha real</span>
+        </div>
+      )}
+
       {/* Interactive SVG Chart */}
       <div className="relative w-full overflow-hidden">
         <svg
@@ -234,10 +242,6 @@ export default function SalesTrendChart({ data }: SalesTrendChartProps) {
             <linearGradient id="ordersGrad" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.25" />
               <stop offset="100%" stopColor="#3b82f6" stopOpacity="0.0" />
-            </linearGradient>
-            <linearGradient id="deliveredGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#10b981" stopOpacity="0.28" />
-              <stop offset="100%" stopColor="#10b981" stopOpacity="0.0" />
             </linearGradient>
           </defs>
 
@@ -279,11 +283,9 @@ export default function SalesTrendChart({ data }: SalesTrendChartProps) {
           <path
             d={areaD}
             fill={
-              metric === "sales"
+              metric === "amounts"
                 ? "url(#salesGrad)"
-                : metric === "orders"
-                ? "url(#ordersGrad)"
-                : "url(#deliveredGrad)"
+                : "url(#ordersGrad)"
             }
           />
 
@@ -292,16 +294,18 @@ export default function SalesTrendChart({ data }: SalesTrendChartProps) {
             d={pathD}
             fill="none"
             stroke={
-              metric === "sales"
+              metric === "amounts"
                 ? "#2563eb"
-                : metric === "orders"
-                ? "#3b82f6"
-                : "#10b981"
+                : "#3b82f6"
             }
             strokeWidth="3"
             strokeLinecap="round"
             strokeLinejoin="round"
           />
+
+          {metric === "amounts" && (
+            <path d={deliveredPathD} fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+          )}
 
           {/* Interactive Data Points */}
           {points.map((p, idx) => {
@@ -309,11 +313,9 @@ export default function SalesTrendChart({ data }: SalesTrendChartProps) {
             const isSunday = new Date(p.dataPoint.date + "T00:00:00").getDay() === 0;
 
             const color =
-              metric === "sales"
+              metric === "amounts"
                 ? "#2563eb"
-                : metric === "orders"
-                ? "#3b82f6"
-                : "#10b981";
+                : "#3b82f6";
 
             const showXLabel =
               chartPointsData.length <= 14 ||
@@ -374,6 +376,11 @@ export default function SalesTrendChart({ data }: SalesTrendChartProps) {
                   onMouseLeave={() => setHoveredIdx(null)}
                 />
 
+                {metric === "amounts" && (
+                  <circle cx={p.x} cy={deliveredPoints[idx].y} r={isHovered ? 5 : points.length > 30 ? 2.5 : 3.5}
+                    fill="white" stroke="#10b981" strokeWidth={isHovered ? 3 : 2} />
+                )}
+
                 {/* Invisible hover trigger hit-box */}
                 <rect
                   x={p.x - Math.max(10, chartWidth / chartPointsData.length / 2)}
@@ -417,7 +424,7 @@ export default function SalesTrendChart({ data }: SalesTrendChartProps) {
             </div>
             <div className="space-y-1">
               <div className="flex justify-between items-center">
-                <span className="text-slate-400 text-[10px]">Facturado:</span>
+                <span className="text-slate-400 text-[10px]">Ventas:</span>
                 <span className="font-black text-brand-300">
                   {formatPrice(points[hoveredIdx].dataPoint.sales)}
                 </span>
@@ -433,6 +440,10 @@ export default function SalesTrendChart({ data }: SalesTrendChartProps) {
                 <span className="font-bold text-emerald-300">
                   {formatPrice(points[hoveredIdx].dataPoint.deliveredSales)}
                 </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400 text-[10px]">Entregas:</span>
+                <span className="font-bold text-emerald-300">{points[hoveredIdx].dataPoint.deliveredCount}</span>
               </div>
             </div>
           </div>

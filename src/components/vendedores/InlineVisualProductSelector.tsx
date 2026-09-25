@@ -18,10 +18,13 @@ import {
   VisualItemOption,
   generateDefaultVisualConfig,
   includeInstallationKitCuplas,
+  promoteTermotanqueLines,
   findRecommendedBase,
-  findFlotanteProduct
+  findFlotanteProduct,
+  findVisualProductOption
 } from "@/lib/visualSelectorConfig";
 import { supabase } from "@/lib/supabase";
+import VisualSelectorQuickProducts from './VisualSelectorQuickProducts';
 
 interface InlineVisualProductSelectorProps {
   products: Product[];
@@ -96,7 +99,7 @@ export default function InlineVisualProductSelector({
                   }))
                 }))
               }));
-              setConfig(includeInstallationKitCuplas({ ...parsed, families: normalizedFamilies }, products));
+              setConfig(promoteTermotanqueLines(includeInstallationKitCuplas({ ...parsed, families: normalizedFamilies }, products)));
               setLoading(false);
               return;
             }
@@ -195,6 +198,22 @@ export default function InlineVisualProductSelector({
       setAddedFeedback(null);
       handleReset();
     }, 1200);
+  };
+
+  const handleShortcutProduct = (product: Product) => {
+    const match = findVisualProductOption(config, product.id);
+    if (!match || (!match.item.allowCiego && !match.item.recommendedBaseCm && !match.item.addons?.length)) {
+      onAddProduct(product);
+      setAddedFeedback(`¡${product.name} agregado!`);
+      setTimeout(() => setAddedFeedback(null), 1200);
+      return;
+    }
+    setSelectedFamilyId(match.family.id);
+    setSelectedSubgroupId(match.subgroup.id);
+    setSelectedItem(match.item);
+    setIsCiego(match.isCiego);
+    setIncludeBase(false);
+    setIncludeFlotante(false);
   };
 
   // Helper to compute item price (for combos, kits or direct products)
@@ -303,7 +322,7 @@ export default function InlineVisualProductSelector({
               <button
                 type="button"
                 onClick={() => {
-                  setSelectedSubgroupId(null);
+                  setSelectedSubgroupId(currentFamily.directLine ? currentFamily.subgroups[0]?.id || null : null);
                   setSelectedItem(null);
                 }}
                 className={`hover:text-brand-600 transition-colors uppercase tracking-wider text-[10px] whitespace-nowrap ${!selectedSubgroupId ? 'text-brand-600 font-black' : ''}`}
@@ -313,7 +332,7 @@ export default function InlineVisualProductSelector({
             </>
           )}
 
-          {currentSubgroup && (
+          {currentSubgroup && !currentFamily?.directLine && (
             <>
               <ChevronRight className="w-3 h-3 text-slate-400 shrink-0" />
               <button
@@ -343,7 +362,7 @@ export default function InlineVisualProductSelector({
               if (selectedItem) {
                 setSelectedItem(null);
               } else if (selectedSubgroupId) {
-                if (currentFamily && currentFamily.subgroups.length <= 1) {
+                if (currentFamily?.directLine || (currentFamily && currentFamily.subgroups.length <= 1 && !(currentFamily.directProductIds?.length))) {
                   setSelectedFamilyId(null);
                   setSelectedSubgroupId(null);
                 } else {
@@ -374,13 +393,14 @@ export default function InlineVisualProductSelector({
         
         {/* PASO 1: FAMILIAS PRINCIPALES */}
         {!selectedFamilyId && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+          <div className="space-y-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
             {activeFamilies.map(fam => (
               <div
                 key={fam.id}
                 onClick={() => {
                   setSelectedFamilyId(fam.id);
-                  if (fam.subgroups.length === 1) {
+                  if (fam.directLine || (fam.subgroups.length === 1 && !(fam.directProductIds?.length))) {
                     setSelectedSubgroupId(fam.subgroups[0].id);
                   }
                 }}
@@ -400,29 +420,33 @@ export default function InlineVisualProductSelector({
                 <h5 className="font-black text-xs text-slate-800 group-hover:text-brand-600 transition-colors leading-tight">
                   {fam.name}
                 </h5>
+                {fam.directLine && <span className="text-[9px] font-black uppercase text-emerald-700">Línea directa</span>}
                 <span className="mt-1 text-[9px] font-black uppercase tracking-wider text-brand-600 flex items-center gap-0.5">
                   Ver opciones <ChevronRight className="w-2.5 h-2.5" />
                 </span>
               </div>
             ))}
           </div>
+          <VisualSelectorQuickProducts config={config} products={products} onAddProduct={handleShortcutProduct} />
+          </div>
         )}
 
         {/* PASO 2: SUBGRUPOS (LÍNEA / MODELO) */}
         {selectedFamilyId && !selectedSubgroupId && currentFamily && (
           <div className="space-y-2">
+            <VisualSelectorQuickProducts config={config} products={products} family={currentFamily} onAddProduct={handleShortcutProduct} />
             <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block mb-1">
               Línea de {currentFamily.name}:
             </span>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {activeSubgroups.map(sub => (
                 <div
                   key={sub.id}
                   onClick={() => setSelectedSubgroupId(sub.id)}
-                  className="p-2.5 rounded-xl border border-slate-200/80 hover:border-brand-500 hover:shadow-xs transition-all cursor-pointer bg-white flex items-center gap-3 group"
+                  className="min-w-0 p-2.5 rounded-xl border border-slate-200/80 hover:border-brand-500 hover:shadow-xs transition-all cursor-pointer bg-white flex flex-col items-center text-center gap-2 group"
                 >
-                  <div className="w-12 h-12 rounded-lg bg-slate-50 p-1 flex items-center justify-center shrink-0 border border-slate-100 overflow-hidden">
+                  <div className="w-full h-16 rounded-lg bg-slate-50 p-1 flex items-center justify-center border border-slate-100 overflow-hidden">
                     {sub.imageUrl ? (
                       <img 
                         src={sub.imageUrl} 
@@ -433,12 +457,12 @@ export default function InlineVisualProductSelector({
                       <Layers className="w-5 h-5 text-slate-300" />
                     )}
                   </div>
-                  <div className="flex-1 min-w-0">
+                  <div className="w-full min-w-0">
                     <h5 className="font-black text-xs text-slate-800 group-hover:text-brand-600 transition-colors truncate">
                       {sub.name}
                     </h5>
                     <p className="text-[10px] text-slate-400 truncate">{sub.description || 'Línea de productos'}</p>
-                    <p className="text-[9px] text-brand-600 font-black mt-0.5 flex items-center gap-0.5">
+                    <p className="text-[9px] text-brand-600 font-black mt-0.5 flex items-center justify-center gap-0.5">
                       {sub.items.filter(i => i.isActive).length} litrajes <ChevronRight className="w-2.5 h-2.5" />
                     </p>
                   </div>
@@ -453,7 +477,7 @@ export default function InlineVisualProductSelector({
           <div className="space-y-2.5">
             <div className="flex items-center justify-between gap-2 pb-1.5 border-b border-slate-100">
               <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">
-                {currentSubgroup.name} ({activeItems.length} opciones)
+                {currentFamily?.directLine ? currentFamily.name : currentSubgroup.name} ({activeItems.length} opciones)
               </span>
 
               {/* Botón de alternancia de vista para el vendedor */}
@@ -557,7 +581,7 @@ export default function InlineVisualProductSelector({
               </div>
             ) : (
               /* MODO CUADRÍCULA CON FOTOS AMPLIAS */
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 max-h-[380px] overflow-y-auto p-0.5">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 max-h-[380px] overflow-y-auto p-0.5">
                 {activeItems.map(item => {
                   const prodMatch = products.find(p => p.id === item.productId);
                   const isAvailable = Boolean(prodMatch) || Boolean(item.isCombo && item.comboItems && item.comboItems.length > 0);
@@ -574,7 +598,7 @@ export default function InlineVisualProductSelector({
                           handleQuickAdd(item);
                         }
                       }}
-                      className={`p-2.5 rounded-xl border transition-all flex flex-col justify-between relative group ${
+                      className={`min-w-0 p-2 rounded-xl border transition-all flex flex-col justify-between relative group ${
                         isAvailable 
                           ? 'border-slate-200 hover:border-brand-500 hover:shadow-md cursor-pointer bg-white hover:-translate-y-0.5' 
                           : 'border-slate-100 bg-slate-50/60 opacity-60'
@@ -582,7 +606,7 @@ export default function InlineVisualProductSelector({
                     >
                       <div>
                         {/* Contenedor amplio de foto */}
-                        <div className="h-28 sm:h-32 w-full rounded-lg bg-slate-50/80 group-hover:bg-slate-50 border border-slate-100 flex items-center justify-center p-2 relative overflow-hidden transition-colors mb-1.5">
+                        <div className="h-24 sm:h-28 w-full rounded-lg bg-slate-50/80 group-hover:bg-slate-50 border border-slate-100 flex items-center justify-center p-2 relative overflow-hidden transition-colors mb-1.5">
                           {item.badge && (
                             <span className="absolute top-1.5 left-1.5 z-10 px-1.5 py-0.2 rounded text-[7.5px] font-black uppercase tracking-wider bg-amber-500 text-white shadow-xs">
                               {item.badge}

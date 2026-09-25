@@ -12,7 +12,6 @@ import {
   CreditCard, 
   PlusCircle, 
   ShoppingCart, 
-  ShieldCheck, 
   DollarSign, 
   Truck, 
   RefreshCw, 
@@ -274,7 +273,7 @@ export default function VendedoresDashboard() {
           <span className="text-[11px] font-semibold text-slate-400">Atajos rápidos</span>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {/* 1. Presupuestar */}
           <Link href="/vendedores/presupuestos" className="group">
             <div className="bg-white hover:bg-indigo-50/40 p-4 rounded-2xl border border-slate-200/80 hover:border-indigo-300 shadow-2xs hover:shadow-sm transition-all duration-200 flex flex-col justify-between h-full group-hover:-translate-y-0.5">
@@ -344,28 +343,6 @@ export default function VendedoresDashboard() {
             </div>
           </Link>
 
-          {/* 4. Chequear Pagos */}
-          <Link href="/admin/cobros-mp" className="group">
-            <div className="bg-white hover:bg-sky-50/40 p-4 rounded-2xl border border-slate-200/80 hover:border-sky-300 shadow-2xs hover:shadow-sm transition-all duration-200 flex flex-col justify-between h-full group-hover:-translate-y-0.5">
-              <div className="flex items-start justify-between gap-2">
-                <div className="w-10 h-10 rounded-xl bg-sky-50 text-sky-600 border border-sky-100 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                  <ShieldCheck className="w-5 h-5" />
-                </div>
-                <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-sky-100/70 text-sky-700">
-                  Cobros MP
-                </span>
-              </div>
-              <div className="mt-3">
-                <h3 className="text-sm font-black text-slate-900 group-hover:text-sky-900 transition-colors flex items-center justify-between">
-                  <span>Chequear Pagos</span>
-                  <ArrowRight className="w-3.5 h-3.5 text-slate-300 group-hover:text-sky-600 group-hover:translate-x-1 transition-all" />
-                </h3>
-                <p className="text-[11px] text-slate-500 font-medium mt-0.5 leading-snug">
-                  Cobros en vivo y acreditaciones
-                </p>
-              </div>
-            </div>
-          </Link>
         </div>
       </div>
 

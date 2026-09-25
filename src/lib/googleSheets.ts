@@ -1,3 +1,6 @@
+import { cancelledRowCells, cancellationMonthSerial } from './cancelledOrderSheet';
+import type { SheetCellValue } from './cancelledOrderSheet';
+
 interface ServiceAccountCredentials {
   type: string;
   project_id: string;
@@ -1643,9 +1646,8 @@ export async function updateOrderInSellerSheet(
 }
 
 /**
- * Anula un pedido existente en la planilla del vendedor:
- * - Coloca '❌ Anulado' en la Columna Q.
- * - Opcionalmente añade la razón de anulación en la columna de notas (Columna K).
+ * Actualiza el pedido en una planilla al tramitar su anulación.
+ * Central se anula y la vendedora conserva Pasado.
  */
 export interface CancellationSheetResult {
   success: boolean;
@@ -1658,7 +1660,7 @@ export interface CancellationSheetResult {
 
 async function cancelOrderInSheet(
   spreadsheetId: string, sheetName: string, legacyCode: string,
-  cancelReason: string | undefined, columnOffset: number
+  cancelReason: string | undefined, columnOffset: number, status = '❌ Anulado'
 ): Promise<CancellationSheetResult> {
   const expected = [...new Set(legacyCode.split(/[\\/,]/).map(code => code.trim().toUpperCase()).filter(Boolean))];
   const matchedCodes: string[] = [];
@@ -1677,7 +1679,7 @@ async function cancelOrderInSheet(
       const rowNumber = index + 2;
       matchedCodes.push(code);
       rowNumbers.push(rowNumber);
-      data.push({range: makeRange(safeName, 'Q', 'Q', rowNumber, columnOffset), values: [['❌ Anulado']]});
+      data.push({range: makeRange(safeName, 'Q', 'Q', rowNumber, columnOffset), values: [[status]]});
       if (note) {
         const previous = String(row?.[9] || '').trim();
         data.push({range: makeRange(safeName, 'K', 'K', rowNumber, columnOffset),
@@ -1706,62 +1708,210 @@ export async function cancelOrderInSellerSheet(
   spreadsheetId: string, sheetName: string = 'Pendientes',
   legacyCode: string, cancelReason?: string
 ): Promise<CancellationSheetResult> {
-  return cancelOrderInSheet(spreadsheetId, sheetName, legacyCode, cancelReason, 0);
+  return cancelOrderInSheet(spreadsheetId, sheetName, legacyCode, cancelReason, 0, '🔹 Pasado');
+}
+
+type CancelledArchiveResult = { success: boolean; rowNumbers?: number[]; message?: string };
+type DeliveryRemovalResult = { success: boolean; sheets?: string[]; message?: string };
+type DeliveryLocation = { code: string; sheetName: string; sheetId: number; rowNumber: number };
+type SheetProperties = { title: string; sheetId: number; gridProperties?: { rowCount: number } };
+
+async function getSheetValues(
+  token: string, spreadsheetId: string, range: string,
+  renderOption: 'FORMULA' | 'UNFORMATTED_VALUE' | 'FORMATTED_VALUE'
+): Promise<SheetCellValue[][]> {
+  const response = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}?valueRenderOption=${renderOption}`,
+    { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' }
+  );
+  const body = await response.json() as { values?: SheetCellValue[][]; error?: { message?: string } };
+  if (!response.ok) throw new Error(body.error?.message || `Google Sheets respondió ${response.status}`);
+  return body.values || [];
+}
+
+async function sheetBatchUpdate(token: string, spreadsheetId: string,
+  requests: Array<Record<string, unknown>>): Promise<void> {
+  const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`, {
+    method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ requests })
+  });
+  if (!response.ok) throw new Error(`Google Sheets respondió ${response.status}: ${await response.text()}`);
+}
+
+async function archiveCancelledOrder(
+  token: string, code: string, reason: string,
+  source: DeliveryLocation | undefined, targetRow: number | undefined,
+  targetSheetId: number, targetRowCount: number, previousRow: number
+): Promise<number> {
+  const targetId = LOGISTICS_CANCELLED_SHEET.spreadsheetId;
+  const targetName = LOGISTICS_CANCELLED_SHEET.sheetName;
+  const rowNumber = targetRow ?? previousRow + 1;
+  if (!source) {
+    if (!targetRow) throw new Error(`No se encontró ${code} en Entregas Actual ni en Cancelados`);
+    const existing = (await getSheetValues(token, targetId, `'${targetName}'!A${rowNumber}:S${rowNumber}`, 'FORMATTED_VALUE'))[0] || [];
+    if (String(existing[3] || '').trim().toUpperCase() !== code || existing[18] !== '❌ Anulado') {
+      throw new Error(`${code} figura incompleto en Cancelados y no está en Entregas Actual para repararlo`);
+    }
+    return rowNumber;
+  }
+
+  if (!targetRow) {
+    if (rowNumber > targetRowCount) {
+      await sheetBatchUpdate(token, targetId, [{ appendDimension: {
+        sheetId: targetSheetId, dimension: 'ROWS', length: Math.max(20, rowNumber - targetRowCount)
+      } }]);
+    }
+    const sourceRange = { sheetId: targetSheetId, startRowIndex: previousRow - 1, endRowIndex: previousRow,
+      startColumnIndex: 0, endColumnIndex: 241 };
+    const destinationRange = { sheetId: targetSheetId, startRowIndex: rowNumber - 1, endRowIndex: rowNumber,
+      startColumnIndex: 0, endColumnIndex: 241 };
+    await sheetBatchUpdate(token, targetId, [
+      { copyPaste: { source: sourceRange, destination: destinationRange, pasteType: 'PASTE_FORMAT', pasteOrientation: 'NORMAL' } },
+      { copyPaste: { source: sourceRange, destination: destinationRange, pasteType: 'PASTE_FORMULA', pasteOrientation: 'NORMAL' } }
+    ]);
+  }
+
+  const sourceName = source.sheetName.replace(/'/g, "''");
+  const [sourceValues, sourceFormulas, destinationFormulas] = await Promise.all([
+    getSheetValues(token, DELIVERIES_CURRENT_SHEET.spreadsheetId,
+      `'${sourceName}'!A${source.rowNumber}:ID${source.rowNumber}`, 'UNFORMATTED_VALUE'),
+    getSheetValues(token, DELIVERIES_CURRENT_SHEET.spreadsheetId,
+      `'${sourceName}'!A${source.rowNumber}:ID${source.rowNumber}`, 'FORMULA'),
+    getSheetValues(token, targetId, `'${targetName}'!A${rowNumber}:IG${rowNumber}`, 'FORMULA')
+  ]);
+  const orderValues = (sourceValues[0] || []) as SheetCellValue[];
+  if (String(orderValues[0] || '').trim().toUpperCase() !== code) {
+    throw new Error(`${code} cambió de fila en Entregas Actual durante la sincronización`);
+  }
+  const missingFormulas = (sourceFormulas[0] || []).flatMap((value, index) =>
+    String(value).startsWith('=') && !String(destinationFormulas[0]?.[index + 3] || '').startsWith('=')
+      ? [shiftColumn('A', index + 3)] : []);
+  if (missingFormulas.length) {
+    throw new Error(`Faltan fórmulas en Cancelados para ${code}: ${missingFormulas.join(', ')}`);
+  }
+  const cells = cancelledRowCells(orderValues, sourceFormulas[0] || [], destinationFormulas[0] || [],
+    code, reason, cancellationMonthSerial(new Date()));
+  const data = cells.map(cell => ({
+    range: `'${targetName}'!${shiftColumn('A', cell.columnIndex)}${rowNumber}`,
+    values: [[cell.value]]
+  }));
+  const write = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${targetId}/values:batchUpdate`, {
+    method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ valueInputOption: 'RAW', data })
+  });
+  if (!write.ok) throw new Error(`No se pudo registrar ${code} en Cancelados: ${await write.text()}`);
+  const saved = (await getSheetValues(token, targetId,
+    `'${targetName}'!A${rowNumber}:S${rowNumber}`, 'FORMATTED_VALUE'))[0] || [];
+  if (saved[0] !== 'Ventas' || String(saved[3] || '').trim().toUpperCase() !== code ||
+      saved[18] !== '❌ Anulado' || String(saved[7] || '').trim() !== String(orderValues[4] || '').trim()) {
+    throw new Error(`No se pudo verificar el registro de ${code} en Cancelados`);
+  }
+  return rowNumber;
+}
+
+async function archiveAndRemoveCancelledOrders(
+  legacyCode: string, reason: string
+): Promise<{ cancelledSheet: CancelledArchiveResult; deliveriesCurrent: DeliveryRemovalResult }> {
+  const expected = [...new Set(legacyCode.split(/[\\/,]/).map(code => code.trim().toUpperCase()).filter(Boolean))];
+  const targetId = LOGISTICS_CANCELLED_SHEET.spreadsheetId;
+  const targetName = LOGISTICS_CANCELLED_SHEET.sheetName;
+  const archivedRows: number[] = [];
+  const locations: DeliveryLocation[] = [];
+  try {
+    if (!expected.length) throw new Error('El código del pedido es obligatorio');
+    const token = await getGoogleAccessToken();
+    const [targetMetadataResponse, deliveryMetadataResponse] = await Promise.all([
+      fetch(`https://sheets.googleapis.com/v4/spreadsheets/${targetId}?fields=sheets.properties`,
+        { headers: { Authorization: `Bearer ${token}` } }),
+      fetch(`https://sheets.googleapis.com/v4/spreadsheets/${DELIVERIES_CURRENT_SHEET.spreadsheetId}?fields=sheets.properties`,
+        { headers: { Authorization: `Bearer ${token}` } })
+    ]);
+    if (!targetMetadataResponse.ok || !deliveryMetadataResponse.ok) throw new Error('No se pudieron consultar las hojas de Logística');
+    const targetMetadata = await targetMetadataResponse.json() as { sheets?: Array<{ properties: SheetProperties }> };
+    const deliveryMetadata = await deliveryMetadataResponse.json() as { sheets?: Array<{ properties: SheetProperties }> };
+    const targetProps = targetMetadata.sheets?.map(sheet => sheet.properties)
+      .find(properties => properties.title === targetName);
+    if (!targetProps) throw new Error('No se encontró la hoja Cancelados');
+    const targetRows = await getSheetValues(token, targetId, `'${targetName}'!D3:D`, 'FORMATTED_VALUE');
+    const existing = new Map<string, number>();
+    targetRows.forEach((row, index) => {
+      const code = String(row[0] || '').trim().toUpperCase();
+      if (code && !existing.has(code)) existing.set(code, index + 3);
+    });
+    const sourceSheets = (deliveryMetadata.sheets || []).map(sheet => sheet.properties)
+      .filter(properties => DELIVERIES_CURRENT_SHEET.sheetNames.includes(properties.title));
+    const sourceMatches = await Promise.all(sourceSheets.map(async properties => {
+      const safeName = properties.title.replace(/'/g, "''");
+      const rows = await getSheetValues(token, DELIVERIES_CURRENT_SHEET.spreadsheetId,
+        `'${safeName}'!A2:A`, 'FORMATTED_VALUE');
+      const matches: DeliveryLocation[] = [];
+      rows.forEach((row, index) => {
+        const code = String(row[0] || '').trim().toUpperCase();
+        if (expected.includes(code)) matches.push({ code, sheetName: properties.title,
+          sheetId: properties.sheetId, rowNumber: index + 2 });
+      });
+      return matches;
+    }));
+    locations.push(...sourceMatches.flat());
+    let lastRow = Math.max(2, ...existing.values());
+    for (const code of expected) {
+      const source = locations.find(location => location.code === code);
+      const row = await archiveCancelledOrder(token, code, reason, source, existing.get(code),
+        targetProps.sheetId, targetProps.gridProperties?.rowCount || 0, lastRow);
+      archivedRows.push(row);
+      existing.set(code, row);
+      lastRow = Math.max(lastRow, row);
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'No se pudo registrar la anulación';
+    return { cancelledSheet: { success: false, rowNumbers: archivedRows, message },
+      deliveriesCurrent: { success: false, message: 'No se retiró de Entregas Actual porque Cancelados no quedó verificado' } };
+  }
+
+  const cancelledSheet: CancelledArchiveResult = { success: true, rowNumbers: archivedRows };
+  try {
+    const token = await getGoogleAccessToken();
+    const unique = Array.from(new Map(locations.map(location =>
+      [`${location.sheetId}:${location.rowNumber}`, location])).values());
+    for (const location of unique) {
+      const safeName = location.sheetName.replace(/'/g, "''");
+      const current = (await getSheetValues(token, DELIVERIES_CURRENT_SHEET.spreadsheetId,
+        `'${safeName}'!A${location.rowNumber}`, 'FORMATTED_VALUE'))[0]?.[0];
+      if (String(current || '').trim().toUpperCase() !== location.code) {
+        throw new Error(`${location.code} cambió de fila en ${location.sheetName}; no se borró ningún pedido`);
+      }
+    }
+    const sorted = unique.sort((a, b) => a.sheetId === b.sheetId
+      ? b.rowNumber - a.rowNumber : a.sheetId - b.sheetId);
+    if (sorted.length) await sheetBatchUpdate(token, DELIVERIES_CURRENT_SHEET.spreadsheetId,
+      sorted.map(location => ({ deleteDimension: { range: { sheetId: location.sheetId,
+        dimension: 'ROWS', startIndex: location.rowNumber - 1, endIndex: location.rowNumber } } })));
+    const remaining: string[] = [];
+    for (const sheetName of new Set(locations.map(location => location.sheetName))) {
+      const safeName = sheetName.replace(/'/g, "''");
+      const rows = await getSheetValues(token, DELIVERIES_CURRENT_SHEET.spreadsheetId,
+        `'${safeName}'!A2:A`, 'FORMATTED_VALUE');
+      if (rows.some(row => expected.includes(String(row[0] || '').trim().toUpperCase()))) remaining.push(sheetName);
+    }
+    if (remaining.length) throw new Error(`El pedido sigue en ${remaining.join(', ')}`);
+    return { cancelledSheet, deliveriesCurrent: { success: true,
+      sheets: [...new Set(locations.map(location => location.sheetName))] } };
+  } catch (error) {
+    return { cancelledSheet, deliveriesCurrent: { success: false,
+      message: error instanceof Error ? error.message : 'No se pudo retirar el pedido de Entregas Actual' } };
+  }
 }
 
 export async function cancelOrderInAllSheets(sellerId: string, legacyCode: string, reason?: string) {
   const config = SELLER_SHEET_CONFIG[sellerId];
-  const seller = config?.enabled
-    ? await cancelOrderInSellerSheet(config.spreadsheetId, config.sheetName, legacyCode, reason)
-    : {success:false, message:'La planilla de la vendedora no está habilitada'};
-  // Attempt every destination even if another spreadsheet fails.
   const central = await cancelOrderInSheet(CENTRAL_ORDERS_SHEET.spreadsheetId,
     CENTRAL_ORDERS_SHEET.sheetName, legacyCode, reason, 0);
-  let deliveriesCurrent: {success:boolean; message?:string; sheets?:string[]};
-  try {
-    const token = await getGoogleAccessToken();
-    const metadata = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${DELIVERIES_CURRENT_SHEET.spreadsheetId}?fields=sheets.properties.title`,
-      {headers:{Authorization:`Bearer ${token}`}});
-    if (!metadata.ok) throw new Error('No se pudieron consultar las hojas de Entregas Actual');
-    const payload = await metadata.json();
-    const available = new Set((payload.sheets || []).map((sheet: {properties?:{title?:string}}) => sheet.properties?.title));
-    const expected = [...new Set(legacyCode.split(/[\\/,]/).map(code => code.trim().toUpperCase()).filter(Boolean))];
-    const found = new Set<string>();
-    const sheets: string[] = [];
-    const errors: string[] = [];
-    for (const name of DELIVERIES_CURRENT_SHEET.sheetNames.filter(name => available.has(name))) {
-      const result = await cancelOrderInSheet(DELIVERIES_CURRENT_SHEET.spreadsheetId, name, legacyCode, reason, -1);
-      result.matchedCodes.forEach(code => found.add(code));
-      if (result.matchedCodes.length) sheets.push(name);
-      if (!result.success && !result.message?.startsWith('No se encontraron estos códigos')) errors.push(result.message || name);
-    }
-    let missing = expected.filter(code => !found.has(code));
-    if (missing.length) {
-      try {
-        const cancelledRows = await fetchSpreadsheetValues(
-          LOGISTICS_CANCELLED_SHEET.spreadsheetId,
-          `'${LOGISTICS_CANCELLED_SHEET.sheetName}'!${LOGISTICS_CANCELLED_SHEET.codeColumn}2:${LOGISTICS_CANCELLED_SHEET.codeColumn}`
-        );
-        const cancelledCodes = new Set(
-          cancelledRows
-            .flatMap(row => String(row?.[0] || '').split(/[\\/,]/))
-            .map(code => code.trim().toUpperCase())
-            .filter(Boolean)
-        );
-        const alreadyMoved = missing.filter(code => cancelledCodes.has(code));
-        alreadyMoved.forEach(code => found.add(code));
-        if (alreadyMoved.length) sheets.push(LOGISTICS_CANCELLED_SHEET.sheetName);
-        missing = expected.filter(code => !found.has(code));
-      } catch (error) {
-        errors.push(`No se pudo verificar Logística > Cancelados: ${error instanceof Error ? error.message : 'Error desconocido'}`);
-      }
-    }
-    if (missing.length) errors.push(`No se encontraron en Entregas Actual ni en Cancelados: ${missing.join(', ')}`);
-    deliveriesCurrent = {success:!errors.length, sheets, message:errors.length ? errors.join('; ') : undefined};
-  } catch (error) {
-    deliveriesCurrent = {success:false, message:error instanceof Error ? error.message : 'Error en Entregas Actual'};
-  }
-  return {seller, central, deliveriesCurrent};
+  const { cancelledSheet, deliveriesCurrent } = await archiveAndRemoveCancelledOrders(legacyCode, reason || 'Sin motivo');
+  const seller = cancelledSheet.success && deliveriesCurrent.success && config?.enabled
+    ? await cancelOrderInSellerSheet(config.spreadsheetId, config.sheetName, legacyCode, reason)
+    : {success:false, message: !config?.enabled ? 'La planilla de la vendedora no está habilitada' :
+      'Se conservó el estado de la vendedora porque falta completar la anulación en Logística'};
+  return { seller, central, cancelledSheet, deliveriesCurrent };
 }
 
 /** Reconciles a reactivated order by code; safe to run again after a partial failure. */
@@ -1798,7 +1948,8 @@ export async function reactivateOrderInAllSheets(
       if (!rowNumber) throw new Error(`No se pudo verificar ${code} en Entregas Actual`);
       const token = await getGoogleAccessToken();
       const statusRange = `'${location.replace(/'/g, "''")}'!P${rowNumber}`;
-      const status = String((await fetchSpreadsheetValues(DELIVERIES_CURRENT_SHEET.spreadsheetId, statusRange))[0]?.[0] || '');
+      const status = String((await getSheetValues(token, DELIVERIES_CURRENT_SHEET.spreadsheetId,
+        statusRange, 'FORMATTED_VALUE'))[0]?.[0] || '');
       if (/anulad|cancelad/i.test(status)) {
         const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${DELIVERIES_CURRENT_SHEET.spreadsheetId}/values:batchUpdate`, {
           method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -1817,24 +1968,20 @@ export async function reactivateOrderInAllSheets(
   const metadataRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${archiveId}?fields=sheets.properties`,
     { headers: { Authorization: `Bearer ${token}` } });
   if (!metadataRes.ok) throw new Error('No se pudo consultar Cancelados');
-  const metadata = await metadataRes.json() as { sheets?: Array<{properties: {title: string; sheetId: number}}> };
+  const metadata = await metadataRes.json() as { sheets?: Array<{properties: SheetProperties}> };
   const archiveSheet = metadata.sheets?.map(sheet => sheet.properties)
     .find(sheet => sheet.title === archiveName);
   if (!archiveSheet) throw new Error('No se encontró la hoja Cancelados');
-  const archivedCodes = await fetchSpreadsheetValues(archiveId, `'${archiveName}'!D3:D`);
+  const archivedCodes = await getSheetValues(token, archiveId, `'${archiveName}'!D3:D`, 'FORMATTED_VALUE');
   const archiveRows = archivedCodes.flatMap((row, index) =>
     codes.includes(String(row[0] || '').trim().toUpperCase()) ? [index + 3] : []);
   if (archiveRows.length) {
-    const deleteResponse = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${archiveId}:batchUpdate`, {
-      method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ requests: archiveRows.sort((a, b) => b - a).map(row => ({
-        deleteDimension: { range: { sheetId: archiveSheet.sheetId,
-          dimension: 'ROWS', startIndex: row - 1, endIndex: row } }
-      })) })
-    });
-    if (!deleteResponse.ok) throw new Error(`No se pudo retirar el pedido de Cancelados: ${await deleteResponse.text()}`);
+    await sheetBatchUpdate(token, archiveId, archiveRows.sort((a, b) => b - a).map(row => ({
+      deleteDimension: { range: { sheetId: archiveSheet.sheetId,
+        dimension: 'ROWS', startIndex: row - 1, endIndex: row } }
+    })));
   }
-  const remaining = await fetchSpreadsheetValues(archiveId, `'${archiveName}'!D3:D`);
+  const remaining = await getSheetValues(token, archiveId, `'${archiveName}'!D3:D`, 'FORMATTED_VALUE');
   if (remaining.some(row => codes.includes(String(row[0] || '').trim().toUpperCase()))) {
     throw new Error('El pedido todavía figura en Cancelados');
   }
@@ -1995,5 +2142,3 @@ export async function appendLocalityToGoogleSheet(
     };
   }
 }
-
-

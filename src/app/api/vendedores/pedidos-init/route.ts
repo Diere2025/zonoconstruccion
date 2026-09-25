@@ -43,6 +43,22 @@ export async function GET(request: Request) {
     if (!userId) {
       return NextResponse.json({ error: 'Missing userId parameter' }, { status: 400 });
     }
+    const token = request.headers.get('authorization')?.match(/^Bearer\s+(.+)$/i)?.[1];
+    if (!token) return NextResponse.json({ error: 'Sesión requerida' }, { status: 401 });
+    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
+    if (authError || !user || user.id !== userId) {
+      return NextResponse.json({ error: 'Acceso denegado' }, { status: 403 });
+    }
+
+    const isAnabel = userId === '9876203c-8e16-48db-958e-37c54441fd9b';
+    const clientsQuery = isAnabel
+      ? supabaseAdmin.from('clients')
+          .select('id, business_name, tax_id, phone_primary, phone_secondary, billing_address, is_wholesale')
+          .eq('is_wholesale', true).eq('owner_seller_id', userId)
+          .order('created_at', { ascending: false }).limit(50)
+      : supabaseAdmin.from('v_client_balances_and_stats')
+          .select('id, business_name, tax_id, phone_primary, phone_secondary, billing_address, is_wholesale')
+          .order('orders_count', { ascending: false }).limit(50);
 
     const [
       sellerRes,
@@ -65,11 +81,7 @@ export async function GET(request: Request) {
         .eq('id', userId)
         .maybeSingle(),
       fetchAllProducts(),
-      supabaseAdmin
-        .from("v_client_balances_and_stats")
-        .select("id, business_name, tax_id, phone_primary, phone_secondary, billing_address, is_wholesale")
-        .order("orders_count", { ascending: false })
-        .limit(50),
+      clientsQuery,
       supabaseAdmin
         .from("localities")
         .select("id, name, zone_id, zones(name, delivery_schedule, delivery_time_id, delivery_times(name, description, delivery_days))")

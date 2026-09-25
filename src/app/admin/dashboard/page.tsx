@@ -548,6 +548,15 @@ export default function AdminDashboard() {
         .gte("order_date", weeklyStart)
         .lte("order_date", weeklyEnd);
 
+      // Las entregas del gráfico se buscan por su propia fecha, sin limitar
+      // los pedidos a los que fueron tomados dentro del período seleccionado.
+      const deliverySelect = "id, order_id, real_delivery_date, orders!inner(id, legacy_code, total_amount, seller_id, status)";
+      let datedDeliveriesQuery = supabase.from("deliveries")
+        .select(deliverySelect)
+        .eq("status", "entregado")
+        .gte("real_delivery_date", start)
+        .lte("real_delivery_date", end);
+
       if (sellerId !== "all") {
         recentQuery = recentQuery.eq("seller_id", sellerId);
         rangeQuery = rangeQuery.eq("seller_id", sellerId);
@@ -556,6 +565,7 @@ export default function AdminDashboard() {
         monthOrdersQuery = monthOrdersQuery.eq("seller_id", sellerId);
         itemsQuery = itemsQuery.eq("orders.seller_id", sellerId);
         weeklyOrdersQuery = weeklyOrdersQuery.eq("seller_id", sellerId);
+        datedDeliveriesQuery = datedDeliveriesQuery.eq("orders.seller_id", sellerId);
       }
 
       // Keep the dashboard responsive without overwhelming Supabase. In
@@ -590,7 +600,8 @@ export default function AdminDashboard() {
       const [
         unimportedRes,
         todayOrdersRes,
-        monthOrdersRes
+        monthOrdersRes,
+        datedDeliveriesRes
       ] = await Promise.all([
         fetch('/api/admin/unimported-orders', { signal: controller.signal })
           .then(response => response.ok ? response.json() : null)
@@ -600,7 +611,8 @@ export default function AdminDashboard() {
             return null;
         }),
         withSignal(todayOrdersQuery),
-        withSignal(monthOrdersQuery)
+        withSignal(monthOrdersQuery),
+        withSignal(datedDeliveriesQuery)
       ]);
       if (controller.signal.aborted || requestId !== loadRequestIdRef.current) return;
 
@@ -614,7 +626,8 @@ export default function AdminDashboard() {
         ["order items", itemsRes],
         ["weekly orders", weeklyOrdersRes],
         ["today orders", todayOrdersRes],
-        ["month orders", monthOrdersRes]
+        ["month orders", monthOrdersRes],
+        ["dated deliveries", datedDeliveriesRes]
       ] as const;
 
       const failedQuery = queryResults.find(([, result]) => result?.error);
@@ -623,8 +636,8 @@ export default function AdminDashboard() {
         throw new Error(`Error en ${failedQuery[0]}: ${failedError.message}`);
       }
 
-      // Delivery data is intentionally excluded from this dashboard. Routing
-      // is managed in its own operational screen.
+      // The operational routing list remains on its own screen; the chart
+      // above uses only completed delivery dates and order amounts.
       const todayDeliveriesRes = { data: [] as never[] };
 
       if (unimportedRes && unimportedRes.success) {
@@ -1166,6 +1179,22 @@ export default function AdminDashboard() {
 
       const dateRange = generateDateRange(start, end);
 
+      const deliveredByDate = new Map<string, { count: number; amount: number }>();
+      const seenDeliveredOrders = new Set<string>();
+      (datedDeliveriesRes.data || []).forEach((delivery) => {
+        const order = Array.isArray(delivery.orders) ? delivery.orders[0] : delivery.orders;
+        if (!order || isCancelledStatus(order.status)) return;
+        const orderKey = order.legacy_code?.trim() || order.id;
+        if (seenDeliveredOrders.has(orderKey)) return;
+        const deliveredDate = delivery.real_delivery_date || "";
+        if (deliveredDate < start || deliveredDate > end) return;
+        seenDeliveredOrders.add(orderKey);
+        const day = deliveredByDate.get(deliveredDate) || { count: 0, amount: 0 };
+        day.count += 1;
+        day.amount += Number(order.total_amount) || 0;
+        deliveredByDate.set(deliveredDate, day);
+      });
+
       const dailyTrendList: DailyTrendPoint[] = dateRange.map(dStr => {
         const parts = dStr.split("-");
         const displayDate = parts.length === 3 ? `${parts[2]}/${parts[1]}` : dStr;
@@ -1178,16 +1207,15 @@ export default function AdminDashboard() {
         const activeOnDate = ordersOnDate.filter(o => !isCancelledStatus(o.status));
         const salesOnDate = activeOnDate.reduce((acc, o) => acc + (Number(o.total_amount) || 0), 0);
 
-        const deliveredOnDate = ordersOnDate.filter(o => o.status === "Entregado");
-        const deliveredSalesOnDate = deliveredOnDate.reduce((acc, o) => acc + (Number(o.total_amount) || 0), 0);
+        const deliveredOnDate = deliveredByDate.get(dStr) || { count: 0, amount: 0 };
 
         return {
           date: dStr,
           displayDate,
           sales: salesOnDate,
           ordersCount: ordersOnDate.length,
-          deliveredCount: deliveredOnDate.length,
-          deliveredSales: deliveredSalesOnDate
+          deliveredCount: deliveredOnDate.count,
+          deliveredSales: deliveredOnDate.amount
         };
       });
 

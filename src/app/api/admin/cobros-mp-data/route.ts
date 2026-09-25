@@ -9,11 +9,36 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT
 
 const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 
+type PaymentRole = 'admin' | 'administracion' | 'logistica' | 'fletero';
+
+async function getPaymentRole(request: Request): Promise<PaymentRole | null> {
+  const token = request.headers.get('authorization')?.match(/^Bearer\s+(.+)$/i)?.[1];
+  if (!token) return null;
+
+  const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+  if (error || !user) return null;
+
+  const { data: seller, error: sellerError } = await supabaseAdmin
+    .from('sellers')
+    .select('role, roles')
+    .eq('id', user.id)
+    .maybeSingle();
+  if (sellerError) return null;
+
+  const roles = new Set([seller?.role, ...(Array.isArray(seller?.roles) ? seller.roles : [])]);
+  if (roles.has('admin') || ['diego.boveda@gmail.com', 'caroibarra.93@gmail.com'].includes((user.email || '').toLowerCase())) return 'admin';
+  if (roles.has('administracion')) return 'administracion';
+  if (roles.has('logistica')) return 'logistica';
+  if (roles.has('fletero')) return 'fletero';
+  return null;
+}
+
 export async function GET(request: Request) {
   try {
+    const userRole = await getPaymentRole(request);
+    if (!userRole) return NextResponse.json({ error: 'Acceso denegado' }, { status: 403 });
     const { searchParams } = new URL(request.url);
     const action = searchParams.get('action') || 'list';
-    const userRole = (searchParams.get('role') || 'admin').toLowerCase();
 
     if (action === 'accounts') {
       const { data, error } = await supabaseAdmin
@@ -75,22 +100,18 @@ export async function GET(request: Request) {
       const accountId = searchParams.get('accountId');
       const search = searchParams.get('search');
       let dateRange = searchParams.get('dateRange') || 'TODAY';
-      let type = searchParams.get('type') || 'ALL';
+      const type = searchParams.get('type') || 'ALL';
       const linkedStatus = searchParams.get('linkedStatus') || 'ALL';
       const fleteroFilter = searchParams.get('fleteroFilter') || 'ALL';
       const showHidden = searchParams.get('showHidden') === 'true';
       const hideInternal = searchParams.get('hideInternal') === 'true';
 
-      const isSeller = userRole === 'seller' || userRole === 'vendedora' || userRole === 'ventas';
       const isLogistica = userRole === 'logistica';
-      const isFletero = userRole === 'fletero' || userRole === 'carrier';
+      const isFletero = userRole === 'fletero';
       const isAdminOrAdminStaff = userRole === 'admin' || userRole === 'administracion';
 
       // Apply strict role restrictions
-      if (isSeller) {
-        dateRange = 'LAST_3_DAYS';
-        type = 'TRANSFERENCIA';
-      } else if (isLogistica) {
+      if (isLogistica) {
         if (!['TODAY', 'YESTERDAY', 'LAST_3_DAYS', 'YESTERDAY_TODAY'].includes(dateRange)) {
           dateRange = 'LAST_3_DAYS';
         }
@@ -267,9 +288,12 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const userRole = await getPaymentRole(request);
+    if (!userRole) return NextResponse.json({ error: 'Acceso denegado' }, { status: 403 });
     const { searchParams } = new URL(request.url);
     const action = searchParams.get('action');
     const body = await request.json().catch(() => ({}));
+    body.userRole = userRole;
 
     if (action === 'toggle-internal-payer') {
       const { paymentId, payerName, isInternal } = body;

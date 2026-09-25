@@ -8,6 +8,7 @@ export async function processOrderCancellation(
   skipSheets = false
 ) {
   const warnings: string[] = [];
+  const completedSteps: string[] = [];
   const code = order.legacy_code || '';
   const reason = job.payload.reason || 'Anulado desde ERP';
   let cancellationSync;
@@ -15,9 +16,12 @@ export async function processOrderCancellation(
     cancellationSync = { skipped: true };
   } else if (code) {
     cancellationSync = await cancelOrderInAllSheets(job.seller_id, code, reason);
-    for (const [key,label] of [['seller','Planilla de la vendedora'],['central','Central'],['deliveriesCurrent','Entregas Actual']] as const) {
+    for (const [key,label] of [['seller','Planilla de la vendedora'],['central','Central'],
+      ['cancelledSheet','Cancelados'],['deliveriesCurrent','Entregas Actual']] as const) {
       if (!cancellationSync[key].success) warnings.push(`${label}: ${cancellationSync[key].message || 'No se pudo anular'}`);
     }
+    if (cancellationSync.cancelledSheet.success) completedSteps.push('✅ Registrado en Cancelados de Logística.');
+    if (cancellationSync.deliveriesCurrent.success) completedSteps.push('✅ Retirado de Entregas Actual.');
   } else {
     const creation = await db.from('order_sync_jobs').select('status,message').eq('order_id',job.order_id).eq('kind','create').maybeSingle();
     if (creation.error || creation.data?.status === 'attention' || !creation.data) {
@@ -32,6 +36,7 @@ export async function processOrderCancellation(
         `🚨 **PEDIDO ANULADO: ${code || job.order_id.slice(0,8)}**`,
         order.customer_name ? `Cliente: ${order.customer_name}` : '',
         `❌ **Motivo de Anulación:** ${reason}`,
+        ...completedSteps,
         warnings.length ? `⚠️ Revisar sincronización:\n${warnings.join('\n')}` : ''
       ].filter(Boolean).join('\n')})
     });
@@ -42,5 +47,5 @@ export async function processOrderCancellation(
     warnings.push('Telegram anulación: error de conexión');
   }
   return {code, warnings, result:{cancellationSync,telegramSent},
-    message:skipSheets ? 'Pedido mayorista anulado en el ERP y aviso enviado.' : code ? 'Anulación aplicada en las planillas y aviso enviado.' : 'Pedido anulado antes de su carga en planillas. Aviso enviado.'};
+    message:skipSheets ? 'Pedido mayorista anulado en el ERP y aviso enviado.' : code ? 'Anulación registrada en Cancelados, retirada de Entregas Actual y avisada.' : 'Pedido anulado antes de su carga en planillas. Aviso enviado.'};
 }

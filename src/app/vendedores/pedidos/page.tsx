@@ -54,6 +54,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { supabase } from "@/lib/supabase";
+import { optimizeImageUpload } from "@/lib/optimizeImageUpload";
 import { Product, OrderDiscountItem } from "@/types";
 import VisualProductSelectorModal, { QuantityInput } from "@/components/vendedores/VisualProductSelectorModal";
 import ImportWhatsAppBudgetModal from "@/components/vendedores/ImportWhatsAppBudgetModal";
@@ -68,6 +69,14 @@ import { evaluateDiscountSuggestions, DiscountSuggestion } from "@/lib/discountR
 import { buildSheetOrderItems, normalizeProductNameForSheet } from "@/lib/googleSheets";
 import { getWholesaleCatalogKind } from "@/lib/visualSelectorConfig";
 import { calculateCascadingDiscounts } from "@/lib/orderDiscounts";
+
+const ANABEL_SELLER_ID = '9876203c-8e16-48db-958e-37c54441fd9b';
+const normalizedClientPhone = (value: string) => {
+  const digits = value.replace(/\D/g, '');
+  if (digits.startsWith('549') && digits.length >= 10) return digits.slice(3);
+  if (digits.startsWith('54') && digits.length >= 9) return digits.slice(2);
+  return digits;
+};
 
 interface OrderItem extends Product {
   quantity: number;
@@ -1330,13 +1339,17 @@ export default function PedidosPage() {
   const [showClientDropdown, setShowClientDropdown] = useState(false);
   const [showWholesaleClientModal, setShowWholesaleClientModal] = useState(false);
 
+  const isAnabelSeller = currentUserId === ANABEL_SELLER_ID && role !== 'admin';
+  const lastRetailAutofillClientIdRef = useRef<string>('');
+  const hasAppliedClientUrlRef = useRef(false);
+
   // Debounce client search
   useEffect(() => {
     const handler = setTimeout(() => {
-      setDebouncedClientSearch(newClientPhone || clientSearchQuery);
+      setDebouncedClientSearch(isAnabelSeller && !isWholesaleContext ? newClientPhone : (newClientPhone || clientSearchQuery));
     }, 400);
     return () => clearTimeout(handler);
-  }, [clientSearchQuery, newClientPhone]);
+  }, [clientSearchQuery, newClientPhone, isAnabelSeller, isWholesaleContext]);
 
   // Debounce order search
   useEffect(() => {
@@ -1349,6 +1362,7 @@ export default function PedidosPage() {
   // Server-side client search
   useEffect(() => {
     if (!debouncedClientSearch.trim()) return;
+    if (isAnabelSeller && !isWholesaleContext && normalizedClientPhone(debouncedClientSearch).length < 8) return;
     async function searchClients() {
       try {
         const q = debouncedClientSearch.trim();
@@ -1372,8 +1386,13 @@ export default function PedidosPage() {
           .limit(50);
         if (error) throw error;
         if (data) {
+          const permittedResults = isAnabelSeller && !isWholesaleContext
+            ? data.filter(item => !item.is_wholesale && [item.phone_primary, item.phone_secondary]
+                .filter(Boolean).flatMap(value => String(value).split(/[,;]+/))
+                .some(value => normalizedClientPhone(value) === normalizedClientPhone(q)))
+            : data;
           setClients(prev => {
-            const mappedResults: Client[] = data.map(item => ({
+            const mappedResults: Client[] = permittedResults.map(item => ({
               id: item.id,
               business_name: item.business_name,
               tax_id: item.tax_id || "",
@@ -1396,7 +1415,7 @@ export default function PedidosPage() {
       }
     }
     searchClients();
-  }, [debouncedClientSearch]);
+  }, [debouncedClientSearch, isAnabelSeller, isWholesaleContext]);
 
   // Form State
   const [entregaInicial, setEntregaInicial] = useState("");
@@ -1951,13 +1970,14 @@ export default function PedidosPage() {
 
     setUploadingReceipt(true);
     try {
-      const fileExt = file.name.split('.').pop();
+      const uploadFile = await optimizeImageUpload(file, 'document');
+      const fileExt = uploadFile.name.split('.').pop();
       const fileName = `deposit_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
       const filePath = `receipts/${fileName}`;
 
       const { error: uploadError } = await supabase.storage
         .from('product-images')
-        .upload(filePath, file);
+        .upload(filePath, uploadFile, { contentType: uploadFile.type });
 
       if (uploadError) throw uploadError;
 
@@ -1980,13 +2000,14 @@ export default function PedidosPage() {
     setUploadingReceipt(true);
     setUploadingReceiptId(id);
     try {
-      const fileExt = file.name.split('.').pop();
+      const uploadFile = await optimizeImageUpload(file, 'document');
+      const fileExt = uploadFile.name.split('.').pop();
       const fileName = `payment_${id}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
       const filePath = `receipts/${fileName}`;
 
       const { error: uploadError } = await supabase.storage
         .from('product-images')
-        .upload(filePath, file);
+        .upload(filePath, uploadFile, { contentType: uploadFile.type });
 
       if (uploadError) throw uploadError;
 
@@ -2693,7 +2714,7 @@ export default function PedidosPage() {
         setCurrentUserId(userId);
         setSelectedSellerId(userId);
 
-        const PEDIDOS_CACHE_VER = "zc_pedidos_v23_wholesale_sources";
+        const PEDIDOS_CACHE_VER = "zc_pedidos_v24_client_ownership";
         const cachedUserId = sessionStorage.getItem("cached_pedidos_user_id");
         if (sessionStorage.getItem("cached_pedidos_ver") !== PEDIDOS_CACHE_VER || (cachedUserId && cachedUserId !== userId)) {
           sessionStorage.clear();
@@ -2867,7 +2888,12 @@ export default function PedidosPage() {
         }
 
         // Cargar desde la API en el backend
-        const res = await fetch(`/api/vendedores/pedidos-init?userId=${userId}`);
+        const { data: sessionData } = await supabase.auth.getSession();
+        const accessToken = sessionData.session?.access_token;
+        if (!accessToken) throw new Error('La sesión venció. Volvé a iniciar sesión.');
+        const res = await fetch(`/api/vendedores/pedidos-init?userId=${userId}`, {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        });
         if (!res.ok) {
           const errorPayload = await res.json().catch(() => null);
           const apiMessage = errorPayload?.error || errorPayload?.message;
@@ -3129,12 +3155,13 @@ export default function PedidosPage() {
 
   // Pre-select client from URL parameters if available
   useEffect(() => {
-    if (clients.length > 0 && typeof window !== "undefined") {
+    if (!hasAppliedClientUrlRef.current && clients.length > 0 && typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
       const queryClientId = params.get("client_id");
       if (queryClientId) {
         const clientExists = clients.some(c => c.id === queryClientId);
         if (clientExists) {
+          hasAppliedClientUrlRef.current = true;
           setSelectedClientId(queryClientId);
         }
       }
@@ -3145,6 +3172,7 @@ export default function PedidosPage() {
   useEffect(() => {
     async function fetchAddresses() {
       if (!selectedClientId) {
+        lastRetailAutofillClientIdRef.current = '';
         setClientAddresses([]);
         setAppliedWholesaleDiscountLabel("");
         return;
@@ -3164,6 +3192,8 @@ export default function PedidosPage() {
         }
         return;
       }
+
+      if (isAnabelSeller && !isWholesaleContext && lastRetailAutofillClientIdRef.current === selectedClientId) return;
 
       // Autofill client name and details
       const c = clients.find(cl => cl.id === selectedClientId);
@@ -3255,9 +3285,10 @@ export default function PedidosPage() {
           setAclaraciones("");
         }
       }
+      if (isAnabelSeller && !isWholesaleContext) lastRetailAutofillClientIdRef.current = selectedClientId;
     }
     fetchAddresses();
-  }, [selectedClientId, clients, isWholesaleContext, localities, sourceQuoteId]);
+  }, [selectedClientId, clients, isWholesaleContext, localities, sourceQuoteId, isAnabelSeller]);
 
   // Handle Address change
   const handleAddressChange = (addressId: string) => {
@@ -3397,7 +3428,7 @@ export default function PedidosPage() {
 
           if (statusCount > 0 && statusCount < 4) {
             const targetStatuses: string[] = [];
-            if (hasPending) targetStatuses.push('Pendiente', 'Entregando', 'En Espera', 'Modificado');
+            if (hasPending) targetStatuses.push('Pendiente', 'Entregando', 'En Espera');
             if (hasReview) targetStatuses.push('En Revisión');
             if (hasDelivered) targetStatuses.push('Entregado');
             if (hasCancelled) targetStatuses.push('Cancelado', 'Anulado');
@@ -3521,6 +3552,10 @@ export default function PedidosPage() {
 
   // Generic loader: can be used for editing (isClone=false) or cloning/re-creating (isClone=true)
   const handleLoadOrderIntoForm = async (order: any, isClone: boolean = false) => {
+    if (role !== 'admin' && order.seller_id !== currentUserId) {
+      setOrderSaveNotice('Sólo podés abrir pedidos asignados a tu usuario.');
+      return;
+    }
     if (!isClone && (order.status === 'Cancelado' || order.status === 'Anulado')) {
       setOrderSaveNotice('Reactivá el pedido desde la lista antes de editarlo.');
       return;
@@ -3608,11 +3643,16 @@ export default function PedidosPage() {
           }
         }
         if (c) {
-          setCliente(c.business_name);
-          setNewClientName(c.business_name);
-          setNewClientTaxId(c.tax_id || "");
-          setShowTaxIdField(!!c.tax_id);
-          const phones = (c.phone_primary || c.phone || "").split(",").map(p => p.trim()).filter(Boolean);
+          const savedCustomer = order.totals?.customer_snapshot;
+          const orderCustomerName = savedCustomer?.name || order.customer_name || c.business_name;
+          const orderTaxId = savedCustomer?.tax_id ?? c.tax_id ?? '';
+          setCliente(orderCustomerName);
+          setNewClientName(orderCustomerName);
+          setNewClientTaxId(orderTaxId);
+          setShowTaxIdField(!!orderTaxId);
+          const phones = savedCustomer
+            ? [savedCustomer.phone_primary || '', savedCustomer.phone_secondary || ''].filter(Boolean)
+            : (c.phone_primary || c.phone || "").split(",").map((p: string) => p.trim()).filter(Boolean);
           if (phones.length === 0) {
             setNewClientPhones(["", ""]);
           } else if (phones.length === 1) {
@@ -4982,6 +5022,7 @@ export default function PedidosPage() {
   const filteredClients = clientSearchQuery.trim()
     ? clients.filter(c => {
         if (isWholesaleContext && c.is_wholesale !== true) return false;
+        if (isAnabelSeller && !isWholesaleContext) return false;
         return (
           (c.business_name && normalizeText(c.business_name).includes(normalizeText(clientSearchQuery))) ||
           (c.phone_primary && c.phone_primary.includes(clientSearchQuery.trim())) ||
@@ -5101,12 +5142,12 @@ export default function PedidosPage() {
           targetCleanNoPrefix = targetClean.substring(2);
         }
         
-        if (!targetCleanNoPrefix || targetCleanNoPrefix.length < 6) return false;
+        if (!targetCleanNoPrefix || targetCleanNoPrefix.length < 8) return false;
         
         const numbers = [
-          ...(c.phone_primary ? c.phone_primary.split(/[\s,;]+/) : []),
-          ...(c.phone_secondary ? c.phone_secondary.split(/[\s,;]+/) : []),
-          ...(c.phone ? c.phone.split(/[\s,;]+/) : [])
+          ...(c.phone_primary ? c.phone_primary.split(/[,;]+/) : []),
+          ...(c.phone_secondary ? c.phone_secondary.split(/[,;]+/) : []),
+          ...(c.phone ? c.phone.split(/[,;]+/) : [])
         ].map(num => {
           const cleanNum = num.replace(/\D/g, '');
           if (cleanNum.startsWith('549') && cleanNum.length >= 10) {
@@ -5119,12 +5160,9 @@ export default function PedidosPage() {
         }).filter(Boolean);
         
         if (isWholesaleContext && !c.is_wholesale) return false;
+        if (isAnabelSeller && !isWholesaleContext && c.is_wholesale) return false;
         return numbers.some(num => {
-          if (num === targetCleanNoPrefix) return true;
-          if (targetCleanNoPrefix.length >= 8 && num.length >= 8) {
-            return num.includes(targetCleanNoPrefix) || targetCleanNoPrefix.includes(num);
-          }
-          return false;
+          return num === targetCleanNoPrefix;
         });
       })
     : null;
@@ -5222,6 +5260,24 @@ export default function PedidosPage() {
       const loggedInUserId = userData.user.id;
       const seller_id = selectedSellerId || loggedInUserId;
 
+      if (isAnabelSeller && !isWholesaleContext && isNewClient && matchingExistingClient) {
+        throw new Error('Este teléfono ya corresponde a un cliente. Usá «Cargar Datos» para vincular el pedido sin duplicar su ficha.');
+      }
+      if (isAnabelSeller && !isWholesaleContext && !isNewClient && matchingExistingClient?.id !== selectedClientId && matchingExistingClient) {
+        throw new Error('El teléfono ingresado pertenece a otra ficha. Seleccioná ese cliente antes de guardar.');
+      }
+
+      if (editingOrderId && role !== 'admin') {
+        const { data: editableOrder, error: editableOrderError } = await supabase
+          .from('orders').select('seller_id').eq('id', editingOrderId).maybeSingle();
+        if (editableOrderError || editableOrder?.seller_id !== loggedInUserId) {
+          throw new Error('No podés modificar un pedido asignado a otra vendedora.');
+        }
+      }
+      if (role !== 'admin' && seller_id !== loggedInUserId) {
+        throw new Error('No podés guardar pedidos a nombre de otra vendedora.');
+      }
+
       let finalClientId = selectedClientId;
       let finalAddressId = selectedAddressId;
       let addressSnapshot: any = null;
@@ -5266,8 +5322,17 @@ export default function PedidosPage() {
           map_link: newAddr.map_link,
           delivery_notes: newAddr.delivery_notes
         };
-      } else if (selectedAddressId === "nueva_direccion") {
-        // Registrar dirección manual para el cliente existente
+      } else if (selectedAddressId === "nueva_direccion" || (() => {
+        const saved = clientAddresses.find(a => a.id === selectedAddressId);
+        return !!saved && (
+          saved.full_address?.trim() !== direccion.trim() ||
+          (saved.locality_id || '') !== (localidadId || '') ||
+          (saved.map_link || '').trim() !== linkMaps.trim() ||
+          (saved.delivery_notes || '').trim() !== aclaraciones.trim()
+        );
+      })()) {
+        // Los cambios de domicilio se agregan como otra dirección; nunca se
+        // modifica la dirección anterior ni su condición de predeterminada.
         const { data: newAddr, error: addrErr } = await supabase
           .from("addresses")
           .insert({
@@ -5368,6 +5433,12 @@ export default function PedidosPage() {
             order_discount_value: orderDiscountAmount > 0 ? persistedOrderDiscountValue : 0,
             order_discount_amount: orderDiscountAmount,
             totals: {
+              customer_snapshot: {
+                name: isNewClient ? newClientName : cliente,
+                tax_id: newClientTaxId,
+                phone_primary: newClientPhones[0] || '',
+                phone_secondary: newClientPhones[1] || ''
+              },
               items_subtotal: itemsGrossSubtotal,
               order_discount_type: persistedOrderDiscountType,
               order_discount_value: persistedOrderDiscountValue,
@@ -5484,10 +5555,10 @@ export default function PedidosPage() {
         // Persistir el trabajo junto al pedido; el servidor lo procesa luego.
         {
           const selectedPayMethodName = dbPaymentMethods.find(m => m.id === paymentsList[0]?.payment_method_id)?.name || 'Efectivo';
-          const clientPhone = isNewClient 
+          const clientPhone = isNewClient || (isAnabelSeller && !isWholesaleContext)
             ? (newClientPhones.map(cleanPhoneForSaving).filter(Boolean)[0] || '')
             : (clients.find(c => c.id === selectedClientId)?.phone_primary || '');
-          const clientPhone2 = isNewClient
+          const clientPhone2 = isNewClient || (isAnabelSeller && !isWholesaleContext)
             ? (newClientPhones.map(cleanPhoneForSaving).filter(Boolean)[1] || '')
             : '';
           let sellerFullName = sellersList.find(s => s.id === seller_id)?.full_name;
@@ -5549,7 +5620,7 @@ export default function PedidosPage() {
             receipts: {
               type: 'receipt',
               customerName: (isNewClient ? newClientName : cliente) || '',
-              taxId: isNewClient ? newClientTaxId : (clients.find(c => c.id === selectedClientId)?.tax_id || ''),
+              taxId: isNewClient || (isAnabelSeller && !isWholesaleContext) ? newClientTaxId : (clients.find(c => c.id === selectedClientId)?.tax_id || ''),
               sellerName: sellerFullName,
               status: paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? 'Señado' : 'Pendiente'),
               pendingBalance,
@@ -5597,6 +5668,12 @@ export default function PedidosPage() {
           status: orderStatus,
           totals: {
             integration_payload: integrationPayload,
+            customer_snapshot: {
+              name: isNewClient ? newClientName : cliente,
+              tax_id: newClientTaxId,
+              phone_primary: newClientPhones[0] || '',
+              phone_secondary: newClientPhones[1] || ''
+            },
             items_subtotal: itemsGrossSubtotal,
             order_discount_type: persistedOrderDiscountType,
             order_discount_value: persistedOrderDiscountValue,
@@ -5683,23 +5760,6 @@ export default function PedidosPage() {
           if (orderError) throw orderError;
           orderData = newOrder;
         }
-      }
-
-      // La dirección elegida en el último pedido pasa a ser la predeterminada
-      // del cliente, sin eliminar las demás sucursales o domicilios guardados.
-      if (finalClientId && finalAddressId && finalAddressId !== "nueva_direccion") {
-        const { error: clearDefaultError } = await supabase
-          .from("addresses")
-          .update({ is_default: false })
-          .eq("client_id", finalClientId);
-        if (clearDefaultError) throw clearDefaultError;
-
-        const { error: setDefaultError } = await supabase
-          .from("addresses")
-          .update({ is_default: true })
-          .eq("id", finalAddressId)
-          .eq("client_id", finalClientId);
-        if (setDefaultError) throw setDefaultError;
       }
 
       // 3. Crear nuevos ítems del Pedido
@@ -5803,10 +5863,10 @@ export default function PedidosPage() {
         } | undefined;
         let operationalSyncSkipped = isWholesaleContext && !FACUNDO_SELLER_IDS.includes(originalOrderSnapshot?.seller_id || seller_id);
         if (!operationalSyncSkipped) try {
-          const clientPhone = isNewClient 
+          const clientPhone = isNewClient || (isAnabelSeller && !isWholesaleContext)
             ? (newClientPhones.map(cleanPhoneForSaving).filter(Boolean)[0] || '')
             : (clients.find(c => c.id === selectedClientId)?.phone_primary || '');
-          const clientPhone2 = isNewClient
+          const clientPhone2 = isNewClient || (isAnabelSeller && !isWholesaleContext)
             ? (newClientPhones.map(cleanPhoneForSaving).filter(Boolean)[1] || '')
             : '';
           let sellerFullName = sellersList.find(s => s.id === seller_id)?.full_name;
@@ -5891,7 +5951,7 @@ export default function PedidosPage() {
         }
         const selectedPayMethodName = dbPaymentMethods.find(m => m.id === paymentsList[0]?.payment_method_id)?.name || 'Efectivo';
         const payStatusName = paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? `Señado (${formatPrice(depositAmount)})` : 'Contra Entrega');
-        const clientPhone = isNewClient 
+        const clientPhone = isNewClient || (isAnabelSeller && !isWholesaleContext)
             ? (newClientPhones.map(cleanPhoneForSaving).filter(Boolean)[0] || '')
             : (clients.find(c => c.id === selectedClientId)?.phone_primary || '');
 
@@ -5948,7 +6008,7 @@ export default function PedidosPage() {
       if (editingOrderId) try {
         const orderCodeForTelegram = effectiveLegacyCode || finalLegacyCode || legacyCode || orderData?.legacy_code || '';
         const clientNameForTelegram = (isNewClient ? newClientName : cliente) || '';
-        const clientTaxIdForTelegram = isNewClient ? newClientTaxId : (clients.find(c => c.id === selectedClientId)?.tax_id || '');
+        const clientTaxIdForTelegram = isNewClient || (isAnabelSeller && !isWholesaleContext) ? newClientTaxId : (clients.find(c => c.id === selectedClientId)?.tax_id || '');
         const paymentStatusLabel = paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? 'Señado' : 'Pendiente');
 
         const unsentReceipts = paymentsList.filter(p => Boolean(p.receipt_url) && !p.telegram_sent);
@@ -6613,6 +6673,16 @@ export default function PedidosPage() {
                         Cambiar / Limpiar
                       </button>
                     </div>
+
+                    {isAnabelSeller && !isWholesaleContext && (
+                      <div className="grid gap-2 rounded-xl border border-amber-200 bg-amber-50/70 p-3">
+                        <p className="text-[10px] font-bold text-amber-800">Datos para este pedido. Los cambios no modifican la ficha del cliente ni sus pedidos anteriores.</p>
+                        <input value={cliente} onChange={e => { setCliente(e.target.value); setNewClientName(e.target.value); }} placeholder="Nombre para este pedido" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs" />
+                        <input value={newClientPhones[0] || ''} onChange={e => setNewClientPhones(prev => [e.target.value, prev[1] || ''])} placeholder="Teléfono para este pedido" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs" />
+                        <input value={newClientPhones[1] || ''} onChange={e => setNewClientPhones(prev => [prev[0] || '', e.target.value])} placeholder="Teléfono secundario para este pedido" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs" />
+                        <input value={newClientTaxId} onChange={e => setNewClientTaxId(e.target.value)} placeholder="DNI / CUIT para este pedido" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs" />
+                      </div>
+                    )}
 
                     <div className="p-2.5 bg-brand-50/20 border border-brand-100/50 rounded-xl flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-1">
                       <div className="text-[9px] font-black text-brand-600 uppercase tracking-wider">Dirección de Entrega:</div>
