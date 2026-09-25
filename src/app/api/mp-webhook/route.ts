@@ -335,6 +335,7 @@ export async function POST(request: Request) {
         const resolvedAccount = resolveMpAccount(body.account || account);
         const resolvedAccountId = resolvedAccount.id;
         const resolvedAccountName = resolvedAccount.name;
+        let alertDeliveryError: string | null = null;
 
         try {
           await supabaseAdmin
@@ -371,10 +372,17 @@ ${body.clientTime ? `🕒 *Reloj extensión:* ${body.clientTime} hs\n` : ''}
               tgConfig.was_offline = true;
               tgConfig.last_alert_at = new Date().toISOString();
               await saveTelegramConfig(tgConfig);
+            } else {
+              alertDeliveryError = sendRes.description || 'Telegram rechazó el aviso';
             }
           }
         } catch (err) {
           console.warn('[MP Webhook] Error handling ALERT_PAGE_ERROR:', err);
+          alertDeliveryError = err instanceof Error ? err.message : 'No se pudo procesar la alerta';
+        }
+
+        if (alertDeliveryError) {
+          return NextResponse.json({ success: false, error: alertDeliveryError }, { status: 502 });
         }
 
         return NextResponse.json({

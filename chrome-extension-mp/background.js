@@ -19,8 +19,79 @@ function isActivitiesTab(tab) {
   }
 }
 
+const WRONG_PAGE_ALARM = "WRONG_PAGE_CHECK";
+let wrongPageTimer;
+
+function scheduleWrongPageCheck() {
+  clearTimeout(wrongPageTimer);
+  wrongPageTimer = setTimeout(checkMonitorPage, 8000);
+  // Service workers may sleep before a timer fires. The alarm is a durable fallback.
+  chrome.alarms.create(WRONG_PAGE_ALARM, { delayInMinutes: 0.5 });
+}
+
+function clearWrongPageCheck() {
+  clearTimeout(wrongPageTimer);
+  chrome.alarms.clear(WRONG_PAGE_ALARM);
+  chrome.storage.local.remove("wrongPageAlertedTabId");
+}
+
+async function checkMonitorPage() {
+  const { monitorTabId, wrongPageAlertedTabId, webhookUrl, secretToken, accountName } =
+    await chrome.storage.local.get(["monitorTabId", "wrongPageAlertedTabId", "webhookUrl", "secretToken", "accountName"]);
+  if (!monitorTabId || wrongPageAlertedTabId === monitorTabId) return;
+  const tab = await new Promise(resolve => chrome.tabs.get(monitorTabId, found =>
+    resolve(chrome.runtime.lastError ? null : found)));
+  if (tab && (isActivitiesTab(tab) || tab.status === "loading")) return;
+
+  const token = secretToken || "mpchecker_secret_key_123";
+  const url = new URL(webhookUrl || "https://zono-erp.pages.dev/api/mp-webhook");
+  const account = accountName || "pagoszono.26";
+  url.searchParams.set("account", account);
+  url.searchParams.set("token", token);
+  const payload = {
+    type: "ALERT_PAGE_ERROR",
+    errorType: "WRONG_PAGE",
+    account,
+    message: tab
+      ? "La pestaña monitor salió de Actividades. El monitor no puede registrar cobros aquí."
+      : "La pestaña monitor se cerró. El monitor no puede registrar cobros hasta que se abra Actividades.",
+    url: tab?.url || "",
+    timestamp: new Date().toISOString()
+  };
+  try {
+    const response = await fetch(url.toString(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-webhook-token": token },
+      body: JSON.stringify(payload)
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || result.success !== true) throw new Error(result.error || `HTTP ${response.status}`);
+    await chrome.storage.local.set({ wrongPageAlertedTabId: monitorTabId });
+    chrome.notifications.create("ZONO_PAGE_ALERT_" + Date.now(), {
+      type: "basic",
+      iconUrl: chrome.runtime.getURL("icon.png"),
+      title: "⚠️ ALERTA: Monitor MP fuera de Actividades",
+      message: payload.message,
+      priority: 2
+    });
+  } catch (error) {
+    console.warn("[Zono MP Monitor] No se pudo enviar la alerta de navegación:", error);
+    chrome.alarms.create(WRONG_PAGE_ALARM, { delayInMinutes: 0.5 });
+  }
+}
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (!changeInfo.url && changeInfo.status !== "complete") return;
+  chrome.storage.local.get(["monitorTabId"], ({ monitorTabId }) => {
+    if (tabId !== monitorTabId) return;
+    if (isActivitiesTab(tab)) clearWrongPageCheck();
+    else scheduleWrongPageCheck();
+  });
+});
+
 function saveMonitorTab(nextTabId, previousTabId, sendResponse) {
   chrome.storage.local.set({ monitorTabId: nextTabId }, () => {
+    clearWrongPageCheck();
     if (previousTabId && previousTabId !== nextTabId) {
       chrome.tabs.sendMessage(previousTabId, { action: "MONITOR_STATE", active: false }).catch(() => {});
     }
@@ -48,7 +119,7 @@ function pingAllTabs() {
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   chrome.storage.local.get(["monitorTabId"], ({ monitorTabId }) => {
-    if (monitorTabId === tabId) chrome.storage.local.remove("monitorTabId");
+    if (monitorTabId === tabId) scheduleWrongPageCheck();
   });
 });
 
@@ -60,6 +131,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === "POLL_PULSE") {
     pingAllTabs();
   }
+  if (alarm.name === WRONG_PAGE_ALARM) checkMonitorPage();
 });
 
 // Periodic ping while service worker is active
@@ -86,7 +158,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       // stored id disappeared, let the first restored Activities tab reclaim
       // monitoring without requiring a manual click.
       chrome.tabs.get(monitorTabId, (storedTab) => {
-        if (chrome.runtime.lastError || !storedTab || !isActivitiesTab(storedTab)) {
+        let isMercadoPago = false;
+        try { isMercadoPago = new URL(storedTab?.url || "").hostname.endsWith("mercadopago.com.ar"); } catch {}
+        if (chrome.runtime.lastError || !storedTab || !isMercadoPago) {
           saveMonitorTab(senderTabId, monitorTabId, sendResponse);
           return;
         }
@@ -106,6 +180,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       saveMonitorTab(nextTabId, previousTabId, sendResponse);
     });
     return true;
+  }
+
+  if (request.action === "WATCH_WRONG_PAGE") {
+    chrome.storage.local.get(["monitorTabId"], ({ monitorTabId }) => {
+      if (sender.tab?.id === monitorTabId) scheduleWrongPageCheck();
+    });
+    sendResponse({ ok: true });
+    return;
   }
 
   if (request.action === "REPORT_PAYMENT") {
