@@ -9,7 +9,9 @@ export async function processOrderReactivation(
   if (order.status === 'Cancelado' || order.status === 'Anulado') {
     return { skipped: true, reason: 'El pedido volvió a estar anulado' };
   }
-  if (order.channel === 'mayorista') return { skipped: true, reason: 'Pedido mayorista sin planillas operativas' };
+  if (order.channel === 'mayorista' && sellerId !== '3820a0fe-bb0a-4a84-ad85-79e49868cad7') {
+    return { skipped: true, reason: 'Pedido mayorista sin planillas operativas' };
+  }
   const code = String(order.legacy_code || '').trim();
   if (!code) throw new Error('El pedido no tiene código de planilla; revisar antes de reactivar');
 

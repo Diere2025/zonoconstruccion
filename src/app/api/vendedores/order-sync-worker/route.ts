@@ -32,7 +32,8 @@ export async function POST(req: NextRequest) {
         result = { skipped: true, reason: 'El pedido ya no está anulado' };
         successMessage = 'Anulación omitida: el pedido fue reactivado.';
       } else if (job.kind === 'cancel') {
-        const cancellation = await processOrderCancellation(db, req.url, job, current.data, current.data.channel === 'mayorista');
+        const cancellation = await processOrderCancellation(db, req.url, job, current.data,
+          current.data.channel === 'mayorista' && job.seller_id !== '3820a0fe-bb0a-4a84-ad85-79e49868cad7');
         result = cancellation.result;
         warnings.push(...cancellation.warnings);
         successMessage = cancellation.message;
@@ -45,7 +46,9 @@ export async function POST(req: NextRequest) {
         result = {skipped:true, reason:'cancelled'};
         successMessage = 'Carga omitida: el pedido fue anulado antes de sincronizar.';
       } else {
-      if (current.data.channel === 'mayorista') {
+      // Facundo usa una única secuencia AQ-FP en su planilla para B2C y B2B.
+      // Sus pedidos mayoristas también deben pasar por las planillas operativas.
+      if (current.data.channel === 'mayorista' && job.seller_id !== '3820a0fe-bb0a-4a84-ad85-79e49868cad7') {
         confirmedCode = current.data.legacy_code || job.order_id.slice(0, 8);
         const origin = new URL(req.url).origin;
         const formationAlert = await sendRouteFormationAlert(origin, confirmedCode, job.payload.order, null);

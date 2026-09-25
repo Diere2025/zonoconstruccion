@@ -5801,8 +5801,8 @@ export default function PedidosPage() {
           central?: { success: boolean; sheetName?: string; message?: string };
           deliveriesCurrent?: { success: boolean; sheetName?: string; message?: string };
         } | undefined;
-        let operationalSyncSkipped = isWholesaleContext;
-        if (!isWholesaleContext) try {
+        let operationalSyncSkipped = isWholesaleContext && !FACUNDO_SELLER_IDS.includes(originalOrderSnapshot?.seller_id || seller_id);
+        if (!operationalSyncSkipped) try {
           const clientPhone = isNewClient 
             ? (newClientPhones.map(cleanPhoneForSaving).filter(Boolean)[0] || '')
             : (clients.find(c => c.id === selectedClientId)?.phone_primary || '');
@@ -5938,7 +5938,7 @@ export default function PedidosPage() {
         // Actualizar estado local
         setOrders(prev => prev.map(o => o.id === orderData.id ? { ...o, ...orderData } : o));
       } else {
-        setOrderSaveNotice(isWholesaleContext
+        setOrderSaveNotice(isWholesaleContext && !FACUNDO_SELLER_IDS.includes(seller_id)
           ? 'Pedido mayorista guardado en el ERP. Los avisos de Telegram se procesan en segundo plano. Podés cargar el siguiente pedido.'
           : 'Pedido guardado. Las planillas y Telegram se procesan en segundo plano. Podés cargar el siguiente pedido.');
         window.dispatchEvent(new Event('order-sync-updated'));
