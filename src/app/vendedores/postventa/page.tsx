@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
+import { optimizeImageUpload } from "@/lib/optimizeImageUpload";
 import { 
   RefreshCw, 
   Search, 
@@ -131,13 +132,14 @@ export default function PostventaPage() {
       const newUrls: string[] = [];
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        const fileExt = file.name.split('.').pop();
+        const uploadFile = await optimizeImageUpload(file, 'document');
+        const fileExt = uploadFile.name.split('.').pop();
         const fileName = `postventa_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
         const filePath = `postventa/${fileName}`;
 
         const { error: uploadError } = await supabase.storage
           .from('product-images')
-          .upload(filePath, file);
+          .upload(filePath, uploadFile, { contentType: uploadFile.type });
 
         if (uploadError) throw uploadError;
 

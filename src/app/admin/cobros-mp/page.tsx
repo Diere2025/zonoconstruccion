@@ -43,7 +43,9 @@ import {
   Settings,
   Truck,
   ThumbsUp,
-  Bell
+  Bell,
+  LayoutList,
+  Columns3
 } from 'lucide-react';
 
 interface MPPayment {
@@ -90,6 +92,16 @@ interface MPAccount {
   client_time?: string | null;
 }
 
+function getAliasTextColor(color: string) {
+  if (!/^#[0-9a-fA-F]{6}$/.test(color)) return '#ffffff';
+  const channels = [1, 3, 5].map(i => {
+    const value = parseInt(color.slice(i, i + 2), 16) / 255;
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  });
+  const luminance = channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+  return luminance > 0.179 ? '#111827' : '#ffffff';
+}
+
 interface MPInternalPayer {
   id: string;
   name: string;
@@ -112,6 +124,13 @@ type UserRole = 'admin' | 'administracion' | 'logistica' | 'seller' | 'fletero';
 // In-memory module cache for instant rendering without flashing
 let cachedCobrosRole: UserRole | null = null;
 let cachedCobrosName: string | null = null;
+
+async function fetchCobrosData(input: string, init?: RequestInit) {
+  const { data: { session } } = await supabase.auth.getSession();
+  const headers = new Headers(init?.headers);
+  if (session?.access_token) headers.set('Authorization', `Bearer ${session.access_token}`);
+  return fetch(input, { ...init, headers });
+}
 
 export default function CobrosMercadoPagoPage() {
   const [payments, setPayments] = useState<MPPayment[]>([]);
@@ -161,6 +180,7 @@ export default function CobrosMercadoPagoPage() {
   // Filters (Synchronously aligned with detected role)
   const [search, setSearch] = useState('');
   const [selectedAccountId, setSelectedAccountId] = useState('ALL');
+  const [paymentView, setPaymentView] = useState<'list' | 'columns'>('list');
   const [selectedType, setSelectedType] = useState<string>(() => {
     if (typeof window !== 'undefined') {
       const r = cachedCobrosRole || (sessionStorage.getItem('zono_user_role') as UserRole);
@@ -261,9 +281,11 @@ export default function CobrosMercadoPagoPage() {
   }, []);
 
   // Account Display Resolver (Resolves Alias, Name, Color)
-  const getAccountDisplay = useCallback((accountNameOrId: string) => {
+  const getAccountDisplay = useCallback((accountNameOrId: string, accountId?: string) => {
     const clean = (accountNameOrId || '').toLowerCase().trim();
-    const acc = accounts.find(a => 
+    const cleanId = (accountId || '').toLowerCase().trim();
+    const acc = accounts.find(a =>
+      (cleanId && a.id.toLowerCase() === cleanId) ||
       a.id.toLowerCase() === clean || 
       a.name.toLowerCase() === clean || 
       (a.alias && a.alias.toLowerCase() === clean)
@@ -340,7 +362,7 @@ export default function CobrosMercadoPagoPage() {
     return payments.filter((p) => {
       // Account filter
       if (selectedAccountId && selectedAccountId !== 'ALL') {
-        const display = getAccountDisplay(p.account_name);
+        const display = getAccountDisplay(p.account_name, p.account_id);
         const target = selectedAccountId.toLowerCase();
         const matchesDisplay = display.displayName.toLowerCase() === target;
         const matchesFull = display.fullName.toLowerCase() === target;
@@ -389,7 +411,7 @@ export default function CobrosMercadoPagoPage() {
     // Also include any accounts that appear in loaded payments
     payments.forEach(p => {
       if (p.account_name) {
-        const display = getAccountDisplay(p.account_name);
+        const display = getAccountDisplay(p.account_name, p.account_id);
         const label = display.displayName;
         if (label && !map.has(label.toLowerCase())) {
           map.set(label.toLowerCase(), {
@@ -425,6 +447,38 @@ export default function CobrosMercadoPagoPage() {
 
     return Object.values(groups);
   }, [filteredPayments, getDayInfo]);
+
+  const columnAccounts = useMemo(() => {
+    const byAlias = new Map<string, { label: string; color: string }>();
+    accounts.filter(acc => acc.is_active !== false).forEach(acc => {
+      const label = acc.alias || acc.name;
+      byAlias.set(label.toLowerCase(), { label, color: acc.color || '#0069ff' });
+    });
+    filteredPayments.forEach(payment => {
+      const display = getAccountDisplay(payment.account_name, payment.account_id);
+      const key = display.displayName.toLowerCase();
+      if (!byAlias.has(key)) byAlias.set(key, { label: display.displayName, color: display.color });
+    });
+    const values = Array.from(byAlias.values()).sort((a, b) => a.label.localeCompare(b.label));
+    return selectedAccountId === 'ALL'
+      ? values
+      : values.filter(acc => acc.label.toLowerCase() === selectedAccountId.toLowerCase());
+  }, [accounts, filteredPayments, getAccountDisplay, selectedAccountId]);
+
+  const columnPlacement = useMemo(() => {
+    const placements = new Map<string, { column: number; row: number }>();
+    groupedPayments.forEach(group => {
+      const counts = new Map<number, number>();
+      group.payments.forEach(payment => {
+        const alias = getAccountDisplay(payment.account_name, payment.account_id).displayName.toLowerCase();
+        const column = Math.max(0, columnAccounts.findIndex(acc => acc.label.toLowerCase() === alias));
+        const row = (counts.get(column) || 0) + 1;
+        counts.set(column, row);
+        placements.set(payment.id, { column, row });
+      });
+    });
+    return placements;
+  }, [groupedPayments, columnAccounts, getAccountDisplay]);
 
   // 1. Detect User and Role
   useEffect(() => {
@@ -736,7 +790,7 @@ export default function CobrosMercadoPagoPage() {
   // Load Accounts
   const loadAccounts = useCallback(async () => {
     try {
-      const res = await fetch('/api/admin/cobros-mp-data?action=accounts');
+      const res = await fetchCobrosData('/api/admin/cobros-mp-data?action=accounts');
       const data = await res.json();
       if (data.success && data.data) {
         setAccounts(data.data);
@@ -746,10 +800,37 @@ export default function CobrosMercadoPagoPage() {
     }
   }, []);
 
+  useEffect(() => {
+    if (!currentUserId) return;
+    const saved = localStorage.getItem(`zono_mp_payment_view_${currentUserId}`);
+    setPaymentView(saved === 'columns' ? 'columns' : 'list');
+  }, [currentUserId]);
+
+  const changePaymentView = (view: 'list' | 'columns') => {
+    setPaymentView(view);
+    if (currentUserId) localStorage.setItem(`zono_mp_payment_view_${currentUserId}`, view);
+  };
+
+  const updateAccountColor = async (id: string, color: string) => {
+    try {
+      const res = await fetchCobrosData('/api/admin/cobros-mp-data?action=update-account-color', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, color })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo guardar el color');
+      setAccounts(current => current.map(acc => acc.id === id ? { ...acc, color } : acc));
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'No se pudo guardar el color');
+      void loadAccounts();
+    }
+  };
+
   // Load Internal Payers
   const loadInternalPayers = useCallback(async () => {
     try {
-      const res = await fetch('/api/admin/cobros-mp-data?action=internal-payers');
+      const res = await fetchCobrosData('/api/admin/cobros-mp-data?action=internal-payers');
       const data = await res.json();
       if (data.success && data.data) {
         setInternalPayers(data.data);
@@ -762,7 +843,7 @@ export default function CobrosMercadoPagoPage() {
   // Load Fleteros List
   const loadFleteros = useCallback(async () => {
     try {
-      const res = await fetch('/api/admin/cobros-mp-data?action=fleteros');
+      const res = await fetchCobrosData('/api/admin/cobros-mp-data?action=fleteros');
       const data = await res.json();
       if (data.success && data.data) {
         setFleterosList(data.data);
@@ -789,7 +870,7 @@ export default function CobrosMercadoPagoPage() {
         showHidden: showHidden ? 'true' : 'false',
         hideInternal: hideInternal ? 'true' : 'false'
       });
-      const res = await fetch(`/api/admin/cobros-mp-data?${params.toString()}`);
+      const res = await fetchCobrosData(`/api/admin/cobros-mp-data?${params.toString()}`);
       const data = await res.json();
       if (data.success) {
         setPayments(data.data || []);
@@ -812,17 +893,25 @@ export default function CobrosMercadoPagoPage() {
     loadPayments();
   }, [loadPayments]);
 
-  // Periodic background refresh fallback (every 12 seconds)
+  // Realtime handles normal updates. This slower, visible-tab-only poll is a
+  // safety net for a dropped subscription and corrects filtered views.
   useEffect(() => {
-    const interval = setInterval(() => {
-      loadPayments();
-      loadAccounts();
-    }, 12000);
-    return () => clearInterval(interval);
+    const refreshVisibleData = () => {
+      if (document.hidden) return;
+      void loadPayments();
+      void loadAccounts();
+    };
+    const interval = window.setInterval(refreshVisibleData, 60000);
+    window.addEventListener('focus', refreshVisibleData);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('focus', refreshVisibleData);
+    };
   }, [loadPayments, loadAccounts]);
 
   // Supabase Realtime Subscription
   useEffect(() => {
+    if (!isRoleLoaded || currentUserRole === 'seller') return;
     const channel = supabase
       .channel('mp_payments_realtime')
       .on(
@@ -883,7 +972,7 @@ export default function CobrosMercadoPagoPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [playChime, stats, currentUserRole, loadAccounts]);
+  }, [playChime, stats, currentUserRole, isRoleLoaded, loadAccounts]);
 
   const handleCopy = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
@@ -895,7 +984,7 @@ export default function CobrosMercadoPagoPage() {
   const searchOrders = async (queryText: string) => {
     setIsSearchingOrders(true);
     try {
-      const res = await fetch(`/api/admin/cobros-mp-data?action=search-orders&q=${encodeURIComponent(queryText)}`);
+      const res = await fetchCobrosData(`/api/admin/cobros-mp-data?action=search-orders&q=${encodeURIComponent(queryText)}`);
       const data = await res.json();
       if (data.success) {
         setOrderSearchResults(data.data || []);
@@ -927,7 +1016,7 @@ export default function CobrosMercadoPagoPage() {
 
     setIsSavingLink(true);
     try {
-      const res = await fetch('/api/admin/cobros-mp-data?action=link-order', {
+      const res = await fetchCobrosData('/api/admin/cobros-mp-data?action=link-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -957,7 +1046,7 @@ export default function CobrosMercadoPagoPage() {
   const handleUnlinkOrder = async (paymentId: string) => {
     if (!confirm('¿Desea desvincular el pedido asignado a esta transacción?')) return;
     try {
-      const res = await fetch('/api/admin/cobros-mp-data?action=unlink-order', {
+      const res = await fetchCobrosData('/api/admin/cobros-mp-data?action=unlink-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ paymentId, userRole: currentUserRole })
@@ -997,7 +1086,7 @@ export default function CobrosMercadoPagoPage() {
         } : null);
       }
 
-      const res = await fetch('/api/admin/cobros-mp-data?action=fletero-confirm', {
+      const res = await fetchCobrosData('/api/admin/cobros-mp-data?action=fletero-confirm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1045,7 +1134,7 @@ export default function CobrosMercadoPagoPage() {
         } : null);
       }
 
-      const res = await fetch('/api/admin/cobros-mp-data?action=fletero-unconfirm', {
+      const res = await fetchCobrosData('/api/admin/cobros-mp-data?action=fletero-unconfirm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ paymentId, userRole: currentUserRole })
@@ -1078,7 +1167,7 @@ export default function CobrosMercadoPagoPage() {
     if (!confirm(confirmMsg)) return;
 
     try {
-      const res = await fetch('/api/admin/cobros-mp-data?action=toggle-internal-payer', {
+      const res = await fetchCobrosData('/api/admin/cobros-mp-data?action=toggle-internal-payer', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1108,7 +1197,7 @@ export default function CobrosMercadoPagoPage() {
     if (!newInternalName.trim()) return;
     setIsSavingInternal(true);
     try {
-      const res = await fetch('/api/admin/cobros-mp-data?action=add-internal-payer', {
+      const res = await fetchCobrosData('/api/admin/cobros-mp-data?action=add-internal-payer', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1134,7 +1223,7 @@ export default function CobrosMercadoPagoPage() {
   const handleRemoveInternalPayer = async (payer: MPInternalPayer) => {
     if (!confirm(`¿Eliminar a "${payer.name}" de la lista de personas ocultas/propias?`)) return;
     try {
-      const res = await fetch('/api/admin/cobros-mp-data?action=remove-internal-payer', {
+      const res = await fetchCobrosData('/api/admin/cobros-mp-data?action=remove-internal-payer', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: payer.id, name: payer.name })
@@ -1154,7 +1243,7 @@ export default function CobrosMercadoPagoPage() {
     if (!accName.trim()) return;
     setIsSavingAccount(true);
     try {
-      const res = await fetch('/api/admin/cobros-mp-data?action=save-account', {
+      const res = await fetchCobrosData('/api/admin/cobros-mp-data?action=save-account', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1184,7 +1273,7 @@ export default function CobrosMercadoPagoPage() {
   const handleToggleHide = async (payment: MPPayment) => {
     const newHide = !payment.is_hidden;
     try {
-      const res = await fetch('/api/admin/cobros-mp-data?action=toggle-hide', {
+      const res = await fetchCobrosData('/api/admin/cobros-mp-data?action=toggle-hide', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ paymentId: payment.id, isHidden: newHide, userRole: currentUserRole })
@@ -1212,7 +1301,7 @@ export default function CobrosMercadoPagoPage() {
     }
     if (!confirm(`¿Está seguro de eliminar definitivamente la transacción de ${payer} por ${amountFormatted}?`)) return;
     try {
-      const res = await fetch('/api/admin/cobros-mp-data?action=delete-payment', {
+      const res = await fetchCobrosData('/api/admin/cobros-mp-data?action=delete-payment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ paymentId, userRole: currentUserRole })
@@ -1913,6 +2002,28 @@ export default function CobrosMercadoPagoPage() {
           </div>
         )}
 
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-xs font-medium text-slate-500">Elegí cómo ver los cobros. La vista se guarda para tu usuario en este navegador.</p>
+          <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1 shadow-xs" role="group" aria-label="Vista de cobros">
+            <button
+              type="button"
+              onClick={() => changePaymentView('list')}
+              aria-pressed={paymentView === 'list'}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold ${paymentView === 'list' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+            >
+              <LayoutList className="h-3.5 w-3.5" /> Lista
+            </button>
+            <button
+              type="button"
+              onClick={() => changePaymentView('columns')}
+              aria-pressed={paymentView === 'columns'}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold ${paymentView === 'columns' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+            >
+              <Columns3 className="h-3.5 w-3.5" /> Por cuenta
+            </button>
+          </div>
+        </div>
+
         {/* Payments List Grouped by Date */}
         <div className="space-y-6">
           {isLoading && payments.length === 0 ? (
@@ -1940,7 +2051,7 @@ export default function CobrosMercadoPagoPage() {
             </div>
           ) : (
             groupedPayments.map((group) => (
-              <div key={group.key} className="space-y-3">
+              <div key={group.key} className={paymentView === 'columns' ? 'space-y-3 overflow-x-auto' : 'space-y-3'}>
                 {/* Date Header Separator */}
                 <div className="flex items-center gap-3 pt-2">
                   <div className={`flex items-center gap-2 px-3 py-1.5 rounded-2xl text-xs font-black tracking-wide border shadow-2xs ${
@@ -1971,17 +2082,52 @@ export default function CobrosMercadoPagoPage() {
                 </div>
 
                 {/* Compact MP-Style Rows for this Date */}
-                <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200/80 shadow-xs divide-y divide-slate-100 overflow-hidden">
+                <div
+                  className={paymentView === 'columns'
+                    ? 'grid items-start gap-1.5 pb-2'
+                    : 'bg-white rounded-2xl sm:rounded-3xl border border-slate-200/80 shadow-xs divide-y divide-slate-100 overflow-hidden'}
+                  style={paymentView === 'columns' ? {
+                    gridTemplateColumns: `repeat(${columnAccounts.length}, minmax(320px, 1fr))`,
+                    minWidth: columnAccounts.length * 320
+                  } : undefined}
+                >
+                  {paymentView === 'columns' && columnAccounts.map((account, index) => {
+                    const count = group.payments.filter(payment => getAccountDisplay(payment.account_name, payment.account_id).displayName.toLowerCase() === account.label.toLowerCase()).length;
+                    return (
+                      <React.Fragment key={account.label}>
+                        <div
+                          className="flex items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-xs"
+                          style={{ gridColumn: index + 1, gridRow: 1, borderTopColor: account.color, borderTopWidth: 3 }}
+                        >
+                          <span
+                            className="truncate rounded-md px-2 py-1 text-xs font-black"
+                            style={{ backgroundColor: account.color, color: getAliasTextColor(account.color) }}
+                            title={account.label}
+                          >
+                            {account.label}
+                          </span>
+                          <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">{count}</span>
+                        </div>
+                        {count === 0 && (
+                          <div className="rounded-xl border border-dashed border-slate-200 bg-white/70 px-3 py-3 text-center text-xs text-slate-400" style={{ gridColumn: index + 1, gridRow: 2 }}>
+                            Sin cobros en esta fecha
+                          </div>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
                   {group.payments.map((payment) => {
-                    const accountInfo = getAccountDisplay(payment.account_name);
+                    const accountInfo = getAccountDisplay(payment.account_name, payment.account_id);
                     const isHiddenItem = Boolean(payment.is_hidden);
                     const isInternalItem = Boolean(payment.is_internal);
+                    const placement = columnPlacement.get(payment.id);
 
                     return (
                       <div
                         key={payment.id}
                         onClick={() => setSelectedPaymentDetail(payment)}
-                        className={`px-3 py-2.5 sm:px-4 sm:py-3 transition-colors flex items-center justify-between gap-2.5 sm:gap-3 cursor-pointer select-none ${
+                        style={paymentView === 'columns' && placement ? { gridColumn: placement.column + 1, gridRow: placement.row + 1 } : undefined}
+                        className={`transition-colors cursor-pointer select-none ${paymentView === 'columns' ? 'flex items-center justify-between gap-2 rounded-xl border border-slate-200/80 px-2.5 py-2 shadow-xs' : 'flex items-center justify-between gap-2.5 sm:gap-3 px-3 py-2.5 sm:px-4 sm:py-3'} ${
                           isInternalItem
                             ? 'bg-purple-50/40 hover:bg-purple-50/80'
                             : isHiddenItem 
@@ -1990,9 +2136,9 @@ export default function CobrosMercadoPagoPage() {
                         }`}
                       >
                         {/* Left: Compact Circular Icon (MP Style) */}
-                        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
+                        <div className={`flex items-center min-w-0 flex-1 ${paymentView === 'columns' ? 'gap-2' : 'gap-2.5 sm:gap-3'}`}>
                           <div 
-                            className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center font-bold shrink-0 shadow-2xs ${
+                            className={`${paymentView === 'columns' ? 'w-8 h-8' : 'w-9 h-9 sm:w-10 sm:h-10'} rounded-full flex items-center justify-center font-bold shrink-0 shadow-2xs ${
                               isInternalItem ? 'bg-purple-100 text-purple-700 border border-purple-200' :
                               payment.payment_type === 'QR' ? 'bg-amber-50 text-amber-600 border border-amber-200' :
                               payment.payment_type === 'POINT' ? 'bg-indigo-50 text-indigo-600 border border-indigo-200' :
@@ -2008,18 +2154,20 @@ export default function CobrosMercadoPagoPage() {
                           {/* Center: Title & Subtitle Line */}
                           <div className="min-w-0 flex-1 space-y-0.5">
                             <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className={`font-black text-xs sm:text-sm tracking-tight truncate max-w-[160px] sm:max-w-xs ${isInternalItem ? 'text-purple-950' : 'text-slate-900'}`}>
+                              <span className={`font-black text-xs sm:text-sm tracking-tight truncate ${paymentView === 'columns' ? 'max-w-full' : 'max-w-[160px] sm:max-w-xs'} ${isInternalItem ? 'text-purple-950' : 'text-slate-900'}`}>
                                 {payment.payer_name}
                               </span>
 
                               {/* Mini Account Badge */}
-                              <span 
-                                className="px-1.5 py-0.5 rounded text-[9px] font-black text-white shrink-0 tracking-wider shadow-2xs"
-                                style={{ backgroundColor: accountInfo.color }}
-                                title={`Cuenta: ${accountInfo.fullName}`}
-                              >
-                                {accountInfo.displayName}
-                              </span>
+                              {paymentView === 'list' && (
+                                <span
+                                  className="px-1.5 py-0.5 rounded text-[9px] font-black shrink-0 tracking-wider shadow-2xs"
+                                  style={{ backgroundColor: accountInfo.color, color: getAliasTextColor(accountInfo.color) }}
+                                  title={`Cuenta: ${accountInfo.fullName}`}
+                                >
+                                  {accountInfo.displayName}
+                                </span>
+                              )}
 
                               {/* Internal Badge */}
                               {isInternalItem && (
@@ -2066,7 +2214,7 @@ export default function CobrosMercadoPagoPage() {
                             </div>
 
                             {/* Subtitle: Type · Time · + Vincular */}
-                            <div className="flex items-center gap-1 text-[11px] text-slate-500 font-medium truncate">
+                            <div className={`flex items-center gap-1 text-slate-500 font-medium ${paymentView === 'columns' ? 'flex-wrap text-[10px]' : 'truncate text-[11px]'}`}>
                               <span>{payment.payment_type === 'TRANSFERENCIA' ? 'Transferencia' : payment.payment_type === 'POINT' ? 'Point Smart' : 'Código QR'}</span>
                               <span>·</span>
                               <span>{formatTimeOnly(payment.received_at)}</span>
@@ -2089,10 +2237,10 @@ export default function CobrosMercadoPagoPage() {
                         </div>
 
                         {/* Right: Fletero Quick Action Button & Amount */}
-                        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+                        <div className={`flex shrink-0 ${paymentView === 'columns' ? 'min-w-[96px] flex-col items-end gap-0.5' : 'items-center gap-2 sm:gap-3'}`}>
                           {/* Fletero 1-tap button */}
                           {isFleteroRole && (
-                            <div onClick={(e) => e.stopPropagation()} className="shrink-0">
+                            <div onClick={(e) => e.stopPropagation()} className={`shrink-0 ${paymentView === 'columns' ? 'order-2' : ''}`}>
                               {payment.confirmed_by_fletero_name ? (
                                 payment.confirmed_by_fletero_name === currentUserName || payment.confirmed_by_fletero_id === currentUserId ? (
                                   <button
@@ -2129,7 +2277,7 @@ export default function CobrosMercadoPagoPage() {
                             </div>
                           )}
 
-                          <div className="text-right">
+                          <div className={`text-right whitespace-nowrap ${paymentView === 'columns' ? 'order-1' : ''}`}>
                             <div className={`text-xs sm:text-sm font-black tracking-tight ${isInternalItem ? 'text-purple-700' : 'text-emerald-600'}`}>
                               + {formatMPAmount(payment.amount)}
                             </div>
@@ -2139,7 +2287,7 @@ export default function CobrosMercadoPagoPage() {
                           </div>
 
                           {/* Desktop Quick Actions */}
-                          <div className="hidden sm:flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
+                          <div className={`hidden sm:flex items-center gap-0.5 ${paymentView === 'columns' ? 'order-3' : ''}`} onClick={(e) => e.stopPropagation()}>
                             <button
                               onClick={() => handleCopy(`${payment.payer_name} - ${formatMPAmount(payment.amount)} - ${accountInfo.displayName} - ${payment.order_code ? 'Pedido ' + payment.order_code : ''}`, payment.id)}
                               className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-all"
@@ -2174,7 +2322,7 @@ export default function CobrosMercadoPagoPage() {
                           </div>
 
                           {/* Mobile Chevron */}
-                          <div className="sm:hidden text-slate-300">
+                          <div className={`sm:hidden text-slate-300 ${paymentView === 'columns' ? 'order-3' : ''}`}>
                             <ChevronRight className="w-4 h-4" />
                           </div>
                         </div>
@@ -2221,8 +2369,8 @@ export default function CobrosMercadoPagoPage() {
                     </div>
                     <div className="flex items-center gap-2">
                       <span 
-                        className="px-2.5 py-0.5 rounded-full text-[10px] font-black text-white"
-                        style={{ backgroundColor: acc.color || '#0069ff' }}
+                        className="px-2.5 py-0.5 rounded-full text-[10px] font-black"
+                        style={{ backgroundColor: acc.color || '#0069ff', color: getAliasTextColor(acc.color || '#0069ff') }}
                       >
                         {acc.alias || acc.name}
                       </span>
@@ -2230,7 +2378,7 @@ export default function CobrosMercadoPagoPage() {
                         <button
                           onClick={async () => {
                             if (confirm(`¿Eliminar la cuenta "${acc.name}"?`)) {
-                              await fetch('/api/admin/cobros-mp-data?action=delete-account', {
+                              await fetchCobrosData('/api/admin/cobros-mp-data?action=delete-account', {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({ id: acc.id })
@@ -2256,7 +2404,7 @@ export default function CobrosMercadoPagoPage() {
                         defaultValue={acc.name}
                         onBlur={(e) => {
                           if (e.target.value !== acc.name) {
-                            fetch('/api/admin/cobros-mp-data?action=save-account', {
+                            fetchCobrosData('/api/admin/cobros-mp-data?action=save-account', {
                               method: 'POST',
                               headers: { 'Content-Type': 'application/json' },
                               body: JSON.stringify({ id: acc.id, name: e.target.value, alias: acc.alias, color: acc.color })
@@ -2275,7 +2423,7 @@ export default function CobrosMercadoPagoPage() {
                         placeholder="Ej: diegozono.mp"
                         onBlur={(e) => {
                           if (e.target.value !== acc.alias) {
-                            fetch('/api/admin/cobros-mp-data?action=save-account', {
+                            fetchCobrosData('/api/admin/cobros-mp-data?action=save-account', {
                               method: 'POST',
                               headers: { 'Content-Type': 'application/json' },
                               body: JSON.stringify({ id: acc.id, name: acc.name, alias: e.target.value, color: acc.color })
@@ -2289,6 +2437,18 @@ export default function CobrosMercadoPagoPage() {
                       />
                     </div>
                   </div>
+                  <label className="flex items-center gap-3 text-[11px] font-bold text-slate-700">
+                    <span>Color del alias</span>
+                    <input
+                      type="color"
+                      value={acc.color || '#0069ff'}
+                      onChange={(e) => void updateAccountColor(acc.id, e.target.value)}
+                      className="h-8 w-12 cursor-pointer rounded border border-slate-200 bg-white p-0.5"
+                      title={`Cambiar color de ${acc.alias || acc.name}`}
+                      aria-label={`Color del alias ${acc.alias || acc.name}`}
+                    />
+                    <span className="font-mono text-slate-500">{acc.color || '#0069ff'}</span>
+                  </label>
                 </div>
               ))}
             </div>
@@ -2865,7 +3025,7 @@ x-webhook-token: mpchecker_secret_key_123`}
                 onClick={async () => {
                   setSimLoading(true);
                   try {
-                    await fetch('/api/admin/cobros-mp-data?action=simulate', {
+                    await fetchCobrosData('/api/admin/cobros-mp-data?action=simulate', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({
@@ -2916,7 +3076,7 @@ x-webhook-token: mpchecker_secret_key_123`}
                 onClick={async () => {
                   setPurgeLoading(true);
                   try {
-                    const res = await fetch('/api/admin/cobros-mp-data?action=purge-tests', { method: 'POST' });
+                    const res = await fetchCobrosData('/api/admin/cobros-mp-data?action=purge-tests', { method: 'POST' });
                     const d = await res.json();
                     setMaintenanceMsg(d.message || 'Pruebas purgadas');
                     loadPayments();
@@ -2966,10 +3126,10 @@ x-webhook-token: mpchecker_secret_key_123`}
                 <h3 className="text-base font-black text-[#001538] truncate">{selectedPaymentDetail.payer_name}</h3>
                 <div className="flex items-center gap-1.5 mt-0.5">
                   <span 
-                    className="px-2 py-0.5 rounded text-[10px] font-black text-white"
-                    style={{ backgroundColor: getAccountDisplay(selectedPaymentDetail.account_name).color }}
+                    className="px-2 py-0.5 rounded text-[10px] font-black"
+                    style={{ backgroundColor: getAccountDisplay(selectedPaymentDetail.account_name, selectedPaymentDetail.account_id).color, color: getAliasTextColor(getAccountDisplay(selectedPaymentDetail.account_name, selectedPaymentDetail.account_id).color) }}
                   >
-                    {getAccountDisplay(selectedPaymentDetail.account_name).displayName}
+                    {getAccountDisplay(selectedPaymentDetail.account_name, selectedPaymentDetail.account_id).displayName}
                   </span>
                   <span className="text-[11px] text-slate-500 font-medium">
                     {selectedPaymentDetail.payment_type === 'TRANSFERENCIA' ? 'Transferencia' : selectedPaymentDetail.payment_type === 'POINT' ? 'Point Smart' : 'Código QR'}
@@ -3166,7 +3326,7 @@ x-webhook-token: mpchecker_secret_key_123`}
             <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 text-xs">
               <button
                 onClick={() => {
-                  handleCopy(`${selectedPaymentDetail.payer_name} - ${formatMPAmount(selectedPaymentDetail.amount)} - ${getAccountDisplay(selectedPaymentDetail.account_name).displayName} - ${selectedPaymentDetail.order_code ? 'Pedido ' + selectedPaymentDetail.order_code : ''}`, 'detail-summary');
+                  handleCopy(`${selectedPaymentDetail.payer_name} - ${formatMPAmount(selectedPaymentDetail.amount)} - ${getAccountDisplay(selectedPaymentDetail.account_name, selectedPaymentDetail.account_id).displayName} - ${selectedPaymentDetail.order_code ? 'Pedido ' + selectedPaymentDetail.order_code : ''}`, 'detail-summary');
                 }}
                 className="py-2.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold flex items-center justify-center gap-1.5 cursor-pointer"
               >

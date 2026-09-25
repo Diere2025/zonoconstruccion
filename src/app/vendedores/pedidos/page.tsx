@@ -46,6 +46,7 @@ import {
   CheckCheck,
   Database,
   XCircle,
+  RotateCcw,
   Ban,
   Printer,
   ExternalLink,
@@ -53,8 +54,9 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { supabase } from "@/lib/supabase";
-import { Product } from "@/types";
-import VisualProductSelectorModal from "@/components/vendedores/VisualProductSelectorModal";
+import { optimizeImageUpload } from "@/lib/optimizeImageUpload";
+import { Product, OrderDiscountItem } from "@/types";
+import VisualProductSelectorModal, { QuantityInput } from "@/components/vendedores/VisualProductSelectorModal";
 import ImportWhatsAppBudgetModal from "@/components/vendedores/ImportWhatsAppBudgetModal";
 import PrintableOrderModal, { PrintableOrderData } from "@/components/vendedores/PrintableOrderModal";
 import ViewOrderModal from "@/components/vendedores/ViewOrderModal";
@@ -66,6 +68,15 @@ import { createBulkStockTransactions } from "@/lib/erp/stock";
 import { evaluateDiscountSuggestions, DiscountSuggestion } from "@/lib/discountRules";
 import { buildSheetOrderItems, normalizeProductNameForSheet } from "@/lib/googleSheets";
 import { getWholesaleCatalogKind } from "@/lib/visualSelectorConfig";
+import { calculateCascadingDiscounts } from "@/lib/orderDiscounts";
+
+const ANABEL_SELLER_ID = '9876203c-8e16-48db-958e-37c54441fd9b';
+const normalizedClientPhone = (value: string) => {
+  const digits = value.replace(/\D/g, '');
+  if (digits.startsWith('549') && digits.length >= 10) return digits.slice(3);
+  if (digits.startsWith('54') && digits.length >= 9) return digits.slice(2);
+  return digits;
+};
 
 interface OrderItem extends Product {
   quantity: number;
@@ -85,7 +96,9 @@ interface AdvertisingSource {
 }
 
 interface WholesaleCatalogItem {
+  id?: string;
   name: string;
+  category?: string;
   priceList?: number;
   price_list?: number;
 }
@@ -228,13 +241,14 @@ interface Locality {
 }
 
 interface DateInputProps {
-  label: string;
+  label?: string;
   value: string; // YYYY-MM-DD format
   onChange: (val: string) => void;
   required?: boolean;
+  className?: string;
 }
 
-const DateInput: React.FC<DateInputProps> = ({ label, value, onChange, required = false }) => {
+const DateInput: React.FC<DateInputProps> = ({ label, value, onChange, required = false, className }) => {
   const [typedValue, setTypedValue] = useState("");
 
   useEffect(() => {
@@ -251,14 +265,17 @@ const DateInput: React.FC<DateInputProps> = ({ label, value, onChange, required 
   }, [value]);
 
   const handleTextChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const isDeleting = (e.nativeEvent as any)?.inputType?.startsWith('delete');
     let input = e.target.value;
     input = input.replace(/[^0-9/]/g, '');
 
-    // Auto slashes
-    if (input.length === 2 && !input.includes('/')) {
-      input += '/';
-    } else if (input.length === 5 && input.split('/').length === 2) {
-      input += '/';
+    // Auto slashes (only when adding characters)
+    if (!isDeleting) {
+      if (input.length === 2 && !input.includes('/')) {
+        input += '/';
+      } else if (input.length === 5 && input.split('/').length === 2) {
+        input += '/';
+      }
     }
 
     if (input.length > 10) {
@@ -267,16 +284,31 @@ const DateInput: React.FC<DateInputProps> = ({ label, value, onChange, required 
 
     setTypedValue(input);
 
+    if (!input.trim()) {
+      onChange('');
+      return;
+    }
+
     const parts = input.split('/');
     if (parts.length === 3 && parts[0].length === 2 && parts[1].length === 2 && parts[2].length === 4) {
-      const yyyy = parts[2];
-      const mm = parts[1];
       const dd = parts[0];
-      onChange(`${yyyy}-${mm}-${dd}`);
+      const mm = parts[1];
+      const yyyy = parts[2];
+      const dNum = parseInt(dd, 10);
+      const mNum = parseInt(mm, 10);
+      const yNum = parseInt(yyyy, 10);
+      if (mNum >= 1 && mNum <= 12 && dNum >= 1 && dNum <= 31 && yNum >= 1900 && yNum <= 2100) {
+        onChange(`${yyyy}-${mm}-${dd}`);
+      }
     }
   };
 
   const handleBlur = () => {
+    if (!typedValue.trim()) {
+      onChange('');
+      setTypedValue("");
+      return;
+    }
     const parts = typedValue.split('/');
     if (parts.length !== 3 || parts[0].length !== 2 || parts[1].length !== 2 || parts[2].length !== 4) {
       if (value) {
@@ -305,8 +337,8 @@ const DateInput: React.FC<DateInputProps> = ({ label, value, onChange, required 
   };
 
   return (
-    <div className="space-y-1">
-      <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">{label}</label>
+    <div className={label ? "space-y-1" : ""}>
+      {label && <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">{label}</label>}
       <div className="relative">
         <input
           type="text"
@@ -315,12 +347,12 @@ const DateInput: React.FC<DateInputProps> = ({ label, value, onChange, required 
           onChange={handleTextChange}
           onBlur={handleBlur}
           placeholder="dd/mm/yyyy"
-          className="w-full pl-2.5 pr-8 py-1.5 rounded-lg border border-slate-200 bg-white font-bold text-xs focus:ring-2 focus:ring-brand-500/10 outline-none"
+          className={className || "w-full pl-2.5 pr-8 py-1.5 rounded-lg border border-slate-200 bg-white font-bold text-xs focus:ring-2 focus:ring-brand-500/10 outline-none text-slate-800"}
         />
         <button
           type="button"
           onClick={handleCalendarClick}
-          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
         >
           <Calendar className="w-3.5 h-3.5" />
         </button>
@@ -426,6 +458,13 @@ const formatDateInput = (date: Date | null): string => {
   const mm = String(date.getMonth() + 1).padStart(2, '0');
   const dd = String(date.getDate()).padStart(2, '0');
   return `${yyyy}-${mm}-${dd}`;
+};
+
+const getCurrentMonthRange = () => {
+  const now = new Date();
+  const firstDay = formatDateInput(new Date(now.getFullYear(), now.getMonth(), 1));
+  const today = formatDateInput(now);
+  return { firstDay, today };
 };
 
 const isDateValidForFlete = (
@@ -685,6 +724,7 @@ export default function PedidosPage() {
   // Order Discount States (Global)
   const [orderDiscountType, setOrderDiscountType] = useState<'percentage' | 'fixed'>('percentage');
   const [orderDiscountValue, setOrderDiscountValue] = useState<number>(0);
+  const [orderDiscounts, setOrderDiscounts] = useState<OrderDiscountItem[]>([]);
 
   const isWholesaleContext = selectedChannels.length === 1 && selectedChannels[0] === 'mayoristas';
   const isWholesaleForm = activeTab === 'form' && isWholesaleContext;
@@ -784,6 +824,11 @@ export default function PedidosPage() {
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [ordersError, setOrdersError] = useState<string | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  useEffect(() => {
+    const refresh = () => setRefreshTrigger(value => value + 1);
+    window.addEventListener('order-sync-finished', refresh);
+    return () => window.removeEventListener('order-sync-finished', refresh);
+  }, []);
   const [orderSearchQuery, setOrderSearchQuery] = useState("");
   const [sortField, setSortField] = useState<'order_date' | 'seller'>('order_date');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
@@ -802,8 +847,24 @@ export default function PedidosPage() {
   const [showCustomViewsDropdown, setShowCustomViewsDropdown] = useState(false);
   const [showSaveViewModal, setShowSaveViewModal] = useState(false);
   const [newViewName, setNewViewName] = useState("");
-  const [dateFrom, setDateFrom] = useState<string>("");
-  const [dateTo, setDateTo] = useState<string>("");
+  const [dateFrom, setDateFrom] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.has("date_from")) return params.get("date_from") || "";
+      if (params.has("date_to")) return "";
+      return getCurrentMonthRange().firstDay;
+    }
+    return getCurrentMonthRange().firstDay;
+  });
+  const [dateTo, setDateTo] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.has("date_to")) return params.get("date_to") || "";
+      if (params.has("date_from")) return "";
+      return getCurrentMonthRange().today;
+    }
+    return getCurrentMonthRange().today;
+  });
   const [showDateDropdown, setShowDateDropdown] = useState<boolean>(false);
   const isInitialMount = useRef(true);
 
@@ -846,7 +907,7 @@ export default function PedidosPage() {
       const urlTab = params.get("tab");
       if (urlTab === 'form' || urlTab === 'nuevo') {
         setActiveTab('form');
-      } else if (urlTab === 'list') {
+      } else {
         setActiveTab('list');
       }
       const urlStatus = params.get("status");
@@ -892,8 +953,32 @@ export default function PedidosPage() {
       if (urlDateTo) {
         setDateTo(urlDateTo);
       }
+      if (!params.has("date_from") && !params.has("date_to")) {
+        const { firstDay, today } = getCurrentMonthRange();
+        setDateFrom(firstDay);
+        setDateTo(today);
+      }
     }
   }, []);
+
+  // Recuperar el desglose en formularios abiertos antes de que la precarga
+  // empezara a transmitir los descuentos por separado.
+  useEffect(() => {
+    if (!sourceQuoteId || orderDiscounts.length > 0 || orderDiscountType !== 'fixed' || orderDiscountValue <= 0) return;
+    let cancelled = false;
+    supabase.from('sales_quotes').select('commercial_conditions').eq('id', sourceQuoteId).maybeSingle()
+      .then(({ data }) => {
+        if (cancelled) return;
+        const conditions = data?.commercial_conditions || {};
+        const savedDiscounts = conditions.orderDiscounts;
+        if (Array.isArray(savedDiscounts) && savedDiscounts.length > 0 &&
+          Number(conditions.orderDiscountAmount) === orderDiscountValue) {
+          setOrderDiscounts(savedDiscounts);
+          setOrderDiscountValue(0);
+        }
+      });
+    return () => { cancelled = true; };
+  }, [sourceQuoteId, orderDiscounts.length, orderDiscountType, orderDiscountValue]);
 
   // Update browser URL query string smoothly whenever active filters change
   useEffect(() => {
@@ -999,8 +1084,14 @@ export default function PedidosPage() {
       setSelectedProducts(params.get("products") ? params.get("products")!.split(',').filter(Boolean) : []);
       setOrderSearchQuery(params.get("search") || '');
       setListType((params.get("list_type") as any) || 'mis_pedidos');
-      setDateFrom(params.get("date_from") || '');
-      setDateTo(params.get("date_to") || '');
+      if (params.has("date_from") || params.has("date_to")) {
+        setDateFrom(params.get("date_from") || '');
+        setDateTo(params.get("date_to") || '');
+      } else {
+        const { firstDay, today } = getCurrentMonthRange();
+        setDateFrom(firstDay);
+        setDateTo(today);
+      }
     };
 
     const handleCustomNav = (e: any) => {
@@ -1020,6 +1111,14 @@ export default function PedidosPage() {
       } else if (urlClientType) {
         const parsed = urlClientType.split(',').map((s: string) => s.trim()).filter((s: string) => ['minoristas', 'mayoristas'].includes(s)) as ('minoristas' | 'mayoristas')[];
         if (parsed.length > 0) setSelectedChannels(parsed);
+      }
+      if (params.has("date_from") || params.has("date_to")) {
+        setDateFrom(params.get("date_from") || '');
+        setDateTo(params.get("date_to") || '');
+      } else {
+        const { firstDay, today } = getCurrentMonthRange();
+        setDateFrom(firstDay);
+        setDateTo(today);
       }
     };
 
@@ -1110,8 +1209,9 @@ export default function PedidosPage() {
     setSelectedProducts([]);
     setOrderSearchQuery("");
     setListType('mis_pedidos');
-    setDateFrom("");
-    setDateTo("");
+    const { firstDay, today } = getCurrentMonthRange();
+    setDateFrom(firstDay);
+    setDateTo(today);
     setShowCustomViewsDropdown(false);
   };
 
@@ -1133,13 +1233,14 @@ export default function PedidosPage() {
   const hasActiveCustomFilters = useMemo(() => {
     const isDefaultStatus = selectedStatuses.length === 1 && selectedStatuses[0] === 'Pendientes';
     const isDefaultChannel = selectedChannels.length === 2 || selectedChannels.length === 0;
+    const { firstDay, today } = getCurrentMonthRange();
+    const isDefaultDate = (dateFrom === firstDay && dateTo === today);
     return !isDefaultStatus ||
            !isDefaultChannel ||
            selectedProducts.length > 0 || 
            orderSearchQuery.trim() !== '' ||
            listType !== 'mis_pedidos' ||
-           dateFrom !== '' ||
-           dateTo !== '';
+           !isDefaultDate;
   }, [selectedStatuses, selectedChannels, selectedProducts, orderSearchQuery, listType, dateFrom, dateTo]);
 
   // Kits & Payment States
@@ -1163,6 +1264,10 @@ export default function PedidosPage() {
     telegram_message_id?: number;
     telegram_chat_id?: string;
     created_at?: string;
+    has_iva?: boolean;
+    iva_mode?: 'included' | 'added';
+    iva_amount?: number;
+    taxable_base?: number;
   }
   const [paymentsList, setPaymentsList] = useState<PaymentBreakdownItem[]>([
     {
@@ -1173,7 +1278,9 @@ export default function PedidosPage() {
       card_installments: 1,
       receipt_url: "",
       notes: "",
-      telegram_sent: false
+      telegram_sent: false,
+      has_iva: false,
+      iva_mode: 'included'
     }
   ]);
   const [uploadingReceiptId, setUploadingReceiptId] = useState<string | null>(null);
@@ -1232,13 +1339,17 @@ export default function PedidosPage() {
   const [showClientDropdown, setShowClientDropdown] = useState(false);
   const [showWholesaleClientModal, setShowWholesaleClientModal] = useState(false);
 
+  const isAnabelSeller = currentUserId === ANABEL_SELLER_ID && role !== 'admin';
+  const lastRetailAutofillClientIdRef = useRef<string>('');
+  const hasAppliedClientUrlRef = useRef(false);
+
   // Debounce client search
   useEffect(() => {
     const handler = setTimeout(() => {
-      setDebouncedClientSearch(newClientPhone || clientSearchQuery);
+      setDebouncedClientSearch(isAnabelSeller && !isWholesaleContext ? newClientPhone : (newClientPhone || clientSearchQuery));
     }, 400);
     return () => clearTimeout(handler);
-  }, [clientSearchQuery, newClientPhone]);
+  }, [clientSearchQuery, newClientPhone, isAnabelSeller, isWholesaleContext]);
 
   // Debounce order search
   useEffect(() => {
@@ -1251,6 +1362,7 @@ export default function PedidosPage() {
   // Server-side client search
   useEffect(() => {
     if (!debouncedClientSearch.trim()) return;
+    if (isAnabelSeller && !isWholesaleContext && normalizedClientPhone(debouncedClientSearch).length < 8) return;
     async function searchClients() {
       try {
         const q = debouncedClientSearch.trim();
@@ -1274,8 +1386,13 @@ export default function PedidosPage() {
           .limit(50);
         if (error) throw error;
         if (data) {
+          const permittedResults = isAnabelSeller && !isWholesaleContext
+            ? data.filter(item => !item.is_wholesale && [item.phone_primary, item.phone_secondary]
+                .filter(Boolean).flatMap(value => String(value).split(/[,;]+/))
+                .some(value => normalizedClientPhone(value) === normalizedClientPhone(q)))
+            : data;
           setClients(prev => {
-            const mappedResults: Client[] = data.map(item => ({
+            const mappedResults: Client[] = permittedResults.map(item => ({
               id: item.id,
               business_name: item.business_name,
               tax_id: item.tax_id || "",
@@ -1298,7 +1415,7 @@ export default function PedidosPage() {
       }
     }
     searchClients();
-  }, [debouncedClientSearch]);
+  }, [debouncedClientSearch, isAnabelSeller, isWholesaleContext]);
 
   // Form State
   const [entregaInicial, setEntregaInicial] = useState("");
@@ -1369,6 +1486,10 @@ export default function PedidosPage() {
   const [advertisingSourceDetail, setAdvertisingSourceDetail] = useState("");
   const [selectedOrderMediumId, setSelectedOrderMediumId] = useState("e9654dad-9352-4f31-8f01-b12c57289993");
   const [selectedPhoneLineId, setSelectedPhoneLineId] = useState("");
+  const selectedOrderMedium = filteredOrderMediums.find(m => m.id === selectedOrderMediumId)
+    || orderMediums.find(m => m.id === selectedOrderMediumId);
+  const requiresWhaticketLink = selectedOrderMedium?.name.toLowerCase() === 'whaticket';
+  const isWhaticketLinkMissing = requiresWhaticketLink && !whaticketLink.trim();
 
   const assignableSellers = useMemo(() => {
     return sellersList.filter(s => {
@@ -1421,7 +1542,7 @@ export default function PedidosPage() {
       if (allProducts.length === 0) return;
 
       try {
-        const response = await fetch('/api/admin/lista-mayorista-data?listNumber=12');
+        const response = await fetch('/api/vendedores/wholesale-catalog?listNumber=12');
         const data: { success?: boolean; products?: WholesaleCatalogItem[] } = await response.json();
         if (!data.success || !Array.isArray(data.products)) throw new Error('No se pudo obtener la lista mayorista');
 
@@ -1452,7 +1573,8 @@ export default function PedidosPage() {
           const wholesaleTokens = getTokens(wholesale.name || '');
           const wholesaleText = wholesaleTokens.join(' ');
           const wholesaleCapacity = wholesaleTokens.find((token: string) => /^\d{2,4}l$/.test(token));
-          const exactProduct = exactProductByWholesaleIndex.get(wholesaleIndex);
+          const exactProduct = allProducts.find(product => product.id === wholesale.id && !usedProductIds.has(product.id))
+            || exactProductByWholesaleIndex.get(wholesaleIndex);
           let bestProduct: Product | null = exactProduct || null;
           let bestScore = exactProduct ? 1 : 0;
 
@@ -1488,7 +1610,12 @@ export default function PedidosPage() {
           if (!bestProduct) return [];
           usedProductIds.add(bestProduct.id);
           const listPrice = Number(wholesale.priceList || wholesale.price_list || 0);
-          return [{ ...bestProduct, price: listPrice, wholesale_list_price: listPrice }];
+          return [{
+            ...bestProduct,
+            category: wholesale.category || bestProduct.category,
+            price: listPrice,
+            wholesale_list_price: listPrice
+          }];
         });
 
         // Mantener disponibles las variantes ciegas dentro del selector B2B.
@@ -1843,13 +1970,14 @@ export default function PedidosPage() {
 
     setUploadingReceipt(true);
     try {
-      const fileExt = file.name.split('.').pop();
+      const uploadFile = await optimizeImageUpload(file, 'document');
+      const fileExt = uploadFile.name.split('.').pop();
       const fileName = `deposit_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
       const filePath = `receipts/${fileName}`;
 
       const { error: uploadError } = await supabase.storage
         .from('product-images')
-        .upload(filePath, file);
+        .upload(filePath, uploadFile, { contentType: uploadFile.type });
 
       if (uploadError) throw uploadError;
 
@@ -1872,13 +2000,14 @@ export default function PedidosPage() {
     setUploadingReceipt(true);
     setUploadingReceiptId(id);
     try {
-      const fileExt = file.name.split('.').pop();
+      const uploadFile = await optimizeImageUpload(file, 'document');
+      const fileExt = uploadFile.name.split('.').pop();
       const fileName = `payment_${id}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
       const filePath = `receipts/${fileName}`;
 
       const { error: uploadError } = await supabase.storage
         .from('product-images')
-        .upload(filePath, file);
+        .upload(filePath, uploadFile, { contentType: uploadFile.type });
 
       if (uploadError) throw uploadError;
 
@@ -2009,6 +2138,10 @@ export default function PedidosPage() {
           if (data.cardSurcharge) setCardSurcharge(data.cardSurcharge);
           if (data.orderDiscountType) setOrderDiscountType(data.orderDiscountType);
           if (data.orderDiscountValue !== undefined) setOrderDiscountValue(data.orderDiscountValue);
+          if (Array.isArray(data.orderDiscounts) && data.orderDiscounts.length > 0) {
+            setOrderDiscounts(data.orderDiscounts);
+            setOrderDiscountValue(0);
+          }
           
           sessionStorage.removeItem("preloaded_budget");
           setActiveTab('form');
@@ -2021,7 +2154,11 @@ export default function PedidosPage() {
     }
   }, []);
 
+  const [orderSaveNotice, setOrderSaveNotice] = useState('');
   const [showSummaryModal, setShowSummaryModal] = useState(false);
+  const [showRequiredOrderFieldsModal, setShowRequiredOrderFieldsModal] = useState(false);
+  const [resumeOrderReviewAfterRequiredFields, setResumeOrderReviewAfterRequiredFields] = useState(false);
+  const [showWhaticketLinkFieldInModal, setShowWhaticketLinkFieldInModal] = useState(false);
   const [showPostponementModal, setShowPostponementModal] = useState(false);
   const [originalDeliveryDate, setOriginalDeliveryDate] = useState("");
   const [postponementReasonType, setPostponementReasonType] = useState<'cliente' | 'empresa'>('cliente');
@@ -2077,6 +2214,7 @@ export default function PedidosPage() {
   const [cancelReason, setCancelReason] = useState("");
   const [cancelReasonError, setCancelReasonError] = useState<string | null>(null);
   const [isSubmittingCancel, setIsSubmittingCancel] = useState(false);
+  const [reactivatingOrderId, setReactivatingOrderId] = useState<string | null>(null);
   const [showCancelSuccessModal, setShowCancelSuccessModal] = useState(false);
   const [generatedCancelMessage, setGeneratedCancelMessage] = useState("");
   const [copiedCancelMessage, setCopiedCancelMessage] = useState(false);
@@ -2347,7 +2485,8 @@ export default function PedidosPage() {
       const { error: updateOrderErr } = await supabase
         .from('orders')
         .update({
-          status: 'Cancelado'
+          status: 'Cancelado',
+          cancel_reason: trimmedReason
         })
         .eq('id', cancelingOrder.id);
 
@@ -2397,70 +2536,36 @@ export default function PedidosPage() {
         console.error("Error registrando anulación en order_history:", histErr);
       }
 
-      // 4. Sincronizar estado '❌ Anulado' en Google Sheets si tiene código asignado
-      if (cancelingOrder.legacy_code && cancelingOrder.seller_id) {
-        try {
-          const sheetRes = await fetch('/api/vendedores/update-sheet-order', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              action: 'cancel',
-              sellerId: cancelingOrder.seller_id,
-              legacyCode: cancelingOrder.legacy_code,
-              cancelReason: trimmedReason
-            })
-          });
-          const sheetData = await sheetRes.json().catch(() => ({}));
-          if (sheetData?.synced) {
-            console.log(`Planilla actualizada a ❌ Anulado para ${cancelingOrder.legacy_code}`);
-          } else {
-            console.warn('Planilla no sincronizada al anular:', sheetData);
-          }
-        } catch (sErr) {
-          console.error("Error al actualizar planilla en anulación:", sErr);
-        }
-      }
-
-      // 5. Construir mensaje formateado y enviar automáticamente a Telegram
-      const copyMsg = buildCopyableCancelMessage({
-        legacyCode: cancelingOrder.legacy_code || 'S/C',
-        sellerName: sellerFullName,
-        reason: trimmedReason
-      });
-
-      let cancelTgSuccess = false;
-      try {
-        const tgRes = await fetch('/api/vendedores/telegram-notify', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            type: 'cancellation',
-            message: copyMsg,
-            legacyCode: cancelingOrder.legacy_code || ''
-          })
-        });
-        const tgData = await tgRes.json().catch(() => ({}));
-        cancelTgSuccess = !!(tgRes.ok && tgData.ok);
-      } catch (err) {
-        console.warn('Error sending Telegram cancellation notification:', err);
-      }
-
-      setNotifiedCancelTelegram(cancelTgSuccess);
-      setGeneratedCancelMessage(copyMsg);
-      setCopiedCancelMessage(false);
-
-      // 6. Actualizar estado local en la lista de pedidos
+      setOrderSaveNotice('Pedido anulado en el ERP. Central, Entregas Actual y la planilla de la vendedora se actualizan en segundo plano. El resultado aparecerá en la bandeja.');
+      window.dispatchEvent(new Event('order-sync-updated'));
       setOrders(prev =>
         prev.map(o => o.id === cancelingOrder.id ? { ...o, status: 'Cancelado' } : o)
       );
 
       setShowCancelOrderModal(false);
-      setShowCancelSuccessModal(true);
     } catch (err: any) {
       console.error("Error al anular pedido:", err);
       alert(`Error al anular el pedido: ${err.message || 'Error desconocido'}`);
     } finally {
       setIsSubmittingCancel(false);
+    }
+  };
+
+  const handleReactivateOrder = async (order: { id: string; legacy_code?: string | null }) => {
+    if (!window.confirm(`¿Reactivar el pedido ${order.legacy_code || ''}? Se volverá a reservar el stock y se actualizarán las planillas.`)) return;
+    try {
+      setReactivatingOrderId(order.id);
+      const { error } = await supabase.rpc('reactivate_order', { p_order_id: order.id });
+      if (error) throw error;
+      setOrders(prev => prev.map(item => item.id === order.id
+        ? { ...item, status: 'Pendiente', cancel_reason: null } : item));
+      setOrderSaveNotice('Pedido reactivado en el ERP. Central, Entregas Actual y Cancelados se sincronizan en segundo plano; el resultado aparecerá en la bandeja.');
+      window.dispatchEvent(new Event('order-sync-updated'));
+      setRefreshTrigger(prev => prev + 1);
+    } catch (error: any) {
+      alert(`No se pudo reactivar el pedido: ${error.message || 'Error desconocido'}`);
+    } finally {
+      setReactivatingOrderId(null);
     }
   };
 
@@ -2492,8 +2597,12 @@ export default function PedidosPage() {
       console.log('[generateNextLegacyCode] Omitido: el formulario está en modo edición');
       return;
     }
+    if (isWholesaleContext) {
+      setLegacyCode('');
+      return;
+    }
     try {
-      // 1. Intentar consultar el próximo código disponible en la planilla del vendedor
+      // Los pedidos minoristas conservan el código de la planilla del vendedor.
       try {
         const sheetRes = await fetch(`/api/vendedores/create-sheet-order?sellerId=${userId}`);
         if (sheetRes.ok) {
@@ -2605,7 +2714,7 @@ export default function PedidosPage() {
         setCurrentUserId(userId);
         setSelectedSellerId(userId);
 
-        const PEDIDOS_CACHE_VER = "zc_pedidos_v23_wholesale_sources";
+        const PEDIDOS_CACHE_VER = "zc_pedidos_v24_client_ownership";
         const cachedUserId = sessionStorage.getItem("cached_pedidos_user_id");
         if (sessionStorage.getItem("cached_pedidos_ver") !== PEDIDOS_CACHE_VER || (cachedUserId && cachedUserId !== userId)) {
           sessionStorage.clear();
@@ -2779,7 +2888,12 @@ export default function PedidosPage() {
         }
 
         // Cargar desde la API en el backend
-        const res = await fetch(`/api/vendedores/pedidos-init?userId=${userId}`);
+        const { data: sessionData } = await supabase.auth.getSession();
+        const accessToken = sessionData.session?.access_token;
+        if (!accessToken) throw new Error('La sesión venció. Volvé a iniciar sesión.');
+        const res = await fetch(`/api/vendedores/pedidos-init?userId=${userId}`, {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        });
         if (!res.ok) {
           const errorPayload = await res.json().catch(() => null);
           const apiMessage = errorPayload?.error || errorPayload?.message;
@@ -3041,12 +3155,13 @@ export default function PedidosPage() {
 
   // Pre-select client from URL parameters if available
   useEffect(() => {
-    if (clients.length > 0 && typeof window !== "undefined") {
+    if (!hasAppliedClientUrlRef.current && clients.length > 0 && typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
       const queryClientId = params.get("client_id");
       if (queryClientId) {
         const clientExists = clients.some(c => c.id === queryClientId);
         if (clientExists) {
+          hasAppliedClientUrlRef.current = true;
           setSelectedClientId(queryClientId);
         }
       }
@@ -3057,6 +3172,7 @@ export default function PedidosPage() {
   useEffect(() => {
     async function fetchAddresses() {
       if (!selectedClientId) {
+        lastRetailAutofillClientIdRef.current = '';
         setClientAddresses([]);
         setAppliedWholesaleDiscountLabel("");
         return;
@@ -3077,6 +3193,8 @@ export default function PedidosPage() {
         return;
       }
 
+      if (isAnabelSeller && !isWholesaleContext && lastRetailAutofillClientIdRef.current === selectedClientId) return;
+
       // Autofill client name and details
       const c = clients.find(cl => cl.id === selectedClientId);
       if (c) {
@@ -3094,7 +3212,7 @@ export default function PedidosPage() {
         }
       }
 
-      if (isWholesaleContext) {
+      if (isWholesaleContext && !sourceQuoteId) {
         const { data: wholesaleClient } = await supabase
           .from('clients')
           .select('default_discount_coef, default_discount_label')
@@ -3167,9 +3285,10 @@ export default function PedidosPage() {
           setAclaraciones("");
         }
       }
+      if (isAnabelSeller && !isWholesaleContext) lastRetailAutofillClientIdRef.current = selectedClientId;
     }
     fetchAddresses();
-  }, [selectedClientId, clients, isWholesaleContext, localities]);
+  }, [selectedClientId, clients, isWholesaleContext, localities, sourceQuoteId, isAnabelSeller]);
 
   // Handle Address change
   const handleAddressChange = (addressId: string) => {
@@ -3249,6 +3368,7 @@ export default function PedidosPage() {
 
   // Fetch orders list
   useEffect(() => {
+    let isCancelled = false;
     async function fetchOrders() {
       if (activeTab === 'list') {
         setLoadingOrders(true);
@@ -3259,14 +3379,14 @@ export default function PedidosPage() {
             const { data: userData } = await supabase.auth.getUser();
             currentUid = userData?.user?.id || '';
           }
-          if (!currentUid) return;
+          if (!currentUid || isCancelled) return;
           
           let query = supabase
             .from('orders')
             .select(
               selectedProducts.length > 0
                 ? '*, zones(name), sellers(full_name), clients(is_wholesale), order_items!inner(product_id, product_name)'
-                : '*, zones(name), sellers(full_name), clients(is_wholesale), order_items(product_id, product_name)'
+                : '*, zones(name), sellers(full_name), clients(is_wholesale)'
             )
             .order('order_date', { ascending: false })
             .order('created_at', { ascending: false });
@@ -3294,9 +3414,9 @@ export default function PedidosPage() {
           const hasMinoristas = selectedChannels.includes('minoristas');
           const hasMayoristas = selectedChannels.includes('mayoristas');
           if (hasMayoristas && !hasMinoristas) {
-            query = query.or('channel.eq.mayorista,legacy_code.ilike.AQ%,legacy_code.ilike.POW%');
+            query = query.eq('channel', 'mayorista');
           } else if (hasMinoristas && !hasMayoristas) {
-            query = query.neq('channel', 'mayorista').not('legacy_code', 'ilike', 'AQU%').not('legacy_code', 'ilike', 'POW%');
+            query = query.neq('channel', 'mayorista');
           }
           
           // Apply status filter
@@ -3307,28 +3427,16 @@ export default function PedidosPage() {
           const statusCount = [hasPending, hasReview, hasDelivered, hasCancelled].filter(Boolean).length;
 
           if (statusCount > 0 && statusCount < 4) {
-            if (hasPending) {
-              const excludedNonPending: string[] = [];
-              if (!hasReview) excludedNonPending.push('En Revisión');
-              if (!hasDelivered) excludedNonPending.push('Entregado');
-              if (!hasCancelled) excludedNonPending.push('Cancelado');
+            const targetStatuses: string[] = [];
+            if (hasPending) targetStatuses.push('Pendiente', 'Entregando', 'En Espera');
+            if (hasReview) targetStatuses.push('En Revisión');
+            if (hasDelivered) targetStatuses.push('Entregado');
+            if (hasCancelled) targetStatuses.push('Cancelado', 'Anulado');
 
-              if (excludedNonPending.length === 1) {
-                query = query.neq('status', excludedNonPending[0]);
-              } else if (excludedNonPending.length > 1) {
-                query = query.not('status', 'in', `(${excludedNonPending.map(s => `"${s}"`).join(',')})`);
-              }
-            } else {
-              const inStatuses: string[] = [];
-              if (hasReview) inStatuses.push('En Revisión');
-              if (hasDelivered) inStatuses.push('Entregado');
-              if (hasCancelled) inStatuses.push('Cancelado');
-
-              if (inStatuses.length === 1) {
-                query = query.eq('status', inStatuses[0]);
-              } else if (inStatuses.length > 1) {
-                query = query.in('status', inStatuses);
-              }
+            if (targetStatuses.length === 1) {
+              query = query.eq('status', targetStatuses[0]);
+            } else if (targetStatuses.length > 1) {
+              query = query.in('status', targetStatuses);
             }
           }
           
@@ -3380,6 +3488,7 @@ export default function PedidosPage() {
           }
           
           const { data, error } = await query;
+          if (isCancelled) return;
           if (error) {
             console.error("Error fetching orders:", error.message || error.details || JSON.stringify(error) || error);
             setOrdersError(error.message || "Error al cargar pedidos");
@@ -3388,14 +3497,20 @@ export default function PedidosPage() {
             setOrders(data);
           }
         } catch (err: any) {
+          if (isCancelled) return;
           console.error("Error in fetchOrders:", err);
           setOrdersError(err?.message || "Error al cargar pedidos");
         } finally {
-          setLoadingOrders(false);
+          if (!isCancelled) {
+            setLoadingOrders(false);
+          }
         }
       }
     }
     fetchOrders();
+    return () => {
+      isCancelled = true;
+    };
   }, [activeTab, listType, role, sellerFilter, debouncedOrderSearch, selectedStatuses, selectedProducts, expandedSelectedProductIds, products, selectedChannels, dateFrom, dateTo, refreshTrigger]);
 
   // Fetch recent orders for the "Cargar desde BD" modal
@@ -3437,6 +3552,22 @@ export default function PedidosPage() {
 
   // Generic loader: can be used for editing (isClone=false) or cloning/re-creating (isClone=true)
   const handleLoadOrderIntoForm = async (order: any, isClone: boolean = false) => {
+    if (role !== 'admin' && order.seller_id !== currentUserId) {
+      setOrderSaveNotice('Sólo podés abrir pedidos asignados a tu usuario.');
+      return;
+    }
+    if (!isClone && (order.status === 'Cancelado' || order.status === 'Anulado')) {
+      setOrderSaveNotice('Reactivá el pedido desde la lista antes de editarlo.');
+      return;
+    }
+    if (!isClone && order.totals?.integration_payload) {
+      const { data: job, error } = await supabase.from('order_sync_jobs').select('status').eq('order_id',order.id)
+        .in('status', ['awaiting_items','pending','processing']).limit(1).maybeSingle();
+      if (error || (job && ['awaiting_items','pending','processing'].includes(job.status))) {
+        setOrderSaveNotice('Este pedido todavía se está sincronizando. Podés cargar otro mientras termina; su estado está en la bandeja.');
+        return;
+      }
+    }
     isEditingRef.current = true;
     try {
       setSubmitting(true);
@@ -3512,11 +3643,16 @@ export default function PedidosPage() {
           }
         }
         if (c) {
-          setCliente(c.business_name);
-          setNewClientName(c.business_name);
-          setNewClientTaxId(c.tax_id || "");
-          setShowTaxIdField(!!c.tax_id);
-          const phones = (c.phone_primary || c.phone || "").split(",").map(p => p.trim()).filter(Boolean);
+          const savedCustomer = order.totals?.customer_snapshot;
+          const orderCustomerName = savedCustomer?.name || order.customer_name || c.business_name;
+          const orderTaxId = savedCustomer?.tax_id ?? c.tax_id ?? '';
+          setCliente(orderCustomerName);
+          setNewClientName(orderCustomerName);
+          setNewClientTaxId(orderTaxId);
+          setShowTaxIdField(!!orderTaxId);
+          const phones = savedCustomer
+            ? [savedCustomer.phone_primary || '', savedCustomer.phone_secondary || ''].filter(Boolean)
+            : (c.phone_primary || c.phone || "").split(",").map((p: string) => p.trim()).filter(Boolean);
           if (phones.length === 0) {
             setNewClientPhones(["", ""]);
           } else if (phones.length === 1) {
@@ -3617,7 +3753,8 @@ export default function PedidosPage() {
       const hasFreightCost = totalsObj.freight > 0;
       setIsFreeShipping(!hasFreightCost);
       setShippingCost(totalsObj.freight || 0);
-      setIncludeIVA(totalsObj.tax > 0);
+      const hasPartialIvaInPayments = totalsObj.payments_breakdown?.some((p: any) => Boolean(p.has_iva));
+      setIncludeIVA(totalsObj.tax > 0 && !hasPartialIvaInPayments);
       
       if (totalsObj.order_discount_type) {
         setOrderDiscountType(totalsObj.order_discount_type);
@@ -3630,6 +3767,12 @@ export default function PedidosPage() {
         setOrderDiscountValue(totalsObj.order_discount_amount);
       } else {
         setOrderDiscountValue(0);
+      }
+      if (Array.isArray(totalsObj.order_discounts) && totalsObj.order_discounts.length > 0) {
+        setOrderDiscounts(totalsObj.order_discounts);
+        setOrderDiscountValue(0);
+      } else {
+        setOrderDiscounts([]);
       }
       
       const payStatus = order.payment_status;
@@ -3821,7 +3964,9 @@ export default function PedidosPage() {
         card_surcharge: defaultPm ? (defaultPm.surcharge_percentage || 0) : 0,
         card_installments: defaultPm ? (defaultPm.installments || 1) : 1,
         receipt_url: "",
-        notes: ""
+        notes: "",
+        has_iva: false,
+        iva_mode: 'included'
       }
     ]);
     setSelectedClientId("");
@@ -3836,6 +3981,7 @@ export default function PedidosPage() {
     setOrderItems([]);
     setOrderDiscountType('percentage');
     setOrderDiscountValue(0);
+    setOrderDiscounts([]);
     setOrderCategory("auto");
     setCommercialBrand(isWholesaleContext || FACUNDO_SELLER_IDS.includes(currentUserId) ? 'aquafort' : 'zono');
     setSelectedSellerId(currentUserId);
@@ -3981,6 +4127,7 @@ export default function PedidosPage() {
       order_discount_type: totalsObj.order_discount_type,
       order_discount_value: totalsObj.order_discount_value,
       order_discount_amount: totalsObj.order_discount_amount,
+      order_discounts: totalsObj.order_discounts,
       freight_cost: totalsObj.freight,
       surcharges: totalsObj.payment_surcharges,
       tax: totalsObj.tax,
@@ -4077,6 +4224,7 @@ export default function PedidosPage() {
       order_discount_type: orderDiscountType,
       order_discount_value: orderDiscountValue,
       order_discount_amount: orderDiscountAmount,
+      order_discounts: orderDiscounts,
       freight_cost: shippingAmount,
       surcharges: totalSurcharges,
       tax: ivaAmount,
@@ -4112,6 +4260,14 @@ export default function PedidosPage() {
 
   // Reintentar o sincronizar un pedido existente en BD directamente a la Planilla de Google
   const handleSyncExistingOrderToSheet = async (order: any) => {
+    if (order.channel === 'mayorista') {
+      setOrderSaveNotice('Los pedidos mayoristas se gestionan en el ERP y no se sincronizan con planillas.');
+      return;
+    }
+    if (order.totals?.integration_payload) {
+      setOrderSaveNotice('Este pedido tiene una sincronización registrada en la bandeja. Revisá allí el resultado antes de repetir una carga en planillas.');
+      return;
+    }
     try {
       setSyncingOrderId(order.id);
 
@@ -4689,13 +4845,23 @@ export default function PedidosPage() {
     return acc + itemVal * item.quantity;
   }, 0);
 
-  const orderDiscountAmount = useMemo(() => {
-    if (!orderDiscountValue || orderDiscountValue <= 0) return 0;
-    if (orderDiscountType === 'percentage') {
-      return Math.round(itemsGrossSubtotal * (Math.min(100, orderDiscountValue) / 100));
-    }
-    return Math.min(itemsGrossSubtotal, Math.max(0, orderDiscountValue));
-  }, [itemsGrossSubtotal, orderDiscountType, orderDiscountValue]);
+  const effectiveOrderDiscounts = useMemo<OrderDiscountItem[]>(() =>
+    orderDiscounts.length > 0 ? orderDiscounts : orderDiscountValue > 0
+      ? [{ id: 'single-order-discount', description: appliedWholesaleDiscountLabel || 'Descuento del pedido', type: orderDiscountType, value: orderDiscountValue }]
+      : [],
+  [orderDiscounts, orderDiscountType, orderDiscountValue, appliedWholesaleDiscountLabel]);
+
+  const orderDiscountBreakdown = useMemo(() =>
+    calculateCascadingDiscounts(itemsGrossSubtotal, effectiveOrderDiscounts),
+  [effectiveOrderDiscounts, itemsGrossSubtotal]);
+
+  const orderDiscountAmount = orderDiscountBreakdown.reduce((sum, discount) => sum + discount.amount, 0);
+  const persistedOrderDiscountType = orderDiscounts.length > 0 ? 'fixed' : orderDiscountType;
+  const persistedOrderDiscountValue = orderDiscounts.length > 0 ? orderDiscountAmount : orderDiscountValue;
+  const updateOrderDiscounts = (discounts: OrderDiscountItem[]) => {
+    setOrderDiscounts(discounts);
+    setOrderDiscountValue(0);
+  };
 
   const subtotal = Math.max(0, itemsGrossSubtotal - orderDiscountAmount);
   const shippingAmount = isFreeShipping ? 0 : shippingCost;
@@ -4776,6 +4942,23 @@ export default function PedidosPage() {
     const surchargeVal = baseAmount * (surchargePct / 100);
     const totalAmount = baseAmount + surchargeVal;
     
+    // IVA específico por pago (Facturación parcial con IVA)
+    const hasIva = Boolean(p.has_iva);
+    const ivaMode = p.iva_mode || 'included';
+    let ivaValue = 0;
+    let taxableBase = baseAmount;
+
+    if (hasIva && !includeIVA) {
+      if (ivaMode === 'added') {
+        ivaValue = Math.round(baseAmount * 0.21);
+        taxableBase = baseAmount;
+      } else {
+        // 'included': el monto abonado ya tiene el 21% de IVA incorporado
+        taxableBase = Math.round(baseAmount / 1.21);
+        ivaValue = Math.round(baseAmount - taxableBase);
+      }
+    }
+
     return {
       ...p,
       baseAmount,
@@ -4783,13 +4966,18 @@ export default function PedidosPage() {
       surchargePercentage: surchargePct,
       surchargeValue: surchargeVal,
       installments,
-      totalAmount
+      totalAmount,
+      has_iva: hasIva,
+      iva_mode: ivaMode,
+      ivaValue,
+      taxableBase
     };
   });
 
   const totalSurcharges = paymentsWithSurcharges.reduce((acc, p) => acc + p.surchargeValue, 0);
   const subtotalWithSurchargeAndShipping = subtotal + totalSurcharges + shippingAmount;
-  const ivaAmount = includeIVA ? subtotalWithSurchargeAndShipping * 0.21 : 0;
+  const partialIvaAmount = paymentsWithSurcharges.reduce((acc, p) => acc + (p.has_iva ? (p.ivaValue || 0) : 0), 0);
+  const ivaAmount = includeIVA ? (subtotalWithSurchargeAndShipping * 0.21) : partialIvaAmount;
   const total = subtotalWithSurchargeAndShipping + ivaAmount;
   const surcharge = totalSurcharges; // Alias to match other variables in page.tsx
 
@@ -4834,6 +5022,7 @@ export default function PedidosPage() {
   const filteredClients = clientSearchQuery.trim()
     ? clients.filter(c => {
         if (isWholesaleContext && c.is_wholesale !== true) return false;
+        if (isAnabelSeller && !isWholesaleContext) return false;
         return (
           (c.business_name && normalizeText(c.business_name).includes(normalizeText(clientSearchQuery))) ||
           (c.phone_primary && c.phone_primary.includes(clientSearchQuery.trim())) ||
@@ -4875,7 +5064,7 @@ export default function PedidosPage() {
     const statusCount = [hasPending, hasReview, hasDelivered, hasCancelled].filter(Boolean).length;
 
     if (statusCount > 0 && statusCount < 4) {
-      const isCancelled = p.status === 'Cancelado';
+      const isCancelled = p.status === 'Cancelado' || p.status === 'Anulado';
       const isDelivered = p.status === 'Entregado';
       const isReview = p.status === 'En Revisión';
       const isPending = !isCancelled && !isDelivered && !isReview;
@@ -4953,12 +5142,12 @@ export default function PedidosPage() {
           targetCleanNoPrefix = targetClean.substring(2);
         }
         
-        if (!targetCleanNoPrefix || targetCleanNoPrefix.length < 6) return false;
+        if (!targetCleanNoPrefix || targetCleanNoPrefix.length < 8) return false;
         
         const numbers = [
-          ...(c.phone_primary ? c.phone_primary.split(/[\s,;]+/) : []),
-          ...(c.phone_secondary ? c.phone_secondary.split(/[\s,;]+/) : []),
-          ...(c.phone ? c.phone.split(/[\s,;]+/) : [])
+          ...(c.phone_primary ? c.phone_primary.split(/[,;]+/) : []),
+          ...(c.phone_secondary ? c.phone_secondary.split(/[,;]+/) : []),
+          ...(c.phone ? c.phone.split(/[,;]+/) : [])
         ].map(num => {
           const cleanNum = num.replace(/\D/g, '');
           if (cleanNum.startsWith('549') && cleanNum.length >= 10) {
@@ -4971,51 +5160,14 @@ export default function PedidosPage() {
         }).filter(Boolean);
         
         if (isWholesaleContext && !c.is_wholesale) return false;
+        if (isAnabelSeller && !isWholesaleContext && c.is_wholesale) return false;
         return numbers.some(num => {
-          if (num === targetCleanNoPrefix) return true;
-          if (targetCleanNoPrefix.length >= 8 && num.length >= 8) {
-            return num.includes(targetCleanNoPrefix) || targetCleanNoPrefix.includes(num);
-          }
-          return false;
+          return num === targetCleanNoPrefix;
         });
       })
     : null;
 
-  const handleInitialSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (orderItems.length === 0) {
-      alert("Debes agregar al menos un producto al pedido.");
-      return;
-    }
-    if (isNewClient && !newClientName) {
-      alert("Completá el nombre del nuevo cliente.");
-      return;
-    }
-    if (!isNewClient && !selectedClientId) {
-      alert("Seleccioná un cliente existente o registrá uno nuevo.");
-      return;
-    }
-    if (!localidadId) {
-      alert("Seleccioná la localidad de entrega.");
-      return;
-    }
-    if (!flete) {
-      alert("Seleccioná el tipo de entrega.");
-      return;
-    }
-    if (!selectedAdvertisingSourceId) {
-      alert("Seleccioná la procedencia del pedido (campo obligatorio).");
-      return;
-    }
-    if (
-      isWholesaleContext &&
-      advertisingSources.find(source => source.id === selectedAdvertisingSourceId)?.name === 'Otro' &&
-      !advertisingSourceDetail.trim()
-    ) {
-      alert("Especificá la procedencia del pedido mayorista.");
-      return;
-    }
-
+  const openOrderReview = () => {
     if (editingOrderId) {
       const locName = localities.find(l => l.id === localidadId)?.name || "";
       const selectedPayMethodName = dbPaymentMethods.find(m => m.id === paymentsList[0]?.payment_method_id)?.name || 'Efectivo';
@@ -5040,9 +5192,46 @@ export default function PedidosPage() {
     setShowSummaryModal(true);
   };
 
+  const handleInitialSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (orderItems.length === 0) {
+      alert("Debes agregar al menos un producto al pedido.");
+      return;
+    }
+    if (isNewClient && !newClientName) {
+      alert("Completá el nombre del nuevo cliente.");
+      return;
+    }
+    if (!isNewClient && !selectedClientId) {
+      alert("Seleccioná un cliente existente o registrá uno nuevo.");
+      return;
+    }
+    if (!localidadId) {
+      alert("Seleccioná la localidad de entrega.");
+      return;
+    }
+    if (!flete) {
+      alert("Seleccioná el tipo de entrega.");
+      return;
+    }
+    if (!selectedAdvertisingSourceId || isWhaticketLinkMissing) {
+      setResumeOrderReviewAfterRequiredFields(true);
+      setShowWhaticketLinkFieldInModal(isWhaticketLinkMissing);
+      setShowRequiredOrderFieldsModal(true);
+      return;
+    }
+
+    openOrderReview();
+  };
+
   const confirmAndSubmit = async () => {
-    if (!selectedAdvertisingSourceId) {
-      alert("Seleccioná la procedencia del pedido (campo obligatorio).");
+    // El estado de React tarda un render en actualizarse. Esta referencia evita
+    // que un doble clic ejecute dos altas con el mismo código.
+    if (submittingRef.current) return;
+    if (!selectedAdvertisingSourceId || isWhaticketLinkMissing) {
+      setResumeOrderReviewAfterRequiredFields(false);
+      setShowWhaticketLinkFieldInModal(isWhaticketLinkMissing);
+      setShowRequiredOrderFieldsModal(true);
       return;
     }
     if (
@@ -5063,12 +5252,31 @@ export default function PedidosPage() {
 
     setShowSummaryModal(false);
     setShowEditConfirmModal(false);
+    submittingRef.current = true;
     setSubmitting(true);
     try {
       const { data: userData } = await supabase.auth.getUser();
       if (!userData.user) throw new Error("No user authenticated");
       const loggedInUserId = userData.user.id;
       const seller_id = selectedSellerId || loggedInUserId;
+
+      if (isAnabelSeller && !isWholesaleContext && isNewClient && matchingExistingClient) {
+        throw new Error('Este teléfono ya corresponde a un cliente. Usá «Cargar Datos» para vincular el pedido sin duplicar su ficha.');
+      }
+      if (isAnabelSeller && !isWholesaleContext && !isNewClient && matchingExistingClient?.id !== selectedClientId && matchingExistingClient) {
+        throw new Error('El teléfono ingresado pertenece a otra ficha. Seleccioná ese cliente antes de guardar.');
+      }
+
+      if (editingOrderId && role !== 'admin') {
+        const { data: editableOrder, error: editableOrderError } = await supabase
+          .from('orders').select('seller_id').eq('id', editingOrderId).maybeSingle();
+        if (editableOrderError || editableOrder?.seller_id !== loggedInUserId) {
+          throw new Error('No podés modificar un pedido asignado a otra vendedora.');
+        }
+      }
+      if (role !== 'admin' && seller_id !== loggedInUserId) {
+        throw new Error('No podés guardar pedidos a nombre de otra vendedora.');
+      }
 
       let finalClientId = selectedClientId;
       let finalAddressId = selectedAddressId;
@@ -5114,8 +5322,17 @@ export default function PedidosPage() {
           map_link: newAddr.map_link,
           delivery_notes: newAddr.delivery_notes
         };
-      } else if (selectedAddressId === "nueva_direccion") {
-        // Registrar dirección manual para el cliente existente
+      } else if (selectedAddressId === "nueva_direccion" || (() => {
+        const saved = clientAddresses.find(a => a.id === selectedAddressId);
+        return !!saved && (
+          saved.full_address?.trim() !== direccion.trim() ||
+          (saved.locality_id || '') !== (localidadId || '') ||
+          (saved.map_link || '').trim() !== linkMaps.trim() ||
+          (saved.delivery_notes || '').trim() !== aclaraciones.trim()
+        );
+      })()) {
+        // Los cambios de domicilio se agregan como otra dirección; nunca se
+        // modifica la dirección anterior ni su condición de predeterminada.
         const { data: newAddr, error: addrErr } = await supabase
           .from("addresses")
           .insert({
@@ -5157,10 +5374,8 @@ export default function PedidosPage() {
       // 2. Crear o Actualizar Pedido de Venta
       let orderData: any = null;
       let finalLegacyCode: string | null = null;
-      let sheetSyncSuccess = false;
-      let sheetAttempted = false;
-      let sheetSyncError = '';
-      let operationalSyncWarning = '';
+      let integrationPayload: Record<string, unknown> | undefined;
+      let itemsPersistedByAssignedOrderApi = false;
       // Código legacy definitivo: si la orden original ya tenía un código legacy asignado,
       // PRESERVARLO estrictamente para no crear duplicados ni desfasar planillas operativas.
       const effectiveLegacyCode = editingOrderId
@@ -5195,6 +5410,7 @@ export default function PedidosPage() {
         const { data: updatedOrder, error: orderError } = await supabase
           .from('orders')
           .update({
+            ...(role === 'admin' ? { seller_id } : {}),
             client_id: finalClientId || null,
             shipping_address_id: finalAddressId || null,
             shipping_address_snapshot: addressSnapshot,
@@ -5213,14 +5429,21 @@ export default function PedidosPage() {
             payment_method_id: paymentsList[0]?.payment_method_id || 'a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3',
             freight_type: flete,
             total_amount: total,
-            order_discount_type: orderDiscountAmount > 0 ? orderDiscountType : null,
-            order_discount_value: orderDiscountAmount > 0 ? orderDiscountValue : 0,
+            order_discount_type: orderDiscountAmount > 0 ? persistedOrderDiscountType : null,
+            order_discount_value: orderDiscountAmount > 0 ? persistedOrderDiscountValue : 0,
             order_discount_amount: orderDiscountAmount,
             totals: {
+              customer_snapshot: {
+                name: isNewClient ? newClientName : cliente,
+                tax_id: newClientTaxId,
+                phone_primary: newClientPhones[0] || '',
+                phone_secondary: newClientPhones[1] || ''
+              },
               items_subtotal: itemsGrossSubtotal,
-              order_discount_type: orderDiscountType,
-              order_discount_value: orderDiscountValue,
+              order_discount_type: persistedOrderDiscountType,
+              order_discount_value: persistedOrderDiscountValue,
               order_discount_amount: orderDiscountAmount,
+              order_discounts: orderDiscounts,
               subtotal,
               freight: shippingAmount,
               tax: ivaAmount,
@@ -5242,7 +5465,11 @@ export default function PedidosPage() {
                 notes: p.notes,
                 telegram_sent: p.telegram_sent || false,
                 telegram_message_id: p.telegram_message_id,
-                telegram_chat_id: p.telegram_chat_id
+                telegram_chat_id: p.telegram_chat_id,
+                has_iva: p.has_iva || false,
+                iva_mode: p.iva_mode || 'included',
+                iva_amount: p.ivaValue || 0,
+                taxable_base: p.taxableBase || p.baseAmount
               })),
               payment_timing: paymentTiming
             },
@@ -5324,13 +5551,14 @@ export default function PedidosPage() {
         if (deleteItemsErr) throw deleteItemsErr;
 
       } else {
-        // Sincronizar a Google Sheets si el vendedor tiene planilla configurada
-        try {
+
+        // Persistir el trabajo junto al pedido; el servidor lo procesa luego.
+        {
           const selectedPayMethodName = dbPaymentMethods.find(m => m.id === paymentsList[0]?.payment_method_id)?.name || 'Efectivo';
-          const clientPhone = isNewClient 
+          const clientPhone = isNewClient || (isAnabelSeller && !isWholesaleContext)
             ? (newClientPhones.map(cleanPhoneForSaving).filter(Boolean)[0] || '')
             : (clients.find(c => c.id === selectedClientId)?.phone_primary || '');
-          const clientPhone2 = isNewClient
+          const clientPhone2 = isNewClient || (isAnabelSeller && !isWholesaleContext)
             ? (newClientPhones.map(cleanPhoneForSaving).filter(Boolean)[1] || '')
             : '';
           let sellerFullName = sellersList.find(s => s.id === seller_id)?.full_name;
@@ -5366,7 +5594,10 @@ export default function PedidosPage() {
             source: sheetSource,
             deliveryNotes: [
               aclaraciones, 
-              deliveryDetail
+              deliveryDetail,
+              (!includeIVA && partialIvaAmount > 0)
+                ? `[Factura con IVA: ${paymentsWithSurcharges.filter(p => p.has_iva).map(p => `${dbPaymentMethods.find(m => m.id === p.payment_method_id)?.name || 'Pago'} $${p.amount.toLocaleString('es-AR')} (IVA $${(p.ivaValue || 0).toLocaleString('es-AR')})`).join(', ')}]`
+                : ''
             ].filter(Boolean).map((s: string) => s.trim()).join(' / '),
             medium: mediumName,
             sellerName: normalizeSellerName(sellerFullName),
@@ -5384,164 +5615,151 @@ export default function PedidosPage() {
             items: buildSheetOrderItems(orderItems, orderDiscountAmount, products)
           };
 
-          const sheetRes = await fetch('/api/vendedores/create-sheet-order', {
+          integrationPayload = {
+            order: sheetOrderPayload,
+            receipts: {
+              type: 'receipt',
+              customerName: (isNewClient ? newClientName : cliente) || '',
+              taxId: isNewClient || (isAnabelSeller && !isWholesaleContext) ? newClientTaxId : (clients.find(c => c.id === selectedClientId)?.tax_id || ''),
+              sellerName: sellerFullName,
+              status: paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? 'Señado' : 'Pendiente'),
+              pendingBalance,
+              receipts: paymentsList.filter(p => p.receipt_url && !p.telegram_sent).map(p => {
+                const matched = paymentsWithSurcharges.find(item => item.id === p.id);
+                const ivaDesc = (!includeIVA && matched?.has_iva && matched?.ivaValue)
+                  ? `[Factura IVA incl.: Base $${(matched.taxableBase || 0).toLocaleString('es-AR')} + IVA $${matched.ivaValue.toLocaleString('es-AR')}]`
+                  : '';
+                return {
+                  url: p.receipt_url,
+                  amount: p.amount > 0 ? p.amount : (paymentsList.length === 1 ? (paymentTiming === 'paid' ? total : customDepositAmount) : 0),
+                  notes: [p.notes, ivaDesc].filter(Boolean).join(' ')
+                };
+              })
+            }
+          };
+        }
+
+
+        // Insertar Nuevo Pedido. Si quien carga eligió otra vendedora, el alta
+        // pasa por un endpoint autenticado y acotado en lugar de ampliar RLS.
+        const newOrderPayload = {
+          seller_id,
+          created_by_id: loggedInUserId,
+          quote_id: sourceQuoteId,
+          client_id: finalClientId || null,
+          shipping_address_id: finalAddressId || null,
+          shipping_address_snapshot: addressSnapshot,
+          initial_delivery_date: entregaInicial,
+          max_delivery_date: entregaMaxima,
+          order_date: new Date(fechaPedido + 'T12:00:00').toISOString(),
+          created_at: new Date(fechaPedido + 'T12:00:00').toISOString(),
+          customer_name: isNewClient ? newClientName : cliente,
+          locality: locName,
+          address: direccion,
+          google_maps_link: linkMaps,
+          delivery_notes: aclaraciones || null,
+          whaticket_link: whaticketLink || null,
+          payment_method_id: paymentsList[0]?.payment_method_id || 'a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3',
+          freight_type: flete,
+          total_amount: total,
+          order_discount_type: orderDiscountAmount > 0 ? persistedOrderDiscountType : null,
+          order_discount_value: orderDiscountAmount > 0 ? persistedOrderDiscountValue : 0,
+          order_discount_amount: orderDiscountAmount,
+          status: orderStatus,
+          totals: {
+            integration_payload: integrationPayload,
+            customer_snapshot: {
+              name: isNewClient ? newClientName : cliente,
+              tax_id: newClientTaxId,
+              phone_primary: newClientPhones[0] || '',
+              phone_secondary: newClientPhones[1] || ''
+            },
+            items_subtotal: itemsGrossSubtotal,
+            order_discount_type: persistedOrderDiscountType,
+            order_discount_value: persistedOrderDiscountValue,
+            order_discount_amount: orderDiscountAmount,
+            order_discounts: orderDiscounts,
+            subtotal,
+            freight: shippingAmount,
+            tax: ivaAmount,
+            payment_surcharges: surcharge,
+            total,
+            has_deposit: hasDeposit,
+            deposit_amount: hasDeposit ? depositAmount : 0,
+            deposit_receipt_url: paymentsList.find(p => p.receipt_url)?.receipt_url || "",
+            pending_balance: pendingBalance,
+            payments_breakdown: paymentsWithSurcharges.map(p => ({
+              id: p.id,
+              payment_method_id: p.payment_method_id,
+              amount: p.baseAmount,
+              surcharge: p.surchargeValue,
+              total: p.totalAmount,
+              card_installments: p.installments,
+              card_surcharge: p.surchargePercentage,
+              receipt_url: p.receipt_url,
+              notes: p.notes,
+              telegram_sent: p.telegram_sent || false,
+              telegram_message_id: p.telegram_message_id,
+              telegram_chat_id: p.telegram_chat_id,
+              has_iva: p.has_iva || false,
+              iva_mode: p.iva_mode || 'included',
+              iva_amount: p.ivaValue || 0,
+              taxable_base: p.taxableBase || p.baseAmount
+            })),
+            payment_timing: paymentTiming
+          },
+          channel: isWholesaleContext ? 'mayorista' : 'vendedor_externo',
+          commercial_brand: commercialBrand,
+          payment_status: paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? 'Seniado' : 'Pendiente'),
+          logistics_zone_id: localities.find(l => l.id === localidadId)?.zone_id || null,
+          advertising_source_id: selectedAdvertisingSourceId || null,
+          advertising_source_detail: advertisingSourceDetail.trim() || null,
+          order_medium_id: selectedOrderMediumId || null,
+          received_phone_line_id: isWholesaleContext ? null : ((selectedPhoneLineId && selectedPhoneLineId !== 'otro') ? selectedPhoneLineId : null),
+          delivery_detail: deliveryDetail || null,
+          legacy_code: finalLegacyCode || null,
+          hold_reason: orderStatus === 'En Espera' ? holdReason : null,
+          hold_product_id: orderStatus === 'En Espera' && holdProductId ? holdProductId : null,
+          category: orderCategory === 'auto' ? detectedCategory : orderCategory
+        };
+
+        if (seller_id !== loggedInUserId) {
+          const { data: sessionData } = await supabase.auth.getSession();
+          const accessToken = sessionData.session?.access_token;
+          if (!accessToken) throw new Error('La sesión venció. Volvé a ingresar antes de cargar el pedido.');
+          const assignedOrderResponse = await fetch('/api/vendedores/create-assigned-order', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${accessToken}`
+            },
             body: JSON.stringify({
-              sellerId: seller_id,
-              order: sheetOrderPayload,
-              syncOperational: true
+              order: newOrderPayload,
+              items: orderItems.map(item => ({
+                product_id: item.id,
+                product_name: normalizeProductNameForSheet(item.name, item.sku) || item.name,
+                quantity: item.quantity,
+                unit_price: item.customPrice,
+                historical_unit_cost: (item as any).cost || 0,
+                discount_percentage: item.discountType === 'percentage' ? (item.discountValue || 0) : 0
+              }))
             })
           });
-
-          if (sheetRes.ok) {
-            const sheetData = await sheetRes.json();
-            if (sheetData.synced) {
-              sheetAttempted = true;
-              if (sheetData.code) {
-                finalLegacyCode = sheetData.code;
-                sheetSyncSuccess = true;
-              }
-              const centralSynced = sheetData.operationalSync?.central?.success;
-              const deliveriesSynced = sheetData.operationalSync?.deliveriesCurrent?.success;
-              const sellerStatusSynced = sheetData.operationalSync?.sellerStatusSync?.success;
-              const centralStatusSynced = sheetData.operationalSync?.centralStatusSync?.success;
-              if (centralSynced === false || deliveriesSynced === false || sellerStatusSynced === false || centralStatusSynced === false) {
-                const failedTargets = [
-                  centralSynced === false ? 'Central pedidos' : '',
-                  deliveriesSynced === false ? 'Entregas Actual / Vendedores' : '',
-                  sellerStatusSynced === false ? 'el estado 🔹 Pasado de la planilla de vendedores' : '',
-                  centralStatusSynced === false ? 'el estado 🔹 Pasado de Central pedidos' : ''
-                ].filter(Boolean).join(' y ');
-                const syncDetail = sheetData.operationalSync?.central?.message ||
-                  sheetData.operationalSync?.deliveriesCurrent?.message ||
-                  sheetData.operationalSync?.sellerStatusSync?.message ||
-                  sheetData.operationalSync?.centralStatusSync?.message;
-                operationalSyncWarning = `El pedido quedó en la planilla de la vendedora, pero no se pudo reflejar en ${failedTargets}.${syncDetail ? ` Detalle: ${syncDetail}` : ''} Reintentá la sincronización antes de procesarlo.`;
-              } else if (sheetData.formationAlert?.attempted && !sheetData.formationAlert?.sent) {
-                operationalSyncWarning = `El pedido fue cargado en las planillas, pero no se pudo enviar el aviso de formación de recorridos: ${sheetData.formationAlert.message || 'error de configuración'}.`;
-              } else if (sheetData.expressAlert?.attempted && !sheetData.expressAlert?.sent) {
-                operationalSyncWarning = `El pedido fue cargado en las planillas, pero no se pudo enviar el aviso Express a Telegram: ${sheetData.expressAlert.message || 'error de configuración'}.`;
-              }
-            }
-          } else {
-            sheetAttempted = true;
-            const errData = await sheetRes.json().catch(() => ({}));
-            sheetSyncError = errData.error || errData.message || `Error (${sheetRes.status}) al sincronizar con la planilla`;
-            console.warn('Google Sheet sync returned non-ok:', sheetRes.status, errData);
+          const assignedOrderPayload = await assignedOrderResponse.json().catch(() => ({}));
+          if (!assignedOrderResponse.ok || !assignedOrderPayload.order) {
+            throw new Error(assignedOrderPayload.error || 'No se pudo registrar el pedido para la vendedora seleccionada.');
           }
-        } catch (sheetErr: any) {
-          sheetAttempted = true;
-          sheetSyncError = sheetErr?.message || 'Error de red al conectar con la planilla';
-          console.error('Error synchronizing order to Google Sheet:', sheetErr);
-        }
-
-        // VALIDACIÓN ANTI-DUPLICADOS: Verificar que el código asignado no exista en el sistema
-        const codeToCheck = finalLegacyCode || legacyCode;
-        if (codeToCheck) {
-          const { data: dupOrder } = await supabase
+          orderData = assignedOrderPayload.order;
+          itemsPersistedByAssignedOrderApi = true;
+        } else {
+          const { data: newOrder, error: orderError } = await supabase
             .from('orders')
-            .select('id, customer_name, legacy_code')
-            .eq('legacy_code', codeToCheck.trim().toUpperCase())
-            .maybeSingle();
-
-          if (dupOrder) {
-            throw new Error(`El código de pedido "${codeToCheck}" ya existe en el sistema (asignado a "${dupOrder.customer_name}"). No se puede cargar un pedido con código duplicado.`);
-          }
+            .insert(newOrderPayload)
+            .select()
+            .single();
+          if (orderError) throw orderError;
+          orderData = newOrder;
         }
-
-        // Insertar Nuevo Pedido
-        const { data: newOrder, error: orderError } = await supabase
-          .from('orders')
-          .insert({
-            seller_id,
-            quote_id: sourceQuoteId,
-            client_id: finalClientId || null,
-            shipping_address_id: finalAddressId || null,
-            shipping_address_snapshot: addressSnapshot,
-            initial_delivery_date: entregaInicial,
-            max_delivery_date: entregaMaxima,
-            order_date: new Date(fechaPedido + 'T12:00:00').toISOString(),
-            created_at: new Date(fechaPedido + 'T12:00:00').toISOString(),
-            customer_name: isNewClient ? newClientName : cliente,
-            locality: locName, // Retro-compatibilidad
-            address: direccion,
-            google_maps_link: linkMaps,
-            delivery_notes: aclaraciones || null,
-            whaticket_link: whaticketLink || null,
-            payment_method_id: paymentsList[0]?.payment_method_id || 'a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3',
-            freight_type: flete,
-            total_amount: total,
-            order_discount_type: orderDiscountAmount > 0 ? orderDiscountType : null,
-            order_discount_value: orderDiscountAmount > 0 ? orderDiscountValue : 0,
-            order_discount_amount: orderDiscountAmount,
-            status: orderStatus,
-            totals: {
-              items_subtotal: itemsGrossSubtotal,
-              order_discount_type: orderDiscountType,
-              order_discount_value: orderDiscountValue,
-              order_discount_amount: orderDiscountAmount,
-              subtotal,
-              freight: shippingAmount,
-              tax: ivaAmount,
-              payment_surcharges: surcharge,
-              total,
-              has_deposit: hasDeposit,
-              deposit_amount: hasDeposit ? depositAmount : 0,
-              deposit_receipt_url: paymentsList.find(p => p.receipt_url)?.receipt_url || "",
-              pending_balance: pendingBalance,
-              payments_breakdown: paymentsWithSurcharges.map(p => ({
-                id: p.id,
-                payment_method_id: p.payment_method_id,
-                amount: p.baseAmount,
-                surcharge: p.surchargeValue,
-                total: p.totalAmount,
-                card_installments: p.installments,
-                card_surcharge: p.surchargePercentage,
-                receipt_url: p.receipt_url,
-                notes: p.notes,
-                telegram_sent: p.telegram_sent || false,
-                telegram_message_id: p.telegram_message_id,
-                telegram_chat_id: p.telegram_chat_id
-              })),
-              payment_timing: paymentTiming
-            },
-            channel: isWholesaleContext ? 'mayorista' : 'vendedor_externo',
-            commercial_brand: commercialBrand,
-            payment_status: paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? 'Seniado' : 'Pendiente'),
-            logistics_zone_id: localities.find(l => l.id === localidadId)?.zone_id || null,
-            advertising_source_id: selectedAdvertisingSourceId || null,
-            advertising_source_detail: advertisingSourceDetail.trim() || null,
-            order_medium_id: selectedOrderMediumId || null,
-            received_phone_line_id: isWholesaleContext ? null : ((selectedPhoneLineId && selectedPhoneLineId !== 'otro') ? selectedPhoneLineId : null),
-            delivery_detail: deliveryDetail || null,
-            legacy_code: finalLegacyCode || null,
-            hold_reason: orderStatus === 'En Espera' ? holdReason : null,
-            hold_product_id: orderStatus === 'En Espera' && holdProductId ? holdProductId : null,
-            category: orderCategory === 'auto' ? detectedCategory : orderCategory
-          })
-          .select()
-          .single();
-
-        if (orderError) throw orderError;
-        orderData = newOrder;
-      }
-
-      // La dirección elegida en el último pedido pasa a ser la predeterminada
-      // del cliente, sin eliminar las demás sucursales o domicilios guardados.
-      if (finalClientId && finalAddressId && finalAddressId !== "nueva_direccion") {
-        const { error: clearDefaultError } = await supabase
-          .from("addresses")
-          .update({ is_default: false })
-          .eq("client_id", finalClientId);
-        if (clearDefaultError) throw clearDefaultError;
-
-        const { error: setDefaultError } = await supabase
-          .from("addresses")
-          .update({ is_default: true })
-          .eq("id", finalAddressId)
-          .eq("client_id", finalClientId);
-        if (setDefaultError) throw setDefaultError;
       }
 
       // 3. Crear nuevos ítems del Pedido
@@ -5555,8 +5773,10 @@ export default function PedidosPage() {
         discount_percentage: item.discountType === 'percentage' ? (item.discountValue || 0) : 0
       }));
 
-      const { error: itemsError } = await supabase.from('order_items').insert(itemsToInsert);
-      if (itemsError) throw itemsError;
+      if (!itemsPersistedByAssignedOrderApi) {
+        const { error: itemsError } = await supabase.from('order_items').insert(itemsToInsert);
+        if (itemsError) throw itemsError;
+      }
 
       // 4. Registrar Reservas en el Inventario para descontar Stock Disponible (stock_current)
       try {
@@ -5641,12 +5861,12 @@ export default function PedidosPage() {
           central?: { success: boolean; sheetName?: string; message?: string };
           deliveriesCurrent?: { success: boolean; sheetName?: string; message?: string };
         } | undefined;
-        let operationalSyncSkipped = false;
-        try {
-          const clientPhone = isNewClient 
+        let operationalSyncSkipped = isWholesaleContext && !FACUNDO_SELLER_IDS.includes(originalOrderSnapshot?.seller_id || seller_id);
+        if (!operationalSyncSkipped) try {
+          const clientPhone = isNewClient || (isAnabelSeller && !isWholesaleContext)
             ? (newClientPhones.map(cleanPhoneForSaving).filter(Boolean)[0] || '')
             : (clients.find(c => c.id === selectedClientId)?.phone_primary || '');
-          const clientPhone2 = isNewClient
+          const clientPhone2 = isNewClient || (isAnabelSeller && !isWholesaleContext)
             ? (newClientPhones.map(cleanPhoneForSaving).filter(Boolean)[1] || '')
             : '';
           let sellerFullName = sellersList.find(s => s.id === seller_id)?.full_name;
@@ -5675,7 +5895,10 @@ export default function PedidosPage() {
             source: sheetSource,
             deliveryNotes: [
               aclaraciones, 
-              deliveryDetail
+              deliveryDetail,
+              (!includeIVA && partialIvaAmount > 0)
+                ? `[Factura con IVA: ${paymentsWithSurcharges.filter(p => p.has_iva).map(p => `${dbPaymentMethods.find(m => m.id === p.payment_method_id)?.name || 'Pago'} ${p.amount.toLocaleString('es-AR')} (IVA ${(p.ivaValue || 0).toLocaleString('es-AR')})`).join(', ')}]`
+                : ''
             ].filter(Boolean).map((s: string) => s.trim()).join(' / '),
             medium: mediumName,
             sellerName: normalizeSellerName(sellerFullName),
@@ -5697,7 +5920,9 @@ export default function PedidosPage() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              sellerId: seller_id,
+              // El código permanece en la planilla que lo originó. Si cambia
+              // la atribución comercial, sólo cambia el nombre de vendedor.
+              sellerId: originalOrderSnapshot?.seller_id || seller_id,
               legacyCode: effectiveLegacyCode || orderData.legacy_code || legacyCode || '',
               order: sheetOrderPayload,
               logisticsObservation: logisticsObservation.trim()
@@ -5726,7 +5951,7 @@ export default function PedidosPage() {
         }
         const selectedPayMethodName = dbPaymentMethods.find(m => m.id === paymentsList[0]?.payment_method_id)?.name || 'Efectivo';
         const payStatusName = paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? `Señado (${formatPrice(depositAmount)})` : 'Contra Entrega');
-        const clientPhone = isNewClient 
+        const clientPhone = isNewClient || (isAnabelSeller && !isWholesaleContext)
             ? (newClientPhones.map(cleanPhoneForSaving).filter(Boolean)[0] || '')
             : (clients.find(c => c.id === selectedClientId)?.phone_primary || '');
 
@@ -5741,8 +5966,9 @@ export default function PedidosPage() {
         // Enviar automáticamente a Telegram SOLO si hay cambios que afectan a Logística
         const hasOperationalSyncFailure = !!operationalSync &&
           (!operationalSync.central?.success || !operationalSync.deliveriesCurrent?.success);
-        const shouldNotifyLogistics = !operationalSyncSkipped &&
-          (isLogisticallyRelevantChange(editChangesSummary, logisticsObservation) || hasOperationalSyncFailure);
+        const shouldNotifyLogistics = isWholesaleContext
+          ? isLogisticallyRelevantChange(editChangesSummary, logisticsObservation)
+          : !operationalSyncSkipped && (isLogisticallyRelevantChange(editChangesSummary, logisticsObservation) || hasOperationalSyncFailure);
         setIsLogisticallyRelevant(shouldNotifyLogistics);
 
         let telegramSuccess = false;
@@ -5772,20 +5998,17 @@ export default function PedidosPage() {
         // Actualizar estado local
         setOrders(prev => prev.map(o => o.id === orderData.id ? { ...o, ...orderData } : o));
       } else {
-        if (sheetSyncSuccess && finalLegacyCode) {
-          alert(`¡Pedido ${finalLegacyCode} guardado y registrado en la planilla con éxito!${operationalSyncWarning ? `\n\n⚠️ ${operationalSyncWarning}` : ''}`);
-        } else if (sheetAttempted && !sheetSyncSuccess) {
-          alert(`⚠️ ATENCIÓN: El pedido se guardó en el sistema, pero NO se pudo registrar en la planilla de Google.\n\nMotivo: ${sheetSyncError || 'Error de permisos o conexión'}\n\nPodrás sincronizarlo manualmente desde la lista de pedidos con el botón "A Planilla" una vez verificado el acceso.`);
-        } else {
-          alert("Pedido cargado con éxito en el sistema. Se ha reservado el stock de los productos.");
-        }
+        setOrderSaveNotice(isWholesaleContext && !FACUNDO_SELLER_IDS.includes(seller_id)
+          ? 'Pedido mayorista guardado en el ERP. Los avisos de Telegram se procesan en segundo plano. Podés cargar el siguiente pedido.'
+          : 'Pedido guardado. Las planillas y Telegram se procesan en segundo plano. Podés cargar el siguiente pedido.');
+        window.dispatchEvent(new Event('order-sync-updated'));
       }
 
-      // Enviar comprobantes a Telegram si hay comprobantes cargados no enviados
-      try {
+      // En altas nuevas los comprobantes viajan en la cola persistente.
+      if (editingOrderId) try {
         const orderCodeForTelegram = effectiveLegacyCode || finalLegacyCode || legacyCode || orderData?.legacy_code || '';
         const clientNameForTelegram = (isNewClient ? newClientName : cliente) || '';
-        const clientTaxIdForTelegram = isNewClient ? newClientTaxId : (clients.find(c => c.id === selectedClientId)?.tax_id || '');
+        const clientTaxIdForTelegram = isNewClient || (isAnabelSeller && !isWholesaleContext) ? newClientTaxId : (clients.find(c => c.id === selectedClientId)?.tax_id || '');
         const paymentStatusLabel = paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? 'Señado' : 'Pendiente');
 
         const unsentReceipts = paymentsList.filter(p => Boolean(p.receipt_url) && !p.telegram_sent);
@@ -5805,7 +6028,7 @@ export default function PedidosPage() {
                 legacyCode: orderCodeForTelegram,
                 customerName: clientNameForTelegram,
                 taxId: clientTaxIdForTelegram,
-                sellerName: currentSeller?.full_name || '',
+                sellerName: sellersList.find(seller => seller.id === seller_id)?.full_name || currentSeller?.full_name || '',
                 status: paymentStatusLabel,
                 receipts: receiptsPayload,
                 pendingBalance: pendingBalance
@@ -5904,7 +6127,9 @@ export default function PedidosPage() {
           card_surcharge: defaultPm ? (defaultPm.surcharge_percentage || 0) : 0,
           card_installments: defaultPm ? (defaultPm.installments || 1) : 1,
           receipt_url: "",
-          notes: ""
+          notes: "",
+          has_iva: false,
+          iva_mode: 'included'
         }
       ]);
       setSelectedClientId("");
@@ -5920,6 +6145,7 @@ export default function PedidosPage() {
       setOrderItems([]);
       setOrderDiscountType('percentage');
       setOrderDiscountValue(0);
+      setOrderDiscounts([]);
       setOrderCategory("auto");
       setCommercialBrand(isWholesaleContext || FACUNDO_SELLER_IDS.includes(seller_id) ? 'aquafort' : 'zono');
       
@@ -5943,12 +6169,19 @@ export default function PedidosPage() {
       console.error(error);
       alert(`Error al cargar el pedido: ${error?.message || error?.details || JSON.stringify(error)}`);
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };
 
   return (
     <div className="space-y-4">
+      {orderSaveNotice && (
+        <div role="status" className="flex items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+          <span>{orderSaveNotice}</span>
+          <button type="button" aria-label="Cerrar aviso" onClick={() => setOrderSaveNotice('')}><X className="h-4 w-4" /></button>
+        </div>
+      )}
       {activeTab === 'form' ? (
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-3.5 px-4 rounded-2xl border border-slate-200/80 shadow-xs">
           <div className="flex items-center gap-3">
@@ -6085,12 +6318,12 @@ export default function PedidosPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-start pb-3 border-b border-slate-200/70">
                 {/* Código de Pedido Legacy */}
                 <div className="space-y-1">
-                  <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Código de Pedido (Anterior)</label>
+                  <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">{editingOrderId ? 'Código de Pedido' : isWholesaleContext ? 'Código asignado al guardar en ERP' : 'Código estimado (se confirma al sincronizar)'}</label>
                   <input
                     type="text"
                     value={legacyCode}
                     readOnly
-                    placeholder="Generando..."
+                    placeholder={isWholesaleContext ? 'Automático' : 'Generando...'}
                     className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-100 text-slate-500 font-bold text-xs outline-none cursor-not-allowed select-all h-[34px]"
                   />
                 </div>
@@ -6103,6 +6336,7 @@ export default function PedidosPage() {
                   {assignableSellers.length > 0 ? (
                     <select
                       value={selectedSellerId || currentUserId}
+                      disabled={Boolean(editingOrderId) && role !== 'admin'}
                       onChange={(e) => {
                         const newId = e.target.value;
                         setSelectedSellerId(newId);
@@ -6110,7 +6344,7 @@ export default function PedidosPage() {
                           generateNextLegacyCode(newId);
                         }
                       }}
-                      className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-800 font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 transition-all cursor-pointer h-[34px]"
+                      className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-800 font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 transition-all cursor-pointer disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 h-[34px]"
                     >
                       {assignableSellers.map((s) => (
                         <option key={s.id} value={s.id}>
@@ -6126,6 +6360,9 @@ export default function PedidosPage() {
                       className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-100 text-slate-700 font-bold text-xs outline-none cursor-not-allowed select-all h-[34px]"
                     />
                   )}
+                  <p className="text-[9px] font-medium text-slate-400">
+                    La venta se atribuye a esta persona; quien realiza la carga queda registrado por separado.
+                  </p>
                 </div>
 
                 {/* Categoría del Pedido para Atribución de Marketing */}
@@ -6436,6 +6673,16 @@ export default function PedidosPage() {
                         Cambiar / Limpiar
                       </button>
                     </div>
+
+                    {isAnabelSeller && !isWholesaleContext && (
+                      <div className="grid gap-2 rounded-xl border border-amber-200 bg-amber-50/70 p-3">
+                        <p className="text-[10px] font-bold text-amber-800">Datos para este pedido. Los cambios no modifican la ficha del cliente ni sus pedidos anteriores.</p>
+                        <input value={cliente} onChange={e => { setCliente(e.target.value); setNewClientName(e.target.value); }} placeholder="Nombre para este pedido" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs" />
+                        <input value={newClientPhones[0] || ''} onChange={e => setNewClientPhones(prev => [e.target.value, prev[1] || ''])} placeholder="Teléfono para este pedido" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs" />
+                        <input value={newClientPhones[1] || ''} onChange={e => setNewClientPhones(prev => [prev[0] || '', e.target.value])} placeholder="Teléfono secundario para este pedido" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs" />
+                        <input value={newClientTaxId} onChange={e => setNewClientTaxId(e.target.value)} placeholder="DNI / CUIT para este pedido" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs" />
+                      </div>
+                    )}
 
                     <div className="p-2.5 bg-brand-50/20 border border-brand-100/50 rounded-xl flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-1">
                       <div className="text-[9px] font-black text-brand-600 uppercase tracking-wider">Dirección de Entrega:</div>
@@ -7087,6 +7334,7 @@ export default function PedidosPage() {
                     <label className="text-[9px] font-black uppercase tracking-wider text-slate-400 font-bold">Estado del Pedido</label>
                     <select
                       value={orderStatus}
+                      disabled={originalOrderSnapshot?.status === 'Cancelado' || originalOrderSnapshot?.status === 'Anulado'}
                       onChange={e => {
                         const val = e.target.value;
                         setOrderStatus(val);
@@ -7103,6 +7351,8 @@ export default function PedidosPage() {
                       <option value="Entregado">Entregado</option>
                       <option value="Cancelado">Cancelado</option>
                     </select>
+                    {(originalOrderSnapshot?.status === 'Cancelado' || originalOrderSnapshot?.status === 'Anulado') &&
+                      <p className="text-xs text-amber-700">Para cambiar este estado, usá «Reactivar pedido» en la lista.</p>}
                   </div>
 
                   {orderStatus === 'En Espera' && (
@@ -7339,9 +7589,7 @@ export default function PedidosPage() {
                                   >
                                     -
                                   </button>
-                                  <span className="px-1.5 font-black text-xs min-w-[1.2rem] text-center text-slate-800">
-                                    {item.quantity}
-                                  </span>
+                                  <QuantityInput value={item.quantity} onChange={quantity => updateQuantity(item.id, quantity)} />
                                   <button 
                                     type="button" 
                                     onClick={() => updateQuantity(item.id, item.quantity + 1)} 
@@ -7470,9 +7718,7 @@ export default function PedidosPage() {
                               >
                                 -
                               </button>
-                              <span className="px-1.5 font-black text-xs min-w-[1.2rem] text-center text-slate-800">
-                                {item.quantity}
-                              </span>
+                              <QuantityInput value={item.quantity} onChange={quantity => updateQuantity(item.id, quantity)} />
                               <button 
                                 type="button" 
                                 onClick={() => updateQuantity(item.id, item.quantity + 1)} 
@@ -7559,6 +7805,31 @@ export default function PedidosPage() {
                 <div className="space-y-2.5 pt-3 border-t border-slate-200/60">
                   
                   {/* Bloque Descuento al Total del Pedido */}
+                  {isWholesaleContext ? (
+                  <div className="flex flex-col gap-2 p-2.5 bg-white rounded-xl border border-slate-200">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[9.5px] font-black text-slate-700 uppercase tracking-wide flex items-center gap-1"><Tag className="w-3.5 h-3.5 text-amber-600" /> Descuentos del pedido</span>
+                      {orderDiscountAmount > 0 && <span className="text-[10.5px] font-black text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md">-{formatPrice(orderDiscountAmount)}</span>}
+                    </div>
+                    {orderDiscountBreakdown.map(discount => (
+                      <div key={discount.id} className="rounded-lg border border-amber-200 bg-amber-50/40 p-2 space-y-1.5">
+                        <div className="flex gap-1.5">
+                          <input aria-label="Descripción del descuento" value={discount.description} onChange={event => updateOrderDiscounts(effectiveOrderDiscounts.map(item => item.id === discount.id ? { ...item, description: event.target.value } : item))} className="min-w-0 flex-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-bold" />
+                          <button type="button" aria-label="Quitar descuento" onClick={() => updateOrderDiscounts(effectiveOrderDiscounts.filter(item => item.id !== discount.id))} className="px-1.5 text-slate-400 hover:text-red-600"><X className="w-3.5 h-3.5" /></button>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <div className="flex overflow-hidden rounded-md border border-slate-200 bg-slate-100 text-xs">
+                            {(['percentage', 'fixed'] as const).map(type => <button key={type} type="button" onClick={() => updateOrderDiscounts(effectiveOrderDiscounts.map(item => item.id === discount.id ? { ...item, type } : item))} className={`px-2 py-1 font-black ${discount.type === type ? 'bg-amber-500 text-white' : 'text-slate-600'}`}>{type === 'percentage' ? '%' : '$'}</button>)}
+                          </div>
+                          <input aria-label={`Valor de ${discount.description}`} type="number" min="0" value={discount.value || ''} onChange={event => updateOrderDiscounts(effectiveOrderDiscounts.map(item => item.id === discount.id ? { ...item, value: Math.max(0, Number(event.target.value)) } : item))} className="min-w-0 flex-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-bold" />
+                          <span className="min-w-20 text-right text-xs font-black text-amber-700">-{formatPrice(discount.amount)}</span>
+                        </div>
+                      </div>
+                    ))}
+                    <button type="button" onClick={() => updateOrderDiscounts([...effectiveOrderDiscounts, { id: crypto.randomUUID(), description: 'Otro descuento', type: 'percentage', value: 0 }])} className="rounded-lg border border-dashed border-amber-300 py-1.5 text-[10px] font-bold text-amber-700 hover:bg-amber-50">+ Agregar otro descuento</button>
+                    <p className="text-[9.5px] text-slate-400 font-medium italic">En planilla se registra el total como monto fijo en Descuento Compra Mayorista.</p>
+                  </div>
+                  ) : (
                   <div className="flex flex-col gap-2 p-2.5 bg-white rounded-xl border border-slate-200">
                     <div className="flex items-center justify-between">
                       <span className="text-[9.5px] font-black text-slate-700 uppercase tracking-wide flex items-center gap-1">
@@ -7646,6 +7917,7 @@ export default function PedidosPage() {
                       💡 En planilla se registra como <strong>Descuento Compra Mayorista</strong> y los artículos van a precio de lista.
                     </p>
                   </div>
+                  )}
                   
                   {/* Costo de Envío / Flete */}
                   <div className="flex flex-col gap-1.5 p-2.5 bg-white rounded-xl border border-slate-200">
@@ -7679,15 +7951,30 @@ export default function PedidosPage() {
                   </div>
 
                   {/* Factura con IVA 21% */}
-                  <label className="flex items-center justify-between p-2.5 bg-white rounded-xl border border-slate-200 cursor-pointer select-none">
-                    <span className="text-[9px] font-black text-slate-600 uppercase tracking-wide">Factura con IVA (+21%)</span>
-                    <input 
-                      type="checkbox" 
-                      checked={includeIVA} 
-                      onChange={(e) => setIncludeIVA(e.target.checked)} 
-                      className="w-3.5 h-3.5 rounded text-brand-600 focus:ring-brand-500/10 cursor-pointer"
-                    />
-                  </label>
+                  <div className="bg-white rounded-xl border border-slate-200 p-2.5 space-y-1.5 shadow-2xs">
+                    <label className="flex items-center justify-between cursor-pointer select-none">
+                      <div className="flex flex-col">
+                        <span className="text-[9px] font-black text-slate-600 uppercase tracking-wide">Factura con IVA (+21% Total)</span>
+                        <span className="text-[8px] font-semibold text-slate-400">Aplica 21% sobre el total del pedido</span>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={includeIVA}
+                        onChange={(e) => setIncludeIVA(e.target.checked)}
+                        className="w-3.5 h-3.5 rounded text-brand-600 focus:ring-brand-500/10 cursor-pointer"
+                      />
+                    </label>
+                    {!includeIVA && partialIvaAmount > 0 && (
+                      <div className="pt-1.5 border-t border-slate-100 flex items-center justify-between text-[9px]">
+                        <span className="font-bold text-blue-600 flex items-center gap-1">
+                          <FileText className="w-3 h-3" /> Factura parcial en comprobantes
+                        </span>
+                        <span className="font-black text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100">
+                          +{formatPrice(partialIvaAmount)}
+                        </span>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -7712,7 +7999,9 @@ export default function PedidosPage() {
                           card_installments: 1,
                           receipt_url: "",
                           notes: "",
-                          telegram_sent: false
+                          telegram_sent: false,
+                          has_iva: false,
+                          iva_mode: 'included'
                         }
                       ]);
                     }}
@@ -8094,6 +8383,77 @@ export default function PedidosPage() {
                           </div>
                         </div>
                       )}
+                      {/* Opción de Facturación con IVA (21%) para este pago */}
+                      {!includeIVA && (
+                        <div className={`p-2.5 rounded-xl border transition-all ${
+                          p.has_iva
+                            ? 'bg-blue-50/70 border-blue-200 text-blue-900 shadow-2xs'
+                            : 'bg-slate-50/50 border-slate-200/80 hover:bg-slate-50 text-slate-600'
+                        }`}>
+                          <div className="flex items-center justify-between gap-2">
+                            <label className="flex items-center gap-2 cursor-pointer select-none">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(p.has_iva)}
+                                onChange={(e) => {
+                                  const checked = e.target.checked;
+                                  setPaymentsList(prev => prev.map(item => item.id === p.id ? {
+                                    ...item,
+                                    has_iva: checked,
+                                    iva_mode: item.iva_mode || 'included'
+                                  } : item));
+                                }}
+                                className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500/20 cursor-pointer"
+                              />
+                              <span className="text-[10px] font-black uppercase tracking-wider text-slate-700 flex items-center gap-1">
+                                <FileText className="w-3.5 h-3.5 text-blue-500" />
+                                Factura con IVA (21%) en este pago
+                              </span>
+                            </label>
+
+                            {p.has_iva && p.ivaValue > 0 && (
+                              <span className="text-[10px] font-black text-blue-700 bg-blue-100/80 px-2 py-0.5 rounded-full border border-blue-200 whitespace-nowrap">
+                                IVA: +{formatPrice(p.ivaValue)}
+                              </span>
+                            )}
+                          </div>
+
+                          {p.has_iva && (
+                            <div className="mt-2 pt-2 border-t border-blue-200/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2 animate-in fade-in duration-150">
+                              <div className="flex items-center gap-3">
+                                <label className="flex items-center gap-1.5 cursor-pointer text-[9px] font-bold text-slate-700 select-none">
+                                  <input
+                                    type="radio"
+                                    name={`iva_mode_${p.id}`}
+                                    checked={p.iva_mode !== 'added'}
+                                    onChange={() => {
+                                      setPaymentsList(prev => prev.map(item => item.id === p.id ? { ...item, iva_mode: 'included' } : item));
+                                    }}
+                                    className="w-3 h-3 text-blue-600 focus:ring-blue-500/20 cursor-pointer"
+                                  />
+                                  <span>Monto ya incluye IVA (desglosar 21%)</span>
+                                </label>
+                                <label className="flex items-center gap-1.5 cursor-pointer text-[9px] font-bold text-slate-700 select-none">
+                                  <input
+                                    type="radio"
+                                    name={`iva_mode_${p.id}`}
+                                    checked={p.iva_mode === 'added'}
+                                    onChange={() => {
+                                      setPaymentsList(prev => prev.map(item => item.id === p.id ? { ...item, iva_mode: 'added' } : item));
+                                    }}
+                                    className="w-3 h-3 text-blue-600 focus:ring-blue-500/20 cursor-pointer"
+                                  />
+                                  <span>Sumar +21% sobre este monto</span>
+                                </label>
+                              </div>
+
+                              <div className="text-[9px] font-extrabold text-blue-800 bg-white/90 px-2 py-0.5 rounded-md border border-blue-200/80 whitespace-nowrap">
+                                Base: <span className="font-black">{formatPrice(p.taxableBase)}</span> • IVA 21%: <span className="font-black">{formatPrice(p.ivaValue)}</span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
 
                       {/* Comprobante de pago y notas */}
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 border-t border-slate-100">
@@ -8210,7 +8570,9 @@ export default function PedidosPage() {
                         card_installments: 1,
                         receipt_url: "",
                         notes: "",
-                        telegram_sent: false
+                        telegram_sent: false,
+                        has_iva: false,
+                        iva_mode: 'included'
                       }
                     ]);
                   }}
@@ -8267,12 +8629,12 @@ export default function PedidosPage() {
                     <span>Subtotal Artículos</span>
                     <span>{formatPrice(itemsGrossSubtotal)}</span>
                   </div>
-                  {orderDiscountAmount > 0 && (
-                    <div className="flex justify-between text-xs font-black text-amber-600 bg-amber-50/70 p-1.5 rounded-lg border border-amber-200/70">
-                      <span>Descuento Pedido ({orderDiscountType === 'percentage' ? `${orderDiscountValue}%` : 'Monto Fijo'})</span>
-                      <span>-{formatPrice(orderDiscountAmount)}</span>
+                  {orderDiscountBreakdown.filter(discount => discount.amount > 0).map(discount => (
+                    <div key={discount.id} className="flex justify-between text-xs font-black text-amber-600 bg-amber-50/70 p-1.5 rounded-lg border border-amber-200/70">
+                      <span>{discount.description} ({discount.type === 'percentage' ? `${discount.value}%` : 'Monto Fijo'})</span>
+                      <span>-{formatPrice(discount.amount)}</span>
                     </div>
-                  )}
+                  ))}
                   {orderDiscountAmount > 0 && (
                     <div className="flex justify-between text-xs font-bold text-slate-700">
                       <span>Subtotal Neto</span>
@@ -8293,7 +8655,7 @@ export default function PedidosPage() {
                   )}
                   {ivaAmount > 0 && (
                     <div className="flex justify-between text-xs font-bold text-slate-600">
-                      <span>IVA (21%)</span>
+                      <span>{includeIVA ? "IVA Total (21%)" : "IVA Factura Parcial (21%)"}</span>
                       <span>+{formatPrice(ivaAmount)}</span>
                     </div>
                   )}
@@ -8867,7 +9229,7 @@ export default function PedidosPage() {
                         <button
                           type="button"
                           onClick={() => {
-                            const today = new Date().toISOString().split('T')[0];
+                            const today = formatDateInput(new Date());
                             setDateFrom(today);
                             setDateTo(today);
                           }}
@@ -8878,7 +9240,9 @@ export default function PedidosPage() {
                         <button
                           type="button"
                           onClick={() => {
-                            const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+                            const d = new Date();
+                            d.setDate(d.getDate() - 1);
+                            const yesterday = formatDateInput(d);
                             setDateFrom(yesterday);
                             setDateTo(yesterday);
                           }}
@@ -8889,8 +9253,10 @@ export default function PedidosPage() {
                         <button
                           type="button"
                           onClick={() => {
-                            const today = new Date().toISOString().split('T')[0];
-                            const last7 = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
+                            const today = formatDateInput(new Date());
+                            const d = new Date();
+                            d.setDate(d.getDate() - 7);
+                            const last7 = formatDateInput(d);
                             setDateFrom(last7);
                             setDateTo(today);
                           }}
@@ -8901,9 +9267,7 @@ export default function PedidosPage() {
                         <button
                           type="button"
                           onClick={() => {
-                            const now = new Date();
-                            const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-                            const today = now.toISOString().split('T')[0];
+                            const { firstDay, today } = getCurrentMonthRange();
                             setDateFrom(firstDay);
                             setDateTo(today);
                           }}
@@ -8914,25 +9278,17 @@ export default function PedidosPage() {
                       </div>
 
                       {/* Inputs manuales */}
-                      <div className="space-y-1.5 pt-1 border-t border-slate-100">
-                        <div className="flex flex-col gap-0.5">
-                          <label className="text-[9px] font-black uppercase text-slate-400">Desde</label>
-                          <input
-                            type="date"
-                            value={dateFrom}
-                            onChange={(e) => setDateFrom(e.target.value)}
-                            className="w-full px-2 py-1 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 outline-none focus:ring-1 focus:ring-brand-500"
-                          />
-                        </div>
-                        <div className="flex flex-col gap-0.5">
-                          <label className="text-[9px] font-black uppercase text-slate-400">Hasta</label>
-                          <input
-                            type="date"
-                            value={dateTo}
-                            onChange={(e) => setDateTo(e.target.value)}
-                            className="w-full px-2 py-1 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 outline-none focus:ring-1 focus:ring-brand-500"
-                          />
-                        </div>
+                      <div className="space-y-2 pt-1 border-t border-slate-100">
+                        <DateInput
+                          label="Desde"
+                          value={dateFrom}
+                          onChange={setDateFrom}
+                        />
+                        <DateInput
+                          label="Hasta"
+                          value={dateTo}
+                          onChange={setDateTo}
+                        />
                       </div>
                     </div>
                   </>
@@ -9122,6 +9478,7 @@ export default function PedidosPage() {
                         <button
                           type="button"
                           onClick={() => handleEditOrder(p)}
+                          disabled={p.status === 'Cancelado' || p.status === 'Anulado'}
                           className="p-1.5 bg-slate-50 hover:bg-brand-600 text-slate-500 hover:text-white rounded-lg border border-slate-200 hover:border-brand-600 transition-all duration-150 active:scale-90 shadow-2xs cursor-pointer"
                           title="Editar Pedido"
                         >
@@ -9143,17 +9500,17 @@ export default function PedidosPage() {
                         >
                           <Copy className="w-3.5 h-3.5" />
                         </button>
-                        <button
+                        {p.channel !== 'mayorista' && <button
                           type="button"
                           onClick={() => handleSyncExistingOrderToSheet(p)}
-                          disabled={syncingOrderId === p.id}
+                          disabled={syncingOrderId === p.id || p.status === 'Cancelado' || p.status === 'Anulado'}
                           className={`p-1.5 bg-slate-50 hover:bg-emerald-600 text-slate-500 hover:text-white rounded-lg border border-slate-200 hover:border-emerald-600 transition-all duration-150 active:scale-90 shadow-2xs cursor-pointer ${
                             syncingOrderId === p.id ? 'opacity-50 cursor-not-allowed' : ''
                           }`}
                           title={p.legacy_code ? `Re-enviar a Planilla (Código actual: ${p.legacy_code})` : "Sincronizar a Planilla Google Sheets"}
                         >
                           <FileSpreadsheet className={`w-3.5 h-3.5 ${syncingOrderId === p.id ? 'animate-spin text-emerald-600' : ''}`} />
-                        </button>
+                        </button>}
                         <button
                           type="button"
                           onClick={() => handleOpenCancelModal(p)}
@@ -9165,39 +9522,42 @@ export default function PedidosPage() {
                         >
                           <XCircle className="w-3.5 h-3.5" />
                         </button>
+                        {(p.status === 'Cancelado' || p.status === 'Anulado') && (
+                          <button type="button" onClick={() => handleReactivateOrder(p)}
+                            disabled={reactivatingOrderId === p.id}
+                            className="p-1.5 bg-emerald-50 hover:bg-emerald-600 text-emerald-700 hover:text-white rounded-lg border border-emerald-200 disabled:opacity-50"
+                            title="Reactivar pedido">
+                            {reactivatingOrderId === p.id
+                              ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              : <RotateCcw className="w-3.5 h-3.5" />}
+                          </button>
+                        )}
                         {role === 'admin' && (
                           <button
                             type="button"
                             onClick={async () => {
-                              if (!confirm(`¿Estás seguro de que deseas eliminar permanentemente el pedido de "${p.customer_name}"? Esta acción no se puede deshacer.`)) return;
-
-                              let deleteClient = false;
-                              if (p.client_id) {
-                                try {
-                                  const { data: otherOrders } = await supabase
-                                    .from('orders')
-                                    .select('id')
-                                    .eq('client_id', p.client_id)
-                                    .neq('id', p.id)
-                                    .limit(1);
-
-                                  if (!otherOrders || otherOrders.length === 0) {
-                                    deleteClient = confirm(
-                                      `El cliente "${p.customer_name}" no tiene ningún otro pedido registrado en el sistema.\n\n¿Deseas eliminar también al cliente y sus datos asociados?`
-                                    );
-                                  }
-                                } catch (chkErr) {
-                                  console.warn("Error al consultar pedidos del cliente:", chkErr);
-                                }
+                              const code = String(p.legacy_code || '').trim().toUpperCase();
+                              if (!code) {
+                                alert('Este pedido todavía no tiene código de planilla y no puede revertirse de forma segura.');
+                                return;
                               }
+                              const confirmationCode = prompt(
+                                `Esta acción es sólo para pedidos de prueba.\n\nSe eliminará ${code} del ERP, se liberará el stock, se limpiarán sus filas en todas las planillas y se borrarán sus avisos registrados de Telegram. El cliente NO será eliminado.\n\nEscribí ${code} para confirmar:`
+                              );
+                              if (confirmationCode?.trim().toUpperCase() !== code) return;
 
                               try {
+                                const { data: { session } } = await supabase.auth.getSession();
+                                if (!session?.access_token) throw new Error('La sesión venció. Volvé a ingresar al ERP.');
                                 const res = await fetch('/api/vendedores/delete-order', {
                                   method: 'POST',
-                                  headers: { 'Content-Type': 'application/json' },
+                                  headers: {
+                                    'Content-Type': 'application/json',
+                                    'Authorization': `Bearer ${session.access_token}`
+                                  },
                                   body: JSON.stringify({
                                     orderId: p.id,
-                                    deleteClient
+                                    confirmationCode: code
                                   })
                                 });
 
@@ -9207,21 +9567,16 @@ export default function PedidosPage() {
                                 }
 
                                 setOrders(prev => prev.filter(o => o.id !== p.id));
-                                if (resData.clientWasDeleted && p.client_id) {
-                                  setClients(prev => prev.filter(c => c.id !== p.client_id));
-                                }
-
-                                alert(
-                                  resData.clientWasDeleted
-                                    ? `Pedido y cliente "${p.customer_name}" eliminados con éxito.`
-                                    : `Pedido de "${p.customer_name}" eliminado con éxito.`
-                                );
+                                const telegramWarning = resData.telegramDeletion?.failures?.length
+                                  ? `\n\nAviso: ${resData.telegramDeletion.failures.length} mensaje(s) de Telegram no pudieron borrarse.`
+                                  : '';
+                                alert(`Pedido de prueba ${code} eliminado del ERP y de las planillas. El cliente se conservó.${telegramWarning}`);
                               } catch (err: any) {
-                                alert(`Error al eliminar pedido: ${err.message || err.details || 'Error desconocido'}`);
+                                alert(`Error al eliminar el pedido de prueba: ${err.message || err.details || 'Error desconocido'}`);
                               }
                             }}
                             className="p-1.5 bg-slate-50 hover:bg-red-600 text-slate-400 hover:text-white rounded-lg border border-slate-200 hover:border-red-600 transition-all duration-150 active:scale-90 shadow-2xs cursor-pointer"
-                            title="Eliminar Pedido"
+                            title="Eliminar pedido de prueba (sólo administradores)"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -9253,6 +9608,108 @@ export default function PedidosPage() {
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Datos obligatorios antes de confirmar */}
+      {showRequiredOrderFieldsModal && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="w-full max-w-lg overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-100 bg-gradient-to-r from-brand-50 via-white to-slate-50 p-5">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-brand-700">Dato obligatorio</p>
+                <h2 className="mt-1 text-lg font-black text-slate-900">
+                  {!selectedAdvertisingSourceId && isWhaticketLinkMissing
+                    ? 'Completá los datos del pedido'
+                    : !selectedAdvertisingSourceId
+                      ? 'Seleccioná la procedencia'
+                      : 'Pegá el link de Whaticket'}
+                </h2>
+                <p className="mt-1 text-sm font-medium text-slate-500">Completalos acá y continuá con el pedido sin perder los datos cargados.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowRequiredOrderFieldsModal(false)}
+                className="rounded-full p-2 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-900"
+                aria-label="Cerrar datos obligatorios"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="p-5">
+              {!selectedAdvertisingSourceId && (
+                <div className={isWhaticketLinkMissing ? 'mb-5' : ''}>
+                  <label className="mb-3 flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-slate-600">
+                    📢 Procedencia <span className="text-rose-600">*</span>
+                  </label>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {filteredAdvertisingSources.map((source) => {
+                      const isSelected = selectedAdvertisingSourceId === source.id;
+                      return (
+                        <button
+                          key={source.id}
+                          type="button"
+                          onClick={() => setSelectedAdvertisingSourceId(source.id)}
+                          className={cn(
+                            "min-h-12 rounded-xl border px-3 py-2 text-left text-xs font-bold transition-all",
+                            isSelected
+                              ? "border-brand-600 bg-brand-600 text-white ring-2 ring-brand-500/20 shadow-sm"
+                              : "border-slate-200 bg-white text-slate-700 hover:border-brand-300 hover:bg-brand-50"
+                          )}
+                        >
+                          {source.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {showWhaticketLinkFieldInModal && (
+                <div className="space-y-2">
+                  <label className="flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-slate-600">
+                    🔗 Link de Whaticket <span className="text-rose-600">*</span>
+                  </label>
+                  <input
+                    type="url"
+                    value={whaticketLink}
+                    onChange={(event) => setWhaticketLink(event.target.value)}
+                    placeholder="https://whaticket... o pegar enlace de conversación"
+                    autoFocus={!!selectedAdvertisingSourceId}
+                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-800 outline-none transition-all placeholder:font-medium placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10"
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-3 border-t border-slate-100 bg-slate-50 p-5">
+              <button
+                type="button"
+                onClick={() => setShowRequiredOrderFieldsModal(false)}
+                className="rounded-xl px-4 py-2.5 text-sm font-bold text-slate-600 transition-colors hover:bg-slate-200"
+              >
+                Volver
+              </button>
+              <Button
+                type="button"
+                disabled={!selectedAdvertisingSourceId || isWhaticketLinkMissing}
+                onClick={() => {
+                  const shouldResumeSubmission = showSummaryModal || showEditConfirmModal;
+                  setShowRequiredOrderFieldsModal(false);
+                  if (shouldResumeSubmission) {
+                    void confirmAndSubmit();
+                  } else if (resumeOrderReviewAfterRequiredFields) {
+                    setResumeOrderReviewAfterRequiredFields(false);
+                    openOrderReview();
+                  }
+                }}
+                className="rounded-xl px-5 py-2.5 text-sm font-black"
+              >
+                Continuar con el pedido
+              </Button>
+            </div>
           </div>
         </div>
       )}
@@ -9368,12 +9825,12 @@ export default function PedidosPage() {
                    <span>Subtotal Artículos</span>
                    <span>{formatPrice(itemsGrossSubtotal)}</span>
                  </div>
-                 {orderDiscountAmount > 0 && (
-                   <div className="flex justify-between text-sm font-black text-amber-600 bg-amber-50 p-1.5 rounded-lg border border-amber-200">
-                     <span>Descuento Pedido ({orderDiscountType === 'percentage' ? `${orderDiscountValue}%` : 'Monto Fijo'})</span>
-                     <span>-{formatPrice(orderDiscountAmount)}</span>
+                 {orderDiscountBreakdown.filter(discount => discount.amount > 0).map(discount => (
+                   <div key={discount.id} className="flex justify-between text-sm font-black text-amber-600 bg-amber-50 p-1.5 rounded-lg border border-amber-200">
+                     <span>{discount.description} ({discount.type === 'percentage' ? `${discount.value}%` : 'Monto Fijo'})</span>
+                     <span>-{formatPrice(discount.amount)}</span>
                    </div>
-                 )}
+                 ))}
                  {orderDiscountAmount > 0 && (
                    <div className="flex justify-between text-sm font-bold text-slate-700">
                      <span>Subtotal Neto</span>
@@ -9394,7 +9851,7 @@ export default function PedidosPage() {
                  )}
                  {ivaAmount > 0 && (
                    <div className="flex justify-between text-sm font-bold text-slate-600">
-                     <span>IVA (21%)</span>
+                     <span>{includeIVA ? "IVA Total (21%)" : "IVA Factura Parcial (21%)"}</span>
                      <span>+{formatPrice(ivaAmount)}</span>
                    </div>
                  )}
@@ -10477,7 +10934,7 @@ export default function PedidosPage() {
                         {/* Actions for this order */}
                         <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
                           {/* Sync to Sheet */}
-                          <button
+                          {order.channel !== 'mayorista' && <button
                             type="button"
                             disabled={syncingOrderId === order.id}
                             onClick={() => handleSyncExistingOrderToSheet(order)}
@@ -10490,7 +10947,7 @@ export default function PedidosPage() {
                           >
                             <FileSpreadsheet className={`w-3.5 h-3.5 ${syncingOrderId === order.id ? 'animate-spin text-emerald-600' : 'text-emerald-600'}`} />
                             <span className="text-[11px]">{order.legacy_code ? 'Re-sincronizar' : 'A Planilla'}</span>
-                          </button>
+                          </button>}
 
                           {/* Clone into form */}
                           <button
@@ -10581,6 +11038,8 @@ export default function PedidosPage() {
         isWholesaleContext={isWholesaleContext}
         orderDiscountType={orderDiscountType}
         orderDiscountValue={orderDiscountValue}
+        orderDiscounts={isWholesaleContext ? effectiveOrderDiscounts : undefined}
+        onUpdateOrderDiscounts={isWholesaleContext ? updateOrderDiscounts : undefined}
         onUpdateOrderDiscount={(type, value) => {
           setOrderDiscountType(type);
           setOrderDiscountValue(value);

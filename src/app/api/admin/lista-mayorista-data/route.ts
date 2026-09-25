@@ -86,12 +86,12 @@ function parseSpanishNumber(val: unknown): number {
 }
 
 function slugifyProductId(name: string): string {
-  return `sheet-${name
+  return name
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')}`;
+    .replace(/^-+|-+$/g, '');
 }
 
 function inferProductMetadata(name: string) {
@@ -133,6 +133,7 @@ function buildHistoricalListItems(csvText: string, listNumber: string) {
     return [{
       id: slugifyProductId(name),
       name,
+      sku: name,
       ...metadata,
       originType: 'Histórico hoja LISTAS',
       rawInsumosColE: 0,
@@ -270,6 +271,16 @@ export async function GET(request: Request) {
       { id: 'deseng-1000', name: 'BioFort - Desengrasadora 1000L', family: 'Cámaras Desengrasadoras', category: 'Cámaras Desengrasadoras', liters: '1000L', isManufactured: false, score: 0, fallbackColE: 145826.83 },
       { id: 'deseng-3000', name: 'BioFort - Desengrasadora 3000L', family: 'Cámaras Desengrasadoras', category: 'Cámaras Desengrasadoras', liters: '3000L', isManufactured: false, score: 0, fallbackColE: 351965.77 },
 
+      // COMPLEMENTOS PARA TANQUES
+      { id: '5fdf20d6-fb4a-42ee-89cb-c8e0c07a4419', name: 'Flotante Eco Varilla Plástica 1/2"', family: 'Flotantes', category: 'Flotantes', liters: '', isManufactured: false, score: 0, fallbackColE: 10000 },
+      { id: 'ac1936af-24b3-436d-85a9-c426e5f16149', name: 'Flotante Completo Varilla Bronce Rao 1/2', family: 'Flotantes', category: 'Flotantes', liters: '', isManufactured: false, score: 0, fallbackColE: 16500 },
+      { id: 'a9a39b8d-8454-4fb6-a06f-204b02cb6cfb', name: 'Flotante Completo Varilla Bronce Rao 3/4', family: 'Flotantes', category: 'Flotantes', liters: '', isManufactured: false, score: 0, fallbackColE: 16500 },
+      { id: '7a65d99f-d56f-4bbf-a6b7-e8ef38f2ff0a', name: 'Base Hierro Reforzada 74 cms', family: 'Bases', category: 'Bases', liters: '74 cm', isManufactured: false, score: 0, fallbackColE: 49700 },
+      { id: 'f0478d75-ae8a-42ae-8662-6ac3262bc43c', name: 'Base de Hierro Reforzada para Tanque (85 cm)', family: 'Bases', category: 'Bases', liters: '85 cm', isManufactured: false, score: 0, fallbackColE: 49700 },
+      { id: '1e93a8f1-60dd-4d5d-8544-d2dc71e2505d', name: 'Base Hierro Reforzada 102 cms', family: 'Bases', category: 'Bases', liters: '102 cm', isManufactured: false, score: 0, fallbackColE: 49700 },
+      { id: 'cfc521fe-d091-48f9-949f-6ab98579cbcf', name: 'Base Hierro Reforzada 145 cms', family: 'Bases', category: 'Bases', liters: '145 cm', isManufactured: false, score: 0, fallbackColE: 133200 },
+      { id: '8d25dc58-b7f7-467f-917a-3434890dc634', name: 'AUTOMATICO TANQUE/CISTERNA - MP (1,5m)', family: 'Automáticos', category: 'Automáticos', liters: '1,5 m', isManufactured: false, score: 0, fallbackColE: 11000 },
+
     ];
 
     const products = catalogDefinition.map(item => {
@@ -316,7 +327,10 @@ export async function GET(request: Request) {
       'Cisternas',
       'Biodigestores',
       'Cámaras Sépticas',
-      'Cámaras Desengrasadoras'
+      'Cámaras Desengrasadoras',
+      'Flotantes',
+      'Bases',
+      'Automáticos'
     ];
 
     // Lista 12 se reconstruye desde la fuente histórica completa, no desde un

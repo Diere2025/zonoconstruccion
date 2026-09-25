@@ -24,6 +24,7 @@ import {
   List
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { optimizeImageUpload } from "@/lib/optimizeImageUpload";
 import { Product } from "@/types";
 import { 
   VisualCatalogConfig, 
@@ -32,7 +33,9 @@ import {
   VisualItemOption,
   DEFAULT_FAMILY_IMAGES,
   generateDefaultVisualConfig,
-  includeInstallationKitCuplas
+  includeInstallationKitCuplas,
+  moveSubgroupToTopLevel,
+  promoteTermotanqueLines
 } from "@/lib/visualSelectorConfig";
 
 interface VisualSelectorSettingsProps {
@@ -49,6 +52,8 @@ export default function VisualSelectorSettings({ products = [] }: VisualSelector
   const [localProducts, setLocalProducts] = useState<Product[]>(products);
   const [includeInactiveInPicker, setIncludeInactiveInPicker] = useState(false);
   const [adminItemsView, setAdminItemsView] = useState<'grid' | 'list'>('list');
+  const [directSearch, setDirectSearch] = useState('');
+  const [familyDirectSearch, setFamilyDirectSearch] = useState('');
 
   // Selected navigation hierarchy in the admin
   const [selectedFamilyId, setSelectedFamilyId] = useState<string>('tanques');
@@ -122,10 +127,10 @@ export default function VisualSelectorSettings({ products = [] }: VisualSelector
                 }))
               }));
 
-              const normalizedConfig: VisualCatalogConfig = includeInstallationKitCuplas({
+              const normalizedConfig: VisualCatalogConfig = promoteTermotanqueLines(includeInstallationKitCuplas({
                 ...parsed,
                 families: normalizedFamilies
-              }, prods);
+              }, prods));
 
               setConfig(normalizedConfig);
               if (normalizedConfig.families[0]) {
@@ -246,62 +251,15 @@ export default function VisualSelectorSettings({ products = [] }: VisualSelector
     setEditingItem(null);
   };
 
-  // Helper to compress image to lightweight JPG on client side before upload
-  const compressImageToJpg = async (file: File, maxWidth = 1200, quality = 0.82): Promise<Blob> => {
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const img = new Image();
-        img.onload = () => {
-          let { width, height } = img;
-          if (width > maxWidth) {
-            height = Math.round((height * maxWidth) / width);
-            width = maxWidth;
-          }
-          const canvas = document.createElement('canvas');
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          if (!ctx) {
-            resolve(file);
-            return;
-          }
-          ctx.fillStyle = '#ffffff';
-          ctx.fillRect(0, 0, width, height);
-          ctx.drawImage(img, 0, 0, width, height);
-          canvas.toBlob(
-            (blob) => {
-              if (blob) resolve(blob);
-              else resolve(file);
-            },
-            'image/jpeg',
-            quality
-          );
-        };
-        img.onerror = () => resolve(file);
-        img.src = event.target?.result as string;
-      };
-      reader.onerror = () => resolve(file);
-      reader.readAsDataURL(file);
-    });
-  };
-
   // Helper to upload an image to Supabase Storage
   const uploadImageFile = async (file: File): Promise<string> => {
-    let uploadData: Blob | File = file;
-    let ext = 'jpg';
-    try {
-      uploadData = await compressImageToJpg(file);
-    } catch {
-      uploadData = file;
-      ext = file.name.split('.').pop() || 'jpg';
-    }
-
+    const uploadData = await optimizeImageUpload(file);
+    const ext = uploadData.name.split('.').pop() || 'webp';
     const filePath = `visual-selector/${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${ext}`;
     const { error: uploadError } = await supabase.storage
       .from('product-images')
       .upload(filePath, uploadData, { 
-        contentType: 'image/jpeg',
+        contentType: uploadData.type,
         upsert: true 
       });
     if (uploadError) throw uploadError;
@@ -309,6 +267,21 @@ export default function VisualSelectorSettings({ products = [] }: VisualSelector
       .from('product-images')
       .getPublicUrl(filePath);
     return publicUrlData.publicUrl;
+  };
+
+  const handleUploadDirectProductImage = async (productId: string, file: File) => {
+    setUploading(true);
+    try {
+      const imageUrl = await uploadImageFile(file);
+      setConfig(prev => prev && ({
+        ...prev,
+        directProductImages: { ...prev.directProductImages, [productId]: imageUrl }
+      }));
+    } catch (error) {
+      alert('Error al subir imagen: ' + (error instanceof Error ? error.message : String(error)));
+    } finally {
+      setUploading(false);
+    }
   };
 
   // Upload image to Supabase Storage for item being edited
@@ -422,8 +395,8 @@ export default function VisualSelectorSettings({ products = [] }: VisualSelector
   };
 
   // Add a new Family
-  const handleAddFamily = () => {
-    const name = prompt("Nombre de la nueva Familia (ej: Termotanques Universal, Bombas, etc.):");
+  const handleAddFamily = (directLine = false) => {
+    const name = prompt(directLine ? 'Título de la nueva línea directa (ej: Cooper, Pinturas Zono):' : "Nombre de la nueva Familia (ej: Termotanques Universal, Bombas, etc.):");
     if (!name || !name.trim()) return;
 
     const newFamilyId = `fam_${Date.now()}`;
@@ -434,11 +407,12 @@ export default function VisualSelectorSettings({ products = [] }: VisualSelector
       name: name.trim(),
       description: `Productos de ${name.trim()}`,
       isActive: true,
-      imageUrl: DEFAULT_FAMILY_IMAGES.termotanques || DEFAULT_FAMILY_IMAGES.tanques,
+      directLine,
+      imageUrl: directLine ? undefined : (DEFAULT_FAMILY_IMAGES.termotanques || DEFAULT_FAMILY_IMAGES.tanques),
       subgroups: [
         {
           id: defaultSubgroupId,
-          name: "General",
+          name: directLine ? "Productos" : "General",
           description: "Opciones principales",
           isActive: true,
           items: []
@@ -609,7 +583,15 @@ export default function VisualSelectorSettings({ products = [] }: VisualSelector
   const handleResetToCatalogDefaults = () => {
     if (!confirm("¿Restablecer la configuración a los productos y litrajes actualmente existentes en la base de datos?")) return;
     const prodsToUse = (localProducts && localProducts.length > 0) ? localProducts : products;
-    const def = generateDefaultVisualConfig(prodsToUse);
+    const def = { ...generateDefaultVisualConfig(prodsToUse), directProductIds: config?.directProductIds || [], directProductImages: config?.directProductImages || {} };
+    def.families = def.families.map(family => ({
+      ...family,
+      directProductIds: config?.families.find(existing => existing.id === family.id)?.directProductIds || [],
+      directLine: config?.families.find(existing => existing.id === family.id)?.directLine || false
+    }));
+    const savedDirectLines = (config?.families || []).filter(family => family.directLine);
+    def.families = def.families.filter(family => !family.directLine || !savedDirectLines.some(saved => saved.name.trim().toLowerCase() === family.name.trim().toLowerCase()));
+    def.families.push(...savedDirectLines.filter(family => !def.families.some(defaultFamily => defaultFamily.id === family.id)));
     setConfig(def);
     if (def.families[0]) {
       setSelectedFamilyId(def.families[0].id);
@@ -730,12 +712,51 @@ export default function VisualSelectorSettings({ products = [] }: VisualSelector
         </div>
       )}
 
+      <section className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
+        <div>
+          <h4 className="text-sm font-black text-slate-800">Accesos directos a productos</h4>
+          <p className="text-xs text-slate-500">Aparecen inmediatamente después de las familias y líneas, sin elegir una. Guardá los cambios para publicarlos.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {(config?.directProductIds || []).map(id => {
+            const product = (localProducts.length ? localProducts : products).find(p => p.id === id);
+            return (
+              <div key={id} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-bold text-slate-700">
+                {(config?.directProductImages?.[id] || product?.image_url) && <img src={config?.directProductImages?.[id] || product?.image_url} alt="" className="h-8 w-8 rounded object-contain" />}
+                <span>{product?.name || 'Producto no disponible'}</span>
+                <label className="cursor-pointer text-brand-600 hover:underline">
+                  {uploading ? 'Subiendo...' : 'Subir imagen'}
+                  <input type="file" accept="image/*" className="hidden" disabled={uploading} onChange={event => { const file = event.target.files?.[0]; if (file) void handleUploadDirectProductImage(id, file); event.target.value = ''; }} />
+                </label>
+                <button type="button" title="Quitar acceso directo" onClick={() => setConfig(prev => prev && ({ ...prev, directProductIds: (prev.directProductIds || []).filter(value => value !== id) }))} className="text-red-500 hover:text-red-700"><Trash2 className="w-3.5 h-3.5" /></button>
+              </div>
+            );
+          })}
+        </div>
+        <div className="relative max-w-lg">
+          <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+          <input value={directSearch} onChange={event => setDirectSearch(event.target.value)} placeholder="Buscar producto por nombre o código para agregar" className="w-full rounded-lg border border-slate-200 py-2 pl-9 pr-3 text-xs outline-none focus:border-brand-400" />
+        </div>
+        {directSearch.trim() && (
+          <div className="max-h-52 max-w-lg overflow-y-auto rounded-lg border border-slate-200 divide-y divide-slate-100">
+            {(localProducts.length ? localProducts : products)
+              .filter(product => product.is_active !== false && product.category !== 'Interno' && !(config?.directProductIds || []).includes(product.id))
+              .filter(product => `${product.name} ${product.sku || ''}`.toLocaleLowerCase().includes(directSearch.trim().toLocaleLowerCase()))
+              .slice(0, 30).map(product => (
+                <button key={product.id} type="button" onClick={() => { setConfig(prev => prev && ({ ...prev, directProductIds: [...(prev.directProductIds || []), product.id] })); setDirectSearch(''); }} className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs hover:bg-brand-50">
+                  <span className="truncate font-bold text-slate-800">{product.name}</span><Plus className="h-4 w-4 shrink-0 text-brand-600" />
+                </button>
+              ))}
+          </div>
+        )}
+      </section>
+
       {/* 2-LEVEL SELECTION BAR (FAMILY -> SUBGROUP) */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
         
         {/* NIVEL 1: FAMILIAS */}
         <div className="flex items-center gap-2 overflow-x-auto pb-1">
-          <span className="text-[10px] font-black uppercase text-slate-400 shrink-0">Familia:</span>
+          <span className="text-[10px] font-black uppercase text-slate-400 shrink-0">Familia / Línea:</span>
           {config?.families.map(f => (
             <button
               key={f.id}
@@ -750,24 +771,27 @@ export default function VisualSelectorSettings({ products = [] }: VisualSelector
                   : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
               }`}
             >
-              {f.name}
+              {f.name}{f.directLine ? ' · Línea' : ''}
             </button>
           ))}
 
           {/* BOTÓN CREAR FAMILIA */}
           <button
             type="button"
-            onClick={handleAddFamily}
+            onClick={() => handleAddFamily(false)}
             title="Crear una nueva familia de productos (ej: Cooper, Universal, Bombas, etc.)"
             className="px-3 py-1.5 rounded-lg border border-dashed border-brand-300 bg-brand-50/50 hover:bg-brand-100 text-brand-700 text-xs font-black uppercase tracking-wider whitespace-nowrap transition-all flex items-center gap-1"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Nueva Familia</span>
           </button>
+          <button type="button" onClick={() => handleAddFamily(true)} className="px-3 py-1.5 rounded-lg border border-dashed border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-black uppercase tracking-wider whitespace-nowrap transition-all flex items-center gap-1">
+            <Plus className="w-3.5 h-3.5" /><span>Nueva Línea Directa</span>
+          </button>
         </div>
 
         {/* NIVEL 2: SUBGRUPOS (COLORES / MARCAS / COMBOS / LÍNEAS) */}
-        {currentFamily && (
+        {currentFamily && !currentFamily.directLine && (
           <div className="flex items-center gap-2 overflow-x-auto pt-2 border-t border-slate-100">
             <span className="text-[10px] font-black uppercase text-slate-400 shrink-0">Línea / Subgrupo:</span>
             {currentFamily.subgroups.map(s => (
@@ -800,9 +824,44 @@ export default function VisualSelectorSettings({ products = [] }: VisualSelector
 
       </div>
 
+      {currentFamily && !currentFamily.directLine && (
+        <section className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
+          <div>
+            <h4 className="text-sm font-black text-slate-800">Productos directos de {currentFamily.name}</h4>
+            <p className="text-xs text-slate-500">Se muestran al entrar a la familia, antes de sus líneas. Se agregan con un clic.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {(currentFamily.directProductIds || []).map(id => {
+              const product = (localProducts.length ? localProducts : products).find(p => p.id === id);
+              return <div key={id} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-bold text-slate-700">
+                {(config?.directProductImages?.[id] || product?.image_url) && <img src={config?.directProductImages?.[id] || product?.image_url} alt="" className="h-8 w-8 rounded object-contain" />}
+                <span>{product?.name || 'Producto no disponible'}</span>
+                <label className="cursor-pointer text-brand-600 hover:underline">
+                  {uploading ? 'Subiendo...' : 'Subir imagen'}
+                  <input type="file" accept="image/*" className="hidden" disabled={uploading} onChange={event => { const file = event.target.files?.[0]; if (file) void handleUploadDirectProductImage(id, file); event.target.value = ''; }} />
+                </label>
+                <button type="button" title="Quitar de la familia" onClick={() => setConfig(prev => prev && ({ ...prev, families: prev.families.map(family => family.id === currentFamily.id ? { ...family, directProductIds: (family.directProductIds || []).filter(value => value !== id) } : family) }))} className="text-red-500 hover:text-red-700"><Trash2 className="w-3.5 h-3.5" /></button>
+              </div>;
+            })}
+          </div>
+          <div className="relative max-w-lg">
+            <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+            <input value={familyDirectSearch} onChange={event => setFamilyDirectSearch(event.target.value)} placeholder="Buscar producto para agregar a esta familia" className="w-full rounded-lg border border-slate-200 py-2 pl-9 pr-3 text-xs outline-none focus:border-brand-400" />
+          </div>
+          {familyDirectSearch.trim() && <div className="max-h-52 max-w-lg overflow-y-auto rounded-lg border border-slate-200 divide-y divide-slate-100">
+            {(localProducts.length ? localProducts : products)
+              .filter(product => product.is_active !== false && product.category !== 'Interno' && !(currentFamily.directProductIds || []).includes(product.id))
+              .filter(product => `${product.name} ${product.sku || ''}`.toLocaleLowerCase().includes(familyDirectSearch.trim().toLocaleLowerCase()))
+              .slice(0, 30).map(product => <button key={product.id} type="button" onClick={() => { setConfig(prev => prev && ({ ...prev, families: prev.families.map(family => family.id === currentFamily.id ? { ...family, directProductIds: [...(family.directProductIds || []), product.id] } : family) })); setFamilyDirectSearch(''); }} className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs hover:bg-brand-50">
+                <span className="truncate font-bold text-slate-800">{product.name}</span><Plus className="h-4 w-4 shrink-0 text-brand-600" />
+              </button>)}
+          </div>}
+        </section>
+      )}
+
       {/* GESTIÓN DE IMÁGENES Y DESCRIPCIONES DE FAMILIA Y SUBGRUPO */}
       {currentFamily && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className={`grid grid-cols-1 ${currentFamily.directLine ? '' : 'md:grid-cols-2'} gap-4`}>
           
           {/* CARD FAMILIA (IMAGEN, NOMBRE Y DESCRIPCIÓN) */}
           <div className="p-4 bg-white rounded-xl border border-slate-200 shadow-sm space-y-3">
@@ -816,9 +875,9 @@ export default function VisualSelectorSettings({ products = [] }: VisualSelector
                   )}
                 </div>
                 <div className="min-w-0">
-                  <span className="text-[9px] font-black uppercase text-brand-600 tracking-wider">Familia</span>
+                  <span className="text-[9px] font-black uppercase text-brand-600 tracking-wider">{currentFamily.directLine ? 'Línea directa' : 'Familia'}</span>
                   <h5 className="text-xs font-black text-slate-800 truncate">{currentFamily.name}</h5>
-                  <p className="text-[10px] text-slate-400">Paso 1 del selector visual</p>
+                  <p className="text-[10px] text-slate-400">Tarjeta inicial del selector visual</p>
                 </div>
               </div>
 
@@ -850,7 +909,7 @@ export default function VisualSelectorSettings({ products = [] }: VisualSelector
             {/* EDICIÓN DE NOMBRE, DESCRIPCIÓN Y ELIMINACIÓN DE FAMILIA */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t border-slate-100">
               <div>
-                <label className="text-[9px] font-black uppercase tracking-wider text-slate-400 block mb-0.5">Nombre Familia</label>
+                <label className="text-[9px] font-black uppercase tracking-wider text-slate-400 block mb-0.5">{currentFamily.directLine ? 'Título de la línea' : 'Nombre Familia'}</label>
                 <input
                   type="text"
                   value={currentFamily.name}
@@ -881,10 +940,16 @@ export default function VisualSelectorSettings({ products = [] }: VisualSelector
                 />
               </div>
             </div>
+            <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer">
+              <input type="checkbox" checked={Boolean(currentFamily.directLine)} disabled={currentFamily.subgroups.length !== 1 || Boolean(currentFamily.directProductIds?.length)} onChange={event => handleUpdateFamilyDetails(currentFamily.id, { directLine: event.target.checked })} className="h-4 w-4 accent-brand-600" />
+              Mostrar esta tarjeta como línea directa y abrir sus productos sin pasar por una rama
+            </label>
+            {currentFamily.subgroups.length !== 1 && <p className="text-[10px] text-slate-500">Para usarla como línea directa, debe tener una sola línea o subgrupo.</p>}
+            {Boolean(currentFamily.directProductIds?.length) && <p className="text-[10px] text-slate-500">Quitá primero los productos directos de la familia para convertirla en línea directa.</p>}
           </div>
 
           {/* CARD SUBGRUPO (IMAGEN, NOMBRE Y DESCRIPCIÓN - EJ: BICAPA NEGRO) */}
-          {currentSubgroup ? (
+          {!currentFamily.directLine && currentSubgroup ? (
             <div className="p-4 bg-white rounded-xl border border-slate-200 shadow-sm space-y-3">
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-3 min-w-0">
@@ -903,6 +968,13 @@ export default function VisualSelectorSettings({ products = [] }: VisualSelector
                 </div>
 
                 <div className="flex items-center gap-1.5 shrink-0">
+                  <button type="button" onClick={() => {
+                    setConfig(prev => prev && moveSubgroupToTopLevel(prev, currentFamily.id, currentSubgroup.id));
+                    setSelectedFamilyId(`line_${currentFamily.id}_${currentSubgroup.id}`);
+                    setSelectedSubgroupId(currentSubgroup.id);
+                  }} className="px-2.5 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 text-xs font-bold" title="Mover esta línea con todos sus productos a la pantalla inicial">
+                    Mover al inicio
+                  </button>
                   <label className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-bold transition-all cursor-pointer flex items-center gap-1">
                     <Upload className="w-3.5 h-3.5 text-brand-600" />
                     <span>Subir</span>
@@ -962,7 +1034,7 @@ export default function VisualSelectorSettings({ products = [] }: VisualSelector
                 </div>
               </div>
             </div>
-          ) : (
+          ) : !currentFamily.directLine ? (
             <div className="p-6 bg-slate-50/80 rounded-xl border border-dashed border-slate-300 text-center flex flex-col items-center justify-center gap-2">
               <span className="text-xs font-bold text-slate-600">Esta familia todavía no tiene subgrupos / líneas.</span>
               <p className="text-[11px] text-slate-400 max-w-xs">
@@ -977,7 +1049,7 @@ export default function VisualSelectorSettings({ products = [] }: VisualSelector
                 <span>+ Crear Subgrupo / Línea</span>
               </button>
             </div>
-          )}
+          ) : null}
 
         </div>
       )}
@@ -989,7 +1061,7 @@ export default function VisualSelectorSettings({ products = [] }: VisualSelector
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
             <div>
               <h4 className="font-black text-sm text-slate-800">
-                Litrajes y Opciones de {currentSubgroup.name} ({currentSubgroup.items.length})
+                {currentFamily?.directLine ? `Productos de ${currentFamily.name}` : `Litrajes y Opciones de ${currentSubgroup.name}`} ({currentSubgroup.items.length})
               </h4>
               <p className="text-xs text-slate-400 font-medium">
                 Solo las opciones activas aparecerán en el selector del vendedor.
@@ -1073,7 +1145,7 @@ export default function VisualSelectorSettings({ products = [] }: VisualSelector
                       label: "Nueva Opción / Litraje",
                       isActive: true,
                       description: "",
-                      imageUrl: currentSubgroup.imageUrl || DEFAULT_FAMILY_IMAGES.tanques,
+                      imageUrl: currentFamily?.directLine ? undefined : (currentSubgroup.imageUrl || DEFAULT_FAMILY_IMAGES.tanques),
                       allowCiego: selectedFamilyId === 'tanques'
                     }
                   });

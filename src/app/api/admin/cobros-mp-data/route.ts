@@ -9,11 +9,36 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT
 
 const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 
+type PaymentRole = 'admin' | 'administracion' | 'logistica' | 'fletero';
+
+async function getPaymentRole(request: Request): Promise<PaymentRole | null> {
+  const token = request.headers.get('authorization')?.match(/^Bearer\s+(.+)$/i)?.[1];
+  if (!token) return null;
+
+  const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+  if (error || !user) return null;
+
+  const { data: seller, error: sellerError } = await supabaseAdmin
+    .from('sellers')
+    .select('role, roles')
+    .eq('id', user.id)
+    .maybeSingle();
+  if (sellerError) return null;
+
+  const roles = new Set([seller?.role, ...(Array.isArray(seller?.roles) ? seller.roles : [])]);
+  if (roles.has('admin') || ['diego.boveda@gmail.com', 'caroibarra.93@gmail.com'].includes((user.email || '').toLowerCase())) return 'admin';
+  if (roles.has('administracion')) return 'administracion';
+  if (roles.has('logistica')) return 'logistica';
+  if (roles.has('fletero')) return 'fletero';
+  return null;
+}
+
 export async function GET(request: Request) {
   try {
+    const userRole = await getPaymentRole(request);
+    if (!userRole) return NextResponse.json({ error: 'Acceso denegado' }, { status: 403 });
     const { searchParams } = new URL(request.url);
     const action = searchParams.get('action') || 'list';
-    const userRole = (searchParams.get('role') || 'admin').toLowerCase();
 
     if (action === 'accounts') {
       const { data, error } = await supabaseAdmin
@@ -75,22 +100,18 @@ export async function GET(request: Request) {
       const accountId = searchParams.get('accountId');
       const search = searchParams.get('search');
       let dateRange = searchParams.get('dateRange') || 'TODAY';
-      let type = searchParams.get('type') || 'ALL';
+      const type = searchParams.get('type') || 'ALL';
       const linkedStatus = searchParams.get('linkedStatus') || 'ALL';
       const fleteroFilter = searchParams.get('fleteroFilter') || 'ALL';
       const showHidden = searchParams.get('showHidden') === 'true';
       const hideInternal = searchParams.get('hideInternal') === 'true';
 
-      const isSeller = userRole === 'seller' || userRole === 'vendedora' || userRole === 'ventas';
       const isLogistica = userRole === 'logistica';
-      const isFletero = userRole === 'fletero' || userRole === 'carrier';
+      const isFletero = userRole === 'fletero';
       const isAdminOrAdminStaff = userRole === 'admin' || userRole === 'administracion';
 
       // Apply strict role restrictions
-      if (isSeller) {
-        dateRange = 'LAST_3_DAYS';
-        type = 'TRANSFERENCIA';
-      } else if (isLogistica) {
+      if (isLogistica) {
         if (!['TODAY', 'YESTERDAY', 'LAST_3_DAYS', 'YESTERDAY_TODAY'].includes(dateRange)) {
           dateRange = 'LAST_3_DAYS';
         }
@@ -222,11 +243,9 @@ export async function GET(request: Request) {
         query = query.or(`payer_name.ilike.%${search}%,formatted_amount.ilike.%${search}%,raw_body.ilike.%${search}%,order_code.ilike.%${search}%`);
       }
 
-      const { data, error } = await query.limit(300);
-      if (error) throw error;
-
-      // Calculate stats ONLY for Admin & Administracion using exact Argentina Today boundaries
-      let todayStats = null;
+      // Calculate stats ONLY for Admin & Administracion using exact Argentina Today boundaries.
+      // Start it together with the list query so the endpoint pays only the slower wait.
+      let todayStatsPromise: Promise<{ totalCount: number; totalAmount: number } | null> = Promise.resolve(null);
       if (isAdminOrAdminStaff) {
         let todayQ = supabaseAdmin
           .from('mp_payments')
@@ -239,12 +258,17 @@ export async function GET(request: Request) {
           todayQ = todayQ.or('is_internal.is.null,is_internal.eq.false');
         }
 
-        const { data: todayRecords } = await todayQ;
-
-        const totalCount = todayRecords ? todayRecords.length : 0;
-        const totalAmount = todayRecords ? todayRecords.reduce((acc, p) => acc + (Number(p.amount) || 0), 0) : 0;
-        todayStats = { totalCount, totalAmount };
+        todayStatsPromise = Promise.resolve(todayQ).then(({ data: todayRecords }) => ({
+          totalCount: todayRecords ? todayRecords.length : 0,
+          totalAmount: todayRecords ? todayRecords.reduce((acc, p) => acc + (Number(p.amount) || 0), 0) : 0
+        }));
       }
+
+      const [{ data, error }, todayStats] = await Promise.all([
+        query.limit(300),
+        todayStatsPromise
+      ]);
+      if (error) throw error;
 
       return NextResponse.json({
         success: true,
@@ -264,9 +288,12 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const userRole = await getPaymentRole(request);
+    if (!userRole) return NextResponse.json({ error: 'Acceso denegado' }, { status: 403 });
     const { searchParams } = new URL(request.url);
     const action = searchParams.get('action');
     const body = await request.json().catch(() => ({}));
+    body.userRole = userRole;
 
     if (action === 'toggle-internal-payer') {
       const { paymentId, payerName, isInternal } = body;
@@ -502,6 +529,23 @@ export async function POST(request: Request) {
 
       if (error) throw error;
       return NextResponse.json({ success: true, message: 'Pago eliminado con éxito', id: data?.id });
+    }
+
+    if (action === 'update-account-color') {
+      const { id, color } = body;
+      if (!id || typeof color !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(color)) {
+        return NextResponse.json({ error: 'Cuenta o color inválido' }, { status: 400 });
+      }
+
+      const { data, error } = await supabaseAdmin
+        .from('mp_accounts')
+        .update({ color })
+        .eq('id', id)
+        .select('id, color')
+        .single();
+
+      if (error) throw error;
+      return NextResponse.json({ success: true, data });
     }
 
     if (action === 'save-account') {

@@ -36,18 +36,14 @@ export interface SalesQuoteInput {
   items: SalesQuoteItemInput[];
 }
 
-export async function saveSalesQuote(input: SalesQuoteInput) {
+export async function saveSalesQuote(input: SalesQuoteInput, quoteId?: string) {
   const { data: userData, error: userError } = await supabase.auth.getUser();
   if (userError || !userData.user) throw new Error('La sesión venció. Volvé a ingresar.');
   if (!input.items.length) throw new Error('Agregá al menos un producto al presupuesto.');
 
-  const { data: quote, error: quoteError } = await supabase
-    .from('sales_quotes')
-    .insert({
-      seller_id: userData.user.id,
+  const quoteValues = {
       client_id: input.clientId || null,
       channel: input.channel,
-      status: input.status || 'draft',
       customer_name: input.customerName?.trim() || null,
       customer_phone: input.customerPhone?.trim() || null,
       subtotal: input.subtotal || 0,
@@ -61,13 +57,14 @@ export async function saveSalesQuote(input: SalesQuoteInput) {
       commercial_conditions: input.commercialConditions || {},
       notes: input.notes?.trim() || null,
       valid_until: input.validUntil || null
-    })
-    .select('id, quote_number, status')
-    .single();
+    };
+  const query = quoteId
+    ? supabase.from('sales_quotes').update(quoteValues).eq('id', quoteId).is('converted_order_id', null)
+    : supabase.from('sales_quotes').insert({ ...quoteValues, seller_id: userData.user.id, status: input.status || 'draft' });
+  const { data: quote, error: quoteError } = await query.select('id, quote_number, status').single();
   if (quoteError) throw quoteError;
 
-  const { error: itemsError } = await supabase.from('sales_quote_items').insert(
-    input.items.map((item, index) => ({
+  const itemsToSave = input.items.map((item, index) => ({
       quote_id: quote.id,
       product_id: item.productId || null,
       product_name: item.productName,
@@ -80,11 +77,30 @@ export async function saveSalesQuote(input: SalesQuoteInput) {
       subtotal: item.subtotal ?? item.unitPrice * item.quantity,
       metadata: item.metadata || {},
       sort_order: index
-    }))
-  );
+    }));
+  const { data: oldItems, error: oldItemsError } = quoteId
+    ? await supabase.from('sales_quote_items').select('id').eq('quote_id', quote.id).order('sort_order')
+    : { data: [], error: null };
+  if (oldItemsError) throw oldItemsError;
+  const existingCount = Math.min(oldItems?.length || 0, itemsToSave.length);
+  const { error: itemsError } = existingCount
+    ? await supabase.from('sales_quote_items').upsert(itemsToSave.slice(0, existingCount).map((item, index) => ({ ...item, id: oldItems![index].id })), { onConflict: 'id' })
+    : { error: null };
   if (itemsError) {
-    await supabase.from('sales_quotes').delete().eq('id', quote.id);
+    if (!quoteId) await supabase.from('sales_quotes').delete().eq('id', quote.id);
     throw itemsError;
+  }
+  if (itemsToSave.length > existingCount) {
+    const { error: insertError } = await supabase.from('sales_quote_items').insert(itemsToSave.slice(existingCount));
+    if (insertError) {
+      if (!quoteId) await supabase.from('sales_quotes').delete().eq('id', quote.id);
+      throw insertError;
+    }
+  }
+  if (quoteId && (oldItems?.length || 0) > itemsToSave.length) {
+    const idsToDelete = oldItems!.slice(itemsToSave.length).map(item => item.id);
+    const { error: deleteError } = await supabase.from('sales_quote_items').delete().in('id', idsToDelete);
+    if (deleteError) throw deleteError;
   }
   return quote;
 }

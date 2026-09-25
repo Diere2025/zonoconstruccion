@@ -2,14 +2,16 @@ export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { fetchSpreadsheetCsv } from '@/lib/googleSheets';
-import { isLogisticsOrderCode, mapWithConcurrency } from '@/lib/orderSync';
+import { fetchSpreadsheetCsv, fetchSpreadsheetValues } from '@/lib/googleSheets';
+import { isLogisticsOrderCode, mapWithConcurrency, splitOrderCodes } from '@/lib/orderSync';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.dummy';
 
 const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 const LOGISTICS_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1TYeIyGbDleed1bTJyhuaxcM97KMbNbL--1OswOppROg/gviz/tq?tqx=out:csv&gid=1438488516';
+const LOGISTICS_SPREADSHEET_ID = '1TYeIyGbDleed1bTJyhuaxcM97KMbNbL--1OswOppROg';
+const LOGISTICS_CANCELLED_CODES_RANGE = "'Cancelados'!D2:D";
 
 function parseCSV(text: string): string[][] {
   const results: string[][] = [];
@@ -69,6 +71,24 @@ function parseDate(dateStr: string): Date | null {
   }
   const parsed = new Date(dateStr);
   return isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function sheetDeliveryDate(dateStr: string): string | null {
+  const match = dateStr.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
+  if (!match) return null;
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  const year = match[3].length === 2 ? 2000 + Number(match[3]) : Number(match[3]);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  if (parsed.getUTCFullYear() !== year || parsed.getUTCMonth() !== month - 1 || parsed.getUTCDate() !== day) return null;
+  return parsed.toISOString().slice(0, 10);
+}
+
+function isDeliveredSheetStatus(status: string): boolean {
+  const normalized = status.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  return /\bentregado\b/.test(normalized) &&
+    !/\b(?:no entregado|postergado|anulado|cancelado)\b/.test(normalized);
 }
 
 const cleanProductName = (name: string): string => {
@@ -239,7 +259,7 @@ export async function GET() {
       });
 
       // Audit discrepancies only for rows with "Entregado" status
-      const isDelivered = status.toLowerCase().includes("entregado") && !status.toLowerCase().includes("no entregado");
+      const isDelivered = isDeliveredSheetStatus(status);
       if (isDelivered) {
         checkedCount++;
       }
@@ -300,7 +320,7 @@ export async function GET() {
         continue;
       }
 
-      const isDelivered = status.toLowerCase().includes("entregado") && !status.toLowerCase().includes("no entregado");
+      const isDelivered = isDeliveredSheetStatus(status);
       if (!isDelivered) continue;
 
       const rowTotal = parseSpanishNumber(row[27]) + parseSpanishNumber(row[24]);
@@ -485,7 +505,7 @@ export async function GET() {
         });
       }
 
-      const deliveredAttempt = info.attempts.find((a: any) => a.status.toLowerCase().includes("entregado") && !a.status.toLowerCase().includes("no entregado"));
+      const deliveredAttempt = info.attempts.find((a: any) => isDeliveredSheetStatus(a.status));
       if (deliveredAttempt) {
         const initDate = parseDate(info.initialDateStr);
         const delDate = parseDate(deliveredAttempt.dateStr);
@@ -595,8 +615,9 @@ export async function POST(request: Request) {
     // These sources are independent. Loading them concurrently removes several
     // full network round trips from every synchronization.
     const loadStartedAt = Date.now();
-    const [csvText, dbOrdersList, dbItemsList, products, payMethodsRes] = await Promise.all([
+    const [csvText, cancelledCodeRows, dbOrdersList, dbItemsList, products, payMethodsRes] = await Promise.all([
       fetchSpreadsheetCsv(LOGISTICS_SHEET_URL),
+      fetchSpreadsheetValues(LOGISTICS_SPREADSHEET_ID, LOGISTICS_CANCELLED_CODES_RANGE),
       fetchOrdersAll(),
       fetchOrderItemsAll(),
       fetchProductsAll(),
@@ -604,7 +625,12 @@ export async function POST(request: Request) {
     ]);
     const loadMs = Date.now() - loadStartedAt;
     const rows = parseCSV(csvText);
-    console.log(`POST: Loaded sheet (${rows.length} rows), ${dbOrdersList.length} orders and ${dbItemsList.length} items in ${loadMs}ms.`);
+    const cancelledCodes = new Set(
+      cancelledCodeRows
+        .flatMap(row => splitOrderCodes(row[0]))
+        .filter(isLogisticsOrderCode)
+    );
+    console.log(`POST: Loaded sheet (${rows.length} rows), ${cancelledCodes.size} cancelled codes, ${dbOrdersList.length} orders and ${dbItemsList.length} items in ${loadMs}ms.`);
 
     
     if (payMethodsRes.error) throw payMethodsRes.error;
@@ -690,6 +716,9 @@ export async function POST(request: Request) {
     const aggregatedSheetOrders = new Map<string, {
       code: string;
       status: string;
+      realDeliveryDate: string | null;
+      ambiguousDeliveryDate: boolean;
+      preserveCommercialData: boolean;
       sheetTotal: number;
       sheetPayment: string;
       sheetPayments: Set<string>;
@@ -710,8 +739,10 @@ export async function POST(request: Request) {
 
       const normSt = status.toLowerCase();
       const isDelivering = normSt.includes("entregando");
-      const isDelivered = normSt.includes("entregado") && !normSt.includes("no entregado");
+      const isDelivered = isDeliveredSheetStatus(status);
       if (!isDelivered && !isDelivering) continue;
+
+      const realDeliveryDate = isDelivered ? sheetDeliveryDate(row[1] || '') : null;
 
       checkedLogiRows++;
 
@@ -747,6 +778,18 @@ export async function POST(request: Request) {
 
       if (aggregatedSheetOrders.has(key)) {
         const existing = aggregatedSheetOrders.get(key)!;
+        if (isDelivered) {
+          existing.status = status;
+          if (realDeliveryDate && !existing.ambiguousDeliveryDate) {
+            if (existing.realDeliveryDate && existing.realDeliveryDate !== realDeliveryDate) {
+              // Un código repetido con fechas distintas no identifica una entrega única.
+              existing.realDeliveryDate = null;
+              existing.ambiguousDeliveryDate = true;
+            } else {
+              existing.realDeliveryDate = realDeliveryDate;
+            }
+          }
+        }
         existing.sheetTotal += rowTotal;
         if (rowPayment) {
           existing.sheetPayments.add(rowPayment);
@@ -761,12 +804,39 @@ export async function POST(request: Request) {
         aggregatedSheetOrders.set(key, {
           code: dbOrder ? dbOrder.legacy_code : code,
           status,
+          realDeliveryDate,
+          ambiguousDeliveryDate: false,
+          preserveCommercialData: false,
           sheetTotal: rowTotal,
           sheetPayment: rowPayment,
           sheetPayments: pSet,
           sheetItems: rowItems
         });
       }
+    }
+
+    // Los anulados dejan las hojas activas y pasan a "Cancelados". La columna
+    // D aporta únicamente el estado: importes, pago y artículos se preservan.
+    for (const cancelledCode of cancelledCodes) {
+      const dbOrder = dbOrdersMap.get(cancelledCode);
+      if (!dbOrder) continue;
+      const key = dbOrder.legacy_code.trim().toUpperCase();
+      if (dbOrder.status === 'Cancelado') {
+        // Evita que una copia rezagada en una hoja activa revierta el estado.
+        aggregatedSheetOrders.delete(key);
+        continue;
+      }
+      aggregatedSheetOrders.set(key, {
+        code: dbOrder.legacy_code,
+        status: 'Cancelado',
+        realDeliveryDate: null,
+        ambiguousDeliveryDate: false,
+        preserveCommercialData: true,
+        sheetTotal: parseFloat(dbOrder.total_amount || 0),
+        sheetPayment: '',
+        sheetPayments: new Set<string>(),
+        sheetItems: []
+      });
     }
 
     for (const sheetOrder of aggregatedSheetOrders.values()) {
@@ -791,6 +861,7 @@ export async function POST(request: Request) {
       sheetPaymentId: string | null;
       itemsDiffer: boolean;
       sheetItems: any[];
+      preserveCommercialData: boolean;
       finalPaymentId?: string | null;
     }> = [];
 
@@ -809,7 +880,9 @@ export async function POST(request: Request) {
         const sheetItems = sheetOrder.sheetItems;
         sheetItems.forEach(si => si.order_id = dbOrder.id);
 
-        const targetStatus = sheetOrder.status.toLowerCase().includes('entregando') ? 'Entregando' : 'Entregado';
+        const targetStatus = sheetOrder.status === 'Cancelado'
+          ? 'Cancelado'
+          : sheetOrder.status.toLowerCase().includes('entregando') ? 'Entregando' : 'Entregado';
 
         // --- OPTIMIZATION: Check if there is ANY difference ---
         let needsUpdate = false;
@@ -821,7 +894,7 @@ export async function POST(request: Request) {
 
         // B. Check total amount
         const dbTotal = parseFloat(dbOrder.total_amount || 0);
-        if (Math.abs(sheetTotal - dbTotal) > 1.0) {
+        if (!sheetOrder.preserveCommercialData && Math.abs(sheetTotal - dbTotal) > 1.0) {
           needsUpdate = true;
         }
 
@@ -832,7 +905,7 @@ export async function POST(request: Request) {
           if (id) sheetPaymentIds.add(id);
         });
 
-        if (sheetPaymentIds.size > 0) {
+        if (!sheetOrder.preserveCommercialData && sheetPaymentIds.size > 0) {
           if (!dbOrder.payment_method_id || !sheetPaymentIds.has(dbOrder.payment_method_id)) {
             needsUpdate = true;
           }
@@ -840,7 +913,9 @@ export async function POST(request: Request) {
 
         // D. Check items (using copy-and-delete index matching to handle duplicates)
         let itemsDiffer = false;
-        if (sheetItems.length !== dbOrder.items.length) {
+        if (sheetOrder.preserveCommercialData) {
+          itemsDiffer = false;
+        } else if (sheetItems.length !== dbOrder.items.length) {
           itemsDiffer = true;
         } else {
           const dbItemsCopy = [...dbOrder.items];
@@ -875,7 +950,8 @@ export async function POST(request: Request) {
           sheetPayment,
           sheetPaymentId,
           itemsDiffer,
-          sheetItems
+          sheetItems,
+          preserveCommercialData: sheetOrder.preserveCommercialData
         });
       }
     }
@@ -884,7 +960,7 @@ export async function POST(request: Request) {
     // parallel order writes, to avoid duplicate inserts and race conditions.
     const missingPaymentMethods = new Set(
       plannedUpdates
-        .filter(update => update.sheetPayment && !update.sheetPaymentId)
+        .filter(update => !update.preserveCommercialData && update.sheetPayment && !update.sheetPaymentId)
         .map(update => update.sheetPayment)
     );
     for (const paymentMethod of missingPaymentMethods) {
@@ -900,16 +976,61 @@ export async function POST(request: Request) {
     // Five workers stay below Cloudflare's six simultaneous outgoing
     // connections while removing the serial network wait per order.
     await mapWithConcurrency(plannedUpdates, 5, async update => {
+      const orderUpdate = update.preserveCommercialData
+        ? { status: update.targetStatus }
+        : {
+            status: update.targetStatus,
+            total_amount: update.sheetTotal,
+            payment_method_id: update.finalPaymentId
+          };
       const { error } = await supabaseAdmin
         .from('orders')
-        .update({
-          status: update.targetStatus,
-          total_amount: update.sheetTotal,
-          payment_method_id: update.finalPaymentId
-        })
+        .update(orderUpdate)
         .eq('id', update.dbOrder.id);
       if (error) throw error;
+
+      if (update.targetStatus === 'Cancelado') {
+        const { error: deliveryError } = await supabaseAdmin
+          .from('deliveries')
+          .update({ status: 'fallido' })
+          .eq('order_id', update.dbOrder.id);
+        if (deliveryError) throw deliveryError;
+      }
     });
+
+    // La fecha real proviene de la columna B de "🔴 Entregados". Se sincroniza
+    // también cuando estado, monto y artículos del pedido no cambiaron.
+    const deliveredOrdersWithDates = batchOrders.flatMap(sheetOrder => {
+      if (!sheetOrder.realDeliveryDate || sheetOrder.status === 'Cancelado') return [];
+      const firstCode = sheetOrder.code.split(/[\/,]/)[0].trim().toUpperCase();
+      const dbOrder = dbOrdersMap.get(firstCode);
+      return dbOrder ? [{ orderId: dbOrder.id as string, realDeliveryDate: sheetOrder.realDeliveryDate }] : [];
+    });
+    let syncedDeliveryDatesCount = 0;
+    let conflictingDeliveryDatesCount = 0;
+    if (deliveredOrdersWithDates.length > 0) {
+      const { data: storedDeliveries, error: storedDeliveriesError } = await supabaseAdmin
+        .from('deliveries')
+        .select('order_id, real_delivery_date')
+        .in('order_id', deliveredOrdersWithDates.map(delivery => delivery.orderId));
+      if (storedDeliveriesError) throw storedDeliveriesError;
+      const storedDateByOrderId = new Map((storedDeliveries || []).map(delivery => [delivery.order_id, delivery.real_delivery_date]));
+      const datesToSync = deliveredOrdersWithDates.filter(delivery =>
+        storedDateByOrderId.has(delivery.orderId) && !storedDateByOrderId.get(delivery.orderId)
+      );
+      conflictingDeliveryDatesCount = deliveredOrdersWithDates.filter(delivery => {
+        const storedDate = storedDateByOrderId.get(delivery.orderId);
+        return storedDate && storedDate !== delivery.realDeliveryDate;
+      }).length;
+      await mapWithConcurrency(datesToSync, 5, async delivery => {
+        const { error } = await supabaseAdmin.from('deliveries')
+          .update({ status: 'entregado', real_delivery_date: delivery.realDeliveryDate })
+          .eq('order_id', delivery.orderId)
+          .is('real_delivery_date', null);
+        if (error) throw error;
+      });
+      syncedDeliveryDatesCount = datesToSync.length;
+    }
 
     // Keep each order's delete/insert pair isolated while processing several
     // orders concurrently. This preserves the former failure scope (one order)
@@ -931,7 +1052,7 @@ export async function POST(request: Request) {
     syncedOrdersCount = plannedUpdates.length;
     const applyMs = Date.now() - applyStartedAt;
     const totalMs = Date.now() - startedAt;
-    console.log(`POST: Checked ${checkedLogiRows} logistics rows; synced ${syncedOrdersCount} orders in ${totalMs}ms.`);
+    console.log(`POST: Checked ${checkedLogiRows} logistics rows; synced ${syncedOrdersCount} orders and ${syncedDeliveryDatesCount} actual delivery dates; ${conflictingDeliveryDatesCount} date conflicts in ${totalMs}ms.`);
 
     console.log(`POST: Batch completed successfully. Synced ${syncedOrdersCount} orders.`);
     return NextResponse.json({
@@ -941,12 +1062,15 @@ export async function POST(request: Request) {
       nextCursor,
       batchSize: batchOrders.length,
       totalOrders: allSheetOrders.length,
+      cancelledCodesCount: cancelledCodes.size,
       syncedOrdersCount,
+      syncedDeliveryDatesCount,
+      conflictingDeliveryDatesCount,
       skippedOrdersCount,
       stock: stockResult,
       metrics: { loadMs, planMs, applyMs, totalMs },
       message: done
-        ? `Conciliación con Logística completada: ${syncedOrdersCount} pedidos actualizados y ${skippedOrdersCount} sin cambios en el último lote.`
+        ? `Conciliación con Logística completada: ${syncedOrdersCount} pedidos actualizados y ${skippedOrdersCount} sin cambios en el último lote (incluye Cancelados).`
         : `Lote de Logística procesado (${nextCursor}/${allSheetOrders.length}).`
     });
 

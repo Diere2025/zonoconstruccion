@@ -59,6 +59,9 @@ export interface VisualFamily {
   imageUrl?: string;
   isActive: boolean;
   subgroups: VisualSubGroup[];
+  directProductIds?: string[];
+  /** A top-level card that opens its only subgroup's products immediately. */
+  directLine?: boolean;
 }
 
 export interface VisualCatalogConfig {
@@ -67,16 +70,74 @@ export interface VisualCatalogConfig {
   showItemImages?: boolean; // default false (show list without images for litrajes)
   itemsViewMode?: 'list' | 'grid'; // default 'list'
   families: VisualFamily[];
+  directProductIds?: string[];
+  directProductImages?: Record<string, string>;
+}
+
+/** Find the catalog step associated with a product shortcut. */
+export function findVisualProductOption(config: VisualCatalogConfig | null, productId: string) {
+  for (const family of config?.families || []) {
+    if (family.isActive === false) continue;
+    for (const subgroup of family.subgroups) {
+      if (subgroup.isActive === false) continue;
+      const item = subgroup.items.find(option =>
+        option.isActive !== false && (option.productId === productId || option.ciegoProductId === productId)
+      );
+      if (item) return { family, subgroup, item, isCiego: item.ciegoProductId === productId };
+    }
+  }
+  return null;
+}
+
+/** Move an existing subgroup to the first screen without rebuilding its products. */
+export function moveSubgroupToTopLevel(config: VisualCatalogConfig, familyId: string, subgroupId: string): VisualCatalogConfig {
+  const parent = config.families.find(family => family.id === familyId);
+  const subgroup = parent?.subgroups.find(line => line.id === subgroupId);
+  if (!parent || !subgroup) return config;
+  const id = `line_${familyId}_${subgroupId}`;
+  if (config.families.some(family => family.id === id)) return config;
+
+  const directLine: VisualFamily = {
+    id,
+    name: subgroup.name,
+    description: subgroup.description || `Productos de ${subgroup.name}`,
+    imageUrl: subgroup.imageUrl || subgroup.items.find(item => item.imageUrl)?.imageUrl,
+    isActive: parent.isActive !== false && subgroup.isActive !== false,
+    directLine: true,
+    subgroups: [subgroup]
+  };
+  const families = config.families.flatMap(family => {
+    if (family.id !== familyId) return [family];
+    const remaining = family.subgroups.filter(line => line.id !== subgroupId);
+    return remaining.length ? [{ ...family, subgroups: remaining }, directLine] : [directLine];
+  });
+  return { ...config, families };
+}
+
+export function promoteTermotanqueLines(config: VisualCatalogConfig): VisualCatalogConfig {
+  let result = config;
+  for (const name of ['universal', 'cooper']) {
+    const parent = result.families.find(family => family.id === 'termotanques' || family.name.trim().toLowerCase() === 'termotanques');
+    const line = parent?.subgroups.find(subgroup => subgroup.id === name || subgroup.name.trim().toLowerCase() === name);
+    if (parent && line) result = moveSubgroupToTopLevel(result, parent.id, line.id);
+  }
+  const cooperIndex = result.families.findIndex(family => family.directLine && family.name.trim().toLowerCase() === 'cooper');
+  const universalIndex = result.families.findIndex(family => family.directLine && family.name.trim().toLowerCase() === 'universal');
+  if (cooperIndex >= 0 && universalIndex >= 0 && cooperIndex > universalIndex) {
+    const families = [...result.families];
+    const [cooper] = families.splice(cooperIndex, 1);
+    families.splice(universalIndex, 0, cooper);
+    result = { ...result, families };
+  }
+  return result;
 }
 
 type WholesaleCatalogProduct = Pick<Product, 'name'> & Partial<Pick<Product, 'category' | 'sku'>>;
 
-export type WholesaleCatalogKind = 'tank' | 'accessory';
+export type WholesaleCatalogKind = 'tank' | 'accessory' | 'sanitation';
 
 /**
- * The B2B channel currently sells only water tanks and the tank accessories
- * published in its price list. Keep this rule independent from the retail
- * visual tree so adding a retail family never exposes it to wholesalers.
+ * Include only product families published in the wholesale price list.
  */
 export function getWholesaleCatalogKind(product: WholesaleCatalogProduct): WholesaleCatalogKind | null {
   const text = `${product.name || ''} ${product.sku || ''} ${product.category || ''}`
@@ -93,6 +154,16 @@ export function getWholesaleCatalogKind(product: WholesaleCatalogProduct): Whole
     text.includes('automatico cisterna') ||
     /\b(flotantes|bases|automaticos|accesorios)\b/.test(text);
   if (isAccessory) return 'accessory';
+
+  const isSanitation =
+    text.includes('biodigest') ||
+    text.includes('autolimp') ||
+    text.includes('septica') ||
+    text.includes('desengras') ||
+    text.includes('registro lodos') ||
+    text.includes('registro de lodos') ||
+    text.includes('inspeccion');
+  if (isSanitation) return 'sanitation';
 
   const isTank =
     text.includes('cisterna') ||
@@ -755,7 +826,7 @@ export function generateDefaultVisualConfig(products: Product[]): VisualCatalogC
     }
   ];
 
-  return {
+  return promoteTermotanqueLines({
     version: 2,
     updatedAt: new Date().toISOString(),
     showItemImages: true,
@@ -772,7 +843,7 @@ export function generateDefaultVisualConfig(products: Product[]): VisualCatalogC
       {
         id: 'termotanques',
         name: 'Termotanques',
-        description: 'Líneas Universal y Cooper de alto rendimiento',
+        description: 'Línea Universal de alto rendimiento',
         imageUrl: DEFAULT_FAMILY_IMAGES.termotanques,
         isActive: true,
         subgroups: termoSubgroups
@@ -786,7 +857,7 @@ export function generateDefaultVisualConfig(products: Product[]): VisualCatalogC
         subgroups: bioSubgroups
       }
     ]
-  };
+  });
 }
 
 export function generateWholesaleVisualConfig(products: Product[]): VisualCatalogConfig {
@@ -879,6 +950,40 @@ export function generateWholesaleVisualConfig(products: Product[]): VisualCatalo
       .filter(subgroup => subgroup.items.length > 0);
 
     if (subgroups.length > 0) families.push({ ...tankFamily, subgroups });
+  }
+
+  const sanitationProducts = allowedProducts.filter(product => getWholesaleCatalogKind(product) === 'sanitation');
+  const sanitationGroups = [
+    { id: 'biodigestores', name: 'Biodigestores', matches: (text: string) => text.includes('biodigest') || text.includes('autolimp') },
+    { id: 'septicas', name: 'Cámaras Sépticas', matches: (text: string) => text.includes('septica') },
+    { id: 'desengrasadoras', name: 'Desengrasadoras', matches: (text: string) => text.includes('desengras') },
+    { id: 'lodos', name: 'Lodos', matches: (text: string) => text.includes('registro lodos') || text.includes('registro de lodos') },
+    { id: 'inspeccion', name: 'Inspección', matches: (text: string) => text.includes('inspeccion') }
+  ];
+  for (const group of sanitationGroups) {
+    const matches = sanitationProducts.filter(product => group.matches(normalizeCatalogText(product)));
+    if (matches.length === 0) continue;
+    families.push({
+      id: `mayorista_${group.id}`,
+      name: group.name,
+      description: 'Productos de la Lista Mayorista',
+      imageUrl: matches.find(product => product.image_url)?.image_url,
+      isActive: true,
+      subgroups: [{
+        id: `mayorista_${group.id}_productos`,
+        name: group.name,
+        isActive: true,
+        itemsViewMode: 'list',
+        items: matches.map(product => ({
+          id: `item_${product.id}`,
+          label: product.name,
+          description: product.name,
+          imageUrl: product.image_url,
+          isActive: true,
+          productId: product.id
+        }))
+      }]
+    });
   }
 
   if (accessorySubgroups.length > 0) {

@@ -24,6 +24,7 @@ import {
   Sparkles
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { optimizeImageUpload } from "@/lib/optimizeImageUpload";
 import { Product } from "@/types";
 import VisualSelectorSettings from "@/components/admin/VisualSelectorSettings";
 
@@ -242,9 +243,10 @@ export default function AjustesPage() {
 
     try {
       if (settingsFile) {
-        const fileExt = settingsFile.name.split('.').pop();
+        const optimizedFile = await optimizeImageUpload(settingsFile);
+        const fileExt = optimizedFile.name.split('.').pop();
         const filePath = `settings/about-${Math.random()}.${fileExt}`;
-        const { error: uploadError } = await supabase.storage.from('product-images').upload(filePath, settingsFile);
+        const { error: uploadError } = await supabase.storage.from('product-images').upload(filePath, optimizedFile, { contentType: optimizedFile.type });
         
         if (uploadError) {
           console.error("Error al subir imagen de fábrica:", uploadError);

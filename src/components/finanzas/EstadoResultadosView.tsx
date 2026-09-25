@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
   TrendingUp,
@@ -225,50 +225,61 @@ export default function EstadoResultadosView() {
     setCollapsedGroups(all);
   };
 
-  const fetchData = async (force = false, silent = false) => {
-    try {
-      if (force) setRefreshing(true);
-      else if (!silent) setLoading(true);
+  const requestInFlightRef = useRef<Promise<void> | null>(null);
+  const fetchData = useCallback((force = false, silent = false) => {
+    if (requestInFlightRef.current) return requestInFlightRef.current;
 
-      const url = `/api/admin/finanzas/eerr?_t=${Date.now()}${force ? '&refresh=true' : ''}`;
-      const res = await fetch(url, { cache: 'no-store' });
-      const json = await res.json();
+    const request = (async () => {
+      try {
+        if (force) setRefreshing(true);
+        else if (!silent) setLoading(true);
 
-      if (!res.ok || !json.success) {
-        throw new Error(json.error || 'Error al obtener datos');
+        const url = `/api/admin/finanzas/eerr${force ? '?refresh=true' : ''}`;
+        const res = await fetch(url, { cache: 'no-store' });
+        const json = await res.json();
+
+        if (!res.ok || !json.success) {
+          throw new Error(json.error || 'Error al obtener datos');
+        }
+
+        setData(json);
+        setError(null);
+        setLastSync(new Date());
+      } catch (err: any) {
+        console.error('Error fetching EERR:', err);
+        if (!silent) setError(err.message || 'Error de conexión con la planilla');
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
       }
+    })();
 
-      setData(json);
-      setError(null);
-      setLastSync(new Date());
-    } catch (err: any) {
-      console.error('Error fetching EERR:', err);
-      if (!silent) setError(err.message || 'Error de conexión con la planilla');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
+    requestInFlightRef.current = request;
+    void request.finally(() => {
+      if (requestInFlightRef.current === request) requestInFlightRef.current = null;
+    });
+    return request;
+  }, []);
 
   useEffect(() => {
     fetchData();
 
-    // Auto-sync when user returns / focuses the tab
+    // Refresh when the user returns. The server cache absorbs quick tab switches.
     const handleFocus = () => {
-      fetchData(true, true);
+      void fetchData(false, true);
     };
     window.addEventListener('focus', handleFocus);
 
-    // Periodic silent background sync every 45 seconds
-    const interval = setInterval(() => {
-      fetchData(false, true);
-    }, 45000);
+    // EERR is analytical data: two minutes is fresh enough, and hidden tabs do no work.
+    const interval = window.setInterval(() => {
+      if (!document.hidden) void fetchData(false, true);
+    }, 120000);
 
     return () => {
       window.removeEventListener('focus', handleFocus);
-      clearInterval(interval);
+      window.clearInterval(interval);
     };
-  }, []);
+  }, [fetchData]);
 
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat('es-AR', {

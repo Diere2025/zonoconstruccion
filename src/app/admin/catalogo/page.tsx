@@ -6,6 +6,7 @@ import { Plus, Edit2, Trash2, Save, X, Image as ImageIcon, Search, Loader2, Uplo
 import { cn, formatPrice } from "@/lib/utils";
 import { Product } from "@/types";
 import { supabase } from "@/lib/supabase";
+import { optimizeImageUpload } from "@/lib/optimizeImageUpload";
 import Image from "next/image";
 import { ProductFormModal } from "@/components/ui/ProductFormModal";
 import { LinkOrphanModal } from "@/components/ui/LinkOrphanModal";
@@ -275,9 +276,10 @@ export default function AdminPage() {
 
     try {
       if (settingsFile) {
-        const fileExt = settingsFile.name.split('.').pop();
+        const optimizedFile = await optimizeImageUpload(settingsFile);
+        const fileExt = optimizedFile.name.split('.').pop();
         const filePath = `settings/about-${Math.random()}.${fileExt}`;
-        const { error: uploadError } = await supabase.storage.from('product-images').upload(filePath, settingsFile);
+        const { error: uploadError } = await supabase.storage.from('product-images').upload(filePath, optimizedFile, { contentType: optimizedFile.type });
         
         if (uploadError) {
           console.error("Error al subir imagen de fábrica:", uploadError);

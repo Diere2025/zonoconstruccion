@@ -11,10 +11,7 @@ import {
   Copy, 
   Check, 
   Download, 
-  UserPlus, 
   Building2, 
-  MapPin, 
-  Phone, 
   Truck, 
   CreditCard, 
   FileText, 
@@ -24,14 +21,15 @@ import {
   Layers,
   Sliders
 } from "lucide-react";
-import { supabase } from "@/lib/supabase";
 import { formatPrice, cn } from "@/lib/utils";
+import { supabase } from "@/lib/supabase";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { defaultQuoteValidity, saveSalesQuote } from "@/lib/salesQuotes";
 import { getWholesaleCatalogKind } from "@/lib/visualSelectorConfig";
-import { Product } from "@/types";
-import VisualProductSelectorModal, { VisualOrderItem } from "@/components/vendedores/VisualProductSelectorModal";
+import { Product, OrderDiscountItem } from "@/types";
+import VisualProductSelectorModal, { QuantityInput, VisualOrderItem } from "@/components/vendedores/VisualProductSelectorModal";
+import WholesaleClientModal from "@/components/vendedores/WholesaleClientModal";
 
 interface WholesaleProduct {
   id: string;
@@ -59,6 +57,8 @@ interface QuoteCartItem {
   priceCorralon: number;
   priceDistributor: number;
   customPrice?: number;
+  discountType?: 'percentage' | 'fixed';
+  discountValue?: number;
 }
 
 interface ClientOption {
@@ -69,6 +69,8 @@ interface ClientOption {
   billing_address?: string;
   is_wholesale?: boolean;
   default_discount_tier?: "auto" | "list" | "corralon" | "distributor";
+  default_discount_coef?: number | null;
+  default_discount_label?: string | null;
 }
 
 export default function PresupuestosMayoristaPage() {
@@ -81,23 +83,19 @@ export default function PresupuestosMayoristaPage() {
   const [discountCorralonPct, setDiscountCorralonPct] = useState(8);
   const [discountDistributorPct, setDiscountDistributorPct] = useState(14);
   const [loadingCatalog, setLoadingCatalog] = useState(true);
+  const [catalogError, setCatalogError] = useState('');
+  const [catalogReloadKey, setCatalogReloadKey] = useState(0);
 
   // State: Client Selection
-  const [clients, setClients] = useState<ClientOption[]>([]);
-  const [clientSearch, setClientSearch] = useState("");
-  const [loadingClients, setLoadingClients] = useState(false);
   const [selectedClient, setSelectedClient] = useState<ClientOption | null>(null);
-  const [leadName, setLeadName] = useState("");
-  const [leadContact, setLeadContact] = useState("");
-  const [showNewClientModal, setShowNewClientModal] = useState(false);
-  const [newClientName, setNewClientName] = useState("");
-  const [newClientTaxId, setNewClientTaxId] = useState("");
-  const [newClientPhone, setNewClientPhone] = useState("");
-  const [newClientAddress, setNewClientAddress] = useState("");
-  const [creatingClient, setCreatingClient] = useState(false);
 
   // State: Cart Items
   const [cartItems, setCartItems] = useState<QuoteCartItem[]>([]);
+
+  // State: Order Discounts (Múltiples descuentos en cascada)
+  const [orderDiscounts, setOrderDiscounts] = useState<OrderDiscountItem[]>([
+    { id: '1', description: 'Otros', type: 'percentage', value: 0 }
+  ]);
 
   // Commercial Controls
   const [freightType, setFreightType] = useState<string>("Flete Incluido (En depósito)");
@@ -111,15 +109,81 @@ export default function PresupuestosMayoristaPage() {
   const [copiedWhatsapp, setCopiedWhatsapp] = useState(false);
   const [isCreatingOrder, setIsCreatingOrder] = useState(false);
   const [showProductSelector, setShowProductSelector] = useState(false);
+  const [showWholesaleClientModal, setShowWholesaleClientModal] = useState(false);
+  const [editingQuoteId, setEditingQuoteId] = useState<string | null>(null);
+  const [editingQuoteNumber, setEditingQuoteNumber] = useState<string | null>(null);
 
-  // Load the selected published wholesale list. Historical lists retain their
+  useEffect(() => {
+    const quoteId = new URLSearchParams(window.location.search).get('quoteId');
+    if (!quoteId) return;
+    let cancelled = false;
+    async function loadQuote() {
+      const { data: quote, error } = await supabase.from('sales_quotes')
+        .select('*, sales_quote_items(*)').eq('id', quoteId).single();
+      if (cancelled) return;
+      if (error || !quote || quote.channel !== 'mayorista') {
+        alert('No se pudo abrir el presupuesto mayorista.');
+        return;
+      }
+      if (quote.status === 'converted' || quote.converted_order_id) {
+        alert('Este presupuesto ya tiene un pedido asociado y no se puede editar.');
+        router.push('/vendedores/cotizaciones?channel=mayorista');
+        return;
+      }
+      const conditions = quote.commercial_conditions || {};
+      const savedItems = (quote.sales_quote_items || []).sort((a: any, b: any) => a.sort_order - b.sort_order);
+      setEditingQuoteId(quote.id);
+      setEditingQuoteNumber(quote.quote_number);
+      setSelectedClient({
+        id: quote.client_id || '',
+        business_name: quote.customer_name || 'Cliente sin nombre',
+        phone_primary: quote.customer_phone || undefined,
+        is_wholesale: true
+      });
+      setCartItems(savedItems.map((item: any) => ({
+        id: item.id,
+        productId: item.product_id || '',
+        name: item.product_name,
+        category: item.metadata?.category || '',
+        liters: item.metadata?.liters,
+        variant: item.variant === 'ciego' ? 'ciego' : 'standard',
+        allowsCiego: getWholesaleCatalogKind({ name: item.product_name, category: item.metadata?.category || '' }) === 'tank',
+        quantity: Number(item.quantity),
+        priceList: Number(item.list_unit_price),
+        priceCorralon: Number(item.list_unit_price),
+        priceDistributor: Number(item.list_unit_price),
+        customPrice: !item.metadata?.discountValue && Number(item.unit_price) !== Number(item.list_unit_price)
+          ? Number(item.unit_price) : undefined,
+        discountType: item.metadata?.discountType,
+        discountValue: Number(item.metadata?.discountValue) || undefined
+      })));
+      const savedDiscounts = conditions.orderDiscounts;
+      setOrderDiscounts(Array.isArray(savedDiscounts) && savedDiscounts.length
+        ? savedDiscounts
+        : Number(quote.discount_amount) > 0
+          ? [{ id: 'saved-discount', description: 'Descuento del presupuesto', type: 'fixed', value: Number(quote.discount_amount) }]
+          : [{ id: '1', description: 'Otros', type: 'percentage', value: 0 }]);
+      setFreightType(conditions.freightType || 'Flete Incluido (En depósito)');
+      setCustomFreightAmount(Number(quote.freight_amount) || 0);
+      setPaymentCondition(conditions.paymentCondition || 'Contado / Transferencia contra entrega');
+      setDeliveryDays(conditions.deliveryDays || '48 a 72 hs hábiles');
+      setIncludeIva(Boolean(conditions.includeIva));
+      setNotes(quote.notes || '');
+    }
+    loadQuote();
+    return () => { cancelled = true; };
+  }, [router]);
   // saved item prices instead of being recalculated from today's costs.
   useEffect(() => {
     async function loadCatalog() {
       try {
         setLoadingCatalog(true);
-        const res = await fetch(`/api/admin/lista-mayorista-data?listNumber=${encodeURIComponent(listNumber)}`);
+        setCatalogError('');
+        const res = await fetch(`/api/vendedores/wholesale-catalog?listNumber=${encodeURIComponent(listNumber)}`);
         const json = await res.json();
+        if (!res.ok || !json.success || !Array.isArray(json.products)) {
+          throw new Error(json.error || 'No se pudo cargar la lista mayorista del ERP.');
+        }
         if (json.success && json.products) {
           const activeList = json.savedDbConfig;
           if (activeList) {
@@ -162,60 +226,15 @@ export default function PresupuestosMayoristaPage() {
         }
       } catch (err) {
         console.error("Error loading wholesale catalog:", err);
+        setProducts([]);
+        setCatalogError(err instanceof Error ? err.message : 'No se pudo cargar la lista mayorista del ERP.');
       } finally {
         setLoadingCatalog(false);
       }
     }
 
     loadCatalog();
-  }, [listNumber]);
-
-  // Supabase limita las consultas a 1.000 filas. Buscar en el arreglo cargado
-  // dejaba afuera a la mayoría de los clientes, por eso la búsqueda se resuelve
-  // en la base y sólo trae una lista corta de candidatos mayoristas.
-  useEffect(() => {
-    let cancelled = false;
-    const timer = window.setTimeout(async () => {
-      setLoadingClients(true);
-      try {
-        const trimmed = clientSearch.trim();
-        let request = supabase
-          .from("clients")
-          .select("id, business_name, tax_id, phone_primary, billing_address, is_wholesale")
-          .eq("is_wholesale", true)
-          .order("business_name")
-          .limit(trimmed ? 50 : 20);
-
-        if (trimmed) {
-          const anchor = trimmed
-            .split(/\s+/)
-            .map(term => term.replace(/[,()%_'"\\]/g, "").trim())
-            .filter(Boolean)
-            .sort((a, b) => b.length - a.length)[0];
-
-          if (anchor) {
-            request = request.or(
-              `business_name.ilike.%${anchor}%,tax_id.ilike.%${anchor}%,phone_primary.ilike.%${anchor}%`
-            );
-          }
-        }
-
-        const { data, error } = await request;
-        if (error) throw error;
-        if (!cancelled) setClients((data || []) as ClientOption[]);
-      } catch (err) {
-        console.error("Error searching wholesale clients:", err);
-        if (!cancelled) setClients([]);
-      } finally {
-        if (!cancelled) setLoadingClients(false);
-      }
-    }, clientSearch.trim() ? 250 : 0);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [clientSearch]);
+  }, [listNumber, catalogReloadKey]);
 
   // Compute Volume Tier and Totals
   const totalTanksCount = useMemo(() => {
@@ -223,29 +242,48 @@ export default function PresupuestosMayoristaPage() {
   }, [cartItems]);
 
   const activeTier = useMemo(() => {
+    if (totalTanksCount >= 30) return "wholesale30";
     if (totalTanksCount >= 20) return "distributor";
     if (totalTanksCount >= 10) return "corralon";
     return "list";
   }, [totalTanksCount]);
 
-  const activeTierLabel = useMemo(() => {
-    switch (activeTier) {
-      case "distributor":
-        return `Distribuidor (20+ u) — ${discountDistributorPct}% OFF`;
-      case "corralon":
-        return `Corralón (10-19 u) — ${discountCorralonPct}% OFF`;
-      default:
-        return "Precio de Lista (3 a 9 u)";
-    }
-  }, [activeTier, discountCorralonPct, discountDistributorPct]);
+  const suggestedVolumeDiscount = useMemo<OrderDiscountItem | undefined>(() => {
+    const value = activeTier === 'wholesale30' ? 15
+      : activeTier === 'distributor' ? discountDistributorPct
+      : activeTier === 'corralon' ? discountCorralonPct : 0;
+    return value > 0
+      ? { id: 'wholesale-volume-tier', description: `Descuento por volumen (${totalTanksCount} tanques)`, type: 'percentage', value }
+      : undefined;
+  }, [activeTier, discountCorralonPct, discountDistributorPct, totalTanksCount]);
+
+  const appliedVolumeDiscount = orderDiscounts.find(d => d.id === 'wholesale-volume-tier' && d.value > 0);
+  const appliedVolumeLabel = appliedVolumeDiscount
+    ? `${appliedVolumeDiscount.value}% aplicado manualmente`
+    : 'Precio de lista';
+
+  const applySuggestedVolumeDiscount = () => {
+    if (!suggestedVolumeDiscount) return;
+    setOrderDiscounts(previous => {
+      const index = previous.findIndex(d => d.id === suggestedVolumeDiscount.id);
+      if (index < 0) return [...previous, suggestedVolumeDiscount];
+      return previous.map((discount, i) => i === index ? suggestedVolumeDiscount : discount);
+    });
+  };
 
   // Cart Calculations
   const calculatedItems = useMemo(() => {
     return cartItems.map(item => {
       let unitPrice = item.priceList;
-      if (activeTier === "corralon") unitPrice = item.priceCorralon;
-      if (activeTier === "distributor") unitPrice = item.priceDistributor;
-      if (item.customPrice !== undefined && item.customPrice > 0) unitPrice = item.customPrice;
+      if (item.customPrice !== undefined && item.customPrice > 0) {
+        unitPrice = item.customPrice;
+      } else if (item.discountValue && item.discountValue > 0) {
+        if (item.discountType === 'percentage') {
+          unitPrice = Math.max(0, Math.round(unitPrice * (1 - item.discountValue / 100)));
+        } else {
+          unitPrice = Math.max(0, unitPrice - item.discountValue);
+        }
+      }
 
       const subtotal = unitPrice * item.quantity;
       return {
@@ -254,34 +292,57 @@ export default function PresupuestosMayoristaPage() {
         subtotal
       };
     });
-  }, [cartItems, activeTier]);
+  }, [cartItems]);
 
   const subtotalProducts = useMemo(() => {
     return calculatedItems.reduce((acc, item) => acc + item.subtotal, 0);
   }, [calculatedItems]);
+
+  // Descuentos globales en cascada (20+5 no es 25%, se calculan secuencialmente sobre el saldo remanente)
+  const { totalOrderDiscountAmount, orderDiscountBreakdown } = useMemo(() => {
+    let rem = subtotalProducts;
+    const breakdown = orderDiscounts.map(d => {
+      const val = d.value ? Math.max(0, d.value) : 0;
+      if (val <= 0 || rem <= 0) return { ...d, amount: 0, balanceBefore: rem, balanceAfter: rem };
+      let amt = 0;
+      if (d.type === 'percentage') {
+        amt = Math.round(rem * (Math.min(100, val) / 100));
+      } else {
+        amt = Math.min(rem, val);
+      }
+      const balanceBefore = rem;
+      rem = Math.max(0, rem - amt);
+      return { ...d, amount: amt, balanceBefore, balanceAfter: rem };
+    });
+    return {
+      totalOrderDiscountAmount: breakdown.reduce((sum, d) => sum + d.amount, 0),
+      orderDiscountBreakdown: breakdown
+    };
+  }, [subtotalProducts, orderDiscounts]);
+
+  const netProductsSubtotal = useMemo(() => {
+    return Math.max(0, subtotalProducts - totalOrderDiscountAmount);
+  }, [subtotalProducts, totalOrderDiscountAmount]);
 
   const totalFreight = useMemo(() => {
     return freightType.includes("Incluido") ? 0 : customFreightAmount;
   }, [freightType, customFreightAmount]);
 
   const ivaAmount = useMemo(() => {
-    return includeIva ? Math.round((subtotalProducts + totalFreight) * 0.21) : 0;
-  }, [includeIva, subtotalProducts, totalFreight]);
+    return includeIva ? Math.round((netProductsSubtotal + totalFreight) * 0.21) : 0;
+  }, [includeIva, netProductsSubtotal, totalFreight]);
 
   const grandTotal = useMemo(() => {
-    return subtotalProducts + totalFreight + ivaAmount;
-  }, [subtotalProducts, totalFreight, ivaAmount]);
+    return netProductsSubtotal + totalFreight + ivaAmount;
+  }, [netProductsSubtotal, totalFreight, ivaAmount]);
 
-  const effectiveLeadName = selectedClient?.business_name || leadName.trim();
-  const effectiveLeadContact = selectedClient?.phone_primary || leadContact.trim();
-  const hasLeadIdentity = Boolean(selectedClient || (effectiveLeadName && effectiveLeadContact));
+  const effectiveLeadName = selectedClient?.business_name || '';
+  const effectiveLeadContact = selectedClient?.phone_primary || '';
+  const hasLeadIdentity = Boolean(selectedClient);
 
   const visualProducts = useMemo<Product[]>(() => products.flatMap(product => {
-    const price = activeTier === 'distributor'
-      ? product.priceDistributor
-      : activeTier === 'corralon'
-        ? product.priceCorralon
-        : product.priceList;
+    const price = product.priceList;
+    const isAlreadyCiego = product.name.toLowerCase().includes('(ciego)') || product.name.toLowerCase().includes('ciego');
     const baseProduct: Product = {
       id: product.id,
       name: product.name,
@@ -289,12 +350,14 @@ export default function PresupuestosMayoristaPage() {
       price,
       image_url: '',
       category: product.category,
-      sku: product.id,
+      sku: product.name,
       is_active: true,
-      variant_type: 'standard'
+      variant_type: isAlreadyCiego ? 'ciego' : 'standard'
     };
 
     if (getWholesaleCatalogKind(product) !== 'tank') return [baseProduct];
+    if (isAlreadyCiego) return [baseProduct];
+
     return [
       baseProduct,
       {
@@ -305,21 +368,35 @@ export default function PresupuestosMayoristaPage() {
         variant_type: 'ciego'
       }
     ];
-  }), [products, activeTier]);
+  }), [products]);
 
   const visualOrderItems = useMemo<VisualOrderItem[]>(() => calculatedItems.map(item => ({
     id: item.id,
-    name: `${item.name}${item.allowsCiego && item.variant === 'ciego' ? ' (Ciego)' : ''}`,
+    name: `${item.name}${item.allowsCiego && item.variant === 'ciego' && !item.name.toLowerCase().includes('ciego') ? ' (Ciego)' : ''}`,
     description: item.name,
     price: item.effectiveUnitPrice,
     image_url: '',
     category: item.category,
-    sku: item.productId,
+    sku: item.name,
     is_active: true,
     quantity: item.quantity,
     customPrice: item.effectiveUnitPrice,
-    basePrice: item.priceList
+    basePrice: item.priceList,
+    discountType: item.discountType,
+    discountValue: item.discountValue,
   })), [calculatedItems]);
+
+  const handleUpdateItemDiscount = (cartItemId: string, discountType: 'percentage' | 'fixed', discountValue: number) => {
+    setCartItems(prev => prev.map(item => {
+      if (item.id !== cartItemId) return item;
+      return {
+        ...item,
+        discountType,
+        discountValue: Math.max(0, discountValue),
+        customPrice: undefined
+      };
+    }));
+  };
 
   // Cart Actions
   const handleAddToCart = (product: WholesaleProduct, variant: "standard" | "ciego" = "standard") => {
@@ -401,56 +478,21 @@ export default function PresupuestosMayoristaPage() {
     }
   };
 
-  // Create Client
-  const handleCreateClient = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newClientName.trim()) return;
-    try {
-      setCreatingClient(true);
-      const { data, error } = await supabase
-        .from("clients")
-        .insert({
-          business_name: newClientName.trim(),
-          tax_id: newClientTaxId.trim() || null,
-          phone_primary: newClientPhone.trim() || "S/D",
-          billing_address: newClientAddress.trim() || null,
-          is_wholesale: true
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-      if (data) {
-        setClients(prev => [data, ...prev]);
-        setSelectedClient(data);
-        setShowNewClientModal(false);
-        setNewClientName("");
-        setNewClientTaxId("");
-        setNewClientPhone("");
-        setNewClientAddress("");
-      }
-    } catch (err: any) {
-      alert("Error al crear cliente: " + err.message);
-    } finally {
-      setCreatingClient(false);
-    }
-  };
-
   // WhatsApp Quote Text Generation
   const generateWhatsAppMessage = () => {
     const clientName = effectiveLeadName || "Estimado Cliente";
     const dateStr = new Date().toLocaleDateString("es-AR");
 
     const lines: string[] = [
-      `*PRESUPUESTO MAYORISTA N° ${listNumber}* 📋`,
-      `*Zono Construcción / AquaFort*`,
+      `*PRESUPUESTO* 📋`,
+      `*AQUAFORT — Soluciones para el agua*`,
       `📅 Fecha: ${dateStr}`,
       `👤 Cliente: *${clientName}*`,
       "",
-      `🏷️ *Escala Aplicada:* ${activeTierLabel}`,
+      `🏷️ *Descuento por volumen:* ${appliedVolumeLabel}`,
       `📦 *Total Unidades:* ${totalTanksCount} tanques`,
       "",
-      "--- *DETALLE DEL PEDIDO* ---"
+      "--- *DETALLE DEL PRESUPUESTO* ---"
     ];
 
     calculatedItems.forEach(item => {
@@ -461,6 +503,12 @@ export default function PresupuestosMayoristaPage() {
 
     lines.push("");
     lines.push(`💰 *SUBTOTAL PRODUCTOS:* $${subtotalProducts.toLocaleString("es-AR")}`);
+    orderDiscountBreakdown.filter(d => d.amount > 0).forEach(d => {
+      lines.push(`🏷️ *${d.description}* (${d.type === 'percentage' ? `${d.value}%` : `$${d.value.toLocaleString("es-AR")}`}): -$${d.amount.toLocaleString("es-AR")}`);
+    });
+    if (totalOrderDiscountAmount > 0) {
+      lines.push(`💵 *Subtotal c/ Descuento:* $${netProductsSubtotal.toLocaleString("es-AR")}`);
+    }
     if (totalFreight > 0) {
       lines.push(`🚚 *Flete:* $${totalFreight.toLocaleString("es-AR")}`);
     } else {
@@ -501,7 +549,7 @@ export default function PresupuestosMayoristaPage() {
     }
 
     const doc = new jsPDF();
-    const clientName = effectiveLeadName || "Lead Mayorista";
+    const clientName = effectiveLeadName || "Cliente";
 
     // Header Branding
     doc.setFillColor(0, 21, 56);
@@ -510,19 +558,19 @@ export default function PresupuestosMayoristaPage() {
     doc.setTextColor(255, 255, 255);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(16);
-    doc.text("ZONO CONSTRUCCIÓN", 14, 13);
+    doc.text("AQUAFORT", 14, 13);
     doc.setFontSize(9);
     doc.setFont("helvetica", "normal");
-    doc.text("AquaFort & BioFort — Fábrica y Distribución Mayorista", 14, 20);
-    doc.text(`Lista Oficial N° ${listNumber} (${listDate})`, 14, 26);
+    doc.text("Soluciones para el agua", 14, 20);
+    doc.text(`Lista N° ${listNumber} (${listDate})`, 14, 26);
 
     doc.setFont("helvetica", "bold");
     doc.setFontSize(14);
-    doc.text("PRESUPUESTO MAYORISTA", 196, 15, { align: "right" });
+    doc.text("PRESUPUESTO", 196, 15, { align: "right" });
     doc.setFontSize(9);
     doc.setFont("helvetica", "normal");
     doc.text(`Fecha: ${new Date().toLocaleDateString("es-AR")}`, 196, 22, { align: "right" });
-    doc.text(`Escala: ${activeTierLabel.split("—")[0]}`, 196, 28, { align: "right" });
+    doc.text(`Volumen: ${appliedVolumeLabel}`, 196, 28, { align: "right" });
 
     // Client Info Box
     doc.setFillColor(248, 250, 252);
@@ -538,9 +586,7 @@ export default function PresupuestosMayoristaPage() {
     doc.text(`CUIT: ${selectedClient?.tax_id || "No informado"}`, 18, 51);
     doc.text(`Contacto: ${effectiveLeadContact || "No informado"}`, 18, 56);
 
-    doc.text(`Condición Pago: ${paymentCondition}`, 115, 45);
-    doc.text(`Entrega: ${deliveryDays}`, 115, 51);
-    doc.text(`Flete: ${freightType}`, 115, 56);
+    doc.text(`Entrega: ${deliveryDays}`, 115, 45);
 
     // Items Table
     const tableBody = calculatedItems.map(item => [
@@ -583,27 +629,49 @@ export default function PresupuestosMayoristaPage() {
     // Totals Table & Commercial notes
     const finalY = (doc as any).lastAutoTable.finalY + 6;
 
-    doc.setFillColor(241, 245, 249);
-    doc.roundedRect(120, finalY, 76, 28, 2, 2, "F");
+    const appliedDiscounts = orderDiscountBreakdown.filter(d => d.amount > 0);
+    const boxHeight = 28 + (appliedDiscounts.length * 5) + (totalOrderDiscountAmount > 0 ? 5 : 0);
 
+    doc.setFillColor(241, 245, 249);
+    doc.roundedRect(120, finalY, 76, boxHeight, 2, 2, "F");
+
+    let currY = finalY + 7;
     doc.setFontSize(8.5);
     doc.setTextColor(71, 85, 105);
-    doc.text(`Subtotal Productos (${totalTanksCount} u):`, 124, finalY + 7);
-    doc.text(`$${subtotalProducts.toLocaleString("es-AR")}`, 192, finalY + 7, { align: "right" });
+    doc.text(`Subtotal Productos (${totalTanksCount} u):`, 124, currY);
+    doc.text(`$${subtotalProducts.toLocaleString("es-AR")}`, 192, currY, { align: "right" });
 
-    doc.text("Logística / Flete:", 124, finalY + 13);
-    doc.text(totalFreight > 0 ? `$${totalFreight.toLocaleString("es-AR")}` : "Incluido", 192, finalY + 13, { align: "right" });
+    appliedDiscounts.forEach(d => {
+      currY += 5;
+      doc.setTextColor(180, 83, 9);
+      doc.text(`${d.description} (${d.type === 'percentage' ? `${d.value}%` : '$'}):`, 124, currY);
+      doc.text(`-$${d.amount.toLocaleString("es-AR")}`, 192, currY, { align: "right" });
+    });
 
-    if (includeIva) {
-      doc.text("IVA (21%):", 124, finalY + 19);
-      doc.text(`$${ivaAmount.toLocaleString("es-AR")}`, 192, finalY + 19, { align: "right" });
+    if (totalOrderDiscountAmount > 0) {
+      currY += 5;
+      doc.setTextColor(71, 85, 105);
+      doc.text(`Subtotal c/ Descuento:`, 124, currY);
+      doc.text(`$${netProductsSubtotal.toLocaleString("es-AR")}`, 192, currY, { align: "right" });
     }
 
+    currY += 6;
+    doc.setTextColor(71, 85, 105);
+    doc.text("Logística / Flete:", 124, currY);
+    doc.text(totalFreight > 0 ? `$${totalFreight.toLocaleString("es-AR")}` : "Incluido", 192, currY, { align: "right" });
+
+    if (includeIva) {
+      currY += 6;
+      doc.text("IVA (21%):", 124, currY);
+      doc.text(`$${ivaAmount.toLocaleString("es-AR")}`, 192, currY, { align: "right" });
+    }
+
+    currY += 6;
     doc.setFontSize(11);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(0, 21, 56);
-    doc.text("TOTAL FINAL:", 124, finalY + 25);
-    doc.text(`$${grandTotal.toLocaleString("es-AR")}`, 192, finalY + 25, { align: "right" });
+    doc.text("TOTAL FINAL:", 124, currY);
+    doc.text(`$${grandTotal.toLocaleString("es-AR")}`, 192, currY, { align: "right" });
 
     // Notes
     if (notes) {
@@ -613,32 +681,37 @@ export default function PresupuestosMayoristaPage() {
       doc.text(`Obs: ${notes}`, 14, finalY + 10);
     }
 
-    doc.save(`Presupuesto_Mayorista_${clientName.replace(/\s+/g, "_")}_Lista${listNumber}.pdf`);
+    doc.save(`Presupuesto_AquaFort_${clientName.replace(/\s+/g, "_")}_Lista${listNumber}.pdf`);
   };
 
-  const buildWholesaleQuote = (status: 'sent' | 'accepted') => ({
+  const buildWholesaleQuote = () => ({
     channel: 'mayorista' as const,
     clientId: selectedClient?.id || null,
     customerName: effectiveLeadName,
     customerPhone: effectiveLeadContact,
     subtotal: subtotalProducts,
+    discountType: totalOrderDiscountAmount > 0 ? 'fixed' as const : null,
+    discountValue: totalOrderDiscountAmount,
+    discountAmount: totalOrderDiscountAmount,
     freightAmount: totalFreight,
     taxAmount: ivaAmount,
     totalAmount: grandTotal,
     commercialConditions: {
       listNumber,
       listDate,
-      tier: activeTier,
-      tierLabel: activeTierLabel,
+      tier: appliedVolumeDiscount ? 'manual_volume' : 'list',
+      tierLabel: appliedVolumeLabel,
       freightType,
       paymentCondition,
       deliveryDays,
       includeIva,
-      source: 'cotizador_mayorista'
+      source: 'cotizador_mayorista',
+      orderDiscounts: orderDiscounts.filter(d => d.value > 0),
+      orderDiscountAmount: totalOrderDiscountAmount
     },
     notes,
     validUntil: defaultQuoteValidity(),
-    status,
+    status: 'draft' as const,
     items: calculatedItems.map(item => ({
       productId: item.productId,
       productName: item.name,
@@ -650,19 +723,22 @@ export default function PresupuestosMayoristaPage() {
         ? Math.round((1 - item.effectiveUnitPrice / item.priceList) * 10000) / 100
         : 0,
       subtotal: item.subtotal,
-      metadata: { category: item.category, liters: item.liters }
+      metadata: { category: item.category, liters: item.liters, discountType: item.discountType, discountValue: item.discountValue }
     }))
   });
 
   const handleSaveWholesaleQuote = async () => {
     if (!cartItems.length || !hasLeadIdentity) {
-      alert('Agregá productos e identificá el lead con nombre y un medio de contacto.');
+      alert('Agregá productos y seleccioná un cliente mayorista.');
       return;
     }
     try {
       setIsCreatingOrder(true);
-      const quote = await saveSalesQuote(buildWholesaleQuote('sent'));
-      alert(`Presupuesto ${quote.quote_number} guardado y marcado como enviado.`);
+      const quote = await saveSalesQuote(buildWholesaleQuote(), editingQuoteId || undefined);
+      setEditingQuoteId(quote.id);
+      setEditingQuoteNumber(quote.quote_number);
+      router.replace(`/vendedores/presupuestos-mayorista?quoteId=${quote.id}`);
+      alert(`Presupuesto ${quote.quote_number} guardado.`);
     } catch (error: any) {
       alert(`No se pudo guardar el presupuesto: ${error.message || error}`);
     } finally {
@@ -678,17 +754,13 @@ export default function PresupuestosMayoristaPage() {
       return;
     }
     if (!hasLeadIdentity) {
-      alert("Identificá el lead con nombre y un medio de contacto antes de continuar.");
-      return;
-    }
-
-    if (!confirm(`¿Aceptar el presupuesto de "${effectiveLeadName}" y continuar a la carga del pedido? Todavía no se enviará nada a Logística.`)) {
+      alert("Seleccioná un cliente mayorista antes de continuar.");
       return;
     }
 
     try {
       setIsCreatingOrder(true);
-      const quote = await saveSalesQuote(buildWholesaleQuote('accepted'));
+      const quote = await saveSalesQuote(buildWholesaleQuote(), editingQuoteId || undefined);
       sessionStorage.setItem('preloaded_budget', JSON.stringify({
         quoteId: quote.id,
         quoteNumber: quote.quote_number,
@@ -696,6 +768,9 @@ export default function PresupuestosMayoristaPage() {
         clientId: selectedClient?.id || null,
         customerName: effectiveLeadName,
         customerPhone: effectiveLeadContact,
+        orderDiscounts: orderDiscounts.filter(d => d.value > 0),
+        orderDiscountType: 'fixed',
+        orderDiscountValue: totalOrderDiscountAmount,
         notes: `[Presupuesto ${quote.quote_number} · Lista ${listNumber}] ${notes}`.trim(),
         items: calculatedItems.map(item => ({
           id: item.productId,
@@ -704,12 +779,11 @@ export default function PresupuestosMayoristaPage() {
           quantity: item.quantity,
           customPrice: item.effectiveUnitPrice,
           basePrice: item.priceList,
-          discountType: 'percentage',
-          discountValue: item.priceList > 0 ? Math.round((1 - item.effectiveUnitPrice / item.priceList) * 10000) / 100 : 0
+          discountType: item.discountType || 'percentage',
+          discountValue: item.discountValue !== undefined ? item.discountValue : (item.priceList > 0 ? Math.round((1 - item.effectiveUnitPrice / item.priceList) * 10000) / 100 : 0)
         }))
       }));
       router.push('/vendedores/pedidos?tab=form&client_type=mayoristas');
-
     } catch (err: any) {
       alert("Error al preparar el pedido: " + (err.message || "Error desconocido"));
     } finally {
@@ -717,32 +791,9 @@ export default function PresupuestosMayoristaPage() {
     }
   };
 
-  // Normalization helper for multi-word search
-  const normalizeText = (text: string) => {
-    if (!text) return "";
-    return text
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "") // remove accents
-      .replace(/[-_()]/g, " "); // replace hyphens and parentheses with spaces
-  };
-
-  // Filter Clients (Multi-word search)
-  const filteredClients = useMemo(() => {
-    if (!clientSearch.trim()) return clients.slice(0, 10);
-    const searchTerms = normalizeText(clientSearch.trim()).split(/\s+/).filter(Boolean);
-    return clients.filter(c => {
-      const targetText = normalizeText(
-        `${c.business_name} ${c.tax_id || ""} ${c.phone_primary || ""} ${c.billing_address || ""}`
-      );
-      return searchTerms.every(term => targetText.includes(term));
-    }).slice(0, 15);
-  }, [clients, clientSearch]);
-
   return (
-    <div className="max-w-7xl mx-auto space-y-6 pb-24">
-      {/* Top Banner */}
-      <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div className="max-w-7xl mx-auto space-y-3 pb-24">
+      <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div className="flex items-center gap-3.5">
           <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 shadow-xs shrink-0">
             <Calculator className="w-6 h-6" />
@@ -768,283 +819,152 @@ export default function PresupuestosMayoristaPage() {
         {/* Top Actions */}
         <div className="flex items-center gap-2 flex-wrap">
           <span className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-100 rounded-xl text-xs font-black text-blue-800">
-            Lista 12 vigente · descuentos 5% / 10%
+            Lista 12 vigente · descuentos por volumen: 5% / 10% / 15%
           </span>
           <Link
-            href="/admin/lista-mayorista"
+            href={`/admin/lista-mayorista?listNumber=${listNumber}`}
             className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
           >
             <Sliders className="w-3.5 h-3.5" />
             <span>Configurar Lista {listNumber}</span>
           </Link>
           <Link
-            href="/vendedores/pedidos"
+            href="/vendedores/pedidos?tab=list&list_type=todos&status=Todos&client_type=mayoristas"
             className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
           >
             <Package className="w-3.5 h-3.5" />
-            <span>Ver Tablero de Pedidos</span>
+            <span>Ver Pedidos Mayoristas</span>
           </Link>
         </div>
       </div>
 
-      {/* Main Grid: Left (Catalog & Client) + Right (Cart & Presupuesto) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* LEFT COLUMN: Client Selector & Products Catalog (7 cols) */}
-        <div className="lg:col-span-7 space-y-6">
+      <div className="space-y-3">
+        <div>
           {/* 1. Client Card */}
-          <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-xs space-y-4">
-            <div className="flex items-center justify-between">
+          <div className="bg-slate-50/90 p-4 rounded-xl border border-slate-200/95 space-y-3">
+            <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
-                <Building2 className="w-4 h-4 text-blue-600" />
-                <h2 className="text-sm font-black text-slate-900 uppercase tracking-wider">
-                  1. Cliente Mayorista / Corralón
+                <Building2 className="w-4 h-4 text-emerald-600" />
+                <h2 className="text-xs font-black text-slate-800 uppercase tracking-wider">
+                  Cuenta del Cliente
                 </h2>
               </div>
               <button
-                onClick={() => setShowNewClientModal(true)}
-                className="text-xs font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1 cursor-pointer"
+                type="button"
+                onClick={() => setShowWholesaleClientModal(true)}
+                className="flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[9px] font-black text-emerald-700 transition hover:bg-emerald-100"
               >
-                <UserPlus className="w-3.5 h-3.5" />
-                <span>+ Nuevo Cliente</span>
+                <Search className="h-3 w-3" /> {selectedClient ? "Cambiar mayorista" : "Buscar / crear"}
               </button>
             </div>
-
             {selectedClient ? (
-              <div className="p-3.5 bg-blue-50/70 border border-blue-200 rounded-2xl flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <div className="flex items-center gap-2">
-                    <span className="font-black text-slate-900 text-sm">{selectedClient.business_name}</span>
-                    {selectedClient.is_wholesale && (
-                      <span className="text-[10px] bg-blue-600 text-white px-2 py-0.5 rounded-full font-bold">Mayorista</span>
-                    )}
-                  </div>
-                  <div className="text-xs text-slate-500 flex items-center gap-3">
-                    <span>CUIT: {selectedClient.tax_id || "S/D"}</span>
-                    <span>Tel: {selectedClient.phone_primary || "S/D"}</span>
-                  </div>
-                  {selectedClient.billing_address && (
-                    <div className="text-[11px] text-slate-600 flex items-center gap-1 mt-1">
-                      <MapPin className="w-3 h-3 text-slate-400" />
-                      <span>{selectedClient.billing_address}</span>
-                    </div>
-                  )}
+              <div className="rounded-lg border border-emerald-100 bg-emerald-50/70 p-2.5 text-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-black text-slate-900">{selectedClient.business_name}</span>
+                  <button type="button" onClick={() => setSelectedClient(null)} className="text-[9px] font-bold text-slate-500 hover:text-red-600">Limpiar</button>
                 </div>
-                <button
-                  onClick={() => setSelectedClient(null)}
-                  className="px-2.5 py-1 text-xs font-bold text-slate-500 hover:text-red-600 bg-white border border-slate-200 rounded-lg cursor-pointer"
-                >
-                  Cambiar
-                </button>
+                <p className="mt-0.5 text-[10px] text-slate-500">CUIT: {selectedClient.tax_id || "S/D"} · Tel: {selectedClient.phone_primary || "S/D"}</p>
+                {selectedClient.billing_address && <p className="mt-0.5 text-[10px] text-slate-500">{selectedClient.billing_address}</p>}
               </div>
             ) : (
-              <div className="space-y-2">
-                <div className="relative">
-                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                  <input
-                    type="text"
-                    placeholder="Buscar por Razón Social o CUIT..."
-                    value={clientSearch}
-                    onChange={(e) => setClientSearch(e.target.value)}
-                    className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium outline-none focus:border-blue-500 focus:bg-white transition-all"
-                  />
-                </div>
-                {loadingClients ? (
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3 text-xs font-bold text-slate-500">
-                    Buscando clientes...
-                  </div>
-                ) : filteredClients.length > 0 ? (
-                  <div className="max-h-40 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100 bg-white">
-                    {filteredClients.map(c => (
-                      <button
-                        key={c.id}
-                        onClick={() => {
-                          setSelectedClient(c);
-                          setClientSearch("");
-                        }}
-                        className="w-full text-left px-3.5 py-2 hover:bg-blue-50/50 flex items-center justify-between text-xs cursor-pointer transition-colors"
-                      >
-                        <span className="font-bold text-slate-800">{c.business_name}</span>
-                        <span className="text-slate-400 font-mono text-[11px]">{c.tax_id || "Sin CUIT"}</span>
-                      </button>
-                    ))}
-                  </div>
-                ) : clientSearch.trim() ? (
-                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 text-xs font-bold text-amber-700">
-                    No se encontró un cliente mayorista con ese nombre, CUIT o teléfono.
-                  </div>
-                ) : null}
-
-                <div className="rounded-2xl border border-dashed border-blue-200 bg-blue-50/40 p-3.5 space-y-3">
-                  <div>
-                    <p className="text-xs font-black text-slate-800">¿Todavía no es cliente?</p>
-                    <p className="text-[11px] text-slate-500">Podés presupuestar igual. Dejá los datos mínimos para poder hacer seguimiento.</p>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    <div>
-                      <label className="mb-1 block text-[10px] font-black uppercase tracking-wide text-slate-500">Nombre / razón social *</label>
-                      <input
-                        value={leadName}
-                        onChange={event => setLeadName(event.target.value)}
-                        placeholder="Ej: Corralón El Sol"
-                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold outline-none focus:border-blue-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-[10px] font-black uppercase tracking-wide text-slate-500">Contacto / cómo ubicarlo *</label>
-                      <input
-                        value={leadContact}
-                        onChange={event => setLeadContact(event.target.value)}
-                        placeholder="WhatsApp, teléfono o email"
-                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold outline-none focus:border-blue-500"
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <button type="button" onClick={() => setShowWholesaleClientModal(true)} className="w-full rounded-xl border-2 border-dashed border-emerald-200 bg-emerald-50/60 px-3 py-4 text-center text-xs font-black text-slate-800 transition hover:border-emerald-400 hover:bg-emerald-50">
+                Seleccionar cliente mayorista
+                <span className="mt-1 block text-[10px] font-semibold text-slate-500">Buscá por razón social, CUIT, teléfono o código; también podés crear uno nuevo.</span>
+              </button>
             )}
           </div>
 
-          {/* 2. Same visual selector used by order entry */}
-          <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-xs space-y-4">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <Package className="w-4 h-4 text-blue-600" />
-                <div>
-                  <h2 className="text-sm font-black text-slate-900 uppercase tracking-wider">2. Productos del presupuesto</h2>
-                  <p className="text-[11px] text-slate-500">Usá el mismo selector visual disponible en la carga de pedidos.</p>
-                </div>
-              </div>
-              <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-black text-blue-700">Lista {listNumber}</span>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setShowProductSelector(true)}
-              disabled={loadingCatalog}
-              className="w-full rounded-2xl bg-blue-600 px-4 py-4 text-sm font-black text-white shadow-md shadow-blue-600/20 transition hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2"
-            >
-              {loadingCatalog ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-              {loadingCatalog ? `Cargando Lista ${listNumber}...` : 'Agregar productos'}
-            </button>
-
-            <div className="grid grid-cols-3 gap-2 text-center">
-              <div className="rounded-xl bg-slate-50 p-2.5">
-                <p className="text-[9px] font-black uppercase text-slate-400">Ítems</p>
-                <p className="text-sm font-black text-slate-800">{cartItems.length}</p>
-              </div>
-              <div className="rounded-xl bg-slate-50 p-2.5">
-                <p className="text-[9px] font-black uppercase text-slate-400">Unidades</p>
-                <p className="text-sm font-black text-slate-800">{cartItems.reduce((sum, item) => sum + item.quantity, 0)}</p>
-              </div>
-              <div className="rounded-xl bg-slate-50 p-2.5">
-                <p className="text-[9px] font-black uppercase text-slate-400">Subtotal</p>
-                <p className="text-sm font-black text-emerald-600">{formatPrice(subtotalProducts)}</p>
-              </div>
-            </div>
-          </div>
         </div>
 
-        {/* RIGHT COLUMN: Quote detail and commercial basics */}
-        <div className="lg:col-span-5 space-y-6">
+        <div className="space-y-3">
           {/* Cart Items Detail */}
-          <div className="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-xs space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
-                <Layers className="w-4 h-4 text-blue-600" />
-                <span>Ítems del Presupuesto ({cartItems.length})</span>
-              </h2>
-              {cartItems.length > 0 && (
-                <button
-                  onClick={handleClearCart}
-                  className="text-xs font-bold text-slate-400 hover:text-red-600 transition-colors cursor-pointer"
-                >
-                  Vaciar
-                </button>
+          <div className="bg-slate-50/90 p-3 sm:p-4 rounded-xl border border-slate-200/95 space-y-3">
+            <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2">
+                <div className="flex items-center gap-2">
+                  <h2 className="flex items-center gap-1.5 font-black text-slate-800 text-xs uppercase tracking-wider">
+                    <Package className="w-4 h-4 text-blue-600" /> Detalle del presupuesto
+                  </h2>
+                  <span className="text-[10px] font-bold bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full border border-slate-200">
+                    {cartItems.length} {cartItems.length === 1 ? 'artículo' : 'artículos'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={() => setShowProductSelector(true)} disabled={loadingCatalog || products.length === 0} className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-[10.5px] font-black uppercase tracking-wider flex items-center gap-1 border border-blue-200 disabled:opacity-50">
+                    <Plus className="w-3 h-3" /> {cartItems.length ? 'Modificar' : 'Agregar productos'}
+                  </button>
+                  {cartItems.length > 0 && <button type="button" onClick={handleClearCart} className="p-1 text-slate-400 hover:text-red-600" title="Vaciar presupuesto"><Trash2 className="w-3.5 h-3.5" /></button>}
+                </div>
+              </div>
+              {catalogError && (
+                <div className="flex items-center justify-between gap-2 rounded-lg border border-red-200 bg-red-50 p-2 text-[11px] font-bold text-red-700">
+                  <span>{catalogError}</span>
+                  <button type="button" onClick={() => setCatalogReloadKey(key => key + 1)} className="shrink-0 rounded bg-white px-2 py-1">Reintentar</button>
+                </div>
               )}
-            </div>
 
             {cartItems.length === 0 ? (
-              <div className="py-10 text-center text-slate-400 text-xs border border-dashed border-slate-200 rounded-2xl">
-                Usá “Agregar productos” para armar el presupuesto con el mismo selector de pedidos.
-              </div>
+              <button type="button" onClick={() => setShowProductSelector(true)} disabled={loadingCatalog || products.length === 0} className="w-full rounded-xl border-2 border-dashed border-slate-300 bg-slate-50/50 px-3 py-6 text-center text-xs font-bold text-slate-600 hover:border-blue-400 hover:bg-blue-50/40 disabled:opacity-50">
+                {loadingCatalog ? 'Cargando Lista 12...' : 'Seleccionar productos para el presupuesto'}
+              </button>
             ) : (
-              <div className="space-y-2.5 max-h-[350px] overflow-y-auto pr-1">
+              <div className="space-y-1.5 max-h-[380px] overflow-y-auto pr-1">
                 {calculatedItems.map(item => (
                   <div
                     key={item.id}
-                    className="p-3 bg-slate-50 border border-slate-200/80 rounded-2xl space-y-2"
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5"
                   >
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <div className="font-bold text-slate-900 text-xs leading-tight">
-                          {item.name}
-                        </div>
-                        {item.allowsCiego && (
-                        <div className="flex items-center gap-1.5 mt-1">
-                          <button
-                            onClick={() => handleToggleVariant(item.id)}
-                            className={cn(
-                              "text-[10px] font-black px-2 py-0.5 rounded-md cursor-pointer transition-all",
-                              item.variant === "ciego"
-                                ? "bg-amber-100 text-amber-800 border border-amber-300"
-                                : "bg-slate-200 text-slate-700"
-                            )}
-                          >
-                            {item.variant === "ciego" ? "CIEGO (Sin salida)" : "Estándar (Con salida)"}
-                          </button>
-                        </div>
-                        )}
-                      </div>
-
-                      <button
-                        onClick={() => handleRemoveItem(item.id)}
-                        className="text-slate-400 hover:text-red-600 p-1 cursor-pointer"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                    <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                      <span className="truncate text-xs font-bold text-slate-800" title={item.name}>{item.name}</span>
+                      {item.allowsCiego && <button type="button" onClick={() => handleToggleVariant(item.id)} className={cn('shrink-0 rounded border px-1.5 py-0.5 text-[8px] font-black', item.variant === 'ciego' ? 'border-amber-300 bg-amber-100 text-amber-800' : 'border-slate-200 bg-slate-100 text-slate-600')}>{item.variant === 'ciego' ? 'Ciego' : 'Estándar'}</button>}
                     </div>
-
-                    {/* Quantity & Price Controls */}
-                    <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-200/50">
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          onClick={() => handleUpdateQuantity(item.id, item.quantity - 1)}
-                          className="w-6 h-6 rounded-lg bg-white border border-slate-300 flex items-center justify-center font-bold hover:bg-slate-100 cursor-pointer"
-                        >
-                          -
-                        </button>
-                        <input
-                          type="number"
-                          value={item.quantity}
-                          onChange={(e) => handleUpdateQuantity(item.id, parseInt(e.target.value) || 1)}
-                          className="w-10 text-center font-bold bg-white border border-slate-200 rounded-lg py-0.5 outline-none"
-                        />
-                        <button
-                          onClick={() => handleUpdateQuantity(item.id, item.quantity + 1)}
-                          className="w-6 h-6 rounded-lg bg-white border border-slate-300 flex items-center justify-center font-bold hover:bg-slate-100 cursor-pointer"
-                        >
-                          +
-                        </button>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <div className="flex h-7 items-center overflow-hidden rounded-md border border-slate-200 bg-slate-100">
+                        <button type="button" onClick={() => handleUpdateQuantity(item.id, item.quantity - 1)} className="h-full px-1.5 text-xs font-black text-slate-500 hover:bg-slate-200">−</button>
+                        <QuantityInput value={item.quantity} onChange={quantity => handleUpdateQuantity(item.id, quantity)} />
+                        <button type="button" onClick={() => handleUpdateQuantity(item.id, item.quantity + 1)} className="h-full px-1.5 text-xs font-black text-slate-500 hover:bg-slate-200">+</button>
                       </div>
-
-                      <div className="text-right">
-                        <span className="text-[11px] text-slate-400">
-                          ${item.effectiveUnitPrice.toLocaleString("es-AR")} c/u =
-                        </span>{" "}
-                        <span className="font-black text-slate-900">
-                          ${item.subtotal.toLocaleString("es-AR")}
-                        </span>
+                      <div className="flex h-7 items-center rounded-md border border-slate-200 bg-slate-50 px-1.5">
+                        <span className="mr-0.5 text-[10px] text-slate-400">$</span>
+                        <input type="number" min={0} value={item.effectiveUnitPrice} onChange={event => handleUpdateCustomPrice(item.id, Number(event.target.value))} className="w-20 bg-transparent text-right text-xs font-bold text-slate-800 outline-none" aria-label={`Precio de ${item.name}`} />
                       </div>
+                      <span className="min-w-20 text-right text-xs font-black text-slate-900">${item.subtotal.toLocaleString('es-AR')}</span>
+                      <button type="button" onClick={() => handleRemoveItem(item.id)} className="p-1 text-slate-400 hover:text-red-600" aria-label={`Quitar ${item.name}`}><Trash2 className="w-3.5 h-3.5" /></button>
                     </div>
                   </div>
                 ))}
               </div>
             )}
 
-            {/* Commercial Parameters Accordion */}
-            <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl space-y-2.5 text-xs">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-2">
+                <button type="button" onClick={() => setShowProductSelector(true)} disabled={loadingCatalog || products.length === 0} className="flex items-center gap-1 text-[11px] font-bold text-blue-700 hover:text-blue-900 disabled:opacity-50"><Plus className="w-3 h-3" /> Agregar más productos</button>
+                <span className="text-[10px] font-black uppercase text-slate-500">Subtotal artículos: <strong className="ml-1 text-sm text-slate-900">${subtotalProducts.toLocaleString('es-AR')}</strong></span>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-xs space-y-2 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-slate-800">Descuentos del presupuesto</h3>
+                <button type="button" onClick={() => setShowProductSelector(true)} className="text-[10px] font-bold text-blue-700 hover:text-blue-900">Modificar</button>
+              </div>
+              {suggestedVolumeDiscount && !orderDiscounts.some(discount => discount.id === suggestedVolumeDiscount.id && discount.value === suggestedVolumeDiscount.value) && (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] font-bold text-amber-800">
+                  <span>Sugerencia: {suggestedVolumeDiscount.value}% por volumen ({totalTanksCount} tanques)</span>
+                  <button type="button" onClick={applySuggestedVolumeDiscount} className="rounded-md bg-amber-500 px-2 py-1 text-white hover:bg-amber-600">Aplicar descuento</button>
+                </div>
+              )}
+              {orderDiscountBreakdown.filter(discount => discount.amount > 0).map(discount => (
+                <div key={discount.id} className="flex items-center justify-between gap-2 text-[11px] text-slate-600">
+                  <span>{discount.description} ({discount.type === 'percentage' ? `${discount.value}%` : `$${discount.value.toLocaleString('es-AR')}`})</span>
+                  <span className="font-black text-amber-700">−${discount.amount.toLocaleString('es-AR')}</span>
+                </div>
+              ))}
+              {totalOrderDiscountAmount === 0 && <p className="text-[10px] text-slate-400">Sin descuentos aplicados.</p>}
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-xs space-y-2.5 text-xs">
               <div className="flex items-center justify-between">
-                <span className="font-bold text-slate-700">Flete / Logística:</span>
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-700">Costo de flete</span>
                 <select
                   value={freightType}
                   onChange={(e) => setFreightType(e.target.value)}
@@ -1068,8 +988,8 @@ export default function PresupuestosMayoristaPage() {
                 </div>
               )}
 
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-slate-700">Condición de Pago:</span>
+              <div className="flex items-center justify-between border-t border-slate-100 pt-2">
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-700">Condición de pago</span>
                 <select
                   value={paymentCondition}
                   onChange={(e) => setPaymentCondition(e.target.value)}
@@ -1082,41 +1002,44 @@ export default function PresupuestosMayoristaPage() {
                 </select>
               </div>
 
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-slate-700">Facturación:</span>
-                <button
-                  onClick={() => setIncludeIva(!includeIva)}
-                  className={cn(
-                    "px-2.5 py-1 rounded-lg font-bold transition-all text-xs cursor-pointer",
-                    includeIva ? "bg-indigo-600 text-white" : "bg-white border border-slate-200 text-slate-700"
-                  )}
-                >
-                  {includeIva ? "Factura A (+21% IVA)" : "Precio Final"}
-                </button>
-              </div>
+              <label className="flex items-center justify-between border-t border-slate-100 pt-2 cursor-pointer">
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-700">Factura con IVA (+21%)</span>
+                <input type="checkbox" checked={includeIva} onChange={event => setIncludeIva(event.target.checked)} className="h-4 w-4 accent-blue-600" />
+              </label>
             </div>
 
-            {/* Totals Summary */}
-            <div className="p-4 bg-slate-900 text-white rounded-2xl space-y-2">
-              <div className="flex justify-between text-xs text-slate-400">
+            <div className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-xs space-y-1.5">
+              <div className="flex justify-between text-xs text-slate-600">
                 <span>Subtotal ({cartItems.reduce((sum, item) => sum + item.quantity, 0)} unidades):</span>
                 <span>${subtotalProducts.toLocaleString("es-AR")}</span>
               </div>
+              {orderDiscountBreakdown.filter(d => d.amount > 0).map((d, i) => (
+                <div key={d.id || i} className="flex justify-between text-xs text-amber-700">
+                  <span>{d.description} ({d.type === 'percentage' ? `${d.value}%` : `$${d.value.toLocaleString("es-AR")}`}):</span>
+                  <span>-${d.amount.toLocaleString("es-AR")}</span>
+                </div>
+              ))}
+              {totalOrderDiscountAmount > 0 && (
+                <div className="flex justify-between text-xs font-bold text-slate-700 pt-1 border-t border-slate-100">
+                  <span>Subtotal c/ Descuento:</span>
+                  <span>${netProductsSubtotal.toLocaleString("es-AR")}</span>
+                </div>
+              )}
               {totalFreight > 0 && (
-                <div className="flex justify-between text-xs text-slate-400">
+                <div className="flex justify-between text-xs text-slate-600">
                   <span>Flete:</span>
                   <span>${totalFreight.toLocaleString("es-AR")}</span>
                 </div>
               )}
               {includeIva && (
-                <div className="flex justify-between text-xs text-slate-400">
+                <div className="flex justify-between text-xs text-slate-600">
                   <span>IVA (21%):</span>
                   <span>${ivaAmount.toLocaleString("es-AR")}</span>
                 </div>
               )}
-              <div className="flex justify-between items-baseline pt-2 border-t border-slate-800">
-                <span className="font-black text-sm text-slate-200">TOTAL PRESUPUESTO:</span>
-                <span className="font-black text-xl text-emerald-400 font-mono">
+              <div className="flex justify-between items-baseline pt-2 border-t border-slate-200">
+                <span className="font-black text-sm text-slate-800">TOTAL PRESUPUESTO:</span>
+                <span className="font-black text-xl text-slate-900 font-mono">
                   ${grandTotal.toLocaleString("es-AR")}
                 </span>
               </div>
@@ -1174,95 +1097,46 @@ export default function PresupuestosMayoristaPage() {
         onAddProducts={handleAddVisualProducts}
         onUpdateQuantity={handleUpdateQuantity}
         onUpdateCustomPrice={handleUpdateCustomPrice}
+        onUpdateItemDiscount={handleUpdateItemDiscount}
+        orderDiscounts={orderDiscounts}
+        suggestedOrderDiscount={suggestedVolumeDiscount}
+        onApplySuggestedOrderDiscount={applySuggestedVolumeDiscount}
+        onUpdateOrderDiscounts={setOrderDiscounts}
         onRemoveItem={handleRemoveItem}
         onClearOrderItems={() => setCartItems([])}
         isAdmin={true}
         isWholesaleContext={true}
+        context="presupuesto"
       />
 
-      {/* Modal: Create Client */}
-      {showNewClientModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl border border-slate-100 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="font-black text-slate-900 text-sm flex items-center gap-2">
-                <Building2 className="w-4 h-4 text-blue-600" />
-                <span>Nuevo Cliente Mayorista</span>
-              </h3>
-              <button
-                onClick={() => setShowNewClientModal(false)}
-                className="text-slate-400 hover:text-slate-600 text-xs font-bold"
-              >
-                ✕
-              </button>
-            </div>
+      <WholesaleClientModal
+        open={showWholesaleClientModal}
+        selectedClientId={selectedClient?.id}
+        onClose={() => setShowWholesaleClientModal(false)}
+        onSelect={client => {
+          setSelectedClient({
+            id: client.id,
+            business_name: client.business_name,
+            tax_id: client.tax_id || undefined,
+            phone_primary: client.phone_primary,
+            billing_address: client.billing_address || undefined,
+            is_wholesale: true,
+            default_discount_coef: client.default_discount_coef,
+            default_discount_label: client.default_discount_label
+          });
+          const coefficient = Number(client.default_discount_coef);
+          if (Number.isFinite(coefficient) && coefficient >= 0 && coefficient < 1) {
+            const discountPct = Math.round((1 - coefficient) * 10000) / 100;
+            setOrderDiscounts(previous => [{
+              id: previous[0]?.id || '1',
+              description: client.default_discount_label || `Descuento mayorista ${discountPct}%`,
+              type: 'percentage',
+              value: discountPct
+            }, ...previous.slice(1)]);
+          }
+        }}
+      />
 
-            <form onSubmit={handleCreateClient} className="space-y-3 text-xs">
-              <div>
-                <label className="font-bold text-slate-700 block mb-1">Razón Social / Nombre Comercial *</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ej: Corralón Don Pedro S.A."
-                  value={newClientName}
-                  onChange={(e) => setNewClientName(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="font-bold text-slate-700 block mb-1">CUIT / DNI</label>
-                <input
-                  type="text"
-                  placeholder="30-XXXXXXXX-X"
-                  value={newClientTaxId}
-                  onChange={(e) => setNewClientTaxId(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="font-bold text-slate-700 block mb-1">Teléfono / WhatsApp</label>
-                <input
-                  type="text"
-                  placeholder="11-XXXX-XXXX"
-                  value={newClientPhone}
-                  onChange={(e) => setNewClientPhone(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="font-bold text-slate-700 block mb-1">Dirección de Depósito / Entrega</label>
-                <input
-                  type="text"
-                  placeholder="Calle, Número, Localidad"
-                  value={newClientAddress}
-                  onChange={(e) => setNewClientAddress(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-blue-500"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setShowNewClientModal(false)}
-                  className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl font-bold cursor-pointer"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={creatingClient}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-xl font-bold cursor-pointer disabled:opacity-50"
-                >
-                  {creatingClient ? "Guardando..." : "Guardar Cliente"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

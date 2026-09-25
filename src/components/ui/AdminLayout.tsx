@@ -41,6 +41,7 @@ import {
   AlertCircle,
   Loader2,
   FileSpreadsheet,
+  FileText,
   PlusCircle,
   ClipboardCheck,
   Printer,
@@ -364,7 +365,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
           }
 
           const nameLower = (seller?.full_name || "").toLowerCase();
-          detectedCanUseWholesale = isAdminUser || seller?.can_sell_wholesale === true || seller?.seller_type === 'mayorista';
+          detectedCanUseWholesale = isAdminUser || seller?.can_sell_wholesale === true || seller?.seller_type === 'mayorista' || seller?.seller_type === 'ambos';
           detectedRestricted = !isAdminUser && (
             emailLower.includes("jazmin") || 
             emailLower.includes("jazmín") || 
@@ -375,6 +376,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
             nameLower.includes("ludmila") ||
             emailLower.includes("facundo") ||
             emailLower.includes("facundopaz") ||
+            emailLower === "anabel.fontan@zono.com.ar" ||
             nameLower.includes("facundo") ||
             user.id === "13430e05-b61a-4a3f-9fc3-152d377c4b0c" ||   // Jazmin
             user.id === "54b2d319-8f6f-47ff-b794-b7731978410a" ||   // Ludmila
@@ -427,7 +429,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     }
     if (hasRole('fletero')) allowedPaths.add('/admin/cobros-mp');
     if (hasRole('administracion')) {
-      ['/admin/cobros-mp', '/admin/finanzas', '/admin/rendiciones']
+      ['/admin/cobros-mp', '/admin/finanzas', '/admin/rendiciones', '/admin/comprobantes-tesoreria']
         .forEach(route => allowedPaths.add(route));
     }
     if (hasRole('compras')) {
@@ -457,6 +459,8 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     if (isSpecializedOperator && pathname && !canAccessSpecializedRoute(pathname, search)) {
       const fallback = hasRole('compras') ? '/admin/compras?tab=purchase_orders' : '/admin/cobros-mp';
       router.replace(fallback);
+    } else if (hasRole('seller') && !isAdminRole && pathname === '/admin/cobros-mp') {
+      router.replace('/vendedores');
     } else if (isRestrictedSeller && isWholesalePermissionLoaded && pathname) {
       const query = search;
       const isWholesaleRoute =
@@ -466,7 +470,6 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       const isRestrictedRouteAllowed =
         pathname === '/vendedores' ||
         pathname === '/vendedores/presupuestos' ||
-        pathname === '/admin/cobros-mp' ||
         (pathname.startsWith('/vendedores/pedidos') && !query.includes('client_type=mayoristas')) ||
         (canUseWholesale && isWholesaleRoute);
       if (!isRestrictedRouteAllowed) router.replace('/vendedores');
@@ -478,7 +481,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     ) {
       router.replace('/vendedores');
     }
-  }, [isRoleLoaded, userRole, userRoles, isSpecializedOperator, canAccessSpecializedRoute, hasRole, isRestrictedSeller, canUseWholesale, isWholesalePermissionLoaded, pathname, router]);
+  }, [isRoleLoaded, userRole, userRoles, isAdminRole, isSpecializedOperator, canAccessSpecializedRoute, hasRole, isRestrictedSeller, canUseWholesale, isWholesalePermissionLoaded, pathname, router]);
 
   const destinationForRole = (role?: string) => {
     if (role === 'admin') return '/admin/dashboard';
@@ -647,6 +650,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         { name: "Caja Diaria", href: "/admin/caja", icon: Wallet, adminOnly: true },
         { name: "Estado de Resultados (EERR)", href: "/admin/finanzas/eerr", icon: FileSpreadsheet, adminOnly: true },
         { name: "Administración y Finanzas", href: "/admin/finanzas", icon: Coins, adminOnly: true },
+        { name: "Comprobantes de Tesorería", href: "/admin/comprobantes-tesoreria", icon: FileText, allowedRoles: ['admin', 'administracion'] },
         { name: "Comisiones de Vendedores", href: "/admin/comisiones", icon: Coins, adminOnly: true }
       ]
     },
@@ -889,7 +893,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                 if (isSpecializedOperator) {
                   if (link.allowedRoles?.some(role => userRoles.includes(role))) return true;
                   if (hasRole('administracion')) {
-                    return link.href === "/admin/finanzas";
+                    return link.href === "/admin/finanzas" || link.href === "/admin/comprobantes-tesoreria";
                   }
                   return false;
                 }
@@ -905,8 +909,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                     link.href === "/vendedores" ||
                     link.href === "/vendedores/presupuestos" ||
                     link.href === "/vendedores/pedidos?tab=form&client_type=minoristas" ||
-                    link.href === "/vendedores/pedidos?tab=list&client_type=minoristas" ||
-                    link.href === "/admin/cobros-mp"
+                    link.href === "/vendedores/pedidos?tab=list&client_type=minoristas"
                   );
                 }
                 if (link.adminOnly && !isAdminRole) return false;

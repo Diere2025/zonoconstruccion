@@ -19,6 +19,8 @@ import {
 import html2canvas from "html2canvas-pro";
 import { createPrintablePdf } from "@/lib/printablePdf";
 import { formatPrice } from "@/lib/utils";
+import type { OrderDiscountItem } from "@/types";
+import { calculateCascadingDiscounts } from "@/lib/orderDiscounts";
 
 export interface PrintableOrderItem {
   id?: string;
@@ -63,6 +65,7 @@ export interface PrintableOrderData {
   order_discount_type?: 'percentage' | 'fixed';
   order_discount_value?: number;
   order_discount_amount?: number;
+  order_discounts?: OrderDiscountItem[];
   freight_cost?: number;
   surcharges?: number;
   tax?: number;
@@ -229,6 +232,8 @@ export default function PrintableOrderModal({
   const discountLabel = order.order_discount_type === 'percentage'
     ? `Descuento Pedido (${order.order_discount_value || 0}%)`
     : 'Descuento Pedido (Monto Fijo)';
+  const discountBreakdown = calculateCascadingDiscounts(itemsSubtotal, order.order_discounts || [])
+    .filter(discount => discount.amount > 0);
   const deposit = order.deposit_amount || 0;
   const balance = order.pending_balance !== undefined 
     ? order.pending_balance 
@@ -669,10 +674,17 @@ export default function PrintableOrderModal({
 
                   {orderDiscountAmount > 0 && (
                     <>
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "10px", color: "#b45309", fontWeight: 700 }}>
-                        <span>{discountLabel}:</span>
-                        <span style={{ fontFamily: "monospace" }}>-{formatPrice(orderDiscountAmount)}</span>
-                      </div>
+                      {discountBreakdown.length > 0 ? discountBreakdown.map(discount => (
+                        <div key={discount.id} style={{ display: "flex", justifyContent: "space-between", fontSize: "10px", color: "#b45309", fontWeight: 700 }}>
+                          <span>{discount.description} ({discount.type === 'percentage' ? `${discount.value}%` : 'Monto Fijo'}):</span>
+                          <span style={{ fontFamily: "monospace" }}>-{formatPrice(discount.amount)}</span>
+                        </div>
+                      )) : (
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: "10px", color: "#b45309", fontWeight: 700 }}>
+                          <span>{discountLabel}:</span>
+                          <span style={{ fontFamily: "monospace" }}>-{formatPrice(orderDiscountAmount)}</span>
+                        </div>
+                      )}
                       <div style={{ display: "flex", justifyContent: "space-between", fontSize: "10px", color: "#475569", fontWeight: 700 }}>
                         <span>Subtotal Neto:</span>
                         <span style={{ fontFamily: "monospace" }}>{formatPrice(netSubtotal)}</span>

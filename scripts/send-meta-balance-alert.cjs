@@ -21,6 +21,33 @@ function dollars(cents) {
   return Number(cents) / 100;
 }
 
+function latestSpendLimitIncrease(activities = []) {
+  const candidates = activities
+    .filter(activity => activity.event_type === 'ad_account_update_spend_limit')
+    .map(activity => {
+      try {
+        const details = typeof activity.extra_data === 'string' ? JSON.parse(activity.extra_data) : activity.extra_data;
+        const oldValue = Number(details?.old_value);
+        const newValue = Number(details?.new_value);
+        if (details?.type !== 'payment_amount' || !Number.isFinite(oldValue) || !Number.isFinite(newValue) || newValue <= oldValue) return null;
+        const timestamp = Date.parse(activity.event_time);
+        if (!Number.isFinite(timestamp)) return null;
+        return { timestamp, amount: (newValue - oldValue) / 100 };
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.timestamp - a.timestamp);
+  if (!candidates.length) return null;
+  const latest = candidates[0];
+  const date = new Intl.DateTimeFormat('es-AR', {
+    timeZone: 'America/Argentina/Buenos_Aires', dateStyle: 'short', timeStyle: 'short'
+  }).format(new Date(latest.timestamp));
+  const amount = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'USD' }).format(latest.amount);
+  return `Último aumento del límite: ${date} — +${amount}.`;
+}
+
 function formatMessage(account, now = new Date()) {
   if (account.name !== 'S731.04' || account.currency !== 'USD') {
     throw new Error('La respuesta de Meta no corresponde a S731.04 en USD.');
@@ -34,9 +61,11 @@ function formatMessage(account, now = new Date()) {
     timeZone: 'America/Argentina/Buenos_Aires', dateStyle: 'short', timeStyle: 'short'
   }).format(now);
   const urgent = remaining < 500;
+  const limitIncrease = latestSpendLimitIncrease(account.activities?.data || []);
+  const limitLine = limitIncrease ? `\n${limitIncrease}` : '';
   const text = urgent
-    ? `🚨🚨 SALDO PUBLICITARIO BAJO 🚨🚨\n\nCuenta Meta S731.04\nDisponible hasta el límite de gasto: ${display}\n\n⚠️ CARGAR SALDO O AUMENTAR EL LÍMITE DE INMEDIATO PARA EVITAR CORTES.\n\nActualizado: ${date} (Argentina)`
-    : `📊 Saldo publicitario Meta\n\nCuenta S731.04\nDisponible hasta el límite de gasto: ${display}\n\nActualizado: ${date} (Argentina)`;
+    ? `🚨🚨 SALDO PUBLICITARIO BAJO 🚨🚨\n\nCuenta Meta S731.04\nDisponible hasta el límite de gasto: ${display}${limitLine}\n\n⚠️ CARGAR SALDO O AUMENTAR EL LÍMITE DE INMEDIATO PARA EVITAR CORTES.\n\nActualizado: ${date} (Argentina)`
+    : `📊 Saldo publicitario Meta\n\nCuenta S731.04\nDisponible hasta el límite de gasto: ${display}${limitLine}\n\nActualizado: ${date} (Argentina)`;
   return { text, remaining, urgent };
 }
 
@@ -55,7 +84,7 @@ async function main() {
   const accountId = process.env.META_AD_ACCOUNT_ID || 'act_1077861488005193';
   const version = process.env.META_API_VERSION || 'v21.0';
   const url = new URL(`https://graph.facebook.com/${version}/${accountId}`);
-  url.searchParams.set('fields', 'id,name,currency,amount_spent,spend_cap,is_prepay_account');
+  url.searchParams.set('fields', 'id,name,currency,amount_spent,spend_cap,is_prepay_account,activities.limit(100){event_time,event_type,extra_data}');
   url.searchParams.set('access_token', token);
   const metaResponse = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(20000) });
   const account = await metaResponse.json();
@@ -83,4 +112,4 @@ if (require.main === module) {
   main().catch(error => { console.error(error.message); process.exitCode = 1; });
 }
 
-module.exports = { formatMessage };
+module.exports = { formatMessage, latestSpendLimitIncrease };

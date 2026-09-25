@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { Product } from "@/types";
 import { supabase } from "@/lib/supabase";
+import { optimizeImageUpload } from "@/lib/optimizeImageUpload";
 import { Button } from "./Button";
 import { X, Search, CheckCircle2, Plus, Image as ImageIcon, Loader2, Trash2, CalendarClock } from "lucide-react";
 import Image from "next/image";
@@ -201,29 +202,43 @@ export function ProductFormModal({ product, isOpen, onClose, onSuccess, allProdu
 
     if (selectedFile) {
       setUploading(true);
-      const fileExt = selectedFile.name.split('.').pop();
-      const filePath = `products/${Math.random()}.${fileExt}`;
-      const { error: uploadError } = await supabase.storage.from('product-images').upload(filePath, selectedFile);
-      if (!uploadError) {
+      try {
+        const image = await optimizeImageUpload(selectedFile);
+        const fileExt = image.name.split('.').pop();
+        const filePath = `products/${Math.random()}.${fileExt}`;
+        const { error: uploadError } = await supabase.storage.from('product-images').upload(filePath, image, { contentType: image.type });
+        if (uploadError) throw uploadError;
         const { data: publicUrlData } = supabase.storage.from('product-images').getPublicUrl(filePath);
         finalImageUrl = publicUrlData.publicUrl;
+      } catch (error) {
+        alert('Error al subir imagen: ' + (error instanceof Error ? error.message : String(error)));
+        setSubmitting(false);
+        return;
+      } finally {
+        setUploading(false);
       }
-      setUploading(false);
     }
 
     const newGalleryUrls: string[] = [];
     if (galleryFiles.length > 0) {
       setUploading(true);
-      for (const file of galleryFiles) {
-        const fileExt = file.name.split('.').pop();
-        const filePath = `products/gallery/${Math.random()}.${fileExt}`;
-        const { error: uploadError } = await supabase.storage.from('product-images').upload(filePath, file);
-        if (!uploadError) {
+      try {
+        for (const file of galleryFiles) {
+          const image = await optimizeImageUpload(file);
+          const fileExt = image.name.split('.').pop();
+          const filePath = `products/gallery/${Math.random()}.${fileExt}`;
+          const { error: uploadError } = await supabase.storage.from('product-images').upload(filePath, image, { contentType: image.type });
+          if (uploadError) throw uploadError;
           const { data: publicUrlData } = supabase.storage.from('product-images').getPublicUrl(filePath);
           newGalleryUrls.push(publicUrlData.publicUrl);
         }
+      } catch (error) {
+        alert('Error al subir galería: ' + (error instanceof Error ? error.message : String(error)));
+        setSubmitting(false);
+        return;
+      } finally {
+        setUploading(false);
       }
-      setUploading(false);
     }
     const todayStr = new Date().toISOString().split("T")[0];
     const isFutureSchedule = isSchedulingPrice && scheduledEffectiveDate > todayStr && !isNaN(finalPriceVal) && finalPriceVal > 0;

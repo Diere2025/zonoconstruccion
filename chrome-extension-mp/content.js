@@ -137,7 +137,10 @@ chrome.storage.local.get(
   (res) => {
     if (res.webhookUrl) config.webhookUrl = res.webhookUrl;
     if (res.secretToken) config.secretToken = res.secretToken;
-    if (res.accountName) config.accountName = res.accountName;
+    if (res.accountName) {
+      config.accountName = res.accountName === "cesara.daiana.010.mp" ? "cobroszono" : res.accountName;
+      if (config.accountName !== res.accountName) chrome.storage.local.set({ accountName: config.accountName });
+    }
     if (res.workInterval) config.workInterval = Math.max(8, Number(res.workInterval));
     else if (res.pollInterval) config.workInterval = Math.max(8, Number(res.pollInterval));
     if (res.offInterval) config.offInterval = Math.max(30, Number(res.offInterval));
@@ -176,7 +179,7 @@ function createFloatingStatusWidget() {
         <select id="zono-quick-account" style="background: #0f172a; color: #38bdf8; border: 1px solid #334155; border-radius: 6px; font-size: 11px; font-weight: 700; padding: 2px 6px; outline: none; cursor: pointer;">
           <option value="pagoszono.26" ${config.accountName === "pagoszono.26" ? "selected" : ""}>pagoszono.26</option>
           <option value="diegozono.mp" ${config.accountName === "diegozono.mp" ? "selected" : ""}>diegozono.mp</option>
-          <option value="cesara.daiana.010.mp" ${config.accountName === "cesara.daiana.010.mp" ? "selected" : ""}>cesara.daiana.010.mp</option>
+          <option value="cobroszono" ${config.accountName === "cobroszono" ? "selected" : ""}>cobroszono</option>
         </select>
       </div>
       <div style="font-size: 11px; margin-top: 3px;"><span id="zono-reading-status" style="color: #cbd5e1;">Lectura: esperando listado…</span> <button id="zono-diagnose" style="background: transparent; color: #38bdf8; border: 0; cursor: pointer; font-size: 10px;">Diagnóstico</button></div>
@@ -779,6 +782,9 @@ let wrongPageAlertSent = false;
 
 function handleWrongPage() {
   if (!isMonitorTab) return;
+  if (wrongPageSeconds === 0) {
+    chrome.runtime.sendMessage({ action: "WATCH_WRONG_PAGE" });
+  }
   wrongPageSeconds++;
   setConnectionStatus(false);
 
@@ -787,11 +793,6 @@ function handleWrongPage() {
     if (!wrongPageAlertSent) {
       wrongPageAlertSent = true;
       playAlertBeep();
-      sendPageAlert(
-        "WRONG_PAGE",
-        `La ventana se encuentra fuera de Actividades (en: "${window.location.pathname}"). El monitor no puede registrar cobros aquí.`,
-        "⚠️ ALERTA: Monitor MP fuera de Actividades"
-      );
     }
 
     if (!isWrongPageActive) {
@@ -1076,7 +1077,7 @@ function startMonitoring() {
           <select id="zono-quick-account" style="background: #0f172a; color: #38bdf8; border: 1px solid #334155; border-radius: 6px; font-size: 11px; font-weight: 700; padding: 2px 6px; outline: none; cursor: pointer;">
             <option value="pagoszono.26" ${config.accountName === "pagoszono.26" ? "selected" : ""}>pagoszono.26</option>
             <option value="diegozono.mp" ${config.accountName === "diegozono.mp" ? "selected" : ""}>diegozono.mp</option>
-            <option value="cesara.daiana.010.mp" ${config.accountName === "cesara.daiana.010.mp" ? "selected" : ""}>cesara.daiana.010.mp</option>
+            <option value="cobroszono" ${config.accountName === "cobroszono" ? "selected" : ""}>cobroszono</option>
           </select>
         `;
         document.getElementById("zono-quick-account")?.addEventListener("change", (e) => {

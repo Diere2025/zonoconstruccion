@@ -43,8 +43,8 @@ En Google Chrome podés tener **Perfiles separados**:
    * Entrás a `mercadopago.com.ar` y te logueás con la **Cuenta MP4**.
    * En la extensión seleccionás `pagoszono.26`.
 3. **Perfil 3 de Chrome:**
-   * Entrás a `mercadopago.com.ar` y te logueás con la cuenta `cesara.daiana.010.mp`.
-   * En la extensión seleccionás `cesara.daiana.010.mp`.
+   * Entrás a `mercadopago.com.ar` y te logueás con la cuenta `cobroszono`.
+   * En la extensión seleccionás `cobroszono`.
 4. Dejás abierta la pestaña de **"Actividades"** en cada perfil.
 
 ## Una sola pestaña de monitoreo por perfil
@@ -52,6 +52,8 @@ En Google Chrome podés tener **Perfiles separados**:
 Después de actualizar la extensión, abrí **Actividades** en la pestaña que querés usar y tocá **«Activar aquí»** en el widget. Esa será la única pestaña que refresca, registra cobros y envía alertas. Podés abrir otras pestañas de Mercado Pago para operar normalmente: quedan ignoradas por el monitor.
 
 Desde la versión 1.3.4, la pestaña elegida conserva la activación durante actualizaciones de la extensión y se recupera automáticamente cuando Chrome restaura una sesión con IDs de pestaña nuevos. **«Activar aquí»** solo hace falta para elegir otra pestaña de Actividades de forma manual.
+
+Desde la versión 1.3.7, si la pestaña monitor sale de Actividades o se cierra, la extensión avisa al ERP después de unos 8 segundos aunque la navegación haya descargado el script de la página. Chrome puede demorar el aviso hasta unos 30 segundos si suspende el proceso de la extensión. Al volver a Actividades se restablece la detección para una próxima salida. Cambiar solamente a otra pestaña de Chrome no cuenta como salir de Actividades.
 
 ---
 
