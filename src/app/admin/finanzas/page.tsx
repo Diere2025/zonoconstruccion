@@ -32,6 +32,21 @@ import {
 import { Button } from "@/components/ui/Button";
 import { formatPrice, formatDateDDMMYYYY } from "@/lib/utils";
 import EstadoResultadosView from "@/components/finanzas/EstadoResultadosView";
+import FinancialConceptManager from "@/components/finanzas/FinancialConceptManager";
+import type { FinancialConcept } from "@/lib/financialConcepts";
+
+
+const normalizeConceptSearch = (value: string) => value
+  .normalize("NFD")
+  .replace(/[\u0300-\u036f]/g, "")
+  .toLocaleLowerCase("es")
+  .trim();
+
+const DEFAULT_FINANCIAL_CATEGORIES = [
+  "Gastos Operativos", "Recaudación", "Impuestos", "Insumo de Producto", "IIGG",
+  "Deuda bancaria", "Publicidad", "Servicio de Flete", "Servicio de Limpieza",
+  "Peajes", "Proveedores", "Sueldos", "Comisiones Bancarias", "Otro"
+];
 
 const COMMON_SUBCATEGORIES_BY_CATEGORY: Record<string, string[]> = {
   "Recaudación": [
@@ -198,6 +213,8 @@ interface CashTransactionWithRelations {
   type: 'ingreso' | 'egreso';
   category: string;
   sub_category: string | null;
+  efe_category?: string | null;
+  financial_concept_id?: string | null;
   business_unit: string | null;
   amount: number;
   currency: 'ARS' | 'USD';
@@ -453,6 +470,11 @@ export default function AdminFinanzasPage() {
   const [financialAccounts, setFinancialAccounts] = useState<FinancialAccount[]>([]);
   const [costCenters, setCostCenters] = useState<CostCenter[]>([]);
   const [transactions, setTransactions] = useState<CashTransactionWithRelations[]>([]);
+  const [transactionsError, setTransactionsError] = useState("");
+  const [initDataError, setInitDataError] = useState("");
+  const [financialConcepts, setFinancialConcepts] = useState<FinancialConcept[]>([]);
+  const [conceptCatalogError, setConceptCatalogError] = useState("");
+  const [isConceptManagerOpen, setIsConceptManagerOpen] = useState(false);
   const [clientsBalances, setClientsBalances] = useState<ClientBalanceItem[]>([]);
   const [suppliersBalances, setSuppliersBalances] = useState<SupplierBalanceItem[]>([]);
   const [reconciliationReport, setReconciliationReport] = useState<AccountReconciliation[]>(() => {
@@ -484,8 +506,14 @@ export default function AdminFinanzasPage() {
   const [txAccountId, setTxAccountId] = useState("");
   const [txCategory, setTxCategory] = useState("Gastos Operativos");
   const [txSubCategory, setTxSubCategory] = useState("");
+  const [txEfeCategory, setTxEfeCategory] = useState("");
   const [txAmount, setTxAmount] = useState("");
   const [txConcept, setTxConcept] = useState("");
+  const [conceptSearch, setConceptSearch] = useState("");
+  const [isConceptSearchOpen, setIsConceptSearchOpen] = useState(false);
+  const [selectedConcept, setSelectedConcept] = useState<FinancialConcept | null>(null);
+  const [txFinancialConceptId, setTxFinancialConceptId] = useState<string | null>(null);
+  const [financialTypeNeedsReview, setFinancialTypeNeedsReview] = useState(false);
   const [txCostCenterId, setTxCostCenterId] = useState("");
   const [txNotes, setTxNotes] = useState("");
   const [txCreatedAt, setTxCreatedAt] = useState("");
@@ -590,6 +618,26 @@ export default function AdminFinanzasPage() {
   };
   const loadCostCenters = async () => {};
 
+  const loadFinancialConcepts = async () => {
+    const pageSize = 1000;
+    const all: FinancialConcept[] = [];
+    for (let from = 0; ; from += pageSize) {
+      const { data, error } = await supabase.from('financial_concepts')
+        .select('id,concept,category,sub_category,movement_type,efe_category,is_active,source_row')
+        .order('concept')
+        .order('id')
+        .range(from, from + pageSize - 1);
+      if (error) {
+        setConceptCatalogError('No se pudo cargar la base de conceptos.');
+        return;
+      }
+      all.push(...(data || []) as FinancialConcept[]);
+      if (!data || data.length < pageSize) break;
+    }
+    setFinancialConcepts(all);
+    setConceptCatalogError("");
+  };
+
   const loadValidationOrders = async () => {
     try {
       const res = await fetch("/api/admin/finanzas-data?action=validations");
@@ -604,8 +652,9 @@ export default function AdminFinanzasPage() {
   const initData = async () => {
     try {
       const res = await fetch("/api/admin/finanzas-data?action=init");
-      if (!res.ok) throw new Error("Error initializing finanzas data");
+      if (!res.ok) throw new Error("No se pudo cargar la configuración de Finanzas.");
       const payload = await res.json();
+      setInitDataError("");
       
       if (payload.employees) setEmployees(payload.employees);
       if (payload.suppliers) setSuppliers(payload.suppliers);
@@ -637,7 +686,7 @@ export default function AdminFinanzasPage() {
         }
       }
     } catch (err) {
-      console.error("Error loading financial lists:", err);
+      setInitDataError(err instanceof Error ? err.message : "No se pudo cargar la configuración de Finanzas.");
     }
   };
 
@@ -646,6 +695,7 @@ export default function AdminFinanzasPage() {
     async function init() {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) setUserId(user.id);
+      if (user) await loadFinancialConcepts();
       
       const now = new Date();
       const tzOffset = now.getTimezoneOffset() * 60000;
@@ -672,15 +722,54 @@ export default function AdminFinanzasPage() {
     return () => window.clearTimeout(timer);
   }, [transactionNotice]);
 
+  const financialCategories = useMemo(() => Array.from(new Set([
+    ...DEFAULT_FINANCIAL_CATEGORIES,
+    ...financialConcepts.filter(item => item.is_active).map(item => item.category).filter(Boolean)
+  ])), [financialConcepts]);
+
   // Lista de subcategorías disponibles según la categoría seleccionada y el histórico
   const availableSubCategories = useMemo(() => {
     const defaults = COMMON_SUBCATEGORIES_BY_CATEGORY[txCategory] || [];
+    const fromConcepts = financialConcepts
+      .filter(item => item.is_active && item.category === txCategory)
+      .map(item => item.sub_category)
+      .filter(Boolean);
     const fromTxs = transactions
       .filter(t => !txCategory || t.category === txCategory)
       .map(t => t.sub_category)
       .filter((s): s is string => Boolean(s && s.trim()));
-    return Array.from(new Set([...defaults, ...fromTxs])).sort();
-  }, [txCategory, transactions]);
+    return Array.from(new Set([...defaults, ...fromConcepts, ...fromTxs])).sort();
+  }, [txCategory, transactions, financialConcepts]);
+
+  const matchingConcepts = useMemo(() => {
+    const query = normalizeConceptSearch(conceptSearch);
+    const activeConcepts = financialConcepts.filter(item => item.is_active);
+    if (!query) return activeConcepts.slice(0, 12);
+    return activeConcepts
+      .filter(item => normalizeConceptSearch(item.concept).includes(query))
+      .slice(0, 30);
+  }, [conceptSearch, financialConcepts]);
+
+  const selectFinancialConcept = (item: FinancialConcept) => {
+    setSelectedConcept(item);
+    setTxFinancialConceptId(item.id);
+    setConceptSearch(item.concept);
+    setTxConcept(item.concept);
+    setTxCategory(item.category);
+    setTxSubCategory(item.sub_category);
+    setTxEfeCategory(item.efe_category);
+    if (item.movement_type === "Ingreso") setTxType("ingreso");
+    if (item.movement_type === "Egreso") setTxType("egreso");
+    setFinancialTypeNeedsReview(item.movement_type === "Mov. Financiero");
+    if (item.category !== "Recaudación") {
+      setLinkToOrder(false);
+      setSelectedOrderId("");
+      setSelectedOrder(null);
+      setOrderSearchQuery("");
+      setOrderSearchResults([]);
+    }
+    setIsConceptSearchOpen(false);
+  };
 
   // Búsqueda dinámica de ventas pendientes para registrar movimiento (min 3 caracteres)
   useEffect(() => {
@@ -737,15 +826,16 @@ export default function AdminFinanzasPage() {
     try {
       const res = await fetch(`/api/admin/finanzas-data?action=transactions&startDate=${startDate}&endDate=${endDate}`);
       if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(`Error loading transactions (${res.status}): ${errText}`);
+        throw new Error("No se pudieron cargar los movimientos. La base de datos no responde.");
       }
       const payload = await res.json();
       if (payload.transactions) {
         setTransactions(payload.transactions);
       }
-    } catch (err: any) {
-      console.error("Error al cargar transacciones generales:", err?.message || err);
+      setTransactionsError("");
+    } catch (err) {
+      setTransactions([]);
+      setTransactionsError(err instanceof Error ? err.message : "No se pudieron cargar los movimientos.");
     } finally {
       if (showLoading) setLoading(false);
     }
@@ -1372,10 +1462,15 @@ export default function AdminFinanzasPage() {
   const handleDuplicateTx = (transaction: CashTransactionWithRelations) => {
     setEditingTx(null);
     setDuplicatingTx(true);
+    setConceptSearch("");
+    setSelectedConcept(null);
+    setTxFinancialConceptId(transaction.financial_concept_id || null);
+    setFinancialTypeNeedsReview(false);
     setTxType(transaction.type);
     setTxAccountId(transaction.financial_account_id || "");
     setTxCategory(transaction.category);
     setTxSubCategory(transaction.sub_category || "");
+    setTxEfeCategory(transaction.efe_category || "");
     setTxAmount(transaction.amount.toString());
     setTxConcept(transaction.concept || "");
     setTxCostCenterId(transaction.cost_center_id || "");
@@ -1404,6 +1499,22 @@ export default function AdminFinanzasPage() {
       alert("Por favor completá los campos obligatorios.");
       return;
     }
+    if (financialTypeNeedsReview) {
+      alert("Seleccioná si este movimiento financiero es un ingreso o un egreso.");
+      return;
+    }
+
+    const linkedConcept = financialConcepts.find(item => item.id === txFinancialConceptId);
+    const same = (a: string | null | undefined, b: string | null | undefined) =>
+      normalizeConceptSearch(a || '') === normalizeConceptSearch(b || '');
+    const financialConceptId = linkedConcept &&
+      same(linkedConcept.concept, txConcept) &&
+      same(linkedConcept.category, txCategory) &&
+      same(linkedConcept.sub_category, txSubCategory) &&
+      same(linkedConcept.efe_category, txEfeCategory) &&
+      (linkedConcept.movement_type === 'Mov. Financiero' ||
+        linkedConcept.movement_type.toLowerCase() === txType)
+      ? linkedConcept.id : null;
 
     const amount = Number(txAmount);
     if (isNaN(amount) || amount <= 0) {
@@ -1452,6 +1563,8 @@ export default function AdminFinanzasPage() {
             type: txType,
             category: txCategory,
             sub_category: txSubCategory.trim() || null,
+            efe_category: txEfeCategory.trim() || null,
+            financial_concept_id: financialConceptId,
             business_unit: costCenters.find(c => c.id === txCostCenterId)?.code || 'ZONO',
             amount,
             currency,
@@ -1474,6 +1587,8 @@ export default function AdminFinanzasPage() {
             type: txType,
             category: txCategory,
             sub_category: txSubCategory.trim() || null,
+            efe_category: txEfeCategory.trim() || null,
+            financial_concept_id: financialConceptId,
             business_unit: costCenters.find(c => c.id === txCostCenterId)?.code || 'ZONO',
             amount,
             currency,
@@ -1568,7 +1683,12 @@ export default function AdminFinanzasPage() {
       setDuplicatingTx(false);
       setTxAmount("");
       setTxConcept("");
+      setConceptSearch("");
+      setSelectedConcept(null);
+      setTxFinancialConceptId(null);
+      setFinancialTypeNeedsReview(false);
       setTxSubCategory("");
+      setTxEfeCategory("");
       setTxNotes("");
       setTxRouteSheetId("");
       setSelectedEmployeeId("");
@@ -2119,7 +2239,7 @@ export default function AdminFinanzasPage() {
     };
 
     let csvContent = "\ufeff"; // BOM UTF-8
-    csvContent += "Fecha,Cuenta,Tipo,Categoria,Subcategoria,Unidad Negocio,Monto,Divisa,Concepto,Notas\n";
+    csvContent += "Fecha,Cuenta,Tipo,Categoria,Subcategoria,EFE,Unidad Negocio,Monto,Divisa,Concepto,Notas\n";
 
     filteredTransactions.forEach(t => {
       const date = formatDateDDMMYYYY(t.created_at);
@@ -2127,13 +2247,14 @@ export default function AdminFinanzasPage() {
       const type = t.type === 'ingreso' ? 'Ingreso' : 'Egreso';
       const cat = t.category;
       const sub = t.sub_category || "";
+      const efe = t.efe_category || "";
       const unit = t.business_unit || "";
       const amount = t.amount;
       const currency = t.currency;
       const concept = t.concept || "";
       const notes = t.notes || "";
 
-      csvContent += `${escapeCSV(date)},${escapeCSV(account)},${escapeCSV(type)},${escapeCSV(cat)},${escapeCSV(sub)},${escapeCSV(unit)},${amount},${currency},${escapeCSV(concept)},${escapeCSV(notes)}\n`;
+      csvContent += `${escapeCSV(date)},${escapeCSV(account)},${escapeCSV(type)},${escapeCSV(cat)},${escapeCSV(sub)},${escapeCSV(efe)},${escapeCSV(unit)},${amount},${currency},${escapeCSV(concept)},${escapeCSV(notes)}\n`;
     });
 
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
@@ -2231,6 +2352,12 @@ export default function AdminFinanzasPage() {
           ========================================================================= */}
       {activeTab === 'flow' && (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-200">
+          {(initDataError || transactionsError) && (
+            <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-900">
+              <span>{transactionsError ? `${transactionsError} Los importes no están disponibles hasta que se restablezca la conexión.` : `${initDataError} Algunas opciones pueden faltar hasta que se restablezca la conexión.`}</span>
+              <button type="button" onClick={() => { void initData(); void loadTransactions(); }} className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 font-black hover:bg-amber-100">Reintentar</button>
+            </div>
+          )}
           
           {/* Tarjetas KPI Financieros */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -2244,19 +2371,19 @@ export default function AdminFinanzasPage() {
                 <div>
                   <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Ingresos</span>
                   <div className="text-sm font-black text-emerald-600 tracking-tight leading-none mt-1">
-                    {formatPrice(financialKPIs.ars.income)}
+                    {transactionsError ? '—' : formatPrice(financialKPIs.ars.income)}
                   </div>
                 </div>
                 <div>
                   <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Egresos</span>
                   <div className="text-sm font-black text-rose-600 tracking-tight leading-none mt-1">
-                    -{formatPrice(financialKPIs.ars.expense)}
+                    {transactionsError ? '—' : `-${formatPrice(financialKPIs.ars.expense)}`}
                   </div>
                 </div>
                 <div>
                   <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Flujo Neto</span>
                   <div className={`text-base font-black tracking-tight leading-none mt-0.5 ${financialKPIs.ars.net >= 0 ? 'text-slate-800' : 'text-rose-600'}`}>
-                    {financialKPIs.ars.net < 0 ? "-" : ""}{formatPrice(Math.abs(financialKPIs.ars.net))}
+                    {transactionsError ? '—' : `${financialKPIs.ars.net < 0 ? '-' : ''}${formatPrice(Math.abs(financialKPIs.ars.net))}`}
                   </div>
                 </div>
               </div>
@@ -2272,19 +2399,19 @@ export default function AdminFinanzasPage() {
                 <div>
                   <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Ingresos</span>
                   <div className="text-sm font-black text-emerald-600 tracking-tight leading-none mt-1">
-                    US$ {financialKPIs.usd.income.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                    {transactionsError ? '—' : `US$ ${financialKPIs.usd.income.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
                   </div>
                 </div>
                 <div>
                   <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Egresos</span>
                   <div className="text-sm font-black text-rose-600 tracking-tight leading-none mt-1">
-                    -US$ {financialKPIs.usd.expense.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                    {transactionsError ? '—' : `-US$ ${financialKPIs.usd.expense.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
                   </div>
                 </div>
                 <div>
                   <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Flujo Neto</span>
                   <div className={`text-base font-black tracking-tight leading-none mt-0.5 ${financialKPIs.usd.net >= 0 ? 'text-slate-800' : 'text-rose-600'}`}>
-                    {financialKPIs.usd.net < 0 ? "-" : ""}US$ {Math.abs(financialKPIs.usd.net).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                    {transactionsError ? '—' : `${financialKPIs.usd.net < 0 ? '-' : ''}US$ ${Math.abs(financialKPIs.usd.net).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
                   </div>
                 </div>
               </div>
@@ -2346,12 +2473,24 @@ export default function AdminFinanzasPage() {
               {/* Botonera de Inserción */}
               <div className="flex gap-2">
                 <Button
+                  onClick={() => setIsConceptManagerOpen(true)}
+                  className="flex items-center gap-1.5 px-4 py-2 border border-slate-200 bg-white text-slate-700 font-black text-xs uppercase tracking-wider rounded-xl hover:bg-slate-50"
+                >
+                  <Search className="w-4 h-4" /> Administrar conceptos
+                </Button>
+                <Button
+                  disabled={Boolean(initDataError && financialAccounts.length === 0)}
                   onClick={() => {
                     setEditingTx(null);
                     setDuplicatingTx(false);
                     setTxAmount("");
                     setTxConcept("");
+                    setConceptSearch("");
+                    setSelectedConcept(null);
+                    setTxFinancialConceptId(null);
+                    setFinancialTypeNeedsReview(false);
                     setTxSubCategory("");
+                    setTxEfeCategory("");
                     setTxNotes("");
                     setTxRouteSheetId("");
                     setSelectedEmployeeId("");
@@ -2467,7 +2606,7 @@ export default function AdminFinanzasPage() {
               <Loader2 className="w-8 h-8 animate-spin text-brand-500" />
               <span className="text-xs font-black uppercase tracking-wider">Cargando Flujo de Caja...</span>
             </div>
-          ) : filteredTransactions.length === 0 ? (
+          ) : transactionsError ? null : filteredTransactions.length === 0 ? (
             <div className="bg-white p-12 text-center text-slate-400 font-bold text-xs rounded-2xl border border-slate-200/60 shadow-sm">
               No se encontraron movimientos financieros para los filtros y fechas seleccionados.
             </div>
@@ -2481,6 +2620,7 @@ export default function AdminFinanzasPage() {
                       <th className="py-2 px-2 text-center">Tipo</th>
                       <th className="py-2 px-2">Categoría</th>
                       <th className="py-2 px-2">Subcategoría</th>
+                      <th className="py-2 px-2">EFE</th>
                       <th className="py-2 px-2">Concepto</th>
                       <th className="py-2 px-2 text-right">Monto</th>
                       <th className="py-2 px-2 text-right">Saldo</th>
@@ -2505,7 +2645,7 @@ export default function AdminFinanzasPage() {
                                 onClick={() => toggleDateCollapse(currentDate)}
                                 className="bg-slate-100/90 hover:bg-slate-200/60 border-y border-slate-200/60 text-slate-800 font-extrabold text-[11px] uppercase tracking-wider cursor-pointer select-none transition-colors"
                               >
-                                <td colSpan={10} className="py-2.5 px-3">
+                                <td colSpan={11} className="py-2.5 px-3">
                                   <div className="flex items-center gap-2">
                                     {collapsedDates[currentDate] ? (
                                       <ChevronRight className="w-3.5 h-3.5 text-slate-500" />
@@ -2540,6 +2680,7 @@ export default function AdminFinanzasPage() {
                                   </span>
                                 </td>
                                 <td className="py-2.5 px-2 text-slate-500">{t.sub_category || "-"}</td>
+                                <td className="py-2.5 px-2 text-slate-500">{t.efe_category || "-"}</td>
                                 <td className="py-2.5 px-2 text-slate-900 font-semibold max-w-[200px]">
                                   <div className="flex flex-col gap-1">
                                     <div className="flex items-center gap-1.5">
@@ -2682,10 +2823,15 @@ export default function AdminFinanzasPage() {
                                       onClick={() => {
                                         setEditingTx(t);
                                         setDuplicatingTx(false);
+                                        setConceptSearch("");
+                                        setSelectedConcept(null);
+                                        setTxFinancialConceptId(t.financial_concept_id || null);
+                                        setFinancialTypeNeedsReview(false);
                                         setTxType(t.type);
                                         setTxAccountId(t.financial_account_id || "");
                                         setTxCategory(t.category);
                                         setTxSubCategory(t.sub_category || "");
+                                        setTxEfeCategory(t.efe_category || "");
                                         setTxAmount(t.amount.toString());
                                         setTxConcept(t.concept || "");
                                         setTxCostCenterId(t.cost_center_id || "");
@@ -3177,7 +3323,7 @@ export default function AdminFinanzasPage() {
           ========================================================================= */}
       {isTxModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-150">
-          <div className="bg-white rounded-[2rem] border border-slate-100 p-6 shadow-2xl w-full max-w-xl space-y-4 animate-in zoom-in-95 duration-150">
+          <div className="bg-white rounded-[2rem] border border-slate-100 p-6 shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto space-y-4 animate-in zoom-in-95 duration-150">
             <div className="flex justify-between items-center pb-2.5 border-b border-slate-100">
               <h3 className="font-black text-slate-900 text-sm uppercase tracking-wider flex items-center gap-1.5">
                 {duplicatingTx ? <Copy className="w-4 h-4 text-indigo-600" /> : <PlusCircle className="w-4 h-4 text-brand-600" />}
@@ -3196,10 +3342,70 @@ export default function AdminFinanzasPage() {
             )}
 
             <form onSubmit={handleRegisterTx} className="space-y-4">
+              <div className="relative space-y-1">
+                <label htmlFor="financial-concept-search" className="text-[9px] font-black uppercase text-slate-400">Buscar concepto precategorizado</label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                  <input
+                    id="financial-concept-search"
+                    type="search"
+                    autoComplete="off"
+                    value={conceptSearch}
+                    onFocus={() => setIsConceptSearchOpen(true)}
+                    onBlur={() => window.setTimeout(() => setIsConceptSearchOpen(false), 150)}
+                    onChange={e => {
+                      setConceptSearch(e.target.value);
+                      setSelectedConcept(null);
+                      setTxFinancialConceptId(null);
+                      setFinancialTypeNeedsReview(false);
+                      setIsConceptSearchOpen(true);
+                    }}
+                    onKeyDown={e => {
+                      if (e.key === "Escape") setIsConceptSearchOpen(false);
+                      if (e.key === "Enter" && isConceptSearchOpen && matchingConcepts.length > 0) {
+                        e.preventDefault();
+                        selectFinancialConcept(matchingConcepts[0]);
+                      }
+                    }}
+                    placeholder="Escribí un nombre para buscar en la base..."
+                    className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
+                  />
+                </div>
+                {isConceptSearchOpen && (
+                  <div className="absolute z-20 top-full left-0 right-0 mt-1 max-h-56 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl" role="listbox" aria-label="Conceptos precategorizados">
+                    {matchingConcepts.length ? matchingConcepts.map(item => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        role="option"
+                        aria-selected={false}
+                        onMouseDown={e => e.preventDefault()}
+                        onClick={() => selectFinancialConcept(item)}
+                        className="block w-full border-b border-slate-100 px-3 py-2 text-left last:border-0 hover:bg-brand-50 focus:bg-brand-50"
+                      >
+                        <span className="block text-xs font-bold text-slate-800">{item.concept}</span>
+                        <span className="block text-[10px] text-slate-500">{item.category} · {item.sub_category} · {item.movement_type}</span>
+                      </button>
+                    )) : <p className="px-3 py-3 text-xs text-slate-500">{conceptCatalogError || 'No se encontraron conceptos. Podés completar el movimiento manualmente.'}</p>}
+                  </div>
+                )}
+                {selectedConcept && (
+                  <p className="text-[10px] text-slate-500">
+                    {financialTypeNeedsReview && <>Elegí ingreso o egreso antes de guardar este movimiento financiero.</>}
+                  </p>
+                )}
+              </div>
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
-                  onClick={() => setTxType('egreso')}
+                  onClick={() => {
+                    const linkedConcept = selectedConcept || financialConcepts.find(item => item.id === txFinancialConceptId);
+                    if (txFinancialConceptId && linkedConcept?.movement_type === 'Ingreso') {
+                      setTxFinancialConceptId(null);
+                      setSelectedConcept(null);
+                    }
+                    setTxType('egreso'); setFinancialTypeNeedsReview(false);
+                  }}
                   className={`py-2 text-[10px] font-black rounded-xl border uppercase tracking-wider transition-all ${
                     txType === 'egreso' 
                       ? 'bg-rose-50 border-rose-200 text-rose-700 shadow-sm' 
@@ -3210,7 +3416,14 @@ export default function AdminFinanzasPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setTxType('ingreso')}
+                  onClick={() => {
+                    const linkedConcept = selectedConcept || financialConcepts.find(item => item.id === txFinancialConceptId);
+                    if (txFinancialConceptId && linkedConcept?.movement_type === 'Egreso') {
+                      setTxFinancialConceptId(null);
+                      setSelectedConcept(null);
+                    }
+                    setTxType('ingreso'); setFinancialTypeNeedsReview(false);
+                  }}
                   className={`py-2 text-[10px] font-black rounded-xl border uppercase tracking-wider transition-all ${
                     txType === 'ingreso' 
                       ? 'bg-emerald-50 border-emerald-200 text-emerald-700 shadow-sm' 
@@ -3242,6 +3455,9 @@ export default function AdminFinanzasPage() {
                     value={txCategory}
                     onChange={e => {
                       setTxCategory(e.target.value);
+                      setSelectedConcept(null);
+                      setTxFinancialConceptId(null);
+                      setFinancialTypeNeedsReview(false);
                       if (e.target.value !== "Recaudación") {
                         setLinkToOrder(false);
                         setSelectedOrderId("");
@@ -3253,20 +3469,7 @@ export default function AdminFinanzasPage() {
                     required
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
                   >
-                    <option value="Gastos Operativos">Gastos Operativos</option>
-                    <option value="Recaudación">Recaudación</option>
-                    <option value="Impuestos">Impuestos</option>
-                    <option value="Insumo de Producto">Insumo de Producto</option>
-                    <option value="IIGG">IIGG</option>
-                    <option value="Deuda bancaria">Deuda bancaria</option>
-                    <option value="Publicidad">Publicidad</option>
-                    <option value="Servicio de Flete">Servicio de Flete</option>
-                    <option value="Servicio de Limpieza">Servicio de Limpieza</option>
-                    <option value="Peajes">Peajes</option>
-                    <option value="Proveedores">Proveedores</option>
-                    <option value="Sueldos">Sueldos</option>
-                    <option value="Comisiones Bancarias">Comisiones Bancarias</option>
-                    <option value="Otro">Otro</option>
+                    {financialCategories.map(category => <option key={category} value={category}>{category}</option>)}
                   </select>
                 </div>
 
@@ -3276,7 +3479,7 @@ export default function AdminFinanzasPage() {
                     type="text"
                     list="available-tx-subcategories"
                     value={txSubCategory}
-                    onChange={e => setTxSubCategory(e.target.value)}
+                    onChange={e => { setTxSubCategory(e.target.value); setSelectedConcept(null); setTxFinancialConceptId(null); setFinancialTypeNeedsReview(false); }}
                     placeholder="Ej. Peajes, Combustible..."
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
                   />
@@ -3286,6 +3489,18 @@ export default function AdminFinanzasPage() {
                     ))}
                   </datalist>
                 </div>
+              </div>
+
+              <div className="space-y-1">
+                <label htmlFor="tx-efe-category" className="text-[9px] font-black uppercase text-slate-400">EFE (Opcional)</label>
+                <input
+                  id="tx-efe-category"
+                  type="text"
+                  value={txEfeCategory}
+                  onChange={e => { setTxEfeCategory(e.target.value); setSelectedConcept(null); setTxFinancialConceptId(null); }}
+                  placeholder="Clasificación de estado de resultados"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
+                />
               </div>
 
               <div className="space-y-1">
@@ -3607,7 +3822,7 @@ export default function AdminFinanzasPage() {
                   required
                   placeholder="Ej. Pago de impuestos sobre débitos y créditos"
                   value={txConcept}
-                  onChange={e => setTxConcept(e.target.value)}
+                  onChange={e => { setTxConcept(e.target.value); setSelectedConcept(null); setTxFinancialConceptId(null); setFinancialTypeNeedsReview(false); }}
                   className="w-full px-3 py-1.5 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
                 />
               </div>
@@ -4326,6 +4541,13 @@ export default function AdminFinanzasPage() {
             </div>
           </div>
         </div>
+      )}
+      {isConceptManagerOpen && (
+        <FinancialConceptManager
+          concepts={financialConcepts}
+          onClose={() => setIsConceptManagerOpen(false)}
+          onChanged={loadFinancialConcepts}
+        />
       )}
     </div>
   );

@@ -22,7 +22,7 @@ export async function GET(request: Request) {
     const action = searchParams.get('action') || 'init';
 
     if (action === 'init') {
-      // Load helper lists, financial accounts, cost centers, and validation orders in parallel
+      // Load only the lists needed to open Finanzas. Validations load on their own tab.
       // NOTE: Pending orders are NOT loaded in bulk here to avoid slow payload. They are searched dynamically (min 3 chars).
       const [
         employeesRes,
@@ -30,16 +30,14 @@ export async function GET(request: Request) {
         purchasesRes,
         routeSheetsRes,
         accountsRes,
-        costCentersRes,
-        validationOrdersRes
+        costCentersRes
       ] = await Promise.all([
-        supabaseAdmin.from('employees').select('*').eq('is_active', true).order('full_name'),
-        supabaseAdmin.from('suppliers').select('*').order('name'),
-        supabaseAdmin.from('supplier_purchases').select('*, supplier:suppliers(name)').neq('status', 'Pagado').neq('status', 'Anulado').order('purchase_date', { ascending: false }),
+        supabaseAdmin.from('employees').select('id,full_name,cuit,role,base_salary,is_active').eq('is_active', true).order('full_name'),
+        supabaseAdmin.from('suppliers').select('id,name').order('name'),
+        supabaseAdmin.from('supplier_purchases').select('id,supplier_id,invoice_number,total_amount,paid_amount,status,supplier:suppliers(name)').neq('status', 'Pagado').neq('status', 'Anulado').order('purchase_date', { ascending: false }),
         supabaseAdmin.from('route_sheets').select('*, carriers(name)').order('delivery_date', { ascending: false }).limit(200),
         supabaseAdmin.rpc('get_financial_accounts_balances'),
-        supabaseAdmin.from('cost_centers').select('*').eq('is_active', true).order('name'),
-        supabaseAdmin.from('orders').select('*, clients(business_name), payment_methods(name)').eq('payment_approved', false).neq('status', 'Cancelado').order('order_date', { ascending: false })
+        supabaseAdmin.from('cost_centers').select('id,name,code,is_active').eq('is_active', true).order('name')
       ]);
 
       if (employeesRes.error) throw employeesRes.error;
@@ -48,15 +46,6 @@ export async function GET(request: Request) {
       if (routeSheetsRes.error) throw routeSheetsRes.error;
       if (accountsRes.error) throw accountsRes.error;
       if (costCentersRes.error) throw costCentersRes.error;
-      if (validationOrdersRes.error) throw validationOrdersRes.error;
-
-      // Filter validation orders with digital payment on server
-      const filteredValidationOrders = (validationOrdersRes.data || []).filter((o: any) => {
-        const hasDeposit = o.totals?.has_deposit;
-        const pmName = o.payment_methods?.name || '';
-        const isCash = pmName.toLowerCase().includes('efectivo');
-        return hasDeposit || !isCash;
-      });
 
       return NextResponse.json({
         employees: employeesRes.data || [],
@@ -65,8 +54,7 @@ export async function GET(request: Request) {
         pendingOrders: [],
         routeSheets: routeSheetsRes.data || [],
         financialAccounts: accountsRes.data || [],
-        costCenters: costCentersRes.data || [],
-        validationOrders: filteredValidationOrders
+        costCenters: costCentersRes.data || []
       });
     }
 
@@ -362,6 +350,10 @@ export async function GET(request: Request) {
 
   } catch (error: any) {
     console.error('[API Finanzas Data] Error:', error);
-    return NextResponse.json({ error: error.message || String(error) }, { status: 500 });
+    const unavailable = /fetch failed|timeout|ECONN/i.test(String(error?.message || error));
+    return NextResponse.json(
+      { error: unavailable ? 'La base de datos no responde temporalmente.' : error.message || String(error) },
+      { status: unavailable ? 503 : 500 }
+    );
   }
 }
