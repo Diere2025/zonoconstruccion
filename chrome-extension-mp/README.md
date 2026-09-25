@@ -53,6 +53,8 @@ Después de actualizar la extensión, abrí **Actividades** en la pestaña que q
 
 Desde la versión 1.3.4, la pestaña elegida conserva la activación durante actualizaciones de la extensión y se recupera automáticamente cuando Chrome restaura una sesión con IDs de pestaña nuevos. **«Activar aquí»** solo hace falta para elegir otra pestaña de Actividades de forma manual.
 
+Desde la versión 1.3.7, si la pestaña monitor sale de Actividades o se cierra, la extensión avisa al ERP después de unos 8 segundos aunque la navegación haya descargado el script de la página. Chrome puede demorar el aviso hasta unos 30 segundos si suspende el proceso de la extensión. Al volver a Actividades se restablece la detección para una próxima salida. Cambiar solamente a otra pestaña de Chrome no cuenta como salir de Actividades.
+
 ---
 
 ## 🛡️ Características

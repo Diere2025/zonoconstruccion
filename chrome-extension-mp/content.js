@@ -779,6 +779,9 @@ let wrongPageAlertSent = false;
 
 function handleWrongPage() {
   if (!isMonitorTab) return;
+  if (wrongPageSeconds === 0) {
+    chrome.runtime.sendMessage({ action: "WATCH_WRONG_PAGE" });
+  }
   wrongPageSeconds++;
   setConnectionStatus(false);
 
@@ -787,11 +790,6 @@ function handleWrongPage() {
     if (!wrongPageAlertSent) {
       wrongPageAlertSent = true;
       playAlertBeep();
-      sendPageAlert(
-        "WRONG_PAGE",
-        `La ventana se encuentra fuera de Actividades (en: "${window.location.pathname}"). El monitor no puede registrar cobros aquí.`,
-        "⚠️ ALERTA: Monitor MP fuera de Actividades"
-      );
     }
 
     if (!isWrongPageActive) {
