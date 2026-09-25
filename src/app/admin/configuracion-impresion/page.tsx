@@ -43,7 +43,7 @@ export default function PrintingCategoriesPage() {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.access_token) throw new Error('Iniciá sesión para configurar la impresión.');
-        const response = await fetch('/api/logistica/warehouse-category-config?products=1', {
+        const response = await fetch('/api/logistica/nota-pedido-config?section=warehouse-categories&products=1', {
           headers: { Authorization: `Bearer ${session.access_token}` }, cache: 'no-store'
         });
         const data = await response.json() as CategoryResponse;
@@ -132,7 +132,7 @@ export default function PrintingCategoriesPage() {
       setSaving(true);
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) throw new Error('Iniciá sesión para guardar.');
-      const response = await fetch('/api/logistica/warehouse-category-config', {
+      const response = await fetch('/api/logistica/nota-pedido-config?section=warehouse-categories', {
         method: 'PUT',
         headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ categories: clean, assignments: normalizedAssignments, classificationVersion: 1 })
