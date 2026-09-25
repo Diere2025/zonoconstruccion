@@ -422,7 +422,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
 
     const allowedPaths = new Set<string>();
     if (hasRole('logistica')) {
-      ['/admin/cobros-mp', '/admin/fleteros', '/admin/control-planillas', '/vendedores/ruteo/comprobantes', '/vendedores/ruteo/remitos']
+      ['/admin/cobros-mp', '/admin/fleteros', '/admin/control-planillas', '/admin/configuracion-impresion', '/vendedores/ruteo/comprobantes', '/vendedores/ruteo/remitos']
         .forEach(route => allowedPaths.add(route));
     }
     if (hasRole('fletero')) allowedPaths.add('/admin/cobros-mp');
@@ -706,7 +706,8 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       links: [
         { name: "Recursos y FAQs", href: "/vendedores/recursos", icon: BookOpen },
         { name: "Gestión de Usuarios", href: "/admin/vendedores", icon: Users, adminOnly: true },
-        { name: "Configuración General", href: "/admin/ajustes", icon: Settings, adminOnly: true }
+        { name: "Configuración General", href: "/admin/ajustes", icon: Settings, adminOnly: true },
+        { name: "Categorías de impresión", href: "/admin/configuracion-impresion", icon: Printer, allowedRoles: ['admin', 'logistica'] }
       ]
     }
   ];
