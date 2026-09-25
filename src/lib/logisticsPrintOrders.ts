@@ -11,6 +11,8 @@ export interface LogisticsTrip {
 }
 
 export const LOGISTICS_TRIP_FIELDS = ['zone', 'route', 'carrier', 'driver', 'vehicle', 'companion', 'departure'] as const;
+// La columna carrier identifica a quien ruteó, no al transportista del viaje.
+const LOGISTICS_TRIP_IDENTITY_FIELDS = ['driver', 'vehicle', 'companion', 'departure'] as const;
 
 export function normalizedDeliveryDate(value: string): string {
   const date = value.trim();
@@ -22,7 +24,8 @@ export function normalizedDeliveryDate(value: string): string {
 }
 
 export function logisticsTripKey(deliveryDate: string, trip?: Partial<LogisticsTrip>): string {
-  return JSON.stringify([normalizedDeliveryDate(deliveryDate), ...LOGISTICS_TRIP_FIELDS.map(field => {
+  // Un viaje puede abarcar varias zonas y recorridos; ninguno identifica una hoja distinta.
+  return JSON.stringify([normalizedDeliveryDate(deliveryDate), ...LOGISTICS_TRIP_IDENTITY_FIELDS.map(field => {
     const value = (trip?.[field] || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('es');
     return field === 'departure' ? value.replace(/^(\d):/, '0$1:') : value;
   })]);
@@ -32,6 +35,8 @@ export interface LogisticsPrintItem {
   name: string;
   quantity: number;
   unitPrice: number;
+  category?: string;
+  categoryOverride?: boolean;
 }
 
 export interface LogisticsPrintOrder {
@@ -40,6 +45,7 @@ export interface LogisticsPrintOrder {
   codes: string[];
   legacyCode: string;
   deliveryDate: string;
+  deliveryOrder?: string;
   orderDate: string;
   customerName: string;
   phonePrimary: string;
@@ -150,6 +156,7 @@ export function parseLogisticsPrintRows(rows: string[][], firstRowNumber = 3): L
       codes: [code],
       legacyCode: code,
       deliveryDate: String(row[2] || ''),
+      deliveryOrder: String(row[15] || '').trim(),
       trip: {
         zone: String(row[13] || '').trim(),
         route: String(row[14] || '').trim(),
@@ -267,6 +274,7 @@ export function mergeLogisticsPrintOrders(
         codes,
         legacyCode: metadata?.legacyCode || codes.join(' / '),
         deliveryDate: firstText(bucket, 'deliveryDate'),
+        deliveryOrder: firstText(bucket, 'deliveryOrder'),
         orderDate: firstText(bucket, 'orderDate'),
         customerName: firstText(bucket, 'customerName'),
         phonePrimary: firstText(bucket, 'phonePrimary'),

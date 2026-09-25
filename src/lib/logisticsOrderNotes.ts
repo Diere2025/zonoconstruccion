@@ -17,6 +17,15 @@ export interface OrderNotePage extends OrderNoteGroup {
   orders: LogisticsPrintOrder[];
 }
 
+export function orderNoteRoutes(orders: LogisticsPrintOrder[]): string {
+  const routes = new Map<string, string>();
+  for (const order of orders) {
+    const label = [order.trip?.zone, order.trip?.route].map(value => value?.trim()).filter(Boolean).join(' / ');
+    if (label) routes.set(label.replace(/\s+/g, ' ').toLocaleLowerCase('es'), label);
+  }
+  return [...routes.values()].join(' · ') || 'Sin recorrido';
+}
+
 export function buildOrderNoteGroups(orders: LogisticsPrintOrder[], fallback: Partial<LogisticsTrip> = {}): OrderNoteGroup[] {
   const groups = new Map<string, OrderNoteGroup>();
   for (const order of orders) {

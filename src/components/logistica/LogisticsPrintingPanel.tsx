@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   CheckSquare,
@@ -9,7 +9,6 @@ import {
   Loader2,
   Plus,
   Printer,
-  RefreshCw,
   Search,
   Square,
   Trash2
@@ -23,7 +22,7 @@ import {
   normalizeLogisticsPastedRows,
   parseQuotedTsv
 } from '@/lib/logisticsPaste';
-import { buildOrderNoteGroups, DEFAULT_ORDER_NOTE_RATES, ORDER_NOTE_ROWS_PER_PAGE, OrderNoteGroup } from '@/lib/logisticsOrderNotes';
+import { buildOrderNoteGroups, DEFAULT_ORDER_NOTE_RATES, ORDER_NOTE_ROWS_PER_PAGE, orderNoteRoutes, OrderNoteGroup } from '@/lib/logisticsOrderNotes';
 import {
   buildReceiptSheets,
   PerPage,
@@ -31,13 +30,16 @@ import {
 } from '@/components/logistica/LogisticsReceiptsPanel';
 import { PrintableRemittances } from '@/components/logistica/LogisticsRemittancesPanel';
 import { OrderNoteSettings, PrintableOrderNotes } from '@/components/logistica/LogisticsOrderNotesPanel';
+import { PrintableWarehouse } from '@/components/logistica/LogisticsWarehousePanel';
+import { isWarehouseProduct } from '@/lib/logisticsWarehouse';
+import { DEFAULT_PRINT_CATEGORIES } from '@/lib/warehouseCategoryConfig';
 
-type DataSource = 'comprobantes' | 'remitos' | 'pegado';
-type OutputType = 'comprobantes' | 'remitos' | 'nota-pedido';
+type OutputType = 'comprobantes' | 'remitos' | 'nota-pedido' | 'separar' | 'separar-total' | 'cargar';
 
 interface PrintingPayload {
   orders: LogisticsPrintOrder[];
   remittances: LogisticsRemittance[];
+  printCategories?: string[];
 }
 
 interface GridColumn {
@@ -58,7 +60,8 @@ const BASE_COLUMNS: GridColumn[] = [
   { index: 5, label: 'Cliente', width: '190px' },
   { index: 13, label: 'Zona', width: '140px' },
   { index: 14, label: 'Recorrido', width: '100px' },
-  { index: 78, label: 'Fletero', width: '140px' },
+  { index: 15, label: 'Orden de entrega', width: '105px' },
+  { index: 78, label: 'Ruteador', width: '140px' },
   { index: 80, label: 'Chofer', width: '180px' },
   { index: 81, label: 'Vehículo', width: '100px' },
   { index: 82, label: 'Acompañante', width: '180px' },
@@ -137,8 +140,6 @@ function gridColumns(rows: string[][]): GridColumn[] {
 }
 
 export default function LogisticsPrintingPanel() {
-  const initialSource: DataSource = 'pegado';
-  const [source, setSource] = useState<DataSource>(initialSource);
   const [perPage, setPerPage] = useState<PerPage>(2);
   const [rawOrders, setRawOrders] = useState<LogisticsPrintOrder[]>([]);
   const [remittances, setRemittances] = useState<LogisticsRemittance[]>([]);
@@ -147,7 +148,9 @@ export default function LogisticsPrintingPanel() {
   const [showIgnoredEncWarning, setShowIgnoredEncWarning] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pastedRows, setPastedRows] = useState<string[][]>([emptyGridRow()]);
+  const pastedRowsRef = useRef(pastedRows);
   const [gridDirty, setGridDirty] = useState(false);
+  const [gridEditing, setGridEditing] = useState(false);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -155,75 +158,66 @@ export default function LogisticsPrintingPanel() {
   const printing = printType !== null;
   const [printOrders, setPrintOrders] = useState<LogisticsPrintOrder[]>([]);
   const [printRemittances, setPrintRemittances] = useState<LogisticsRemittance[]>([]);
+  const [warehousePrint, setWarehousePrint] = useState<{ orders: LogisticsPrintOrder[]; mode: 'separar' | 'separar-total' | 'cargar'; settings: OrderNoteSettings; categories: string[] } | null>(null);
+  const [printCategories, setPrintCategories] = useState<string[]>(DEFAULT_PRINT_CATEGORIES);
   const [noteSettings, setNoteSettings] = useState<OrderNoteSettings>(emptyNoteSettings);
-  const [paywayDraft, setPaywayDraft] = useState<string[]>(DEFAULT_ORDER_NOTE_RATES.map(String));
-  const [paywaySavedRates, setPaywaySavedRates] = useState<number[]>([...DEFAULT_ORDER_NOTE_RATES]);
-  const [paywayCanEdit, setPaywayCanEdit] = useState(false);
   const [paywayStatus, setPaywayStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
-  const [paywaySaving, setPaywaySaving] = useState(false);
-  const [paywayMessage, setPaywayMessage] = useState('');
+  const [paywayError, setPaywayError] = useState('');
+  const paywayRetryTimer = useRef<number | null>(null);
   const [multipleDocumentWarnings, setMultipleDocumentWarnings] = useState<MultipleDocumentWarning[]>([]);
   const [showPrintWarning, setShowPrintWarning] = useState(false);
   const pendingPrintType = useRef<OutputType | null>(null);
   const processingVersion = useRef(0);
   const [tripWarning, setTripWarning] = useState<{ groups: OrderNoteGroup[]; printing: boolean } | null>(null);
 
-  const loadPaywayRates = async () => {
+  const loadPaywayRates = useCallback(async (attempt = 0) => {
+    if (paywayRetryTimer.current !== null) window.clearTimeout(paywayRetryTimer.current);
+    paywayRetryTimer.current = null;
     setPaywayStatus('loading');
-    setPaywayMessage('');
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) throw new Error('Iniciá sesión para consultar los recargos de cuotas.');
-      const response = await fetch('/api/logistica/nota-pedido-config', {
-        headers: { Authorization: `Bearer ${session.access_token}` },
-        cache: 'no-store'
+      const fetchRates = (token: string) => fetch('/api/logistica/nota-pedido-config', {
+        headers: { Authorization: `Bearer ${token}` }, cache: 'no-store'
       });
+      let response = await fetchRates(session.access_token);
+      if (response.status === 401) {
+        const { data: refreshed } = await supabase.auth.refreshSession();
+        if (refreshed.session?.access_token) response = await fetchRates(refreshed.session.access_token);
+      }
       const payload = await response.json() as { rates?: number[]; canEdit?: boolean; error?: string };
-      if (!response.ok || !payload.rates) throw new Error(payload.error || 'No se pudieron cargar los recargos de cuotas.');
-      setPaywaySavedRates(payload.rates);
-      setPaywayDraft(payload.rates.map(String));
-      setPaywayCanEdit(payload.canEdit === true);
+      if (!response.ok || !Array.isArray(payload.rates) || payload.rates.length !== 5) throw new Error(payload.error || 'No se pudieron cargar los recargos de cuotas.');
       setNoteSettings(current => ({ ...current, posnetRates: payload.rates! }));
+      setPaywayError('');
       setPaywayStatus('ready');
     } catch (loadError) {
-      setPaywayStatus('error');
-      setPaywayMessage(loadError instanceof Error ? loadError.message : 'No se pudieron cargar los recargos de cuotas.');
+      const message = loadError instanceof Error ? loadError.message : 'No se pudieron consultar las cuotas.';
+      if (attempt < 2) {
+        paywayRetryTimer.current = window.setTimeout(() => void loadPaywayRates(attempt + 1), 1000 * (attempt + 1));
+      } else {
+        setPaywayError(message);
+        setPaywayStatus('error');
+      }
     }
-  };
+  }, []);
 
   useEffect(() => {
     if (paywayStatus === 'idle') void loadPaywayRates();
-  }, [paywayStatus]);
+  }, [paywayStatus, loadPaywayRates]);
 
-  const savePaywayRates = async () => {
-    if (!paywayCanEdit || paywaySaving) return;
-    const rates = paywayDraft.map(value => Number(value));
-    if (paywayDraft.some(value => !value.trim()) || rates.some(value => !Number.isFinite(value) || value < 0 || value > 300)) {
-      setPaywayMessage('Ingresá cinco recargos válidos entre 0% y 300%.');
-      return;
-    }
-    setPaywaySaving(true);
-    setPaywayMessage('');
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) throw new Error('La sesión venció. Volvé a iniciar sesión.');
-      const response = await fetch('/api/logistica/nota-pedido-config', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-        body: JSON.stringify({ rates })
-      });
-      const payload = await response.json() as { rates?: number[]; error?: string };
-      if (!response.ok || !payload.rates) throw new Error(payload.error || 'No se pudieron guardar los recargos de cuotas.');
-      setPaywaySavedRates(payload.rates);
-      setPaywayDraft(payload.rates.map(String));
-      setNoteSettings(current => ({ ...current, posnetRates: payload.rates! }));
-      setPaywayMessage('Recargos de cuotas guardados.');
-    } catch (saveError) {
-      setPaywayMessage(saveError instanceof Error ? saveError.message : 'No se pudieron guardar los recargos de cuotas.');
-    } finally {
-      setPaywaySaving(false);
-    }
-  };
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session && (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION')) {
+        setPaywayStatus(current => current === 'error' ? 'idle' : current);
+      }
+    });
+    return () => {
+      subscription.unsubscribe();
+      if (paywayRetryTimer.current !== null) window.clearTimeout(paywayRetryTimer.current);
+    };
+  }, []);
+
+  useEffect(() => { pastedRowsRef.current = pastedRows; }, [pastedRows]);
 
   const orders = useMemo(() => ignoreEncCodes
     ? rawOrders.filter(order => !order.codes.some(code => /^ENC/i.test(code)))
@@ -236,6 +230,7 @@ export default function LogisticsPrintingPanel() {
       .flatMap(order => order.codes)
       .filter(code => /^ENC/i.test(code))));
     setRawOrders(nextOrders);
+    setPrintCategories(payload.printCategories || DEFAULT_PRINT_CATEGORIES);
     setRemittances(payload.remittances || []);
     setSelected(new Set(nextOrders
       .filter(order => !ignoreEncCodes || !order.codes.some(code => /^ENC/i.test(code)))
@@ -245,23 +240,6 @@ export default function LogisticsPrintingPanel() {
     if (ignoreEncCodes && nextIgnoredCodes.length > 0) {
       setIgnoredEncCodes(nextIgnoredCodes);
       setShowIgnoredEncWarning(true);
-    }
-  };
-
-  const loadSource = async (nextSource: Exclude<DataSource, 'pegado'> = source as Exclude<DataSource, 'pegado'>) => {
-    const version = ++processingVersion.current;
-    try {
-      setLoading(true);
-      setError('');
-      const response = await fetch(`/api/logistica/impresion?source=${nextSource}`, { cache: 'no-store' });
-      const payload = await response.json();
-      if (version !== processingVersion.current) return;
-      if (!response.ok) throw new Error(payload.error || 'No se pudo leer la planilla.');
-      applyPayload(payload);
-    } catch (loadError) {
-      if (version === processingVersion.current) setError(loadError instanceof Error ? loadError.message : 'No se pudo leer la planilla.');
-    } finally {
-      if (version === processingVersion.current) setLoading(false);
     }
   };
 
@@ -283,7 +261,8 @@ export default function LogisticsPrintingPanel() {
       const response = await fetch('/api/logistica/impresion', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows: nonEmptyRows.map(row => row.slice(0, LOGISTICS_TRIP_MAX_COLUMNS)) })
+        body: JSON.stringify({ rows: nonEmptyRows.map(row => row.slice(0, LOGISTICS_TRIP_MAX_COLUMNS)) }),
+        signal: AbortSignal.timeout(45000)
       });
       const payload = await response.json();
       if (version !== processingVersion.current) return;
@@ -291,7 +270,9 @@ export default function LogisticsPrintingPanel() {
       applyPayload(payload);
       setGridDirty(false);
     } catch (pasteError) {
-      if (version === processingVersion.current) setError(pasteError instanceof Error ? pasteError.message : 'No se pudo procesar el contenido pegado.');
+      if (version === processingVersion.current) setError(pasteError instanceof Error && (pasteError.name === 'TimeoutError' || pasteError.name === 'AbortError')
+        ? 'El procesamiento superó los 45 segundos. Podés reintentarlo sin volver a pegar los pedidos.'
+        : pasteError instanceof Error ? pasteError.message : 'No se pudo procesar el contenido pegado.');
     } finally {
       if (version === processingVersion.current) setLoading(false);
     }
@@ -302,6 +283,7 @@ export default function LogisticsPrintingPanel() {
       setPrintType(null);
       setPrintOrders([]);
       setPrintRemittances([]);
+      setWarehousePrint(null);
     };
     window.addEventListener('afterprint', afterPrint);
     return () => window.removeEventListener('afterprint', afterPrint);
@@ -315,12 +297,12 @@ export default function LogisticsPrintingPanel() {
     if (printType !== 'comprobantes') {
       pageStyle = document.createElement('style');
       pageStyle.dataset.unifiedLogisticsPrint = 'true';
-      pageStyle.textContent = '@media print { @page { size: A4 landscape; margin: 0; } }';
+      pageStyle.textContent = `@media print { @page { size: A4 ${printType === 'separar' || printType === 'separar-total' || printType === 'cargar' ? 'portrait' : 'landscape'}; margin: 0; } }`;
       document.head.appendChild(pageStyle);
     }
     const rootId = printType === 'comprobantes'
       ? 'print-logistics-receipts-root'
-      : printType === 'remitos' ? 'print-legal-remittances-root' : 'print-order-notes-root';
+      : printType === 'remitos' ? 'print-legal-remittances-root' : printType === 'nota-pedido' ? 'print-order-notes-root' : 'print-warehouse-root';
     void waitForPrintImages(rootId).then(() => {
       if (!cancelled) timer = window.setTimeout(() => window.print(), 50);
     });
@@ -339,8 +321,9 @@ export default function LogisticsPrintingPanel() {
   }, [orders, search]);
 
   const selectedOrders = useMemo(() => orders.filter(order => selected.has(order.id)), [orders, selected]);
+  const hasWarehouseProducts = selectedOrders.some(order => order.items.some(isWarehouseProduct));
+  const hasTotalWarehouseProducts = orders.some(order => order.items.some(isWarehouseProduct));
   const selectedTripGroups = useMemo(() => buildOrderNoteGroups(selectedOrders, noteSettings), [selectedOrders, noteSettings]);
-  const paywayDirty = paywayCanEdit && paywayDraft.some((value, index) => !value.trim() || Number(value) !== paywaySavedRates[index]);
   const selectedRemittances = useMemo(() => {
     const codes = new Set(selectedOrders.flatMap(order => order.codes));
     return remittances.filter(remittance => remittance.orderCodes.some(code => codes.has(code)));
@@ -348,21 +331,8 @@ export default function LogisticsPrintingPanel() {
   const columns = useMemo(() => gridColumns(pastedRows), [pastedRows]);
   const receiptSheets = useMemo(() => buildReceiptSheets(printOrders, perPage), [printOrders, perPage]);
 
-  const selectSource = (nextSource: DataSource) => {
-    setSource(nextSource);
-    setError('');
-    if (nextSource === 'pegado') {
-      processingVersion.current++;
-      setLoading(false);
-      setRawOrders([]);
-      setRemittances([]);
-      setSelected(new Set());
-    } else {
-      loadSource(nextSource);
-    }
-  };
-
-  const handlePaste = (event: React.ClipboardEvent<HTMLDivElement>) => {
+  const handlePaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    event.preventDefault();
     const html = event.clipboardData.getData('text/html');
     let clipboardRows: string[][] = [];
     if (html) {
@@ -372,19 +342,23 @@ export default function LogisticsPrintingPanel() {
       );
     }
     if (clipboardRows.length === 0) clipboardRows = parseQuotedTsv(event.clipboardData.getData('text/plain'));
-    const rows = normalizeLogisticsPastedRows(clipboardRows, true);
-    if (rows.length === 0) return;
-    event.preventDefault();
-    const existingRows = pastedRows.filter(row => row.some(cell => String(cell || '').trim()));
+    let rows = normalizeLogisticsPastedRows(clipboardRows, true);
+    if (rows.length === 0 && html) rows = normalizeLogisticsPastedRows(parseQuotedTsv(event.clipboardData.getData('text/plain')), true);
+    if (rows.length === 0) {
+      setError('No se reconocieron pedidos en el contenido pegado. Copiá las filas completas desde la planilla.');
+      return;
+    }
+    const existingRows = pastedRowsRef.current.filter(row => row.some(cell => String(cell || '').trim()));
     const combinedRows = existingRows.length > 0 ? [...existingRows, ...rows] : rows;
-    setSource('pegado');
+    const nextRows = ensureTrailingEmptyRow(combinedRows);
+    pastedRowsRef.current = nextRows;
     setGridDirty(true);
-    setPastedRows(ensureTrailingEmptyRow(combinedRows));
+    setError('');
+    setPastedRows(nextRows);
     processPastedRows(combinedRows);
   };
 
   const addEmptyRow = () => {
-    setSource('pegado');
     setPastedRows(current => {
       const hasOnlyInitialEmptyRow = current.length === 1 && current[0].every(cell => !String(cell || '').trim());
       return hasOnlyInitialEmptyRow ? current : [...current, emptyGridRow()];
@@ -394,8 +368,10 @@ export default function LogisticsPrintingPanel() {
   const clearGrid = () => {
     processingVersion.current++;
     setLoading(false);
-    setSource('pegado');
-    setPastedRows([emptyGridRow()]);
+    const emptyRows = [emptyGridRow()];
+    pastedRowsRef.current = emptyRows;
+    setPastedRows(emptyRows);
+    setGridEditing(false);
     setGridDirty(false);
     setRawOrders([]);
     setRemittances([]);
@@ -450,17 +426,23 @@ export default function LogisticsPrintingPanel() {
   };
 
   const startPrint = (type: OutputType) => {
-    if (selectedOrders.length === 0) return;
-    setPrintOrders(selectedOrders);
+    const targetOrders = type === 'separar-total' ? orders : selectedOrders;
+    if (targetOrders.length === 0) return;
+    setWarehousePrint(type === 'separar' || type === 'separar-total' || type === 'cargar'
+      ? { orders: targetOrders, mode: type, settings: noteSettings, categories: printCategories }
+      : null);
+    setPrintOrders(targetOrders);
     setPrintRemittances(selectedRemittances);
     setPrintType(type);
   };
 
   const handlePrint = (type: OutputType, tripsConfirmed = false) => {
-    if (selectedOrders.length === 0 || printing || loading || (source === 'pegado' && gridDirty)) return;
+    if ((type === 'separar-total' ? orders.length : selectedOrders.length) === 0 || printing || loading || gridDirty) return;
     if (type === 'remitos' && selectedRemittances.length === 0) return;
-    if (type === 'nota-pedido' && (paywayStatus !== 'ready' || paywaySaving || paywayDirty)) return;
-    if (type === 'nota-pedido' && selectedTripGroups.length > 1 && !tripsConfirmed) {
+    if ((type === 'separar' || type === 'cargar') && !hasWarehouseProducts) return;
+    if (type === 'separar-total' && !hasTotalWarehouseProducts) return;
+    if (type === 'nota-pedido' && paywayStatus !== 'ready') return;
+    if (['nota-pedido', 'separar', 'cargar'].includes(type) && selectedTripGroups.length > 1 && !tripsConfirmed) {
       pendingPrintType.current = type;
       setTripWarning({ groups: selectedTripGroups, printing: true });
       return;
@@ -493,39 +475,48 @@ export default function LogisticsPrintingPanel() {
     startPrint(type);
   };
 
+  const isPrintDisabled = (type: OutputType) =>
+    (type === 'separar-total' ? orders.length === 0 : selectedOrders.length === 0)
+    || loading || printing || gridDirty
+    || (type === 'remitos' && selectedRemittances.length === 0)
+    || ((type === 'separar' || type === 'cargar') && !hasWarehouseProducts)
+    || (type === 'separar-total' && !hasTotalWarehouseProducts)
+    || (type === 'nota-pedido' && paywayStatus !== 'ready');
+
   return (
     <div className="space-y-5">
       <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="mr-1 text-[10px] font-black uppercase tracking-wide text-slate-500">Imprimir selección</span>
-          {([
-            ['comprobantes', 'Comprobantes'],
-            ['remitos', 'Remitos'],
-            ['nota-pedido', 'Planilla de entregas y cobros']
-          ] as const).map(([type, label]) => (
-            <div key={type} className="flex items-center rounded-xl border border-slate-300 bg-white p-1">
-              <button type="button" onClick={() => handlePrint(type)} disabled={selectedOrders.length === 0 || loading || printing || (source === 'pegado' && gridDirty) || (type === 'remitos' && selectedRemittances.length === 0) || (type === 'nota-pedido' && (paywayStatus !== 'ready' || paywaySaving || paywayDirty))} className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-black text-slate-800 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40">
-                <Printer className="h-3.5 w-3.5" /> {label}
-              </button>
-            </div>
-          ))}
-          {selectedOrders.length > 0 && <span className="ml-auto text-[10px] font-bold text-slate-500">{selectedOrders.length} {selectedOrders.length === 1 ? 'pedido seleccionado' : 'pedidos seleccionados'}</span>}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-[10px] font-black uppercase tracking-wide text-slate-500">Imprimir selección</span>
+          {selectedOrders.length > 0 && <span className="text-[10px] font-bold text-slate-500">{selectedOrders.length} {selectedOrders.length === 1 ? 'pedido seleccionado' : 'pedidos seleccionados'}</span>}
         </div>
-        {source === 'pegado' && gridDirty && <p className="mt-2 text-xs font-bold text-amber-700">Hay cambios en la grilla: pulsá Aplicar grilla antes de imprimir.</p>}
+        <div className="mt-3 overflow-x-auto pb-1">
+        <div className="grid gap-2.5" style={{ minWidth: 1050, gridTemplateColumns: 'repeat(5, minmax(205px, 1fr))' }}>
+          {([
+            ['comprobantes', 'Comprobantes', 'border-blue-200 bg-blue-50 text-blue-900 hover:border-blue-300 hover:bg-blue-100/70'],
+            ['remitos', 'Remitos', 'border-violet-200 bg-violet-50 text-violet-900 hover:border-violet-300 hover:bg-violet-100/70'],
+            ['nota-pedido', 'Planilla de entregas y cobros', 'border-amber-200 bg-amber-50 text-amber-950 hover:border-amber-300 hover:bg-amber-100/70']
+          ] as const).map(([type, label, colors]) => (
+            <button key={type} type="button" onClick={() => handlePrint(type)} disabled={isPrintDisabled(type)} style={{ height: 164 }} className={`flex flex-col items-center justify-center gap-3 rounded-2xl border p-4 text-center transition-colors disabled:cursor-not-allowed disabled:grayscale disabled:opacity-45 ${colors}`}>
+              <Printer className="h-5 w-5" /><span className="text-sm font-black leading-snug sm:text-base">{label}</span>
+            </button>
+          ))}
+          <div className="grid gap-2" style={{ height: 164, gridTemplateRows: 'repeat(2, minmax(0, 1fr))' }}>
+            <button type="button" onClick={() => handlePrint('separar')} disabled={isPrintDisabled('separar')} className="flex flex-col items-center justify-center gap-1.5 rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-center text-sm font-black leading-tight text-emerald-900 transition-colors hover:border-emerald-300 hover:bg-emerald-100/70 disabled:cursor-not-allowed disabled:grayscale disabled:opacity-45"><Printer className="h-4 w-4 shrink-0" />Separar mercadería</button>
+            <button type="button" title="Incluye todos los pedidos cargados, aunque no estén seleccionados; respeta Ignorar códigos ENC." onClick={() => handlePrint('separar-total')} disabled={isPrintDisabled('separar-total')} className="flex flex-col items-center justify-center gap-1.5 rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-center text-sm font-black leading-tight text-emerald-900 transition-colors hover:border-emerald-300 hover:bg-emerald-100/70 disabled:cursor-not-allowed disabled:grayscale disabled:opacity-45"><Printer className="h-4 w-4 shrink-0" />Separar mercadería total</button>
+          </div>
+          <button type="button" onClick={() => handlePrint('cargar')} disabled={isPrintDisabled('cargar')} style={{ height: 164 }} className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-cyan-200 bg-cyan-50 p-4 text-center text-cyan-950 transition-colors hover:border-cyan-300 hover:bg-cyan-100/70 disabled:cursor-not-allowed disabled:grayscale disabled:opacity-45"><Printer className="h-5 w-5" /><span className="text-sm font-black leading-snug sm:text-base">Carga vehicular</span></button>
+        </div>
+        </div>
+        {loading && <p className="mt-2 text-xs font-bold text-blue-700">Procesando los pedidos pegados…</p>}
+        {gridDirty && !loading && <p className="mt-2 text-xs font-bold text-amber-700">{error ? 'No se pudo aplicar el pegado.' : 'Hay cambios en la grilla: pulsá Aplicar grilla antes de imprimir.'} {error && <button type="button" onClick={() => void processPastedRows(pastedRowsRef.current)} className="underline">Reintentar procesamiento</button>}</p>}
+        {paywayStatus === 'error' && <p className="mt-2 text-xs font-bold text-amber-700">No se pudo preparar la planilla de cobros: {paywayError} <button type="button" onClick={() => void loadPaywayRates()} className="underline">Reintentar</button></p>}
         <div className="mt-4 flex flex-col gap-3 border-t border-slate-200 pt-4 xl:flex-row xl:items-end xl:justify-between">
           <div>
-            <h2 className="text-sm font-black text-slate-900">Origen y formato de impresión</h2>
-            <p className="mt-1 text-[11px] font-semibold text-slate-500">Elegí de dónde leer los pedidos y ajustá el formato antes de imprimir.</p>
+            <h2 className="text-sm font-black text-slate-900">Formato de impresión</h2>
+            <p className="mt-1 text-[11px] font-semibold text-slate-500">Los documentos se generan exclusivamente con los pedidos de la grilla.</p>
           </div>
           <div className="flex flex-wrap items-end gap-3">
-            <label>
-              <span className="mb-1 block text-[9px] font-black uppercase tracking-wider text-slate-400">Origen</span>
-              <select value={source} onChange={event => selectSource(event.target.value as DataSource)} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 outline-none">
-                <option value="comprobantes">Planilla de comprobantes</option>
-                <option value="remitos">Planilla de remitos</option>
-                <option value="pegado">Pegado manual</option>
-              </select>
-            </label>
             <label>
               <span className="mb-1 block text-[9px] font-black uppercase tracking-wider text-slate-400">Comprobantes por hoja</span>
               <select value={perPage} onChange={event => setPerPage(Number(event.target.value) as PerPage)} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 outline-none">
@@ -537,21 +528,17 @@ export default function LogisticsPrintingPanel() {
               <input type="checkbox" checked={ignoreEncCodes} onChange={event => toggleIgnoreEncCodes(event.target.checked)} className="h-4 w-4 accent-slate-900" />
               Ignorar códigos ENC
             </label>
-            {source !== 'pegado' && (
-              <button type="button" onClick={() => loadSource(source)} disabled={loading} className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-600 hover:bg-slate-100 disabled:opacity-50">
-                <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} /> Actualizar
-              </button>
-            )}
           </div>
         </div>
       </section>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-4">
+      <div className="flex flex-col gap-5">
+      <section className="rounded-2xl border border-slate-200 bg-white p-4" style={{ order: 2 }}>
           <h3 className="text-xs font-black text-slate-800">Datos del viaje</h3>
-          <p className="mt-1 text-[10px] font-semibold text-slate-500">Cada hoja usa el fletero y recorrido de sus pedidos. Podés corregir esos datos en la grilla y pulsar Aplicar grilla. Los siguientes campos completan únicamente los datos que falten; el cambio se indica en todas las hojas.</p>
+          <p className="mt-1 text-[10px] font-semibold text-slate-500">Cada hoja usa la fecha y los datos del transporte de sus pedidos. Para corregirlos, abrí Editar grilla y pulsá Aplicar grilla. Los siguientes campos completan únicamente los datos que falten.</p>
           {selectedTripGroups.length > 0 && <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs">
             <div className="flex items-center justify-between gap-3"><strong>{selectedTripGroups.length} {selectedTripGroups.length === 1 ? 'viaje en la selección' : 'viajes en la selección'}</strong><button type="button" onClick={() => setTripWarning({ groups: selectedTripGroups, printing: false })} className="font-bold text-blue-700">Ver fechas y recorridos</button></div>
-            {selectedTripGroups.length === 1 && <p className="mt-1 text-slate-600">{displayDate(selectedTripGroups[0].deliveryDate)} · {selectedTripGroups[0].trip.carrier || selectedTripGroups[0].trip.driver || 'Sin fletero'} · {[selectedTripGroups[0].trip.zone, selectedTripGroups[0].trip.route].filter(Boolean).join(' / ') || 'Sin recorrido'}</p>}
+            {selectedTripGroups.length === 1 && <p className="mt-1 text-slate-600">{displayDate(selectedTripGroups[0].deliveryDate)} · {selectedTripGroups[0].trip.driver || 'Sin chofer'} · {orderNoteRoutes(selectedTripGroups[0].orders)}</p>}
           </div>}
           <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             {([
@@ -573,59 +560,30 @@ export default function LogisticsPrintingPanel() {
               </label>
             ))}
           </div>
-          <div className="mt-3 flex flex-wrap items-end gap-3 border-t border-slate-100 pt-3">
-            <div className="min-w-40 pb-1">
-              <span className="block text-[10px] font-black text-slate-700">Recargos de cuotas</span>
-              <span className="text-[10px] text-slate-500">{paywayCanEdit ? 'Configuración compartida · solo administradores' : 'Configurados por administración'}</span>
-            </div>
-            {['PAYWAY 1 cuota', 'PAYWAY 3 cuotas', 'PAYWAY 6 cuotas', 'PAYWAY 12 cuotas', 'Cuota Simple 6 cuotas'].map((label, index) => (
-              <label key={label}>
-                <span className="mb-1 block text-[9px] font-black uppercase tracking-wider text-slate-500">{label}</span>
-                <div className={`flex items-center rounded-xl border px-2 ${paywayCanEdit ? 'border-slate-200' : 'border-slate-100 bg-slate-50'}`}>
-                  <input
-                    type="number"
-                    min="0"
-                    max="300"
-                    step="0.01"
-                    value={paywayDraft[index]}
-                    disabled={!paywayCanEdit || paywayStatus !== 'ready' || paywaySaving}
-                    onChange={event => setPaywayDraft(current => current.map((value, rateIndex) => rateIndex === index ? event.target.value : value))}
-                    className="w-14 bg-transparent py-2 text-right text-xs font-bold text-slate-700 outline-none disabled:opacity-75"
-                  />
-                  <span className="text-xs font-bold text-slate-500">%</span>
-                </div>
-              </label>
-            ))}
-            {paywayCanEdit && (
-              <button type="button" onClick={savePaywayRates} disabled={paywaySaving || paywayStatus !== 'ready' || !paywayDirty} className="rounded-xl bg-blue-600 px-3 py-2 text-[10px] font-black text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40">
-                {paywaySaving ? 'Guardando...' : 'Guardar recargos'}
-              </button>
-            )}
-            {paywayStatus === 'error' && <button type="button" onClick={loadPaywayRates} className="rounded-xl border border-rose-200 px-3 py-2 text-[10px] font-black text-rose-700">Reintentar</button>}
-          </div>
-          {paywayDirty && <p className="mt-2 text-[10px] font-semibold text-amber-700">Guardá los nuevos recargos de cuotas antes de imprimir.</p>}
-          {paywayMessage && <p className={`mt-2 text-[10px] font-bold ${paywayMessage.includes('guardados') ? 'text-emerald-700' : 'text-rose-700'}`}>{paywayMessage}</p>}
       </section>
 
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-        <div className="flex flex-col gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <section className="rounded-2xl border border-slate-200 bg-white p-4" style={{ order: 1 }}>
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h3 className="flex items-center gap-2 text-xs font-black text-slate-800"><ClipboardPaste className="h-4 w-4" /> Pegar pedidos</h3>
-            <p className="mt-0.5 text-[10px] font-semibold text-slate-500">Copiá filas de Google Sheets y pegá aquí. Cada nuevo pegado se agrega al final; la grilla se detiene en el último producto, hasta un máximo de 12.</p>
+            <p className="mt-1 text-[10px] font-semibold text-slate-500">Copiá filas completas de la planilla. Cada pegado se procesa y agrega a los pedidos existentes.</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={addEmptyRow} className="flex items-center justify-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3 py-2 text-[10px] font-black uppercase text-slate-700 hover:bg-slate-100">
-              <Plus className="h-3.5 w-3.5" /> Agregar fila
+            <button type="button" onClick={() => setGridEditing(current => !current)} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-[10px] font-black uppercase text-slate-700 hover:bg-slate-100">
+              {gridEditing ? 'Ocultar grilla' : 'Editar grilla'}
             </button>
             <button type="button" onClick={clearGrid} className="flex items-center justify-center gap-1.5 rounded-xl border border-rose-200 bg-white px-3 py-2 text-[10px] font-black uppercase text-rose-700 hover:bg-rose-50">
-              <Trash2 className="h-3.5 w-3.5" /> Limpiar grilla
-            </button>
-            <button type="button" onClick={() => { setSource('pegado'); processPastedRows(); }} disabled={loading} className="flex items-center justify-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3 py-2 text-[10px] font-black uppercase text-slate-700 hover:bg-slate-100 disabled:opacity-50">
-              <FileCheck2 className="h-3.5 w-3.5" /> Aplicar grilla
+              <Trash2 className="h-3.5 w-3.5" /> Limpiar pedidos
             </button>
           </div>
         </div>
-        <div onPaste={handlePaste} className="max-h-[360px] overflow-auto outline-none" tabIndex={0}>
+        <textarea value="" onChange={() => {}} onPaste={handlePaste} aria-label="Pegar pedidos aquí" placeholder="Pegar aquí" className="mt-3 h-24 w-full resize-none rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 p-4 text-center text-sm font-bold text-slate-700 outline-none placeholder:text-slate-500 focus:border-blue-500 focus:bg-white" />
+        <p className="mt-1 text-[10px] text-slate-500">El contenido pegado no queda visible en este cuadro; podés pegar más filas cuando quieras.</p>
+        {gridEditing && <div className="mt-3 flex flex-wrap justify-end gap-2">
+          <button type="button" onClick={addEmptyRow} className="flex items-center gap-1.5 rounded-xl border border-slate-300 px-3 py-2 text-[10px] font-black uppercase text-slate-700 hover:bg-slate-100"><Plus className="h-3.5 w-3.5" /> Agregar fila</button>
+          <button type="button" onClick={() => processPastedRows()} disabled={loading || !gridDirty} className="flex items-center gap-1.5 rounded-xl border border-slate-300 px-3 py-2 text-[10px] font-black uppercase text-slate-700 hover:bg-slate-100 disabled:opacity-50"><FileCheck2 className="h-3.5 w-3.5" /> Aplicar grilla</button>
+        </div>}
+        {gridEditing && <div className="mt-3 max-h-[360px] overflow-auto rounded-xl border border-slate-200">
           <table className="border-collapse text-[10px]">
             <thead className="sticky top-0 z-10 bg-slate-100 text-slate-600">
               <tr>
@@ -646,8 +604,9 @@ export default function LogisticsPrintingPanel() {
               ))}
             </tbody>
           </table>
-        </div>
+        </div>}
       </section>
+      </div>
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
         <div className="relative max-w-md flex-1">
@@ -659,12 +618,11 @@ export default function LogisticsPrintingPanel() {
         </button>
       </div>
 
+      {error && <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-xs font-bold text-rose-700">{error}</div>}
       {loading ? (
         <div className="flex items-center justify-center gap-2 py-16 text-xs font-bold text-slate-500"><Loader2 className="h-5 w-5 animate-spin" /> Procesando pedidos...</div>
-      ) : error ? (
-        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-xs font-bold text-rose-700">{error}</div>
       ) : filtered.length === 0 ? (
-        <div className="rounded-2xl border border-slate-200 py-14 text-center text-xs font-bold text-slate-400">No hay pedidos procesados en este origen.</div>
+        <div className="rounded-2xl border border-slate-200 py-14 text-center text-xs font-bold text-slate-400">No hay pedidos procesados en la grilla.</div>
       ) : (
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
           <table className="w-full border-collapse text-left text-xs">
@@ -674,13 +632,13 @@ export default function LogisticsPrintingPanel() {
             <tbody className="divide-y divide-slate-100">
               {filtered.map(order => (
                 <tr key={order.id} onClick={() => toggle(order.id)} className="cursor-pointer hover:bg-slate-50">
-                  <td className="px-3 py-2"><input type="checkbox" checked={selected.has(order.id)} onChange={() => toggle(order.id)} onClick={event => event.stopPropagation()} className="h-4 w-4 accent-slate-900" /></td>
-                  <td className="px-3 py-2 font-mono text-[10px] font-black text-slate-800">{order.legacyCode}{order.sourceRows.length > 1 && <span className="ml-2 rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 font-sans text-[8px] text-amber-800">UNIFICADO</span>}</td>
-                  <td className="px-3 py-2 font-extrabold text-slate-800">{order.customerName}</td>
-                  <td className="px-3 py-2 text-[10px] font-bold text-slate-600">{displayDate(order.deliveryDate)} · {order.locality}</td>
-                  <td className="px-3 py-2"><span className="rounded border border-slate-300 px-1.5 py-0.5 text-[8px] font-black uppercase text-slate-700">{order.commercialBrand}</span></td>
-                  <td className="px-3 py-2 text-center font-black text-slate-700">{order.items.length}</td>
-                  <td className="px-3 py-2 text-right font-mono font-black text-slate-900">{money(order.pendingBalance)}</td>
+                  <td className="px-3 py-1"><input type="checkbox" checked={selected.has(order.id)} onChange={() => toggle(order.id)} onClick={event => event.stopPropagation()} className="h-3.5 w-3.5 accent-slate-900" /></td>
+                  <td className="px-3 py-1 font-mono text-[10px] font-black text-slate-800">{order.legacyCode}{order.sourceRows.length > 1 && <span className="ml-2 rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 font-sans text-[8px] text-amber-800">UNIFICADO</span>}</td>
+                  <td className="px-3 py-1 font-extrabold text-slate-800">{order.customerName}</td>
+                  <td className="px-3 py-1 text-[10px] font-bold text-slate-600">{displayDate(order.deliveryDate)} · {order.locality}</td>
+                  <td className="px-3 py-1"><span className="rounded border border-slate-300 px-1.5 py-0.5 text-[8px] font-black uppercase text-slate-700">{order.commercialBrand}</span></td>
+                  <td className="px-3 py-1 text-center font-black text-slate-700">{order.items.length}</td>
+                  <td className="px-3 py-1 text-right font-mono font-black text-slate-900">{money(order.pendingBalance)}</td>
                 </tr>
               ))}
             </tbody>
@@ -691,19 +649,18 @@ export default function LogisticsPrintingPanel() {
       {printType === 'comprobantes' && <PrintableReceipts sheets={receiptSheets} />}
       {printType === 'remitos' && <PrintableRemittances remittances={printRemittances} />}
       {printType === 'nota-pedido' && <PrintableOrderNotes orders={printOrders} settings={noteSettings} />}
+      {warehousePrint && <PrintableWarehouse orders={warehousePrint.orders} mode={warehousePrint.mode} settings={warehousePrint.settings} categories={warehousePrint.categories} />}
 
       {tripWarning && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
           <div role="dialog" aria-modal="true" aria-labelledby="trip-warning-title" className="flex max-h-[90vh] w-full max-w-2xl flex-col rounded-3xl border border-amber-200 bg-white p-6 shadow-2xl">
             <h3 id="trip-warning-title" className="flex items-center gap-2 text-base font-black text-slate-900"><AlertTriangle className="h-5 w-5 text-amber-600" /> {tripWarning.groups.length > 1 ? 'Se detectaron distintos viajes' : 'Resumen del viaje'}</h3>
-            <p className="mt-2 text-xs leading-relaxed text-slate-600">{tripWarning.groups.length > 1 ? 'Hay diferencias de fecha, fletero, recorrido o datos del viaje. La planilla de entregas y cobros generará hojas separadas para los siguientes grupos. Si es intencional, podés continuar; si no, corregí los datos en la grilla y volvé a aplicarla.' : 'Estos son los datos que se usarán en la planilla de entregas y cobros.'}</p>
+            <p className="mt-2 text-xs leading-relaxed text-slate-600">{tripWarning.groups.length > 1 ? 'Hay diferencias de fecha, chofer o datos del transporte. Se generarán hojas separadas para cada viaje. Si es intencional, podés continuar; si no, corregí los datos en la grilla y volvé a aplicarla.' : 'Estos son los datos del viaje para la impresión.'}</p>
             <div className="mt-4 space-y-3 overflow-y-auto">
               {tripWarning.groups.map(group => <div key={group.key} className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs">
-                <div className="flex justify-between gap-3 font-black text-slate-900"><span>{displayDate(group.deliveryDate)} · {group.trip.carrier || group.trip.driver || 'Sin fletero'}</span><span>{Math.ceil(group.orders.length / ORDER_NOTE_ROWS_PER_PAGE)} hoja(s)</span></div>
-                <p className="mt-1">Recorrido: {[group.trip.zone, group.trip.route].filter(Boolean).join(' / ') || 'Sin recorrido'}</p>
+                <div className="flex justify-between gap-3 font-black text-slate-900"><span>{displayDate(group.deliveryDate)} · {group.trip.driver || 'Sin chofer'}</span><span>{pendingPrintType.current === 'separar' || pendingPrintType.current === 'cargar' ? `${group.orders.length} pedido(s)` : `${Math.ceil(group.orders.length / ORDER_NOTE_ROWS_PER_PAGE)} hoja(s)`}</span></div>
                 <p className="mt-1">Chofer: {group.trip.driver || 'Sin dato'} · Vehículo: {group.trip.vehicle || 'Sin dato'}</p>
                 <p className="mt-1">Acompañante: {group.trip.companion || 'Sin dato'} · Salida: {group.trip.departure || 'Sin dato'}</p>
-                <p className="mt-2 break-words font-mono text-[11px] text-slate-700">{group.orders.flatMap(order => order.codes).join(' · ')}</p>
               </div>)}
             </div>
             <div className="mt-5 flex justify-end gap-2">

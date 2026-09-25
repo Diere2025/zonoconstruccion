@@ -3,7 +3,7 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { LogisticsPrintOrder } from '@/lib/logisticsPrintOrders';
-import { buildOrderNotePages, orderNoteBaseAmount, orderNoteCardAmounts, selectedOrderNoteCardIndex } from '@/lib/logisticsOrderNotes';
+import { buildOrderNotePages, orderNoteBaseAmount, orderNoteCardAmounts, orderNoteRoutes, selectedOrderNoteCardIndex } from '@/lib/logisticsOrderNotes';
 
 export interface OrderNoteSettings {
   driver: string;
@@ -55,7 +55,7 @@ export function PrintableOrderNotes({ orders, settings }: { orders: LogisticsPri
               <div><b>Salida</b><span>{page.trip.departure || '—'}</span></div>
             </div>
           </div>
-          {(page.trip.carrier || page.trip.zone || page.trip.route) && <div className="order-note-route">Fletero: {page.trip.carrier || '—'} · Recorrido: {[page.trip.zone, page.trip.route].filter(Boolean).join(' / ') || '—'}</div>}
+          {(page.trip.zone || page.trip.route) && <div className="order-note-route">Recorrido: {orderNoteRoutes(page.orders)}</div>}
           <table className="order-note-table">
             <colgroup>
               <col style={{ width: '3%' }} />
