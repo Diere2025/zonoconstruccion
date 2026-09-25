@@ -3,7 +3,6 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { fetchSpreadsheetValues } from '@/lib/googleSheets';
 import {
   LogisticsOrderMetadata,
   mergeLogisticsPrintOrders,
@@ -11,9 +10,8 @@ import {
 } from '@/lib/logisticsPrintOrders';
 import { parseLogisticsRemittanceRows } from '@/lib/logisticsRemittances';
 import { LOGISTICS_TRIP_MAX_COLUMNS } from '@/lib/logisticsPaste';
+import { resolveWarehouseCategory, warehouseCategoryConfig, WAREHOUSE_CATEGORY_SETTING_ID } from '@/lib/warehouseCategoryConfig';
 
-const RECEIPTS_SPREADSHEET_ID = '1t1fNJ4O-gSSxyvUTvDuswWihRyLue_Y0VpAaiG-2dXk';
-const REMITTANCES_SPREADSHEET_ID = '1AogvMaQJH1JFlikdWfdGYPkgvnXfe-DecYbkHmxGR-s';
 const MAX_ROWS = 200;
 const MAX_COLUMNS = LOGISTICS_TRIP_MAX_COLUMNS;
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
@@ -49,30 +47,31 @@ async function metadataForRows(rows: string[][]): Promise<LogisticsOrderMetadata
 
 async function buildPayload(rows: string[][], firstRowNumber: number, source: string) {
   const safeRows = rows.slice(0, MAX_ROWS).map(row => row.slice(0, MAX_COLUMNS));
-  const metadata = await metadataForRows(safeRows);
   const parsedOrders = parseLogisticsPrintRows(safeRows, firstRowNumber);
+  const metadataPromise = metadataForRows(safeRows);
+  const settingsPromise = supabaseAdmin.from('site_settings')
+    .select('value').eq('id', WAREHOUSE_CATEGORY_SETTING_ID).maybeSingle();
+  const [metadata, { data: savedCategories, error: categorySettingsError }] = await Promise.all([
+    metadataPromise, settingsPromise
+  ]);
   const orders = mergeLogisticsPrintOrders(parsedOrders, metadata);
+  if (categorySettingsError) console.warn('[ImpresionLogistica] No se pudieron consultar categorías de depósito:', categorySettingsError.message);
+  let printConfig = warehouseCategoryConfig(null);
+  try {
+    const stored = savedCategories?.value
+      ? (typeof savedCategories.value === 'string' ? JSON.parse(savedCategories.value) : savedCategories.value)
+      : null;
+    printConfig = warehouseCategoryConfig(stored);
+  } catch (error) {
+    console.warn('[ImpresionLogistica] Configuración de categorías inválida:', error);
+  }
+  for (const order of orders) for (const item of order.items) {
+    item.categoryOverride = true;
+    item.category = resolveWarehouseCategory(item.name, printConfig);
+  }
   const linkedOrderCodes = metadata.map(item => item.legacyCode).filter(Boolean);
   const remittances = parseLogisticsRemittanceRows(safeRows, firstRowNumber, linkedOrderCodes);
-  return { source, rows: safeRows, orders, remittances, fetchedAt: new Date().toISOString() };
-}
-
-export async function GET(request: NextRequest) {
-  try {
-    const source = request.nextUrl.searchParams.get('source') === 'remitos' ? 'remitos' : 'comprobantes';
-    const isRemittances = source === 'remitos';
-    const values = await fetchSpreadsheetValues(
-      isRemittances ? REMITTANCES_SPREADSHEET_ID : RECEIPTS_SPREADSHEET_ID,
-      isRemittances ? "'Imprimir'!A1:CF40" : "'Imprimir'!A3:CF42"
-    );
-    return NextResponse.json(await buildPayload(values, isRemittances ? 1 : 3, source));
-  } catch (error) {
-    console.error('[ImpresionLogistica] Error:', error);
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'No se pudo leer la planilla.' },
-      { status: 500 }
-    );
-  }
+  return { source, rows: safeRows, orders, remittances, printCategories: printConfig.categories, fetchedAt: new Date().toISOString() };
 }
 
 export async function POST(request: NextRequest) {

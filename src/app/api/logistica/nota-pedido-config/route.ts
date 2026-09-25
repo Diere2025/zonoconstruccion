@@ -63,15 +63,17 @@ export async function GET(request: NextRequest) {
     const user = await authenticatedUser(request);
     if (!user) return response({ error: 'Iniciá sesión para consultar los recargos de cuotas.' }, 401);
     const client = adminClient();
-    const [{ data, error }, canEdit] = await Promise.all([
-      client.from('site_settings').select('value').eq('id', SETTING_ID).maybeSingle(),
-      mayEdit(user)
-    ]);
+    const canEditPromise = mayEdit(user).catch(roleError => {
+      console.warn('[NotaPedidoConfig] No se pudo verificar permiso de edición:', roleError);
+      return false;
+    });
+    const { data, error } = await client.from('site_settings').select('value').eq('id', SETTING_ID).maybeSingle();
     if (error) throw error;
     const saved = data?.value
       ? (typeof data.value === 'string' ? JSON.parse(data.value) : data.value)
       : null;
     const rates = savedRates(saved);
+    const canEdit = await canEditPromise;
     return response({ rates, canEdit });
   } catch (error) {
     console.error('[NotaPedidoConfig] Error de lectura:', error);

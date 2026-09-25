@@ -37,13 +37,20 @@ test('equivalent dates and trip formatting stay on the same sheet', () => {
   assert.equal(pages[0].trip.driver, 'Chofer A');
 });
 
-test('every distinguishing trip field and delivery date creates a separate group', () => {
-  for (const column of [2, 13, 14, 78, 80, 81, 82, 83]) {
+test('delivery date and transport details create separate groups, but ruteador, zones and routes do not', () => {
+  for (const column of [2, 80, 81, 82, 83]) {
     const values = row('JS2');
     values[column] = column === 2 ? '25/09/2026' : 'Otro valor';
     const orders = print.parseLogisticsPrintRows([row('JS1'), values]);
     assert.equal(notes.buildOrderNoteGroups(orders).length, 2, `column ${column}`);
     assert.equal(notes.buildOrderNotePages(orders).length, 2, `column ${column}`);
+  }
+  for (const column of [13, 14, 78]) {
+    const values = row('JS2');
+    values[column] = 'Otra zona o recorrido';
+    const orders = print.parseLogisticsPrintRows([row('JS1'), values]);
+    assert.equal(notes.buildOrderNoteGroups(orders).length, 1, `column ${column}`);
+    assert.equal(notes.buildOrderNotePages(orders).length, 1, `column ${column}`);
   }
 });
 
@@ -78,6 +85,17 @@ test('linked orders in different trips are not merged under the first driver', (
   const orders = print.mergeLogisticsPrintOrders(print.parseLogisticsPrintRows([a, b]));
   assert.equal(orders.length, 2);
   assert.equal(notes.buildOrderNoteGroups(orders).length, 2);
+});
+
+test('linked orders across zones remain one trip and list both routes', () => {
+  const a = row('JS1');
+  a[10] = 'VA CON EL PEDIDO JS2';
+  const b = row('JS2');
+  b[13] = 'CABA';
+  b[14] = 'R2';
+  const orders = print.mergeLogisticsPrintOrders(print.parseLogisticsPrintRows([a, b]));
+  assert.equal(orders.length, 1);
+  assert.equal(notes.buildOrderNoteGroups(orders).length, 1);
 });
 
 test('a repeated code in different trips has separate selectable identifiers', () => {
