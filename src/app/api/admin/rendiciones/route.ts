@@ -281,6 +281,27 @@ export async function GET(request: Request) {
 
           const orderCodes = Array.from(ordersMap.values()).map(o => o.legacy_code).filter(Boolean);
 
+          const receiptsByOrder = new Map<string, Array<{ id: string; amount: number; receiptUrl: string; reference: string }>>();
+          if (orderIds.length > 0) {
+            const { data: clientPayments, error: paymentsError } = await supabaseAdmin
+              .from("client_payments")
+              .select("id, order_id, amount, receipt_url, notes, status")
+              .in("order_id", orderIds);
+            if (paymentsError) console.warn("[Rendiciones] No se pudieron leer comprobantes del pedido:", paymentsError);
+            for (const payment of clientPayments || []) {
+              const receiptUrl = String(payment.receipt_url || "").trim();
+              if (!receiptUrl || /cancelad|anulad|rechazad/i.test(String(payment.status || ""))) continue;
+              const receipts = receiptsByOrder.get(payment.order_id) || [];
+              if (!receipts.some(receipt => receipt.receiptUrl === receiptUrl)) receipts.push({
+                id: payment.id,
+                amount: Number(payment.amount) || 0,
+                receiptUrl,
+                reference: String(payment.notes || "Comprobante del pedido"),
+              });
+              receiptsByOrder.set(payment.order_id, receipts);
+            }
+          }
+
           let mpPayments: any[] = [];
           if (orderIds.length > 0 || orderCodes.length > 0) {
             let query = supabaseAdmin
@@ -299,6 +320,21 @@ export async function GET(request: Request) {
 
           routeOrders = (deliveries || []).map(d => {
             const order = d.order_id ? ordersMap.get(d.order_id) : null;
+            const priorPaymentReceipts = [...(receiptsByOrder.get(d.order_id) || [])];
+            const addOrderReceipt = (receiptUrl: unknown, amount: unknown, reference: string) => {
+              const url = String(receiptUrl || "").trim();
+              if (url && !priorPaymentReceipts.some(receipt => receipt.receiptUrl === url)) priorPaymentReceipts.push({
+                id: `order-${priorPaymentReceipts.length}`,
+                amount: Number(amount) || 0,
+                receiptUrl: url,
+                reference,
+              });
+            };
+            addOrderReceipt(order?.totals?.deposit_receipt_url, order?.totals?.deposit_amount, "Comprobante de seña");
+            if (Array.isArray(order?.totals?.payments_breakdown)) {
+              order.totals.payments_breakdown.forEach((payment: any, index: number) =>
+                addOrderReceipt(payment.receipt_url, payment.total_amount ?? payment.amount, `Comprobante de pago ${index + 1}`));
+            }
             const cleanCode = (order?.legacy_code || "").trim().toUpperCase();
             const matchingPayments = mpPayments.filter(p =>
               (d.order_id && p.order_id === d.order_id) ||
@@ -340,13 +376,18 @@ export async function GET(request: Request) {
                 isVerified: p.is_verified,
                 notes: p.notes || "",
               })),
+              priorPaymentReceipts,
               totalLinkedAmount: matchingPayments.reduce((acc, p) => acc + (Number(p.amount) || 0), 0),
             };
           });
 
           if (mpPayments.length > 0) {
             const existingMpIds = new Set(electronicTickets.map((t: any) => t.mp_payment_id).filter(Boolean));
+            const previouslyPaidOrderIds = new Set(routeOrders.filter(order => order.isPreviouslyPaid).map(order => order.orderId).filter(Boolean));
+            const previouslyPaidCodes = routeOrders.filter(order => order.isPreviouslyPaid).map(order => String(order.orderCode).trim().toUpperCase()).filter(Boolean);
             for (const mp of mpPayments) {
+              if ((mp.order_id && previouslyPaidOrderIds.has(mp.order_id)) ||
+                (mp.order_code && previouslyPaidCodes.some(code => String(mp.order_code).trim().toUpperCase().includes(code)))) continue;
               if (!existingMpIds.has(mp.id)) {
                 electronicTickets.push({
                   id: `mp-${mp.id}`,
