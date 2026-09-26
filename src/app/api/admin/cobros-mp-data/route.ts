@@ -221,9 +221,10 @@ export async function GET(request: Request) {
       }
 
       if (linkedStatus === 'UNLINKED') {
-        query = query.is('order_id', null);
+        // A manually linked order can have a code even when no matching orders row exists.
+        query = query.is('order_id', null).is('order_code', null);
       } else if (linkedStatus === 'LINKED') {
-        query = query.not('order_id', 'is', null);
+        query = query.or('order_id.not.is.null,order_code.not.is.null');
       }
 
       if (fleteroFilter === 'WITH_FLETERO') {
