@@ -4,6 +4,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { fetchSpreadsheetValueRanges, fetchSpreadsheetValues } from "@/lib/googleSheets";
+import { isExcludedDeliveryStatus, settlementOrdersTotal } from "@/lib/settlementOrders";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
@@ -37,7 +38,7 @@ type ElectronicTicketPayload = {
   notes?: string | null;
 };
 type SavePayload = {
-  action?: "create" | "save" | "confirm" | "import-month" | "confirm-entregando" | "generate-movements";
+  action?: "create" | "save" | "confirm" | "import-month" | "confirm-entregando" | "generate-movements" | "update-delivery-status";
   settlementId?: string;
   code?: string;
   settlementDate?: string;
@@ -56,6 +57,8 @@ type SavePayload = {
   cashCounts?: CashCountPayload[];
   electronicTickets?: ElectronicTicketPayload[];
   items?: any[];
+  deliveryId?: string;
+  deliveryStatus?: string;
   financialAccountId?: string;
   movementDate?: string;
   movements?: Array<{
@@ -115,10 +118,13 @@ function asNumber(value: unknown): number {
 }
 
 function parseSheetDate(value: unknown): string | null {
-  const match = String(value ?? "").trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  const match = String(value ?? "").trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
   if (!match) return null;
   const [, day, month, year] = match;
-  return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+  const fullYear = year.length === 2 ? `20${year}` : year;
+  const parsed = new Date(Date.UTC(Number(fullYear), Number(month) - 1, Number(day)));
+  if (parsed.getUTCFullYear() !== Number(fullYear) || parsed.getUTCMonth() !== Number(month) - 1 || parsed.getUTCDate() !== Number(day)) return null;
+  return `${fullYear}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
 }
 
 function argentinaMonth() {
@@ -259,7 +265,7 @@ export async function GET(request: Request) {
         try {
           const { data: deliveries } = await supabaseAdmin
             .from("deliveries")
-            .select("id, delivery_order, order_id, predominant_zone, status, notes")
+            .select("id, delivery_order, order_id, predominant_zone, status, failure_reason, notes")
             .eq("route_sheet_id", targetRouteSheetId)
             .order("delivery_order", { ascending: true });
 
@@ -305,7 +311,7 @@ export async function GET(request: Request) {
             const pendingBalance = order?.totals?.pending_balance !== undefined
               ? Number(order.totals.pending_balance)
               : (isPreviouslyPaid ? 0 : Number(order?.total_amount || 0));
-            const toCollectAmount = isPreviouslyPaid ? 0 : Math.max(0, pendingBalance);
+            const toCollectAmount = isExcludedDeliveryStatus(d.status || "") ? 0 : isPreviouslyPaid ? 0 : Math.max(0, pendingBalance);
 
             return {
               deliveryId: d.id,
@@ -317,6 +323,7 @@ export async function GET(request: Request) {
               stopOrder: d.delivery_order || 1,
               totalAmount: Number(order?.total_amount) || 0,
               paymentStatus: order?.payment_status || d.status || "",
+              deliveryStatus: d.status === "fallido" ? (d.failure_reason || "No entregado") : (d.status || ""),
               isPreviouslyPaid,
               previouslyPaidAmount: depositAmount > 0
                 ? depositAmount
@@ -385,7 +392,10 @@ export async function GET(request: Request) {
       });
     }
     if (action === "preview-entregando") {
-      const preview = await getEntregandoPreview();
+      const source = searchParams.get("source") === "entregados" ? "entregados" : "entregando";
+      const date = searchParams.get("date") || "";
+      if (source === "entregados" && !/^\d{4}-\d{2}-\d{2}$/.test(date)) return NextResponse.json({ error: "Seleccioná una fecha válida." }, { status: 400 });
+      const preview = await getEntregandoPreview(source, date);
       return NextResponse.json({ success: true, preview });
     }
     return NextResponse.json({ error: "Acción inválida." }, { status: 400 });
@@ -395,8 +405,8 @@ export async function GET(request: Request) {
   }
 }
 
-async function getEntregandoPreview() {
-  const rows = await fetchSpreadsheetValues(LOGISTICS_SPREADSHEET_ID, "'Entregando'!A3:CG");
+async function getEntregandoPreview(source: "entregando" | "entregados" = "entregando", date = "") {
+  const rows = await fetchSpreadsheetValues(LOGISTICS_SPREADSHEET_ID, source === "entregados" ? "'🔴 Entregados'!A2:CG" : "'Entregando'!A3:CG");
   let currentHeaderCarrier = "";
   let currentHeaderRouteNumber = 1;
   const groups = new Map<string, {
@@ -419,6 +429,7 @@ async function getEntregandoPreview() {
       toCollectAmount?: number;
       paidAmount?: number;
       paymentState?: string;
+      deliveryStatus?: string;
       isPreviouslyPaid?: boolean;
       customerName: string;
       address: string;
@@ -444,11 +455,13 @@ async function getEntregandoPreview() {
       }
       continue;
     }
+    if (date && dateParsed !== date) continue;
 
     const carrierName = String(row[79] || currentHeaderCarrier || "Sin Fletero").trim();
     const totalToCollect = asNumber(row[28]);
     const paidAmount = asNumber(row[23]);
     const paymentState = String(row[22] || "").trim();
+    const deliveryStatus = source === "entregados" ? String(row[15] || "").trim() : "Entregando";
     const isPreviouslyPaid = paymentState.toLowerCase().includes("abonad") && !paymentState.toLowerCase().includes("no abonad");
     const fullOrderTotal = isPreviouslyPaid && paidAmount > 0 ? paidAmount : (totalToCollect + paidAmount);
     const stopOrder = parseInt(String(row[14] || "")) || 0;
@@ -486,23 +499,51 @@ async function getEntregandoPreview() {
     }
 
     const grp = groups.get(groupKey)!;
-    grp.totalAmount += totalToCollect;
-    grp.orders.push({
+    const nextOrder = {
       orderCode,
       stopOrder,
       totalAmount: fullOrderTotal > 0 ? fullOrderTotal : totalToCollect,
       toCollectAmount: totalToCollect,
       paidAmount,
       paymentState: paymentState || (isPreviouslyPaid ? "Abonado" : "Pendiente"),
+      deliveryStatus,
       isPreviouslyPaid,
       customerName: String(row[4] || "").trim(),
       address: String(row[17] || "").trim(),
       paymentType: String(row[20] || "").trim(),
-    });
+    };
+    const existingOrderIndex = grp.orders.findIndex(order => order.orderCode.toUpperCase() === orderCode.toUpperCase());
+    if (existingOrderIndex >= 0) grp.orders[existingOrderIndex] = nextOrder;
+    else grp.orders.push(nextOrder);
+    grp.totalAmount = settlementOrdersTotal(grp.orders);
   }
 
   const groupList = Array.from(groups.values());
   if (groupList.length === 0) return [];
+
+  // A manual correction on an existing draft must survive another read of Entregando.
+  if (source === "entregando") {
+    const codes = Array.from(new Set(groupList.flatMap(group => group.orders.map(order => order.orderCode.toUpperCase()))));
+    for (let offset = 0; offset < codes.length; offset += 200) {
+      const { data: matchedOrders, error: ordersError } = await supabaseAdmin.from("orders")
+        .select("id, legacy_code").in("legacy_code", codes.slice(offset, offset + 200));
+      if (ordersError) throw ordersError;
+      const byId = new Map((matchedOrders || []).map(order => [order.id, String(order.legacy_code).toUpperCase()]));
+      if (byId.size === 0) continue;
+      const { data: deliveries, error: deliveriesError } = await supabaseAdmin.from("deliveries")
+        .select("order_id, delivery_date, status, failure_reason").in("order_id", Array.from(byId.keys()));
+      if (deliveriesError) throw deliveriesError;
+      const corrected = new Map((deliveries || []).filter(delivery => isExcludedDeliveryStatus(delivery.status || ""))
+        .map(delivery => [`${byId.get(delivery.order_id)}|${delivery.delivery_date}`, delivery.failure_reason || delivery.status]));
+      for (const group of groupList) {
+        for (const order of group.orders) {
+          const status = corrected.get(`${order.orderCode.toUpperCase()}|${group.deliveryDate}`);
+          if (status) order.deliveryStatus = status;
+        }
+        group.totalAmount = settlementOrdersTotal(group.orders);
+      }
+    }
+  }
 
   const { data: carriers } = await supabaseAdmin
     .from("carriers")
@@ -512,7 +553,7 @@ async function getEntregandoPreview() {
   const dates = Array.from(new Set(groupList.map(g => g.deliveryDate)));
   const { data: existingSettlements } = await supabaseAdmin
     .from("treasury_settlements")
-    .select("id, code, status, carrier_id, carrier_name, settlement_date, deliveries_total, route_detail, route_sheet_id")
+    .select("id, code, status, carrier_id, carrier_name, settlement_date, deliveries_total, route_detail, route_sheet_id, change_fund")
     .in("settlement_date", dates);
 
   return groupList.map(grp => {
@@ -531,12 +572,14 @@ async function getEntregandoPreview() {
 
     return {
       ...grp,
+      source,
       carrierId: matchedCarrier?.id || null,
       matchedCarrierName: matchedCarrier?.name || grp.carrierName,
       matchedVehicle: matchedCarrier?.vehicle_description || grp.vehicle,
       existingSettlementId: existing?.id || null,
       existingSettlementCode: existing?.code || null,
       existingStatus: existing?.status || null,
+      changeFund: existing?.change_fund || 0,
     };
   });
 }
@@ -552,6 +595,9 @@ async function confirmEntregandoItems(actor: AuthorizedUser, items: any[]) {
   let updatedCount = 0;
 
   for (const item of items) {
+    const source = item.source === "entregados" ? "entregados" : "entregando";
+    const selectedOrders = Array.isArray(item.orders) ? item.orders : [];
+    const deliveriesTotal = settlementOrdersTotal(selectedOrders);
     let matchedCarrier = item.carrierId ? carriersList.find(c => c.id === item.carrierId) || null : null;
     if (!matchedCarrier) {
       matchedCarrier = findCarrier(item.carrierName, carriersList);
@@ -583,20 +629,36 @@ async function confirmEntregandoItems(actor: AuthorizedUser, items: any[]) {
         delivery_date: item.deliveryDate,
         run_number: runNumber,
         code: routeCode,
-        total_theoretical_cash: item.totalAmount,
+        total_theoretical_cash: deliveriesTotal,
         has_assistant: Boolean(item.companion),
         status: 'Pendiente',
       }).select("id, code").single();
       if (routeErr) throw routeErr;
       routeSheet = createdRoute;
-    } else {
-      await supabaseAdmin.from("route_sheets").update({
-        total_theoretical_cash: item.totalAmount,
-        has_assistant: Boolean(item.companion),
-      }).eq("id", routeSheet.id);
     }
 
-    const orderCodes = (item.orders || []).map((o: any) => o.orderCode);
+    let { data: existingSettlement } = await supabaseAdmin
+      .from("treasury_settlements")
+      .select("id, status, change_fund, tolls_total, extraordinary_total, electronic_total, counted_cash, shortage_recovered")
+      .eq("route_sheet_id", routeSheet.id)
+      .maybeSingle();
+    if (!existingSettlement && item.existingSettlementId) {
+      const existingById = await supabaseAdmin.from("treasury_settlements")
+        .select("id, status, change_fund, tolls_total, extraordinary_total, electronic_total, counted_cash, shortage_recovered")
+        .eq("id", item.existingSettlementId).eq("settlement_date", item.deliveryDate).maybeSingle();
+      if (existingById.error) throw existingById.error;
+      existingSettlement = existingById.data;
+    }
+    if (existingSettlement?.status === "confirmed") continue;
+    if (routeSheet) {
+      const routeUpdate = await supabaseAdmin.from("route_sheets").update({
+        total_theoretical_cash: deliveriesTotal,
+        has_assistant: Boolean(item.companion),
+      }).eq("id", routeSheet.id);
+      if (routeUpdate.error) throw routeUpdate.error;
+    }
+
+    const orderCodes = selectedOrders.map((o: any) => o.orderCode);
     let orderMap = new Map<string, string>();
     if (orderCodes.length > 0) {
       const { data: matchedOrders } = await supabaseAdmin
@@ -608,8 +670,17 @@ async function confirmEntregandoItems(actor: AuthorizedUser, items: any[]) {
       });
     }
 
-    for (const order of item.orders || []) {
+    for (const order of selectedOrders) {
       const orderId = orderMap.get(order.orderCode.toUpperCase()) || null;
+      const normalizedStatus = String(order.deliveryStatus || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+      const deliveryStatus = normalizedStatus.includes("postergad") ? "postergado"
+        : normalizedStatus.includes("anulad") ? "anulado"
+        : normalizedStatus.includes("cancelad") ? "cancelado"
+        : normalizedStatus.includes("no entregad") ? "no entregado"
+        : normalizedStatus.includes("entregando") || normalizedStatus.includes("en recorrido") ? "en_recorrido"
+        : "entregado";
+      const excluded = isExcludedDeliveryStatus(deliveryStatus);
+      const storedStatus = excluded ? "fallido" : deliveryStatus;
       let deliveryId: string | null = null;
 
       if (orderId) {
@@ -621,7 +692,7 @@ async function confirmEntregandoItems(actor: AuthorizedUser, items: any[]) {
         if (existingByOrder) deliveryId = existingByOrder.id;
       }
 
-      if (!deliveryId) {
+      if (!deliveryId && !orderId && order.stopOrder) {
         const { data: existingByRouteOrder } = await supabaseAdmin
           .from("deliveries")
           .select("id")
@@ -632,54 +703,52 @@ async function confirmEntregandoItems(actor: AuthorizedUser, items: any[]) {
       }
 
       if (deliveryId) {
-        await supabaseAdmin.from("deliveries").update({
+        const deliveryUpdate = await supabaseAdmin.from("deliveries").update({
           route_sheet_id: routeSheet.id,
           order_id: orderId,
           carrier_id: matchedCarrier.id,
           delivery_date: item.deliveryDate,
           run_number: runNumber,
           delivery_order: order.stopOrder,
-          status: 'entregado',
+          status: storedStatus,
+          failure_reason: excluded ? deliveryStatus : null,
           logistics_contact: item.logisticsContact || "Pablo",
           predominant_zone: item.zone || null,
           companion: item.companion || null,
           driver_hours: item.driverHours || null,
         }).eq("id", deliveryId);
+        if (deliveryUpdate.error) throw deliveryUpdate.error;
       } else if (orderId) {
-        await supabaseAdmin.from("deliveries").insert({
+        const deliveryInsert = await supabaseAdmin.from("deliveries").insert({
           route_sheet_id: routeSheet.id,
           order_id: orderId,
           carrier_id: matchedCarrier.id,
           delivery_date: item.deliveryDate,
           run_number: runNumber,
           delivery_order: order.stopOrder,
-          status: 'entregado',
+          status: storedStatus,
+          failure_reason: excluded ? deliveryStatus : null,
           logistics_contact: item.logisticsContact || "Pablo",
           predominant_zone: item.zone || null,
           companion: item.companion || null,
           driver_hours: item.driverHours || null,
         });
+        if (deliveryInsert.error) throw deliveryInsert.error;
       }
     }
-
-    let { data: existingSettlement } = await supabaseAdmin
-      .from("treasury_settlements")
-      .select("id, status, change_fund, tolls_total, extraordinary_total, electronic_total, counted_cash, shortage_recovered")
-      .eq("route_sheet_id", routeSheet.id)
-      .maybeSingle();
 
     const changeFund = Math.max(0, asNumber(item.changeFund));
 
     if (existingSettlement) {
       if (existingSettlement.status === 'draft') {
-        const deliveriesTotal = item.totalAmount;
-        const finalChangeFund = item.changeFund !== undefined ? changeFund : Number(existingSettlement.change_fund || 0);
+        const finalChangeFund = source === "entregados" ? Number(existingSettlement.change_fund || 0)
+          : item.changeFund !== undefined ? changeFund : Number(existingSettlement.change_fund || 0);
         const expectedCash = deliveriesTotal + finalChangeFund
           - Number(existingSettlement.tolls_total || 0) - Number(existingSettlement.extraordinary_total || 0)
           - Number(existingSettlement.electronic_total || 0);
         const difference = Number(existingSettlement.counted_cash || 0) + Number(existingSettlement.shortage_recovered || 0) - expectedCash;
 
-        await supabaseAdmin.from("treasury_settlements").update({
+        const settlementUpdate = await supabaseAdmin.from("treasury_settlements").update({
           route_sheet_id: routeSheet.id,
           carrier_id: matchedCarrier.id,
           carrier_name: matchedCarrier.name,
@@ -688,15 +757,14 @@ async function confirmEntregandoItems(actor: AuthorizedUser, items: any[]) {
           change_fund: finalChangeFund,
           expected_cash: expectedCash,
           difference: difference,
-          notes: `Actualizada desde hoja Entregando (${item.orders?.length || 0} pedidos)`,
           updated_at: new Date().toISOString(),
         }).eq("id", existingSettlement.id);
+        if (settlementUpdate.error) throw settlementUpdate.error;
         updatedCount++;
       }
     } else {
-      const deliveriesTotal = item.totalAmount;
       const expectedCash = deliveriesTotal + changeFund;
-      await supabaseAdmin.from("treasury_settlements").insert({
+      const settlementInsert = await supabaseAdmin.from("treasury_settlements").insert({
         route_sheet_id: routeSheet.id,
         carrier_id: matchedCarrier.id,
         carrier_name: matchedCarrier.name,
@@ -708,9 +776,10 @@ async function confirmEntregandoItems(actor: AuthorizedUser, items: any[]) {
         difference: -expectedCash,
         source: 'route',
         status: 'draft',
-        notes: `Generada desde hoja Entregando (${item.orders?.length || 0} pedidos)`,
+        notes: `Generada desde hoja ${source === "entregados" ? "Entregados" : "Entregando"} (${selectedOrders.length} pedidos)`,
         created_by: actor.id,
       });
+      if (settlementInsert.error) throw settlementInsert.error;
       createdCount++;
     }
   }
@@ -870,6 +939,58 @@ export async function POST(request: Request) {
       if (items.length === 0) return NextResponse.json({ error: "No se seleccionaron recorridos para crear." }, { status: 400 });
       const result = await confirmEntregandoItems(actor, items);
       return NextResponse.json({ success: true, ...result });
+    }
+    if (body.action === "update-delivery-status") {
+      if (!body.settlementId || !body.deliveryId || !body.deliveryStatus) return NextResponse.json({ error: "Faltan datos del pedido." }, { status: 400 });
+      const allowed = ["en_recorrido", "entregado", "postergado", "anulado", "cancelado", "no entregado"];
+      if (!allowed.includes(body.deliveryStatus)) return NextResponse.json({ error: "Estado de pedido inválido." }, { status: 400 });
+      const { data: settlement, error: settlementError } = await supabaseAdmin.from("treasury_settlements")
+        .select("id, status, settlement_date, route_sheet_id, deliveries_total, change_fund, tolls_total, extraordinary_total, electronic_total, counted_cash, shortage_recovered")
+        .eq("id", body.settlementId).single();
+      if (settlementError) throw settlementError;
+      if (settlement.status !== "draft") return NextResponse.json({ error: "La rendición confirmada no se puede modificar." }, { status: 409 });
+      const { data: delivery, error: deliveryError } = await supabaseAdmin.from("deliveries")
+        .select("id, route_sheet_id, order_id, status").eq("id", body.deliveryId).single();
+      if (deliveryError) throw deliveryError;
+      if (!settlement.route_sheet_id || delivery.route_sheet_id !== settlement.route_sheet_id) return NextResponse.json({ error: "El pedido no pertenece a esta rendición." }, { status: 400 });
+      if (!delivery.order_id) return NextResponse.json({ error: "El pedido no tiene un importe verificable." }, { status: 400 });
+      const { data: order, error: orderError } = await supabaseAdmin.from("orders")
+        .select("legacy_code, total_amount, payment_status, totals").eq("id", delivery.order_id).single();
+      if (orderError) throw orderError;
+      const paid = String(order.payment_status || "").toLowerCase().includes("abonad") ||
+        (order.totals?.pending_balance === 0 && Number(order.total_amount || 0) > 0);
+      let amount = paid ? 0 : Math.max(0, Number(order.totals?.pending_balance ?? order.total_amount ?? 0) || 0);
+      if (order.legacy_code) {
+        try {
+          for (const range of ["'🔴 Entregados'!A2:AC", "'Entregando'!A3:AC"]) {
+            const sheetRows = await fetchSpreadsheetValues(LOGISTICS_SPREADSHEET_ID, range);
+            const sheetRow = sheetRows.find(row => String(row[0] || "").trim().toUpperCase() === String(order.legacy_code).trim().toUpperCase()
+              && parseSheetDate(row[1]) === settlement.settlement_date);
+            if (sheetRow && asNumber(sheetRow[28]) > 0) { amount = asNumber(sheetRow[28]); break; }
+          }
+        } catch (sheetError) {
+          console.warn("[Rendiciones] No se pudo verificar el importe en la planilla:", sheetError);
+        }
+      }
+      const oldExcluded = isExcludedDeliveryStatus(delivery.status || "");
+      const newExcluded = isExcludedDeliveryStatus(body.deliveryStatus);
+      const adjustment = oldExcluded === newExcluded ? 0 : newExcluded ? -amount : amount;
+      const deliveriesTotal = Math.max(0, Number(settlement.deliveries_total || 0) + adjustment);
+      const expectedCash = deliveriesTotal + Number(settlement.change_fund || 0) - Number(settlement.tolls_total || 0)
+        - Number(settlement.extraordinary_total || 0) - Number(settlement.electronic_total || 0);
+      const difference = Number(settlement.counted_cash || 0) + Number(settlement.shortage_recovered || 0) - expectedCash;
+      const updateDelivery = await supabaseAdmin.from("deliveries").update({
+        status: newExcluded ? "fallido" : body.deliveryStatus,
+        failure_reason: newExcluded ? body.deliveryStatus : null,
+      }).eq("id", delivery.id);
+      if (updateDelivery.error) throw updateDelivery.error;
+      const routeUpdate = await supabaseAdmin.from("route_sheets").update({ total_theoretical_cash: deliveriesTotal }).eq("id", settlement.route_sheet_id);
+      if (routeUpdate.error) throw routeUpdate.error;
+      const updateSettlement = await supabaseAdmin.from("treasury_settlements").update({
+        deliveries_total: deliveriesTotal, expected_cash: expectedCash, difference, updated_at: new Date().toISOString(),
+      }).eq("id", settlement.id);
+      if (updateSettlement.error) throw updateSettlement.error;
+      return NextResponse.json({ success: true, deliveriesTotal, orderAmount: amount });
     }
     if (body.action === "generate-movements") {
       const { settlementId, code, carrierName, financialAccountId, movementDate, movements } = body;
