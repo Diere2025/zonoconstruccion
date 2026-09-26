@@ -94,6 +94,7 @@ export interface RouteOrderDetail {
   previouslyPaidAmount?: number;
   toCollectAmount?: number;
   linkedPayments: LinkedPaymentInfo[];
+  priorPaymentReceipts?: Array<{ id: string; amount: number; receiptUrl: string; reference: string }>;
   totalLinkedAmount: number;
 }
 interface DetailPayload {
@@ -160,6 +161,7 @@ const inputNumber = (value: string) => {
   const parsed = Number(value.replace(/[^\d.-]/g, ""));
   return Number.isFinite(parsed) ? parsed : 0;
 };
+const safeReceiptUrl = (value: string) => /^https?:\/\//i.test(value) || /^\/(?!\/)/.test(value) ? value : null;
 const displayDate = (value?: string | null) => {
   const match = String(value || "").slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
   return match ? `${match[3]}/${match[2]}/${match[1]}` : "-";
@@ -755,6 +757,7 @@ export default function RendicionesPage() {
     const toAdd: ElectronicTicketRow[] = [];
 
     routeOrders.forEach(order => {
+      if (order.isPreviouslyPaid) return;
       (order.linkedPayments || []).forEach(p => {
         if (!existingMpIds.has(p.id)) {
           existingMpIds.add(p.id);
@@ -789,6 +792,7 @@ export default function RendicionesPage() {
     const existingMpIds = new Set(electronicTickets.map(t => t.mpPaymentId).filter(Boolean));
     let count = 0;
     routeOrders.forEach(o => {
+      if (o.isPreviouslyPaid) return;
       (o.linkedPayments || []).forEach(p => {
         if (!existingMpIds.has(p.id)) count++;
       });
@@ -1094,6 +1098,7 @@ export default function RendicionesPage() {
                             t => t.orderCode && t.orderCode.trim().toUpperCase() === cleanCode
                           );
                           const directTickets = linkedTickets.filter(t => !t.mpPaymentId);
+                          const priorReceipts = (order.priorPaymentReceipts || []).filter(receipt => safeReceiptUrl(receipt.receiptUrl));
                           const nonCashTotal = linkedTickets.reduce((sum, t) => sum + Number(t.amount || 0), 0);
 
                           const excluded = isExcludedDeliveryStatus(order.deliveryStatus || "");
@@ -1108,9 +1113,10 @@ export default function RendicionesPage() {
                           const cashRemainder = Math.max(0, toCollectAmount - nonCashTotal);
                           const isMixed = !isPreviouslyPaid && nonCashTotal > 0 && cashRemainder > 0;
                           const isFullyDigital = !isPreviouslyPaid && nonCashTotal >= toCollectAmount && toCollectAmount > 0;
+                          const missingPriorTicket = isPreviouslyPaid && !hasLinked && priorReceipts.length === 0 && linkedTickets.length === 0;
 
                           return (
-                            <tr key={order.deliveryId || `order-${idx}`} className="hover:bg-slate-50/70 transition-colors">
+                            <tr key={order.deliveryId || `order-${idx}`} className={`${missingPriorTicket ? "bg-amber-50/60" : ""} hover:bg-slate-50/70 transition-colors`}>
                               <td className="py-2 px-2 text-center text-slate-400 font-bold">
                                 {order.stopOrder || idx + 1}
                               </td>
@@ -1136,7 +1142,7 @@ export default function RendicionesPage() {
                                   {order.totalAmount > 0 ? formatPrice(order.totalAmount) : "-"}
                                 </div>
                                 {excluded ? <span className="text-rose-600 font-bold">Sin cobro</span> : isPreviouslyPaid ? (
-                                  <span className="inline-block rounded bg-emerald-50 border border-emerald-200 px-1 py-0.2 text-[9px] font-black uppercase tracking-tight text-emerald-700 mt-0.5">
+                                  <span className={`inline-block rounded border px-1 py-0.2 text-[9px] font-black uppercase tracking-tight mt-0.5 ${missingPriorTicket ? "bg-amber-50 border-amber-300 text-amber-800" : "bg-emerald-50 border-emerald-200 text-emerald-700"}`}>
                                     Abonado previo
                                   </span>
                                 ) : (order.previouslyPaidAmount || 0) > 0 ? (
@@ -1148,8 +1154,8 @@ export default function RendicionesPage() {
                               <td className="py-2 px-2 text-right whitespace-nowrap">
                                 {isPreviouslyPaid ? (
                                   <div>
-                                    <span className="font-bold text-emerald-700 text-[11px]">Pagado antes</span>
-                                    <p className="text-[9px] text-slate-400">Sin cobro en flete</p>
+                                    <span className={`font-bold text-[11px] ${missingPriorTicket ? "text-amber-800" : "text-emerald-700"}`}>Pagado antes</span>
+                                    <p className={`text-[9px] ${missingPriorTicket ? "text-amber-700" : "text-slate-400"}`}>{missingPriorTicket ? "Ticket por revisar" : "Sin cobro en flete"}</p>
                                   </div>
                                 ) : nonCashTotal > 0 ? (
                                   <div>
@@ -1164,7 +1170,7 @@ export default function RendicionesPage() {
                               </td>
                               <td className="py-2 px-2 text-right whitespace-nowrap">
                                 {isPreviouslyPaid ? (
-                                  <span className="inline-flex items-center rounded bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 text-[10px] font-black text-emerald-700">
+                                  <span className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-black ${missingPriorTicket ? "bg-amber-50 border-amber-300 text-amber-800" : "bg-emerald-50 border-emerald-200 text-emerald-700"}`}>
                                     $ 0 (Abonado previo)
                                   </span>
                                 ) : isFullyDigital ? (
@@ -1184,12 +1190,31 @@ export default function RendicionesPage() {
                               </td>
                               <td className="py-2 px-2 min-w-[280px]">
                                 {isPreviouslyPaid ? (
-                                  <div className="flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50/60 px-2 py-1.5 text-[10px] text-emerald-800">
-                                    <Check className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
-                                    <div>
-                                      <span className="font-bold">Abonado previo a la salida</span>
-                                      <p className="text-[9px] text-emerald-600/80">No requirió cobro por el fletero</p>
-                                    </div>
+                                  <div className="space-y-1.5">
+                                    {order.linkedPayments.map(payment => (
+                                      <div key={payment.id} className="rounded-lg border border-emerald-200 bg-emerald-50/70 px-2 py-1.5 text-[10px] text-emerald-900">
+                                        <div className="flex items-center gap-1.5 font-bold"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> {formatPrice(payment.amount)} · {payment.paymentType}</div>
+                                        <p className="mt-0.5 text-[9px] text-emerald-700">Chequeo de Pagos{payment.payerName ? ` · ${payment.payerName}` : ""}</p>
+                                      </div>
+                                    ))}
+                                    {priorReceipts.map(receipt => (
+                                      <div key={receipt.id} className="flex items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50/70 px-2 py-1.5 text-[10px] text-emerald-900">
+                                        <span className="font-bold">{receipt.reference}{receipt.amount > 0 ? ` · ${formatPrice(receipt.amount)}` : ""}</span>
+                                        <a href={safeReceiptUrl(receipt.receiptUrl) || "#"} target="_blank" rel="noopener noreferrer" className="shrink-0 font-black text-emerald-700 underline">Ver ticket ↗</a>
+                                      </div>
+                                    ))}
+                                    {linkedTickets.filter(ticket => !ticket.mpPaymentId || !order.linkedPayments.some(payment => payment.id === ticket.mpPaymentId)).map(ticket => (
+                                      <div key={ticket.localId} className="rounded-lg border border-blue-200 bg-blue-50/70 px-2 py-1.5 text-[10px] text-blue-900">
+                                        <span className="font-bold">Ticket asociado · {formatPrice(ticket.amount)}</span>
+                                        {ticket.reference && <p className="text-[9px] text-blue-700">{ticket.reference}</p>}
+                                      </div>
+                                    ))}
+                                    {missingPriorTicket && (
+                                      <div className="flex items-start gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-2 text-[10px] text-amber-900">
+                                        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
+                                        <span><strong>Sin ticket del pago previo.</strong> Revisar el comprobante asociado a este pedido.</span>
+                                      </div>
+                                    )}
                                   </div>
                                 ) : (
                                   <div className="space-y-1.5">
