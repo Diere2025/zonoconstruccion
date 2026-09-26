@@ -439,19 +439,6 @@ const calculateNthBusinessDay = (baseDateStr: string, n: number): Date | null =>
   return date;
 };
 
-const calculateNthWeekday = (baseDateStr: string, n: number): Date | null => {
-  if (!baseDateStr) return null;
-  const date = new Date(baseDateStr + 'T12:00:00');
-  if (isNaN(date.getTime())) return null;
-  let count = 0;
-  while (count < n) {
-    date.setDate(date.getDate() + 1);
-    const day = date.getDay();
-    if (day !== 0 && day !== 6) count++;
-  }
-  return date;
-};
-
 const formatDateInput = (date: Date | null): string => {
   if (!date) return '';
   const yyyy = date.getFullYear();
@@ -465,55 +452,6 @@ const getCurrentMonthRange = () => {
   const firstDay = formatDateInput(new Date(now.getFullYear(), now.getMonth(), 1));
   const today = formatDateInput(now);
   return { firstDay, today };
-};
-
-const isDateValidForFlete = (
-  deliveryDateStr: string,
-  fleteName: string,
-  deliveryTimesList: any[],
-  baseDateStr: string
-): boolean => {
-  if (!deliveryDateStr || !fleteName || !baseDateStr) return false;
-  const selectedFlete = deliveryTimesList.find(dt => dt.name === fleteName);
-  if (!selectedFlete) return false;
-
-  const parts = deliveryDateStr.split('-');
-  const selDate = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
-  const selDayOfWeek = selDate.getDay();
-
-  if (selectedFlete.category === 'Zonal' || selectedFlete.category === 'Regular') {
-    let allowedDays = selectedFlete.delivery_days || [];
-    if (selectedFlete.category === 'Regular' && allowedDays.length === 0) {
-      allowedDays = [1, 2, 3, 4, 5, 6];
-    }
-    return allowedDays.includes(selDayOfWeek);
-  }
-
-  if (selectedFlete.category === 'Express') {
-    const baseDate = new Date(baseDateStr + 'T12:00:00');
-    const tomorrowDate = new Date(baseDate.getTime() + 24 * 60 * 60 * 1000);
-    const tomorrowYyyy = tomorrowDate.getFullYear();
-    const tomorrowMm = String(tomorrowDate.getMonth() + 1).padStart(2, '0');
-    const tomorrowDd = String(tomorrowDate.getDate()).padStart(2, '0');
-    const tomorrowStr = `${tomorrowYyyy}-${tomorrowMm}-${tomorrowDd}`;
-
-    const nextBusDate = calculateNthBusinessDay(baseDateStr, 1);
-    let nextBusStr = "";
-    if (nextBusDate) {
-      const nextBusYyyy = nextBusDate.getFullYear();
-      const nextBusMm = String(nextBusDate.getMonth() + 1).padStart(2, '0');
-      const nextBusDd = String(nextBusDate.getDate()).padStart(2, '0');
-      nextBusStr = `${nextBusYyyy}-${nextBusMm}-${nextBusDd}`;
-    }
-
-    return deliveryDateStr === tomorrowStr || deliveryDateStr === nextBusStr;
-  }
-
-  if (selectedFlete.category === 'Particular') {
-    return true; // Día Particular is always valid
-  }
-
-  return true;
 };
 
 const normalizeText = (text: string) => {
@@ -1696,6 +1634,7 @@ export default function PedidosPage() {
   // Delivery details (shares fields whether new or existing client)
   const [cliente, setCliente] = useState(""); // Display name
   const [localidadId, setLocalidadId] = useState("");
+  const lastAutoLocalityIdRef = useRef("");
   const [localitySearch, setLocalitySearch] = useState("");
   const [isLocalityDropdownOpen, setIsLocalityDropdownOpen] = useState(false);
 
@@ -1766,10 +1705,6 @@ export default function PedidosPage() {
 
     setLocalidadId(newLoc.id);
     setLocalitySearch(newLoc.name);
-
-    if (newLoc.zones?.delivery_times?.name) {
-      setFlete(newLoc.zones.delivery_times.name);
-    }
   };
 
   // Helper to extract coordinates from Google Maps link
@@ -1788,125 +1723,34 @@ export default function PedidosPage() {
     return null;
   };
 
-  // Obtener la fecha sugerida de entrega inicial basada en la agenda del flete seleccionado
-  const suggestedDeliveryDate = React.useMemo(() => {
-    if (isWholesaleForm) return formatDateInput(calculateNthWeekday(fechaPedido, 1)) || null;
-    if (!flete || !fechaPedido) return null;
-    const selectedFlete = deliveryTimes.find(dt => dt.name === flete);
-    if (!selectedFlete) return null;
-    
-    let days = selectedFlete.delivery_days || [];
-    if (selectedFlete.category === 'Regular') {
-      days = [1, 2, 3, 4, 5, 6]; // Lunes a Sábados
-    }
-    
-    const schedule = selectedFlete.description;
-    if (!schedule && days.length === 0) return null;
-    
-    const nextDate = calculateNextDeliveryDate(schedule, fechaPedido, days);
-    if (!nextDate) return null;
-    
-    const yyyy = nextDate.getFullYear();
-    const mm = String(nextDate.getMonth() + 1).padStart(2, '0');
-    const dd = String(nextDate.getDate()).padStart(2, '0');
-    return `${yyyy}-${mm}-${dd}`;
-  }, [flete, deliveryTimes, fechaPedido, isWholesaleForm]);
-
-  // Obtener la fecha sugerida de entrega máxima basada en la agenda del flete seleccionado
-  const suggestedDeliveryDateMax = React.useMemo(() => {
-    if (isWholesaleForm) return formatDateInput(calculateNthWeekday(fechaPedido, 7)) || null;
-    if (!flete || !fechaPedido) return null;
-    const selectedFlete = deliveryTimes.find(dt => dt.name === flete);
-    if (!selectedFlete) return null;
-    
-    if (selectedFlete.category === 'Regular') {
-      const nextDateMax = calculateNthBusinessDay(fechaPedido, 4);
-      if (!nextDateMax) return null;
-      const yyyy = nextDateMax.getFullYear();
-      const mm = String(nextDateMax.getMonth() + 1).padStart(2, '0');
-      const dd = String(nextDateMax.getDate()).padStart(2, '0');
-      return `${yyyy}-${mm}-${dd}`;
-    }
-    
-    return suggestedDeliveryDate;
-  }, [flete, deliveryTimes, fechaPedido, suggestedDeliveryDate, isWholesaleForm]);
-
-  // Seleccionar automáticamente el tipo de entrega al cambiar de localidad (localidad -> Zona -> Tipo Entrega)
+  // Sólo un cambio de localidad precarga el tipo y las fechas de entrega.
   useEffect(() => {
-    if (!localidadId) return;
+    if (!localidadId) {
+      lastAutoLocalityIdRef.current = "";
+      return;
+    }
+    if (lastAutoLocalityIdRef.current === localidadId) return;
     const selectedLocality = localities.find(l => l.id === localidadId);
     if (!selectedLocality) return;
-    
-    if (selectedLocality.zones && selectedLocality.zones.delivery_times) {
-      setFlete(selectedLocality.zones.delivery_times.name);
-    }
-  }, [localidadId, localities]);
-
-  // Sugerir y establecer automáticamente las fechas de entrega según el flete seleccionado y la fecha del pedido
-  useEffect(() => {
-    if (isWholesaleForm && !editingOrderId) {
-      setEntregaInicial(formatDateInput(calculateNthWeekday(fechaPedido, 1)));
-      setEntregaMaxima(formatDateInput(calculateNthWeekday(fechaPedido, 7)));
-      return;
-    }
-    if (!flete) return;
-    const selectedFlete = deliveryTimes.find(dt => dt.name === flete);
-    if (!selectedFlete) return;
-    
-    // Si la fecha actual ya es válida para este flete, no la sobrescribimos
-    if (entregaInicial && isDateValidForFlete(entregaInicial, flete, deliveryTimes, fechaPedido)) {
-      return;
-    }
-    
-    let days = selectedFlete.delivery_days || [];
-    if (selectedFlete.category === 'Regular') {
-      days = [1, 2, 3, 4, 5, 6]; // Lunes a Sábados
-    }
-    
-    const nextDate = calculateNextDeliveryDate(selectedFlete.description, fechaPedido, days);
-    if (nextDate) {
-      const yyyy = nextDate.getFullYear();
-      const mm = String(nextDate.getMonth() + 1).padStart(2, '0');
-      const dd = String(nextDate.getDate()).padStart(2, '0');
-      const dateStr = `${yyyy}-${mm}-${dd}`;
-      setEntregaInicial(dateStr);
-      
-      if (selectedFlete.category === 'Regular') {
-        const nextDateMax = calculateNthBusinessDay(fechaPedido, 4);
-        if (nextDateMax) {
-          const yyyyMax = nextDateMax.getFullYear();
-          const mmMax = String(nextDateMax.getMonth() + 1).padStart(2, '0');
-          const ddMax = String(nextDateMax.getDate()).padStart(2, '0');
-          setEntregaMaxima(`${yyyyMax}-${mmMax}-${ddMax}`);
-        } else {
-          setEntregaMaxima(dateStr);
-        }
-      } else {
-        setEntregaMaxima(dateStr);
-      }
-    }
+    lastAutoLocalityIdRef.current = localidadId;
+    const deliveryTime = selectedLocality.zones?.delivery_times;
+    setFlete(deliveryTime?.name || "");
+    const isRegular = deliveryTimes.find(dt => dt.name === deliveryTime?.name)?.category === 'Regular'
+      || deliveryTime?.name === 'Regular';
+    const deliveryDays = isRegular ? [1, 2, 3, 4, 5, 6] : deliveryTime?.delivery_days;
+    const nextDate = calculateNextDeliveryDate(
+      deliveryTime?.description || selectedLocality.zones?.delivery_schedule,
+      fechaPedido,
+      deliveryDays
+    );
+    const initialDate = formatDateInput(nextDate);
+    setEntregaInicial(initialDate);
+    setEntregaMaxima(isRegular
+      ? formatDateInput(calculateNthBusinessDay(fechaPedido, 4)) || initialDate
+      : initialDate);
+    // La fecha del pedido y la configuración cargada después no deben reescribir ajustes manuales.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [flete, fechaPedido, deliveryTimes, editingOrderId, isWholesaleForm]);
-
-  // Si la fecha seleccionada no es compatible con el flete actual, cambiar automáticamente a "Día Particular"
-  useEffect(() => {
-    if (isWholesaleForm) return;
-    if (!entregaInicial || !flete || deliveryTimes.length === 0 || !fechaPedido) return;
-
-    const selectedFlete = deliveryTimes.find(dt => dt.name === flete);
-    if (!selectedFlete) return;
-
-    // Si ya es Día Particular (Particular), no hace falta cambiar
-    if (selectedFlete.category === 'Particular') return;
-
-    const isValid = isDateValidForFlete(entregaInicial, flete, deliveryTimes, fechaPedido);
-    if (!isValid) {
-      const particularOption = deliveryTimes.find(dt => dt.category === 'Particular');
-      if (particularOption) {
-        setFlete(particularOption.name);
-      }
-    }
-  }, [entregaInicial, flete, deliveryTimes, fechaPedido, isWholesaleForm]);
+  }, [localidadId, localities]);
 
   const [paymentType, setPaymentType] = useState<'efectivo' | 'tarjeta'>('efectivo');
   const [cardInstallments, setCardInstallments] = useState<number>(1);
@@ -3700,12 +3544,14 @@ export default function PedidosPage() {
       }
       
       if (locId) {
+        lastAutoLocalityIdRef.current = locId;
         setLocalidadId(locId);
         const loc = localities.find(l => l.id === locId);
         if (loc) {
           setLocalitySearch(loc.name);
         }
       } else {
+        lastAutoLocalityIdRef.current = "";
         setLocalidadId("");
         setLocalitySearch("");
       }
@@ -3926,6 +3772,7 @@ export default function PedidosPage() {
 
   const resetAllFormFields = () => {
     editingOrderIdRef.current = null;
+    lastAutoLocalityIdRef.current = "";
     setEditingOrderId(null);
     setSourceQuoteId(null);
     setOriginalDeliveryDate("");
@@ -3933,8 +3780,8 @@ export default function PedidosPage() {
     setPostponementMotive("");
     setPostponementReasonType('cliente');
     const resetOrderDate = formatDateInput(new Date());
-    setEntregaInicial(isWholesaleContext ? formatDateInput(calculateNthWeekday(resetOrderDate, 1)) : "");
-    setEntregaMaxima(isWholesaleContext ? formatDateInput(calculateNthWeekday(resetOrderDate, 7)) : "");
+    setEntregaInicial("");
+    setEntregaMaxima("");
     setFechaPedido(resetOrderDate);
     setCliente("");
     setDireccion("");
@@ -6089,8 +5936,8 @@ export default function PedidosPage() {
       setPostponementMotive("");
       setPostponementReasonType('cliente');
       const nextOrderDate = formatDateInput(new Date());
-      setEntregaInicial(isWholesaleContext ? formatDateInput(calculateNthWeekday(nextOrderDate, 1)) : "");
-      setEntregaMaxima(isWholesaleContext ? formatDateInput(calculateNthWeekday(nextOrderDate, 7)) : "");
+      setEntregaInicial("");
+      setEntregaMaxima("");
       setFechaPedido(nextOrderDate);
       setCliente("");
       setDireccion("");
@@ -6141,6 +5988,7 @@ export default function PedidosPage() {
       setShowTaxIdField(false);
       setNewClientPhone("");
       setWhaticketLink("");
+      lastAutoLocalityIdRef.current = "";
       setLocalidadId("");
       setOrderItems([]);
       setOrderDiscountType('percentage');
@@ -7124,33 +6972,6 @@ export default function PedidosPage() {
                     required
                   />
                 </div>
-                {suggestedDeliveryDate && (
-                  <div className="mt-2 text-[10px] font-black text-amber-800 bg-amber-50 border border-amber-200/50 rounded-lg px-2.5 py-1.5 flex items-center gap-1.5 w-fit animate-in fade-in slide-in-from-top-1 shadow-sm">
-                    <span>{isWholesaleContext ? '💡 Plazo mayorista (7 días hábiles):' : '💡 Próximo reparto programado:'}</span>
-                    <button 
-                      type="button"
-                      onClick={() => {
-                        setEntregaInicial(suggestedDeliveryDate);
-                        setEntregaMaxima(suggestedDeliveryDateMax || suggestedDeliveryDate);
-                      }}
-                      className="underline text-amber-950 hover:text-black font-black font-sans tracking-wide"
-                      title="Aplicar fecha sugerida"
-                    >
-                      {(() => {
-                        const partsInit = suggestedDeliveryDate.split('-');
-                        const initStr = `${partsInit[2]}/${partsInit[1]}/${partsInit[0]}`;
-                        if (suggestedDeliveryDateMax && suggestedDeliveryDateMax !== suggestedDeliveryDate) {
-                          const partsMax = suggestedDeliveryDateMax.split('-');
-                          const maxStr = `${partsMax[2]}/${partsMax[1]}/${partsMax[0]}`;
-                          return `${initStr} al ${maxStr}`;
-                        }
-                        return initStr;
-                      })()}
-                    </button>
-                    <span className="text-amber-600/80 font-bold">(Hacé click para aplicar)</span>
-                  </div>
-                )}
-
                 {(() => {
                   if (!entregaInicial) return null;
                   const parts = entregaInicial.split('-');
