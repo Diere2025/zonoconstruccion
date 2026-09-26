@@ -360,6 +360,11 @@ export default function CobrosMercadoPagoPage() {
 
   const filteredPayments = useMemo(() => {
     return payments.filter((p) => {
+      // Realtime updates can change a payment's link after the server filtered the list.
+      const isLinked = Boolean(p.order_id || p.order_code?.trim());
+      if (selectedLinkedStatus === 'UNLINKED' && isLinked) return false;
+      if (selectedLinkedStatus === 'LINKED' && !isLinked) return false;
+
       // Account filter
       if (selectedAccountId && selectedAccountId !== 'ALL') {
         const display = getAccountDisplay(p.account_name, p.account_id);
@@ -390,7 +395,7 @@ export default function CobrosMercadoPagoPage() {
       }
       return true;
     });
-  }, [payments, selectedAccountId, selectedFleteroFilter, getAccountDisplay, hideInternal]);
+  }, [payments, selectedAccountId, selectedLinkedStatus, selectedFleteroFilter, getAccountDisplay, hideInternal]);
 
   // Unique accounts available for filtering (deduplicated by display name)
   const uniqueAccounts = useMemo(() => {
