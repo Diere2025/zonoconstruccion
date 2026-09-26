@@ -7,12 +7,20 @@ import {
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { formatPrice } from "@/lib/utils";
+import { isExcludedDeliveryStatus, settlementOrderAmount, settlementOrdersTotal } from "@/lib/settlementOrders";
 import {
   buildSettlementMessage, buildTreasuryMovementRows, CASH_DENOMINATIONS,
   getSettlementHealth, treasuryMovementRowsToTsv,
 } from "@/lib/treasurySettlements";
 
 const DEFAULT_CHANGE_FUND = 30000;
+const deliveryStatusOptions = ["En recorrido", "No entregado", "Entregado", "Postergado", "Anulado", "Cancelado"];
+const deliveryStatusChoice = (status: string) => {
+  const normalized = status.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/_/g, " ").toLowerCase();
+  if (normalized.includes("entregando") || normalized.includes("en recorrido")) return "En recorrido";
+  if (normalized.includes("fallido")) return "No entregado";
+  return deliveryStatusOptions.find(option => normalized.includes(option.toLowerCase())) || "Entregado";
+};
 
 type SettlementStatus = "draft" | "confirmed";
 interface SettlementRecord {
@@ -81,6 +89,7 @@ export interface RouteOrderDetail {
   stopOrder: number;
   totalAmount: number;
   paymentStatus?: string;
+  deliveryStatus?: string;
   isPreviouslyPaid?: boolean;
   previouslyPaidAmount?: number;
   toCollectAmount?: number;
@@ -114,6 +123,7 @@ interface EntregandoOrder {
   toCollectAmount?: number;
   paidAmount?: number;
   paymentState?: string;
+  deliveryStatus?: string;
   isPreviouslyPaid?: boolean;
   customerName: string;
   address: string;
@@ -122,6 +132,7 @@ interface EntregandoOrder {
 
 interface EntregandoPreviewItem {
   key: string;
+  source?: "entregando" | "entregados";
   carrierName: string;
   deliveryDate: string;
   dateDisplay: string;
@@ -186,11 +197,14 @@ export default function RendicionesPage() {
   const [createForm, setCreateForm] = useState({ code: "", settlementDate: today(), carrierId: "", routeDetail: "" });
 
   const [entregandoModalOpen, setEntregandoModalOpen] = useState(false);
+  const [previewSource, setPreviewSource] = useState<"entregando" | "entregados">("entregando");
+  const [deliveredDate, setDeliveredDate] = useState(today());
   const [entregandoLoading, setEntregandoLoading] = useState(false);
   const [entregandoConfirming, setEntregandoConfirming] = useState(false);
   const [entregandoPreview, setEntregandoPreview] = useState<EntregandoPreviewItem[]>([]);
   const [selectedEntregandoKeys, setSelectedEntregandoKeys] = useState<Record<string, boolean>>({});
   const [expandedEntregandoKey, setExpandedEntregandoKey] = useState<string | null>(null);
+  const [updatingOrderStatus, setUpdatingOrderStatus] = useState<string | null>(null);
 
   const [settlementDate, setSettlementDate] = useState("");
   const [code, setCode] = useState("");
@@ -432,15 +446,16 @@ export default function RendicionesPage() {
     }
   };
 
-  const openEntregandoModal = async () => {
-    setEntregandoModalOpen(true);
+  const loadSheetPreview = async (source: "entregando" | "entregados", date = "") => {
     setEntregandoLoading(true);
     setError("");
     try {
-      const payload = await authenticatedFetch("/api/admin/rendiciones?action=preview-entregando");
-      const preview: EntregandoPreviewItem[] = (payload.preview || []).map((item: any) => ({
+      const query = new URLSearchParams({ action: "preview-entregando", source });
+      if (source === "entregados") query.set("date", date);
+      const payload = await authenticatedFetch(`/api/admin/rendiciones?${query}`);
+      const preview: EntregandoPreviewItem[] = (payload.preview || []).map((item: EntregandoPreviewItem) => ({
         ...item,
-        changeFund: 0,
+        changeFund: item.changeFund || 0,
       }));
       setEntregandoPreview(preview);
       const initialSelected: Record<string, boolean> = {};
@@ -449,10 +464,19 @@ export default function RendicionesPage() {
       });
       setSelectedEntregandoKeys(initialSelected);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "No se pudo leer la hoja Entregando.");
+      setError(requestError instanceof Error ? requestError.message : "No se pudo leer la hoja de logística.");
     } finally {
       setEntregandoLoading(false);
     }
+  };
+
+  const openEntregandoModal = (source: "entregando" | "entregados") => {
+    setEntregandoModalOpen(true);
+    setPreviewSource(source);
+    setEntregandoPreview([]);
+    setSelectedEntregandoKeys({});
+    setError("");
+    if (source === "entregando") void loadSheetPreview(source);
   };
 
   const confirmEntregando = async () => {
@@ -481,6 +505,31 @@ export default function RendicionesPage() {
       setError(requestError instanceof Error ? requestError.message : "No se pudieron confirmar las rendiciones.");
     } finally {
       setEntregandoConfirming(false);
+    }
+  };
+
+  const changeRouteOrderStatus = async (order: RouteOrderDetail, status: string) => {
+    if (!detail) return;
+    setUpdatingOrderStatus(order.deliveryId);
+    setError("");
+    try {
+      const payload = await authenticatedFetch("/api/admin/rendiciones", {
+        method: "POST",
+        body: JSON.stringify({ action: "update-delivery-status", settlementId: detail.settlement.id, deliveryId: order.deliveryId, deliveryStatus: status }),
+      });
+      setDeliveriesTotal(Number(payload.deliveriesTotal) || 0);
+      setRouteOrders(current => current.map(item => item.deliveryId === order.deliveryId ? {
+        ...item,
+        deliveryStatus: status,
+        toCollectAmount: isExcludedDeliveryStatus(status) ? 0 : Number(payload.orderAmount) || 0,
+        isPreviouslyPaid: isExcludedDeliveryStatus(status) ? false : (Number(payload.orderAmount) || 0) === 0,
+      } : item));
+      setDetail(current => current ? { ...current, settlement: { ...current.settlement, deliveries_total: Number(payload.deliveriesTotal) || 0 } } : current);
+      await loadList();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "No se pudo actualizar el estado del pedido.");
+    } finally {
+      setUpdatingOrderStatus(null);
     }
   };
 
@@ -1030,6 +1079,7 @@ export default function RendicionesPage() {
                           <th className="py-1.5 px-2 w-10 text-center">#</th>
                           <th className="py-1.5 px-2 w-28">Pedido</th>
                           <th className="py-1.5 px-2 min-w-[130px]">Cliente</th>
+                          <th className="py-1.5 px-2 min-w-[130px]">Estado pedido</th>
                           <th className="py-1.5 px-2 text-right w-24">Total Pedido</th>
                           <th className="py-1.5 px-2 text-right w-28">No Efectivo</th>
                           <th className="py-1.5 px-2 text-right w-28">Saldo Efectivo</th>
@@ -1046,12 +1096,13 @@ export default function RendicionesPage() {
                           const directTickets = linkedTickets.filter(t => !t.mpPaymentId);
                           const nonCashTotal = linkedTickets.reduce((sum, t) => sum + Number(t.amount || 0), 0);
 
-                          const isPreviouslyPaid = Boolean(
+                          const excluded = isExcludedDeliveryStatus(order.deliveryStatus || "");
+                          const isPreviouslyPaid = !excluded && Boolean(
                             order.isPreviouslyPaid ||
                             (order.paymentStatus || "").toLowerCase().includes("abonad") ||
                             (order.toCollectAmount === 0 && order.totalAmount > 0)
                           );
-                          const toCollectAmount = isPreviouslyPaid
+                          const toCollectAmount = excluded || isPreviouslyPaid
                             ? 0
                             : (order.toCollectAmount !== undefined ? order.toCollectAmount : order.totalAmount);
                           const cashRemainder = Math.max(0, toCollectAmount - nonCashTotal);
@@ -1073,11 +1124,18 @@ export default function RendicionesPage() {
                                   {order.customerName}
                                 </p>
                               </td>
+                              <td className="py-2 px-2">
+                                {readOnly ? <span className={isExcludedDeliveryStatus(order.deliveryStatus || "") ? "font-bold text-rose-700" : "text-emerald-700"}>{order.deliveryStatus || "Entregado"}</span> : (
+                                  <select value={deliveryStatusChoice(order.deliveryStatus || "")} disabled={updatingOrderStatus === order.deliveryId} onChange={event => void changeRouteOrderStatus(order, event.target.value === "En recorrido" ? "en_recorrido" : event.target.value.toLowerCase())} className="w-full rounded border border-slate-200 bg-white px-1.5 py-1 text-[10px] font-bold text-slate-700 disabled:opacity-50">
+                                    {deliveryStatusOptions.map(option => <option key={option} value={option}>{option}</option>)}
+                                  </select>
+                                )}
+                              </td>
                               <td className="py-2 px-2 text-right whitespace-nowrap">
                                 <div className="font-black text-slate-900">
                                   {order.totalAmount > 0 ? formatPrice(order.totalAmount) : "-"}
                                 </div>
-                                {isPreviouslyPaid ? (
+                                {excluded ? <span className="text-rose-600 font-bold">Sin cobro</span> : isPreviouslyPaid ? (
                                   <span className="inline-block rounded bg-emerald-50 border border-emerald-200 px-1 py-0.2 text-[9px] font-black uppercase tracking-tight text-emerald-700 mt-0.5">
                                     Abonado previo
                                   </span>
@@ -2054,10 +2112,17 @@ export default function RendicionesPage() {
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
-                onClick={() => void openEntregandoModal()}
+                onClick={() => openEntregandoModal("entregando")}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-bold text-white shadow-2xs hover:bg-blue-500 transition-colors"
               >
                 <Truck className="h-3.5 w-3.5" /> Leer hoja Entregando
+              </button>
+              <button
+                type="button"
+                onClick={() => openEntregandoModal("entregados")}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700 hover:bg-blue-100 transition-colors"
+              >
+                <CheckCircle2 className="h-3.5 w-3.5" /> Leer hoja Entregados
               </button>
               <button
                 type="button"
@@ -2213,7 +2278,7 @@ export default function RendicionesPage() {
                   <Truck className="h-4 w-4" />
                 </div>
                 <div>
-                  <h2 className="text-sm font-black text-slate-950">Lectura de hoja &quot;Entregando&quot;</h2>
+                  <h2 className="text-sm font-black text-slate-950">Lectura de hoja &quot;{previewSource === "entregados" ? "🔴 Entregados" : "Entregando"}&quot;</h2>
                   <p className="text-[11px] text-slate-500">
                     Validá los recorridos, fleteros y montos a rendir detectados antes de generarlos.
                   </p>
@@ -2231,6 +2296,16 @@ export default function RendicionesPage() {
 
             {/* Modal Body */}
             <div className="flex-1 overflow-y-auto p-3.5 sm:p-4">
+              {error && <div className="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{error}</div>}
+              {previewSource === "entregados" && (
+                <div className="mb-3 flex flex-wrap items-end gap-2 rounded-lg border border-blue-100 bg-blue-50/50 p-3">
+                  <div className="w-44"><DateInput label="Fecha de entregas" value={deliveredDate} onChange={value => { setDeliveredDate(value); setEntregandoPreview([]); }} /></div>
+                  <label className="flex flex-col gap-1 text-[10px] font-black uppercase tracking-wider text-slate-500">Calendario
+                    <input type="date" lang="es-AR" value={deliveredDate} onChange={event => { setDeliveredDate(event.target.value); setEntregandoPreview([]); }} className="h-[32px] rounded-lg border border-slate-200 bg-white px-2 text-xs font-bold text-slate-900" />
+                  </label>
+                  <button type="button" disabled={entregandoLoading || !deliveredDate} onClick={() => void loadSheetPreview("entregados", deliveredDate)} className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50">Buscar entregas</button>
+                </div>
+              )}
               {entregandoLoading ? (
                 <div className="flex min-h-52 flex-col items-center justify-center gap-2 text-slate-500">
                   <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
@@ -2239,7 +2314,7 @@ export default function RendicionesPage() {
               ) : entregandoPreview.length === 0 ? (
                 <div className="flex min-h-52 flex-col items-center justify-center text-center">
                   <p className="text-xs font-bold text-slate-700">No se encontraron entregas con fecha válida en la hoja.</p>
-                  <p className="mt-0.5 text-[11px] text-slate-400">Verificá que la pestaña &quot;Entregando&quot; tenga pedidos cargados con fecha en la columna B.</p>
+                  <p className="mt-0.5 text-[11px] text-slate-400">{previewSource === "entregados" ? "Elegí una fecha y buscá los pedidos de la hoja Entregados." : "Verificá que la pestaña Entregando tenga pedidos con fecha en la columna B."}</p>
                 </div>
               ) : (
                 <div className="space-y-2.5">
@@ -2425,7 +2500,8 @@ export default function RendicionesPage() {
                                              <th className="py-1 px-2.5">Pedido</th>
                                              <th className="py-1 px-2.5">Cliente</th>
                                              <th className="py-1 px-2.5">Medio de Pago</th>
-                                             <th className="py-1 px-2.5">Estado Pago</th>
+                                             <th className="py-1 px-2.5">Estado pedido</th>
+                                             <th className="py-1 px-2.5">Estado pago</th>
                                              <th className="py-1 px-2.5 text-right">A Cobrar</th>
                                            </tr>
                                          </thead>
@@ -2437,7 +2513,19 @@ export default function RendicionesPage() {
                                                <td className="py-1 px-2.5 text-slate-700 truncate max-w-[180px]">{ord.customerName}</td>
                                                <td className="py-1 px-2.5 text-slate-600">{ord.paymentType || "Efectivo"}</td>
                                                <td className="py-1 px-2.5">
-                                                 {ord.isPreviouslyPaid ? (
+                                                 <select value={deliveryStatusChoice(ord.deliveryStatus || "")} onChange={event => {
+                                                   const nextStatus = event.target.value;
+                                                   setEntregandoPreview(prev => prev.map(p => {
+                                                     if (p.key !== item.key) return p;
+                                                     const orders = p.orders.map(o => o.orderCode === ord.orderCode ? { ...o, deliveryStatus: nextStatus } : o);
+                                                     return { ...p, orders, totalAmount: settlementOrdersTotal(orders) };
+                                                   }));
+                                                 }} className="max-w-28 rounded border border-slate-200 bg-white px-1 py-0.5 text-[10px] font-semibold" title={ord.deliveryStatus || "Sin estado"}>
+                                                   {deliveryStatusOptions.map(option => <option key={option} value={option}>{option}</option>)}
+                                                 </select>
+                                               </td>
+                                               <td className="py-1 px-2.5">
+                                                 {isExcludedDeliveryStatus(ord.deliveryStatus || "") ? <span className="text-rose-600">Sin cobro</span> : ord.isPreviouslyPaid ? (
                                                    <span className="inline-block rounded bg-emerald-50 border border-emerald-200 px-1 py-0.2 text-[9px] font-bold text-emerald-700">
                                                      Abonado previo
                                                    </span>
@@ -2455,7 +2543,7 @@ export default function RendicionesPage() {
                                                    </div>
                                                  ) : (
                                                    <span className="text-slate-900">
-                                                     {formatPrice(ord.toCollectAmount !== undefined ? ord.toCollectAmount : ord.totalAmount)}
+                                                     {formatPrice(settlementOrderAmount(ord))}
                                                    </span>
                                                  )}
                                                </td>
@@ -2950,4 +3038,3 @@ function ElectronicTicketEditor({
     </div>
   );
 }
-
