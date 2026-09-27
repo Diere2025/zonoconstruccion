@@ -11,3 +11,46 @@ export function settlementOrderAmount(order: { toCollectAmount?: number; totalAm
 export function settlementOrdersTotal(orders: Array<{ toCollectAmount?: number; totalAmount?: number; deliveryStatus?: string }>): number {
   return orders.reduce((sum, order) => sum + settlementOrderAmount(order), 0);
 }
+
+export interface SettlementTicketReference {
+  amount: number;
+  orderId?: string | null;
+  orderCode?: string | null;
+  mpPaymentId?: string | null;
+}
+
+export interface SettlementOrderReference {
+  orderId?: string | null;
+  orderCode?: string | null;
+  deliveryStatus?: string | null;
+  linkedPayments?: Array<{ id: string }>;
+}
+
+const normalizeCode = (code?: string | null) => String(code || "").trim().toUpperCase();
+
+export function isExcludedSettlementTicket(ticket: SettlementTicketReference, orders: SettlementOrderReference[]): boolean {
+  const code = normalizeCode(ticket.orderCode);
+  return orders.some(order => {
+    if (!isExcludedDeliveryStatus(order.deliveryStatus || "")) return false;
+    return Boolean(
+      (ticket.orderId && order.orderId && ticket.orderId === order.orderId) ||
+      (code && normalizeCode(order.orderCode) === code) ||
+      (ticket.mpPaymentId && order.linkedPayments?.some(payment => payment.id === ticket.mpPaymentId)),
+    );
+  });
+}
+
+export function settlementElectronicTicketTotals<T extends SettlementTicketReference>(
+  tickets: T[], orders: SettlementOrderReference[],
+): { included: number; excluded: number; excludedCount: number } {
+  return tickets.reduce((totals, ticket) => {
+    const amount = Number(ticket.amount) || 0;
+    if (isExcludedSettlementTicket(ticket, orders)) {
+      totals.excluded += amount;
+      totals.excludedCount += 1;
+    } else {
+      totals.included += amount;
+    }
+    return totals;
+  }, { included: 0, excluded: 0, excludedCount: 0 });
+}

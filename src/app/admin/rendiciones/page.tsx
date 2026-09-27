@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { formatPrice } from "@/lib/utils";
-import { isExcludedDeliveryStatus, settlementOrderAmount, settlementOrdersTotal } from "@/lib/settlementOrders";
+import { isExcludedDeliveryStatus, isExcludedSettlementTicket, settlementElectronicTicketTotals, settlementOrderAmount, settlementOrdersTotal } from "@/lib/settlementOrders";
 import {
   buildSettlementMessage, buildTreasuryMovementRows, CASH_DENOMINATIONS,
   getSettlementHealth, treasuryMovementRowsToTsv,
@@ -535,10 +535,8 @@ export default function RendicionesPage() {
     }
   };
 
-  const electronicTicketsTotal = useMemo(() => {
-    return electronicTickets.reduce((sum, ticket) => sum + Number(ticket.amount || 0), 0);
-  }, [electronicTickets]);
-  const effectiveElectronicTotal = electronicTickets.length > 0 ? electronicTicketsTotal : electronicTotal;
+  const ticketTotals = useMemo(() => settlementElectronicTicketTotals(electronicTickets, routeOrders), [electronicTickets, routeOrders]);
+  const effectiveElectronicTotal = electronicTickets.length > 0 ? ticketTotals.included : electronicTotal;
 
   const detailedCashTotal = useMemo(() => CASH_DENOMINATIONS.reduce((sum, item) => {
     return sum + item.denomination * (cashQuantities[cashKey(item.kind, item.denomination)] || 0);
@@ -1026,6 +1024,9 @@ export default function RendicionesPage() {
                       <p className="mt-0.5 text-[10px] text-slate-400">
                         Descuento directo del efectivo
                       </p>
+                      {ticketTotals.excludedCount > 0 && <p className="mt-1 text-[10px] font-bold text-violet-700">
+                        {ticketTotals.excludedCount} pago(s) por {formatPrice(ticketTotals.excluded)} de pedidos no entregados: visibles, no descontados.
+                      </p>}
                     </div>
                   </div>
                   <button
@@ -1114,10 +1115,15 @@ export default function RendicionesPage() {
                           const isMixed = !isPreviouslyPaid && nonCashTotal > 0 && cashRemainder > 0;
                           const isFullyDigital = !isPreviouslyPaid && nonCashTotal >= toCollectAmount && toCollectAmount > 0;
                           const missingPriorTicket = isPreviouslyPaid && !hasLinked && priorReceipts.length === 0 && linkedTickets.length === 0;
+                          const orderStatus = deliveryStatusChoice(order.deliveryStatus || "");
+                          const isPostponed = excluded && orderStatus === "Postergado";
+                          const isCancelled = excluded && (orderStatus === "Anulado" || orderStatus === "Cancelado");
+                          const rowTone = isPostponed ? "bg-violet-100/80 hover:bg-violet-200/70" : isCancelled ? "bg-rose-100/80 hover:bg-rose-200/70" : excluded ? "bg-slate-200/60 hover:bg-slate-200" : missingPriorTicket ? "bg-amber-50/60 hover:bg-amber-100/60" : "hover:bg-slate-50/70";
+                          const rowAccent = isPostponed ? "border-l-violet-500" : isCancelled ? "border-l-rose-500" : excluded ? "border-l-slate-500" : "border-l-transparent";
 
                           return (
-                            <tr key={order.deliveryId || `order-${idx}`} className={`${missingPriorTicket ? "bg-amber-50/60" : ""} hover:bg-slate-50/70 transition-colors`}>
-                              <td className="py-2 px-2 text-center text-slate-400 font-bold">
+                            <tr key={order.deliveryId || `order-${idx}`} className={`${rowTone} transition-colors`}>
+                              <td className={`border-l-4 ${rowAccent} py-2 px-2 text-center text-slate-400 font-bold`}>
                                 {order.stopOrder || idx + 1}
                               </td>
                               <td className="py-2 px-2">
@@ -1152,7 +1158,11 @@ export default function RendicionesPage() {
                                 ) : null}
                               </td>
                               <td className="py-2 px-2 text-right whitespace-nowrap">
-                                {isPreviouslyPaid ? (
+                                {excluded ? (
+                                  <span className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-black ${isPostponed ? "border-violet-300 bg-violet-50 text-violet-800" : isCancelled ? "border-rose-300 bg-rose-50 text-rose-800" : "border-slate-300 bg-slate-100 text-slate-700"}`}>
+                                    $ 0 · {orderStatus}
+                                  </span>
+                                ) : isPreviouslyPaid ? (
                                   <div>
                                     <span className={`font-bold text-[11px] ${missingPriorTicket ? "text-amber-800" : "text-emerald-700"}`}>Pagado antes</span>
                                     <p className={`text-[9px] ${missingPriorTicket ? "text-amber-700" : "text-slate-400"}`}>{missingPriorTicket ? "Ticket por revisar" : "Sin cobro en flete"}</p>
@@ -1163,6 +1173,7 @@ export default function RendicionesPage() {
                                     <p className="text-[9px] font-bold text-blue-600/80">
                                       {linkedTickets.length} ticket{linkedTickets.length > 1 ? "s" : ""}
                                     </p>
+                                    {excluded && <p className="text-[9px] font-black text-violet-700">Pago del pedido · fuera de esta rendición</p>}
                                   </div>
                                 ) : (
                                   <span className="text-slate-400">$ 0</span>
@@ -1233,7 +1244,7 @@ export default function RendicionesPage() {
                                             {isAlreadyTicket ? (
                                               <div className="flex items-center gap-1 shrink-0">
                                                 <span className="inline-flex items-center text-[9px] font-bold text-emerald-700 bg-emerald-100 rounded px-1.5 py-0.5 whitespace-nowrap">
-                                                  ✓ En tickets
+                                                {excluded ? "Fuera de rendición" : "✓ En tickets"}
                                                 </span>
                                                 {!readOnly && matchingTicket && (
                                                   <button
@@ -1246,7 +1257,7 @@ export default function RendicionesPage() {
                                                   </button>
                                                 )}
                                               </div>
-                                            ) : !readOnly ? (
+                                            ) : !readOnly && !excluded ? (
                                               <button
                                                 type="button"
                                                 onClick={() => handleAddPaymentToTickets(p, order.orderCode, order.orderId)}
@@ -1280,7 +1291,7 @@ export default function RendicionesPage() {
                                           </div>
                                           <div className="flex items-center gap-1 shrink-0">
                                             <span className="inline-flex items-center text-[9px] font-bold text-blue-700 bg-blue-100/80 rounded px-1.5 py-0.5 whitespace-nowrap">
-                                              ✓ Asignado
+                                              {excluded ? "Fuera de rendición" : "✓ Asignado"}
                                             </span>
                                             {!readOnly && (
                                               <button
@@ -1704,7 +1715,7 @@ export default function RendicionesPage() {
               <div className="flex-1 overflow-y-auto p-4 space-y-3.5">
                 <ElectronicTicketEditor
                   title="Tickets detallados"
-                  subtitle="Cargá individualmente cada cobro de Point o transferencia vinculado a su pedido. Se descuenta automáticamente del dinero en efectivo a rendir."
+                  subtitle="Los pagos de pedidos postergados o anulados quedan visibles, pero no se descuentan del efectivo de este recorrido."
                   tickets={electronicTickets}
                   routeOrders={routeOrders}
                   readOnly={readOnly}
@@ -1737,6 +1748,7 @@ export default function RendicionesPage() {
                   <span className="font-black text-blue-700">
                     Total a descontar: {formatPrice(effectiveElectronicTotal)}
                   </span>
+                  {ticketTotals.excludedCount > 0 && <span className="ml-2 font-bold text-violet-700">· Fuera de rendición: {formatPrice(ticketTotals.excluded)}</span>}
                 </div>
                 <button
                   type="button"
@@ -2852,7 +2864,7 @@ function ElectronicTicketEditor({
   onUpdate: (localId: string, field: "amount" | "reference" | "paymentType" | "notes" | "orderCode", value: string) => void;
   onDelete: (localId: string) => void;
 }) {
-  const total = tickets.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+  const totals = settlementElectronicTicketTotals(tickets, routeOrders);
   return (
     <div>
       <div className="flex items-start justify-between gap-2">
@@ -2868,12 +2880,13 @@ function ElectronicTicketEditor({
           <p className="text-[10px] text-slate-400">{subtitle}</p>
         </div>
         <span className="rounded-lg border border-blue-200 bg-blue-50 px-2 py-0.5 text-xs font-black text-blue-800">
-          {formatPrice(total)}
+          {formatPrice(totals.included)} a descontar
         </span>
       </div>
 
       <div className="mt-2.5 space-y-2">
         {tickets.map((ticket, index) => {
+          const excludedFromSettlement = isExcludedSettlementTicket(ticket, routeOrders);
           const cleanCode = (ticket.orderCode || "").trim().toUpperCase();
           const matchedOrder = routeOrders.find(o => o.orderCode.trim().toUpperCase() === cleanCode);
           const allTicketsForThisOrder = cleanCode ? tickets.filter(t => (t.orderCode || "").trim().toUpperCase() === cleanCode) : [];
@@ -2893,7 +2906,8 @@ function ElectronicTicketEditor({
           const remainingCashForThis = Math.max(0, targetToCollect - otherTicketsAmount);
 
           return (
-            <div key={ticket.localId} className="rounded-xl border border-slate-200 bg-slate-50/70 p-2.5 space-y-2 shadow-2xs">
+            <div key={ticket.localId} className={`rounded-xl border p-2.5 space-y-2 shadow-2xs ${excludedFromSettlement ? "border-violet-300 bg-violet-50/80" : "border-slate-200 bg-slate-50/70"}`}>
+              {excludedFromSettlement && <p className="text-[10px] font-bold text-violet-800">Pedido no entregado: este pago queda vinculado al pedido, fuera de la rendición del fletero.</p>}
               {/* Fila 1: Selección de Pedido del recorrido + Tipo de cobro + Monto + Eliminar */}
               <div className="grid grid-cols-[1fr_120px_105px_auto] items-center gap-1.5">
                 <div>
