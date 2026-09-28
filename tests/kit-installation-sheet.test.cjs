@@ -35,6 +35,8 @@ const sheetProductsLib = compile('src/lib/sheetProducts.ts');
 const googleSheetsLib = compile('src/lib/googleSheets.ts', {
   require(name) {
     if (name === './sheetProducts' || name === '@/lib/sheetProducts') return sheetProductsLib;
+    if (name === './cancelledOrderSheet') return compile('src/lib/cancelledOrderSheet.ts');
+    if (name === './sellerSheetMaintenance') return compile('src/lib/sellerSheetMaintenance.ts');
     throw new Error('Unexpected require: ' + name);
   }
 });
