@@ -117,3 +117,23 @@ Mediciones del 28/09, aproximadamente 14:45–14:46, mediante consultas de solo 
 - P0001/23503: conservados los controles contra duplicados, cambios concurrentes, pedidos de otra rendición y cuentas inexistentes. Los casos observados coinciden con el script de integración existente; no se volvieron a generar en producción.
 - `sellers.name`: selector incorrecto aislado de las 14:05, no encontrado en el código inspeccionado. La base usa `full_name`; queda pendiente identificar el cliente o versión que hizo esa solicitud si reaparece. Agregar una columna redundante no corregiría el origen.
 - No se puede afirmar que todos los errores históricos estén resueltos con una observación de pocos minutos. La mitigación de la búsqueda está activa; falta publicar los cambios del cliente y observar nuevas solicitudes reales.
+
+## Publicación confirmada — 28/09/2026, 14:58
+
+- Correcciones publicadas en `feature/erp-modular`, commit `4864a977ccdada305e2186f29a4e36380a057181`.
+- Cloudflare Pages zono-erp confirmó success, despliegue `63794a81-8ff3-4727-9960-d367f7150244`.
+- Producción: https://zono-erp.pages.dev. Versión: https://63794a81.zono-erp.pages.dev.
+- Compilación de producción y comprobación de TypeScript completas. 19 pruebas aprobadas en el checkout aislado.
+- Se corrigieron exportaciones internas no admitidas en rutas Next.js: las funciones compartidas de alertas se trasladaron a `src/lib/mpTelegramAlert.ts`; consumidores actualizados y cinco pruebas existentes de alertas aprobadas. No se enviaron mensajes de prueba a destinatarios reales.
+- Verificación publicada: Finanzas, Cobros y Caja HTTP 200; sus recursos coinciden con el despliegue nuevo. Mensaje de indisponibilidad del acceso y consulta `clients(business_name)` presentes en los recursos publicados. Ruta de Finanzas responde 400 a acción inválida sin consultar movimientos; Rendiciones responde 401 sin sesión.
+- La publicación se preparó sobre la última versión remota mediante checkout aislado. Los otros cambios locales se preservaron. No se repitió la migración del índice ya aplicado.
+- La comprobación de despliegue verifica publicación, recursos y rutas; no reemplaza observar estabilidad con usuarios durante el día.
+
+## Revisión posterior y lectura por lote — 28/09/2026
+
+- Muestra de las 15:01: PostgreSQL mantiene el inicio de las 14:44:54, sin bloqueos ni saturación de conexiones. Cron reciente exitoso; cola sin pendientes activos, con los mismos 18 registros históricos en attention.
+- Realtime: 1.931 llamadas, promedio 6,3 ms y máximo 318 ms desde el reinicio. Esta ventana corta no permite garantizar que no habrá más caídas.
+- Se identificaron 360 consultas paginadas de artículos sin filtro y 140 de pedidos: la sincronización de logística volvía a descargar todos los artículos en cada lote. Es carga evitable; no demuestra por sí sola la causa de los reinicios.
+- El POST de audit-deliveries ahora carga artículos después de elegir el lote: únicamente IDs de pedidos comparados, agrupados de a 100, con paginación ordenada para no truncar pedidos grandes. Los anulados preservan sus datos comerciales y no necesitan esa lectura.
+- Se conserva la carga de identidades de pedidos para agrupar códigos y mantener el cursor. No se cambiaron criterios de conciliación ni se ejecutaron sincronizaciones reales para probar.
+- Cinco pruebas nuevas verifican filtros, deduplicación, paginación, selección por cursor, conservación de pedidos sin cambios/anulados y detención antes de mutaciones ante errores.

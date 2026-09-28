@@ -5,6 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 import { fetchSpreadsheetCsv, fetchSpreadsheetValues } from '@/lib/googleSheets';
 import { logisticsCancellationReasons, logisticsCancellationReason } from '@/lib/cancelledOrderSheet';
 import { isLogisticsOrderCode, mapWithConcurrency, splitOrderCodes } from '@/lib/orderSync';
+import { loadLogisticsBatchItems } from '@/lib/logisticsBatchItems';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.dummy';
@@ -585,20 +586,6 @@ export async function POST(request: Request) {
       }
     };
 
-    const fetchOrderItemsAll = async () => {
-      const result: any[] = [];
-      const pageSize = 1000;
-      for (let page = 0; ; page++) {
-        const { data, error } = await supabaseAdmin
-          .from('order_items')
-          .select('order_id, product_name, quantity, unit_price')
-          .range(page * pageSize, (page + 1) * pageSize - 1);
-        if (error) throw error;
-        result.push(...(data || []));
-        if (!data || data.length < pageSize) return result;
-      }
-    };
-
     const fetchProductsAll = async () => {
       const result: any[] = [];
       const pageSize = 1000;
@@ -616,15 +603,14 @@ export async function POST(request: Request) {
     // These sources are independent. Loading them concurrently removes several
     // full network round trips from every synchronization.
     const loadStartedAt = Date.now();
-    const [csvText, cancelledCodeRows, dbOrdersList, dbItemsList, products, payMethodsRes] = await Promise.all([
+    const [csvText, cancelledCodeRows, dbOrdersList, products, payMethodsRes] = await Promise.all([
       fetchSpreadsheetCsv(LOGISTICS_SHEET_URL),
       fetchSpreadsheetValues(LOGISTICS_SPREADSHEET_ID, LOGISTICS_CANCELLED_CODES_RANGE),
       fetchOrdersAll(),
-      fetchOrderItemsAll(),
       fetchProductsAll(),
       supabaseAdmin.from('payment_methods').select('id, name')
     ]);
-    const loadMs = Date.now() - loadStartedAt;
+    let loadMs = Date.now() - loadStartedAt;
     const rows = parseCSV(csvText);
     const cancellationReasons = logisticsCancellationReasons(cancelledCodeRows);
     const cancelledCodes = new Set(
@@ -632,7 +618,7 @@ export async function POST(request: Request) {
         .flatMap(row => splitOrderCodes(row[2]))
         .filter(isLogisticsOrderCode)
     );
-    console.log(`POST: Loaded sheet (${rows.length} rows), ${cancelledCodes.size} cancelled codes, ${dbOrdersList.length} orders and ${dbItemsList.length} items in ${loadMs}ms.`);
+    console.log(`POST: Loaded sheet (${rows.length} rows), ${cancelledCodes.size} cancelled codes and ${dbOrdersList.length} orders in ${loadMs}ms.`);
 
     
     if (payMethodsRes.error) throw payMethodsRes.error;
@@ -669,10 +655,6 @@ export async function POST(request: Request) {
         dbOrdersMap.set(c, orderObj);
       });
       dbOrdersById.set(o.id, orderObj);
-    });
-
-    dbItemsList.forEach(item => {
-      dbOrdersById.get(item.order_id)?.items.push(item);
     });
 
     // Synchronous read-only payment method lookup (prevents API calls inside loop)
@@ -852,6 +834,19 @@ export async function POST(request: Request) {
     const batchOrders = allSheetOrders.slice(cursor, cursor + batchSize);
     const nextCursor = Math.min(cursor + batchOrders.length, allSheetOrders.length);
     const done = nextCursor >= allSheetOrders.length;
+
+    // Grouping and cursor selection need order identities, but item comparisons
+    // need only this batch. Cancelled orders preserve their commercial data.
+    const itemLoadStartedAt = Date.now();
+    const batchOrderIds = batchOrders.flatMap(sheetOrder => {
+      if (sheetOrder.preserveCommercialData) return [];
+      const firstCode = sheetOrder.code.split(/[\/,]/)[0].trim().toUpperCase();
+      const dbOrder = dbOrdersMap.get(firstCode);
+      return dbOrder ? [dbOrder.id as string] : [];
+    });
+    const dbItemsList = await loadLogisticsBatchItems(supabaseAdmin, batchOrderIds);
+    dbItemsList.forEach(item => dbOrdersById.get(item.order_id)?.items.push(item));
+    loadMs += Date.now() - itemLoadStartedAt;
 
     const planStartedAt = Date.now();
     const plannedUpdates: Array<{
