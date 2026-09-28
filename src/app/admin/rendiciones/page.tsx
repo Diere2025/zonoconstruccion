@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   AlertTriangle, Archive, ArrowLeft, Banknote, Calendar, Check, CheckCircle2, ChevronDown, ChevronRight, ChevronUp, CircleDollarSign,
   ClipboardCopy, CreditCard, FileSpreadsheet, Loader2, Plus, Receipt, RefreshCw, Save, Search, Trash2, Truck, Wallet, X,
@@ -201,11 +201,13 @@ const statusClasses = (row: SettlementRecord) => row.status === "archived" ? "bg
   : isPending(row) ? "bg-amber-50 text-amber-700 border-amber-200" : "bg-blue-50 text-blue-700 border-blue-200";
 
 export default function RendicionesPage() {
+  return <React.Suspense fallback={<div className="flex justify-center p-8"><Loader2 className="h-5 w-5 animate-spin text-blue-600" /></div>}><RendicionesContent /></React.Suspense>;
+}
+
+function RendicionesContent() {
   const router = useRouter();
-  const pathname = usePathname();
-  const settlementIdFromPath = pathname.startsWith("/admin/rendiciones/")
-    ? pathname.slice("/admin/rendiciones/".length).replace(/\/$/, "")
-    : null;
+  const searchParams = useSearchParams();
+  const settlementIdFromPath = searchParams.get("rendicion");
   const [rows, setRows] = useState<SettlementRecord[]>([]);
   const [carriers, setCarriers] = useState<Carrier[]>([]);
   const [stats, setStats] = useState(emptyStats);
@@ -516,7 +518,7 @@ export default function RendicionesPage() {
       setCreateForm({ code: "", settlementDate: today(), carrierId: "", routeDetail: "" });
       await loadList();
       if (payload?.settlement?.id) {
-        router.push(`/admin/rendiciones/${encodeURIComponent(payload.settlement.id)}`);
+        router.push(`/admin/rendiciones?rendicion=${encodeURIComponent(payload.settlement.id)}`);
       }
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "No se pudo crear la rendición.");
@@ -924,7 +926,7 @@ export default function RendicionesPage() {
   const copySettlementLink = async () => {
     if (!detail) return;
     try {
-      await navigator.clipboard.writeText(`${window.location.origin}/admin/rendiciones/${encodeURIComponent(detail.settlement.id)}`);
+      await navigator.clipboard.writeText(`${window.location.origin}/admin/rendiciones?rendicion=${encodeURIComponent(detail.settlement.id)}`);
       setLinkCopied(true);
       window.setTimeout(() => setLinkCopied(false), 1800);
     } catch {
@@ -2169,7 +2171,7 @@ export default function RendicionesPage() {
                     <button
                       type="button"
                       disabled={lifecycleBusy}
-                      onClick={() => router.push(`/admin/rendiciones/${encodeURIComponent(row.id)}`)}
+                      onClick={() => router.push(`/admin/rendiciones?rendicion=${encodeURIComponent(row.id)}`)}
                       className="grid min-w-0 flex-1 items-center gap-x-3 px-3.5 py-2 text-left text-xs transition-colors hover:bg-blue-50/40 disabled:opacity-50"
                       style={{ gridTemplateColumns: "minmax(0, 1fr) auto 110px 16px" }}
                     >

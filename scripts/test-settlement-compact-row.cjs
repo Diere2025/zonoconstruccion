@@ -58,4 +58,7 @@ assert.ok(!source.includes('<details key={detail.settlement.id} open'), 'Orders 
 assert.ok(source.includes('{!readOnly && <section'), 'Read-only settlements do not repeat disabled form fields');
 assert.ok(source.includes('grid grid-cols-1 gap-3 lg:grid-cols-2'), 'Report and message share two columns on desktop');
 assert.ok(source.includes('[&>div]:gap-3') && source.includes('[&>div>span:last-child]:shrink-0'), 'Summary labels and amounts stay separated');
+assert.ok(source.includes('searchParams.get("rendicion")') && source.includes('React.Suspense'), 'Shareable detail links remain on the static page');
+assert.ok(!fs.existsSync('src/app/admin/rendiciones/[id]/page.tsx'), 'Do not bundle a full SSR renderer for the detail route');
+assert.ok(fs.readFileSync('public/_redirects', 'utf8').includes('/admin/rendiciones/:id /admin/rendiciones?rendicion=:id 302'), 'Previously shared links redirect to the static detail');
 console.log('OK: filas compactas, pedidos contraídos, datos sin formulario deshabilitado, resumen separado y reporte/mensaje en dos columnas.');
