@@ -2,7 +2,7 @@ export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { fetchSpreadsheetCsv, setOrderStatusInSellerSheetByCode } from '@/lib/googleSheets';
+import { fetchSpreadsheetCsv, setOrderStatusInSellerSheetByCode, createLogisticsCancellationReasonLookup } from '@/lib/googleSheets';
 import { splitOrderCodes } from '@/lib/orderSync';
 import { isDiscountProductLine, resolveImportedOrderChannel, sheetDiscountAmount } from '@/lib/wholesaleOrders';
 import {
@@ -112,6 +112,7 @@ const parseSpanishNumber = (val: any): number => {
 };
 
 export async function POST(request: Request) {
+  const getCancellationReason = createLogisticsCancellationReasonLookup();
   try {
     const body = await request.json();
     const {
@@ -797,6 +798,7 @@ export async function POST(request: Request) {
             const fieldsToUpdate: any = { ...updatePayload };
             if (newStatus !== dbOrder.status) {
               fieldsToUpdate.status = newStatus;
+              if (newStatus === 'Cancelado') fieldsToUpdate.cancel_reason = await getCancellationReason(orderCode);
               addLog(`🔄 Sincronizando pedido ${orderCode}: cambiando estado de '${dbOrder.status}' a '${newStatus}'...`);
             }
             if (needsMetadataUpdate) {
@@ -1114,6 +1116,7 @@ export async function POST(request: Request) {
             payment_method_id: paymentMethodId,
             freight_type: 'Regular',
             status: dbOrderStatus,
+            cancel_reason: dbOrderStatus === 'Cancelado' ? await getCancellationReason(orderCode) : null,
             total_amount: calculatedTotal,
             order_discount_type: importedDiscountAmount > 0 ? 'fixed' : null,
             order_discount_value: importedDiscountAmount,

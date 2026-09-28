@@ -1,5 +1,28 @@
 export type SheetCellValue = string | number | boolean;
 
+/** Reads the reason in Cancelados!B and matches order codes in column D. */
+export function logisticsCancellationReasons(rows: SheetCellValue[][]): Map<string, string> {
+  const reasons = new Map<string, string>();
+  for (const row of rows) {
+    for (const code of String(row[2] || '').split(/[\\/,]/).map(code => code.trim().toUpperCase()).filter(Boolean)) {
+      const reason = String(row[0] || '').trim();
+      if (reason || !reasons.has(code)) reasons.set(code, reason);
+    }
+  }
+  return reasons;
+}
+
+export function logisticsCancellationReason(reasons: Map<string, string>, legacyCode: string): string {
+  const codes = [...new Set(legacyCode.split(/[\\/,]/).map(code => code.trim().toUpperCase()).filter(Boolean))];
+  const details = codes.map(code => {
+    const reason = reasons.has(code)
+      ? reasons.get(code) || 'Sin motivo informado en la hoja de Cancelados de Logística'
+      : 'Pedido no encontrado en hoja de Cancelados de Logística';
+    return codes.length > 1 ? `${code}: ${reason}` : reason;
+  });
+  return `Anulado por Logística. ${details.join(' / ') || 'Pedido no encontrado en hoja de Cancelados de Logística'}`;
+}
+
 export function cancellationMonthSerial(now: Date): number {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/Argentina/Buenos_Aires', year: 'numeric', month: '2-digit'

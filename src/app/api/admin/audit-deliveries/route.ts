@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { fetchSpreadsheetCsv, fetchSpreadsheetValues } from '@/lib/googleSheets';
+import { logisticsCancellationReasons, logisticsCancellationReason } from '@/lib/cancelledOrderSheet';
 import { isLogisticsOrderCode, mapWithConcurrency, splitOrderCodes } from '@/lib/orderSync';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
@@ -11,7 +12,7 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT
 const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 const LOGISTICS_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1TYeIyGbDleed1bTJyhuaxcM97KMbNbL--1OswOppROg/gviz/tq?tqx=out:csv&gid=1438488516';
 const LOGISTICS_SPREADSHEET_ID = '1TYeIyGbDleed1bTJyhuaxcM97KMbNbL--1OswOppROg';
-const LOGISTICS_CANCELLED_CODES_RANGE = "'Cancelados'!D2:D";
+const LOGISTICS_CANCELLED_CODES_RANGE = "'Cancelados'!B2:D";
 
 function parseCSV(text: string): string[][] {
   const results: string[][] = [];
@@ -625,9 +626,10 @@ export async function POST(request: Request) {
     ]);
     const loadMs = Date.now() - loadStartedAt;
     const rows = parseCSV(csvText);
+    const cancellationReasons = logisticsCancellationReasons(cancelledCodeRows);
     const cancelledCodes = new Set(
       cancelledCodeRows
-        .flatMap(row => splitOrderCodes(row[0]))
+        .flatMap(row => splitOrderCodes(row[2]))
         .filter(isLogisticsOrderCode)
     );
     console.log(`POST: Loaded sheet (${rows.length} rows), ${cancelledCodes.size} cancelled codes, ${dbOrdersList.length} orders and ${dbItemsList.length} items in ${loadMs}ms.`);
@@ -983,6 +985,11 @@ export async function POST(request: Request) {
             total_amount: update.sheetTotal,
             payment_method_id: update.finalPaymentId
           };
+      if (update.targetStatus === 'Cancelado') {
+        Object.assign(orderUpdate, {
+          cancel_reason: logisticsCancellationReason(cancellationReasons, update.code)
+        });
+      }
       const { error } = await supabaseAdmin
         .from('orders')
         .update(orderUpdate)

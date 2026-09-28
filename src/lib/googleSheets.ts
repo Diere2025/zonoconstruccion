@@ -1,4 +1,4 @@
-import { cancelledRowCells, cancellationMonthSerial } from './cancelledOrderSheet';
+import { cancelledRowCells, cancellationMonthSerial, logisticsCancellationReasons, logisticsCancellationReason } from './cancelledOrderSheet';
 import type { SheetCellValue } from './cancelledOrderSheet';
 
 interface ServiceAccountCredentials {
@@ -562,6 +562,16 @@ const LOGISTICS_CANCELLED_SHEET = {
   sheetName: 'Cancelados',
   codeColumn: 'D'
 };
+
+/** Cache the lookup for this import run while refreshing it for the next run. */
+export function createLogisticsCancellationReasonLookup() {
+  let reasons: Promise<Map<string, string>> | undefined;
+  return async (code: string): Promise<string> => {
+    reasons ??= fetchSpreadsheetValues(LOGISTICS_CANCELLED_SHEET.spreadsheetId, "'Cancelados'!B2:D")
+      .then(logisticsCancellationReasons);
+    return logisticsCancellationReason(await reasons, code);
+  };
+}
 
 export interface OperationalSheetSyncResult {
   success: boolean;
