@@ -103,17 +103,14 @@ export async function GET(request: Request) {
 
       // 1. If startDate is provided, get exact initial balance of each account prior to startDate via optimized RPC
       if (startIso) {
-        try {
-          const { data: priorBalances, error: rpcErr } = await supabaseAdmin
-            .rpc('get_account_balances_prior_to', { cutoff_date: startIso });
-          if (!rpcErr && Array.isArray(priorBalances)) {
-            priorBalances.forEach((r: any) => {
-              accountBalances[r.account_id] = Number(r.balance) || 0;
-            });
-          }
-        } catch (e) {
-          console.error("Error fetching prior balances:", e);
-        }
+        const { data: priorBalances, error: rpcErr } = await supabaseAdmin
+          .rpc('get_account_balances_prior_to', { cutoff_date: startIso });
+        // A failed opening balance must not be presented as a zero balance.
+        if (rpcErr) throw rpcErr;
+        if (!Array.isArray(priorBalances)) throw new Error('No se pudo obtener el saldo inicial.');
+        priorBalances.forEach((r: any) => {
+          accountBalances[r.account_id] = Number(r.balance) || 0;
+        });
       }
 
       // 2. Query transactions directly filtered by date range on the database.

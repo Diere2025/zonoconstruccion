@@ -346,7 +346,7 @@ export async function POST(request: Request) {
             })
             .eq('id', resolvedAccountId);
 
-          const { getTelegramConfig, saveTelegramConfig, sendTelegramMessage, getArgentinaDateTime } = await import('@/app/api/admin/mp-telegram-alert/route');
+          const { getTelegramConfig, saveTelegramConfig, sendTelegramMessage, getArgentinaDateTime } = await import('@/lib/mpTelegramAlert');
           const tgConfig = await getTelegramConfig();
           if (tgConfig.enabled && tgConfig.bot_token && tgConfig.chat_id) {
             const arg = getArgentinaDateTime();

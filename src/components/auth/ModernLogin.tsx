@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { loginErrorMessage } from "@/lib/authErrorMessage";
 import { 
   Mail, 
   Lock, 
@@ -52,7 +53,7 @@ export function ModernLogin({ onLoginSuccess, defaultEmail = "" }: ModernLoginPr
       });
 
       if (error) {
-        setLoginError("Correo o contraseña incorrectos. Por favor, verificá tus datos.");
+        setLoginError(loginErrorMessage(error));
         setIsLoggingIn(false);
         return;
       }
@@ -109,7 +110,7 @@ export function ModernLogin({ onLoginSuccess, defaultEmail = "" }: ModernLoginPr
 
         <div className="flex items-center gap-2 text-xs text-slate-400 font-medium bg-slate-900/60 border border-slate-800 px-3.5 py-1.5 rounded-full backdrop-blur-md">
           <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-          <span>Servidores Operativos</span>
+          <span>Acceso seguro</span>
         </div>
       </header>
 

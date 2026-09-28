@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const ts = require('typescript');
-const source = fs.readFileSync('src/app/api/admin/mp-telegram-alert/route.ts', 'utf8');
+const source = fs.readFileSync('src/lib/mpTelegramAlert.ts', 'utf8');
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 
 function setup({ saveFails = false, telegramFails = false } = {}) {

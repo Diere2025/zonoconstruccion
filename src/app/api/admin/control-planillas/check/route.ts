@@ -38,11 +38,11 @@ const SELLERS: SellerConfig[] = [
   }
 ];
 
-export const CENTRAL_SPREADSHEET_ID = '1nz545_xNUgdI2LMAGIDCjh6Qs8-vUDHdynzj7jU2wm0';
-export const CENTRAL_SHEET_NAME = 'Central pedidos';
+const CENTRAL_SPREADSHEET_ID = '1nz545_xNUgdI2LMAGIDCjh6Qs8-vUDHdynzj7jU2wm0';
+const CENTRAL_SHEET_NAME = 'Central pedidos';
 
-export const ENTREGAS_SPREADSHEET_ID = '1mESHu4klY3N1XBXVgFT_Q7ZwlLtiA8GTi5NCCFFboZs';
-export const ENTREGAS_SHEETS_TO_CHECK = [
+const ENTREGAS_SPREADSHEET_ID = '1mESHu4klY3N1XBXVgFT_Q7ZwlLtiA8GTi5NCCFFboZs';
+const ENTREGAS_SHEETS_TO_CHECK = [
   'Vendedores',
   'Nuevos',
   'Pend',

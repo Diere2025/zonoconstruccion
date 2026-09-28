@@ -21,7 +21,7 @@ export async function GET() {
     // Also check Mercado Pago monitor heartbeat and dispatch Telegram alert if offline
     let monitorAlertResult = null;
     try {
-      const { checkAndDispatchTelegramAlert } = await import('@/app/api/admin/mp-telegram-alert/route');
+      const { checkAndDispatchTelegramAlert } = await import('@/lib/mpTelegramAlert');
       monitorAlertResult = await checkAndDispatchTelegramAlert();
     } catch (mErr) {
       console.warn('[KeepAlive] Monitor alert check skipped:', mErr);

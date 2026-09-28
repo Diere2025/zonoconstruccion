@@ -211,6 +211,7 @@ export default function AdminLayoutWrapper({
     }
 
     let isMounted = true;
+    let roleCheckTimer: ReturnType<typeof setTimeout> | undefined;
     addLog("AdminLayout mounted, checking session...");
 
     // Safety timeout: Never hang on loading spinner
@@ -249,8 +250,9 @@ export default function AdminLayoutWrapper({
 
     checkAuth();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
       if (!isMounted) return;
+      clearTimeout(roleCheckTimer);
 
       if (!newSession?.user) {
         clearRoleCache();
@@ -263,7 +265,11 @@ export default function AdminLayoutWrapper({
       } else {
         globalAdminSession = newSession;
         if (globalCheckedUserId !== newSession.user.id) {
-          await processUserRole(newSession.user);
+          // Supabase awaits auth listeners while holding the session lock.
+          // Database queries must start after this synchronous callback returns.
+          roleCheckTimer = setTimeout(() => {
+            if (isMounted) void processUserRole(newSession.user);
+          }, 0);
         }
         if (isMounted) {
           setSession(newSession);
@@ -273,6 +279,7 @@ export default function AdminLayoutWrapper({
 
     return () => {
       isMounted = false;
+      clearTimeout(roleCheckTimer);
       clearTimeout(timer);
       subscription.unsubscribe();
     };
