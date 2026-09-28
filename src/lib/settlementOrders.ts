@@ -3,6 +3,7 @@ export function isExcludedDeliveryStatus(status: string): boolean {
   return /\b(postergad[oa]?|anulad[oa]?|cancelad[oa]?|no entregad[oa]?|fallid[oa]?|pendiente[_ ]ruteo)\b/.test(normalized);
 }
 
+// A generic routing synchronization must not erase the result of this attempt.
 export function settlementDeliveryStatus(status?: string | null, failureReason?: string | null): string {
   const normalized = String(status || "").trim().toLowerCase();
   if (normalized === "entregado" || normalized === "entregada") return status || "Entregado";
