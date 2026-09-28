@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
+import { treasuryDateTime, treasuryToday } from "@/lib/treasuryTransactionTime";
 import { supabase } from "@/lib/supabase";
 import { 
   Wallet, 
@@ -532,6 +533,7 @@ export default function AdminFinanzasPage() {
   const [tfAmount, setTfAmount] = useState("");
   const [tfConcept, setTfConcept] = useState("");
   const [tfNotes, setTfNotes] = useState("");
+  const [tfDate, setTfDate] = useState(treasuryToday);
 
   // Filtros del Flujo de Caja
   const [startDate, setStartDate] = useState(() => {
@@ -1475,7 +1477,7 @@ export default function AdminFinanzasPage() {
     setTxConcept(transaction.concept || "");
     setTxCostCenterId(transaction.cost_center_id || "");
     setTxNotes(transaction.notes || "");
-    setTxCreatedAt(transaction.created_at ? transaction.created_at.split('T')[0] : "");
+    setTxCreatedAt(transaction.created_at ? treasuryToday(new Date(transaction.created_at)) : "");
     setSelectedEmployeeId(transaction.employee_id || "");
 
     // Las asociaciones externas no se duplican para evitar imputar dos veces
@@ -1572,7 +1574,7 @@ export default function AdminFinanzasPage() {
             concept: txConcept.trim(),
             cost_center_id: txCostCenterId || null,
             notes: txNotes.trim() || null,
-            created_at: txCreatedAt ? new Date(txCreatedAt + 'T12:00:00').toISOString() : new Date().toISOString(),
+            created_at: txCreatedAt ? treasuryDateTime(txCreatedAt, editingTx ? new Date(editingTx.created_at) : new Date()) : new Date().toISOString(),
             employee_id: txCategory === "Sueldos" && selectedEmployeeId ? selectedEmployeeId : null,
             route_sheet_id: txRouteSheetId || null
           })
@@ -1598,7 +1600,7 @@ export default function AdminFinanzasPage() {
             cost_center_id: txCostCenterId || null,
             notes: txNotes.trim() || null,
             created_by: userId,
-            created_at: txCreatedAt ? new Date(txCreatedAt + 'T12:00:00').toISOString() : new Date().toISOString(),
+            created_at: txCreatedAt ? treasuryDateTime(txCreatedAt) : new Date().toISOString(),
             employee_id: txCategory === "Sueldos" && selectedEmployeeId ? selectedEmployeeId : null,
             route_sheet_id: txRouteSheetId || null
           })
@@ -1768,12 +1770,13 @@ export default function AdminFinanzasPage() {
     setSubmittingTransfer(true);
     try {
       const currency = srcAcc.currency;
+      const transferCreatedAt = treasuryDateTime(tfDate);
       const transferGroupId = crypto.randomUUID(); // Unir ambos registros visualmente en notas
 
       // 1. Registrar el Egreso (Salida) de la cuenta origen
-      const { error: srcErr } = await supabase
+      const { error: transferError } = await supabase
         .from('cash_transactions')
-        .insert({
+        .insert([{
           type: 'egreso',
           category: 'retiro_caja', // Mapeado a transferencia
           sub_category: 'Movimiento de cuentas',
@@ -1784,15 +1787,9 @@ export default function AdminFinanzasPage() {
           financial_account_id: tfSourceId,
           concept: `Transferencia: ${tfConcept.trim()} (Hacia ${destAcc.name})`,
           notes: `TRF-GROUP: ${transferGroupId} | ${tfNotes.trim()}`.trim(),
-          created_by: userId
-        });
-
-      if (srcErr) throw srcErr;
-
-      // 2. Registrar el Ingreso (Entrada) en la cuenta destino
-      const { error: destErr } = await supabase
-        .from('cash_transactions')
-        .insert({
+          created_by: userId,
+          created_at: transferCreatedAt
+        }, {
           type: 'ingreso',
           category: 'ingreso_capital', // Mapeado a transferencia
           sub_category: 'Movimiento de cuentas',
@@ -1803,15 +1800,17 @@ export default function AdminFinanzasPage() {
           financial_account_id: tfDestId,
           concept: `Transferencia: ${tfConcept.trim()} (Desde ${srcAcc.name})`,
           notes: `TRF-GROUP: ${transferGroupId} | ${tfNotes.trim()}`.trim(),
-          created_by: userId
-        });
+          created_by: userId,
+          created_at: transferCreatedAt
+        }]);
 
-      if (destErr) throw destErr;
+      if (transferError) throw transferError;
 
       setIsTransferModalOpen(false);
       setTfAmount("");
       setTfConcept("");
       setTfNotes("");
+      setTfDate(treasuryToday());
 
       await Promise.all([
         loadTransactions(),
@@ -2113,7 +2112,7 @@ export default function AdminFinanzasPage() {
   const filteredTransactions = useMemo(() => {
     return transactions.filter(t => {
       // 0. Rango de Fechas (Filtro en cliente para Fecha Inicio)
-      const txDate = t.created_at.split('T')[0];
+      const txDate = treasuryToday(new Date(t.created_at));
       if (txDate < startDate) {
         return false;
       }
@@ -2837,7 +2836,7 @@ export default function AdminFinanzasPage() {
                                         setTxCostCenterId(t.cost_center_id || "");
                                         setTxNotes(t.notes || "");
                                         if (t.created_at) {
-                                          setTxCreatedAt(t.created_at.split('T')[0]);
+                                          setTxCreatedAt(treasuryToday(new Date(t.created_at)));
                                         } else {
                                           setTxCreatedAt("");
                                         }
@@ -2968,7 +2967,7 @@ export default function AdminFinanzasPage() {
                 <ShieldCheck className="w-4 h-4 text-brand-600" /> Auditoría y Conciliación
               </Button>
               <Button
-                onClick={() => setIsTransferModalOpen(true)}
+                onClick={() => { setTfDate(treasuryToday()); setIsTransferModalOpen(true); }}
                 className="flex items-center gap-1.5 px-4 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 font-black text-xs uppercase tracking-wider rounded-xl shadow-sm transition-all"
               >
                 <ArrowRightLeft className="w-4 h-4 text-slate-400" /> Transferencia entre Cuentas
@@ -3123,6 +3122,7 @@ export default function AdminFinanzasPage() {
                             <button
                               onClick={() => {
                                 setTfSourceId(acc.id);
+                                setTfDate(treasuryToday());
                                 setIsTransferModalOpen(true);
                               }}
                               className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 border border-slate-200 rounded-lg transition-colors"
@@ -3874,6 +3874,10 @@ export default function AdminFinanzasPage() {
             </div>
 
             <form onSubmit={handleRegisterTransfer} className="space-y-4">
+              <div>
+                <label className="text-[9px] font-black uppercase text-slate-400">Fecha de transferencia *</label>
+                <input type="date" required value={tfDate} onChange={e => setTfDate(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs" />
+              </div>
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1">
                   <label className="text-[9px] font-black uppercase text-slate-400">Cuenta de Origen (Sale) *</label>

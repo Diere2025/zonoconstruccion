@@ -1,5 +1,6 @@
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
+import { compareTreasuryTransactions } from '@/lib/treasuryTransactionTime';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { fetchSpreadsheetCsv } from '@/lib/googleSheets';
@@ -10,6 +11,9 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT
 const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 
 type CashTransactionRow = {
+  id: string;
+  created_at: string;
+  registered_at?: string;
   financial_account_id: string | null;
   amount: number | string | null;
   type: string;
@@ -92,8 +96,8 @@ export async function GET(request: Request) {
     if (action === 'transactions') {
       const endDate = searchParams.get('endDate') || new Date().toISOString().split('T')[0];
       const startDate = searchParams.get('startDate') || '';
-      const startIso = startDate ? `${startDate}T00:00:00.000Z` : '';
-      const endIso = `${endDate}T23:59:59.999Z`;
+      const startIso = startDate ? `${startDate}T00:00:00.000-03:00` : '';
+      const endIso = `${endDate}T23:59:59.999-03:00`;
 
       const accountBalances: Record<string, number> = {};
 
@@ -176,7 +180,7 @@ export async function GET(request: Request) {
       }
 
       // 3. Compute running balance
-      const txsWithRunningBalance = allData.map(t => {
+      const txsWithRunningBalance = allData.sort(compareTreasuryTransactions).map(t => {
         const accId = t.financial_account_id || 'cash_register';
         const amt = Number(t.amount) || 0;
         if (!accountBalances[accId]) accountBalances[accId] = 0;

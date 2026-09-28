@@ -29,6 +29,7 @@ interface SettlementRecord {
   id: string;
   code: string;
   status: SettlementStatus;
+  movements_generated_at?: string | null;
   settlement_date: string;
   carrier_name: string;
   carrier_id?: string | null;
@@ -194,8 +195,8 @@ const parseDisplayDate = (value: string) => {
   return `${year}-${month}-${day}`;
 };
 const cashKey = (kind: string, denomination: number) => `${kind}-${denomination}`;
-const isPending = (row: SettlementRecord) => row.status === "draft" && !row.count_date && Number(row.counted_cash || 0) === 0;
-const statusLabel = (row: SettlementRecord) => row.status === "archived" ? "Archivada" : row.status === "confirmed" ? "Confirmada" : isPending(row) ? "Pendiente" : "En preparación";
+const isPending = (row: SettlementRecord) => row.status === "draft" && !row.movements_generated_at && !row.count_date && Number(row.counted_cash || 0) === 0;
+const statusLabel = (row: SettlementRecord) => row.status === "archived" ? "Archivada" : row.movements_generated_at ? "Movimientos generados" : row.status === "confirmed" ? "Confirmada" : isPending(row) ? "Pendiente" : "En preparación";
 const statusClasses = (row: SettlementRecord) => row.status === "archived" ? "bg-slate-100 text-slate-600 border-slate-300" : row.status === "confirmed"
   ? "bg-emerald-50 text-emerald-700 border-emerald-200"
   : isPending(row) ? "bg-amber-50 text-amber-700 border-amber-200" : "bg-blue-50 text-blue-700 border-blue-200";
@@ -262,6 +263,7 @@ function RendicionesContent() {
   const [notes, setNotes] = useState("");
   const [copied, setCopied] = useState(false);
   const [movementCopied, setMovementCopied] = useState(false);
+  const [modifiedDeliveryStatuses, setModifiedDeliveryStatuses] = useState<Record<string, string>>({});
   const [routeOrders, setRouteOrders] = useState<RouteOrderDetail[]>([]);
 
   const [cashModalOpen, setCashModalOpen] = useState(false);
@@ -277,6 +279,7 @@ function RendicionesContent() {
   });
 
   const [financialAccounts, setFinancialAccounts] = useState<Array<{ id: string; name: string; type: string; currency: string }>>([]);
+  const [generationMode, setGenerationMode] = useState<"replace" | "duplicate" | "">("");
   const [existingMovements, setExistingMovements] = useState<Array<any>>([]);
   const [movementsModalOpen, setMovementsModalOpen] = useState(false);
   const [selectedAccountId, setSelectedAccountId] = useState("");
@@ -385,6 +388,7 @@ function RendicionesContent() {
     payload.cashCounts.forEach(count => { quantities[cashKey(count.money_kind, Number(count.denomination))] = Number(count.quantity) || 0; });
     setCashQuantities(quantities);
     setRouteOrders(payload.routeOrders || []);
+    setModifiedDeliveryStatuses({});
     const accs = payload.financialAccounts || [];
     setFinancialAccounts(accs);
     setExistingMovements(payload.existingMovements || []);
@@ -603,6 +607,7 @@ function RendicionesContent() {
         method: "POST",
         body: JSON.stringify({ action: "update-delivery-status", settlementId: detail.settlement.id, deliveryId: order.deliveryId, deliveryStatus: status }),
       });
+      setModifiedDeliveryStatuses(current => ({ ...current, [order.deliveryId]: status }));
       setDeliveriesTotal(Number(payload.deliveriesTotal) || 0);
       setRouteOrders(current => current.map(item => item.deliveryId === order.deliveryId ? {
         ...item,
@@ -729,6 +734,7 @@ function RendicionesContent() {
   };
 
   const openMovementsModal = async () => {
+    setGenerationMode("");
     if (movementRows.length === 0) {
       setError("No hay movimientos calculados en esta rendición para generar.");
       return;
@@ -787,9 +793,14 @@ function RendicionesContent() {
       return;
     }
 
+    if (existingMovements.length > 0 && !generationMode) {
+      setError("Elegí reemplazar los movimientos actuales, generar un duplicado o cancelar.");
+      return;
+    }
     setGeneratingMovements(true);
     setError("");
     try {
+      if (detail.settlement.status === "draft" && !await saveSettlement("save", false)) return;
       const response = await authenticatedFetch("/api/admin/rendiciones", {
         method: "POST",
         body: JSON.stringify({
@@ -800,6 +811,8 @@ function RendicionesContent() {
           financialAccountId: selectedAccountId,
           movementDate: formattedDate,
           movements: customMovements,
+          generationMode: generationMode || "initial",
+          previousMovementIds: existingMovements.map(m => m.id),
         }),
       });
 
@@ -808,6 +821,7 @@ function RendicionesContent() {
 
       const updatedPayload = await authenticatedFetch(`/api/admin/rendiciones?action=detail&settlementId=${encodeURIComponent(detail.settlement.id)}`);
       hydrateDetail(updatedPayload);
+      await loadList();
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudieron generar los movimientos.");
     } finally {
@@ -883,8 +897,8 @@ function RendicionesContent() {
     return count;
   }, [routeOrders, electronicTickets]);
 
-  const saveSettlement = async (action: "save" | "confirm") => {
-    if (!detail) return;
+  const saveSettlement = async (action: "save" | "confirm", refresh = true): Promise<boolean> => {
+    if (!detail || saving || updatingOrderStatus) return false;
     setSaving(action);
     setError("");
     try {
@@ -898,6 +912,7 @@ function RendicionesContent() {
           notes, whatsappMessage: message, countDate: countDate || null,
           countedCashOverride: hasDetailedCash ? null : countedCashManual,
           expenses: expenses.map(({ type, amount, reference, notes: expenseNotes }) => ({ type, amount, reference, notes: expenseNotes })),
+          deliveryStatuses: Object.entries(modifiedDeliveryStatuses).map(([deliveryId, status]) => ({ deliveryId, status })),
           cashCounts: CASH_DENOMINATIONS.map(item => ({ ...item, quantity: cashQuantities[cashKey(item.kind, item.denomination)] || 0 })),
           electronicTickets: electronicTickets.map(ticket => ({
             amount: ticket.amount,
@@ -910,12 +925,16 @@ function RendicionesContent() {
           })),
         }),
       });
-      const payload = await authenticatedFetch(`/api/admin/rendiciones?action=detail&settlementId=${encodeURIComponent(detail.settlement.id)}`);
-      hydrateDetail(payload);
-      await loadList();
-      setNotice(action === "confirm" ? "Rendición confirmada." : "Cambios guardados.");
+      if (refresh) {
+        const payload = await authenticatedFetch(`/api/admin/rendiciones?action=detail&settlementId=${encodeURIComponent(detail.settlement.id)}`);
+        hydrateDetail(payload);
+        await loadList();
+        setNotice(action === "confirm" ? "Rendición confirmada." : "Cambios guardados.");
+      }
+      return true;
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "No se pudo guardar la rendición.");
+      return false;
     } finally {
       setSaving(null);
     }
@@ -1360,7 +1379,8 @@ function RendicionesContent() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setCashModalOpen(false)}
+                  disabled={!!saving || !!updatingOrderStatus}
+                    onClick={async () => { if (readOnly || await saveSettlement("save")) setCashModalOpen(false); }}
                   className="rounded-lg p-1 text-slate-400 hover:bg-slate-100"
                 >
                   <X className="h-4 w-4" />
@@ -1464,6 +1484,7 @@ function RendicionesContent() {
                   <span className="mx-2 text-slate-300">·</span>
                   <span className="text-sm font-black text-emerald-700">
                     Total: {formatPrice(totals.countedCash)}
+                    {error && <span role="alert" className="ml-2 text-rose-700">{error}</span>}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -1481,10 +1502,11 @@ function RendicionesContent() {
                   )}
                   <button
                     type="button"
-                    onClick={() => setCashModalOpen(false)}
+                    disabled={!!saving || !!updatingOrderStatus}
+                    onClick={async () => { if (readOnly || await saveSettlement("save")) setCashModalOpen(false); }}
                     className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-1.5 text-xs font-bold text-white shadow-2xs hover:bg-emerald-700 transition-colors"
                   >
-                    <Check className="h-3.5 w-3.5" /> Listo
+                    {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} {saving ? "Guardando..." : "Listo"}
                   </button>
                 </div>
               </div>
@@ -1514,7 +1536,8 @@ function RendicionesContent() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setExpensesModalOpen(false)}
+                  disabled={!!saving || !!updatingOrderStatus}
+                    onClick={async () => { if (readOnly || await saveSettlement("save")) setExpensesModalOpen(false); }}
                   className="rounded-lg p-1 text-slate-400 hover:bg-slate-100"
                 >
                   <X className="h-4 w-4" />
@@ -1553,14 +1576,16 @@ function RendicionesContent() {
                   <span className="mx-2 text-slate-300">·</span>
                   <span className="font-black text-amber-700">
                     Total gastos: {formatPrice(totals.tollsTotal + totals.extraordinaryTotal)}
+                    {error && <span role="alert" className="ml-2 text-rose-700">{error}</span>}
                   </span>
                 </div>
                 <button
                   type="button"
-                  onClick={() => setExpensesModalOpen(false)}
+                  disabled={!!saving || !!updatingOrderStatus}
+                    onClick={async () => { if (readOnly || await saveSettlement("save")) setExpensesModalOpen(false); }}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-1.5 text-xs font-bold text-white shadow-2xs hover:bg-emerald-700"
                 >
-                  <Check className="h-3.5 w-3.5" /> Listo
+                  {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} {saving ? "Guardando..." : "Listo"}
                 </button>
               </div>
             </div>
@@ -1610,7 +1635,8 @@ function RendicionesContent() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setTicketsModalOpen(false)}
+                  disabled={!!saving || !!updatingOrderStatus}
+                    onClick={async () => { if (readOnly || await saveSettlement("save")) setTicketsModalOpen(false); }}
                   className="rounded-lg p-1 text-slate-400 hover:bg-slate-100"
                 >
                   <X className="h-4 w-4" />
@@ -1652,15 +1678,17 @@ function RendicionesContent() {
                   <span className="mx-2 text-slate-300">·</span>
                   <span className="font-black text-blue-700">
                     Total a descontar: {formatPrice(effectiveElectronicTotal)}
+                    {error && <span role="alert" className="ml-2 text-rose-700">{error}</span>}
                   </span>
                   {ticketTotals.excludedCount > 0 && <span className="ml-2 font-bold text-violet-700">· Fuera de rendición: {formatPrice(ticketTotals.excluded)}</span>}
                 </div>
                 <button
                   type="button"
-                  onClick={() => setTicketsModalOpen(false)}
+                  disabled={!!saving || !!updatingOrderStatus}
+                    onClick={async () => { if (readOnly || await saveSettlement("save")) setTicketsModalOpen(false); }}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-1.5 text-xs font-bold text-white shadow-2xs hover:bg-emerald-700"
                 >
-                  <Check className="h-3.5 w-3.5" /> Listo
+                  {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} {saving ? "Guardando..." : "Listo"}
                 </button>
               </div>
             </div>
@@ -1896,14 +1924,20 @@ function RendicionesContent() {
                   </div>
                 </div>
 
+                {error && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-2 text-xs text-rose-700">{error}</p>}
                 {existingMovements && existingMovements.length > 0 && (
                   <div className="rounded-xl border border-amber-200 bg-amber-50/80 p-2.5 text-xs text-amber-900 flex items-start gap-2">
                     <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
                     <div>
                       <p className="font-bold">Ya existen {existingMovements.length} movimientos generados para esta rendición.</p>
                       <p className="text-[11px] text-amber-800 mt-0.5">
-                        Si confirmás, se registrarán nuevos movimientos a la caja seleccionada.
+                        Elegí reemplazar los movimientos actuales o generar un duplicado.
                       </p>
+                      <div className="my-2 space-y-1">
+                        {existingMovements.map(m => <div key={m.id} className="rounded border border-amber-200 bg-white p-2"><strong>{m.type === "ingreso" ? "Ingreso" : "Egreso"} · {formatPrice(m.amount)}</strong> · {m.concept}<div>{m.created_at ? new Date(m.created_at).toLocaleString("es-AR") : ""} · {financialAccounts.find(a => a.id === m.financial_account_id)?.name || "Cuenta"}</div></div>)}
+                      </div>
+                      <label className="mr-3"><input type="radio" name="generationMode" checked={generationMode === "replace"} onChange={() => setGenerationMode("replace")} /> Reemplazar movimientos actuales</label>
+                      <label><input type="radio" name="generationMode" checked={generationMode === "duplicate"} onChange={() => setGenerationMode("duplicate")} /> Generar duplicado</label>
                     </div>
                   </div>
                 )}
@@ -2015,7 +2049,7 @@ function RendicionesContent() {
                   </button>
                   <button
                     type="submit"
-                    disabled={generatingMovements || customMovements.length === 0}
+                    disabled={generatingMovements || !!saving || !!updatingOrderStatus || customMovements.length === 0 || (existingMovements.length > 0 && !generationMode)}
                     className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-1.5 text-xs font-bold text-white shadow-2xs hover:bg-emerald-700 disabled:opacity-50 transition-colors"
                   >
                     {generatingMovements ? (

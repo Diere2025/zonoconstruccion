@@ -1,6 +1,7 @@
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
+import { treasuryDateTime, treasuryToday } from "@/lib/treasuryTransactionTime";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { fetchSpreadsheetValueRanges, fetchSpreadsheetValues } from "@/lib/googleSheets";
@@ -63,6 +64,9 @@ type SavePayload = {
   deliveryStatus?: string;
   financialAccountId?: string;
   movementDate?: string;
+  generationMode?: "initial" | "replace" | "duplicate";
+  previousMovementIds?: string[];
+  deliveryStatuses?: Array<{ deliveryId: string; status: string }>;
   movements?: Array<{
     detail?: string;
     concept?: string;
@@ -212,7 +216,7 @@ export async function GET(request: Request) {
       const rows = data || [];
       const stats = rows.reduce((acc, row) => {
         if (row.status === "confirmed") acc.confirmed += 1;
-        else if (row.count_date || asNumber(row.counted_cash) > 0) acc.drafts += 1;
+        else if (row.movements_generated_at || row.count_date || asNumber(row.counted_cash) > 0) acc.drafts += 1;
         else acc.pending += 1;
         if (row.status !== "confirmed" && Math.abs(asNumber(row.difference)) > 300) acc.differences += 1;
         return acc;
@@ -429,18 +433,12 @@ export async function GET(request: Request) {
         }
       }
 
-      let existingMovements: any[] = [];
-      try {
-        if (settlement.code) {
-          const { data: txList } = await supabaseAdmin
-            .from("cash_transactions")
-            .select("id, type, amount, concept, category, created_at, financial_account_id")
-            .ilike("notes", `%${settlement.code}%`);
-          existingMovements = txList || [];
-        }
-      } catch (e) {
-        console.warn("[Rendiciones] Error fetching existing movements:", e);
-      }
+      const { data: existingMovements, error: movementsError } = await supabaseAdmin
+        .from("cash_transactions")
+        .select("id, type, amount, concept, category, created_at, financial_account_id")
+        .eq("treasury_settlement_id", settlementId)
+        .order("registered_at", { ascending: false }).order("id", { ascending: false });
+      if (movementsError) throw movementsError;
 
       return NextResponse.json({
         settlement,
@@ -449,7 +447,7 @@ export async function GET(request: Request) {
         electronicTickets,
         routeOrders,
         financialAccounts: accountsRes.data || [],
-        existingMovements,
+        existingMovements: existingMovements || [],
       });
     }
     if (action === "preview-entregando") {
@@ -1198,21 +1196,23 @@ export async function POST(request: Request) {
         .select("id, name");
       const paymentMethodId = pms?.find(p => p.name.toLowerCase().includes("efectivo"))?.id || pms?.[0]?.id;
 
-      const { data: settlement } = await supabaseAdmin
+      const { data: settlement, error: settlementError } = await supabaseAdmin
         .from("treasury_settlements")
-        .select("id, code, route_sheet_id")
+        .select("id, code, carrier_name, route_sheet_id")
         .eq("id", settlementId)
         .maybeSingle();
 
+      if (settlementError) throw settlementError;
+      if (!settlement) return NextResponse.json({ error: "La rendición no existe." }, { status: 404 });
       let dateStr = (movementDate || "").trim();
       if (/^\d{2}\/\d{2}\/\d{4}$/.test(dateStr)) {
         const [d, m, y] = dateStr.split("/");
         dateStr = `${y}-${m}-${d}`;
       }
       if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-        dateStr = new Date().toISOString().split("T")[0];
+        dateStr = treasuryToday();
       }
-      const createdAt = new Date(dateStr + "T12:00:00").toISOString();
+      const createdAt = treasuryDateTime(dateStr);
 
       const toInsert = rawMovements.map(m => {
         const isExpense = m.type === "Gasto" || m.type === "egreso";
@@ -1240,7 +1240,7 @@ export async function POST(request: Request) {
           payment_method_id: paymentMethodId,
           financial_account_id: account.id,
           concept: (m.concept || m.detail || "Movimiento Rendición").trim(),
-          notes: `Rendición ${code} (${carrierName || ''}). ${m.notes || ''}`.trim(),
+          notes: `Rendición ${settlement.code} (${settlement.carrier_name || ''}). ${m.notes || ''}`.trim(),
           business_unit: "ZONO",
           route_sheet_id: settlement?.route_sheet_id || null,
           created_by: actor.id,
@@ -1252,12 +1252,14 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Todos los montos de los movimientos son cero." }, { status: 400 });
       }
 
-      const { data: inserted, error: insertError } = await supabaseAdmin
-        .from("cash_transactions")
-        .insert(toInsert)
-        .select("id, concept, amount, type, created_at, category, financial_account_id");
-
-      if (insertError) throw insertError;
+      const { data: inserted, error: insertError } = await supabaseAdmin.rpc("generate_treasury_settlement_movements", {
+        p_actor_id: actor.id,
+        p_settlement_id: settlementId,
+        p_mode: body.generationMode || "initial",
+        p_previous_ids: body.previousMovementIds || [],
+        p_movements: toInsert,
+      });
+      if (insertError) return NextResponse.json({ error: readableError(insertError) }, { status: insertError.code === "42501" ? 403 : 409 });
 
       return NextResponse.json({
         success: true,
@@ -1286,30 +1288,32 @@ export async function POST(request: Request) {
       .single();
     if (carrierError || !carrier) return NextResponse.json({ error: "El transportista seleccionado no está disponible." }, { status: 400 });
 
-    const { data, error } = await supabaseAdmin.rpc("save_manual_treasury_settlement", {
-      p_actor_id: actor.id,
-      p_settlement_id: body.action === "create" ? null : body.settlementId,
-      p_code: String(body.code || "").slice(0, 80),
-      p_settlement_date: body.settlementDate,
-      p_carrier_name: carrier.name,
-      p_route_detail: String(body.routeDetail || "").slice(0, 500),
-      p_deliveries_total: Math.max(0, asNumber(body.deliveriesTotal)),
-      p_electronic_total: Math.max(0, asNumber(body.electronicTotal)),
-      p_change_fund: Math.max(0, asNumber(body.changeFund)),
-      p_shortage_recovered: asNumber(body.shortageRecovered),
-      p_notes: String(body.notes || "").slice(0, 4000),
-      p_whatsapp_message: String(body.whatsappMessage || "").slice(0, 4000),
-      p_count_date: body.countDate || null,
-      p_counted_cash_override: body.countedCashOverride == null ? null : Math.max(0, asNumber(body.countedCashOverride)),
-      p_expenses: expenses.filter(expense => asNumber(expense.amount) > 0).map((expense, index) => ({
+    const { data, error } = await supabaseAdmin.rpc("save_treasury_settlement_with_orders", {
+      p_delivery_statuses: body.deliveryStatuses || [],
+      p_save: {
+        p_actor_id: actor.id,
+        p_settlement_id: body.action === "create" ? null : body.settlementId,
+        p_code: String(body.code || "").slice(0, 80),
+        p_settlement_date: body.settlementDate,
+        p_carrier_name: carrier.name,
+        p_route_detail: String(body.routeDetail || "").slice(0, 500),
+        p_deliveries_total: Math.max(0, asNumber(body.deliveriesTotal)),
+        p_electronic_total: Math.max(0, asNumber(body.electronicTotal)),
+        p_change_fund: Math.max(0, asNumber(body.changeFund)),
+        p_shortage_recovered: asNumber(body.shortageRecovered),
+        p_notes: String(body.notes || "").slice(0, 4000),
+        p_whatsapp_message: String(body.whatsappMessage || "").slice(0, 4000),
+        p_count_date: body.countDate || null,
+        p_counted_cash_override: body.countedCashOverride == null ? null : Math.max(0, asNumber(body.countedCashOverride)),
+        p_expenses: expenses.filter(expense => asNumber(expense.amount) > 0).map((expense, index) => ({
         expense_type: expense.type, amount: asNumber(expense.amount),
         reference: String(expense.reference || "").slice(0, 500), notes: String(expense.notes || "").slice(0, 1000), sort_order: index,
       })),
-      p_cash_counts: cashCounts.filter(count => asNumber(count.quantity) > 0).map(count => ({
+        p_cash_counts: cashCounts.filter(count => asNumber(count.quantity) > 0).map(count => ({
         money_kind: count.kind, denomination: asNumber(count.denomination), quantity: Math.max(0, Math.trunc(asNumber(count.quantity))),
       })),
-      p_confirm: body.action === "confirm",
-      p_electronic_tickets: electronicTickets.filter(ticket => asNumber(ticket.amount) > 0).map((ticket, index) => ({
+        p_confirm: body.action === "confirm",
+        p_electronic_tickets: electronicTickets.filter(ticket => asNumber(ticket.amount) > 0).map((ticket, index) => ({
         amount: asNumber(ticket.amount),
         reference: String(ticket.reference || "").slice(0, 500),
         payment_type: String(ticket.payment_type || "POINT").slice(0, 50),
@@ -1319,6 +1323,7 @@ export async function POST(request: Request) {
         notes: ticket.notes ? String(ticket.notes).slice(0, 1000) : null,
         sort_order: index,
       })),
+      },
     });
     if (error) throw error;
     const { error: carrierUpdateError } = await supabaseAdmin
