@@ -24,7 +24,7 @@ const DENOMINATIONS = [
 type AuthorizedUser = { id: string; name: string; roles: string[] };
 type AuthorizationResult = { actor: AuthorizedUser; reason: null } | {
   actor: null;
-  reason: "missing_token" | "server_config" | "invalid_session" | "inactive" | "forbidden";
+  reason: "missing_token" | "server_config" | "auth_unavailable" | "invalid_session" | "inactive" | "forbidden";
 };
 type ExpensePayload = { type?: string; amount?: number; reference?: string; notes?: string };
 type CashCountPayload = { kind?: string; denomination?: number; quantity?: number };
@@ -77,6 +77,9 @@ async function authorize(request: Request): Promise<AuthorizationResult> {
   if (!token) return { actor: null, reason: "missing_token" };
   if (!supabaseUrl || !serviceRoleKey) return { actor: null, reason: "server_config" };
   const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+  if (error && (error.name === "AuthRetryableFetchError" || error.status === 0 || (error.status || 0) >= 500)) {
+    return { actor: null, reason: "auth_unavailable" };
+  }
   if (error || !user) return { actor: null, reason: "invalid_session" };
   let { data: seller } = await supabaseAdmin.from("sellers")
     .select("id, full_name, email, role, roles, is_active").eq("id", user.id).maybeSingle();
@@ -101,11 +104,14 @@ function unauthorized(reason: AuthorizationResult["reason"]) {
   const messages = {
     missing_token: "La sesión venció. Volvé a ingresar.",
     server_config: "El servidor no pudo validar la sesión. Revisá la configuración de acceso.",
+    auth_unavailable: "No se pudo conectar al servicio de acceso. Esperá unos instantes y volvé a intentar.",
     invalid_session: "La sesión no pudo validarse. Actualizá la página o volvé a ingresar.",
     inactive: "Tu usuario está inactivo.",
     forbidden: "No tenés permisos para acceder a rendiciones.",
   };
-  const response = NextResponse.json({ error: messages[reason || "forbidden"] }, { status: 403 });
+  const status = reason === "missing_token" || reason === "invalid_session" ? 401
+    : reason === "server_config" || reason === "auth_unavailable" ? 503 : 403;
+  const response = NextResponse.json({ error: messages[reason || "forbidden"] }, { status });
   response.headers.set("Cache-Control", "no-store, max-age=0");
   return response;
 }

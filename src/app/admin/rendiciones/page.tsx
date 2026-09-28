@@ -6,6 +6,7 @@ import {
   ClipboardCopy, CreditCard, FileSpreadsheet, Loader2, Plus, Receipt, RefreshCw, Save, Search, Trash2, Truck, Wallet, X,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { createAuthenticatedRequester } from "@/lib/authenticatedRequest";
 import { formatPrice } from "@/lib/utils";
 import { isExcludedDeliveryStatus, isExcludedSettlementTicket, settlementElectronicTicketTotals, settlementOrderAmount, settlementOrdersTotal } from "@/lib/settlementOrders";
 import {
@@ -246,26 +247,7 @@ export default function RendicionesPage() {
   const [customMovements, setCustomMovements] = useState<Array<{ detail: string; concept: string; type: "Ingreso" | "Gasto"; amount: number; category: string; sub_category: string }>>([]);
   const [generatingMovements, setGeneratingMovements] = useState(false);
 
-  const authenticatedFetch = useCallback(async (url: string, options?: RequestInit) => {
-    const requestWithToken = (accessToken: string) => fetch(url, {
-      ...options,
-      cache: "no-store",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}`, ...(options?.headers || {}) },
-    });
-    let { data: { session } } = await supabase.auth.getSession();
-    if (!session?.access_token) throw new Error("La sesión venció. Volvé a ingresar.");
-    let response = await requestWithToken(session.access_token);
-    if (response.status === 401 || response.status === 403) {
-      const { data: { session: refreshedSession } } = await supabase.auth.refreshSession();
-      if (refreshedSession?.access_token) response = await requestWithToken(refreshedSession.access_token);
-    }
-    const payload = await response.json();
-    if (!response.ok) {
-      const apiError = payload?.error;
-      throw new Error(typeof apiError === "string" ? apiError : apiError?.message || apiError?.details || "No se pudo completar la operación.");
-    }
-    return payload;
-  }, []);
+  const authenticatedFetch = useMemo(() => createAuthenticatedRequester(supabase), []);
 
   const loadList = useCallback(async () => {
     setLoading(true);
@@ -314,7 +296,7 @@ export default function RendicionesPage() {
     }
   }, [authenticatedFetch]);
 
-  useEffect(() => { void loadFinancialAccounts(); }, [loadFinancialAccounts]);
+  // The detail payload includes accounts; load them separately only when needed.
 
   const hydrateDetail = useCallback((payload: DetailPayload) => {
     const settlement = payload.settlement;
