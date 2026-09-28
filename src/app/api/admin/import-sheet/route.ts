@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { fetchSpreadsheetCsv, setOrderStatusInSellerSheetByCode, createLogisticsCancellationReasonLookup } from '@/lib/googleSheets';
 import { splitOrderCodes } from '@/lib/orderSync';
+import { centralDeliveryOutcome } from '@/lib/deliveryAttemptSync';
 import { isDiscountProductLine, resolveImportedOrderChannel, sheetDiscountAmount } from '@/lib/wholesaleOrders';
 import {
   isJazminCentralCancellation,
@@ -829,29 +830,25 @@ export async function POST(request: Request) {
                   }
                 }
               }
-              let deliveryStatus = 'pendiente_ruteo';
-              if (newStatus === 'Entregado') deliveryStatus = 'entregado';
-              else if (newStatus === 'Cancelado') deliveryStatus = 'fallido';
-              
-              const updatePayloadDel: any = { status: deliveryStatus };
-              if (newStatus === 'Entregado') {
-                const rawEntDate = (row[2] || "").trim();
-                const initDelDate = parseDate(rawEntDate);
-                updatePayloadDel.delivery_date = initDelDate.toISOString();
+              // Generic rerouting/metadata must preserve historical outcomes.
+              const deliveryOutcome = centralDeliveryOutcome(dbOrder.status, newStatus);
+              if (deliveryOutcome) {
+                let deliveryUpdate = supabaseAdmin.from('deliveries')
+                  .update(deliveryOutcome).eq('order_id', dbOrder.id)
+                  .is('failure_reason', null).neq('status', 'fallido');
+                if (rawEntDate) {
+                  deliveryUpdate = deliveryUpdate.eq('delivery_date', parseDate(rawEntDate).toISOString().slice(0, 10));
+                } else {
+                  deliveryUpdate = deliveryUpdate.is('route_sheet_id', null);
+                }
+                const { error: errDelUpdate } = await deliveryUpdate;
+                if (errDelUpdate) {
+                  addLog(`❌ Error al actualizar entrega del pedido ${orderCode}: ${errDelUpdate.message}`);
+                }
               }
-              
-              const { error: errDelUpdate } = await supabaseAdmin
-                .from('deliveries')
-                .update(updatePayloadDel)
-                .eq('order_id', dbOrder.id);
-                
-              if (errDelUpdate) {
-                addLog(`❌ Error al actualizar entrega del pedido ${orderCode}: ${errDelUpdate.message}`);
-              } else {
-                addLog(`✅ Pedido ${orderCode} y entrega actualizados a '${newStatus}'.`);
-                totalUpdated++;
-                dbOrder.status = newStatus;
-              }
+              addLog(`✅ Pedido ${orderCode} actualizado a '${newStatus}'; se conserva el resultado de los recorridos salvo entrega/cancelación explícita.`);
+              totalUpdated++;
+              dbOrder.status = newStatus;
             }
           }
         }

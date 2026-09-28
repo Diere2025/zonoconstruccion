@@ -556,6 +556,7 @@ export default function RendicionesPage() {
   }, [expenses, hasDetailedCash, detailedCashTotal, countedCashManual, deliveriesTotal, changeFund, effectiveElectronicTotal, shortageRecovered]);
   const health = getSettlementHealth(totals.difference);
   const message = detail?.settlement.status === "confirmed" && detail.settlement.whatsapp_message
+    && Math.abs(Number(detail.settlement.difference || 0) - totals.difference) < 0.005
     ? detail.settlement.whatsapp_message
     : buildSettlementMessage({ routeDate: settlementDate, difference: totals.difference, changeFund, tollsTotal: totals.tollsTotal, extraordinaryTotal: totals.extraordinaryTotal });
   const movementRows = useMemo(() => buildTreasuryMovementRows({

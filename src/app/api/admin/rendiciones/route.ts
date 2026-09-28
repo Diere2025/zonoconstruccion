@@ -4,7 +4,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { fetchSpreadsheetValueRanges, fetchSpreadsheetValues } from "@/lib/googleSheets";
-import { isExcludedDeliveryStatus, settlementOrdersTotal } from "@/lib/settlementOrders";
+import { isExcludedDeliveryStatus, settlementOrdersTotal, settlementDeliveryStatus } from "@/lib/settlementOrders";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
@@ -347,7 +347,8 @@ export async function GET(request: Request) {
             const pendingBalance = order?.totals?.pending_balance !== undefined
               ? Number(order.totals.pending_balance)
               : (isPreviouslyPaid ? 0 : Number(order?.total_amount || 0));
-            const toCollectAmount = isExcludedDeliveryStatus(d.status || "") ? 0 : isPreviouslyPaid ? 0 : Math.max(0, pendingBalance);
+            const deliveryStatus = settlementDeliveryStatus(d.status, d.failure_reason);
+            const toCollectAmount = isExcludedDeliveryStatus(deliveryStatus) ? 0 : isPreviouslyPaid ? 0 : Math.max(0, pendingBalance);
 
             return {
               deliveryId: d.id,
@@ -359,7 +360,7 @@ export async function GET(request: Request) {
               stopOrder: d.delivery_order || 1,
               totalAmount: Number(order?.total_amount) || 0,
               paymentStatus: order?.payment_status || d.status || "",
-              deliveryStatus: d.status === "fallido" ? (d.failure_reason || "No entregado") : (d.status || ""),
+              deliveryStatus,
               isPreviouslyPaid,
               previouslyPaidAmount: depositAmount > 0
                 ? depositAmount
@@ -574,8 +575,8 @@ async function getEntregandoPreview(source: "entregando" | "entregados" = "entre
       const { data: deliveries, error: deliveriesError } = await supabaseAdmin.from("deliveries")
         .select("order_id, delivery_date, status, failure_reason").in("order_id", Array.from(byId.keys()));
       if (deliveriesError) throw deliveriesError;
-      const corrected = new Map((deliveries || []).filter(delivery => isExcludedDeliveryStatus(delivery.status || ""))
-        .map(delivery => [`${byId.get(delivery.order_id)}|${delivery.delivery_date}`, delivery.failure_reason || delivery.status]));
+      const corrected = new Map((deliveries || []).filter(delivery => isExcludedDeliveryStatus(settlementDeliveryStatus(delivery.status, delivery.failure_reason)))
+        .map(delivery => [`${byId.get(delivery.order_id)}|${delivery.delivery_date}`, settlementDeliveryStatus(delivery.status, delivery.failure_reason)]));
       for (const group of groupList) {
         for (const order of group.orders) {
           const status = corrected.get(`${order.orderCode.toUpperCase()}|${group.deliveryDate}`);
@@ -718,6 +719,7 @@ async function confirmEntregandoItems(actor: AuthorizedUser, items: any[]) {
         : normalizedStatus.includes("anulad") ? "anulado"
         : normalizedStatus.includes("cancelad") ? "cancelado"
         : normalizedStatus.includes("no entregad") ? "no entregado"
+        : /pendiente[_ ]ruteo/.test(normalizedStatus) ? "pendiente_ruteo"
         : normalizedStatus.includes("entregando") || normalizedStatus.includes("en recorrido") ? "en_recorrido"
         : "entregado";
       const excluded = isExcludedDeliveryStatus(deliveryStatus);
@@ -991,7 +993,7 @@ export async function POST(request: Request) {
       if (settlementError) throw settlementError;
       if (settlement.status !== "draft") return NextResponse.json({ error: "La rendición confirmada no se puede modificar." }, { status: 409 });
       const { data: delivery, error: deliveryError } = await supabaseAdmin.from("deliveries")
-        .select("id, route_sheet_id, order_id, status").eq("id", body.deliveryId).single();
+        .select("id, route_sheet_id, order_id, status, failure_reason").eq("id", body.deliveryId).single();
       if (deliveryError) throw deliveryError;
       if (!settlement.route_sheet_id || delivery.route_sheet_id !== settlement.route_sheet_id) return NextResponse.json({ error: "El pedido no pertenece a esta rendición." }, { status: 400 });
       if (!delivery.order_id) return NextResponse.json({ error: "El pedido no tiene un importe verificable." }, { status: 400 });
@@ -1013,7 +1015,7 @@ export async function POST(request: Request) {
           console.warn("[Rendiciones] No se pudo verificar el importe en la planilla:", sheetError);
         }
       }
-      const oldExcluded = isExcludedDeliveryStatus(delivery.status || "");
+      const oldExcluded = isExcludedDeliveryStatus(settlementDeliveryStatus(delivery.status, delivery.failure_reason));
       const newExcluded = isExcludedDeliveryStatus(body.deliveryStatus);
       const adjustment = oldExcluded === newExcluded ? 0 : newExcluded ? -amount : amount;
       const deliveriesTotal = Math.max(0, Number(settlement.deliveries_total || 0) + adjustment);

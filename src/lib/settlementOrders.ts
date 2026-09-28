@@ -1,6 +1,13 @@
 export function isExcludedDeliveryStatus(status: string): boolean {
   const normalized = status.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-  return /\b(postergad[oa]?|anulad[oa]?|cancelad[oa]?|no entregad[oa]?|fallid[oa]?)\b/.test(normalized);
+  return /\b(postergad[oa]?|anulad[oa]?|cancelad[oa]?|no entregad[oa]?|fallid[oa]?|pendiente[_ ]ruteo)\b/.test(normalized);
+}
+
+export function settlementDeliveryStatus(status?: string | null, failureReason?: string | null): string {
+  const normalized = String(status || "").trim().toLowerCase();
+  if (normalized === "entregado" || normalized === "entregada") return status || "Entregado";
+  if (isExcludedDeliveryStatus(failureReason || "")) return failureReason!;
+  return normalized === "fallido" ? (failureReason || "No entregado") : (status || "");
 }
 
 export function settlementOrderAmount(order: { toCollectAmount?: number; totalAmount?: number; deliveryStatus?: string }): number {
