@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import React, { useState, useEffect, useCallback, Suspense } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { 
   BarChart3, 
@@ -49,6 +49,7 @@ import {
   Boxes
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { loadUserRoleProfile, type UserRoleProfile } from "@/lib/userRoleProfile";
 
 interface AdminLayoutProps {
   children: React.ReactNode;
@@ -104,6 +105,7 @@ interface ImpersonationUser {
 }
 
 // In-memory module cache to eliminate flashing across navigation
+let cachedIdentityUserId: string | null = null;
 let cachedUserRole: UserRole | null = null;
 let cachedUserRoles: UserRole[] | null = null;
 let cachedIsRestricted: boolean | null = null;
@@ -111,12 +113,14 @@ let cachedUserEmail: string | null = null;
 let cachedCanUseWholesale: boolean | null = null;
 
 function clearCachedIdentity() {
+  cachedIdentityUserId = null;
   cachedUserRole = null;
   cachedUserRoles = null;
   cachedIsRestricted = null;
   cachedUserEmail = null;
   cachedCanUseWholesale = null;
   if (typeof window !== 'undefined') {
+    sessionStorage.removeItem('zono_user_id');
     sessionStorage.removeItem('zono_user_email');
     sessionStorage.removeItem('zono_user_role');
     sessionStorage.removeItem('zono_user_roles');
@@ -127,8 +131,13 @@ function clearCachedIdentity() {
 }
 
 export function AdminLayout({ children }: AdminLayoutProps) {
+  return <Suspense fallback={<div className="p-4 text-sm text-slate-500">Cargando navegación…</div>}><AdminLayoutContent>{children}</AdminLayoutContent></Suspense>;
+}
+
+function AdminLayoutContent({ children }: AdminLayoutProps) {
   const pathname = usePathname();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
     if (typeof window !== 'undefined') {
       if (window.innerWidth < 1024) return false;
@@ -151,15 +160,8 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     return "";
   });
 
-  const [isRoleLoaded, setIsRoleLoaded] = useState<boolean>(() => {
-    if (typeof window !== 'undefined') {
-      return cachedUserRoles !== null || (
-        sessionStorage.getItem('zono_role_loaded') === 'true' &&
-        sessionStorage.getItem('zono_user_roles') !== null
-      );
-    }
-    return false;
-  });
+  // Route guards wait until the cached identity has been verified.
+  const [isRoleLoaded, setIsRoleLoaded] = useState(false);
 
   const [userRole, setUserRole] = useState<UserRole>(() => {
     if (typeof window !== 'undefined') {
@@ -308,12 +310,31 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       }
     }
 
+    let disposed = false;
+    let requestNumber = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let retryDelay = 1000;
+
     async function getUserDetails() {
+      const request = ++requestNumber;
       try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
+        const { data: { user }, error } = await supabase.auth.getUser();
+        if (disposed || request !== requestNumber) return;
+        if (error) throw error;
+        if (!user) return;
+
+        const storedId = cachedIdentityUserId || sessionStorage.getItem('zono_user_id');
+        const storedEmail = cachedUserEmail || sessionStorage.getItem('zono_user_email');
+        const sameIdentity = storedId ? storedId === user.id
+          : storedEmail?.toLowerCase() === user.email?.toLowerCase();
+        if (!sameIdentity) {
+          clearCachedIdentity();
+          setUserRoles([]);
+          setIsRoleLoaded(false);
+          setCanUseWholesale(false);
+          setIsWholesalePermissionLoaded(false);
+        } else if (sessionStorage.getItem('zono_role_loaded') === 'true') {
           setIsRoleLoaded(true);
-          return;
         }
 
         const email = user.email || "";
@@ -327,77 +348,57 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                           emailLower.includes('diego') || 
                           emailLower === 'caroibarra.93@gmail.com';
 
-        let detectedRole: UserRole = isAdminUser ? 'admin' : 'seller';
-        let detectedRoles = normalizeUserRoles(
-          detectedRole,
-          user.user_metadata?.roles
+        const selectProfile = () => supabase.from('sellers')
+          .select('id, full_name, role, roles, seller_type, can_sell_wholesale');
+        const seller = await loadUserRoleProfile<UserRoleProfile>(user,
+          id => selectProfile().eq('id', id).maybeSingle(),
+          email => selectProfile().ilike('email', email).maybeSingle());
+        if (disposed || request !== requestNumber) return;
+        const { data: { session: activeSession } } = await supabase.auth.getSession();
+        if (disposed || request !== requestNumber || activeSession?.user.id !== user.id) return;
+        if (!seller.role || !isUserRole(seller.role.toLowerCase())) {
+          throw new Error('El perfil no tiene un rol válido.');
+        }
+
+        let detectedRole = seller.role.toLowerCase() as UserRole;
+        const detectedRoles = normalizeUserRoles(detectedRole, seller.roles);
+        if (detectedRoles.includes('admin')) {
+          detectedRole = 'admin';
+          isAdminUser = true;
+        }
+
+        const nameLower = (seller?.full_name || "").toLowerCase();
+        const detectedCanUseWholesale = isAdminUser || seller?.can_sell_wholesale === true || seller?.seller_type === 'mayorista' || seller?.seller_type === 'ambos';
+        const detectedRestricted = !isAdminUser && (
+          emailLower.includes("jazmin") ||
+          emailLower.includes("jazmín") ||
+          nameLower.includes("jazmin") ||
+          nameLower.includes("jazmín") ||
+          emailLower.includes("ludmila") ||
+          emailLower.includes("ludmilakrenz") ||
+          nameLower.includes("ludmila") ||
+          emailLower.includes("facundo") ||
+          emailLower.includes("facundopaz") ||
+          emailLower === "anabel.fontan@zono.com.ar" ||
+          nameLower.includes("facundo") ||
+          user.id === "13430e05-b61a-4a3f-9fc3-152d377c4b0c" ||   // Jazmin
+          user.id === "54b2d319-8f6f-47ff-b794-b7731978410a" ||   // Ludmila
+          user.id === "8207801b-b6cb-48cc-af0f-d2f9f2c98032" ||   // Ludmila Old
+          user.id === "3820a0fe-bb0a-4a84-ad85-79e49868cad7"     // Facundo Paz
         );
-
-        // Check user metadata first for instant role detection
-        const metaRole = (user.user_metadata?.role || '').toLowerCase();
-        if (metaRole) {
-          if (isUserRole(metaRole)) detectedRole = metaRole;
-          if (metaRole === 'admin') isAdminUser = true;
-        }
-        detectedRoles = normalizeUserRoles(detectedRole, user.user_metadata?.roles);
-
-        let detectedRestricted = false;
-        let detectedCanUseWholesale = isAdminUser;
-
-        try {
-          const { data: seller } = await supabase
-            .from('sellers')
-            .select('id, full_name, role, roles, seller_type, can_sell_wholesale')
-            .or(`id.eq.${user.id},email.ilike.${emailLower}`)
-            .maybeSingle();
-
-          if (seller?.role) {
-            const roleLower = seller.role.toLowerCase();
-            if (isUserRole(roleLower)) detectedRole = roleLower;
-            if (roleLower === 'admin') {
-              isAdminUser = true;
-            }
-          }
-          detectedRoles = normalizeUserRoles(detectedRole, seller?.roles);
-          if (detectedRoles.includes('admin')) {
-            detectedRole = 'admin';
-            isAdminUser = true;
-          }
-
-          const nameLower = (seller?.full_name || "").toLowerCase();
-          detectedCanUseWholesale = isAdminUser || seller?.can_sell_wholesale === true || seller?.seller_type === 'mayorista' || seller?.seller_type === 'ambos';
-          detectedRestricted = !isAdminUser && (
-            emailLower.includes("jazmin") || 
-            emailLower.includes("jazmín") || 
-            nameLower.includes("jazmin") || 
-            nameLower.includes("jazmín") || 
-            emailLower.includes("ludmila") ||
-            emailLower.includes("ludmilakrenz") ||
-            nameLower.includes("ludmila") ||
-            emailLower.includes("facundo") ||
-            emailLower.includes("facundopaz") ||
-            emailLower === "anabel.fontan@zono.com.ar" ||
-            nameLower.includes("facundo") ||
-            user.id === "13430e05-b61a-4a3f-9fc3-152d377c4b0c" ||   // Jazmin
-            user.id === "54b2d319-8f6f-47ff-b794-b7731978410a" ||   // Ludmila
-            user.id === "8207801b-b6cb-48cc-af0f-d2f9f2c98032" ||   // Ludmila Old
-            user.id === "3820a0fe-bb0a-4a84-ad85-79e49868cad7"     // Facundo Paz
-          );
-        } catch (e) {
-          console.warn("Error checking seller role in AdminLayout:", e);
-        }
-
         setUserRole(detectedRole);
         setUserRoles(detectedRoles);
         setIsRestrictedSeller(detectedRestricted);
         setCanUseWholesale(detectedCanUseWholesale);
         setIsWholesalePermissionLoaded(true);
+        cachedIdentityUserId = user.id;
         cachedUserRole = detectedRole;
         cachedUserRoles = detectedRoles;
         cachedIsRestricted = detectedRestricted;
         cachedCanUseWholesale = detectedCanUseWholesale;
 
         if (typeof window !== 'undefined') {
+          sessionStorage.setItem('zono_user_id', user.id);
           sessionStorage.setItem('zono_user_email', email);
           sessionStorage.setItem('zono_user_role', detectedRole);
           sessionStorage.setItem('zono_user_roles', JSON.stringify(detectedRoles));
@@ -405,12 +406,29 @@ export function AdminLayout({ children }: AdminLayoutProps) {
           sessionStorage.setItem('zono_can_use_wholesale', detectedCanUseWholesale ? 'true' : 'false');
           sessionStorage.setItem('zono_role_loaded', 'true');
         }
-      } finally {
         setIsRoleLoaded(true);
+      } catch (error) {
+        if (disposed || request !== requestNumber) return;
+        console.warn("No se pudieron actualizar los permisos; se conserva el perfil verificado:", error);
+        retryTimer = setTimeout(() => { void getUserDetails(); }, retryDelay);
+        retryDelay = Math.min(retryDelay * 2, 30000);
       }
     }
 
-    getUserDetails();
+    void getUserDetails();
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(event => {
+      if (!['SIGNED_IN', 'SIGNED_OUT', 'USER_UPDATED'].includes(event)) return;
+      requestNumber++;
+      setIsRoleLoaded(false);
+      clearTimeout(retryTimer);
+      // Keep database requests outside Supabase's synchronous auth callback.
+      retryTimer = setTimeout(() => { void getUserDetails(); }, 0);
+    });
+    return () => {
+      disposed = true;
+      clearTimeout(retryTimer);
+      subscription.unsubscribe();
+    };
   }, [pathname]);
 
   const hasRole = useCallback((role: UserRole) => userRoles.includes(role), [userRoles]);
@@ -456,7 +474,9 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   useEffect(() => {
     if (!isRoleLoaded) return;
     const search = typeof window !== 'undefined' ? window.location.search : '';
-    if (isSpecializedOperator && pathname && !canAccessSpecializedRoute(pathname, search)) {
+    if (pathname === '/admin/finanzas/eerr' && !isAdminRole) {
+      router.replace(hasRole('administracion') ? '/admin/finanzas' : '/vendedores');
+    } else if (isSpecializedOperator && pathname && !canAccessSpecializedRoute(pathname, search)) {
       const fallback = hasRole('compras') ? '/admin/compras?tab=purchase_orders' : '/admin/cobros-mp';
       router.replace(fallback);
     } else if (hasRole('seller') && !isAdminRole && pathname === '/admin/cobros-mp') {
@@ -481,7 +501,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     ) {
       router.replace('/vendedores');
     }
-  }, [isRoleLoaded, userRole, userRoles, isAdminRole, isSpecializedOperator, canAccessSpecializedRoute, hasRole, isRestrictedSeller, canUseWholesale, isWholesalePermissionLoaded, pathname, router]);
+  }, [isRoleLoaded, userRole, userRoles, isAdminRole, isSpecializedOperator, canAccessSpecializedRoute, hasRole, isRestrictedSeller, canUseWholesale, isWholesalePermissionLoaded, pathname, searchParams, router]);
 
   const destinationForRole = (role?: string) => {
     if (role === 'admin') return '/admin/dashboard';
@@ -648,10 +668,18 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       links: [
         { name: "Rendiciones de Recorridos", href: "/admin/rendiciones", icon: ClipboardList, allowedRoles: ['admin', 'administracion'] },
         { name: "Caja Diaria", href: "/admin/caja", icon: Wallet, adminOnly: true },
-        { name: "Estado de Resultados (EERR)", href: "/admin/finanzas/eerr", icon: FileSpreadsheet, adminOnly: true },
-        { name: "Administración y Finanzas", href: "/admin/finanzas", icon: Coins, adminOnly: true },
+        { name: "Movimientos", href: "/admin/finanzas", icon: Coins, allowedRoles: ['admin', 'administracion'] },
+        { name: "Cuentas y saldos", href: "/admin/finanzas?tab=accounts", icon: Wallet, allowedRoles: ['admin', 'administracion'] },
+        { name: "Cuentas corrientes", href: "/admin/finanzas?tab=cc", icon: BookOpen, allowedRoles: ['admin', 'administracion'] },
+        { name: "Comprobantes a validar", href: "/admin/finanzas?tab=validations", icon: ShieldCheck, allowedRoles: ['admin', 'administracion'] },
         { name: "Comprobantes de Tesorería", href: "/admin/comprobantes-tesoreria", icon: FileText, allowedRoles: ['admin', 'administracion'] },
         { name: "Comisiones de Vendedores", href: "/admin/comisiones", icon: Coins, adminOnly: true }
+      ]
+    },
+    {
+      title: "Dirección General",
+      links: [
+        { name: "Estado de Resultados (EERR)", href: "/admin/finanzas/eerr", icon: FileSpreadsheet, adminOnly: true }
       ]
     },
     {
@@ -721,10 +749,15 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     const urlParts = path.split('?');
     const pathOnly = urlParts[0].replace(/\/$/, "");
     const queryOnly = urlParts[1];
+
+    if (pathOnly === "/admin/finanzas") {
+      const currentTab = searchParams.get('tab');
+      const tab = currentTab === 'accounts' || currentTab === 'cc' || currentTab === 'validations' ? currentTab : 'flow';
+      const linkTab = new URLSearchParams(queryOnly || '').get('tab') || 'flow';
+      return cleanPathname === pathOnly && tab === linkTab;
+    }
     
     if (typeof window !== 'undefined') {
-      const searchParams = new URLSearchParams(window.location.search);
-
       if (cleanPathname === "/vendedores/pedidos") {
         const currentClientType = searchParams.get('client_type') || 'minoristas';
         const currentTab = searchParams.get('tab') || 'list';
@@ -768,7 +801,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         break;
       }
     }
-  }, [pathname]);
+  }, [pathname, searchParams]);
 
   const isSectionCollapsed = (sectionTitle: string, visibleLinks: SidebarLink[]) => {
     // 1. Si el usuario clickeó manualmente para abrir o cerrar esta sección durante su sesión
@@ -814,7 +847,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
 
   const breadcrumbs = getBreadcrumbs();
   const userInitial = userEmail ? userEmail.charAt(0).toUpperCase() : "U";
-  const roleLabel = userRoles.map(role => ({
+  const roleLabel = !isRoleLoaded ? 'Verificando permisos…' : userRoles.map(role => ({
     admin: 'Administrador',
     logistica: 'Logística',
     compras: 'Compras',

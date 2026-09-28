@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { fetchSpreadsheetValues } from '@/lib/googleSheets';
 import { createClient } from '@supabase/supabase-js';
+import { requireFinanceAdmin } from '@/lib/financeAdminAccess';
 
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
@@ -46,6 +47,8 @@ function parsePercent(val: any): number {
 }
 
 export async function POST(request: Request) {
+  const denied = await requireFinanceAdmin(request);
+  if (denied) return NextResponse.json({ success: false, error: denied.error }, { status: denied.status, headers: NO_CACHE_HEADERS });
   cache = null;
   return NextResponse.json(
     { success: true, message: 'Caché de EERR invalidada correctamente', timestamp: new Date().toISOString() },
@@ -60,7 +63,10 @@ export async function POST(request: Request) {
 
 export async function GET(request: Request) {
   try {
+    const denied = await requireFinanceAdmin(request);
+    if (denied) return NextResponse.json({ success: false, error: denied.error }, { status: denied.status, headers: NO_CACHE_HEADERS });
     const { searchParams } = new URL(request.url);
+    if (searchParams.get('action') === 'access') return NextResponse.json({ success: true }, { headers: NO_CACHE_HEADERS });
     const forceRefresh = searchParams.get('refresh') === 'true' || searchParams.get('webhook') === 'true';
 
     const now = Date.now();

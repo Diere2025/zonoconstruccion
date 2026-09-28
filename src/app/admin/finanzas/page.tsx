@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, Suspense } from "react";
 import { treasuryDateTime, treasuryToday } from "@/lib/treasuryTransactionTime";
 import { supabase } from "@/lib/supabase";
 import { 
@@ -11,13 +11,11 @@ import {
   Loader2, 
   RefreshCw, 
   Search, 
-  Download, 
   Coins, 
   ArrowRightLeft, 
   ChevronLeft, 
   ChevronRight, 
   ChevronDown,
-  TrendingUp, 
   Trash2, 
   X,
   Lock,
@@ -28,12 +26,15 @@ import {
   CheckCircle2,
   AlertTriangle,
   ShieldCheck,
-  PieChart
+  MoreHorizontal
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { formatPrice, formatDateDDMMYYYY } from "@/lib/utils";
-import EstadoResultadosView from "@/components/finanzas/EstadoResultadosView";
+import { useSearchParams, useRouter } from "next/navigation";
+import FinanceToolbar, { type QuickMovement, type OptionalFinanceColumn } from "@/components/finanzas/FinanceToolbar";
 import FinancialConceptManager from "@/components/finanzas/FinancialConceptManager";
+import SearchableSelect from "@/components/ui/SearchableSelect";
+import { financialAccountLabel } from "@/lib/financialAccountLabels";
 import type { FinancialConcept } from "@/lib/financialConcepts";
 
 
@@ -411,6 +412,7 @@ function DateInput({
   className?: string;
 }) {
   const inputRef = React.useRef<HTMLInputElement>(null);
+  const inputId = React.useId();
 
   const displayValue = React.useMemo(() => {
     if (!value) return "DD/MM/AAAA";
@@ -424,7 +426,7 @@ function DateInput({
   return (
     <div className="space-y-1">
       {label && (
-        <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none">
+        <label htmlFor={inputId} className="block text-xs font-semibold text-slate-500">
           {label}
         </label>
       )}
@@ -432,8 +434,8 @@ function DateInput({
         onClick={() => {
           if (inputRef.current) {
             try {
-              if (typeof (inputRef.current as any).showPicker === 'function') {
-                (inputRef.current as any).showPicker();
+              if (typeof inputRef.current.showPicker === 'function') {
+                inputRef.current.showPicker();
               } else {
                 inputRef.current.focus();
               }
@@ -442,13 +444,15 @@ function DateInput({
             }
           }
         }}
-        className={`relative ${className || "flex items-center justify-between px-3 py-1.5 rounded-xl border border-slate-200 font-bold text-xs bg-slate-50 text-slate-700 cursor-pointer hover:bg-white hover:border-slate-300 transition-colors"}`}
+        className={`relative flex items-center justify-between ${className || "px-3 py-1.5 rounded-xl border border-slate-200 font-bold text-xs bg-slate-50 text-slate-700 cursor-pointer hover:bg-white hover:border-slate-300 transition-colors"}`}
       >
         <span className="tabular-nums select-none">{displayValue}</span>
         <Calendar className="w-3.5 h-3.5 text-slate-400 ml-2 pointer-events-none shrink-0" />
         <input
           ref={inputRef}
+          id={inputId}
           type="date"
+          aria-label={label || 'Fecha'}
           required={required}
           value={value}
           onChange={(e) => onChange(e.target.value)}
@@ -460,7 +464,35 @@ function DateInput({
 }
 
 export default function AdminFinanzasPage() {
-  const [activeTab, setActiveTab] = useState<'flow' | 'accounts' | 'cc' | 'validations' | 'eerr'>('flow');
+  return <Suspense fallback={<div className="p-4 text-sm text-slate-500">Cargando finanzas…</div>}><FinanceWorkspace /></Suspense>;
+}
+
+function FinanceWorkspace() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const tab = searchParams.get("tab");
+  const activeTab = tab === "accounts" || tab === "cc" || tab === "validations" ? tab : "flow";
+  useEffect(() => { if (tab === "eerr") router.replace("/admin/finanzas/eerr"); }, [tab, router]);
+  const [showSummary, setShowSummary] = useState(false);
+  const [optionalColumns, setOptionalColumns] = useState<Record<OptionalFinanceColumn, boolean>>({ subcategory: false, efe: false, notes: false });
+  const [expandedTransactions, setExpandedTransactions] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    try {
+      setShowSummary(localStorage.getItem("zono_finanzas_summary") === "true");
+      const saved = JSON.parse(localStorage.getItem("zono_finanzas_columns") || "{}");
+      setOptionalColumns({ subcategory: saved.subcategory === true, efe: saved.efe === true, notes: saved.notes === true });
+    } catch { /* Preferences are optional when storage is unavailable. */ }
+  }, []);
+  const toggleSummary = () => setShowSummary(value => {
+    try { localStorage.setItem("zono_finanzas_summary", String(!value)); } catch {}
+    return !value;
+  });
+  const toggleColumn = (column: OptionalFinanceColumn) => setOptionalColumns(value => {
+    const next = { ...value, [column]: !value[column] };
+    try { localStorage.setItem("zono_finanzas_columns", JSON.stringify(next)); } catch {}
+    return next;
+  });
+  const columnCount = 8 + Object.values(optionalColumns).filter(Boolean).length;
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -549,7 +581,7 @@ export default function AdminFinanzasPage() {
   const [filterCostCenterId, setFilterCostCenterId] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 20;
+  const [itemsPerPage, setItemsPerPage] = useState(50);
 
   // Nuevos estados para Vinculaciones y Nómina
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -2197,7 +2229,7 @@ export default function AdminFinanzasPage() {
   const paginatedTransactions = useMemo(() => {
     const startIndex = (currentPage - 1) * itemsPerPage;
     return filteredTransactions.slice(startIndex, startIndex + itemsPerPage);
-  }, [filteredTransactions, currentPage]);
+  }, [filteredTransactions, currentPage, itemsPerPage]);
 
   const financialAccountGroups = useMemo(() => {
     const groups: Array<{
@@ -2219,6 +2251,9 @@ export default function AdminFinanzasPage() {
   }, [financialAccounts]);
 
   const totalPages = Math.ceil(filteredTransactions.length / itemsPerPage);
+  useEffect(() => {
+    setCurrentPage(page => Math.min(page, Math.max(1, totalPages)));
+  }, [totalPages]);
 
   // Exportar a CSV
   const handleExportCSV = () => {
@@ -2266,8 +2301,61 @@ export default function AdminFinanzasPage() {
     document.body.removeChild(link);
   };
 
+  const openQuickMovement = (kind: QuickMovement) => {
+    setEditingTx(null);
+    setDuplicatingTx(false);
+    setTxType("egreso");
+    setTxAccountId(financialAccounts.find(a => a.is_active && a.currency === "ARS")?.id || financialAccounts.find(a => a.is_active)?.id || "");
+    setTxCostCenterId("");
+    setTxCreatedAt(treasuryToday());
+    setTxCategory("Gastos Operativos");
+    setTxSubCategory("");
+    setTxEfeCategory("");
+    setTxAmount("");
+    setTxConcept("");
+    setConceptSearch("");
+    setIsConceptSearchOpen(false);
+    setSelectedConcept(null);
+    setTxFinancialConceptId(null);
+    setFinancialTypeNeedsReview(false);
+    setTxNotes("");
+    setTxRouteSheetId("");
+    setSelectedEmployeeId("");
+    setSelectedSupplierId("");
+    setSelectedPurchaseId("");
+    setSelectedOrderId("");
+    setSelectedOrder(null);
+    setOrderSearchQuery("");
+    setOrderSearchResults([]);
+    setLinkToOrder(false);
+    setLinkToPurchase(kind === "proveedor");
+    const preset = kind === "eventuales" ? { category: "Sueldos", subcategory: "Sueldos Eventuales", concept: "Personal eventual" }
+      : kind === "adelanto" ? { category: "Sueldos", subcategory: "Adelanto de Sueldo", concept: "Adelanto de sueldo" }
+      : kind === "proveedor" ? { category: "Proveedores", subcategory: "Pago Factura", concept: "Pago a proveedor" }
+      : kind === "gasto" ? { category: "Gastos Operativos", subcategory: "", concept: "" } : null;
+    if (preset) {
+      // Only exact classification matches from the active catalog may supply accounting fields.
+      const candidates = financialConcepts.filter(item => item.is_active && item.movement_type === "Egreso"
+        && normalizeConceptSearch(item.category) === normalizeConceptSearch(preset.category)
+        && normalizeConceptSearch(item.sub_category) === normalizeConceptSearch(preset.subcategory));
+      const concept = candidates.find(item => normalizeConceptSearch(item.concept) === normalizeConceptSearch(preset.concept))
+        || (preset.subcategory && candidates.length === 1 ? candidates[0] : undefined);
+      if (concept) selectFinancialConcept(concept);
+      else {
+        setTxCategory(preset.category);
+        setTxSubCategory(preset.subcategory);
+        setTxConcept(preset.concept);
+      }
+    }
+    setIsTxModalOpen(true);
+  };
+  const openQuickTransfer = () => {
+    setTfSourceId(""); setTfDestId(""); setTfAmount(""); setTfConcept(""); setTfNotes("");
+    setTfDate(treasuryToday()); setIsTransferModalOpen(true);
+  };
+
   return (
-    <div className="space-y-6 w-full pb-12">
+    <div className="space-y-3 w-full pb-6">
       {transactionNotice && (
         <div className="fixed right-5 top-20 z-[70] flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-black text-emerald-800 shadow-lg pointer-events-none animate-in fade-in slide-in-from-top-2 duration-200">
           <CheckCircle2 className="h-4 w-4 text-emerald-600" />
@@ -2275,82 +2363,16 @@ export default function AdminFinanzasPage() {
         </div>
       )}
 
-      {/* Header */}
-      <div className="bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <h1 className="text-lg font-black text-slate-900 tracking-tight flex items-center gap-2 uppercase">
-            <Coins className="w-5 h-5 text-brand-600 animate-pulse" /> Administración y Finanzas (Flujo Caja)
-          </h1>
-          <p className="text-xs text-slate-500 font-bold mt-1">
-            Visualizá el flujo consolidado de fondos, conciliá cuentas corrientes y controlá los saldos de la empresa.
-          </p>
-        </div>
-
-        {/* Tab switcher */}
-        <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 overflow-x-auto max-w-full scrollbar-none shrink-0">
-          <button
-            onClick={() => setActiveTab('flow')}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
-              activeTab === 'flow'
-                ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <TrendingUp className="w-3.5 h-3.5" /> Flujo General
-          </button>
-          <button
-            onClick={() => setActiveTab('accounts')}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
-              activeTab === 'accounts'
-                ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <Wallet className="w-3.5 h-3.5" /> Cuentas y Saldos
-          </button>
-          <button
-            onClick={() => setActiveTab('cc')}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
-              activeTab === 'cc'
-                ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <ArrowRightLeft className="w-3.5 h-3.5" /> Cuentas Corrientes
-          </button>
-          <button
-            onClick={() => setActiveTab('validations')}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider transition-all relative ${
-              activeTab === 'validations'
-                ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <FileText className="w-3.5 h-3.5" /> Comprobantes a Validar
-            {validationOrders.length > 0 && (
-              <span className="ml-1 bg-rose-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-[9px] font-black animate-pulse">
-                {validationOrders.length}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={() => setActiveTab('eerr')}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
-              activeTab === 'eerr'
-                ? 'bg-indigo-600 text-white shadow-sm'
-                : 'text-indigo-600 dark:text-indigo-400 hover:text-indigo-900 bg-indigo-50/60'
-            }`}
-          >
-            <PieChart className="w-3.5 h-3.5" /> Estado de Resultados
-          </button>
-        </div>
+      <div className="flex items-center gap-2 py-1">
+        <Coins className="h-4 w-4 text-brand-600" />
+        <h1 className="text-lg font-bold tracking-tight text-slate-900">{activeTab === "flow" ? "Movimientos" : activeTab === "accounts" ? "Cuentas y saldos" : activeTab === "cc" ? "Cuentas corrientes" : "Comprobantes a validar"}</h1>
       </div>
 
       {/* =========================================================================
           TAB 1: FLUJO DE CAJA (MOVIMIENTOS GENERALES)
           ========================================================================= */}
       {activeTab === 'flow' && (
-        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-200">
+        <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-200">
           {(initDataError || transactionsError) && (
             <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-900">
               <span>{transactionsError ? `${transactionsError} Los importes no están disponibles hasta que se restablezca la conexión.` : `${initDataError} Algunas opciones pueden faltar hasta que se restablezca la conexión.`}</span>
@@ -2358,11 +2380,29 @@ export default function AdminFinanzasPage() {
             </div>
           )}
           
+          <FinanceToolbar
+            search={searchTerm} onSearch={value => { setSearchTerm(value); setCurrentPage(1); }}
+            period={presetRange} onPeriod={value => { if (value === "personalizado") setPresetRange(value); else handlePresetChange(value); setCurrentPage(1); }}
+            startDate={startDate} endDate={endDate}
+            onStartDate={value => { setStartDate(value); setCurrentPage(1); }} onEndDate={value => { setEndDate(value); setCurrentPage(1); }}
+            account={filterAccountId} onAccount={value => { setFilterAccountId(value); setCurrentPage(1); }} accounts={financialAccounts}
+            type={filterType} onType={value => { setFilterType(value); setCurrentPage(1); }}
+            category={filterCategory} onCategory={value => { setFilterCategory(value); setCurrentPage(1); }} categories={categoriesList}
+            unit={filterCostCenterId} onUnit={value => { setFilterCostCenterId(value); setCurrentPage(1); }} units={costCenters}
+            onClear={() => { setSearchTerm(""); setFilterAccountId("all"); setFilterType("all"); setFilterCategory("all"); setFilterCostCenterId("all"); handlePresetChange("30dias"); setCurrentPage(1); }}
+            onRefresh={() => { void loadTransactions(); }} onNew={openQuickMovement} onTransfer={openQuickTransfer}
+            onConcepts={() => setIsConceptManagerOpen(true)} onExport={handleExportCSV} onSync={handleSyncFromSheets}
+            syncing={isSyncing} disabled={Boolean(initDataError && financialAccounts.length === 0)}
+            showSummary={showSummary} onSummary={toggleSummary} columns={optionalColumns} onColumn={toggleColumn}
+          />
+
           {/* Tarjetas KPI Financieros */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {showSummary && <div className="rounded-xl border border-slate-200/70 bg-white p-3 shadow-sm">
+            <p className="mb-2 text-xs font-semibold text-slate-500">Resumen de movimientos filtrados · {formatDateDDMMYYYY(startDate)} al {formatDateDDMMYYYY(endDate)}</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Caja Pesos (ARS) */}
-            <div className="bg-white border border-slate-200/60 rounded-2xl p-5 shadow-sm space-y-4">
-              <div className="flex justify-between items-center pb-2.5 border-b border-slate-100">
+            <div className="space-y-2">
+              <div className="flex justify-between items-center pb-1.5 border-b border-slate-100">
                 <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Totalizadores Pesos (ARS)</span>
                 <span className="bg-brand-50 text-brand-700 px-2 py-0.5 rounded text-[8px] font-black uppercase">ARS $</span>
               </div>
@@ -2389,8 +2429,8 @@ export default function AdminFinanzasPage() {
             </div>
 
             {/* Caja Dólares (USD) */}
-            <div className="bg-white border border-slate-200/60 rounded-2xl p-5 shadow-sm space-y-4">
-              <div className="flex justify-between items-center pb-2.5 border-b border-slate-100">
+            <div className="space-y-2">
+              <div className="flex justify-between items-center pb-1.5 border-b border-slate-100">
                 <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Totalizadores Dólares (USD)</span>
                 <span className="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded text-[8px] font-black uppercase">USD US$</span>
               </div>
@@ -2415,190 +2455,8 @@ export default function AdminFinanzasPage() {
                 </div>
               </div>
             </div>
-          </div>
-
-          {/* Filtros */}
-          <div className="bg-white p-4 rounded-2xl border border-slate-200/60 shadow-sm space-y-4">
-            <div className="flex flex-col lg:flex-row gap-4 items-stretch lg:items-end justify-between">
-              
-              <div className="flex flex-wrap items-end gap-3 flex-1">
-                <div className="space-y-1">
-                  <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none">Período</label>
-                  <div className="flex bg-slate-50 rounded-xl border border-slate-200 p-0.5">
-                    {[
-                      { id: 'hoy', label: 'Hoy' },
-                      { id: '7dias', label: '7D' },
-                      { id: '30dias', label: '30D' },
-                      { id: 'mes', label: 'Este Mes' },
-                      { id: 'año', label: 'Este Año' }
-                    ].map(p => (
-                      <button
-                        key={p.id}
-                        type="button"
-                        onClick={() => handlePresetChange(p.id)}
-                        className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all ${
-                          presetRange === p.id 
-                            ? 'bg-white text-slate-900 border border-slate-200 shadow-sm' 
-                            : 'text-slate-500 hover:text-slate-800'
-                        }`}
-                      >
-                        {p.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <DateInput
-                  label="Desde"
-                  value={startDate}
-                  onChange={val => { setStartDate(val); setPresetRange("personalizado"); setCurrentPage(1); }}
-                />
-
-                <DateInput
-                  label="Hasta"
-                  value={endDate}
-                  onChange={val => { setEndDate(val); setPresetRange("personalizado"); setCurrentPage(1); }}
-                />
-
-                <button
-                  onClick={() => loadTransactions()}
-                  className="p-2 border border-slate-200 rounded-xl hover:bg-slate-50 text-slate-400 hover:text-slate-600 transition-colors shrink-0"
-                  title="Recargar datos"
-                >
-                  <RefreshCw className="w-4 h-4" />
-                </button>
-              </div>
-
-              {/* Botonera de Inserción */}
-              <div className="flex gap-2">
-                <Button
-                  onClick={() => setIsConceptManagerOpen(true)}
-                  className="flex items-center gap-1.5 px-4 py-2 border border-slate-200 bg-white text-slate-700 font-black text-xs uppercase tracking-wider rounded-xl hover:bg-slate-50"
-                >
-                  <Search className="w-4 h-4" /> Administrar conceptos
-                </Button>
-                <Button
-                  disabled={Boolean(initDataError && financialAccounts.length === 0)}
-                  onClick={() => {
-                    setEditingTx(null);
-                    setDuplicatingTx(false);
-                    setTxAmount("");
-                    setTxConcept("");
-                    setConceptSearch("");
-                    setSelectedConcept(null);
-                    setTxFinancialConceptId(null);
-                    setFinancialTypeNeedsReview(false);
-                    setTxSubCategory("");
-                    setTxEfeCategory("");
-                    setTxNotes("");
-                    setTxRouteSheetId("");
-                    setSelectedEmployeeId("");
-                    setSelectedSupplierId("");
-                    setSelectedPurchaseId("");
-                    setSelectedOrderId("");
-                    setSelectedOrder(null);
-                    setOrderSearchQuery("");
-                    setOrderSearchResults([]);
-                    setLinkToOrder(false);
-                    setLinkToPurchase(false);
-                    setIsTxModalOpen(true);
-                  }}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-md shadow-brand-600/20"
-                >
-                  <PlusCircle className="w-4 h-4" /> Cargar Movimiento
-                </Button>
-                <Button
-                  onClick={handleExportCSV}
-                  className="flex items-center gap-1.5 px-4 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 font-black text-xs uppercase tracking-wider rounded-xl shadow-sm"
-                >
-                  <Download className="w-4 h-4 text-slate-400" /> Exportar CSV
-                </Button>
-                <Button
-                  onClick={handleSyncFromSheets}
-                  disabled={isSyncing}
-                  className="flex items-center gap-1.5 px-4 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 font-black text-xs uppercase tracking-wider rounded-xl shadow-sm disabled:opacity-50"
-                >
-                  <RefreshCw className={`w-4 h-4 text-brand-500 ${isSyncing ? 'animate-spin' : ''}`} /> Sincronizar Planillas
-                </Button>
-              </div>
             </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-6 gap-4 pt-3 border-t border-slate-100">
-              {/* Buscador */}
-              <div className="space-y-1 md:col-span-2">
-                <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest leading-none">Buscar movimiento</label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    placeholder="Concepto, subcategoría, notas..."
-                    value={searchTerm}
-                    onChange={e => { setSearchTerm(e.target.value); setCurrentPage(1); }}
-                    className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-slate-200 font-bold text-xs bg-slate-50 text-slate-700 focus:outline-none placeholder-slate-400"
-                  />
-                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
-                </div>
-              </div>
-
-              {/* Tipo */}
-              <div className="space-y-1">
-                <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest leading-none">Tipo de Movimiento</label>
-                <select
-                  value={filterType}
-                  onChange={e => { setFilterType(e.target.value as 'all' | 'ingreso' | 'egreso'); setCurrentPage(1); }}
-                  className="w-full px-3 py-1.5 rounded-xl border border-slate-200 font-bold text-xs bg-slate-50 text-slate-700 focus:outline-none cursor-pointer"
-                >
-                  <option value="all">Todos</option>
-                  <option value="ingreso">Ingresos</option>
-                  <option value="egreso">Egresos</option>
-                </select>
-              </div>
-
-              {/* Cuenta */}
-              <div className="space-y-1">
-                <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest leading-none">Cuenta Financiera</label>
-                <select
-                  value={filterAccountId}
-                  onChange={e => { setFilterAccountId(e.target.value); setCurrentPage(1); }}
-                  className="w-full px-3 py-1.5 rounded-xl border border-slate-200 font-bold text-xs bg-slate-50 text-slate-700 focus:outline-none cursor-pointer"
-                >
-                  <option value="all">Todas las Cuentas</option>
-                  {financialAccounts.map(a => (
-                    <option key={a.id} value={a.id}>{a.name} ({a.currency})</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Categoría */}
-              <div className="space-y-1">
-                <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest leading-none">Categoría</label>
-                <select
-                  value={filterCategory}
-                  onChange={e => { setFilterCategory(e.target.value); setCurrentPage(1); }}
-                  className="w-full px-3 py-1.5 rounded-xl border border-slate-200 font-bold text-xs bg-slate-50 text-slate-700 focus:outline-none cursor-pointer"
-                >
-                  <option value="all">Todas las Categorías</option>
-                  {categoriesList.map(c => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* U. Negocio / Centro Costo */}
-              <div className="space-y-1">
-                <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest leading-none">Unidad de Negocio</label>
-                <select
-                  value={filterCostCenterId}
-                  onChange={e => { setFilterCostCenterId(e.target.value); setCurrentPage(1); }}
-                  className="w-full px-3 py-1.5 rounded-xl border border-slate-200 font-bold text-xs bg-slate-50 text-slate-700 focus:outline-none cursor-pointer"
-                >
-                  <option value="all">Todas</option>
-                  {costCenters.map(cc => (
-                    <option key={cc.id} value={cc.id}>[{cc.code}] {cc.name}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          </div>
+          </div>}
 
           {loading ? (
             <div className="flex flex-col items-center justify-center py-20 text-slate-400 gap-3 bg-white border border-slate-200/60 shadow-sm rounded-2xl">
@@ -2610,21 +2468,21 @@ export default function AdminFinanzasPage() {
               No se encontraron movimientos financieros para los filtros y fechas seleccionados.
             </div>
           ) : (
-            <div className="bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm space-y-4">
-              <div className="overflow-x-auto">
+            <div className="bg-white p-2 rounded-xl border border-slate-200/60 shadow-sm space-y-2">
+              <div className="max-h-[calc(100dvh-260px)] min-h-48 overflow-auto pb-20 lg:pb-16">
                 <table className="w-full text-left border-collapse text-xs">
-                  <thead>
+                  <thead className="sticky top-0 z-10 bg-white shadow-sm">
                     <tr className="border-b border-slate-200 text-slate-400 font-black uppercase tracking-wider text-[9px]">
                       <th className="py-2 px-2">Fecha</th>
                       <th className="py-2 px-2 text-center">Tipo</th>
-                      <th className="py-2 px-2">Categoría</th>
-                      <th className="py-2 px-2">Subcategoría</th>
-                      <th className="py-2 px-2">EFE</th>
                       <th className="py-2 px-2">Concepto</th>
+                      <th className="py-2 px-2">Categoría</th>
+                      <th className="py-2 px-2">Cuenta</th>
                       <th className="py-2 px-2 text-right">Monto</th>
                       <th className="py-2 px-2 text-right">Saldo</th>
-                      <th className="py-2 px-2">Observaciones</th>
-                      <th className="py-2 px-2">Caja / Cuenta</th>
+                      {optionalColumns.subcategory && (<th className="py-2 px-2">Subcategoría</th>)}
+                      {optionalColumns.efe && (<th className="py-2 px-2">EFE</th>)}
+                      {optionalColumns.notes && (<th className="py-2 px-2">Observaciones</th>)}
                       <th className="py-2 px-2 text-right">Acciones</th>
                     </tr>
                   </thead>
@@ -2644,7 +2502,7 @@ export default function AdminFinanzasPage() {
                                 onClick={() => toggleDateCollapse(currentDate)}
                                 className="bg-slate-100/90 hover:bg-slate-200/60 border-y border-slate-200/60 text-slate-800 font-extrabold text-[11px] uppercase tracking-wider cursor-pointer select-none transition-colors"
                               >
-                                <td colSpan={11} className="py-2.5 px-3">
+                                <td colSpan={columnCount} className="py-1.5 px-3">
                                   <div className="flex items-center gap-2">
                                     {collapsedDates[currentDate] ? (
                                       <ChevronRight className="w-3.5 h-3.5 text-slate-500" />
@@ -2660,9 +2518,10 @@ export default function AdminFinanzasPage() {
                               </tr>
                             )}
                             {!collapsedDates[currentDate] && (
-                              <tr className="hover:bg-slate-50/50 transition-colors font-semibold text-slate-700">
-                                <td className="py-2.5 px-2 text-slate-400">{currentDate}</td>
-                                <td className="py-2.5 px-2 text-center">
+                              <React.Fragment>
+                              <tr className="hover:bg-slate-50/70 transition-colors font-semibold text-slate-700">
+                                <td className="py-1.5 px-2 text-slate-400">{currentDate}</td>
+                                <td className="py-1.5 px-2 text-center">
                                   {isIngreso ? (
                                     <span className="inline-flex items-center gap-0.5 text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded text-[9px] font-black uppercase">
                                       <ArrowUpRight className="w-2.5 h-2.5 text-emerald-600" /> Ingreso
@@ -2673,16 +2532,10 @@ export default function AdminFinanzasPage() {
                                     </span>
                                   )}
                                 </td>
-                                <td className="py-2.5 px-2">
-                                  <span className="bg-slate-100 border px-2 py-0.5 rounded text-[10px] text-slate-600 font-bold uppercase tracking-wide">
-                                    {t.category}
-                                  </span>
-                                </td>
-                                <td className="py-2.5 px-2 text-slate-500">{t.sub_category || "-"}</td>
-                                <td className="py-2.5 px-2 text-slate-500">{t.efe_category || "-"}</td>
-                                <td className="py-2.5 px-2 text-slate-900 font-semibold max-w-[200px]">
-                                  <div className="flex flex-col gap-1">
-                                    <div className="flex items-center gap-1.5">
+                                <td className="py-1.5 px-2 text-slate-900 font-semibold max-w-[200px]">
+                                  <div className="flex min-w-0 items-center gap-1">
+                                    <div className="flex min-w-0 items-center gap-1.5">
+                                      <button type="button" aria-label={`Ver detalle de ${t.concept || "movimiento"}`} aria-expanded={Boolean(expandedTransactions[t.id])} onClick={() => setExpandedTransactions(value => ({ ...value, [t.id]: !value[t.id] }))} className="shrink-0 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-brand-600"><ChevronRight className={`h-3 w-3 transition-transform ${expandedTransactions[t.id] ? "rotate-90" : ""}`} /></button>
                                       <span className="truncate font-bold" title={t.concept || ""}>{t.concept || "-"}</span>
                                       {t.is_imported && (
                                         <span className="inline-flex items-center gap-0.5 text-blue-700 bg-blue-50 px-1 py-0.2 rounded text-[7px] font-black uppercase tracking-wider scale-90 select-none shrink-0" title="Importado desde planilla de cálculo">
@@ -2690,7 +2543,127 @@ export default function AdminFinanzasPage() {
                                         </span>
                                       )}
                                     </div>
-                                    <div className="flex flex-wrap gap-1 items-center">
+
+                                  </div>
+                                </td>
+                                <td className="py-1.5 px-2">
+                                  <span title={t.category} className="inline-block max-w-48 truncate align-middle bg-slate-100 border px-2 py-0.5 rounded text-[10px] text-slate-600 font-bold uppercase tracking-wide">
+                                    {t.category}
+                                  </span>
+                                </td>
+                                <td className="py-1.5 px-2 whitespace-nowrap text-slate-900 font-bold">
+                                  {financialAccountLabel(t.financial_accounts?.name || "Efectivo Diario")}
+                                </td>
+                                <td className={`py-1.5 px-2 whitespace-nowrap text-right font-black tabular-nums ${isIngreso ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                  {t.currency === 'USD' ? `US$ ${t.amount.toLocaleString('es-AR', { minimumFractionDigits: 2 })}` : formatPrice(t.amount)}
+                                </td>
+                                <td className="py-1.5 px-2 whitespace-nowrap text-right font-bold text-slate-700 tabular-nums">
+                                  {t.running_balance !== undefined ? (t.currency === 'USD' ? `US$ ${t.running_balance.toLocaleString('es-AR', { minimumFractionDigits: 2 })}` : formatPrice(t.running_balance)) : '-'}
+                                </td>
+                                {optionalColumns.subcategory && (<td className="py-1.5 px-2 text-slate-500">{t.sub_category || "-"}</td>)}
+                                {optionalColumns.efe && (<td className="py-1.5 px-2 text-slate-500">{t.efe_category || "-"}</td>)}
+                                {optionalColumns.notes && (<td className="py-1.5 px-2 text-slate-400 max-w-[150px] truncate" title={t.notes || ""}>
+                                  {t.notes || "-"}
+                                </td>)}
+                                <td className="py-1.5 px-2 text-right">
+                                  <div className="flex justify-end gap-1">
+                                    <button
+                                      onClick={() => {
+                                        setEditingTx(t);
+                                        setDuplicatingTx(false);
+                                        setConceptSearch("");
+                                        setSelectedConcept(null);
+                                        setTxFinancialConceptId(t.financial_concept_id || null);
+                                        setFinancialTypeNeedsReview(false);
+                                        setTxType(t.type);
+                                        setTxAccountId(t.financial_account_id || "");
+                                        setTxCategory(t.category);
+                                        setTxSubCategory(t.sub_category || "");
+                                        setTxEfeCategory(t.efe_category || "");
+                                        setTxAmount(t.amount.toString());
+                                        setTxConcept(t.concept || "");
+                                        setTxCostCenterId(t.cost_center_id || "");
+                                        setTxNotes(t.notes || "");
+                                        if (t.created_at) {
+                                          setTxCreatedAt(treasuryToday(new Date(t.created_at)));
+                                        } else {
+                                          setTxCreatedAt("");
+                                        }
+                                        setTxRouteSheetId(t.route_sheet_id || "");
+                                        setSelectedEmployeeId(t.employee_id || "");
+
+                                        // Initialize link variables from existing client/supplier payments if editing
+                                        if (t.category === 'Recaudación' && t.client_payments && t.client_payments.length > 0) {
+                                          setLinkToOrder(true);
+                                          const cp = t.client_payments[0];
+                                          setSelectedOrderId(cp.order_id || "");
+                                          if (cp.orders) {
+                                            setSelectedOrder({
+                                              id: cp.orders.id,
+                                              legacy_code: cp.orders.legacy_code,
+                                              customer_name: cp.orders.customer_name,
+                                              total_amount: Number(cp.amount) || 0,
+                                              payment_status: 'Abonado',
+                                              payment_approved: true,
+                                              order_date: t.created_at || ''
+                                            });
+                                          } else {
+                                            setSelectedOrder(null);
+                                          }
+                                        } else {
+                                          setLinkToOrder(false);
+                                          setSelectedOrderId("");
+                                          setSelectedOrder(null);
+                                          setOrderSearchQuery("");
+                                          setOrderSearchResults([]);
+                                        }
+                                        if (t.category === 'Proveedores' && t.supplier_payments && t.supplier_payments.length > 0) {
+                                          setLinkToPurchase(true);
+                                          setSelectedSupplierId(t.supplier_payments[0].suppliers?.id || "");
+                                          setSelectedPurchaseId(t.supplier_payments[0].purchase_id || "");
+                                        } else {
+                                          setLinkToPurchase(false);
+                                          setSelectedSupplierId("");
+                                          setSelectedPurchaseId("");
+                                        }
+
+                                        setIsTxModalOpen(true);
+                                      }}
+                                      className="p-1 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded transition-colors"
+                                      title="Editar movimiento"
+                                    >
+                                      <Edit2 className="w-3.5 h-3.5" />
+                                    </button>
+                                    <details className="relative" onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) e.currentTarget.open = false; }}>
+                                      <summary aria-label="Más acciones del movimiento" className="cursor-pointer list-none rounded p-1 text-slate-400 hover:bg-slate-100"><MoreHorizontal className="h-3.5 w-3.5" /></summary>
+                                      <div className="absolute right-0 top-full z-20 min-w-32 rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
+                                    <button
+                                      onClick={() => handleDuplicateTx(t)}
+                                      className="flex w-full items-center gap-2 rounded px-2 py-2 text-xs text-slate-700 hover:bg-slate-50"
+                                      title="Duplicar movimiento"
+                                    >
+                                      <Copy className="w-3.5 h-3.5" /> Duplicar
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteTx(t.id, t.concept)}
+                                      className="flex w-full items-center gap-2 rounded px-2 py-2 text-xs text-red-600 hover:bg-red-50"
+                                      title="Eliminar movimiento"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" /> Eliminar
+                                    </button>
+                                      </div>
+                                    </details>
+                                  </div>
+                                </td>
+                              </tr>
+                              {expandedTransactions[t.id] && <tr className="bg-slate-50/80"><td colSpan={columnCount} className="px-4 py-3">
+                                <div className="flex flex-wrap gap-x-6 gap-y-2 text-xs text-slate-600">
+                                  <span><b>Subcategoría:</b> {t.sub_category || "—"}</span>
+                                  <span><b>EFE:</b> {t.efe_category || "—"}</span>
+                                  <span className="whitespace-pre-wrap break-words"><b>Observaciones:</b> {t.notes || "—"}</span>
+                                  <span><b>Concepto:</b> {t.concept || "—"}</span>
+                                </div>
+                                                                    <div className="flex flex-wrap gap-1 items-center">
                                       {t.category === 'Sueldos' && (
                                         t.employees?.full_name ? (
                                           <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-black bg-emerald-50 border border-emerald-100 text-emerald-700 uppercase">
@@ -2802,106 +2775,8 @@ export default function AdminFinanzasPage() {
                                         )
                                       )}
                                     </div>
-                                  </div>
-                                </td>
-                                <td className={`py-2.5 px-2 text-right font-black ${isIngreso ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                  {t.currency === 'USD' ? `US$ ${t.amount.toLocaleString('es-AR', { minimumFractionDigits: 2 })}` : formatPrice(t.amount)}
-                                </td>
-                                <td className="py-2.5 px-2 text-right font-bold text-slate-700 font-mono">
-                                  {t.running_balance !== undefined ? (t.currency === 'USD' ? `US$ ${t.running_balance.toLocaleString('es-AR', { minimumFractionDigits: 2 })}` : formatPrice(t.running_balance)) : '-'}
-                                </td>
-                                <td className="py-2.5 px-2 text-slate-400 max-w-[150px] truncate" title={t.notes || ""}>
-                                  {t.notes || "-"}
-                                </td>
-                                <td className="py-2.5 px-2 text-slate-900 font-bold">
-                                  {t.financial_accounts?.name || "Efectivo Caja Diaria"}
-                                </td>
-                                <td className="py-2.5 px-2 text-right">
-                                  <div className="flex justify-end gap-1">
-                                    <button
-                                      onClick={() => {
-                                        setEditingTx(t);
-                                        setDuplicatingTx(false);
-                                        setConceptSearch("");
-                                        setSelectedConcept(null);
-                                        setTxFinancialConceptId(t.financial_concept_id || null);
-                                        setFinancialTypeNeedsReview(false);
-                                        setTxType(t.type);
-                                        setTxAccountId(t.financial_account_id || "");
-                                        setTxCategory(t.category);
-                                        setTxSubCategory(t.sub_category || "");
-                                        setTxEfeCategory(t.efe_category || "");
-                                        setTxAmount(t.amount.toString());
-                                        setTxConcept(t.concept || "");
-                                        setTxCostCenterId(t.cost_center_id || "");
-                                        setTxNotes(t.notes || "");
-                                        if (t.created_at) {
-                                          setTxCreatedAt(treasuryToday(new Date(t.created_at)));
-                                        } else {
-                                          setTxCreatedAt("");
-                                        }
-                                        setTxRouteSheetId(t.route_sheet_id || "");
-                                        setSelectedEmployeeId(t.employee_id || "");
-                                        
-                                        // Initialize link variables from existing client/supplier payments if editing
-                                        if (t.category === 'Recaudación' && t.client_payments && t.client_payments.length > 0) {
-                                          setLinkToOrder(true);
-                                          const cp = t.client_payments[0];
-                                          setSelectedOrderId(cp.order_id || "");
-                                          if (cp.orders) {
-                                            setSelectedOrder({
-                                              id: cp.orders.id,
-                                              legacy_code: cp.orders.legacy_code,
-                                              customer_name: cp.orders.customer_name,
-                                              total_amount: Number(cp.amount) || 0,
-                                              payment_status: 'Abonado',
-                                              payment_approved: true,
-                                              order_date: t.created_at || ''
-                                            });
-                                          } else {
-                                            setSelectedOrder(null);
-                                          }
-                                        } else {
-                                          setLinkToOrder(false);
-                                          setSelectedOrderId("");
-                                          setSelectedOrder(null);
-                                          setOrderSearchQuery("");
-                                          setOrderSearchResults([]);
-                                        }
-                                        if (t.category === 'Proveedores' && t.supplier_payments && t.supplier_payments.length > 0) {
-                                          setLinkToPurchase(true);
-                                          setSelectedSupplierId(t.supplier_payments[0].suppliers?.id || "");
-                                          setSelectedPurchaseId(t.supplier_payments[0].purchase_id || "");
-                                        } else {
-                                          setLinkToPurchase(false);
-                                          setSelectedSupplierId("");
-                                          setSelectedPurchaseId("");
-                                        }
-
-                                        setIsTxModalOpen(true);
-                                      }}
-                                      className="p-1 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded transition-colors"
-                                      title="Editar movimiento"
-                                    >
-                                      <Edit2 className="w-3.5 h-3.5" />
-                                    </button>
-                                    <button
-                                      onClick={() => handleDuplicateTx(t)}
-                                      className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
-                                      title="Duplicar movimiento"
-                                    >
-                                      <Copy className="w-3.5 h-3.5" />
-                                    </button>
-                                    <button
-                                      onClick={() => handleDeleteTx(t.id, t.concept)}
-                                      className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-                                      title="Eliminar movimiento"
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                    </button>
-                                  </div>
-                                </td>
-                              </tr>
+                              </td></tr>}
+                              </React.Fragment>
                             )}
                           </React.Fragment>
                         );
@@ -2912,9 +2787,10 @@ export default function AdminFinanzasPage() {
               </div>
 
               {/* Paginador */}
-              {totalPages > 1 && (
-                <div className="flex justify-between items-center pt-4 border-t border-slate-100 text-xs font-bold text-slate-500">
+              {filteredTransactions.length > 0 && (
+                <div className="flex flex-wrap gap-2 justify-between items-center pt-2 border-t border-slate-100 text-xs font-semibold text-slate-500">
                   <div>
+                    <label className="mr-3 inline-flex items-center gap-1">Filas <select aria-label="Movimientos por página" value={itemsPerPage} onChange={e => { setItemsPerPage(Number(e.target.value)); setCurrentPage(1); }} className="rounded border border-slate-200 bg-white px-1 py-1"><option value={20}>20</option><option value={50}>50</option><option value={100}>100</option></select></label>
                     Mostrando {Math.min(filteredTransactions.length, (currentPage - 1) * itemsPerPage + 1)} a {Math.min(filteredTransactions.length, currentPage * itemsPerPage)} de {filteredTransactions.length} registros
                   </div>
                   <div className="flex gap-2">
@@ -2967,7 +2843,7 @@ export default function AdminFinanzasPage() {
                 <ShieldCheck className="w-4 h-4 text-brand-600" /> Auditoría y Conciliación
               </Button>
               <Button
-                onClick={() => { setTfDate(treasuryToday()); setIsTransferModalOpen(true); }}
+                onClick={openQuickTransfer}
                 className="flex items-center gap-1.5 px-4 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 font-black text-xs uppercase tracking-wider rounded-xl shadow-sm transition-all"
               >
                 <ArrowRightLeft className="w-4 h-4 text-slate-400" /> Transferencia entre Cuentas
@@ -3060,7 +2936,7 @@ export default function AdminFinanzasPage() {
                         <td className="py-3.5 px-3">
                           <div className="flex items-center gap-2">
                             <span className={`w-2 h-2 rounded-full ${dotColor}`} />
-                            <span className="text-slate-900 font-bold">{acc.name}</span>
+                            <span className="text-slate-900 font-bold">{financialAccountLabel(acc.name)}</span>
                           </div>
                         </td>
                         <td className="py-3.5 px-3">
@@ -3112,7 +2988,8 @@ export default function AdminFinanzasPage() {
                             <button
                               onClick={() => {
                                 setFilterAccountId(acc.id);
-                                setActiveTab('flow');
+                                setCurrentPage(1);
+                                router.push('/admin/finanzas');
                               }}
                               className="p-1.5 text-slate-400 hover:text-brand-600 hover:bg-brand-50 border border-slate-200 rounded-lg transition-colors"
                               title="Ver Movimientos (Libro Diario)"
@@ -3121,9 +2998,8 @@ export default function AdminFinanzasPage() {
                             </button>
                             <button
                               onClick={() => {
+                                openQuickTransfer();
                                 setTfSourceId(acc.id);
-                                setTfDate(treasuryToday());
-                                setIsTransferModalOpen(true);
                               }}
                               className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 border border-slate-200 rounded-lg transition-colors"
                               title="Transferir desde esta cuenta"
@@ -3322,14 +3198,14 @@ export default function AdminFinanzasPage() {
           MODAL 1: REGISTRAR MOVIMIENTO MANUAL
           ========================================================================= */}
       {isTxModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-150">
-          <div className="bg-white rounded-[2rem] border border-slate-100 p-6 shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto space-y-4 animate-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-3 sm:p-6 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-150">
+          <div role="dialog" aria-modal="true" aria-labelledby="transaction-dialog-title" className="my-auto w-full max-w-4xl space-y-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl sm:p-6 animate-in zoom-in-95 duration-150">
             <div className="flex justify-between items-center pb-2.5 border-b border-slate-100">
-              <h3 className="font-black text-slate-900 text-sm uppercase tracking-wider flex items-center gap-1.5">
+              <h3 id="transaction-dialog-title" className="font-bold text-slate-900 text-base flex items-center gap-1.5">
                 {duplicatingTx ? <Copy className="w-4 h-4 text-indigo-600" /> : <PlusCircle className="w-4 h-4 text-brand-600" />}
-                {editingTx ? "Editar Movimiento Manual" : duplicatingTx ? "Duplicar Movimiento" : "Registrar Movimiento Manual"}
+                {editingTx ? "Editar movimiento" : duplicatingTx ? "Duplicar movimiento" : txCategory === "Proveedores" ? "Pago a proveedor" : txCategory === "Sueldos" && txSubCategory === "Sueldos Eventuales" ? "Carga de eventuales" : "Nuevo movimiento"}
               </h3>
-              <button onClick={() => { setIsTxModalOpen(false); setEditingTx(null); setDuplicatingTx(false); setSelectedOrder(null); setOrderSearchQuery(""); setOrderSearchResults([]); }} className="p-1 hover:bg-slate-100 rounded-lg text-slate-400">
+              <button type="button" aria-label="Cerrar carga de movimiento" onClick={() => { setIsTxModalOpen(false); setEditingTx(null); setDuplicatingTx(false); setSelectedOrder(null); setOrderSearchQuery(""); setOrderSearchResults([]); }} className="p-1 hover:bg-slate-100 rounded-lg text-slate-400">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -3341,11 +3217,87 @@ export default function AdminFinanzasPage() {
               </div>
             )}
 
-            <form onSubmit={handleRegisterTx} className="space-y-4">
-              <div className="relative space-y-1">
-                <label htmlFor="financial-concept-search" className="text-[9px] font-black uppercase text-slate-400">Buscar concepto precategorizado</label>
+            <form onSubmit={handleRegisterTx} className="space-y-3">
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const linkedConcept = selectedConcept || financialConcepts.find(item => item.id === txFinancialConceptId);
+                    if (txFinancialConceptId && linkedConcept?.movement_type === 'Ingreso') {
+                      setTxFinancialConceptId(null);
+                      setSelectedConcept(null);
+                    }
+                    setTxType('egreso'); setFinancialTypeNeedsReview(false);
+                  }}
+                  className={`py-2 text-xs font-semibold rounded-lg border transition-all ${
+                    txType === 'egreso'
+                      ? 'bg-rose-50 border-rose-200 text-rose-700 shadow-sm'
+                      : 'border-slate-100 text-slate-400 hover:bg-slate-50'
+                  }`}
+                >
+                  Egreso (Salida)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const linkedConcept = selectedConcept || financialConcepts.find(item => item.id === txFinancialConceptId);
+                    if (txFinancialConceptId && linkedConcept?.movement_type === 'Egreso') {
+                      setTxFinancialConceptId(null);
+                      setSelectedConcept(null);
+                    }
+                    setTxType('ingreso'); setFinancialTypeNeedsReview(false);
+                  }}
+                  className={`py-2 text-xs font-semibold rounded-lg border transition-all ${
+                    txType === 'ingreso'
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-700 shadow-sm'
+                      : 'border-slate-100 text-slate-400 hover:bg-slate-50'
+                  }`}
+                >
+                  Ingreso (Entrada)
+                </button>
+              </div>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <DateInput
+                label="Fecha del movimiento *"
+                required
+                value={txCreatedAt}
+                onChange={val => setTxCreatedAt(val)}
+                className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white font-medium text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10"
+              />
+                <div className="space-y-1">
+                <label htmlFor="tx-account" className="block text-xs font-semibold text-slate-500">Cuenta *</label>
+                <select
+                  id="tx-account"
+                  value={txAccountId}
+                  onChange={e => setTxAccountId(e.target.value)}
+                  required
+                  className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white font-medium text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10"
+                >
+                  {financialAccounts.map(a => (
+                    <option key={a.id} value={a.id}>{financialAccountLabel(a.name)} ({a.currency})</option>
+                  ))}
+                </select>
+              </div>
+                <div className="space-y-1">
+                  <label htmlFor="tx-amount" className="block text-xs font-semibold text-slate-500">Monto *</label>
+                  <input
+                    id="tx-amount"
+                    type="number"
+                    required
+                    min="0.01"
+                    step="any"
+                    placeholder="0.00"
+                    value={txAmount}
+                    onChange={e => setTxAmount(e.target.value)}
+                    className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white font-medium text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="relative space-y-1">
+                <label htmlFor="financial-concept-search" className="block text-xs font-semibold text-slate-500">Buscar concepto (opcional)</label>
                 <div className="relative">
-                  <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                   <input
                     id="financial-concept-search"
                     type="search"
@@ -3367,8 +3319,8 @@ export default function AdminFinanzasPage() {
                         selectFinancialConcept(matchingConcepts[0]);
                       }
                     }}
-                    placeholder="Escribí un nombre para buscar en la base..."
-                    className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
+                    placeholder="Buscar en conceptos guardados…"
+                    className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10"
                   />
                 </div>
                 {isConceptSearchOpen && (
@@ -3395,63 +3347,24 @@ export default function AdminFinanzasPage() {
                   </p>
                 )}
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const linkedConcept = selectedConcept || financialConcepts.find(item => item.id === txFinancialConceptId);
-                    if (txFinancialConceptId && linkedConcept?.movement_type === 'Ingreso') {
-                      setTxFinancialConceptId(null);
-                      setSelectedConcept(null);
-                    }
-                    setTxType('egreso'); setFinancialTypeNeedsReview(false);
-                  }}
-                  className={`py-2 text-[10px] font-black rounded-xl border uppercase tracking-wider transition-all ${
-                    txType === 'egreso' 
-                      ? 'bg-rose-50 border-rose-200 text-rose-700 shadow-sm' 
-                      : 'border-slate-100 text-slate-400 hover:bg-slate-50'
-                  }`}
-                >
-                  Egreso (Salida)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const linkedConcept = selectedConcept || financialConcepts.find(item => item.id === txFinancialConceptId);
-                    if (txFinancialConceptId && linkedConcept?.movement_type === 'Egreso') {
-                      setTxFinancialConceptId(null);
-                      setSelectedConcept(null);
-                    }
-                    setTxType('ingreso'); setFinancialTypeNeedsReview(false);
-                  }}
-                  className={`py-2 text-[10px] font-black rounded-xl border uppercase tracking-wider transition-all ${
-                    txType === 'ingreso' 
-                      ? 'bg-emerald-50 border-emerald-200 text-emerald-700 shadow-sm' 
-                      : 'border-slate-100 text-slate-400 hover:bg-slate-50'
-                  }`}
-                >
-                  Ingreso (Entrada)
-                </button>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[9px] font-black uppercase text-slate-400">Cuenta de Fondos *</label>
-                <select
-                  value={txAccountId}
-                  onChange={e => setTxAccountId(e.target.value)}
-                  required
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
-                >
-                  {financialAccounts.map(a => (
-                    <option key={a.id} value={a.id}>{a.name} ({a.currency})</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1">
-                  <label className="text-[9px] font-black uppercase text-slate-400">Categoría *</label>
+                <label htmlFor="tx-concept" className="block text-xs font-semibold text-slate-500">Concepto / detalle *</label>
+                <input
+                  id="tx-concept"
+                  type="text"
+                  required
+                  placeholder="Ej. Pago de impuestos sobre débitos y créditos"
+                  value={txConcept}
+                  onChange={e => { setTxConcept(e.target.value); setSelectedConcept(null); setTxFinancialConceptId(null); setFinancialTypeNeedsReview(false); }}
+                  className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white font-medium text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10"
+                />
+              </div>
+              </div>
+              <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <label htmlFor="tx-category" className="block text-xs font-semibold text-slate-500">Categoría *</label>
                   <select
+                    id="tx-category"
                     value={txCategory}
                     onChange={e => {
                       setTxCategory(e.target.value);
@@ -3467,90 +3380,19 @@ export default function AdminFinanzasPage() {
                       }
                     }}
                     required
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
+                    className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white font-medium text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10"
                   >
                     {financialCategories.map(category => <option key={category} value={category}>{category}</option>)}
                   </select>
                 </div>
-
-                <div className="space-y-1">
-                  <label className="text-[9px] font-black uppercase text-slate-400">Subcategoría (Opcional)</label>
-                  <input
-                    type="text"
-                    list="available-tx-subcategories"
-                    value={txSubCategory}
-                    onChange={e => { setTxSubCategory(e.target.value); setSelectedConcept(null); setTxFinancialConceptId(null); setFinancialTypeNeedsReview(false); }}
-                    placeholder="Ej. Peajes, Combustible..."
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
-                  />
-                  <datalist id="available-tx-subcategories">
-                    {availableSubCategories.map(sc => (
-                      <option key={sc} value={sc} />
-                    ))}
-                  </datalist>
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <label htmlFor="tx-efe-category" className="text-[9px] font-black uppercase text-slate-400">EFE (Opcional)</label>
-                <input
-                  id="tx-efe-category"
-                  type="text"
-                  value={txEfeCategory}
-                  onChange={e => { setTxEfeCategory(e.target.value); setSelectedConcept(null); setTxFinancialConceptId(null); }}
-                  placeholder="Clasificación de estado de resultados"
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
+                {txCategory === "Proveedores" && (
+                <div className="space-y-3 animate-in fade-in duration-200">
+                  <SearchableSelect
+                  id="tx-supplier" label="Proveedor" value={selectedSupplierId}
+                  options={suppliers.map(supplier => ({ value: supplier.id, label: supplier.name }))}
+                  onChange={value => { setSelectedSupplierId(value); setSelectedPurchaseId(""); }}
+                  required={linkToPurchase} placeholder="Seleccionar proveedor"
                 />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[9px] font-black uppercase text-slate-400">Hoja de Ruta (Opcional)</label>
-                <select
-                  value={txRouteSheetId}
-                  onChange={e => {
-                    setTxRouteSheetId(e.target.value);
-                    const sheet = routeSheets.find(s => s.id === e.target.value);
-                    if (sheet) {
-                      const carrierName = sheet.carriers?.name || "Chofer";
-                      const dateStr = formatDateDDMMYYYY(sheet.delivery_date);
-                      if (!txConcept || txConcept === "Gastos Operativos" || txConcept === "Flete") {
-                        setTxConcept(`Flete HR ${sheet.code || sheet.run_number} - ${carrierName} (${dateStr})`);
-                      }
-                    }
-                  }}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
-                >
-                  <option value="">-- Sin Hoja de Ruta --</option>
-                  {routeSheets.map(s => {
-                    const dateStr = formatDateDDMMYYYY(s.delivery_date);
-                    return (
-                      <option key={s.id} value={s.id}>
-                        {s.code || `HR #${s.run_number}`} - {s.carriers?.name || 'S/D'} ({dateStr})
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
-
-              {/* Campos condicionales para vinculación de Proveedores / Sueldos / Ventas */}
-              {txCategory === "Proveedores" && (
-                <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl space-y-3.5 animate-in fade-in duration-200">
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-black uppercase text-slate-400">Proveedor *</label>
-                    <select
-                      value={selectedSupplierId}
-                      onChange={e => {
-                        setSelectedSupplierId(e.target.value);
-                        setSelectedPurchaseId("");
-                      }}
-                      className="w-full px-3 py-1.5 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
-                    >
-                      <option value="">-- Seleccionar Proveedor --</option>
-                      {suppliers.map(s => (
-                        <option key={s.id} value={s.id}>{s.name}</option>
-                      ))}
-                    </select>
-                  </div>
                   {selectedSupplierId && (
                     <div className="space-y-2">
                       <div className="flex items-center gap-2">
@@ -3561,14 +3403,15 @@ export default function AdminFinanzasPage() {
                           onChange={e => setLinkToPurchase(e.target.checked)}
                           className="w-4 h-4 text-brand-600 rounded border-slate-300 focus:ring-brand-500/10 cursor-pointer"
                         />
-                        <label htmlFor="linkToPurchase" className="text-[10px] font-black uppercase text-slate-500 cursor-pointer select-none">
+                        <label htmlFor="linkToPurchase" className="text-xs font-semibold text-slate-600 cursor-pointer select-none">
                           Vincular a Compra por Pagar
                         </label>
                       </div>
                       {linkToPurchase && (
                         <div className="space-y-1 animate-in slide-in-from-top-1 duration-150">
-                          <label className="text-[9px] font-black uppercase text-slate-400">Compra Pendiente *</label>
+                          <label htmlFor="tx-purchase" className="block text-xs font-semibold text-slate-500">Compra pendiente *</label>
                           <select
+                            id="tx-purchase"
                             value={selectedPurchaseId}
                             onChange={e => {
                               setSelectedPurchaseId(e.target.value);
@@ -3580,7 +3423,7 @@ export default function AdminFinanzasPage() {
                               }
                             }}
                             required={linkToPurchase}
-                            className="w-full px-3 py-1.5 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
+                            className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white font-medium text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10"
                           >
                             <option value="">-- Seleccionar Compra --</option>
                             {pendingPurchases
@@ -3600,10 +3443,9 @@ export default function AdminFinanzasPage() {
                   )}
                 </div>
               )}
-
-              {txCategory === "Sueldos" && (
+                {txCategory === "Sueldos" && (
                 <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl space-y-1 animate-in fade-in duration-200">
-                  <label className="text-[9px] font-black uppercase text-slate-400">Empleado (Opcional)</label>
+                  <label className="block text-xs font-semibold text-slate-500">Empleado (Opcional)</label>
                   <select
                     value={selectedEmployeeId}
                     onChange={e => {
@@ -3614,7 +3456,7 @@ export default function AdminFinanzasPage() {
                         setTxConcept(`Liquidación de Sueldo - ${emp.full_name}`);
                       }
                     }}
-                    className="w-full px-3 py-1.5 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
+                    className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white font-medium text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10"
                   >
                     <option value="">-- Seleccionar Empleado --</option>
                     {employees.map(e => (
@@ -3623,7 +3465,7 @@ export default function AdminFinanzasPage() {
                   </select>
                 </div>
               )}
-
+              </div>
               {txCategory === "Recaudación" && txType === "ingreso" && (
                 <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl space-y-2.5 animate-in fade-in duration-200">
                   <div className="flex items-center gap-2">
@@ -3642,7 +3484,7 @@ export default function AdminFinanzasPage() {
                       }}
                       className="w-4 h-4 text-brand-600 rounded border-slate-300 focus:ring-brand-500/10 cursor-pointer"
                     />
-                    <label htmlFor="linkToOrder" className="text-[10px] font-black uppercase text-slate-500 cursor-pointer select-none">
+                    <label htmlFor="linkToOrder" className="text-xs font-semibold text-slate-600 cursor-pointer select-none">
                       Vincular a Venta por Cobrar
                     </label>
                   </div>
@@ -3684,7 +3526,7 @@ export default function AdminFinanzasPage() {
                         </div>
                       ) : (
                         <div className="space-y-1.5">
-                          <label className="text-[9px] font-black uppercase text-slate-400 flex items-center justify-between">
+                          <label className="block text-xs font-semibold text-slate-500 flex items-center justify-between">
                             <span>Buscar Venta por Código *</span>
                             <span className="text-[9px] text-slate-400 font-semibold lowercase">mínimo 3 caracteres</span>
                           </label>
@@ -3784,75 +3626,104 @@ export default function AdminFinanzasPage() {
                   )}
                 </div>
               )}
-
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-1">
-                  <label className="text-[9px] font-black uppercase text-slate-400">Monto *</label>
-                  <input
-                    type="number"
-                    required
-                    min="0.01"
-                    step="any"
-                    placeholder="0.00"
-                    value={txAmount}
-                    onChange={e => setTxAmount(e.target.value)}
-                    className="w-full px-3 py-1.5 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-[9px] font-black uppercase text-slate-400">Unidad de Negocio *</label>
-                  <select
-                    value={txCostCenterId}
-                    onChange={e => setTxCostCenterId(e.target.value)}
-                    required
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
-                  >
-                    {costCenters.map(cc => (
-                      <option key={cc.id} value={cc.id}>[{cc.code}] {cc.name}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
               <div className="space-y-1">
-                <label className="text-[9px] font-black uppercase text-slate-400">Concepto / Detalle *</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ej. Pago de impuestos sobre débitos y créditos"
-                  value={txConcept}
-                  onChange={e => { setTxConcept(e.target.value); setSelectedConcept(null); setTxFinancialConceptId(null); setFinancialTypeNeedsReview(false); }}
-                  className="w-full px-3 py-1.5 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
-                />
-              </div>
-
-              <DateInput
-                label="Fecha del Movimiento *"
-                required
-                value={txCreatedAt}
-                onChange={val => setTxCreatedAt(val)}
-                className="w-full px-3 py-1.5 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
-              />
-
-              <div className="space-y-1">
-                <label className="text-[9px] font-black uppercase text-slate-400">Observaciones</label>
+                <label htmlFor="tx-notes" className="block text-xs font-semibold text-slate-500">Observaciones</label>
                 <textarea
+                  id="tx-notes"
                   placeholder="Comentarios adicionales..."
                   rows={2}
                   value={txNotes}
                   onChange={e => setTxNotes(e.target.value)}
-                  className="w-full px-3 py-1.5 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500 resize-none"
+                  className="min-h-14 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 resize-none"
                 />
               </div>
-
-              <Button
+              <details className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+                <summary className="cursor-pointer text-xs font-semibold text-slate-600">Clasificación y datos adicionales{[txSubCategory, txEfeCategory, txCostCenterId, txRouteSheetId].some(Boolean) && <span className="ml-2 text-slate-400">· {[txSubCategory, txEfeCategory, txCostCenterId, txRouteSheetId].filter(Boolean).length} {[txSubCategory, txEfeCategory, txCostCenterId, txRouteSheetId].filter(Boolean).length === 1 ? 'dato cargado' : 'datos cargados'}</span>}</summary>
+                <div className="mt-3 grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
+                  <div className="space-y-1">
+                  <label htmlFor="tx-subcategory" className="block text-xs font-semibold text-slate-500">Subcategoría (opcional)</label>
+                  <input
+                    id="tx-subcategory"
+                    type="text"
+                    list="available-tx-subcategories"
+                    value={txSubCategory}
+                    onChange={e => { setTxSubCategory(e.target.value); setSelectedConcept(null); setTxFinancialConceptId(null); setFinancialTypeNeedsReview(false); }}
+                    placeholder="Ej. Peajes, Combustible..."
+                    className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white font-medium text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10"
+                  />
+                  <datalist id="available-tx-subcategories">
+                    {availableSubCategories.map(sc => (
+                      <option key={sc} value={sc} />
+                    ))}
+                  </datalist>
+                </div>
+                  <div className="space-y-1">
+                <label htmlFor="tx-efe-category" className="block text-xs font-semibold text-slate-500">Clasificación de resultados (opcional)</label>
+                <input
+                  id="tx-efe-category"
+                  type="text"
+                  value={txEfeCategory}
+                  onChange={e => { setTxEfeCategory(e.target.value); setSelectedConcept(null); setTxFinancialConceptId(null); }}
+                  placeholder="Clasificación de estado de resultados"
+                  className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white font-medium text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10"
+                />
+              </div>
+                  <div className="space-y-1">
+                  <label htmlFor="tx-cost-center" className="block text-xs font-semibold text-slate-500">Área / centro de costo (opcional)</label>
+                  <select
+                    id="tx-cost-center"
+                    value={txCostCenterId}
+                    onChange={e => setTxCostCenterId(e.target.value)}
+                    className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white font-medium text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10"
+                  >
+                    <option value="">Sin asignar</option>
+                    {costCenters.map(cc => (
+                      <option key={cc.id} value={cc.id}>{cc.name}</option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs font-normal text-slate-400">Área a la que corresponde el ingreso o gasto.</p>
+                </div>
+                  <div className="space-y-1">
+                <label htmlFor="tx-route-sheet" className="block text-xs font-semibold text-slate-500">Hoja de ruta (opcional)</label>
+                <select
+                  id="tx-route-sheet"
+                  value={txRouteSheetId}
+                  onChange={e => {
+                    setTxRouteSheetId(e.target.value);
+                    const sheet = routeSheets.find(s => s.id === e.target.value);
+                    if (sheet) {
+                      const carrierName = sheet.carriers?.name || "Chofer";
+                      const dateStr = formatDateDDMMYYYY(sheet.delivery_date);
+                      if (!txConcept || txConcept === "Gastos Operativos" || txConcept === "Flete") {
+                        setTxConcept(`Flete HR ${sheet.code || sheet.run_number} - ${carrierName} (${dateStr})`);
+                      }
+                    }
+                  }}
+                  className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white font-medium text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10"
+                >
+                  <option value="">-- Sin Hoja de Ruta --</option>
+                  {routeSheets.map(s => {
+                    const dateStr = formatDateDDMMYYYY(s.delivery_date);
+                    return (
+                      <option key={s.id} value={s.id}>
+                        {s.code || `HR #${s.run_number}`} - {s.carriers?.name || 'S/D'} ({dateStr})
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+                </div>
+              </details>
+              <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-3">
+                <button type="button" disabled={submittingTx} onClick={() => { setIsTxModalOpen(false); setEditingTx(null); setDuplicatingTx(false); }} className="h-10 rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 hover:bg-slate-50">Cancelar</button>
+                <Button
                 type="submit"
                 disabled={submittingTx}
-                className="w-full py-2.5 bg-brand-600 hover:bg-brand-700 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-md flex items-center justify-center gap-1.5"
+                className="px-5 py-2.5 bg-brand-600 hover:bg-brand-700 text-white font-semibold text-sm rounded-lg shadow-sm flex items-center justify-center gap-1.5"
               >
                 {submittingTx ? <Loader2 className="w-4 h-4 animate-spin" /> : (editingTx ? "Guardar Cambios" : duplicatingTx ? "Crear Duplicado" : "Registrar Movimiento")}
               </Button>
+              </div>
             </form>
           </div>
         </div>
@@ -3888,7 +3759,7 @@ export default function AdminFinanzasPage() {
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
                   >
                     {financialAccounts.map(a => (
-                      <option key={a.id} value={a.id}>{a.name} ({a.currency})</option>
+                      <option key={a.id} value={a.id}>{financialAccountLabel(a.name)} ({a.currency})</option>
                     ))}
                   </select>
                 </div>
@@ -3902,7 +3773,7 @@ export default function AdminFinanzasPage() {
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
                   >
                     {financialAccounts.map(a => (
-                      <option key={a.id} value={a.id}>{a.name} ({a.currency})</option>
+                      <option key={a.id} value={a.id}>{financialAccountLabel(a.name)} ({a.currency})</option>
                     ))}
                   </select>
                 </div>
@@ -4046,15 +3917,6 @@ export default function AdminFinanzasPage() {
               </div>
             )}
           </div>
-        </div>
-      )}
-
-      {/* =========================================================================
-          TAB 5: ESTADO DE RESULTADOS (EERR)
-          ========================================================================= */}
-      {activeTab === 'eerr' && (
-        <div className="animate-in fade-in slide-in-from-bottom-2 duration-200">
-          <EstadoResultadosView />
         </div>
       )}
 
@@ -4221,23 +4083,12 @@ export default function AdminFinanzasPage() {
                 </div>
               ) : reconcilingTx.category === 'Proveedores' ? (
                 <div className="space-y-3">
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-black uppercase text-slate-400">Proveedor *</label>
-                    <select
-                      value={linkSupplierId}
-                      onChange={e => {
-                        setLinkSupplierId(e.target.value);
-                        setLinkPurchaseId("");
-                      }}
-                      required
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
-                    >
-                      <option value="">-- Seleccionar Proveedor --</option>
-                      {suppliers.map(s => (
-                        <option key={s.id} value={s.id}>{s.name}</option>
-                      ))}
-                    </select>
-                  </div>
+                  <SearchableSelect
+                    id="link-supplier" label="Proveedor" value={linkSupplierId}
+                    options={suppliers.map(supplier => ({ value: supplier.id, label: supplier.name }))}
+                    onChange={value => { setLinkSupplierId(value); setLinkPurchaseId(""); }}
+                    required placeholder="Seleccionar proveedor"
+                  />
                   {linkSupplierId && (
                     <div className="space-y-1 animate-in fade-in duration-200">
                       <label className="text-[9px] font-black uppercase text-slate-400">Compra Pendiente *</label>
@@ -4374,7 +4225,7 @@ export default function AdminFinanzasPage() {
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
                 >
                   {financialAccounts.map(a => (
-                    <option key={a.id} value={a.id}>{a.name} ({a.currency})</option>
+                    <option key={a.id} value={a.id}>{financialAccountLabel(a.name)} ({a.currency})</option>
                   ))}
                 </select>
               </div>
@@ -4487,7 +4338,7 @@ export default function AdminFinanzasPage() {
                       return (
                         <tr key={rec.id || rec.accountName} className="hover:bg-slate-50/50 transition-colors">
                           <td className="py-3 px-3 font-bold text-slate-900">
-                            {rec.accountName}
+                            {financialAccountLabel(rec.accountName)}
                           </td>
                           <td className="py-3 px-3 text-right text-slate-700 font-mono text-[11px] font-bold">
                             {rec.currency === 'USD' ? `US$ ${(rec.initialBalance || 0).toLocaleString('es-AR')}` : formatPrice(rec.initialBalance || 0)}
