@@ -11,7 +11,7 @@ export interface SellerConfig {
   prefix: string;
 }
 
-export const SELLERS: SellerConfig[] = [
+const SELLERS: SellerConfig[] = [
   {
     name: 'Diego Bóveda',
     spreadsheetId: '1ccs1yPtwSSUf6dcA5XpxhpvPaWmHfJ0zsCfyJvEBvtg',
