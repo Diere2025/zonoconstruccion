@@ -1,8 +1,6 @@
 import { cancelledRowCells, cancellationMonthSerial } from './cancelledOrderSheet';
 import type { SheetCellValue } from './cancelledOrderSheet';
 
-import { restoreSellerRowFormats } from './sellerSheetMaintenance';
-
 interface ServiceAccountCredentials {
   type: string;
   project_id: string;
@@ -1102,11 +1100,6 @@ export async function appendOrderToSellerSheet(
   const firstRowNumber = slots[0]?.rowNumber || 2;
   const isMultiChunk = itemChunks.length > 1;
 
-  await restoreSellerRowFormats(
-    spreadsheetId, sheetName, slots.map(slot => slot.rowNumber), token,
-    normalizeCategoryForSheet(order.category)
-  );
-
   for (let chunkIdx = 0; chunkIdx < itemChunks.length; chunkIdx++) {
     const chunk = itemChunks[chunkIdx];
     const isFirstChunk = chunkIdx === 0;
@@ -1609,10 +1602,6 @@ export async function updateOrderInSellerSheet(
       0,
       sheetStatus
     )
-  );
-  await restoreSellerRowFormats(
-    spreadsheetId, sheetName, targetRows.map(target => target.rowNumber), token,
-    normalizeCategoryForSheet(order.category)
   );
   await Promise.all(targetRows.map(target =>
     restoreMissingCalculatedFormulas(spreadsheetId, sheetName, target.rowNumber, 0, token)
