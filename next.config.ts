@@ -26,6 +26,11 @@ const nextConfig: NextConfig = {
   async redirects() {
     return [
       {
+        source: '/admin/rendiciones/:id',
+        destination: '/admin/rendiciones?rendicion=:id',
+        permanent: false,
+      },
+      {
         source: '/admin/conversaciones',
         destination: '/admin/dashboard',
         permanent: false,

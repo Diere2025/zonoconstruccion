@@ -61,4 +61,5 @@ assert.ok(source.includes('[&>div]:gap-3') && source.includes('[&>div>span:last-
 assert.ok(source.includes('searchParams.get("rendicion")') && source.includes('React.Suspense'), 'Shareable detail links remain on the static page');
 assert.ok(!fs.existsSync('src/app/admin/rendiciones/[id]/page.tsx'), 'Do not bundle a full SSR renderer for the detail route');
 assert.ok(fs.readFileSync('public/_redirects', 'utf8').includes('/admin/rendiciones/:id /admin/rendiciones?rendicion=:id 302'), 'Previously shared links redirect to the static detail');
+assert.ok(fs.readFileSync('next.config.ts', 'utf8').includes("destination: '/admin/rendiciones?rendicion=:id'"), 'The Pages adapter receives the legacy redirect from Next configuration');
 console.log('OK: filas compactas, pedidos contraídos, datos sin formulario deshabilitado, resumen separado y reporte/mensaje en dos columnas.');
