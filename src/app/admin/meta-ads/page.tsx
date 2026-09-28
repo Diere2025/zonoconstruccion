@@ -1926,6 +1926,12 @@ export default function MetaAdsPage() {
                             )}
                           </div>
                         </th>
+                        <th
+                          className="p-4 text-right text-indigo-600 bg-indigo-50/40"
+                          title="Total estimado al cierre del día: mensajes de hoy divididos por la fracción del día transcurrida, manteniendo el ritmo actual (hora argentina)."
+                        >
+                          Proyectado fin del día
+                        </th>
                         <th className="p-4 text-right">Gasto Hoy (USD)</th>
                         <th 
                           className={`p-4 text-right cursor-pointer hover:bg-slate-100 transition-colors ${liveSortField === 'spend' ? 'text-indigo-600 font-black bg-indigo-50/40' : ''}`}
@@ -1997,7 +2003,7 @@ export default function MetaAdsPage() {
                     <tbody className="divide-y divide-slate-100 font-bold text-slate-700">
                       {filteredLiveCampaigns.length === 0 ? (
                         <tr>
-                          <td colSpan={10} className="p-8 text-center text-slate-400">
+                          <td colSpan={11} className="p-8 text-center text-slate-400">
                             No se encontraron campañas para los filtros seleccionados.
                           </td>
                         </tr>
@@ -2008,6 +2014,9 @@ export default function MetaAdsPage() {
                           const isActiva = c.status.toUpperCase() === 'ACTIVE' || c.status.toUpperCase() === 'ACTIVA' || c.status.toUpperCase() === 'ON';
 
                           const isExpanded = expandedCampaigns.has(c.campaignId);
+                          const projectedMessages = livePacingMetrics && isActiva
+                            ? Math.round(c.messages / livePacingMetrics.elapsedDayFraction)
+                            : null;
                           // Filtrar anuncios: mostrar solo activos o pausados que tuvieron consumo hoy
                           const visibleAds = (c.ads || []).filter(ad => {
                             const isAdActive = ad.effectiveStatus === 'ACTIVE' || ad.status === 'ACTIVE';
@@ -2083,10 +2092,19 @@ export default function MetaAdsPage() {
                                   <div className="font-black text-indigo-600 text-sm">
                                     {c.messages}
                                   </div>
-                                  {livePacingMetrics && isActiva && (
-                                    <div className="text-[10px] text-slate-400 font-semibold font-mono whitespace-nowrap mt-0.5">
-                                      Proy: ~{Math.round(c.messages / livePacingMetrics.elapsedDayFraction)} msgs
+                                </td>
+                                <td className="p-4 text-right bg-indigo-50/30">
+                                  {projectedMessages !== null ? (
+                                    <div title="Estimación de mensajes al cierre del día si se mantiene el ritmo actual.">
+                                      <div className="font-black text-indigo-600 text-sm whitespace-nowrap">
+                                        ~{projectedMessages.toLocaleString('es-AR')} msgs
+                                      </div>
+                                      <div className="text-[10px] text-slate-500 font-semibold whitespace-nowrap mt-0.5">
+                                        +{Math.max(0, projectedMessages - c.messages).toLocaleString('es-AR')} restantes hoy
+                                      </div>
                                     </div>
+                                  ) : (
+                                    <span className="text-slate-400" title={isActiva ? 'Sin datos para proyectar' : 'Campaña pausada'}>—</span>
                                   )}
                                 </td>
                                 <td className="p-4 text-right font-mono text-slate-600">
@@ -2190,7 +2208,7 @@ export default function MetaAdsPage() {
                               {/* Sub-tabla de Anuncios Expandible */}
                               {isExpanded && visibleAds.length > 0 && (
                                 <tr className="bg-slate-50/70 border-b border-slate-200/80">
-                                  <td colSpan={10} className="p-3 pl-6 sm:pl-10">
+                                  <td colSpan={11} className="p-3 pl-6 sm:pl-10">
                                     <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden">
                                       <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
                                         <div className="flex items-center gap-2">
