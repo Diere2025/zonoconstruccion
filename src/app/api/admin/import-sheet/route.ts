@@ -2,8 +2,10 @@ export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { fetchSpreadsheetCsv, setOrderStatusInSellerSheetByCode } from '@/lib/googleSheets';
+import { fetchSpreadsheetCsv, setOrderStatusInSellerSheetByCode, createLogisticsCancellationReasonLookup } from '@/lib/googleSheets';
 import { splitOrderCodes } from '@/lib/orderSync';
+import { findImportOrders } from '@/lib/importOrderLookup';
+import { centralDeliveryOutcome } from '@/lib/deliveryAttemptSync';
 import { isDiscountProductLine, resolveImportedOrderChannel, sheetDiscountAmount } from '@/lib/wholesaleOrders';
 import {
   isJazminCentralCancellation,
@@ -112,6 +114,7 @@ const parseSpanishNumber = (val: any): number => {
 };
 
 export async function POST(request: Request) {
+  const getCancellationReason = createLogisticsCancellationReasonLookup();
   try {
     const body = await request.json();
     const {
@@ -218,14 +221,8 @@ export async function POST(request: Request) {
 
     let dbOrders: any[] = [];
     if (targetCodes.length > 0) {
-      const orConditions = targetCodes.map(c => `legacy_code.ilike.%${c}%`).join(',');
-      const { data, error } = await supabaseAdmin
-        .from('orders')
-        .select('id, legacy_code, status, delivery_detail, whaticket_link, order_medium_id, client_id, channel, advertising_source_id, totals')
-        .or(orConditions)
-        .limit(1000);
-      if (error) throw error;
-      dbOrders = data || [];
+      dbOrders = await findImportOrders(supabaseAdmin, targetCodes,
+        'id, legacy_code, status, delivery_detail, whaticket_link, order_medium_id, client_id, channel, advertising_source_id, totals');
     }
 
     // 2.5 Batch-preload Clients and Addresses for all phones in this chunk (saves ~30+ subrequests)
@@ -797,6 +794,7 @@ export async function POST(request: Request) {
             const fieldsToUpdate: any = { ...updatePayload };
             if (newStatus !== dbOrder.status) {
               fieldsToUpdate.status = newStatus;
+              if (newStatus === 'Cancelado') fieldsToUpdate.cancel_reason = await getCancellationReason(orderCode);
               addLog(`🔄 Sincronizando pedido ${orderCode}: cambiando estado de '${dbOrder.status}' a '${newStatus}'...`);
             }
             if (needsMetadataUpdate) {
@@ -827,29 +825,29 @@ export async function POST(request: Request) {
                   }
                 }
               }
-              let deliveryStatus = 'pendiente_ruteo';
-              if (newStatus === 'Entregado') deliveryStatus = 'entregado';
-              else if (newStatus === 'Cancelado') deliveryStatus = 'fallido';
-              
-              const updatePayloadDel: any = { status: deliveryStatus };
-              if (newStatus === 'Entregado') {
-                const rawEntDate = (row[2] || "").trim();
-                const initDelDate = parseDate(rawEntDate);
-                updatePayloadDel.delivery_date = initDelDate.toISOString();
+              // Commercial/routing statuses and metadata do not describe the
+              // outcome of an existing route attempt. Never overwrite a
+              // postponed attempt with pendiente_ruteo on a generic sync.
+              const deliveryOutcome = centralDeliveryOutcome(dbOrder.status, newStatus);
+              if (deliveryOutcome) {
+                // A later delivery/cancellation of the same order must not
+                // overwrite the failed attempt of an earlier rendition.
+                let deliveryUpdate = supabaseAdmin.from('deliveries')
+                  .update(deliveryOutcome).eq('order_id', dbOrder.id)
+                  .is('failure_reason', null).neq('status', 'fallido');
+                if (rawEntDate) {
+                  deliveryUpdate = deliveryUpdate.eq('delivery_date', parseDate(rawEntDate).toISOString().slice(0, 10));
+                } else {
+                  deliveryUpdate = deliveryUpdate.is('route_sheet_id', null);
+                }
+                const { error: errDelUpdate } = await deliveryUpdate;
+                if (errDelUpdate) {
+                  addLog(`❌ Error al actualizar entrega del pedido ${orderCode}: ${errDelUpdate.message}`);
+                }
               }
-              
-              const { error: errDelUpdate } = await supabaseAdmin
-                .from('deliveries')
-                .update(updatePayloadDel)
-                .eq('order_id', dbOrder.id);
-                
-              if (errDelUpdate) {
-                addLog(`❌ Error al actualizar entrega del pedido ${orderCode}: ${errDelUpdate.message}`);
-              } else {
-                addLog(`✅ Pedido ${orderCode} y entrega actualizados a '${newStatus}'.`);
-                totalUpdated++;
-                dbOrder.status = newStatus;
-              }
+              addLog(`✅ Pedido ${orderCode} actualizado a '${newStatus}'; se conserva el resultado de los recorridos salvo entrega/cancelación explícita.`);
+              totalUpdated++;
+              dbOrder.status = newStatus;
             }
           }
         }
@@ -1114,6 +1112,7 @@ export async function POST(request: Request) {
             payment_method_id: paymentMethodId,
             freight_type: 'Regular',
             status: dbOrderStatus,
+            cancel_reason: dbOrderStatus === 'Cancelado' ? await getCancellationReason(orderCode) : null,
             total_amount: calculatedTotal,
             order_discount_type: importedDiscountAmount > 0 ? 'fixed' : null,
             order_discount_value: importedDiscountAmount,

@@ -2,7 +2,7 @@ export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 import { NextResponse, after } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { fetchSpreadsheetCsv, setOrderStatusInSellerSheetByCode } from '@/lib/googleSheets';
+import { fetchSpreadsheetCsv, setOrderStatusInSellerSheetByCode, createLogisticsCancellationReasonLookup } from '@/lib/googleSheets';
 import { isDiscountProductLine, resolveImportedOrderChannel, sheetDiscountAmount } from '@/lib/wholesaleOrders';
 import { oncePerKey } from '@/lib/orderSync';
 import {
@@ -230,6 +230,7 @@ const mergeContiguousSheetRows = (rows: string[][]): string[][] => {
 
 // Autonomous Background Runner executing on the server
 async function runBackgroundImportJob(jobId: string, payload: any) {
+  const getCancellationReason = createLogisticsCancellationReasonLookup();
   const startTime = Date.now();
   const logs: string[] = [];
 
@@ -698,6 +699,7 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
             }
             if (dbOrder.status !== 'Cancelado' && dbOrderStatus === 'Cancelado') {
               updatePayload.status = 'Cancelado';
+              updatePayload.cancel_reason = await getCancellationReason(orderCode);
             }
             if (rawDeliveryDetail && rawDeliveryDetail !== dbOrder.delivery_detail) {
               updatePayload.delivery_detail = rawDeliveryDetail;
@@ -772,6 +774,7 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
               order_medium_id: orderMediumId,
               freight_type: 'Regular',
               status: dbOrderStatus,
+              cancel_reason: dbOrderStatus === 'Cancelado' ? await getCancellationReason(orderCode) : null,
               total_amount: rawTotalAmount,
               order_discount_type: importedDiscountAmount > 0 ? 'fixed' : null,
               order_discount_value: importedDiscountAmount,

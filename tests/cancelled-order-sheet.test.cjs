@@ -35,3 +35,26 @@ test('moves the delivery row three columns right while preserving target formula
   assert.equal(byColumn.has(9), false);
   assert.equal(byColumn.has(20), false);
 });
+
+test('reads the logistics reason from B and matches the code in D', () => {
+  const reasons = lib.logisticsCancellationReasons([
+    [' el marido ya compró ', 'septiembre', ' js25270 '],
+    ['Otro motivo', 'septiembre', 'LK01514'],
+    ['', 'septiembre', 'JS25270']
+  ]);
+  assert.equal(lib.logisticsCancellationReason(reasons, 'JS25270'),
+    'Anulado por Logística. el marido ya compró');
+  assert.equal(lib.logisticsCancellationReason(reasons, 'lk01514'),
+    'Anulado por Logística. Otro motivo');
+  assert.equal(lib.logisticsCancellationReason(reasons, 'UNKNOWN'),
+    'Anulado por Logística. Pedido no encontrado en hoja de Cancelados de Logística');
+});
+
+test('distinguishes a blank reason from a missing order and handles multiple codes', () => {
+  const reasons = lib.logisticsCancellationReasons([['', '', 'JS1'], ['Sin stock', '', 'JS2 / JS3']]);
+  assert.equal(lib.logisticsCancellationReason(reasons, 'JS1'),
+    'Anulado por Logística. Sin motivo informado en la hoja de Cancelados de Logística');
+  assert.equal(lib.logisticsCancellationReason(reasons, 'JS2 / JS4'),
+    'Anulado por Logística. JS2: Sin stock / JS4: Pedido no encontrado en hoja de Cancelados de Logística');
+  assert.equal(lib.logisticsCancellationReason(reasons, 'JS3'), 'Anulado por Logística. Sin stock');
+});

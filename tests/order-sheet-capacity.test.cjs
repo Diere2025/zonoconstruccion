@@ -121,7 +121,7 @@ test('seller split orders grow before format restoration and save every original
   });
   assert.equal(result.code,'JS1 / JS2');
   assert.equal(f.calls.filter(c=>c.body?.data).length,2);
-  assert.ok(f.calls.findIndex(c=>c.body?.requests)<f.calls.findIndex(c=>c.body?.data));
+  assert.ok(f.calls.findIndex(c=>c.body?.requests)<f.calls.findIndex(c=>c.maintenance));
 });
 
 test('an expansion permission failure prevents order writes and blocks the downstream delivery load',async()=>{

@@ -3,73 +3,21 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { authenticateSystemAdministrator } from '@/lib/systemAdminAccess';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
-const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
-
-const KNOWN_ADMIN_EMAILS = [
-  'diego.boveda@gmail.com',
-  'caroibarra.93@gmail.com'
-];
-
-/**
- * Verify if the requester is a system administrator
- */
-async function verifyIsAdmin(request: Request, body?: any): Promise<{ isAdmin: boolean; error?: string }> {
-  try {
-    // 1. Check Bearer token from headers
-    const authHeader = request.headers.get('authorization');
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      const token = authHeader.replace('Bearer ', '').trim();
-      if (token) {
-        const { data: { user } } = await supabaseAdmin.auth.getUser(token);
-        if (user?.email) {
-          const email = user.email.toLowerCase();
-          if (KNOWN_ADMIN_EMAILS.includes(email) || (user.user_metadata?.role || '').toLowerCase() === 'admin') {
-            return { isAdmin: true };
-          }
-          const { data: seller } = await supabaseAdmin
-            .from('sellers')
-            .select('role')
-            .eq('id', user.id)
-            .maybeSingle();
-          if (seller?.role === 'admin') {
-            return { isAdmin: true };
-          }
-        }
-      }
-    }
-
-    // 2. Check callerEmail or callerRole passed from client
-    const callerEmail = (body?.callerEmail || new URL(request.url).searchParams.get('callerEmail') || '').toLowerCase().trim();
-    const callerRole = (body?.callerRole || new URL(request.url).searchParams.get('callerRole') || '').toLowerCase().trim();
-
-    if (callerEmail && (KNOWN_ADMIN_EMAILS.includes(callerEmail) || callerEmail.includes('admin') || callerEmail.includes('diego'))) {
-      return { isAdmin: true };
-    }
-
-    if (callerRole === 'admin') {
-      return { isAdmin: true };
-    }
-
-    // If neither is explicitly an admin
-    return { 
-      isAdmin: false, 
-      error: 'Acceso denegado: solo los administradores del sistema pueden gestionar los vendedores.' 
-    };
-  } catch (err: any) {
-    return { isAdmin: false, error: err.message || 'Error validando permisos' };
-  }
-}
+const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
+  auth: { persistSession: false, autoRefreshToken: false }
+});
 
 // GET: List all sellers + phone lines + auth status
 export async function GET(request: Request) {
   try {
-    const authCheck = await verifyIsAdmin(request);
-    if (!authCheck.isAdmin) {
-      return NextResponse.json({ error: authCheck.error }, { status: 403 });
+    const authCheck = await authenticateSystemAdministrator(request, supabaseAdmin);
+    if (!authCheck.user) {
+      return NextResponse.json({ error: authCheck.error }, { status: authCheck.status });
     }
 
     const [sellersRes, phoneLinesRes, sellerPhoneLinesRes, authUsersRes, ordersCountRes] = await Promise.all([
@@ -93,6 +41,9 @@ export async function GET(request: Request) {
 
     if (sellersRes.error) {
       return NextResponse.json({ error: sellersRes.error.message }, { status: 500 });
+    }
+    if (authUsersRes.error) {
+      return NextResponse.json({ error: 'No se pudieron cargar las cuentas de acceso de los usuarios.' }, { status: 503 });
     }
 
     // Map phone lines by ID
@@ -157,9 +108,9 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { action } = body;
 
-    const authCheck = await verifyIsAdmin(request, body);
-    if (!authCheck.isAdmin) {
-      return NextResponse.json({ error: authCheck.error }, { status: 403 });
+    const authCheck = await authenticateSystemAdministrator(request, supabaseAdmin);
+    if (!authCheck.user) {
+      return NextResponse.json({ error: authCheck.error }, { status: authCheck.status });
     }
 
     // 1. CREATE NEW SELLER

@@ -2,6 +2,8 @@
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { supabase } from '@/lib/supabase';
+import { createAuthenticatedRequester } from '@/lib/authenticatedRequest';
 import {
   TrendingUp,
   DollarSign,
@@ -30,6 +32,8 @@ import {
   Percent,
   X
 } from 'lucide-react';
+
+const requestEERR = createAuthenticatedRequester(supabase);
 
 interface ExpenseCategory {
   name: string;
@@ -235,10 +239,9 @@ export default function EstadoResultadosView() {
         else if (!silent) setLoading(true);
 
         const url = `/api/admin/finanzas/eerr${force ? '?refresh=true' : ''}`;
-        const res = await fetch(url, { cache: 'no-store' });
-        const json = await res.json();
+        const json = await requestEERR(url);
 
-        if (!res.ok || !json.success) {
+        if (!json.success) {
           throw new Error(json.error || 'Error al obtener datos');
         }
 

@@ -52,7 +52,7 @@ create trigger treasury_settlement_electronic_total
 before update on public.treasury_settlements
 for each row execute function public.recalculate_treasury_settlement_electronic_total();
 
--- Recalculate only open drafts. Confirmed records are left as historical entries.
+-- Correct existing draft balances without changing confirmed accounting records.
 update public.treasury_settlements
 set updated_at = updated_at
 where status = 'draft' and route_sheet_id is not null;

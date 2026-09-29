@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 
 test('Pedidos Mayoristas always navigates back to the list tab', () => {
-  const layout = fs.readFileSync('src/components/ui/AdminLayout.tsx', 'utf8');
+  const layout = fs.readFileSync('src/lib/erpNavigation.ts', 'utf8');
   const orders = fs.readFileSync('src/app/vendedores/pedidos/page.tsx', 'utf8');
 
   assert.match(layout, /Pedidos Mayoristas[^\n]+tab=list&list_type=todos/);

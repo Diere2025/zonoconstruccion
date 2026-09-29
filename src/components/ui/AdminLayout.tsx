@@ -1,54 +1,16 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import React, { useState, useEffect, useCallback, Suspense } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { 
-  BarChart3, 
-  TrendingUp,
-  Link2,
-  ShoppingBag, 
-  Settings, 
-  LogOut, 
-  Users, 
-  Menu, 
-  X, 
-  Database,
-  Truck,
-  ShoppingCart,
-  Factory,
-  Calculator,
-  BookOpen,
-  Clock,
-  Map,
-  Wallet,
-  RefreshCw,
-  Upload,
-  Target,
-  Coins,
-  Package,
-  PackageCheck,
-  AlertTriangle,
-  ChevronRight,
-  ChevronDown,
-  Shield,
-  ShieldCheck,
-  Layers,
-  KeyRound,
-  Eye,
-  EyeOff,
-  CheckCircle2,
-  AlertCircle,
-  Loader2,
-  FileSpreadsheet,
-  FileText,
-  PlusCircle,
-  ClipboardCheck,
-  Printer,
-  ClipboardList,
-  Boxes
-} from "lucide-react";
+import { LogOut, Users, Menu, X, ChevronRight, ChevronDown, Shield, KeyRound, Eye, EyeOff, CheckCircle2, AlertCircle, Loader2, Boxes } from "lucide-react";
+import { visibleErpModules, activeErpLink, type ErpLink as SidebarLink } from "@/lib/erpNavigation";
+import { ErpNavigationContext } from "@/components/ui/ErpNavigationContext";
 import { supabase } from "@/lib/supabase";
+import { loadUserRoleProfile, type UserRoleProfile } from "@/lib/userRoleProfile";
+import { createAuthenticatedRequester } from "@/lib/authenticatedRequest";
+
+const adminRequest = createAuthenticatedRequester(supabase);
 
 interface AdminLayoutProps {
   children: React.ReactNode;
@@ -71,19 +33,6 @@ function normalizeUserRoles(primaryRole?: string | null, roles?: unknown): UserR
   return Array.from(new Set(normalized.length > 0 ? normalized : ['seller'])) as UserRole[];
 }
 
-interface SidebarLink {
-  name: string;
-  href: string;
-  icon: React.ComponentType<{ className?: string }>;
-  adminOnly?: boolean;
-  sellerOnly?: boolean;
-  allowedRoles?: UserRole[];
-}
-
-interface SidebarSection {
-  title: string;
-  links: SidebarLink[];
-}
 
 interface ImpersonationStatus {
   active: boolean;
@@ -104,6 +53,7 @@ interface ImpersonationUser {
 }
 
 // In-memory module cache to eliminate flashing across navigation
+let cachedIdentityUserId: string | null = null;
 let cachedUserRole: UserRole | null = null;
 let cachedUserRoles: UserRole[] | null = null;
 let cachedIsRestricted: boolean | null = null;
@@ -111,12 +61,14 @@ let cachedUserEmail: string | null = null;
 let cachedCanUseWholesale: boolean | null = null;
 
 function clearCachedIdentity() {
+  cachedIdentityUserId = null;
   cachedUserRole = null;
   cachedUserRoles = null;
   cachedIsRestricted = null;
   cachedUserEmail = null;
   cachedCanUseWholesale = null;
   if (typeof window !== 'undefined') {
+    sessionStorage.removeItem('zono_user_id');
     sessionStorage.removeItem('zono_user_email');
     sessionStorage.removeItem('zono_user_role');
     sessionStorage.removeItem('zono_user_roles');
@@ -127,8 +79,13 @@ function clearCachedIdentity() {
 }
 
 export function AdminLayout({ children }: AdminLayoutProps) {
+  return <Suspense fallback={<div className="p-4 text-sm text-slate-500">Cargando navegación…</div>}><AdminLayoutContent>{children}</AdminLayoutContent></Suspense>;
+}
+
+function AdminLayoutContent({ children }: AdminLayoutProps) {
   const pathname = usePathname();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
     if (typeof window !== 'undefined') {
       if (window.innerWidth < 1024) return false;
@@ -144,6 +101,15 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     }
   };
 
+  useEffect(() => {
+    const desktop = window.matchMedia('(min-width: 1024px)');
+    const onBreakpoint = (event: MediaQueryListEvent) => {
+      if (!event.matches) setIsSidebarOpen(false);
+    };
+    desktop.addEventListener('change', onBreakpoint);
+    return () => desktop.removeEventListener('change', onBreakpoint);
+  }, []);
+
   const [userEmail, setUserEmail] = useState<string>(() => {
     if (typeof window !== 'undefined') {
       return cachedUserEmail || sessionStorage.getItem('zono_user_email') || "";
@@ -151,15 +117,9 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     return "";
   });
 
-  const [isRoleLoaded, setIsRoleLoaded] = useState<boolean>(() => {
-    if (typeof window !== 'undefined') {
-      return cachedUserRoles !== null || (
-        sessionStorage.getItem('zono_role_loaded') === 'true' &&
-        sessionStorage.getItem('zono_user_roles') !== null
-      );
-    }
-    return false;
-  });
+  // Route guards wait until the cached identity has been verified.
+  const [isRoleLoaded, setIsRoleLoaded] = useState(false);
+  const [navigationError, setNavigationError] = useState('');
 
   const [userRole, setUserRole] = useState<UserRole>(() => {
     if (typeof window !== 'undefined') {
@@ -308,12 +268,31 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       }
     }
 
+    let disposed = false;
+    let requestNumber = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let retryDelay = 1000;
+
     async function getUserDetails() {
+      const request = ++requestNumber;
       try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
+        const { data: { user }, error } = await supabase.auth.getUser();
+        if (disposed || request !== requestNumber) return;
+        if (error) throw error;
+        if (!user) return;
+
+        const storedId = cachedIdentityUserId || sessionStorage.getItem('zono_user_id');
+        const storedEmail = cachedUserEmail || sessionStorage.getItem('zono_user_email');
+        const sameIdentity = storedId ? storedId === user.id
+          : storedEmail?.toLowerCase() === user.email?.toLowerCase();
+        if (!sameIdentity) {
+          clearCachedIdentity();
+          setUserRoles([]);
+          setIsRoleLoaded(false);
+          setCanUseWholesale(false);
+          setIsWholesalePermissionLoaded(false);
+        } else if (sessionStorage.getItem('zono_role_loaded') === 'true') {
           setIsRoleLoaded(true);
-          return;
         }
 
         const email = user.email || "";
@@ -327,77 +306,57 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                           emailLower.includes('diego') || 
                           emailLower === 'caroibarra.93@gmail.com';
 
-        let detectedRole: UserRole = isAdminUser ? 'admin' : 'seller';
-        let detectedRoles = normalizeUserRoles(
-          detectedRole,
-          user.user_metadata?.roles
+        const selectProfile = () => supabase.from('sellers')
+          .select('id, full_name, role, roles, seller_type, can_sell_wholesale');
+        const seller = await loadUserRoleProfile<UserRoleProfile>(user,
+          id => selectProfile().eq('id', id).maybeSingle(),
+          email => selectProfile().ilike('email', email).maybeSingle());
+        if (disposed || request !== requestNumber) return;
+        const { data: { session: activeSession } } = await supabase.auth.getSession();
+        if (disposed || request !== requestNumber || activeSession?.user.id !== user.id) return;
+        if (!seller.role || !isUserRole(seller.role.toLowerCase())) {
+          throw new Error('El perfil no tiene un rol válido.');
+        }
+
+        let detectedRole = seller.role.toLowerCase() as UserRole;
+        const detectedRoles = normalizeUserRoles(detectedRole, seller.roles);
+        if (detectedRoles.includes('admin')) {
+          detectedRole = 'admin';
+          isAdminUser = true;
+        }
+
+        const nameLower = (seller?.full_name || "").toLowerCase();
+        const detectedCanUseWholesale = isAdminUser || seller?.can_sell_wholesale === true || seller?.seller_type === 'mayorista' || seller?.seller_type === 'ambos';
+        const detectedRestricted = !isAdminUser && (
+          emailLower.includes("jazmin") ||
+          emailLower.includes("jazmín") ||
+          nameLower.includes("jazmin") ||
+          nameLower.includes("jazmín") ||
+          emailLower.includes("ludmila") ||
+          emailLower.includes("ludmilakrenz") ||
+          nameLower.includes("ludmila") ||
+          emailLower.includes("facundo") ||
+          emailLower.includes("facundopaz") ||
+          emailLower === "anabel.fontan@zono.com.ar" ||
+          nameLower.includes("facundo") ||
+          user.id === "13430e05-b61a-4a3f-9fc3-152d377c4b0c" ||   // Jazmin
+          user.id === "54b2d319-8f6f-47ff-b794-b7731978410a" ||   // Ludmila
+          user.id === "8207801b-b6cb-48cc-af0f-d2f9f2c98032" ||   // Ludmila Old
+          user.id === "3820a0fe-bb0a-4a84-ad85-79e49868cad7"     // Facundo Paz
         );
-
-        // Check user metadata first for instant role detection
-        const metaRole = (user.user_metadata?.role || '').toLowerCase();
-        if (metaRole) {
-          if (isUserRole(metaRole)) detectedRole = metaRole;
-          if (metaRole === 'admin') isAdminUser = true;
-        }
-        detectedRoles = normalizeUserRoles(detectedRole, user.user_metadata?.roles);
-
-        let detectedRestricted = false;
-        let detectedCanUseWholesale = isAdminUser;
-
-        try {
-          const { data: seller } = await supabase
-            .from('sellers')
-            .select('id, full_name, role, roles, seller_type, can_sell_wholesale')
-            .or(`id.eq.${user.id},email.ilike.${emailLower}`)
-            .maybeSingle();
-
-          if (seller?.role) {
-            const roleLower = seller.role.toLowerCase();
-            if (isUserRole(roleLower)) detectedRole = roleLower;
-            if (roleLower === 'admin') {
-              isAdminUser = true;
-            }
-          }
-          detectedRoles = normalizeUserRoles(detectedRole, seller?.roles);
-          if (detectedRoles.includes('admin')) {
-            detectedRole = 'admin';
-            isAdminUser = true;
-          }
-
-          const nameLower = (seller?.full_name || "").toLowerCase();
-          detectedCanUseWholesale = isAdminUser || seller?.can_sell_wholesale === true || seller?.seller_type === 'mayorista' || seller?.seller_type === 'ambos';
-          detectedRestricted = !isAdminUser && (
-            emailLower.includes("jazmin") || 
-            emailLower.includes("jazmín") || 
-            nameLower.includes("jazmin") || 
-            nameLower.includes("jazmín") || 
-            emailLower.includes("ludmila") ||
-            emailLower.includes("ludmilakrenz") ||
-            nameLower.includes("ludmila") ||
-            emailLower.includes("facundo") ||
-            emailLower.includes("facundopaz") ||
-            emailLower === "anabel.fontan@zono.com.ar" ||
-            nameLower.includes("facundo") ||
-            user.id === "13430e05-b61a-4a3f-9fc3-152d377c4b0c" ||   // Jazmin
-            user.id === "54b2d319-8f6f-47ff-b794-b7731978410a" ||   // Ludmila
-            user.id === "8207801b-b6cb-48cc-af0f-d2f9f2c98032" ||   // Ludmila Old
-            user.id === "3820a0fe-bb0a-4a84-ad85-79e49868cad7"     // Facundo Paz
-          );
-        } catch (e) {
-          console.warn("Error checking seller role in AdminLayout:", e);
-        }
-
         setUserRole(detectedRole);
         setUserRoles(detectedRoles);
         setIsRestrictedSeller(detectedRestricted);
         setCanUseWholesale(detectedCanUseWholesale);
         setIsWholesalePermissionLoaded(true);
+        cachedIdentityUserId = user.id;
         cachedUserRole = detectedRole;
         cachedUserRoles = detectedRoles;
         cachedIsRestricted = detectedRestricted;
         cachedCanUseWholesale = detectedCanUseWholesale;
 
         if (typeof window !== 'undefined') {
+          sessionStorage.setItem('zono_user_id', user.id);
           sessionStorage.setItem('zono_user_email', email);
           sessionStorage.setItem('zono_user_role', detectedRole);
           sessionStorage.setItem('zono_user_roles', JSON.stringify(detectedRoles));
@@ -405,12 +364,31 @@ export function AdminLayout({ children }: AdminLayoutProps) {
           sessionStorage.setItem('zono_can_use_wholesale', detectedCanUseWholesale ? 'true' : 'false');
           sessionStorage.setItem('zono_role_loaded', 'true');
         }
-      } finally {
         setIsRoleLoaded(true);
+        setNavigationError('');
+      } catch (error) {
+        if (disposed || request !== requestNumber) return;
+        setNavigationError('No se pudieron actualizar los permisos. Reintentaremos automáticamente.');
+        console.warn("No se pudieron actualizar los permisos; se conserva el perfil verificado:", error);
+        retryTimer = setTimeout(() => { void getUserDetails(); }, retryDelay);
+        retryDelay = Math.min(retryDelay * 2, 30000);
       }
     }
 
-    getUserDetails();
+    void getUserDetails();
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(event => {
+      if (!['SIGNED_IN', 'SIGNED_OUT', 'USER_UPDATED'].includes(event)) return;
+      requestNumber++;
+      setIsRoleLoaded(false);
+      clearTimeout(retryTimer);
+      // Keep database requests outside Supabase's synchronous auth callback.
+      retryTimer = setTimeout(() => { void getUserDetails(); }, 0);
+    });
+    return () => {
+      disposed = true;
+      clearTimeout(retryTimer);
+      subscription.unsubscribe();
+    };
   }, [pathname]);
 
   const hasRole = useCallback((role: UserRole) => userRoles.includes(role), [userRoles]);
@@ -455,8 +433,13 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   // Route guards per role. Multi-role users receive the union of every assigned role.
   useEffect(() => {
     if (!isRoleLoaded) return;
+    // Incidencias checks its independent capabilities in its own session/API.
+    if (pathname === '/admin') return;
+    if (pathname === '/incidencias' || pathname.startsWith('/incidencias/')) return;
     const search = typeof window !== 'undefined' ? window.location.search : '';
-    if (isSpecializedOperator && pathname && !canAccessSpecializedRoute(pathname, search)) {
+    if (pathname === '/admin/finanzas/eerr' && !isAdminRole) {
+      router.replace(hasRole('administracion') ? '/admin/finanzas' : '/vendedores');
+    } else if (isSpecializedOperator && pathname && !canAccessSpecializedRoute(pathname, search)) {
       const fallback = hasRole('compras') ? '/admin/compras?tab=purchase_orders' : '/admin/cobros-mp';
       router.replace(fallback);
     } else if (hasRole('seller') && !isAdminRole && pathname === '/admin/cobros-mp') {
@@ -481,29 +464,16 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     ) {
       router.replace('/vendedores');
     }
-  }, [isRoleLoaded, userRole, userRoles, isAdminRole, isSpecializedOperator, canAccessSpecializedRoute, hasRole, isRestrictedSeller, canUseWholesale, isWholesalePermissionLoaded, pathname, router]);
-
-  const destinationForRole = (role?: string) => {
-    if (role === 'admin') return '/admin/dashboard';
-    if (role === 'compras') return '/admin/compras?tab=purchase_orders';
-    if (role === 'logistica' || role === 'fletero' || role === 'administracion') return '/admin/cobros-mp';
-    return '/vendedores';
-  };
+  }, [isRoleLoaded, userRole, userRoles, isAdminRole, isSpecializedOperator, canAccessSpecializedRoute, hasRole, isRestrictedSeller, canUseWholesale, isWholesalePermissionLoaded, pathname, searchParams, router]);
 
   const openImpersonationModal = async () => {
     setShowImpersonationModal(true);
     setImpersonationError('');
     setSelectedImpersonationUserId('');
+    setImpersonationUsers([]);
     setIsLoadingImpersonationUsers(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) throw new Error('La sesión de administrador no está disponible.');
-      const result = await fetch('/api/admin/vendedores', {
-        cache: 'no-store',
-        headers: { Authorization: `Bearer ${session.access_token}` }
-      });
-      const payload = await result.json();
-      if (!result.ok) throw new Error(payload.error || 'No se pudieron cargar los usuarios.');
+      const payload = await adminRequest('/api/admin/vendedores');
       const users = (payload.data || []).filter((candidate: ImpersonationUser) =>
         candidate.is_active !== false && Boolean(candidate.auth_user?.id && candidate.auth_user?.email)
       );
@@ -558,7 +528,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       }
 
       clearCachedIdentity();
-      window.location.href = destinationForRole(payload.targetRole);
+      window.location.href = '/admin';
     } catch (error) {
       setImpersonationError(error instanceof Error ? error.message : 'No se pudo cambiar la sesión.');
       setIsSwitchingSession(false);
@@ -591,7 +561,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       const finishPayload = await finishResult.json();
       if (!finishResult.ok) throw new Error(finishPayload.error || 'No se pudo cerrar la sesión temporal.');
       clearCachedIdentity();
-      window.location.href = '/admin/dashboard';
+      window.location.href = '/admin';
     } catch (error) {
       setImpersonationError(error instanceof Error ? error.message : 'No se pudo volver a la sesión de administrador.');
       setIsSwitchingSession(false);
@@ -608,167 +578,24 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     window.location.href = "/admin";
   };
 
-  const linkSections: SidebarSection[] = [
-    {
-      title: "Canal Minorista (B2C)",
-      links: [
-        { name: "Dashboard Minorista", href: "/admin/dashboard", icon: BarChart3, adminOnly: true },
-        { name: "Dashboard Vendedor", href: "/vendedores", icon: BarChart3, sellerOnly: true },
-        { name: "Cargar Pedido", href: "/vendedores/pedidos?tab=form&client_type=minoristas", icon: PlusCircle },
-        { name: "Pedidos Minoristas", href: "/vendedores/pedidos?tab=list&client_type=minoristas", icon: ShoppingCart },
-        { name: "Cotizador Minorista", href: "/vendedores/presupuestos", icon: Calculator },
-        { name: "Presupuestos Minoristas", href: "/vendedores/cotizaciones?channel=minorista", icon: ClipboardCheck },
-        { name: "Clientes Minoristas", href: "/vendedores/clientes", icon: Users },
-        { name: "Meta Ads Performance", href: "/admin/meta-ads", icon: Target, adminOnly: true },
-        { name: "Postventa y Reclamos", href: "/vendedores/postventa", icon: RefreshCw }
-      ]
-    },
-    {
-      title: "Canal Mayorista (B2B)",
-      links: [
-        { name: "Dashboard Mayorista", href: "/admin/dashboard-mayorista", icon: TrendingUp, adminOnly: true },
-        { name: "Cargar Pedido Mayorista", href: "/vendedores/pedidos?tab=form&client_type=mayoristas", icon: PlusCircle },
-        { name: "Pedidos Mayoristas", href: "/vendedores/pedidos?tab=list&list_type=todos&status=Todos&client_type=mayoristas", icon: ShoppingBag },
-        { name: "Clientes Mayoristas", href: "/vendedores/clientes?client_type=mayoristas", icon: Users },
-        { name: "Cotizador Mayorista", href: "/vendedores/presupuestos-mayorista", icon: Calculator },
-        { name: "Presupuestos Mayoristas", href: "/vendedores/cotizaciones?channel=mayorista", icon: ClipboardCheck },
-        { name: "Lista Precios Mayorista", href: "/admin/lista-mayorista", icon: Calculator, adminOnly: true },
-        { name: "Vincular Productos", href: "/admin/dashboard-mayorista?tab=mapping", icon: Link2, adminOnly: true }
-      ]
-    },
-    {
-      title: "Operaciones y Control",
-      links: [
-        { name: "Chequeo de Pagos", href: "/admin/cobros-mp", icon: ShieldCheck, allowedRoles: ['admin', 'logistica', 'fletero', 'administracion'] },
-        { name: "Sincronizar Planillas", href: "/admin/importar-pedidos", icon: Upload, adminOnly: true }
-      ]
-    },
-    {
-      title: "Tesorería y Finanzas",
-      links: [
-        { name: "Rendiciones de Recorridos", href: "/admin/rendiciones", icon: ClipboardList, allowedRoles: ['admin', 'administracion'] },
-        { name: "Caja Diaria", href: "/admin/caja", icon: Wallet, adminOnly: true },
-        { name: "Estado de Resultados (EERR)", href: "/admin/finanzas/eerr", icon: FileSpreadsheet, adminOnly: true },
-        { name: "Administración y Finanzas", href: "/admin/finanzas", icon: Coins, adminOnly: true },
-        { name: "Comprobantes de Tesorería", href: "/admin/comprobantes-tesoreria", icon: FileText, allowedRoles: ['admin', 'administracion'] },
-        { name: "Comisiones de Vendedores", href: "/admin/comisiones", icon: Coins, adminOnly: true }
-      ]
-    },
-    {
-      title: "Logística y Distribución",
-      links: [
-        { name: "Gestión de Transportistas", href: "/admin/fleteros", icon: Truck, allowedRoles: ['admin', 'logistica'] },
-        { name: "Ruteo de Entregas", href: "/vendedores/ruteo", icon: Truck },
-        { name: "Impresión Logística", href: "/vendedores/ruteo/comprobantes", icon: Printer, allowedRoles: ['admin', 'logistica'] },
-        { name: "Facturación Pendiente", href: "/admin/facturacion-pendiente", icon: PackageCheck, adminOnly: true },
-        { name: "Control de Planillas", href: "/admin/control-planillas", icon: ClipboardCheck, allowedRoles: ['admin', 'logistica'] },
-        { name: "Pedidos en Espera", href: "/admin/compras?tab=hold_orders", icon: Clock, adminOnly: true },
-        { name: "Reclamos y Cambios", href: "/admin/compras?tab=claims_exchanges", icon: RefreshCw, adminOnly: true },
-        { name: "Auditoría de Entregas", href: "/admin/auditoria-logistica", icon: Clock, adminOnly: true },
-        { name: "Zonas y Localidades", href: "/admin/localidades-zonas", icon: Map, adminOnly: true },
-        { name: "Tiempos de Entrega", href: "/admin/tiempos-entrega", icon: Clock, adminOnly: true }
-      ]
-    },
-    {
-      title: "Compras",
-      links: [
-        { name: "Órdenes de Compra", href: "/admin/compras?tab=purchase_orders", icon: ClipboardList, allowedRoles: ['admin', 'compras'] },
-        { name: "Asistente de Compra", href: "/admin/compras?tab=purchase_calculator", icon: ShoppingCart, allowedRoles: ['admin', 'compras'] },
-        { name: "Alertas de Costos", href: "/admin/compras?tab=alerts", icon: AlertTriangle, allowedRoles: ['admin', 'compras'] },
-        { name: "Proveedores", href: "/admin/compras?tab=suppliers", icon: Users, adminOnly: true },
-        { name: "Listas y Precios", href: "/admin/compras?tab=pricelists", icon: FileSpreadsheet, adminOnly: true },
-        { name: "Registrar Compra", href: "/admin/compras?tab=new_purchase", icon: PlusCircle, adminOnly: true },
-        { name: "Recepción de Remitos", href: "/admin/compras?tab=receptions", icon: PackageCheck, adminOnly: true },
-        { name: "Historial de Compras", href: "/admin/compras?tab=purchases_history", icon: Clock, adminOnly: true }
-      ]
-    },
-    {
-      title: "Fábrica y Producción",
-      links: [
-        { name: "Control de Producción", href: "/admin/produccion", icon: Factory, adminOnly: true },
-        { name: "Órdenes de Producción", href: "/admin/compras?tab=production", icon: ClipboardList, adminOnly: true },
-        { name: "Recetas (BOM)", href: "/admin/compras?tab=boms", icon: Boxes, adminOnly: true },
-        { name: "Insumos / Stock", href: "/admin/compras?tab=insumos", icon: Layers, adminOnly: true },
-        { name: "Explorador BOM", href: "/admin/compras?tab=bom_explorer", icon: Database, adminOnly: true },
-        { name: "Análisis Make vs Buy", href: "/admin/compras?tab=make_vs_buy", icon: Calculator, adminOnly: true },
-        { name: "Stock de Fábrica", href: "/admin/stock-fabrica", icon: Layers, adminOnly: true },
-        { name: "Costos de Fabricación", href: "/admin/gas-consumo", icon: Factory, adminOnly: true }
-      ]
-    },
-    {
-      title: "Inventario y Catálogo",
-      links: [
-        { name: "Catálogo General", href: "/admin/catalogo", icon: Database, adminOnly: true },
-        { name: "Control de Stock", href: "/admin/stock", icon: Package, allowedRoles: ['admin', 'compras'] },
-        { name: "Capital Estancado", href: "/admin/capital-estancado", icon: AlertTriangle, adminOnly: true },
-        { name: "Lista de Precios Mayorista", href: "/admin/lista-mayorista", icon: Calculator, adminOnly: true },
-        { name: "Rentabilidad y Margen", href: "/admin/rentabilidad", icon: BarChart3, adminOnly: true }
-      ]
-    },
-    {
-      title: "Soporte y Configuración",
-      links: [
-        { name: "Recursos y FAQs", href: "/vendedores/recursos", icon: BookOpen },
-        { name: "Gestión de Usuarios", href: "/admin/vendedores", icon: Users, adminOnly: true },
-        { name: "Configuración General", href: "/admin/ajustes", icon: Settings, adminOnly: true },
-        { name: "Categorías de impresión", href: "/admin/configuracion-impresion", icon: Printer, allowedRoles: ['admin', 'logistica'] }
-      ]
-    }
-  ];
-
-  const isActive = (path: string) => {
-    const cleanPathname = pathname.replace(/\/$/, "");
-    const urlParts = path.split('?');
-    const pathOnly = urlParts[0].replace(/\/$/, "");
-    const queryOnly = urlParts[1];
-    
-    if (typeof window !== 'undefined') {
-      const searchParams = new URLSearchParams(window.location.search);
-
-      if (cleanPathname === "/vendedores/pedidos") {
-        const currentClientType = searchParams.get('client_type') || 'minoristas';
-        const currentTab = searchParams.get('tab') || 'list';
-        if (queryOnly) {
-          const linkParams = new URLSearchParams(queryOnly);
-          const linkClientType = linkParams.get('client_type') || 'minoristas';
-          const linkTab = linkParams.get('tab') || 'list';
-          return pathOnly === "/vendedores/pedidos" && currentClientType === linkClientType && currentTab === linkTab;
-        } else {
-          return pathOnly === "/vendedores/pedidos" && currentClientType === 'minoristas' && currentTab === 'list';
-        }
-      }
-
-      if (queryOnly) {
-        const linkParams = new URLSearchParams(queryOnly);
-        const activeTab = searchParams.get('tab') || 'suppliers';
-        const linkTab = linkParams.get('tab');
-        return cleanPathname === pathOnly && activeTab === linkTab;
-      }
-    }
-    
-    if (pathOnly === "/admin/catalogo" || pathOnly === "/vendedores" || pathOnly === "/admin/dashboard-mayorista" || pathOnly === "/vendedores/ruteo") {
-      return cleanPathname === pathOnly;
-    }
-    
-    return cleanPathname === pathOnly || cleanPathname.startsWith(pathOnly + "/");
-  };
+  const visibleModules = visibleErpModules({ roles: userRoles, restrictedSeller: isRestrictedSeller, canUseWholesale });
+  const activeLink = activeErpLink(visibleModules, pathname, searchParams.toString());
+  const isActive = (path: string) => activeLink?.link.href === path;
+  const activeSectionTitle = activeLink?.module.title;
 
   useEffect(() => {
     // Asegurar que la sección que contiene la página activa esté expandida al navegar
-    for (const section of linkSections) {
-      if (section.links.some(l => isActive(l.href))) {
+    if (activeSectionTitle) {
         setCollapsedSections(prev => {
-          if (prev[section.title] === true) {
+          if (prev[activeSectionTitle] === true) {
             const next = { ...prev };
-            delete next[section.title];
+            delete next[activeSectionTitle];
             return next;
           }
           return prev;
         });
-        break;
-      }
     }
-  }, [pathname]);
+  }, [activeSectionTitle, pathname, searchParams]);
 
   const isSectionCollapsed = (sectionTitle: string, visibleLinks: SidebarLink[]) => {
     // 1. Si el usuario clickeó manualmente para abrir o cerrar esta sección durante su sesión
@@ -796,7 +623,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
 
   // Compute dynamic breadcrumbs from current pathname
   const getBreadcrumbs = () => {
-    for (const section of linkSections) {
+    for (const section of visibleModules) {
       for (const link of section.links) {
         if (isActive(link.href)) {
           return {
@@ -808,13 +635,13 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     }
 
     if (pathname === "/admin/catalogo") return { section: "Inventario y Catálogo", page: "Catálogo General" };
-    if (pathname === "/vendedores") return { section: "Consola de Control", page: "Dashboard Vendedor" };
+    if (pathname === "/admin") return { section: "Panel ERP", page: "Inicio" };
     return { section: "Panel ERP", page: "Inicio" };
   };
 
   const breadcrumbs = getBreadcrumbs();
   const userInitial = userEmail ? userEmail.charAt(0).toUpperCase() : "U";
-  const roleLabel = userRoles.map(role => ({
+  const roleLabel = !isRoleLoaded ? 'Verificando permisos…' : userRoles.map(role => ({
     admin: 'Administrador',
     logistica: 'Logística',
     compras: 'Compras',
@@ -843,6 +670,9 @@ export function AdminLayout({ children }: AdminLayoutProps) {
 
       {/* Sidebar Navigation */}
       <aside 
+        id="erp-sidebar"
+        inert={!isSidebarOpen}
+        aria-hidden={!isSidebarOpen}
         className={`fixed inset-y-0 left-0 z-50 flex flex-col bg-slate-900 border-r border-slate-800 text-slate-200 transition-all duration-300 transform lg:translate-x-0 lg:static lg:h-screen ${
           isSidebarOpen 
             ? "translate-x-0 w-64 min-w-[16rem]" 
@@ -852,7 +682,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         {/* Sidebar Header / Brand */}
         <div className="h-16 flex items-center justify-between px-5 border-b border-slate-800/80 shrink-0 bg-slate-950/40">
           <Link 
-            href={isAdminRole ? "/admin/dashboard" : hasRole('logistica') || hasRole('fletero') || hasRole('administracion') ? "/admin/cobros-mp" : hasRole('compras') ? "/admin/compras?tab=purchase_orders" : "/vendedores"}
+            href="/admin"
             onClick={closeSidebarOnMobile}
             className="flex items-center gap-3 group"
           >
@@ -870,6 +700,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
           </Link>
 
           <button 
+            aria-label="Cerrar menú lateral"
             onClick={toggleSidebar} 
             className="lg:hidden p-1.5 rounded-lg hover:bg-slate-800 transition-colors text-slate-400 hover:text-white"
           >
@@ -877,6 +708,10 @@ export function AdminLayout({ children }: AdminLayoutProps) {
           </button>
         </div>
 
+        <Link href="/admin" onClick={closeSidebarOnMobile} aria-current={pathname === '/admin' ? 'page' : undefined}
+          className={`mx-3 mt-4 flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold ${pathname === '/admin' ? 'bg-brand-600 text-white' : 'hover:bg-slate-800 text-slate-200'}`}>
+          <Boxes className="h-4 w-4" /> Inicio
+        </Link>
         {/* Navigation Content */}
         <div className="flex-1 overflow-y-auto custom-sidebar-scrollbar px-3 py-4 space-y-6">
           {!isRoleLoaded ? (
@@ -888,35 +723,8 @@ export function AdminLayout({ children }: AdminLayoutProps) {
               </div>
             </div>
           ) : (
-            linkSections.map((section, sIdx) => {
-              const visibleLinks = section.links.filter(link => {
-                if (isSpecializedOperator) {
-                  if (link.allowedRoles?.some(role => userRoles.includes(role))) return true;
-                  if (hasRole('administracion')) {
-                    return link.href === "/admin/finanzas" || link.href === "/admin/comprobantes-tesoreria";
-                  }
-                  return false;
-                }
-                if (isRestrictedSeller) {
-                  const isAllowedWholesaleLink = canUseWholesale && (
-                    link.href === "/vendedores/pedidos?tab=form&client_type=mayoristas" ||
-                    link.href === "/vendedores/pedidos?tab=list&list_type=todos&status=Todos&client_type=mayoristas" ||
-                    link.href === "/vendedores/clientes?client_type=mayoristas" ||
-                    link.href === "/vendedores/presupuestos-mayorista"
-                  );
-                  return (
-                    isAllowedWholesaleLink ||
-                    link.href === "/vendedores" ||
-                    link.href === "/vendedores/presupuestos" ||
-                    link.href === "/vendedores/pedidos?tab=form&client_type=minoristas" ||
-                    link.href === "/vendedores/pedidos?tab=list&client_type=minoristas"
-                  );
-                }
-                if (link.adminOnly && !isAdminRole) return false;
-                if (link.allowedRoles && !link.allowedRoles.some(role => userRoles.includes(role))) return false;
-                if (link.sellerOnly && isAdminRole) return false;
-                return true;
-              });
+            visibleModules.map((section, sIdx) => {
+              const visibleLinks = section.links;
 
               if (visibleLinks.length === 0) return null;
 
@@ -957,7 +765,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                         const Icon = link.icon;
                         const active = isActive(link.href);
                         return (
-                          <Link 
+                          <Link
                             key={link.href}
                             href={link.href}
                             onClick={() => {
@@ -1055,6 +863,8 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         <header className="h-16 bg-white border-b border-slate-200/80 flex items-center justify-between px-6 shrink-0 z-10 shadow-2xs">
           <div className="flex items-center gap-4 min-w-0">
             <button 
+              aria-controls="erp-sidebar"
+              aria-expanded={isSidebarOpen}
               onClick={toggleSidebar} 
               className="p-2 hover:bg-slate-100 rounded-xl transition-colors text-slate-500 hover:text-slate-800 cursor-pointer"
               title={isSidebarOpen ? "Ocultar menú lateral" : "Mostrar menú lateral"}
@@ -1065,14 +875,16 @@ export function AdminLayout({ children }: AdminLayoutProps) {
             <div className="h-5 w-px bg-slate-200" />
 
             {/* Dynamic Breadcrumbs */}
-            <nav className="flex items-center gap-1.5 text-xs text-slate-500 truncate">
-              <span className="font-medium text-slate-400 hover:text-slate-600 transition-colors">
+            <nav aria-label="Ubicación" className="flex items-center gap-1.5 text-xs text-slate-500 truncate">
+              <Link href="/admin" className="font-semibold hover:text-brand-600">Inicio</Link>
+              {pathname !== '/admin' && <><ChevronRight className="w-3.5 h-3.5 text-slate-300 shrink-0" />
+              <Link href={`/admin#${activeLink?.module.id || ''}`} className="font-medium text-slate-400 hover:text-slate-600 transition-colors truncate">
                 {breadcrumbs.section}
-              </span>
+              </Link>
               <ChevronRight className="w-3.5 h-3.5 text-slate-300 shrink-0" />
               <span className="font-semibold text-slate-900 truncate">
                 {breadcrumbs.page}
-              </span>
+              </span></>}
             </nav>
           </div>
 
@@ -1084,7 +896,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
             </div>
 
             {/* Role Badge */}
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-100 border border-slate-200 text-slate-700 text-xs font-medium">
+            <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-100 border border-slate-200 text-slate-700 text-xs font-medium">
               <Shield className="w-3.5 h-3.5 text-slate-500" />
               <span>
                 {roleLabel}
@@ -1119,7 +931,9 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         {/* Viewport Scroll Area */}
         <main className="flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-6 bg-slate-50 custom-scrollbar min-w-0">
           <div className="w-full min-w-0 space-y-6">
-            {children}
+            <ErpNavigationContext.Provider value={{ modules: visibleModules, ready: isRoleLoaded && isWholesalePermissionLoaded, error: navigationError }}>
+              {children}
+            </ErpNavigationContext.Provider>
           </div>
         </main>
       </div>
@@ -1166,7 +980,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                     <Loader2 className="w-4 h-4 animate-spin" /> Cargando usuarios...
                   </div>
                 ) : filteredImpersonationUsers.length === 0 ? (
-                  <div className="py-12 text-center text-sm text-slate-500">No hay usuarios disponibles.</div>
+                  <div className="py-12 text-center text-sm text-slate-500">{impersonationError ? 'No se pudo cargar la lista de usuarios.' : 'No hay usuarios disponibles.'}</div>
                 ) : filteredImpersonationUsers.map(candidate => {
                   const selected = candidate.id === selectedImpersonationUserId;
                   return (

@@ -511,6 +511,10 @@ export default function ImportarPedidosPage() {
                   })
                 });
                 if (importRes && importRes.ok) break;
+                // Splitting a timed-out database query helps; repeating it four
+                // times only adds minutes before the individual fallback.
+                const errorBody = await importRes.clone().text().catch(() => '');
+                if (/statement timeout|57014/i.test(errorBody)) break;
                 if (retry < 4) {
                   const delay = retry * 2000;
                   addLog(`⏳ Reintentando lote ${chunkIdx + 1} de ${sheet.name} (intento ${retry + 1}/4 en ${delay/1000}s)...`);
@@ -563,11 +567,11 @@ export default function ImportarPedidosPage() {
                   } else {
                     failedCodes.add(singleCode);
                     const singleErr = await singleRes.text().catch(() => "");
-                    addLog(`  ↳ ⚠️ Pedido ${singleCode}: no se pudo procesar (${sanitizeErrorMessage(singleErr)}). Se omite.`);
+                    addLog(`  ↳ ⚠️ Pedido ${singleCode}: no se pudo procesar (${sanitizeErrorMessage(singleErr)}). Queda pendiente para reimportar.`);
                   }
                 } catch (errSingle: any) {
                   failedCodes.add(singleCode);
-                  addLog(`  ↳ ⚠️ Pedido ${singleCode}: microcorte (${errSingle.message}). Se omite.`);
+                  addLog(`  ↳ ⚠️ Pedido ${singleCode}: microcorte (${errSingle.message}). Queda pendiente para reimportar.`);
                 }
               }
 
@@ -578,6 +582,7 @@ export default function ImportarPedidosPage() {
                 sheetsCompleted: sheetsDone,
                 totalSheets: sheets.length
               });
+              setProgressPercent(stepBase + Math.round(((chunkIdx + 1) / totalChunks) * (60 / sheets.length)));
               continue;
             }
 
@@ -604,6 +609,7 @@ export default function ImportarPedidosPage() {
               sheetsCompleted: sheetsDone,
               totalSheets: sheets.length
             });
+            setProgressPercent(stepBase + Math.round(((chunkIdx + 1) / totalChunks) * (60 / sheets.length)));
           }
         } else {
           addLog(`ℹ️ ${sheet.name}: Sin pedidos nuevos para procesar.`);

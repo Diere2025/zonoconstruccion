@@ -45,7 +45,7 @@ import {
   Sparkles
 } from "lucide-react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import SupplierPurchaseOrderImageModal from "@/components/admin/SupplierPurchaseOrderImageModal";
 import { formatPrice, formatDateDDMMYYYY } from "@/lib/utils";
@@ -242,6 +242,7 @@ const DatePickerDDMMYYYY = ({
 
 export default function ComprasAdminPage() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const [activeSubTab, setActiveSubTab] = useState<'suppliers' | 'pricelists' | 'relations' | 'new_purchase' | 'purchases_history' | 'alerts' | 'hold_orders' | 'claims_exchanges' | 'boms' | 'production' | 'insumos' | 'make_vs_buy' | 'bom_explorer' | 'purchase_orders' | 'receptions' | 'import_compras' | 'purchase_calculator'>('purchase_orders');
   const [loading, setLoading] = useState(true);
   const [purchaseAccessLoaded, setPurchaseAccessLoaded] = useState(false);
@@ -772,7 +773,7 @@ export default function ComprasAdminPage() {
   useEffect(() => {
     if (!purchaseAccessLoaded) return;
     const tab = searchParams.get('tab');
-    const validTabs = ['suppliers', 'pricelists', 'relations', 'new_purchase', 'purchases_history', 'alerts', 'hold_orders', 'boms', 'production', 'insumos', 'make_vs_buy', 'bom_explorer', 'purchase_orders', 'receptions', 'import_compras', 'purchase_calculator'];
+    const validTabs = ['suppliers', 'pricelists', 'relations', 'new_purchase', 'purchases_history', 'alerts', 'hold_orders', 'claims_exchanges', 'boms', 'production', 'insumos', 'make_vs_buy', 'bom_explorer', 'purchase_orders', 'receptions', 'import_compras', 'purchase_calculator'];
     const operatorTabs = ['purchase_orders', 'purchase_calculator', 'alerts'];
     if (tab && validTabs.includes(tab) && (isPurchaseAdmin || operatorTabs.includes(tab))) {
       setActiveSubTab(tab as any);
@@ -780,6 +781,12 @@ export default function ComprasAdminPage() {
       setActiveSubTab('purchase_orders');
     }
   }, [purchaseAccessLoaded, isPurchaseAdmin, searchParams]);
+
+  function navigateSubTab(tab: typeof activeSubTab) {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('tab', tab);
+    router.push(`/admin/compras?${params.toString()}`, { scroll: false });
+  }
 
   async function loadAllData(silent = false) {
     try {
@@ -3291,7 +3298,7 @@ export default function ComprasAdminPage() {
 
       alert("Órdenes de Compra generadas correctamente en Supabase.");
       await loadAllData(true);
-      setActiveSubTab("purchase_orders");
+      navigateSubTab("purchase_orders");
     } catch (err: any) {
       alert("Error al generar OCs: " + err.message);
     } finally {
@@ -3390,7 +3397,7 @@ export default function ComprasAdminPage() {
 
       alert(`Pedidos escalonados creados correctamente en Supabase (${deliveries} OCs generadas).`);
       await loadAllData(true);
-      setActiveSubTab("purchase_orders");
+      navigateSubTab("purchase_orders");
     } catch (err: any) {
       alert("Error al generar pedidos escalonados: " + err.message);
     } finally {
@@ -5096,7 +5103,7 @@ export default function ComprasAdminPage() {
       setImmediatePaymentAmount("");
 
       await loadAllData();
-      setActiveSubTab('purchases_history');
+      navigateSubTab('purchases_history');
     } catch (err: any) {
       alert("Error al registrar la compra: " + err.message);
     } finally {
@@ -5233,19 +5240,21 @@ export default function ComprasAdminPage() {
     return matchStatus && matchSupplier;
   });
   const productionTabs = ['boms', 'production', 'insumos', 'make_vs_buy', 'bom_explorer'];
-  const logisticsTabs = ['hold_orders', 'claims_exchanges'];
   const moduleHeading = productionTabs.includes(activeSubTab)
     ? {
         title: 'Fábrica y Producción',
         description: 'Recetas, insumos, órdenes de producción y análisis de fabricación.'
       }
-    : logisticsTabs.includes(activeSubTab)
+    : activeSubTab === 'hold_orders'
       ? {
-          title: 'Logística y Postventa',
-          description: 'Seguimiento de pedidos pendientes, reclamos y cambios.'
+          title: 'Logística y Distribución',
+          description: 'Seguimiento de pedidos en espera.'
+        }
+      : activeSubTab === 'claims_exchanges' ? {
+          title: 'Postventa', description: 'Gestión operativa de reclamos y cambios.'
         }
       : {
-          title: 'Compras',
+          title: 'Compras y Proveedores',
           description: 'Órdenes, abastecimiento, proveedores y control de costos.'
         };
 
@@ -5259,57 +5268,57 @@ export default function ComprasAdminPage() {
         </div>
 
         <div className="flex bg-slate-200/50 p-0.5 rounded-xl flex-wrap gap-0.5">
-          <button 
-            onClick={() => setActiveSubTab('suppliers')}
+          <button hidden={productionTabs.includes(activeSubTab) || activeSubTab === 'hold_orders' || activeSubTab === 'claims_exchanges'}
+            onClick={() => navigateSubTab('suppliers')}
             className={`${isPurchaseAdmin ? '' : 'hidden'} px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${activeSubTab === 'suppliers' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
           >
             Proveedores
           </button>
-          <button 
-            onClick={() => setActiveSubTab('pricelists')}
+          <button hidden={productionTabs.includes(activeSubTab) || activeSubTab === 'hold_orders' || activeSubTab === 'claims_exchanges'}
+            onClick={() => navigateSubTab('pricelists')}
             className={`${isPurchaseAdmin ? '' : 'hidden'} px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${activeSubTab === 'pricelists' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
           >
-            Listas de Fábrica
+            Listas de Proveedores
           </button>
-          <button 
-            onClick={() => setActiveSubTab('relations')}
+          <button hidden={productionTabs.includes(activeSubTab) || activeSubTab === 'hold_orders' || activeSubTab === 'claims_exchanges'}
+            onClick={() => navigateSubTab('relations')}
             className={`${isPurchaseAdmin ? '' : 'hidden'} px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${activeSubTab === 'relations' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
           >
             Precios y Fórmulas
           </button>
-          <button 
-            onClick={() => setActiveSubTab('new_purchase')}
+          <button hidden={productionTabs.includes(activeSubTab) || activeSubTab === 'hold_orders' || activeSubTab === 'claims_exchanges'}
+            onClick={() => navigateSubTab('new_purchase')}
             className={`${isPurchaseAdmin ? '' : 'hidden'} px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${activeSubTab === 'new_purchase' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
           >
             Registrar Compra
           </button>
-          <button 
-            onClick={() => setActiveSubTab('purchases_history')}
+          <button hidden={productionTabs.includes(activeSubTab) || activeSubTab === 'hold_orders' || activeSubTab === 'claims_exchanges'}
+            onClick={() => navigateSubTab('purchases_history')}
             className={`${isPurchaseAdmin ? '' : 'hidden'} px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${activeSubTab === 'purchases_history' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
           >
             Historial de Compras
           </button>
-          <button 
-            onClick={() => setActiveSubTab('purchase_orders')}
+          <button hidden={productionTabs.includes(activeSubTab) || activeSubTab === 'hold_orders' || activeSubTab === 'claims_exchanges'}
+            onClick={() => navigateSubTab('purchase_orders')}
             className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${activeSubTab === 'purchase_orders' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
           >
             Órdenes de Compra (OC)
           </button>
-          <button 
-            onClick={() => setActiveSubTab('receptions')}
+          <button hidden={productionTabs.includes(activeSubTab) || activeSubTab === 'hold_orders' || activeSubTab === 'claims_exchanges'}
+            onClick={() => navigateSubTab('receptions')}
             className={`${isPurchaseAdmin ? '' : 'hidden'} px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${activeSubTab === 'receptions' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
           >
             Recepción Remitos
           </button>
-          <button 
-            onClick={() => setActiveSubTab('import_compras')}
+          <button hidden={productionTabs.includes(activeSubTab) || activeSubTab === 'hold_orders' || activeSubTab === 'claims_exchanges'}
+            onClick={() => navigateSubTab('import_compras')}
             className={`${isPurchaseAdmin ? '' : 'hidden'} px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${activeSubTab === 'import_compras' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
           >
             Importar Planilla
           </button>
-          <button 
+          <button hidden={productionTabs.includes(activeSubTab) || activeSubTab === 'hold_orders' || activeSubTab === 'claims_exchanges'}
             onClick={() => {
-              setActiveSubTab('purchase_calculator');
+              navigateSubTab('purchase_calculator');
               setCalcResults([]);
               setCalcSupplierId("");
             }}
@@ -5317,8 +5326,8 @@ export default function ComprasAdminPage() {
           >
             Asistente de Compra
           </button>
-          <button 
-            onClick={() => setActiveSubTab('alerts')}
+          <button hidden={productionTabs.includes(activeSubTab) || activeSubTab === 'hold_orders' || activeSubTab === 'claims_exchanges'}
+            onClick={() => navigateSubTab('alerts')}
             className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all flex items-center gap-1.5 ${
               activeSubTab === 'alerts' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
             }`}
@@ -5330,9 +5339,8 @@ export default function ComprasAdminPage() {
               </span>
             )}
           </button>
-          <button 
-            hidden
-            onClick={() => setActiveSubTab('hold_orders')}
+          <button hidden={activeSubTab !== 'hold_orders' || !isPurchaseAdmin}
+            onClick={() => navigateSubTab('hold_orders')}
             className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all flex items-center gap-1.5 ${
               activeSubTab === 'hold_orders' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
             }`}
@@ -5344,9 +5352,8 @@ export default function ComprasAdminPage() {
               </span>
             )}
           </button>
-          <button 
-            hidden
-            onClick={() => setActiveSubTab('claims_exchanges')}
+          <button hidden={activeSubTab !== 'claims_exchanges' || !isPurchaseAdmin}
+            onClick={() => navigateSubTab('claims_exchanges')}
             className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all flex items-center gap-1.5 ${
               activeSubTab === 'claims_exchanges' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
             }`}
@@ -5358,10 +5365,9 @@ export default function ComprasAdminPage() {
               </span>
             )}
           </button>
-          <button 
-            hidden
+          <button hidden={!productionTabs.includes(activeSubTab) || !isPurchaseAdmin}
             onClick={() => {
-              setActiveSubTab('boms');
+              navigateSubTab('boms');
               if (products.length > 0 && !selectedBomProductId) {
                 const firstMfg = products.find(p => p.production_type === 'fabricado' || p.production_type === 'ensamblado');
                 if (firstMfg) {
@@ -5372,12 +5378,11 @@ export default function ComprasAdminPage() {
             }}
             className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${activeSubTab === 'boms' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
           >
-            Recetas (BOM)
+            Recetas de Producción
           </button>
-          <button 
-            hidden
+          <button hidden={!productionTabs.includes(activeSubTab) || !isPurchaseAdmin}
             onClick={() => {
-              setActiveSubTab('production');
+              navigateSubTab('production');
               setProdProductId("");
               setProdComponents([]);
             }}
@@ -5385,29 +5390,26 @@ export default function ComprasAdminPage() {
           >
             Ordenes de Producción
           </button>
-          <button 
-            hidden
-            onClick={() => setActiveSubTab('insumos')}
+          <button hidden={!productionTabs.includes(activeSubTab) || !isPurchaseAdmin}
+            onClick={() => navigateSubTab('insumos')}
             className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${activeSubTab === 'insumos' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
           >
             Insumos / Stock
           </button>
-          <button 
-            hidden
+          <button hidden={!productionTabs.includes(activeSubTab) || !isPurchaseAdmin}
             onClick={() => {
-              setActiveSubTab('make_vs_buy');
+              navigateSubTab('make_vs_buy');
               setMakeVsBuySubTab('make_vs_buy_kpis');
               setCompareProductId("");
               setSupplierComparisonItems([]);
             }}
             className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${activeSubTab === 'make_vs_buy' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
           >
-            Análisis Costos / Make vs Buy
+            Fabricar o Comprar
           </button>
-          <button 
-            hidden
+          <button hidden={!productionTabs.includes(activeSubTab) || !isPurchaseAdmin}
             onClick={() => {
-              setActiveSubTab('bom_explorer');
+              navigateSubTab('bom_explorer');
               setBomExplorerTab('tree');
               if (products.length > 0 && !explorerProductId) {
                 const firstMfg = products.find(p => p.production_type === 'fabricado' || p.production_type === 'ensamblado');
@@ -5433,7 +5435,7 @@ export default function ComprasAdminPage() {
             }}
             className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${activeSubTab === 'bom_explorer' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
           >
-            Explorador BOM
+            Explorador de Recetas
           </button>
         </div>
       </div>
@@ -8740,7 +8742,7 @@ export default function ComprasAdminPage() {
                           {p.name}
                           {hasAlert && (
                             <span 
-                              onClick={() => setActiveSubTab('alerts')}
+                              onClick={() => navigateSubTab('alerts')}
                               className="inline-flex items-center text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider gap-0.5 border border-amber-200 animate-pulse ml-2 cursor-pointer hover:bg-amber-100" 
                               title="Discrepancia de costo pendiente de resolución en Compras"
                             >
@@ -11696,7 +11698,7 @@ export default function ComprasAdminPage() {
                                     onClick={() => {
                                       setSelectedBomProductId(p.id);
                                       setBomFilterType('comprado');
-                                      setActiveSubTab('boms');
+                                      navigateSubTab('boms');
                                       fetchBom(p.id);
                                     }}
                                     className="px-2.5 py-1.5 border border-slate-200 hover:border-brand-500 hover:text-brand-600 font-bold text-[10px] uppercase rounded-lg transition-colors cursor-pointer"

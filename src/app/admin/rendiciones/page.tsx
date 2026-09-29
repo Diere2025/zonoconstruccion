@@ -1,11 +1,13 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
-  AlertTriangle, ArrowLeft, Banknote, Calendar, Check, CheckCircle2, ChevronDown, ChevronRight, ChevronUp, CircleDollarSign,
+  AlertTriangle, Archive, ArrowLeft, Banknote, Calendar, Check, CheckCircle2, ChevronDown, ChevronRight, ChevronUp, CircleDollarSign,
   ClipboardCopy, CreditCard, FileSpreadsheet, Loader2, Plus, Receipt, RefreshCw, Save, Search, Trash2, Truck, Wallet, X,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { createAuthenticatedRequester } from "@/lib/authenticatedRequest";
 import { formatPrice } from "@/lib/utils";
 import { isExcludedDeliveryStatus, isExcludedSettlementTicket, settlementElectronicTicketTotals, settlementOrderAmount, settlementOrdersTotal } from "@/lib/settlementOrders";
 import {
@@ -22,11 +24,12 @@ const deliveryStatusChoice = (status: string) => {
   return deliveryStatusOptions.find(option => normalized.includes(option.toLowerCase())) || "Entregado";
 };
 
-type SettlementStatus = "draft" | "confirmed";
+type SettlementStatus = "draft" | "confirmed" | "archived";
 interface SettlementRecord {
   id: string;
   code: string;
   status: SettlementStatus;
+  movements_generated_at?: string | null;
   settlement_date: string;
   carrier_name: string;
   carrier_id?: string | null;
@@ -45,6 +48,9 @@ interface SettlementRecord {
   whatsapp_message?: string | null;
   notes?: string | null;
   confirmed_at?: string | null;
+  archive_reason?: string | null;
+  archived_at?: string | null;
+  archived_by?: string | null;
 }
 interface Carrier {
   id: string;
@@ -151,12 +157,20 @@ interface EntregandoPreviewItem {
   existingSettlementId: string | null;
   existingSettlementCode: string | null;
   existingStatus: string | null;
+  existingRouteSheetId?: string | null;
+  matchingIssue?: string | null;
   orders: EntregandoOrder[];
   changeFund?: number;
 }
 
 const emptyStats = { pending: 0, drafts: 0, differences: 0, confirmed: 0 };
 const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Argentina/Buenos_Aires" }).format(new Date());
+const defaultDeliveredDate = () => {
+  const date = new Date(`${today()}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() - (date.getUTCDay() === 1 ? 2 : 1));
+  return date.toISOString().slice(0, 10);
+};
+const defaultDeliveredDateHint = () => new Date(`${today()}T12:00:00Z`).getUTCDay() === 1 ? "Sábado" : "Ayer";
 const inputNumber = (value: string) => {
   const parsed = Number(value.replace(/[^\d.-]/g, ""));
   return Number.isFinite(parsed) ? parsed : 0;
@@ -165,6 +179,12 @@ const safeReceiptUrl = (value: string) => /^https?:\/\//i.test(value) || /^\/(?!
 const displayDate = (value?: string | null) => {
   const match = String(value || "").slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
   return match ? `${match[3]}/${match[2]}/${match[1]}` : "-";
+};
+const dateHeading = (value: string) => {
+  const match = value.slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return value || "Sin fecha";
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  return new Intl.DateTimeFormat("es-AR", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(date);
 };
 const parseDisplayDate = (value: string) => {
   const match = value.trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
@@ -175,23 +195,39 @@ const parseDisplayDate = (value: string) => {
   return `${year}-${month}-${day}`;
 };
 const cashKey = (kind: string, denomination: number) => `${kind}-${denomination}`;
-const isPending = (row: SettlementRecord) => row.status === "draft" && !row.count_date && Number(row.counted_cash || 0) === 0;
-const statusLabel = (row: SettlementRecord) => row.status === "confirmed" ? "Confirmada" : isPending(row) ? "Pendiente" : "En preparación";
-const statusClasses = (row: SettlementRecord) => row.status === "confirmed"
+const isPending = (row: SettlementRecord) => row.status === "draft" && !row.movements_generated_at && !row.count_date && Number(row.counted_cash || 0) === 0;
+const statusLabel = (row: SettlementRecord) => row.status === "archived" ? "Archivada" : row.movements_generated_at ? "Movimientos generados" : row.status === "confirmed" ? "Confirmada" : isPending(row) ? "Pendiente" : "En preparación";
+const statusClasses = (row: SettlementRecord) => row.status === "archived" ? "bg-slate-100 text-slate-600 border-slate-300" : row.status === "confirmed"
   ? "bg-emerald-50 text-emerald-700 border-emerald-200"
   : isPending(row) ? "bg-amber-50 text-amber-700 border-amber-200" : "bg-blue-50 text-blue-700 border-blue-200";
 
 export default function RendicionesPage() {
+  return <React.Suspense fallback={<div className="flex justify-center p-8"><Loader2 className="h-5 w-5 animate-spin text-blue-600" /></div>}><RendicionesContent /></React.Suspense>;
+}
+
+function RendicionesContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const settlementIdFromPath = searchParams.get("rendicion");
   const [rows, setRows] = useState<SettlementRecord[]>([]);
   const [carriers, setCarriers] = useState<Carrier[]>([]);
   const [stats, setStats] = useState(emptyStats);
+  const [canImportMonth, setCanImportMonth] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<"pending" | "draft" | "confirmed" | "all">("all");
+  const [dateFilter, setDateFilter] = useState("");
+  const [filter, setFilter] = useState<"pending" | "draft" | "confirmed" | "all" | "archived">("all");
+  const [lifecycleAction, setLifecycleAction] = useState<"archive" | "delete-archived" | null>(null);
+  const [lifecycleTarget, setLifecycleTarget] = useState<SettlementRecord | null>(null);
+  const [archiveReason, setArchiveReason] = useState("");
+  const [lifecycleBusy, setLifecycleBusy] = useState(false);
+  const [lifecycleError, setLifecycleError] = useState("");
   const [detail, setDetail] = useState<DetailPayload | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(Boolean(settlementIdFromPath));
+  const detailRequest = useRef(0);
+  const [linkCopied, setLinkCopied] = useState(false);
   const [saving, setSaving] = useState<"save" | "confirm" | null>(null);
   const [importing, setImporting] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
@@ -200,7 +236,9 @@ export default function RendicionesPage() {
 
   const [entregandoModalOpen, setEntregandoModalOpen] = useState(false);
   const [previewSource, setPreviewSource] = useState<"entregando" | "entregados">("entregando");
-  const [deliveredDate, setDeliveredDate] = useState(today());
+  const [deliveredDate, setDeliveredDate] = useState(defaultDeliveredDate);
+  const [deliveredDateIsDefault, setDeliveredDateIsDefault] = useState(true);
+  const [deliveredDateHint, setDeliveredDateHint] = useState(defaultDeliveredDateHint);
   const [entregandoLoading, setEntregandoLoading] = useState(false);
   const [entregandoConfirming, setEntregandoConfirming] = useState(false);
   const [entregandoPreview, setEntregandoPreview] = useState<EntregandoPreviewItem[]>([]);
@@ -225,11 +263,13 @@ export default function RendicionesPage() {
   const [notes, setNotes] = useState("");
   const [copied, setCopied] = useState(false);
   const [movementCopied, setMovementCopied] = useState(false);
+  const [modifiedDeliveryStatuses, setModifiedDeliveryStatuses] = useState<Record<string, string>>({});
   const [routeOrders, setRouteOrders] = useState<RouteOrderDetail[]>([]);
 
   const [cashModalOpen, setCashModalOpen] = useState(false);
   const [expensesModalOpen, setExpensesModalOpen] = useState(false);
   const [ticketsModalOpen, setTicketsModalOpen] = useState(false);
+  const [viewingPayment, setViewingPayment] = useState<(LinkedPaymentInfo & { orderCode: string }) | null>(null);
   const [assignModalOrder, setAssignModalOrder] = useState<RouteOrderDetail | null>(null);
   const [assignForm, setAssignForm] = useState({
     amount: 0,
@@ -239,6 +279,7 @@ export default function RendicionesPage() {
   });
 
   const [financialAccounts, setFinancialAccounts] = useState<Array<{ id: string; name: string; type: string; currency: string }>>([]);
+  const [generationMode, setGenerationMode] = useState<"replace" | "duplicate" | "">("");
   const [existingMovements, setExistingMovements] = useState<Array<any>>([]);
   const [movementsModalOpen, setMovementsModalOpen] = useState(false);
   const [selectedAccountId, setSelectedAccountId] = useState("");
@@ -246,42 +287,26 @@ export default function RendicionesPage() {
   const [customMovements, setCustomMovements] = useState<Array<{ detail: string; concept: string; type: "Ingreso" | "Gasto"; amount: number; category: string; sub_category: string }>>([]);
   const [generatingMovements, setGeneratingMovements] = useState(false);
 
-  const authenticatedFetch = useCallback(async (url: string, options?: RequestInit) => {
-    const requestWithToken = (accessToken: string) => fetch(url, {
-      ...options,
-      cache: "no-store",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}`, ...(options?.headers || {}) },
-    });
-    let { data: { session } } = await supabase.auth.getSession();
-    if (!session?.access_token) throw new Error("La sesión venció. Volvé a ingresar.");
-    let response = await requestWithToken(session.access_token);
-    if (response.status === 401 || response.status === 403) {
-      const { data: { session: refreshedSession } } = await supabase.auth.refreshSession();
-      if (refreshedSession?.access_token) response = await requestWithToken(refreshedSession.access_token);
-    }
-    const payload = await response.json();
-    if (!response.ok) {
-      const apiError = payload?.error;
-      throw new Error(typeof apiError === "string" ? apiError : apiError?.message || apiError?.details || "No se pudo completar la operación.");
-    }
-    return payload;
-  }, []);
+  const authenticatedFetch = useMemo(() => createAuthenticatedRequester(supabase), []);
+  const listScope = filter === "archived" ? "archived" : "active";
 
   const loadList = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const payload = await authenticatedFetch("/api/admin/rendiciones?action=list");
+      const payload = await authenticatedFetch(`/api/admin/rendiciones?action=list${listScope === "archived" ? "&scope=archived" : ""}`);
       setRows(payload.rows || []);
       setStats(payload.stats || emptyStats);
+      setCanImportMonth(payload.canImportMonth === true);
     } catch (requestError) {
+      setCanImportMonth(false);
       setError(requestError instanceof Error ? requestError.message : "No se pudieron cargar las rendiciones.");
     } finally {
       setLoading(false);
     }
-  }, [authenticatedFetch]);
+  }, [authenticatedFetch, listScope]);
 
-  useEffect(() => { void loadList(); }, [loadList]);
+  useEffect(() => { if (!settlementIdFromPath) void loadList(); }, [loadList, settlementIdFromPath]);
 
   const loadCarriers = useCallback(async () => {
     try {
@@ -314,7 +339,7 @@ export default function RendicionesPage() {
     }
   }, [authenticatedFetch]);
 
-  useEffect(() => { void loadFinancialAccounts(); }, [loadFinancialAccounts]);
+  // The detail payload includes accounts; load them separately only when needed.
 
   const hydrateDetail = useCallback((payload: DetailPayload) => {
     const settlement = payload.settlement;
@@ -363,6 +388,7 @@ export default function RendicionesPage() {
     payload.cashCounts.forEach(count => { quantities[cashKey(count.money_kind, Number(count.denomination))] = Number(count.quantity) || 0; });
     setCashQuantities(quantities);
     setRouteOrders(payload.routeOrders || []);
+    setModifiedDeliveryStatuses({});
     const accs = payload.financialAccounts || [];
     setFinancialAccounts(accs);
     setExistingMovements(payload.existingMovements || []);
@@ -376,28 +402,85 @@ export default function RendicionesPage() {
     setMovementCopied(false);
   }, [carriers]);
 
-  const openSettlement = async (settlementId: string) => {
+  const openSettlement = useCallback(async (settlementId: string) => {
+    const requestId = ++detailRequest.current;
     setDetailLoading(true);
     setError("");
     setNotice("");
     try {
       const payload = await authenticatedFetch(`/api/admin/rendiciones?action=detail&settlementId=${encodeURIComponent(settlementId)}`);
-      hydrateDetail(payload);
+      if (detailRequest.current === requestId) hydrateDetail(payload);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "No se pudo abrir la rendición.");
+      if (detailRequest.current === requestId) setError(requestError instanceof Error ? requestError.message : "No se pudo abrir la rendición.");
     } finally {
+      if (detailRequest.current === requestId) setDetailLoading(false);
+    }
+  }, [authenticatedFetch, hydrateDetail]);
+
+  useEffect(() => {
+    if (settlementIdFromPath) {
+      if (detail?.settlement.id !== settlementIdFromPath) void openSettlement(settlementIdFromPath);
+    } else {
+      detailRequest.current += 1;
+      setDetail(null);
       setDetailLoading(false);
     }
-  };
+  }, [settlementIdFromPath, detail?.settlement.id, openSettlement]);
 
+  const availableDates = useMemo(() => Array.from(new Set(rows.map(row => row.settlement_date?.slice(0, 10)).filter(Boolean) as string[])).sort((a, b) => b.localeCompare(a)), [rows]);
   const filteredRows = useMemo(() => rows.filter(row => {
     const term = search.trim().toLowerCase();
     const matchesSearch = !term || [row.code, row.carrier_name, row.route_detail, displayDate(row.settlement_date)]
       .some(value => String(value || "").toLowerCase().includes(term));
-    const matchesFilter = filter === "all" || (filter === "confirmed" && row.status === "confirmed")
+    const matchesDate = !dateFilter || row.settlement_date?.slice(0, 10) === dateFilter;
+    const matchesFilter = (filter === "archived" && row.status === "archived") || (filter === "all" && row.status !== "archived") || (filter === "confirmed" && row.status === "confirmed")
       || (filter === "pending" && isPending(row)) || (filter === "draft" && row.status === "draft" && !isPending(row));
-    return matchesSearch && matchesFilter;
-  }), [rows, search, filter]);
+    return matchesSearch && matchesDate && matchesFilter;
+  }), [rows, search, dateFilter, filter]);
+  const dateGroups = useMemo(() => {
+    const grouped = new Map<string, SettlementRecord[]>();
+    for (const row of filteredRows) {
+      const date = row.settlement_date?.slice(0, 10) || "Sin fecha";
+      grouped.set(date, [...(grouped.get(date) || []), row]);
+    }
+    return Array.from(grouped, ([date, settlements]) => ({ date, settlements }))
+      .sort((a, b) => b.date.localeCompare(a.date));
+  }, [filteredRows]);
+
+  const submitLifecycleAction = async () => {
+    if (!lifecycleTarget || !lifecycleAction) return;
+    setLifecycleBusy(true);
+    setLifecycleError("");
+    try {
+      const payload = await authenticatedFetch("/api/admin/rendiciones", {
+        method: "POST",
+        body: JSON.stringify({ action: lifecycleAction, settlementId: lifecycleTarget.id, archiveReason: archiveReason.trim() }),
+      });
+      setLifecycleAction(null);
+      if (lifecycleAction === "delete-archived") {
+        if (detail?.settlement.id === lifecycleTarget.id) {
+          setDetail(null);
+          router.push("/admin/rendiciones");
+        }
+        setNotice("La rendición archivada se eliminó definitivamente.");
+      } else {
+        if (detail?.settlement.id === lifecycleTarget.id) hydrateDetail({ ...detail, settlement: payload.settlement });
+        setNotice("Rendición dada de baja y archivada. Podés generar una nueva leyendo las entregas.");
+      }
+      await loadList();
+    } catch (requestError) {
+      setLifecycleError(requestError instanceof Error ? requestError.message : "No se pudo completar la operación.");
+    } finally {
+      setLifecycleBusy(false);
+    }
+  };
+
+  const openLifecycleAction = (row: SettlementRecord, action: "archive" | "delete-archived") => {
+    setLifecycleTarget(row);
+    setArchiveReason("");
+    setLifecycleError("");
+    setLifecycleAction(action);
+  };
 
   const importMonth = async () => {
     setImporting(true);
@@ -439,7 +522,7 @@ export default function RendicionesPage() {
       setCreateForm({ code: "", settlementDate: today(), carrierId: "", routeDetail: "" });
       await loadList();
       if (payload?.settlement?.id) {
-        await openSettlement(payload.settlement.id);
+        router.push(`/admin/rendiciones?rendicion=${encodeURIComponent(payload.settlement.id)}`);
       }
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "No se pudo crear la rendición.");
@@ -462,7 +545,7 @@ export default function RendicionesPage() {
       setEntregandoPreview(preview);
       const initialSelected: Record<string, boolean> = {};
       preview.forEach(item => {
-        initialSelected[item.key] = item.existingStatus !== "confirmed";
+        initialSelected[item.key] = !item.matchingIssue && (item.existingStatus !== "confirmed" || (source === "entregados" && !item.existingRouteSheetId));
       });
       setSelectedEntregandoKeys(initialSelected);
     } catch (requestError) {
@@ -475,6 +558,11 @@ export default function RendicionesPage() {
   const openEntregandoModal = (source: "entregando" | "entregados") => {
     setEntregandoModalOpen(true);
     setPreviewSource(source);
+    if (source === "entregados") {
+      setDeliveredDate(defaultDeliveredDate());
+      setDeliveredDateIsDefault(true);
+      setDeliveredDateHint(defaultDeliveredDateHint());
+    }
     setEntregandoPreview([]);
     setSelectedEntregandoKeys({});
     setError("");
@@ -500,7 +588,7 @@ export default function RendicionesPage() {
           })),
         }),
       });
-      setNotice(`Se procesaron ${selectedItems.length} recorridos (${payload.created || 0} rendiciones creadas, ${payload.updated || 0} actualizadas).`);
+      setNotice(`Se procesaron ${selectedItems.length} recorridos (${payload.created || 0} rendiciones creadas, ${payload.updated || 0} actualizadas, ${payload.linked || 0} confirmadas vinculadas a pedidos).`);
       setEntregandoModalOpen(false);
       await loadList();
     } catch (requestError) {
@@ -519,6 +607,7 @@ export default function RendicionesPage() {
         method: "POST",
         body: JSON.stringify({ action: "update-delivery-status", settlementId: detail.settlement.id, deliveryId: order.deliveryId, deliveryStatus: status }),
       });
+      setModifiedDeliveryStatuses(current => ({ ...current, [order.deliveryId]: status }));
       setDeliveriesTotal(Number(payload.deliveriesTotal) || 0);
       setRouteOrders(current => current.map(item => item.deliveryId === order.deliveryId ? {
         ...item,
@@ -536,7 +625,7 @@ export default function RendicionesPage() {
   };
 
   const ticketTotals = useMemo(() => settlementElectronicTicketTotals(electronicTickets, routeOrders), [electronicTickets, routeOrders]);
-  const effectiveElectronicTotal = electronicTickets.length > 0 ? ticketTotals.included : electronicTotal;
+  const effectiveElectronicTotal = detail?.settlement.status === "archived" ? electronicTotal : electronicTickets.length > 0 ? ticketTotals.included : electronicTotal;
 
   const detailedCashTotal = useMemo(() => CASH_DENOMINATIONS.reduce((sum, item) => {
     return sum + item.denomination * (cashQuantities[cashKey(item.kind, item.denomination)] || 0);
@@ -556,6 +645,7 @@ export default function RendicionesPage() {
   }, [expenses, hasDetailedCash, detailedCashTotal, countedCashManual, deliveriesTotal, changeFund, effectiveElectronicTotal, shortageRecovered]);
   const health = getSettlementHealth(totals.difference);
   const message = detail?.settlement.status === "confirmed" && detail.settlement.whatsapp_message
+    && Math.abs(Number(detail.settlement.difference || 0) - totals.difference) < 0.005
     ? detail.settlement.whatsapp_message
     : buildSettlementMessage({ routeDate: settlementDate, difference: totals.difference, changeFund, tollsTotal: totals.tollsTotal, extraordinaryTotal: totals.extraordinaryTotal });
   const movementRows = useMemo(() => buildTreasuryMovementRows({
@@ -644,6 +734,7 @@ export default function RendicionesPage() {
   };
 
   const openMovementsModal = async () => {
+    setGenerationMode("");
     if (movementRows.length === 0) {
       setError("No hay movimientos calculados en esta rendición para generar.");
       return;
@@ -702,9 +793,14 @@ export default function RendicionesPage() {
       return;
     }
 
+    if (existingMovements.length > 0 && !generationMode) {
+      setError("Elegí reemplazar los movimientos actuales, generar un duplicado o cancelar.");
+      return;
+    }
     setGeneratingMovements(true);
     setError("");
     try {
+      if (detail.settlement.status === "draft" && !await saveSettlement("save", false)) return;
       const response = await authenticatedFetch("/api/admin/rendiciones", {
         method: "POST",
         body: JSON.stringify({
@@ -715,6 +811,8 @@ export default function RendicionesPage() {
           financialAccountId: selectedAccountId,
           movementDate: formattedDate,
           movements: customMovements,
+          generationMode: generationMode || "initial",
+          previousMovementIds: existingMovements.map(m => m.id),
         }),
       });
 
@@ -723,6 +821,7 @@ export default function RendicionesPage() {
 
       const updatedPayload = await authenticatedFetch(`/api/admin/rendiciones?action=detail&settlementId=${encodeURIComponent(detail.settlement.id)}`);
       hydrateDetail(updatedPayload);
+      await loadList();
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudieron generar los movimientos.");
     } finally {
@@ -798,8 +897,8 @@ export default function RendicionesPage() {
     return count;
   }, [routeOrders, electronicTickets]);
 
-  const saveSettlement = async (action: "save" | "confirm") => {
-    if (!detail) return;
+  const saveSettlement = async (action: "save" | "confirm", refresh = true): Promise<boolean> => {
+    if (!detail || saving || updatingOrderStatus) return false;
     setSaving(action);
     setError("");
     try {
@@ -813,6 +912,7 @@ export default function RendicionesPage() {
           notes, whatsappMessage: message, countDate: countDate || null,
           countedCashOverride: hasDetailedCash ? null : countedCashManual,
           expenses: expenses.map(({ type, amount, reference, notes: expenseNotes }) => ({ type, amount, reference, notes: expenseNotes })),
+          deliveryStatuses: Object.entries(modifiedDeliveryStatuses).map(([deliveryId, status]) => ({ deliveryId, status })),
           cashCounts: CASH_DENOMINATIONS.map(item => ({ ...item, quantity: cashQuantities[cashKey(item.kind, item.denomination)] || 0 })),
           electronicTickets: electronicTickets.map(ticket => ({
             amount: ticket.amount,
@@ -825,12 +925,16 @@ export default function RendicionesPage() {
           })),
         }),
       });
-      const payload = await authenticatedFetch(`/api/admin/rendiciones?action=detail&settlementId=${encodeURIComponent(detail.settlement.id)}`);
-      hydrateDetail(payload);
-      await loadList();
-      setNotice(action === "confirm" ? "Rendición confirmada." : "Cambios guardados.");
+      if (refresh) {
+        const payload = await authenticatedFetch(`/api/admin/rendiciones?action=detail&settlementId=${encodeURIComponent(detail.settlement.id)}`);
+        hydrateDetail(payload);
+        await loadList();
+        setNotice(action === "confirm" ? "Rendición confirmada." : "Cambios guardados.");
+      }
+      return true;
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "No se pudo guardar la rendición.");
+      return false;
     } finally {
       setSaving(null);
     }
@@ -838,11 +942,50 @@ export default function RendicionesPage() {
 
   const copyMessage = async () => { await navigator.clipboard.writeText(message); setCopied(true); window.setTimeout(() => setCopied(false), 1800); };
   const copyMovementRows = async () => { await navigator.clipboard.writeText(treasuryMovementRowsToTsv(movementRows)); setMovementCopied(true); window.setTimeout(() => setMovementCopied(false), 1800); };
+  const copySettlementLink = async () => {
+    if (!detail) return;
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}/admin/rendiciones?rendicion=${encodeURIComponent(detail.settlement.id)}`);
+      setLinkCopied(true);
+      window.setTimeout(() => setLinkCopied(false), 1800);
+    } catch {
+      setError("No se pudo copiar el enlace. Podés copiarlo desde la barra de direcciones.");
+    }
+  };
+
+  const lifecycleModal = lifecycleAction && lifecycleTarget && (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-xs">
+      <form role="dialog" aria-modal="true" aria-labelledby="settlement-lifecycle-title" onSubmit={event => { event.preventDefault(); void submitLifecycleAction(); }} className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-5 shadow-xl">
+        <h2 id="settlement-lifecycle-title" className="text-base font-black text-slate-900">{lifecycleAction === "archive" ? "Dar de baja rendición" : "Eliminar rendición archivada"} · {lifecycleTarget.code}</h2>
+        <p className="mt-1 text-xs text-slate-500">{lifecycleTarget.carrier_name} · {displayDate(lifecycleTarget.settlement_date)}</p>
+        {lifecycleAction === "archive" ? <>
+          <p className="mt-2 text-xs text-slate-600">Quedará archivada para consulta. Al leer nuevamente las entregas, podrás crear una nueva rendición para este fletero y fecha.</p>
+          <label htmlFor="settlement-archive-reason" className="mt-4 block text-xs font-bold text-slate-700">Motivo de baja *</label>
+          <textarea id="settlement-archive-reason" autoFocus required maxLength={1000} value={archiveReason} disabled={lifecycleBusy} onChange={event => setArchiveReason(event.target.value)} rows={3} className="mt-1 w-full rounded-lg border border-slate-200 p-2 text-sm outline-none focus:border-amber-500" placeholder="Explicá por qué se da de baja esta rendición" />
+        </> : <p className="mt-3 text-sm text-rose-700">Se eliminarán definitivamente esta rendición y sus conteos, gastos y tickets de rendición. Esta acción no se puede deshacer desde la aplicación.</p>}
+        <p className="mt-2 text-xs text-slate-500">Los pedidos, cobros originales y movimientos de caja ya registrados se conservan.</p>
+        {lifecycleError && <p role="alert" className="mt-3 text-xs font-bold text-rose-700">{lifecycleError}</p>}
+        <div className="mt-4 flex justify-end gap-2"><button type="button" disabled={lifecycleBusy} onClick={() => setLifecycleAction(null)} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600">Cancelar</button><button type="submit" disabled={lifecycleBusy || (lifecycleAction === "archive" && !archiveReason.trim())} className="inline-flex items-center gap-2 rounded-lg bg-rose-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">{lifecycleBusy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}{lifecycleAction === "archive" ? "Confirmar baja" : "Eliminar definitivamente"}</button></div>
+      </form>
+    </div>
+  );
 
   if (detailLoading) return <main className="flex min-h-[70vh] items-center justify-center bg-slate-50"><Loader2 className="h-9 w-9 animate-spin text-blue-600" /></main>;
 
+  if (settlementIdFromPath && !detail) return (
+    <main className="min-h-screen bg-slate-50/60 p-5">
+      <div className="mx-auto max-w-[1500px] space-y-3">
+        <button type="button" onClick={() => router.push("/admin/rendiciones")} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700">
+          <ArrowLeft className="h-4 w-4" /> Volver a rendiciones
+        </button>
+        <Feedback error={error || "No se encontró esta rendición o no tenés permiso para verla."} notice="" />
+      </div>
+    </main>
+  );
+
   if (detail) {
-    const readOnly = detail.settlement.status === "confirmed";
+    const archived = detail.settlement.status === "archived";
+    const readOnly = detail.settlement.status !== "draft";
     return (
       <main className="min-h-screen bg-slate-50/60 p-3 sm:p-5">
         <div className="mx-auto max-w-[1500px] space-y-3.5">
@@ -852,7 +995,7 @@ export default function RendicionesPage() {
               <div className="flex items-center gap-3">
                 <button
                   type="button"
-                  onClick={() => { setDetail(null); setError(""); }}
+                  onClick={() => router.push("/admin/rendiciones")}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-700 shadow-2xs hover:bg-slate-50 transition-colors"
                 >
                   <ArrowLeft className="h-3.5 w-3.5" /> Volver
@@ -869,13 +1012,24 @@ export default function RendicionesPage() {
                     </span>
                   </div>
                   <p className="mt-0.5 text-xs font-medium text-slate-500">
-                    {carrierName} · {displayDate(settlementDate)}{routeDetail ? ` · ${routeDetail}` : ""}
+                    {carrierName} · {displayDate(settlementDate)}{routeDetail.match(/\bR\d+\b/i)?.[0] ? ` · ${routeDetail.match(/\bR\d+\b/i)?.[0].toUpperCase()}` : ""}
                   </p>
                 </div>
               </div>
 
-              {!readOnly && (
-                <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2">
+                {!archived && <button type="button" disabled={Boolean(saving) || lifecycleBusy} onClick={() => openLifecycleAction(detail.settlement, "archive")} className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-800 disabled:opacity-50"><Archive className="h-3.5 w-3.5" /> Dar de baja</button>}
+                {archived && canImportMonth && <button type="button" disabled={lifecycleBusy} onClick={() => openLifecycleAction(detail.settlement, "delete-archived")} className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-700 disabled:opacity-50"><Trash2 className="h-3.5 w-3.5" /> Eliminar definitivamente</button>}
+                <button
+                  type="button"
+                  onClick={() => void copySettlementLink()}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-2xs hover:bg-slate-50"
+                  title="Copiar enlace para compartir con alguien de Administración"
+                >
+                  {linkCopied ? <Check className="h-3.5 w-3.5" /> : <ClipboardCopy className="h-3.5 w-3.5" />}
+                  {linkCopied ? "Copiado" : "Copiar enlace"}
+                </button>
+                {!readOnly && <>
                   <button
                     type="button"
                     onClick={() => void saveSettlement("save")}
@@ -892,16 +1046,19 @@ export default function RendicionesPage() {
                   >
                     {saving === "confirm" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />} Confirmar
                   </button>
-                </div>
-              )}
+                </>}
+              </div>
             </div>
           </header>
 
           {(error || notice) && <Feedback error={error} notice={notice} />}
+          {archived && <div className="rounded-xl border border-slate-300 bg-slate-100 p-3 text-xs text-slate-700"><p className="font-bold">Archivada el {displayDate(detail.settlement.archived_at)} · Motivo de baja</p><p className="mt-1 whitespace-pre-wrap">{detail.settlement.archive_reason}</p></div>}
 
-          <div className="grid gap-3.5 xl:grid-cols-[minmax(0,1.4fr)_minmax(330px,0.7fr)]">
+          {lifecycleModal}
+
+          <div className="space-y-3">
             <div className="space-y-3.5">
-              <section className="rounded-xl border border-slate-200/90 bg-white p-3.5 shadow-2xs">
+              {!readOnly && <section className="rounded-xl border border-slate-200/90 bg-white p-3.5 shadow-2xs">
                 <div className="flex items-center justify-between border-b border-slate-100 pb-2 mb-3">
                   <div>
                     <h2 className="text-xs font-black uppercase tracking-wider text-slate-800">Datos de la rendición</h2>
@@ -926,123 +1083,33 @@ export default function RendicionesPage() {
                   <MoneyInput label="Cambio entregado" value={changeFund} disabled={readOnly} onChange={setChangeFund} />
                   <MoneyInput label="Ajuste ingresado después" value={shortageRecovered} disabled={readOnly} onChange={setShortageRecovered} allowNegative />
                 </div>
-              </section>
+              </section>}
 
-              {/* Módulos de liquidación */}
-              <div className="grid gap-3 sm:grid-cols-3">
-                {/* Módulo 1: Cuenta de Dinero / Efectivo */}
-                <div className="flex flex-col justify-between rounded-xl border border-slate-200/90 bg-white p-3.5 shadow-2xs">
-                  <div>
-                    <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-2">
-                      <div className="flex items-center gap-1.5">
-                        <Banknote className="h-4 w-4 text-emerald-600" />
-                        <h3 className="text-xs font-black uppercase tracking-wider text-slate-800">Efectivo Contado</h3>
-                      </div>
-                      <span className={`rounded px-1.5 py-0.5 text-[9px] font-black uppercase ${
-                        totals.countedCash > 0
-                          ? hasDetailedCash ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-blue-50 text-blue-700 border border-blue-200"
-                          : "bg-slate-100 text-slate-500"
-                      }`}>
-                        {totals.countedCash > 0 ? (hasDetailedCash ? "Detallado" : "Manual") : "Pendiente"}
-                      </span>
-                    </div>
-                    <div className="mt-2.5">
-                      <p className="text-lg font-black text-slate-900 leading-none">{formatPrice(totals.countedCash)}</p>
-                      <p className="mt-1 text-[11px] font-medium text-slate-500">
-                        {hasDetailedCash
-                          ? `${detailedBillCount} piezas contadas`
-                          : countedCashManual > 0
-                          ? "Conteo manual directo"
-                          : "Sin arqueo registrado"}
-                      </p>
-                      <p className="mt-0.5 text-[10px] text-slate-400">
-                        Fecha: {countDate ? displayDate(countDate) : "Sin definir"}
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setCashModalOpen(true)}
-                    className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-100 transition-colors"
-                  >
-                    <Banknote className="h-3.5 w-3.5 text-slate-500" />
-                    {readOnly ? "Ver conteo de billetes" : "Contar / Editar billetes"}
+              {/* Módulos de liquidación compactos: acceso directo al detalle */}
+              <div className="grid gap-2 sm:grid-cols-3">
+                {[
+                  { key: "cash", icon: Banknote, title: "Efectivo contado", amount: totals.countedCash, tone: "text-emerald-600",
+                    summary: `${hasDetailedCash ? `${detailedBillCount} piezas` : countedCashManual > 0 ? "Conteo manual" : "Sin arqueo"} · ${countDate ? displayDate(countDate) : "Sin fecha"}`,
+                    action: readOnly ? "Ver conteo de billetes" : "Contar / Editar billetes", open: () => setCashModalOpen(true) },
+                  { key: "expenses", icon: Receipt, title: "Peajes y gastos", amount: totals.tollsTotal + totals.extraordinaryTotal, tone: "text-amber-600",
+                    summary: `${expenses.length} comp. · Peajes ${formatPrice(totals.tollsTotal)} · Extras ${formatPrice(totals.extraordinaryTotal)}`,
+                    action: readOnly ? "Ver comprobantes" : "Gestionar peajes y gastos", open: () => setExpensesModalOpen(true) },
+                  { key: "digital", icon: CreditCard, title: "Cobros no efectivo", amount: effectiveElectronicTotal, tone: "text-blue-600",
+                    summary: `${electronicTickets.length} tickets${ticketTotals.excludedCount ? ` · ${ticketTotals.excludedCount} fuera de rendición (${formatPrice(ticketTotals.excluded)})` : ""}`,
+                    action: readOnly ? "Ver tickets de cobro" : "Gestionar tickets", open: () => setTicketsModalOpen(true) },
+                ].map(({ key, icon: Icon, title, amount, tone, summary, action, open }) => (
+                  <button key={key} type="button" onClick={open} aria-label={action} title={`${action}: ${summary}`} className="flex min-w-0 items-center gap-2.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-left shadow-2xs transition-colors hover:bg-slate-50">
+                    <Icon className={`h-4 w-4 shrink-0 ${tone}`} />
+                    <span className="min-w-0 flex-1"><span className="block truncate text-[10px] font-black uppercase text-slate-800">{title}</span><span className={`block truncate text-[10px] ${key === "digital" && ticketTotals.excludedCount ? "font-semibold text-blue-700" : "text-slate-500"}`} title={summary}>{summary}</span></span>
+                    <span className="shrink-0 whitespace-nowrap text-base font-black text-slate-900">{formatPrice(amount)}</span>
+                    <ChevronRight className="h-3.5 w-3.5 shrink-0 text-slate-400" />
                   </button>
-                </div>
-
-                {/* Módulo 2: Peajes y Gastos */}
-                <div className="flex flex-col justify-between rounded-xl border border-slate-200/90 bg-white p-3.5 shadow-2xs">
-                  <div>
-                    <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-2">
-                      <div className="flex items-center gap-1.5">
-                        <Receipt className="h-4 w-4 text-amber-600" />
-                        <h3 className="text-xs font-black uppercase tracking-wider text-slate-800">Peajes y Gastos</h3>
-                      </div>
-                      <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-black uppercase text-slate-600">
-                        {expenses.length} comp.
-                      </span>
-                    </div>
-                    <div className="mt-2.5">
-                      <p className="text-lg font-black text-slate-900 leading-none">{formatPrice(totals.tollsTotal + totals.extraordinaryTotal)}</p>
-                      <p className="mt-1 text-[11px] font-medium text-slate-500">
-                        Peajes: {formatPrice(totals.tollsTotal)} ({expenses.filter(e => e.type === "toll").length})
-                      </p>
-                      <p className="mt-0.5 text-[10px] text-slate-400">
-                        Extraordinarios: {formatPrice(totals.extraordinaryTotal)} ({expenses.filter(e => e.type === "extraordinary").length})
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setExpensesModalOpen(true)}
-                    className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-100 transition-colors"
-                  >
-                    <Receipt className="h-3.5 w-3.5 text-slate-500" />
-                    {readOnly ? "Ver comprobantes" : "Gestionar peajes y gastos"}
-                  </button>
-                </div>
-
-                {/* Módulo 3: Cobros No Efectivo */}
-                <div className="flex flex-col justify-between rounded-xl border border-slate-200/90 bg-white p-3.5 shadow-2xs">
-                  <div>
-                    <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-2">
-                      <div className="flex items-center gap-1.5">
-                        <CreditCard className="h-4 w-4 text-blue-600" />
-                        <h3 className="text-xs font-black uppercase tracking-wider text-slate-800">Cobros No Efectivo</h3>
-                      </div>
-                      <span className="rounded bg-blue-50 text-blue-700 border border-blue-200 px-1.5 py-0.5 text-[9px] font-black uppercase">
-                        {electronicTickets.length > 0 ? `${electronicTickets.length} tickets` : "Manual"}
-                      </span>
-                    </div>
-                    <div className="mt-2.5">
-                      <p className="text-lg font-black text-slate-900 leading-none">{formatPrice(effectiveElectronicTotal)}</p>
-                      <p className="mt-1 text-[11px] font-medium text-slate-500">
-                        {electronicTickets.length > 0
-                          ? `${electronicTickets.filter(t => t.paymentType === "POINT").length} Point · ${electronicTickets.filter(t => t.paymentType === "TRANSFERENCIA").length} Transf.`
-                          : "Ingreso manual sin detalle"}
-                      </p>
-                      <p className="mt-0.5 text-[10px] text-slate-400">
-                        Descuento directo del efectivo
-                      </p>
-                      {ticketTotals.excludedCount > 0 && <p className="mt-1 text-[10px] font-bold text-violet-700">
-                        {ticketTotals.excludedCount} pago(s) por {formatPrice(ticketTotals.excluded)} de pedidos no entregados: visibles, no descontados.
-                      </p>}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setTicketsModalOpen(true)}
-                    className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-100 transition-colors"
-                  >
-                    <CreditCard className="h-3.5 w-3.5 text-slate-500" />
-                    {readOnly ? "Ver tickets de cobro" : "Gestionar tickets"}
-                  </button>
-                </div>
+                ))}
               </div>
 
               {/* Pedidos del Recorrido & Chequeo de Pagos */}
-              <section className="rounded-xl border border-slate-200/90 bg-white p-3.5 shadow-2xs">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-100 pb-2.5 mb-3">
+              <details key={detail.settlement.id} className="group rounded-xl border border-slate-200/90 bg-white p-3 shadow-2xs">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-2 [&::-webkit-details-marker]:hidden">
                   <div>
                     <div className="flex items-center gap-2">
                       <Truck className="h-4 w-4 text-blue-600" />
@@ -1055,10 +1122,10 @@ export default function RendicionesPage() {
                         </span>
                       )}
                     </div>
-                    <p className="text-[10px] text-slate-400 mt-0.5">
-                      Pedidos asignados a esta hoja de ruta y control de cobros vinculados en Chequeo de Pagos.
-                    </p>
                   </div>
+                  <span className="inline-flex shrink-0 items-center gap-1 text-xs font-bold text-blue-600"><span className="group-open:hidden">Ver pedidos</span><span className="hidden group-open:inline">Contraer</span><ChevronRight className="h-4 w-4 transition-transform group-open:rotate-90" /></span>
+                </summary>
+                <div className="mt-3 border-t border-slate-100 pt-2">
                   {unappliedLinkedCount > 0 && !readOnly && (
                     <button
                       type="button"
@@ -1068,8 +1135,6 @@ export default function RendicionesPage() {
                       <Plus className="h-3.5 w-3.5" /> Sincronizar {unappliedLinkedCount} cobro(s) a tickets
                     </button>
                   )}
-                </div>
-
                 {routeOrders.length === 0 ? (
                   <div className="rounded-lg border border-dashed border-slate-200 p-4 text-center">
                     <p className="text-xs text-slate-400">
@@ -1078,7 +1143,7 @@ export default function RendicionesPage() {
                   </div>
                 ) : (
                   <div className="overflow-x-auto pb-1">
-                    <table className="w-full text-left text-xs min-w-[860px]">
+                    <table className="w-full whitespace-nowrap text-left text-xs min-w-[1100px]">
                       <thead>
                         <tr className="border-b border-slate-200/80 text-[10px] font-black uppercase tracking-wider text-slate-400">
                           <th className="py-1.5 px-2 w-10 text-center">#</th>
@@ -1118,233 +1183,67 @@ export default function RendicionesPage() {
                           const orderStatus = deliveryStatusChoice(order.deliveryStatus || "");
                           const isPostponed = excluded && orderStatus === "Postergado";
                           const isCancelled = excluded && (orderStatus === "Anulado" || orderStatus === "Cancelado");
-                          const rowTone = isPostponed ? "bg-violet-100/80 hover:bg-violet-200/70" : isCancelled ? "bg-rose-100/80 hover:bg-rose-200/70" : excluded ? "bg-slate-200/60 hover:bg-slate-200" : missingPriorTicket ? "bg-amber-50/60 hover:bg-amber-100/60" : "hover:bg-slate-50/70";
-                          const rowAccent = isPostponed ? "border-l-violet-500" : isCancelled ? "border-l-rose-500" : excluded ? "border-l-slate-500" : "border-l-transparent";
+                          const excludedTone = isPostponed
+                            ? "border-blue-200 bg-blue-50 text-blue-900"
+                            : isCancelled ? "border-rose-300 bg-rose-50 text-rose-800" : "border-slate-300 bg-slate-100 text-slate-700";
+                          const rowTone = isPostponed
+                            ? "bg-blue-900 hover:bg-blue-800 text-white"
+                            : isCancelled ? "bg-red-900 hover:bg-red-800 text-white"
+                              : excluded ? "bg-slate-200/60 hover:bg-slate-200"
+                                : missingPriorTicket ? "bg-amber-50/60 hover:bg-amber-100/60" : "hover:bg-slate-50/70";
+                          const darkRow = isPostponed || isCancelled;
+                          const rowAccent = isPostponed ? "border-l-blue-400" : isCancelled ? "border-l-red-400" : excluded ? "border-l-slate-500" : "border-l-transparent";
 
                           return (
                             <tr key={order.deliveryId || `order-${idx}`} className={`${rowTone} transition-colors`}>
-                              <td className={`border-l-4 ${rowAccent} py-2 px-2 text-center text-slate-400 font-bold`}>
-                                {order.stopOrder || idx + 1}
-                              </td>
-                              <td className="py-2 px-2">
-                                <span className="inline-flex items-center rounded-md bg-blue-50 border border-blue-200 px-2 py-0.5 text-[11px] font-black text-blue-800">
-                                  {order.orderCode}
-                                </span>
-                              </td>
-                              <td className="py-2 px-2">
-                                <p className="font-bold text-slate-900 leading-tight truncate max-w-[220px]" title={order.customerName}>
-                                  {order.customerName}
-                                </p>
-                              </td>
-                              <td className="py-2 px-2">
-                                {readOnly ? <span className={isExcludedDeliveryStatus(order.deliveryStatus || "") ? "font-bold text-rose-700" : "text-emerald-700"}>{order.deliveryStatus || "Entregado"}</span> : (
-                                  <select value={deliveryStatusChoice(order.deliveryStatus || "")} disabled={updatingOrderStatus === order.deliveryId} onChange={event => void changeRouteOrderStatus(order, event.target.value === "En recorrido" ? "en_recorrido" : event.target.value.toLowerCase())} className="w-full rounded border border-slate-200 bg-white px-1.5 py-1 text-[10px] font-bold text-slate-700 disabled:opacity-50">
+                              <td className={`border-l-4 ${rowAccent} px-2 py-1.5 text-center font-bold ${darkRow ? "text-white/80" : "text-slate-400"}`}>{order.stopOrder || idx + 1}</td>
+                              <td className="px-2 py-1.5"><span className="inline-flex rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-black text-blue-800">{order.orderCode}</span></td>
+                              <td className="px-2 py-1.5"><p className={`max-w-[220px] truncate font-bold ${darkRow ? "text-white" : "text-slate-900"}`} title={order.customerName}>{order.customerName}</p></td>
+                              <td className="px-2 py-1.5">
+                                {readOnly ? <span className={excluded ? `inline-flex rounded border px-1.5 py-0.5 text-[10px] font-black uppercase ${excludedTone}` : "text-emerald-700"}>{order.deliveryStatus || "Entregado"}</span> : (
+                                  <select value={orderStatus} disabled={updatingOrderStatus === order.deliveryId} onChange={event => void changeRouteOrderStatus(order, event.target.value === "En recorrido" ? "en_recorrido" : event.target.value.toLowerCase())} className={`rounded border px-1.5 py-0.5 text-[10px] font-bold disabled:opacity-50 ${excluded ? excludedTone : "border-slate-200 bg-white text-slate-700"}`}>
                                     {deliveryStatusOptions.map(option => <option key={option} value={option}>{option}</option>)}
                                   </select>
                                 )}
                               </td>
-                              <td className="py-2 px-2 text-right whitespace-nowrap">
-                                <div className="font-black text-slate-900">
-                                  {order.totalAmount > 0 ? formatPrice(order.totalAmount) : "-"}
+                              <td className="px-2 py-1.5 text-right">
+                                <div className="inline-flex items-center gap-1.5">
+                                  <span className={`font-black ${darkRow ? "text-white" : "text-slate-900"}`}>{order.totalAmount > 0 ? formatPrice(order.totalAmount) : "-"}</span>
+                                  {excluded ? <span className={`text-[9px] font-bold ${darkRow ? "text-white/90" : "text-slate-600"}`}>Sin cobro</span> : isPreviouslyPaid ? <span className={`rounded border px-1 text-[9px] font-bold ${missingPriorTicket ? "border-amber-300 bg-amber-50 text-amber-800" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>Previo</span> : (order.previouslyPaidAmount || 0) > 0 ? <span className="text-[9px] font-bold text-amber-700" title={`Seña: ${formatPrice(order.previouslyPaidAmount || 0)}`}>Con seña</span> : null}
                                 </div>
-                                {excluded ? <span className="text-rose-600 font-bold">Sin cobro</span> : isPreviouslyPaid ? (
-                                  <span className={`inline-block rounded border px-1 py-0.2 text-[9px] font-black uppercase tracking-tight mt-0.5 ${missingPriorTicket ? "bg-amber-50 border-amber-300 text-amber-800" : "bg-emerald-50 border-emerald-200 text-emerald-700"}`}>
-                                    Abonado previo
-                                  </span>
-                                ) : (order.previouslyPaidAmount || 0) > 0 ? (
-                                  <span className="block text-[9px] font-bold text-amber-600">
-                                    Seña: {formatPrice(order.previouslyPaidAmount || 0)}
-                                  </span>
-                                ) : null}
                               </td>
-                              <td className="py-2 px-2 text-right whitespace-nowrap">
-                                {excluded ? (
-                                  <span className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-black ${isPostponed ? "border-violet-300 bg-violet-50 text-violet-800" : isCancelled ? "border-rose-300 bg-rose-50 text-rose-800" : "border-slate-300 bg-slate-100 text-slate-700"}`}>
-                                    $ 0 · {orderStatus}
-                                  </span>
-                                ) : isPreviouslyPaid ? (
-                                  <div>
-                                    <span className={`font-bold text-[11px] ${missingPriorTicket ? "text-amber-800" : "text-emerald-700"}`}>Pagado antes</span>
-                                    <p className={`text-[9px] ${missingPriorTicket ? "text-amber-700" : "text-slate-400"}`}>{missingPriorTicket ? "Ticket por revisar" : "Sin cobro en flete"}</p>
-                                  </div>
-                                ) : nonCashTotal > 0 ? (
-                                  <div>
-                                    <span className="font-black text-blue-700">{formatPrice(nonCashTotal)}</span>
-                                    <p className="text-[9px] font-bold text-blue-600/80">
-                                      {linkedTickets.length} ticket{linkedTickets.length > 1 ? "s" : ""}
-                                    </p>
-                                    {excluded && <p className="text-[9px] font-black text-violet-700">Pago del pedido · fuera de esta rendición</p>}
-                                  </div>
-                                ) : (
-                                  <span className="text-slate-400">$ 0</span>
-                                )}
+                              <td className="px-2 py-1.5 text-right">
+                                {isPreviouslyPaid ? <span className={`text-[10px] font-bold ${missingPriorTicket ? "text-amber-800" : "text-emerald-700"}`}>{missingPriorTicket ? "Previo · revisar ticket" : "Pago previo"}</span> : nonCashTotal > 0 ? <span className={`font-black ${darkRow ? "text-white" : "text-blue-700"}`} title={excluded ? "Pago del pedido fuera de esta rendición" : undefined}>{formatPrice(nonCashTotal)} <span className="text-[9px] font-medium">({linkedTickets.length})</span></span> : <span className={darkRow ? "text-white/80" : "text-slate-400"}>$0</span>}
                               </td>
-                              <td className="py-2 px-2 text-right whitespace-nowrap">
-                                {isPreviouslyPaid ? (
-                                  <span className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-black ${missingPriorTicket ? "bg-amber-50 border-amber-300 text-amber-800" : "bg-emerald-50 border-emerald-200 text-emerald-700"}`}>
-                                    $ 0 (Abonado previo)
-                                  </span>
-                                ) : isFullyDigital ? (
-                                  <span className="inline-flex items-center rounded bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 text-[10px] font-black text-emerald-700">
-                                    $ 0 (100% digital)
-                                  </span>
-                                ) : isMixed ? (
-                                  <div>
-                                    <span className="font-black text-amber-700">{formatPrice(cashRemainder)}</span>
-                                    <span className="block text-[9px] font-bold text-amber-600 uppercase">Pago Mixto</span>
-                                  </div>
-                                ) : (
-                                  <span className="font-black text-slate-800">
-                                    {toCollectAmount > 0 ? formatPrice(toCollectAmount) : "$ 0"}
-                                  </span>
-                                )}
+                              <td className="px-2 py-1.5 text-right">
+                                {excluded ? <span className={`inline-flex rounded border px-1.5 py-0.5 text-[10px] font-black ${excludedTone}`}>$0 · {orderStatus}</span> : isPreviouslyPaid ? <span className="rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">$0 · Previo</span> : isFullyDigital ? <span className="rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">$0 · Digital</span> : <span className={`font-black ${isMixed ? "text-amber-700" : "text-slate-800"}`}>{formatPrice(cashRemainder)}{isMixed && <span className="ml-1 text-[9px] font-bold">Mixto</span>}</span>}
                               </td>
-                              <td className="py-2 px-2 min-w-[280px]">
-                                {isPreviouslyPaid ? (
-                                  <div className="space-y-1.5">
-                                    {order.linkedPayments.map(payment => (
-                                      <div key={payment.id} className="rounded-lg border border-emerald-200 bg-emerald-50/70 px-2 py-1.5 text-[10px] text-emerald-900">
-                                        <div className="flex items-center gap-1.5 font-bold"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> {formatPrice(payment.amount)} · {payment.paymentType}</div>
-                                        <p className="mt-0.5 text-[9px] text-emerald-700">Chequeo de Pagos{payment.payerName ? ` · ${payment.payerName}` : ""}</p>
-                                      </div>
-                                    ))}
-                                    {priorReceipts.map(receipt => (
-                                      <div key={receipt.id} className="flex items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50/70 px-2 py-1.5 text-[10px] text-emerald-900">
-                                        <span className="font-bold">{receipt.reference}{receipt.amount > 0 ? ` · ${formatPrice(receipt.amount)}` : ""}</span>
-                                        <a href={safeReceiptUrl(receipt.receiptUrl) || "#"} target="_blank" rel="noopener noreferrer" className="shrink-0 font-black text-emerald-700 underline">Ver ticket ↗</a>
-                                      </div>
-                                    ))}
-                                    {linkedTickets.filter(ticket => !ticket.mpPaymentId || !order.linkedPayments.some(payment => payment.id === ticket.mpPaymentId)).map(ticket => (
-                                      <div key={ticket.localId} className="rounded-lg border border-blue-200 bg-blue-50/70 px-2 py-1.5 text-[10px] text-blue-900">
-                                        <span className="font-bold">Ticket asociado · {formatPrice(ticket.amount)}</span>
-                                        {ticket.reference && <p className="text-[9px] text-blue-700">{ticket.reference}</p>}
-                                      </div>
-                                    ))}
-                                    {missingPriorTicket && (
-                                      <div className="flex items-start gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-2 text-[10px] text-amber-900">
-                                        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
-                                        <span><strong>Sin ticket del pago previo.</strong> Revisar el comprobante asociado a este pedido.</span>
-                                      </div>
-                                    )}
-                                  </div>
-                                ) : (
-                                  <div className="space-y-1.5">
-                                    {/* 1. Chequeo de Pagos payments (Mercado Pago) */}
-                                    {hasLinked && order.linkedPayments.map(p => {
-                                      const matchingTicket = electronicTickets.find(t => t.mpPaymentId === p.id);
-                                      const isAlreadyTicket = Boolean(matchingTicket);
-                                      return (
-                                        <div key={p.id} className="rounded-lg border border-emerald-200 bg-emerald-50/70 p-2 text-[11px]">
-                                          <div className="flex items-center justify-between gap-1.5">
-                                            <div className="flex items-center gap-1.5 font-black text-emerald-900 truncate">
-                                              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
-                                              <span>{formatPrice(p.amount)}</span>
-                                              <span className="text-[10px] font-bold text-emerald-700">· {p.paymentType}</span>
-                                            </div>
-                                            {isAlreadyTicket ? (
-                                              <div className="flex items-center gap-1 shrink-0">
-                                                <span className="inline-flex items-center text-[9px] font-bold text-emerald-700 bg-emerald-100 rounded px-1.5 py-0.5 whitespace-nowrap">
-                                                {excluded ? "Fuera de rendición" : "✓ En tickets"}
-                                                </span>
-                                                {!readOnly && matchingTicket && (
-                                                  <button
-                                                    type="button"
-                                                    title="Quitar de tickets"
-                                                    onClick={() => deleteElectronicTicket(matchingTicket.localId)}
-                                                    className="text-slate-400 hover:text-rose-600 p-0.5 transition-colors"
-                                                  >
-                                                    <Trash2 className="h-3 w-3" />
-                                                  </button>
-                                                )}
-                                              </div>
-                                            ) : !readOnly && !excluded ? (
-                                              <button
-                                                type="button"
-                                                onClick={() => handleAddPaymentToTickets(p, order.orderCode, order.orderId)}
-                                                className="shrink-0 text-[10px] font-bold text-blue-700 hover:text-blue-900 hover:underline whitespace-nowrap"
-                                              >
-                                                + Pasar a tickets
-                                              </button>
-                                            ) : null}
-                                          </div>
-                                          <div className="mt-0.5 text-[10px] text-emerald-800/80 flex items-center justify-between gap-1">
-                                            <span className="truncate">{p.payerName ? `Titular: ${p.payerName}` : ""}</span>
-                                            <span className="text-slate-400 shrink-0">{p.accountName ? `(${p.accountName})` : ""}</span>
-                                          </div>
-                                          {p.linkedBy && (
-                                            <div className="text-[9px] text-slate-400 mt-0.5">
-                                              Vinculado por: {p.linkedBy}
-                                            </div>
-                                          )}
-                                        </div>
-                                      );
-                                    })}
-
-                                    {/* 2. Direct tickets assigned to this order */}
-                                    {directTickets.map(ticket => (
-                                      <div key={ticket.localId} className="rounded-lg border border-blue-200 bg-blue-50/70 p-2 text-[11px]">
-                                        <div className="flex items-center justify-between gap-1.5">
-                                          <div className="flex items-center gap-1.5 font-black text-blue-900 truncate">
-                                            <CreditCard className="h-3.5 w-3.5 text-blue-600 shrink-0" />
-                                            <span>{formatPrice(ticket.amount)}</span>
-                                            <span className="text-[10px] font-bold text-blue-700">· {ticket.paymentType}</span>
-                                          </div>
-                                          <div className="flex items-center gap-1 shrink-0">
-                                            <span className="inline-flex items-center text-[9px] font-bold text-blue-700 bg-blue-100/80 rounded px-1.5 py-0.5 whitespace-nowrap">
-                                              {excluded ? "Fuera de rendición" : "✓ Asignado"}
-                                            </span>
-                                            {!readOnly && (
-                                              <button
-                                                type="button"
-                                                title="Eliminar ticket"
-                                                onClick={() => deleteElectronicTicket(ticket.localId)}
-                                                className="text-slate-400 hover:text-rose-600 p-0.5 transition-colors"
-                                              >
-                                                <Trash2 className="h-3 w-3" />
-                                              </button>
-                                            )}
-                                          </div>
-                                        </div>
-                                        <div className="mt-0.5 text-[10px] text-blue-800/80 flex items-center justify-between gap-1">
-                                          <span className="truncate">{ticket.reference || `Cobro ${order.orderCode}`}</span>
-                                          {ticket.notes && <span className="text-slate-400 truncate text-[9px]">({ticket.notes})</span>}
-                                        </div>
-                                      </div>
-                                    ))}
-
-                                    {/* 3. Empty state: No MP payments and no tickets yet */}
-                                    {!hasLinked && directTickets.length === 0 && (
-                                      <div className="flex items-center justify-between gap-2 rounded-lg border border-dashed border-slate-200 bg-slate-50/60 px-2.5 py-1.5 text-[10px]">
-                                        <div className="flex items-center gap-1.5 text-slate-500">
-                                          <span className="h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" />
-                                          <span>Pendiente de cobro</span>
-                                        </div>
-                                        {!readOnly && (
-                                          <button
-                                            type="button"
-                                            onClick={() => handleOpenAssignModal(order, cashRemainder)}
-                                            className="inline-flex items-center gap-1 font-bold text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100 rounded px-2 py-0.5 text-[10px] transition-colors shadow-2xs"
-                                          >
-                                            <Plus className="h-3 w-3" /> Asignar ticket
-                                          </button>
-                                        )}
-                                      </div>
-                                    )}
-
-                                    {/* 4. If already has tickets or MP payments, but still has cash remainder and not read-only */}
-                                    {(hasLinked || directTickets.length > 0) && cashRemainder > 0 && !readOnly && (
-                                      <div className="pt-0.5 flex justify-end">
-                                        <button
-                                          type="button"
-                                          onClick={() => handleOpenAssignModal(order, cashRemainder)}
-                                          className="inline-flex items-center gap-1 font-bold text-blue-700 hover:text-blue-900 bg-blue-50/80 hover:bg-blue-100 border border-blue-200/80 rounded px-2 py-0.5 text-[10px] transition-colors"
-                                        >
-                                          <Plus className="h-3 w-3" /> Asignar ticket ({formatPrice(cashRemainder)})
-                                        </button>
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
+                              <td className="px-2 py-1.5">
+                                <div className="flex items-center gap-1.5">
+                                  {order.linkedPayments.map(p => {
+                                    const ticket = electronicTickets.find(t => t.mpPaymentId === p.id);
+                                    return <div key={p.id} className="inline-flex shrink-0 items-center gap-1.5 rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] text-emerald-900">
+                                      <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+                                      <span className="font-black">{formatPrice(p.amount)}</span><span className="font-semibold">{p.paymentType}</span>
+                                      {p.payerName && <span className="max-w-28 truncate" title={`${p.payerName}${p.accountName ? ` · ${p.accountName}` : ""}`}>{p.payerName}</span>}
+                                      {ticket && <span className="font-bold" title={excluded || isPreviouslyPaid ? "Pago fuera de rendición" : "En tickets"}>✓</span>}
+                                      <button type="button" onClick={() => setViewingPayment({ ...p, orderCode: order.orderCode })} className="font-bold underline underline-offset-2" aria-label={`Ver cobro de ${order.orderCode} por ${formatPrice(p.amount)}`}>Ver</button>
+                                      {!ticket && !readOnly && !excluded && !isPreviouslyPaid && <button type="button" onClick={() => handleAddPaymentToTickets(p, order.orderCode, order.orderId)} className="font-bold text-blue-700" title="Pasar a tickets">+ Ticket</button>}
+                                      {ticket && !readOnly && <button type="button" onClick={() => deleteElectronicTicket(ticket.localId)} title="Quitar de tickets" aria-label={`Quitar ticket de ${order.orderCode}`} className="text-slate-500 hover:text-rose-700"><Trash2 className="h-3 w-3" /></button>}
+                                    </div>;
+                                  })}
+                                  {(isPreviouslyPaid ? linkedTickets.filter(t => !t.mpPaymentId || !order.linkedPayments.some(p => p.id === t.mpPaymentId)) : directTickets).map(ticket => (
+                                    <div key={ticket.localId} className="inline-flex shrink-0 items-center gap-1.5 rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] text-blue-900">
+                                      <CreditCard className="h-3 w-3" /><span className="font-black">{formatPrice(ticket.amount)}</span><span>{ticket.paymentType}</span>
+                                      <button type="button" onClick={() => setViewingPayment({ id: ticket.localId, amount: ticket.amount, paymentType: ticket.paymentType, payerName: ticket.reference || "", accountName: "Ticket de rendición", receivedAt: "", linkedBy: "", notes: ticket.notes || "", orderCode: order.orderCode })} className="font-bold underline underline-offset-2" aria-label={`Ver ticket de ${order.orderCode}`}>Ver</button>
+                                      {!readOnly && <button type="button" onClick={() => deleteElectronicTicket(ticket.localId)} title="Quitar ticket" aria-label={`Quitar ticket de ${order.orderCode}`}><Trash2 className="h-3 w-3" /></button>}
+                                    </div>
+                                  ))}
+                                  {isPreviouslyPaid && priorReceipts.map(receipt => <a key={receipt.id} href={safeReceiptUrl(receipt.receiptUrl)!} target="_blank" rel="noopener noreferrer" title={receipt.reference} className="inline-flex shrink-0 items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-800">{receipt.amount > 0 && formatPrice(receipt.amount)} Ver ticket ↗</a>)}
+                                  {missingPriorTicket && <span className="inline-flex items-center gap-1 rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-900"><AlertTriangle className="h-3 w-3" />Pago previo sin ticket · revisar</span>}
+                                  {!isPreviouslyPaid && !hasLinked && directTickets.length === 0 && <span className="rounded border border-dashed border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] text-slate-600">{excluded ? "Sin cobro · fuera de rendición" : "Pendiente de cobro"}</span>}
+                                  {!readOnly && !excluded && !isPreviouslyPaid && (cashRemainder > 0 || (!hasLinked && directTickets.length === 0)) && <button type="button" onClick={() => handleOpenAssignModal(order, cashRemainder)} className="inline-flex shrink-0 items-center gap-1 rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-700"><Plus className="h-3 w-3" />Asignar ticket</button>}
+                                </div>
                               </td>
                             </tr>
                           );
@@ -1353,13 +1252,14 @@ export default function RendicionesPage() {
                     </table>
                   </div>
                 )}
-              </section>
+                </div>
+              </details>
             </div>
 
-            <aside className="space-y-3.5 xl:sticky xl:top-3.5 xl:self-start">
+            <div className="space-y-3">
               <section className="rounded-xl border border-slate-200/90 bg-white p-3.5 shadow-2xs">
                 <h2 className="text-xs font-black uppercase tracking-wider text-slate-800 border-b border-slate-100 pb-2 mb-2.5">Resumen de liquidación</h2>
-                <div className="space-y-1.5 border-b border-slate-100 pb-2.5 text-xs">
+                <div className="grid grid-cols-1 gap-3 border-b border-slate-100 pb-3 text-xs sm:grid-cols-2 lg:grid-cols-3 [&>div]:min-w-0 [&>div]:gap-3 [&>div]:rounded-lg [&>div]:border [&>div]:border-slate-100 [&>div]:px-3 [&>div]:py-2 [&>div>span:last-child]:shrink-0 [&>div>span:last-child]:whitespace-nowrap">
                   <SummaryLine label="Total entregas" value={deliveriesTotal} />
                   <SummaryLine label="Cambio entregado" value={changeFund} positive />
                   <SummaryLine label="Peajes" value={totals.tollsTotal} negative />
@@ -1378,7 +1278,8 @@ export default function RendicionesPage() {
                 </div>
               </section>
 
-              <section className="rounded-xl border border-slate-200/90 bg-white p-3.5 shadow-2xs">
+              <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+              <section className="min-w-0 rounded-xl border border-slate-200/90 bg-white p-3.5 shadow-2xs">
                 <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-2 mb-2.5">
                   <div>
                     <h2 className="text-xs font-black uppercase tracking-wider text-slate-800">Reporte para Movimientos</h2>
@@ -1398,7 +1299,7 @@ export default function RendicionesPage() {
                     <button
                       type="button"
                       onClick={openMovementsModal}
-                      disabled={movementRows.length === 0}
+                      disabled={archived || movementRows.length === 0}
                       className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-emerald-700 disabled:opacity-40 transition-colors shadow-2xs"
                     >
                       <Wallet className="h-3 w-3" /> Generar en Caja
@@ -1428,6 +1329,7 @@ export default function RendicionesPage() {
                     <button
                       type="button"
                       onClick={openMovementsModal}
+                      disabled={archived}
                       className="text-[10px] font-bold text-emerald-700 underline hover:text-emerald-900 shrink-0"
                     >
                       Ver / Volver a generar
@@ -1436,7 +1338,7 @@ export default function RendicionesPage() {
                 )}
               </section>
 
-              <section className="rounded-xl border border-slate-200/90 bg-white p-3.5 shadow-2xs">
+              <section className="min-w-0 rounded-xl border border-slate-200/90 bg-white p-3.5 shadow-2xs">
                 <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-2 mb-2.5">
                   <h2 className="text-xs font-black uppercase tracking-wider text-slate-800">Mensaje para el fletero</h2>
                   <button type="button" onClick={() => void copyMessage()} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-700 hover:bg-slate-50">
@@ -1446,11 +1348,12 @@ export default function RendicionesPage() {
                 <div className="whitespace-pre-line rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-xs leading-5 text-slate-700">{message}</div>
               </section>
 
+              </div>
               <section className="rounded-xl border border-slate-200/90 bg-white p-3.5 shadow-2xs">
                 <label className="text-xs font-black uppercase tracking-wider text-slate-800 block mb-1.5">Observaciones</label>
                 <textarea value={notes} disabled={readOnly} onChange={event => setNotes(event.target.value)} rows={3} className="w-full resize-none rounded-lg border border-slate-200 bg-slate-50/60 p-2.5 text-xs text-slate-800 outline-none focus:border-blue-500 disabled:bg-slate-100" placeholder="Excepciones o aclaraciones" />
               </section>
-            </aside>
+            </div>
           </div>
         </div>
 
@@ -1476,7 +1379,8 @@ export default function RendicionesPage() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setCashModalOpen(false)}
+                  disabled={!!saving || !!updatingOrderStatus}
+                    onClick={async () => { if (readOnly || await saveSettlement("save")) setCashModalOpen(false); }}
                   className="rounded-lg p-1 text-slate-400 hover:bg-slate-100"
                 >
                   <X className="h-4 w-4" />
@@ -1580,6 +1484,7 @@ export default function RendicionesPage() {
                   <span className="mx-2 text-slate-300">·</span>
                   <span className="text-sm font-black text-emerald-700">
                     Total: {formatPrice(totals.countedCash)}
+                    {error && <span role="alert" className="ml-2 text-rose-700">{error}</span>}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -1597,10 +1502,11 @@ export default function RendicionesPage() {
                   )}
                   <button
                     type="button"
-                    onClick={() => setCashModalOpen(false)}
+                    disabled={!!saving || !!updatingOrderStatus}
+                    onClick={async () => { if (readOnly || await saveSettlement("save")) setCashModalOpen(false); }}
                     className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-1.5 text-xs font-bold text-white shadow-2xs hover:bg-emerald-700 transition-colors"
                   >
-                    <Check className="h-3.5 w-3.5" /> Listo
+                    {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} {saving ? "Guardando..." : "Listo"}
                   </button>
                 </div>
               </div>
@@ -1630,7 +1536,8 @@ export default function RendicionesPage() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setExpensesModalOpen(false)}
+                  disabled={!!saving || !!updatingOrderStatus}
+                    onClick={async () => { if (readOnly || await saveSettlement("save")) setExpensesModalOpen(false); }}
                   className="rounded-lg p-1 text-slate-400 hover:bg-slate-100"
                 >
                   <X className="h-4 w-4" />
@@ -1669,17 +1576,40 @@ export default function RendicionesPage() {
                   <span className="mx-2 text-slate-300">·</span>
                   <span className="font-black text-amber-700">
                     Total gastos: {formatPrice(totals.tollsTotal + totals.extraordinaryTotal)}
+                    {error && <span role="alert" className="ml-2 text-rose-700">{error}</span>}
                   </span>
                 </div>
                 <button
                   type="button"
-                  onClick={() => setExpensesModalOpen(false)}
+                  disabled={!!saving || !!updatingOrderStatus}
+                    onClick={async () => { if (readOnly || await saveSettlement("save")) setExpensesModalOpen(false); }}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-1.5 text-xs font-bold text-white shadow-2xs hover:bg-emerald-700"
                 >
-                  <Check className="h-3.5 w-3.5" /> Listo
+                  {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} {saving ? "Guardando..." : "Listo"}
                 </button>
               </div>
             </div>
+          </div>
+        )}
+
+        {viewingPayment && (
+          <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/50 p-4" onMouseDown={event => { if (event.target === event.currentTarget) setViewingPayment(null); }}>
+            <section role="dialog" aria-modal="true" aria-labelledby="linked-payment-title" onKeyDown={event => { if (event.key === "Escape") setViewingPayment(null); }} className="max-h-[85vh] w-full max-w-md overflow-auto rounded-2xl border border-slate-200 bg-white p-4 text-slate-900 shadow-xl">
+              <header className="flex items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                <div><h2 id="linked-payment-title" className="text-sm font-black">Detalle del cobro</h2><p className="text-xs text-slate-500">Pedido {viewingPayment.orderCode}</p></div>
+                <button type="button" autoFocus aria-label="Cerrar detalle del cobro" onClick={() => setViewingPayment(null)} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"><X className="h-4 w-4" /></button>
+              </header>
+              <p className="mt-3 text-2xl font-black text-emerald-800">{formatPrice(viewingPayment.amount)}</p>
+              <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-xs">
+                <dt className="text-slate-500">Medio</dt><dd className="font-bold">{viewingPayment.paymentType || "Sin definir"}</dd>
+                <dt className="text-slate-500">Titular</dt><dd className="break-words font-bold">{viewingPayment.payerName || "Sin informar"}</dd>
+                <dt className="text-slate-500">Cuenta</dt><dd>{viewingPayment.accountName || "Sin informar"}</dd>
+                <dt className="text-slate-500">Fecha</dt><dd>{displayDate(viewingPayment.receivedAt)}</dd>
+                <dt className="text-slate-500">Verificación</dt><dd>{viewingPayment.isVerified ? "Verificado" : "Sin verificación registrada"}</dd>
+              </dl>
+              {viewingPayment.notes && <p className="mt-3 whitespace-pre-wrap rounded-lg bg-slate-50 p-2 text-xs text-slate-600">{viewingPayment.notes}</p>}
+              <div className="mt-4 flex justify-end"><button type="button" onClick={() => setViewingPayment(null)} className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-bold text-white">Cerrar</button></div>
+            </section>
           </div>
         )}
 
@@ -1705,7 +1635,8 @@ export default function RendicionesPage() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setTicketsModalOpen(false)}
+                  disabled={!!saving || !!updatingOrderStatus}
+                    onClick={async () => { if (readOnly || await saveSettlement("save")) setTicketsModalOpen(false); }}
                   className="rounded-lg p-1 text-slate-400 hover:bg-slate-100"
                 >
                   <X className="h-4 w-4" />
@@ -1747,15 +1678,17 @@ export default function RendicionesPage() {
                   <span className="mx-2 text-slate-300">·</span>
                   <span className="font-black text-blue-700">
                     Total a descontar: {formatPrice(effectiveElectronicTotal)}
+                    {error && <span role="alert" className="ml-2 text-rose-700">{error}</span>}
                   </span>
                   {ticketTotals.excludedCount > 0 && <span className="ml-2 font-bold text-violet-700">· Fuera de rendición: {formatPrice(ticketTotals.excluded)}</span>}
                 </div>
                 <button
                   type="button"
-                  onClick={() => setTicketsModalOpen(false)}
+                  disabled={!!saving || !!updatingOrderStatus}
+                    onClick={async () => { if (readOnly || await saveSettlement("save")) setTicketsModalOpen(false); }}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-1.5 text-xs font-bold text-white shadow-2xs hover:bg-emerald-700"
                 >
-                  <Check className="h-3.5 w-3.5" /> Listo
+                  {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} {saving ? "Guardando..." : "Listo"}
                 </button>
               </div>
             </div>
@@ -1991,14 +1924,20 @@ export default function RendicionesPage() {
                   </div>
                 </div>
 
+                {error && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-2 text-xs text-rose-700">{error}</p>}
                 {existingMovements && existingMovements.length > 0 && (
                   <div className="rounded-xl border border-amber-200 bg-amber-50/80 p-2.5 text-xs text-amber-900 flex items-start gap-2">
                     <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
                     <div>
                       <p className="font-bold">Ya existen {existingMovements.length} movimientos generados para esta rendición.</p>
                       <p className="text-[11px] text-amber-800 mt-0.5">
-                        Si confirmás, se registrarán nuevos movimientos a la caja seleccionada.
+                        Elegí reemplazar los movimientos actuales o generar un duplicado.
                       </p>
+                      <div className="my-2 space-y-1">
+                        {existingMovements.map(m => <div key={m.id} className="rounded border border-amber-200 bg-white p-2"><strong>{m.type === "ingreso" ? "Ingreso" : "Egreso"} · {formatPrice(m.amount)}</strong> · {m.concept}<div>{m.created_at ? new Date(m.created_at).toLocaleString("es-AR") : ""} · {financialAccounts.find(a => a.id === m.financial_account_id)?.name || "Cuenta"}</div></div>)}
+                      </div>
+                      <label className="mr-3"><input type="radio" name="generationMode" checked={generationMode === "replace"} onChange={() => setGenerationMode("replace")} /> Reemplazar movimientos actuales</label>
+                      <label><input type="radio" name="generationMode" checked={generationMode === "duplicate"} onChange={() => setGenerationMode("duplicate")} /> Generar duplicado</label>
                     </div>
                   </div>
                 )}
@@ -2110,7 +2049,7 @@ export default function RendicionesPage() {
                   </button>
                   <button
                     type="submit"
-                    disabled={generatingMovements || customMovements.length === 0}
+                    disabled={generatingMovements || !!saving || !!updatingOrderStatus || customMovements.length === 0 || (existingMovements.length > 0 && !generationMode)}
                     className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-1.5 text-xs font-bold text-white shadow-2xs hover:bg-emerald-700 disabled:opacity-50 transition-colors"
                   >
                     {generatingMovements ? (
@@ -2161,14 +2100,14 @@ export default function RendicionesPage() {
               >
                 <CheckCircle2 className="h-3.5 w-3.5" /> Leer hoja Entregados
               </button>
-              <button
+              {canImportMonth && <button
                 type="button"
                 onClick={() => void importMonth()}
                 disabled={importing}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-2xs hover:bg-slate-50 disabled:opacity-50"
               >
                 {importing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileSpreadsheet className="h-3.5 w-3.5" />} Importar mes actual
-              </button>
+              </button>}
               <button
                 type="button"
                 onClick={() => setCreateOpen(true)}
@@ -2197,19 +2136,29 @@ export default function RendicionesPage() {
         </section>
 
         <section className="rounded-xl border border-slate-200/90 bg-white p-2.5 shadow-2xs">
-          <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
-            <div className="relative flex-1 sm:max-w-md">
-              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-              <input
-                type="search"
-                value={search}
-                onChange={event => setSearch(event.target.value)}
-                placeholder="Buscar por fletero, fecha o código..."
-                className="h-[32px] w-full rounded-lg border border-slate-200 bg-slate-50/60 py-1 pl-8 pr-3 text-xs outline-none focus:border-blue-500 focus:bg-white"
-              />
+          <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <div className="relative flex-1 sm:w-80">
+                <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="search"
+                  value={search}
+                  onChange={event => setSearch(event.target.value)}
+                  placeholder="Buscar por fletero, fecha o código..."
+                  className="h-[32px] w-full rounded-lg border border-slate-200 bg-slate-50/60 py-1 pl-8 pr-3 text-xs outline-none focus:border-blue-500 focus:bg-white"
+                />
+              </div>
+              <label className="relative shrink-0">
+                <Calendar className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-blue-500" />
+                <select value={dateFilter} onChange={event => setDateFilter(event.target.value)} aria-label="Filtrar rendiciones por fecha" className="h-[32px] w-full appearance-none rounded-lg border border-slate-200 bg-white py-1 pl-8 pr-8 text-xs font-semibold text-slate-700 outline-none focus:border-blue-500 sm:w-44">
+                  <option value="">Todas las fechas</option>
+                  {availableDates.map(date => <option key={date} value={date}>{displayDate(date)}</option>)}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+              </label>
             </div>
             <div className="flex flex-wrap gap-1.5">
-              {([['pending','Pendientes'],['draft','En preparación'],['confirmed','Confirmadas'],['all','Todas']] as const).map(([value,label]) => (
+              {([['pending','Pendientes'],['draft','En preparación'],['confirmed','Confirmadas'],['all','Todas'],['archived','Archivadas']] as const).map(([value,label]) => (
                 <button
                   key={value}
                   type="button"
@@ -2225,50 +2174,66 @@ export default function RendicionesPage() {
 
         {(error || notice) && <Feedback error={error} notice={notice} />}
 
-        <section className="overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-2xs">
+        <section className="space-y-3">
           {loading ? (
-            <div className="flex min-h-52 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-blue-600" /></div>
+            <div className="flex min-h-52 items-center justify-center rounded-xl border border-slate-200 bg-white"><Loader2 className="h-6 w-6 animate-spin text-blue-600" /></div>
           ) : filteredRows.length === 0 ? (
-            <div className="flex min-h-52 flex-col items-center justify-center px-4 text-center">
+            <div className="flex min-h-52 flex-col items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-center">
               <CheckCircle2 className="mb-2 h-8 w-8 text-emerald-500" />
               <h2 className="text-sm font-black text-slate-900">No hay rendiciones en esta vista</h2>
-              <p className="mt-0.5 text-xs text-slate-500">Creá una rendición manual o leé las entregas vigentes.</p>
+              <p className="mt-0.5 text-xs text-slate-500">{dateFilter ? "Probá con otra fecha o elegí Todas las fechas." : "Creá una rendición manual o leé las entregas vigentes."}</p>
             </div>
           ) : (
-            <div className="divide-y divide-slate-100">
-              {filteredRows.map(row => (
-                <button
-                  key={row.id}
-                  type="button"
-                  onClick={() => void openSettlement(row.id)}
-                  className="grid w-full gap-2 px-3.5 py-2.5 text-left transition-colors hover:bg-slate-50 sm:grid-cols-[minmax(180px,1.4fr)_120px_110px_130px_28px] sm:items-center text-xs"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate font-black text-slate-900">{row.carrier_name}</p>
-                    <p className="truncate text-[11px] text-slate-400">{row.code}{row.route_detail ? ` · ${row.route_detail}` : ""} · {row.source === "spreadsheet" ? "Planilla" : row.source === "route" ? "Recorrido" : "Manual"}</p>
+            dateGroups.map(({ date, settlements }) => (
+              <div key={date} className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xs">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-100/80 px-3.5 py-3">
+                  <div className="flex items-center gap-2.5">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-blue-200 bg-white text-blue-600"><Calendar className="h-4 w-4" /></span>
+                    <div>
+                      <h2 className="text-sm font-black capitalize text-slate-900">{dateHeading(date)}</h2>
+                      <p className="text-[11px] font-semibold text-slate-500">{displayDate(date)} · {settlements.length} {settlements.length === 1 ? "rendición" : "rendiciones"}</p>
+                    </div>
                   </div>
-                  <div>
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 sm:hidden block">Fecha: </span>
-                    <span className="font-semibold text-slate-700">{displayDate(row.settlement_date)}</span>
+                  <div className="flex flex-wrap gap-1.5 text-[10px] font-bold">
+                    {settlements.some(isPending) && <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-amber-700">{settlements.filter(isPending).length} pendientes</span>}
+                    {settlements.some(row => row.status === "confirmed") && <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-emerald-700">{settlements.filter(row => row.status === "confirmed").length} confirmadas</span>}
                   </div>
-                  <div>
-                    <span className={`inline-flex rounded-md border px-2 py-0.5 text-[10px] font-bold ${statusClasses(row)}`}>
-                      {statusLabel(row)}
-                    </span>
-                  </div>
-                  <div className="sm:text-right">
-                    <p className={`font-black ${Math.abs(Number(row.difference)) <= 300 ? "text-emerald-700" : Number(row.difference) < 0 ? "text-rose-700" : "text-amber-700"}`}>
-                      {formatPrice(Number(row.difference) || 0)}
-                    </p>
-                    <p className="text-[9px] text-slate-400">Diferencia</p>
-                  </div>
-                  <ChevronRight className="hidden h-4 w-4 justify-self-end text-slate-300 sm:block" />
-                </button>
-              ))}
-            </div>
+                </div>
+                <div className="divide-y divide-slate-100">
+                  {settlements.map(row => (
+                    <div key={row.id} className="flex items-center gap-2 pr-3.5">
+                    <button
+                      type="button"
+                      disabled={lifecycleBusy}
+                      onClick={() => router.push(`/admin/rendiciones?rendicion=${encodeURIComponent(row.id)}`)}
+                      className="grid min-w-0 flex-1 items-center gap-x-3 px-3.5 py-2 text-left text-xs transition-colors hover:bg-blue-50/40 disabled:opacity-50"
+                      style={{ gridTemplateColumns: "minmax(0, 1fr) auto 110px 16px" }}
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate font-black text-slate-900">{row.carrier_name}</p>
+                        <p className="truncate text-[11px] text-slate-500">{row.code}{row.route_detail ? ` · ${row.route_detail}` : ""} · {row.source === "spreadsheet" ? "Planilla" : row.source === "route" ? "Recorrido" : "Manual"}</p>
+                      </div>
+                      <span className={`w-fit rounded-md border px-2 py-0.5 text-[10px] font-bold ${statusClasses(row)}`}>{statusLabel(row)}</span>
+                      <div className="sm:text-right">
+                        <p className={`font-black ${Math.abs(Number(row.difference)) <= 300 ? "text-emerald-700" : Number(row.difference) < 0 ? "text-rose-700" : "text-amber-700"}`}>{formatPrice(Number(row.difference) || 0)}</p>
+                        <p className="text-[9px] text-slate-400">Diferencia</p>
+                      </div>
+                      <ChevronRight className="h-4 w-4 justify-self-end text-slate-300" />
+                    </button>
+                    <div className="flex w-24 shrink-0 justify-end">
+                      {row.status !== "archived" ? <button type="button" disabled={lifecycleBusy} onClick={() => openLifecycleAction(row, "archive")} aria-label={`Dar de baja ${row.code}`} className="inline-flex items-center gap-1 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-[10px] font-bold text-amber-800 hover:bg-amber-100 disabled:opacity-50"><Archive className="h-3.5 w-3.5" /> Dar de baja</button>
+                        : canImportMonth && <button type="button" disabled={lifecycleBusy} onClick={() => openLifecycleAction(row, "delete-archived")} aria-label={`Eliminar definitivamente ${row.code}`} className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1.5 text-[10px] font-bold text-rose-700 hover:bg-rose-100 disabled:opacity-50"><Trash2 className="h-3.5 w-3.5" /> Eliminar</button>}
+                    </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))
           )}
         </section>
       </div>
+
+      {lifecycleModal}
 
       {createOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-xs" onMouseDown={event => { if (event.target === event.currentTarget) setCreateOpen(false); }}>
@@ -2336,10 +2301,8 @@ export default function RendicionesPage() {
               {error && <div className="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{error}</div>}
               {previewSource === "entregados" && (
                 <div className="mb-3 flex flex-wrap items-end gap-2 rounded-lg border border-blue-100 bg-blue-50/50 p-3">
-                  <div className="w-44"><DateInput label="Fecha de entregas" value={deliveredDate} onChange={value => { setDeliveredDate(value); setEntregandoPreview([]); }} /></div>
-                  <label className="flex flex-col gap-1 text-[10px] font-black uppercase tracking-wider text-slate-500">Calendario
-                    <input type="date" lang="es-AR" value={deliveredDate} onChange={event => { setDeliveredDate(event.target.value); setEntregandoPreview([]); }} className="h-[32px] rounded-lg border border-slate-200 bg-white px-2 text-xs font-bold text-slate-900" />
-                  </label>
+                  <div className="w-44"><DateInput label="Fecha de entregas" value={deliveredDate} onChange={value => { setDeliveredDate(value); setDeliveredDateIsDefault(false); setEntregandoPreview([]); }} /></div>
+                  {deliveredDateIsDefault && <span className="mb-1 rounded-md border border-blue-200 bg-white px-2 py-1 text-[11px] font-bold text-blue-700">{deliveredDateHint}</span>}
                   <button type="button" disabled={entregandoLoading || !deliveredDate} onClick={() => void loadSheetPreview("entregados", deliveredDate)} className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50">Buscar entregas</button>
                 </div>
               )}
@@ -2431,6 +2394,7 @@ export default function RendicionesPage() {
                                   <input
                                     type="checkbox"
                                     checked={isSelected}
+                                    disabled={Boolean(item.matchingIssue) || (item.existingStatus === "confirmed" && (previewSource !== "entregados" || Boolean(item.existingRouteSheetId)))}
                                     onChange={e => {
                                       const checked = e.target.checked;
                                       setSelectedEntregandoKeys(prev => ({ ...prev, [item.key]: checked }));
@@ -2469,6 +2433,7 @@ export default function RendicionesPage() {
                                         min="0"
                                         step="1000"
                                         value={item.changeFund || ""}
+                                        disabled={item.existingStatus === "confirmed"}
                                         onChange={e => {
                                           const val = Math.max(0, inputNumber(e.target.value));
                                           setEntregandoPreview(prev => prev.map(p => p.key === item.key ? { ...p, changeFund: val } : p));
@@ -2479,6 +2444,7 @@ export default function RendicionesPage() {
                                     </div>
                                     <button
                                       type="button"
+                                      disabled={item.existingStatus === "confirmed"}
                                       onClick={() => {
                                         const nextVal = item.changeFund === DEFAULT_CHANGE_FUND ? 0 : DEFAULT_CHANGE_FUND;
                                         setEntregandoPreview(prev => prev.map(p => p.key === item.key ? { ...p, changeFund: nextVal } : p));
@@ -2498,7 +2464,15 @@ export default function RendicionesPage() {
                                   {formatPrice(item.totalAmount)}
                                 </td>
                                 <td className="py-2 px-2.5">
-                                  {item.existingStatus === "confirmed" ? (
+                                  {item.matchingIssue ? (
+                                    <span className="inline-flex max-w-48 items-center rounded-md border border-red-200 bg-red-50 px-1.5 py-0.5 text-[10px] font-bold text-red-700" title={item.matchingIssue}>
+                                      Revisar duplicadas
+                                    </span>
+                                  ) : item.existingStatus === "confirmed" && !item.existingRouteSheetId && previewSource === "entregados" ? (
+                                    <span className="inline-flex items-center gap-1 rounded-md border border-violet-200 bg-violet-50 px-1.5 py-0.5 text-[10px] font-bold text-violet-700">
+                                      Vincular pedidos a {item.existingSettlementCode}
+                                    </span>
+                                  ) : item.existingStatus === "confirmed" ? (
                                     <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 border border-emerald-200">
                                       Confirmada ({item.existingSettlementCode})
                                     </span>
@@ -2550,7 +2524,7 @@ export default function RendicionesPage() {
                                                <td className="py-1 px-2.5 text-slate-700 truncate max-w-[180px]">{ord.customerName}</td>
                                                <td className="py-1 px-2.5 text-slate-600">{ord.paymentType || "Efectivo"}</td>
                                                <td className="py-1 px-2.5">
-                                                 <select value={deliveryStatusChoice(ord.deliveryStatus || "")} onChange={event => {
+                                                 <select value={deliveryStatusChoice(ord.deliveryStatus || "")} disabled={item.existingStatus === "confirmed"} onChange={event => {
                                                    const nextStatus = event.target.value;
                                                    setEntregandoPreview(prev => prev.map(p => {
                                                      if (p.key !== item.key) return p;
@@ -2633,7 +2607,7 @@ export default function RendicionesPage() {
                   ) : (
                     <CheckCircle2 className="h-3.5 w-3.5" />
                   )}
-                  Confirmar y Generar
+                  {previewSource === "entregados" ? "Vincular / generar" : "Confirmar y generar"}
                 </button>
               </div>
             </div>
@@ -2907,7 +2881,7 @@ function ElectronicTicketEditor({
 
           return (
             <div key={ticket.localId} className={`rounded-xl border p-2.5 space-y-2 shadow-2xs ${excludedFromSettlement ? "border-violet-300 bg-violet-50/80" : "border-slate-200 bg-slate-50/70"}`}>
-              {excludedFromSettlement && <p className="text-[10px] font-bold text-violet-800">Pedido no entregado: este pago queda vinculado al pedido, fuera de la rendición del fletero.</p>}
+              {excludedFromSettlement && <p className="text-[10px] font-bold text-violet-800">{matchedOrder?.isPreviouslyPaid ? "Pago previo" : "Pedido no entregado"}: este pago queda vinculado al pedido, fuera de la rendición del fletero.</p>}
               {/* Fila 1: Selección de Pedido del recorrido + Tipo de cobro + Monto + Eliminar */}
               <div className="grid grid-cols-[1fr_120px_105px_auto] items-center gap-1.5">
                 <div>

@@ -13,15 +13,8 @@ const getSupabaseClient = (): SupabaseClient => {
         auth: {
           persistSession: true,
           autoRefreshToken: true,
-          detectSessionInUrl: true,
-          lock: async (name, acquireTimeout, fn) => {
-            return await fn();
-          }
-        },
-        global: {
-          headers: {
-            'Connection': 'keep-alive'
-          }
+          // Keep the SDK's browser lock so tabs cannot renew the same token concurrently.
+          detectSessionInUrl: true
         },
         db: {
           schema: 'public'
@@ -33,7 +26,9 @@ const getSupabaseClient = (): SupabaseClient => {
     // Server side
     const globalAny = global as any;
     if (!globalAny.supabaseGlobal) {
-      globalAny.supabaseGlobal = createClient(supabaseUrl, supabaseAnonKey);
+      globalAny.supabaseGlobal = createClient(supabaseUrl, supabaseAnonKey, {
+        auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
+      });
     }
     return globalAny.supabaseGlobal;
   }

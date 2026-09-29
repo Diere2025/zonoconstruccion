@@ -1,23 +1,25 @@
 'use client';
 
-import React from 'react';
+import { useEffect, useState } from 'react';
 import EstadoResultadosView from '@/components/finanzas/EstadoResultadosView';
-import Link from 'next/link';
-import { ArrowLeft } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
+import { createAuthenticatedRequester } from '@/lib/authenticatedRequest';
+import { Loader2 } from 'lucide-react';
+
+const checkAccess = createAuthenticatedRequester(supabase);
 
 export default function AdminFinanzasEERRPage() {
-  return (
-    <div className="p-3 sm:p-6 max-w-7xl mx-auto space-y-4 sm:space-y-6 overflow-x-hidden">
-      <div className="flex items-center justify-between">
-        <Link
-          href="/admin/finanzas"
-          className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition"
-        >
-          <ArrowLeft className="w-4 h-4" /> Volver a Finanzas
-        </Link>
-      </div>
-
-      <EstadoResultadosView />
-    </div>
-  );
+  const [access, setAccess] = useState<'loading' | 'allowed' | 'denied'>('loading');
+  const [message, setMessage] = useState('');
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    let active = true;
+    checkAccess('/api/admin/finanzas/eerr?action=access')
+      .then(() => { if (active) setAccess('allowed'); })
+      .catch((error: Error) => { if (active) { setMessage(error.message); setAccess('denied'); } });
+    return () => { active = false; };
+  }, [attempt]);
+  if (access === 'loading') return <div className="flex items-center gap-2 p-4 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" />Verificando acceso a Dirección General…</div>;
+  if (access === 'denied') return <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">{message}<button type="button" className="ml-3 font-semibold underline" onClick={() => { setAccess('loading'); setAttempt(value => value + 1); }}>Reintentar</button></div>;
+  return <div className="mx-auto max-w-7xl space-y-3 overflow-x-hidden"><EstadoResultadosView /></div>;
 }

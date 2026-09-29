@@ -1,5 +1,6 @@
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
+import { compareTreasuryTransactions } from '@/lib/treasuryTransactionTime';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { fetchSpreadsheetCsv } from '@/lib/googleSheets';
@@ -10,6 +11,9 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT
 const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 
 type CashTransactionRow = {
+  id: string;
+  created_at: string;
+  registered_at?: string;
   financial_account_id: string | null;
   amount: number | string | null;
   type: string;
@@ -92,24 +96,21 @@ export async function GET(request: Request) {
     if (action === 'transactions') {
       const endDate = searchParams.get('endDate') || new Date().toISOString().split('T')[0];
       const startDate = searchParams.get('startDate') || '';
-      const startIso = startDate ? `${startDate}T00:00:00.000Z` : '';
-      const endIso = `${endDate}T23:59:59.999Z`;
+      const startIso = startDate ? `${startDate}T00:00:00.000-03:00` : '';
+      const endIso = `${endDate}T23:59:59.999-03:00`;
 
       const accountBalances: Record<string, number> = {};
 
       // 1. If startDate is provided, get exact initial balance of each account prior to startDate via optimized RPC
       if (startIso) {
-        try {
-          const { data: priorBalances, error: rpcErr } = await supabaseAdmin
-            .rpc('get_account_balances_prior_to', { cutoff_date: startIso });
-          if (!rpcErr && Array.isArray(priorBalances)) {
-            priorBalances.forEach((r: any) => {
-              accountBalances[r.account_id] = Number(r.balance) || 0;
-            });
-          }
-        } catch (e) {
-          console.error("Error fetching prior balances:", e);
-        }
+        const { data: priorBalances, error: rpcErr } = await supabaseAdmin
+          .rpc('get_account_balances_prior_to', { cutoff_date: startIso });
+        // A failed opening balance must not be presented as a zero balance.
+        if (rpcErr) throw rpcErr;
+        if (!Array.isArray(priorBalances)) throw new Error('No se pudo obtener el saldo inicial.');
+        priorBalances.forEach((r: any) => {
+          accountBalances[r.account_id] = Number(r.balance) || 0;
+        });
       }
 
       // 2. Query transactions directly filtered by date range on the database.
@@ -176,7 +177,7 @@ export async function GET(request: Request) {
       }
 
       // 3. Compute running balance
-      const txsWithRunningBalance = allData.map(t => {
+      const txsWithRunningBalance = allData.sort(compareTreasuryTransactions).map(t => {
         const accId = t.financial_account_id || 'cash_register';
         const amt = Number(t.amount) || 0;
         if (!accountBalances[accId]) accountBalances[accId] = 0;

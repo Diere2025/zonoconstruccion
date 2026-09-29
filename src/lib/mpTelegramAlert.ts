@@ -199,7 +199,7 @@ export async function checkAndDispatchTelegramAlert(passedConfig?: TelegramConfi
           ? `La pestaña reportó un *error en la pantalla de Mercado Pago* (ej. "No fue posible cargar la información" o navegó fuera de Actividades).`
           : `No envía señal al ERP hace *${minutesAgo} minutos*.`;
 
-        const alertMsg = 
+        const alertMsg =
 `🚨 *ALERTA: MONITOR MERCADO PAGO EN PROBLEMAS*
 
 Cuenta: *${accName}*
@@ -237,7 +237,7 @@ ${acc.client_time ? `🕒 *Último reloj detectado:* ${acc.client_time} hs\n` : 
         return { success: false, error: 'No se pudo guardar el estado de recuperación; no se envió el aviso', results };
       }
       configChanged = false; // This save includes any preceding account changes.
-      const recoveryMsg = 
+      const recoveryMsg =
 `✅ *MONITOR MERCADO PAGO RESTABLECIDO*
 
 La cuenta *${accName}* volvió a sincronizar correctamente.

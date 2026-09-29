@@ -931,12 +931,10 @@ export default function CobrosMercadoPagoPage() {
             if (prev.some((p) => p.id === newPayment.id)) return prev;
             return [newPayment, ...prev];
           });
-          if (stats) {
-            setStats((prev) => prev ? ({
-              totalCount: prev.totalCount + 1,
-              totalAmount: prev.totalAmount + (Number(newPayment.amount) || 0)
-            }) : null);
-          }
+          setStats((prev) => prev ? ({
+            totalCount: prev.totalCount + 1,
+            totalAmount: prev.totalAmount + (Number(newPayment.amount) || 0)
+          }) : null);
           playChime();
         }
       )
@@ -977,7 +975,7 @@ export default function CobrosMercadoPagoPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [playChime, stats, currentUserRole, isRoleLoaded, loadAccounts]);
+  }, [playChime, currentUserRole, isRoleLoaded, loadAccounts]);
 
   const handleCopy = (text: string, id: string) => {
     navigator.clipboard.writeText(text);

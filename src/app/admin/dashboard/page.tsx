@@ -51,6 +51,7 @@ export interface TodayDeliveryItem {
   seller_id?: string;
   freight_type?: string;
 }
+import { dashboardChannelLabels, dashboardChannelSummary, dashboardOrderKey, dashboardRelatedOrder, matchesDashboardChannel, pagedDashboardQuery, retailOrderChannels, uniqueDashboardOrders, type DashboardChannel } from '@/lib/dashboardScope';
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import CategorySalesChart, { CategoryData } from "@/components/dashboard/CategorySalesChart";
@@ -77,6 +78,7 @@ const isCancelledStatus = (status: string | null | undefined) =>
 export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const loadAbortControllerRef = useRef<AbortController | null>(null);
   const loadRequestIdRef = useRef(0);
   const [productSortKey, setProductSortKey] = useState<'billing' | 'qty'>('billing');
@@ -262,6 +264,8 @@ export default function AdminDashboard() {
   const [recentOrders, setRecentOrders] = useState<any[]>([]);
   const [productsSold, setProductsSold] = useState<any[]>([]);
   const [sellersList, setSellersList] = useState<any[]>([]);
+  const [selectedChannel, setSelectedChannel] = useState<DashboardChannel>('all');
+  const [channelSummary, setChannelSummary] = useState(() => dashboardChannelSummary([]));
   const [selectedSellerId, setSelectedSellerId] = useState<string>("all");
   const [unimportedSellerData, setUnimportedSellerData] = useState<{
     totalCount: number;
@@ -486,16 +490,20 @@ export default function AdminDashboard() {
     }
   };
 
-  const loadData = async (start: string, end: string, sellerId: string = selectedSellerId) => {
+  const loadData = async (start: string, end: string, sellerId: string = selectedSellerId, channel: DashboardChannel = selectedChannel) => {
     loadAbortControllerRef.current?.abort();
     const controller = new AbortController();
     const requestId = ++loadRequestIdRef.current;
     loadAbortControllerRef.current = controller;
-    const timeoutId = window.setTimeout(() => controller.abort(), 30000);
+    const timeoutId = window.setTimeout(() => {
+      if (requestId === loadRequestIdRef.current) setLoadError('La consulta demoró demasiado. Reintentá o consultá un período más corto.');
+      controller.abort();
+    }, 30000);
 
     try {
       setLoading(true);
       setIsRefreshing(true);
+      setLoadError('');
 
       const withSignal = <T extends { abortSignal: (signal: AbortSignal) => T }>(query: T) =>
         query.abortSignal(controller.signal);
@@ -507,55 +515,59 @@ export default function AdminDashboard() {
       const startOfMonthStr = getStartOfMonth();
 
       let recentQuery = supabase.from("orders")
-        .select("id, legacy_code, customer_name, total_amount, status, created_at, order_date, seller_id")
+        .select("id, legacy_code, customer_name, total_amount, status, created_at, order_date, seller_id, channel")
         .order("created_at", { ascending: false })
         .limit(6);
         
       let rangeQuery = supabase.from("orders")
-        .select("id, legacy_code, customer_name, locality, total_amount, status, seller_id, order_date, created_at")
+        .select("id, legacy_code, customer_name, locality, total_amount, status, seller_id, channel, order_date, created_at")
         .gte("order_date", start)
         .lte("order_date", end);
 
       let prevRangeQuery = supabase.from("orders")
-        .select("id, legacy_code, total_amount, status, seller_id, order_date")
+        .select("id, legacy_code, total_amount, status, seller_id, channel, order_date")
         .gte("order_date", prevStartStr)
         .lte("order_date", prevEndStr);
 
       let todayOrdersQuery = supabase.from("orders")
-        .select("id, legacy_code, customer_name, locality, total_amount, status, seller_id, order_date, created_at")
+        .select("id, legacy_code, customer_name, locality, total_amount, status, seller_id, channel, order_date, created_at")
         .eq("order_date", todayStr);
 
       let monthOrdersQuery = supabase.from("orders")
-        .select("id, legacy_code, customer_name, locality, total_amount, status, seller_id, order_date, created_at")
+        .select("id, legacy_code, customer_name, locality, total_amount, status, seller_id, channel, order_date, created_at")
         .gte("order_date", startOfMonthStr)
         .lte("order_date", todayStr);
 
       let itemsQuery = supabase
         .from("order_items")
         .select(`
-          product_name, 
+          id, product_name,
           quantity, 
           unit_price, 
           products(sku, category),
-          orders!inner(id, status, order_date, created_at, seller_id)
+          orders!inner(id, legacy_code, channel, status, order_date, created_at, seller_id)
         `)
         .not("orders.status", "in", '("Cancelado","Anulado")')
         .gte("orders.order_date", start)
         .lte("orders.order_date", end);
 
       let weeklyOrdersQuery = supabase.from("orders")
-        .select("id, legacy_code, customer_name, locality, total_amount, status, seller_id, order_date, created_at")
+        .select("id, legacy_code, customer_name, locality, total_amount, status, seller_id, channel, order_date, created_at")
         .gte("order_date", weeklyStart)
         .lte("order_date", weeklyEnd);
 
       // Las entregas del gráfico se buscan por su propia fecha, sin limitar
       // los pedidos a los que fueron tomados dentro del período seleccionado.
-      const deliverySelect = "id, order_id, real_delivery_date, orders!inner(id, legacy_code, total_amount, seller_id, status)";
+      const deliverySelect = "id, order_id, real_delivery_date, orders!inner(id, legacy_code, total_amount, seller_id, channel, status)";
       let datedDeliveriesQuery = supabase.from("deliveries")
         .select(deliverySelect)
         .eq("status", "entregado")
         .gte("real_delivery_date", start)
         .lte("real_delivery_date", end);
+
+      if (channel === 'mayorista') recentQuery = recentQuery.eq('channel', 'mayorista');
+      if (channel === 'minorista') recentQuery = recentQuery.in('channel', retailOrderChannels);
+      if (channel === 'unclassified') recentQuery = recentQuery.or(`channel.is.null,channel.not.in.(${['mayorista', ...retailOrderChannels].join(',')})`);
 
       if (sellerId !== "all") {
         recentQuery = recentQuery.eq("seller_id", sellerId);
@@ -579,7 +591,7 @@ export default function AdminDashboard() {
       ] = await Promise.all([
         withSignal(supabase.from("clients").select("id", { count: "exact", head: true })),
         withSignal(supabase.from("products").select("id", { count: "exact", head: true })),
-        withSignal(supabase.from("sellers").select("id, full_name")),
+        pagedDashboardQuery(withSignal(supabase.from("sellers").select("id, full_name").order("id", { ascending: true }))),
         withSignal(recentQuery)
       ]);
       if (controller.signal.aborted || requestId !== loadRequestIdRef.current) return;
@@ -590,10 +602,10 @@ export default function AdminDashboard() {
         itemsRes,
         weeklyOrdersRes
       ] = await Promise.all([
-        withSignal(rangeQuery),
-        withSignal(prevRangeQuery),
-        withSignal(itemsQuery),
-        withSignal(weeklyOrdersQuery)
+        pagedDashboardQuery(withSignal(rangeQuery.order("id", { ascending: true }))),
+        pagedDashboardQuery(withSignal(prevRangeQuery.order("id", { ascending: true }))),
+        pagedDashboardQuery(withSignal(itemsQuery.order("id", { ascending: true }))),
+        pagedDashboardQuery(withSignal(weeklyOrdersQuery.order("id", { ascending: true })))
       ]);
       if (controller.signal.aborted || requestId !== loadRequestIdRef.current) return;
 
@@ -610,9 +622,9 @@ export default function AdminDashboard() {
             console.warn("No se pudo cargar pedidos sin importar:", error);
             return null;
         }),
-        withSignal(todayOrdersQuery),
-        withSignal(monthOrdersQuery),
-        withSignal(datedDeliveriesQuery)
+        pagedDashboardQuery(withSignal(todayOrdersQuery.order("id", { ascending: true }))),
+        pagedDashboardQuery(withSignal(monthOrdersQuery.order("id", { ascending: true }))),
+        pagedDashboardQuery(withSignal(datedDeliveriesQuery.order("id", { ascending: true })))
       ]);
       if (controller.signal.aborted || requestId !== loadRequestIdRef.current) return;
 
@@ -651,6 +663,14 @@ export default function AdminDashboard() {
         });
       }
 
+      setChannelSummary(dashboardChannelSummary(uniqueDashboardOrders(ordersInRangeRes.data || [])));
+      ordersInRangeRes.data = ordersInRangeRes.data.filter(order => matchesDashboardChannel(order, channel));
+      prevOrdersRes.data = prevOrdersRes.data.filter(order => matchesDashboardChannel(order, channel));
+      todayOrdersRes.data = todayOrdersRes.data.filter(order => matchesDashboardChannel(order, channel));
+      monthOrdersRes.data = monthOrdersRes.data.filter(order => matchesDashboardChannel(order, channel));
+      weeklyOrdersRes.data = weeklyOrdersRes.data.filter(order => matchesDashboardChannel(order, channel));
+      datedDeliveriesRes.data = datedDeliveriesRes.data.filter(delivery => matchesDashboardChannel(dashboardRelatedOrder(delivery.orders), channel));
+
       const rawOrdersInRange = ordersInRangeRes.data || [];
       const rawPrevOrders = prevOrdersRes.data || [];
       const sellers = sellersRes.data || [];
@@ -660,7 +680,7 @@ export default function AdminDashboard() {
       const seenLegacyCodes = new Set<string>();
       const ordersInRange = rawOrdersInRange.filter(o => {
         if (o.legacy_code && String(o.legacy_code).trim() !== '') {
-          const code = String(o.legacy_code).trim();
+          const code = dashboardOrderKey(o);
           if (seenLegacyCodes.has(code)) return false;
           seenLegacyCodes.add(code);
         }
@@ -671,7 +691,7 @@ export default function AdminDashboard() {
       const seenPrevCodes = new Set<string>();
       const prevOrdersInRange = rawPrevOrders.filter(o => {
         if (o.legacy_code && String(o.legacy_code).trim() !== '') {
-          const code = String(o.legacy_code).trim();
+          const code = dashboardOrderKey(o);
           if (seenPrevCodes.has(code)) return false;
           seenPrevCodes.add(code);
         }
@@ -820,7 +840,7 @@ export default function AdminDashboard() {
       const seenTodayCodes = new Set<string>();
       const todayOrders = rawTodayOrders.filter(o => {
         if (o.legacy_code && String(o.legacy_code).trim() !== '') {
-          const code = String(o.legacy_code).trim();
+          const code = dashboardOrderKey(o);
           if (seenTodayCodes.has(code)) return false;
           seenTodayCodes.add(code);
         }
@@ -858,7 +878,7 @@ export default function AdminDashboard() {
       const seenMonthCodes = new Set<string>();
       const monthOrders = rawMonthOrders.filter(o => {
         if (o.legacy_code && String(o.legacy_code).trim() !== '') {
-          const code = String(o.legacy_code).trim();
+          const code = dashboardOrderKey(o);
           if (seenMonthCodes.has(code)) return false;
           seenMonthCodes.add(code);
         }
@@ -948,7 +968,7 @@ export default function AdminDashboard() {
       const seenWeeklyCodes = new Set<string>();
       const deduplicatedWeeklyOrders = (weeklyOrdersRes.data || []).filter(o => {
         if (o.legacy_code && String(o.legacy_code).trim() !== '') {
-          const code = String(o.legacy_code).trim();
+          const code = dashboardOrderKey(o);
           if (seenWeeklyCodes.has(code)) return false;
           seenWeeklyCodes.add(code);
         }
@@ -965,7 +985,11 @@ export default function AdminDashboard() {
       });
       setRecentOrders(formattedRecent);
 
-      const items = itemsRes.data || [];
+      const includedOrderIds = new Set(ordersInRange.map(order => order.id));
+      const items = itemsRes.data.filter(item => {
+        const order = dashboardRelatedOrder(item.orders);
+        return order && includedOrderIds.has(order.id);
+      });
       const productSales: Record<string, { name: string, sku: string, category: string, qty: number, total: number }> = {};
       
       const getCategoryForProduct = (pNameRaw: string, dbCategoryRaw: string | undefined, orderPrimaryCategory?: string): string => {
@@ -1184,7 +1208,7 @@ export default function AdminDashboard() {
       (datedDeliveriesRes.data || []).forEach((delivery) => {
         const order = Array.isArray(delivery.orders) ? delivery.orders[0] : delivery.orders;
         if (!order || isCancelledStatus(order.status)) return;
-        const orderKey = order.legacy_code?.trim() || order.id;
+        const orderKey = dashboardOrderKey(order);
         if (seenDeliveredOrders.has(orderKey)) return;
         const deliveredDate = delivery.real_delivery_date || "";
         if (deliveredDate < start || deliveredDate > end) return;
@@ -1223,9 +1247,10 @@ export default function AdminDashboard() {
       setLastRefreshedAt(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
 
     } catch (err) {
-      if (controller.signal.aborted || requestId !== loadRequestIdRef.current) return;
+      if (requestId !== loadRequestIdRef.current) return;
 
-      const errorMessage = err instanceof Error ? err.message : String(err);
+      const errorMessage = controller.signal.aborted ? 'La consulta demoró demasiado. Probá con un período más corto o reintentá.' : err instanceof Error ? err.message : String(err);
+      setLoadError(errorMessage);
       console.error("Error loading admin dashboard stats:", errorMessage, err);
     } finally {
       window.clearTimeout(timeoutId);
@@ -1257,6 +1282,20 @@ export default function AdminDashboard() {
       </div>
     );
   }
+
+  if (loadError) return <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-6">
+    <h1 className="text-xl font-bold text-slate-900">Dashboard General</h1>
+    <p className="mt-2 text-sm text-rose-800">No pudimos cargar las métricas de {dashboardChannelLabels[selectedChannel].toLowerCase()}: {loadError}</p>
+    <button onClick={() => loadData(startDate, endDate)} className="mt-4 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white">Reintentar</button>
+    <button onClick={() => {
+      const start = getStartOfMonth();
+      const end = getTodayDate();
+      setStartDate(start);
+      setEndDate(end);
+      setPresetRange('mes');
+      loadData(start, end);
+    }} className="ml-2 mt-4 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700">Ver este mes</button>
+  </div>;
 
   const filteredTodayDeliveries = todayDeliveries
     .filter((item) => {
@@ -1323,10 +1362,10 @@ export default function AdminDashboard() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-            Dashboard General ERP
+            Dashboard General
           </h1>
           <p className="text-xs text-slate-500 font-normal mt-0.5">
-            Consola central de control y métricas consolidadas de venta y distribución.
+            {dashboardChannelLabels[selectedChannel]} · Ventas y distribución. Clientes y catálogo: conteos globales.
             {lastRefreshedAt && (
               <span className="text-slate-400 ml-1">
                 (Actualizado: {lastRefreshedAt})
@@ -1350,6 +1389,17 @@ export default function AdminDashboard() {
           </button>
 
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+            <div className="min-w-[150px]">
+              <label htmlFor="dashboard-channel" className="sr-only">Canal del dashboard</label>
+              <select id="dashboard-channel" value={selectedChannel} onChange={event => {
+                const channel = event.target.value as DashboardChannel;
+                setSelectedChannel(channel);
+                setProductPage(1);
+                loadData(startDate, endDate, selectedSellerId, channel);
+              }} className="select-standard py-1.5">
+                {Object.entries(dashboardChannelLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+            </div>
             {/* Seller Filter */}
             <div className="min-w-[150px]">
               <select
@@ -1612,6 +1662,19 @@ export default function AdminDashboard() {
       </div>
 
       {/* Real-time Unimported Seller Orders Notification Banner */}
+      <section aria-label="Ventas por canal" className="rounded-2xl border border-slate-200 bg-white p-4">
+        <h2 className="text-sm font-semibold text-slate-800">Distinción por canal</h2>
+        <p className="mt-1 text-xs text-slate-500">Período seleccionado y vendedor seleccionado. Ventas sin cancelados ni anulados; cantidad de pedidos incluye todos los estados.</p>
+        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+          {(['minorista', 'mayorista', 'unclassified'] as const).map(channel => <div key={channel} className="rounded-xl bg-slate-50 p-3">
+            <p className="text-xs font-semibold text-slate-500">{dashboardChannelLabels[channel]}</p>
+            <p className="mt-1 text-lg font-bold text-slate-900">{isRefreshing ? '…' : formatPrice(channelSummary[channel].sales)}</p>
+            <p className="text-xs text-slate-500">{isRefreshing ? '…' : channelSummary[channel].orders} pedidos</p>
+          </div>)}
+        </div>
+        <p className="mt-2 text-xs text-slate-500">Minorista agrupa minorista, web orgánica, mostrador minorista y vendedor externo. Los registros sin canal reconocido se muestran aparte.</p>
+      </section>
+
       {unimportedSellerData && unimportedSellerData.totalCount > 0 && (
         <div className="bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-amber-500/5 border border-amber-300/60 rounded-2xl p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-sm">
           <div className="flex items-center gap-3.5">
@@ -1621,7 +1684,7 @@ export default function AdminDashboard() {
             <div>
               <div className="flex items-center gap-2">
                 <h4 className="text-sm font-bold text-slate-900">
-                  {unimportedSellerData.totalCount} {unimportedSellerData.totalCount === 1 ? 'pedido detectado' : 'pedidos detectados'} en planillas de vendedores aún no importados
+                  {unimportedSellerData.totalCount} {unimportedSellerData.totalCount === 1 ? 'pedido detectado' : 'pedidos detectados'} en planillas de vendedores aún no importados · Todos los canales y vendedores
                 </h4>
                 <span className="bg-amber-100 text-amber-800 text-[10px] font-black px-2 py-0.5 rounded-full border border-amber-300">
                   {formatPrice(unimportedSellerData.totalAmount)}
@@ -1629,7 +1692,7 @@ export default function AdminDashboard() {
               </div>
               <p className="text-xs text-slate-600 mt-0.5">
                 {unimportedSellerData.todayOrdersCount > 0 
-                  ? `Hoy ingresaron ${unimportedSellerData.todayOrdersCount} pedidos (${formatPrice(unimportedSellerData.todayAmount)}, ${unimportedSellerData.todayUnits} unidades). Ya se computan en reservas y cálculos diarios sin necesidad de importar todo el tiempo.`
+                  ? `Hoy ingresaron ${unimportedSellerData.todayOrdersCount} pedidos (${formatPrice(unimportedSellerData.todayAmount)}, ${unimportedSellerData.todayUnits} unidades). Se muestran aparte y no se suman a las ventas consolidadas de este dashboard.`
                   : 'Estos pedidos ya se tienen en cuenta en los cálculos de reservas y estadísticas sin necesidad de importar a cada momento.'}
               </p>
             </div>

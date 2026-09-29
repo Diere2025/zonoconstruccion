@@ -1,5 +1,6 @@
-import { cancelledRowCells, cancellationMonthSerial } from './cancelledOrderSheet';
+import { cancelledRowCells, cancellationMonthSerial, logisticsCancellationReasons, logisticsCancellationReason } from './cancelledOrderSheet';
 import type { SheetCellValue } from './cancelledOrderSheet';
+import { restoreSellerRowFormats } from './sellerSheetMaintenance';
 
 interface ServiceAccountCredentials {
   type: string;
@@ -562,6 +563,16 @@ const LOGISTICS_CANCELLED_SHEET = {
   sheetName: 'Cancelados',
   codeColumn: 'D'
 };
+
+/** Cache the lookup for one import run, without sharing stale data across runs. */
+export function createLogisticsCancellationReasonLookup() {
+  let reasons: Promise<Map<string, string>> | undefined;
+  return async (code: string): Promise<string> => {
+    reasons ??= fetchSpreadsheetValues(LOGISTICS_CANCELLED_SHEET.spreadsheetId, "'Cancelados'!B2:D")
+      .then(logisticsCancellationReasons);
+    return logisticsCancellationReason(await reasons, code);
+  };
+}
 
 export interface OperationalSheetSyncResult {
   success: boolean;
@@ -1195,6 +1206,10 @@ export async function appendOrderToSellerSheet(
   const isMultiChunk = itemChunks.length > 1;
 
   await ensureOrderSheetRowCapacity(spreadsheetId, sheetName, slots.map(slot => slot.rowNumber), 0, token);
+  await restoreSellerRowFormats(
+    spreadsheetId, sheetName, slots.map(slot => slot.rowNumber), token,
+    normalizeCategoryForSheet(order.category)
+  );
 
   for (let chunkIdx = 0; chunkIdx < itemChunks.length; chunkIdx++) {
     const chunk = itemChunks[chunkIdx];
@@ -1699,6 +1714,10 @@ export async function updateOrderInSellerSheet(
       0,
       sheetStatus
     )
+  );
+  await restoreSellerRowFormats(
+    spreadsheetId, sheetName, targetRows.map(target => target.rowNumber), token,
+    normalizeCategoryForSheet(order.category)
   );
   await Promise.all(targetRows.map(target =>
     restoreMissingCalculatedFormulas(spreadsheetId, sheetName, target.rowNumber, 0, token)

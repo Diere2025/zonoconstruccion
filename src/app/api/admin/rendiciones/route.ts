@@ -1,10 +1,12 @@
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
+import { treasuryDateTime, treasuryToday } from "@/lib/treasuryTransactionTime";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { fetchSpreadsheetValueRanges, fetchSpreadsheetValues } from "@/lib/googleSheets";
-import { isExcludedDeliveryStatus, settlementOrdersTotal } from "@/lib/settlementOrders";
+import { isExcludedDeliveryStatus, settlementOrdersTotal, settlementDeliveryStatus } from "@/lib/settlementOrders";
+import { reconcileImportedTickets } from "@/lib/treasuryTicketReconciliation";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
@@ -21,10 +23,10 @@ const DENOMINATIONS = [
   { denomination: 2, kind: "coin" }, { denomination: 1, kind: "coin" },
 ] as const;
 
-type AuthorizedUser = { id: string; name: string; roles: string[] };
+type AuthorizedUser = { id: string; name: string; roles: string[]; canImportMonth: boolean };
 type AuthorizationResult = { actor: AuthorizedUser; reason: null } | {
   actor: null;
-  reason: "missing_token" | "server_config" | "invalid_session" | "inactive" | "forbidden";
+  reason: "missing_token" | "server_config" | "auth_unavailable" | "invalid_session" | "inactive" | "forbidden";
 };
 type ExpensePayload = { type?: string; amount?: number; reference?: string; notes?: string };
 type CashCountPayload = { kind?: string; denomination?: number; quantity?: number };
@@ -38,7 +40,8 @@ type ElectronicTicketPayload = {
   notes?: string | null;
 };
 type SavePayload = {
-  action?: "create" | "save" | "confirm" | "import-month" | "confirm-entregando" | "generate-movements" | "update-delivery-status";
+  action?: "create" | "save" | "confirm" | "import-month" | "confirm-entregando" | "generate-movements" | "update-delivery-status" | "archive" | "delete-archived";
+  archiveReason?: string;
   settlementId?: string;
   code?: string;
   settlementDate?: string;
@@ -61,6 +64,9 @@ type SavePayload = {
   deliveryStatus?: string;
   financialAccountId?: string;
   movementDate?: string;
+  generationMode?: "initial" | "replace" | "duplicate";
+  previousMovementIds?: string[];
+  deliveryStatuses?: Array<{ deliveryId: string; status: string }>;
   movements?: Array<{
     detail?: string;
     concept?: string;
@@ -77,6 +83,9 @@ async function authorize(request: Request): Promise<AuthorizationResult> {
   if (!token) return { actor: null, reason: "missing_token" };
   if (!supabaseUrl || !serviceRoleKey) return { actor: null, reason: "server_config" };
   const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+  if (error && (error.name === "AuthRetryableFetchError" || error.status === 0 || (error.status || 0) >= 500)) {
+    return { actor: null, reason: "auth_unavailable" };
+  }
   if (error || !user) return { actor: null, reason: "invalid_session" };
   let { data: seller } = await supabaseAdmin.from("sellers")
     .select("id, full_name, email, role, roles, is_active").eq("id", user.id).maybeSingle();
@@ -94,18 +103,24 @@ async function authorize(request: Request): Promise<AuthorizationResult> {
   const isKnownAdmin = ["diego.boveda@gmail.com", "caroibarra.93@gmail.com"].includes((user.email || "").toLowerCase());
   if (seller?.is_active === false) return { actor: null, reason: "inactive" };
   if (!roles.includes("admin") && !roles.includes("administracion") && !isKnownAdmin) return { actor: null, reason: "forbidden" };
-  return { actor: { id: user.id, name: seller?.full_name || user.user_metadata?.full_name || user.email || "Usuario", roles }, reason: null };
+  const canImportMonth = isKnownAdmin || (seller
+    ? String(seller.role || "").toLowerCase() === "admin" || (Array.isArray(seller.roles) && seller.roles.some(role => String(role).toLowerCase() === "admin"))
+    : roles.includes("admin"));
+  return { actor: { id: user.id, name: seller?.full_name || user.user_metadata?.full_name || user.email || "Usuario", roles, canImportMonth }, reason: null };
 }
 
 function unauthorized(reason: AuthorizationResult["reason"]) {
   const messages = {
     missing_token: "La sesión venció. Volvé a ingresar.",
     server_config: "El servidor no pudo validar la sesión. Revisá la configuración de acceso.",
+    auth_unavailable: "No se pudo conectar al servicio de acceso. Esperá unos instantes y volvé a intentar.",
     invalid_session: "La sesión no pudo validarse. Actualizá la página o volvé a ingresar.",
     inactive: "Tu usuario está inactivo.",
     forbidden: "No tenés permisos para acceder a rendiciones.",
   };
-  const response = NextResponse.json({ error: messages[reason || "forbidden"] }, { status: 403 });
+  const status = reason === "missing_token" || reason === "invalid_session" ? 401
+    : reason === "server_config" || reason === "auth_unavailable" ? 503 : 403;
+  const response = NextResponse.json({ error: messages[reason || "forbidden"] }, { status });
   response.headers.set("Cache-Control", "no-store, max-age=0");
   return response;
 }
@@ -195,17 +210,24 @@ export async function GET(request: Request) {
     const action = searchParams.get("action") || "list";
     if (action === "list") {
       const { data, error } = await supabaseAdmin.from("treasury_settlements").select("*")
+        .neq("status", "archived")
         .order("settlement_date", { ascending: false }).order("code", { ascending: false }).limit(500);
       if (error) throw error;
       const rows = data || [];
       const stats = rows.reduce((acc, row) => {
         if (row.status === "confirmed") acc.confirmed += 1;
-        else if (row.count_date || asNumber(row.counted_cash) > 0) acc.drafts += 1;
+        else if (row.movements_generated_at || row.count_date || asNumber(row.counted_cash) > 0) acc.drafts += 1;
         else acc.pending += 1;
         if (row.status !== "confirmed" && Math.abs(asNumber(row.difference)) > 300) acc.differences += 1;
         return acc;
       }, { pending: 0, drafts: 0, differences: 0, confirmed: 0 });
-      return NextResponse.json({ rows, stats });
+      if (searchParams.get("scope") === "archived") {
+        const archived = await supabaseAdmin.from("treasury_settlements").select("*")
+          .eq("status", "archived").order("archived_at", { ascending: false }).limit(500);
+        if (archived.error) throw archived.error;
+        return NextResponse.json({ rows: archived.data || [], stats, canImportMonth: authorization.actor.canImportMonth });
+      }
+      return NextResponse.json({ rows, stats, canImportMonth: authorization.actor.canImportMonth });
     }
     if (action === "carriers") {
       const { data, error } = await supabaseAdmin
@@ -247,7 +269,7 @@ export async function GET(request: Request) {
       let routeOrders: any[] = [];
       let targetRouteSheetId = settlement.route_sheet_id;
 
-      if (!targetRouteSheetId && settlement.carrier_id && settlement.settlement_date) {
+      if (settlement.status !== "archived" && !targetRouteSheetId && settlement.carrier_id && settlement.settlement_date) {
         const { data: matchedRoute } = await supabaseAdmin
           .from("route_sheets")
           .select("id")
@@ -347,7 +369,8 @@ export async function GET(request: Request) {
             const pendingBalance = order?.totals?.pending_balance !== undefined
               ? Number(order.totals.pending_balance)
               : (isPreviouslyPaid ? 0 : Number(order?.total_amount || 0));
-            const toCollectAmount = isExcludedDeliveryStatus(d.status || "") ? 0 : isPreviouslyPaid ? 0 : Math.max(0, pendingBalance);
+            const deliveryStatus = settlementDeliveryStatus(d.status, d.failure_reason);
+            const toCollectAmount = isExcludedDeliveryStatus(deliveryStatus) ? 0 : isPreviouslyPaid ? 0 : Math.max(0, pendingBalance);
 
             return {
               deliveryId: d.id,
@@ -359,7 +382,7 @@ export async function GET(request: Request) {
               stopOrder: d.delivery_order || 1,
               totalAmount: Number(order?.total_amount) || 0,
               paymentStatus: order?.payment_status || d.status || "",
-              deliveryStatus: d.status === "fallido" ? (d.failure_reason || "No entregado") : (d.status || ""),
+              deliveryStatus,
               isPreviouslyPaid,
               previouslyPaidAmount: depositAmount > 0
                 ? depositAmount
@@ -381,27 +404,28 @@ export async function GET(request: Request) {
             };
           });
 
-          if (mpPayments.length > 0) {
-            const existingMpIds = new Set(electronicTickets.map((t: any) => t.mp_payment_id).filter(Boolean));
+          if (mpPayments.length > 0 && settlement.status !== "archived") {
             const previouslyPaidOrderIds = new Set(routeOrders.filter(order => order.isPreviouslyPaid).map(order => order.orderId).filter(Boolean));
             const previouslyPaidCodes = routeOrders.filter(order => order.isPreviouslyPaid).map(order => String(order.orderCode).trim().toUpperCase()).filter(Boolean);
-            for (const mp of mpPayments) {
-              if ((mp.order_id && previouslyPaidOrderIds.has(mp.order_id)) ||
-                (mp.order_code && previouslyPaidCodes.some(code => String(mp.order_code).trim().toUpperCase().includes(code)))) continue;
-              if (!existingMpIds.has(mp.id)) {
-                electronicTickets.push({
-                  id: `mp-${mp.id}`,
-                  settlement_id: settlementId,
-                  amount: Number(mp.amount) || 0,
-                  reference: mp.payer_name ? `${mp.payer_name} (${mp.order_code || 'MP'})` : `Cobro MP ${mp.order_code || ''}`,
-                  payment_type: (mp.payment_type || "POINT").toUpperCase(),
-                  order_id: mp.order_id,
-                  order_code: mp.order_code,
-                  mp_payment_id: mp.id,
-                  notes: `Detectado de Chequeo de Pagos (${mp.linked_by || 'Logística'})`,
-                  sort_order: electronicTickets.length,
-                });
-              }
+            const eligiblePayments = mpPayments.filter(mp =>
+              !((mp.order_id && previouslyPaidOrderIds.has(mp.order_id)) ||
+                (mp.order_code && previouslyPaidCodes.some(code => String(mp.order_code).trim().toUpperCase().includes(code))))
+            );
+            const reconciled = reconcileImportedTickets(electronicTickets, eligiblePayments, settlement.source);
+            electronicTickets = reconciled.tickets;
+            for (const mp of reconciled.unmatchedPayments) {
+              electronicTickets.push({
+                id: `mp-${mp.id}`,
+                settlement_id: settlementId,
+                amount: Number(mp.amount) || 0,
+                reference: mp.payer_name ? `${mp.payer_name} (${mp.order_code || 'MP'})` : `Cobro MP ${mp.order_code || ''}`,
+                payment_type: (mp.payment_type || "POINT").toUpperCase(),
+                order_id: mp.order_id,
+                order_code: mp.order_code,
+                mp_payment_id: mp.id,
+                notes: `Detectado de Chequeo de Pagos (${mp.linked_by || 'Logística'})`,
+                sort_order: electronicTickets.length,
+              });
             }
           }
         } catch (linkErr) {
@@ -409,18 +433,12 @@ export async function GET(request: Request) {
         }
       }
 
-      let existingMovements: any[] = [];
-      try {
-        if (settlement.code) {
-          const { data: txList } = await supabaseAdmin
-            .from("cash_transactions")
-            .select("id, type, amount, concept, category, created_at, financial_account_id")
-            .ilike("notes", `%${settlement.code}%`);
-          existingMovements = txList || [];
-        }
-      } catch (e) {
-        console.warn("[Rendiciones] Error fetching existing movements:", e);
-      }
+      const { data: existingMovements, error: movementsError } = await supabaseAdmin
+        .from("cash_transactions")
+        .select("id, type, amount, concept, category, created_at, financial_account_id")
+        .eq("treasury_settlement_id", settlementId)
+        .order("registered_at", { ascending: false }).order("id", { ascending: false });
+      if (movementsError) throw movementsError;
 
       return NextResponse.json({
         settlement,
@@ -429,7 +447,7 @@ export async function GET(request: Request) {
         electronicTickets,
         routeOrders,
         financialAccounts: accountsRes.data || [],
-        existingMovements,
+        existingMovements: existingMovements || [],
       });
     }
     if (action === "preview-entregando") {
@@ -574,8 +592,8 @@ async function getEntregandoPreview(source: "entregando" | "entregados" = "entre
       const { data: deliveries, error: deliveriesError } = await supabaseAdmin.from("deliveries")
         .select("order_id, delivery_date, status, failure_reason").in("order_id", Array.from(byId.keys()));
       if (deliveriesError) throw deliveriesError;
-      const corrected = new Map((deliveries || []).filter(delivery => isExcludedDeliveryStatus(delivery.status || ""))
-        .map(delivery => [`${byId.get(delivery.order_id)}|${delivery.delivery_date}`, delivery.failure_reason || delivery.status]));
+      const corrected = new Map((deliveries || []).filter(delivery => isExcludedDeliveryStatus(settlementDeliveryStatus(delivery.status, delivery.failure_reason)))
+        .map(delivery => [`${byId.get(delivery.order_id)}|${delivery.delivery_date}`, settlementDeliveryStatus(delivery.status, delivery.failure_reason)]));
       for (const group of groupList) {
         for (const order of group.orders) {
           const status = corrected.get(`${order.orderCode.toUpperCase()}|${group.deliveryDate}`);
@@ -586,30 +604,63 @@ async function getEntregandoPreview(source: "entregando" | "entregados" = "entre
     }
   }
 
-  const { data: carriers } = await supabaseAdmin
+  const { data: carriers, error: carriersError } = await supabaseAdmin
     .from("carriers")
     .select("id, name, vehicle_description")
     .eq("is_active", true);
+  if (carriersError) throw carriersError;
 
   const dates = Array.from(new Set(groupList.map(g => g.deliveryDate)));
-  const { data: existingSettlements } = await supabaseAdmin
+  const { data: existingSettlements, error: settlementsError } = await supabaseAdmin
     .from("treasury_settlements")
-    .select("id, code, status, carrier_id, carrier_name, settlement_date, deliveries_total, route_detail, route_sheet_id, change_fund")
+    .select("id, code, status, carrier_id, carrier_name, settlement_date, deliveries_total, route_detail, route_sheet_id, change_fund, source_row")
+    .neq("status", "archived")
     .in("settlement_date", dates);
+  if (settlementsError) throw settlementsError;
+
+  const matches = new Map<string, { settlement: NonNullable<typeof existingSettlements>[number] | null; issue: string | null }>();
+  const buckets = new Map<string, typeof groupList>();
+  for (const group of groupList) {
+    const carrier = findCarrier(group.carrierName, carriers || []);
+    const bucketKey = `${group.deliveryDate}|${carrier?.id || carrierTokens(group.carrierName)}`;
+    buckets.set(bucketKey, [...(buckets.get(bucketKey) || []), group]);
+  }
+  for (const bucket of buckets.values()) {
+    const carrier = findCarrier(bucket[0].carrierName, carriers || []);
+    const candidates = (existingSettlements || []).filter(settlement =>
+      settlement.settlement_date === bucket[0].deliveryDate &&
+      ((carrier && settlement.carrier_id === carrier.id) || carrierTokens(settlement.carrier_name) === carrierTokens(bucket[0].carrierName))
+    );
+    const assigned = new Set<string>();
+    for (const group of bucket) {
+      const explicit = candidates.filter(settlement => {
+        const match = String(settlement.route_detail || "").match(/\b(?:R|REC|RECORRIDO)[\s._-]*(\d+)\b/i);
+        return match && Number(match[1]) === group.runNumber;
+      });
+      if (explicit.length === 1) {
+        matches.set(group.key, { settlement: explicit[0], issue: null });
+        assigned.add(explicit[0].id);
+      } else if (explicit.length > 1) {
+        matches.set(group.key, { settlement: null, issue: `Hay ${explicit.length} rendiciones para ${group.routeNumberStr} (${explicit.map(s => s.code).join(", ")}). Revisalas antes de continuar.` });
+        explicit.forEach(settlement => assigned.add(settlement.id));
+      }
+    }
+    const remainingGroups = bucket.filter(group => !matches.has(group.key)).sort((a, b) => a.runNumber - b.runNumber);
+    const unnumbered = candidates.filter(settlement => !assigned.has(settlement.id) &&
+      !/\b(?:R|REC|RECORRIDO)[\s._-]*\d+\b/i.test(String(settlement.route_detail || "")))
+      .sort((a, b) => (a.source_row ?? Number.MAX_SAFE_INTEGER) - (b.source_row ?? Number.MAX_SAFE_INTEGER));
+    if (unnumbered.length === remainingGroups.length) {
+      remainingGroups.forEach((group, index) => matches.set(group.key, { settlement: unnumbered[index], issue: null }));
+    } else if (unnumbered.length > 0) {
+      const issue = "Hay rendiciones anteriores sin número de recorrido y no se puede determinar cuál corresponde. Revisalas antes de continuar.";
+      (remainingGroups.length ? remainingGroups : bucket).forEach(group => matches.set(group.key, { settlement: null, issue }));
+    }
+  }
 
   return groupList.map(grp => {
     const matchedCarrier = findCarrier(grp.carrierName, carriers || []);
-    const existing = (existingSettlements || []).find(s =>
-      (
-        (matchedCarrier && s.carrier_id === matchedCarrier.id) ||
-        carrierTokens(s.carrier_name) === carrierTokens(grp.carrierName)
-      ) &&
-      s.settlement_date === grp.deliveryDate &&
-      (
-        (s.route_detail && s.route_detail.toUpperCase().includes(grp.routeNumberStr)) ||
-        groupList.filter(g => g.carrierName.toLowerCase() === grp.carrierName.toLowerCase() && g.deliveryDate === grp.deliveryDate).length === 1
-      )
-    );
+    const match = matches.get(grp.key);
+    const existing = match?.settlement;
 
     return {
       ...grp,
@@ -620,20 +671,46 @@ async function getEntregandoPreview(source: "entregando" | "entregados" = "entre
       existingSettlementId: existing?.id || null,
       existingSettlementCode: existing?.code || null,
       existingStatus: existing?.status || null,
+      existingRouteSheetId: existing?.route_sheet_id || null,
+      matchingIssue: match?.issue || null,
       changeFund: existing?.change_fund || 0,
     };
   });
 }
 
 async function confirmEntregandoItems(actor: AuthorizedUser, items: any[]) {
-  const { data: activeCarriers } = await supabaseAdmin
+  // Never rely on a settlement id supplied by the browser: the preview may be stale.
+  // Resolve every selected route again before making any writes.
+  const previews = new Map<string, Awaited<ReturnType<typeof getEntregandoPreview>>[number]>();
+  const sourceDates = new Set(items.map(item => `${item.source === "entregados" ? "entregados" : "entregando"}|${item.deliveryDate}`));
+  for (const sourceDate of sourceDates) {
+    const [source, deliveryDate] = sourceDate.split("|") as ["entregando" | "entregados", string];
+    const fresh = await getEntregandoPreview(source, deliveryDate);
+    fresh.forEach(group => previews.set(`${sourceDate}|${group.key}`, group));
+  }
+  for (const item of items) {
+    const source = item.source === "entregados" ? "entregados" : "entregando";
+    const fresh = previews.get(`${source}|${item.deliveryDate}|${item.key}`);
+    if (!fresh) throw new Error(`El recorrido de ${item.carrierName || "la selección"} cambió en la planilla. Volvé a leerla.`);
+    if (fresh.matchingIssue) throw new Error(fresh.matchingIssue);
+    if (fresh.existingStatus === "confirmed") {
+      if (source !== "entregados" || fresh.existingRouteSheetId) throw new Error(`${fresh.existingSettlementCode} ya está confirmada y vinculada, o requiere leer la hoja Entregados.`);
+      item.orders = fresh.orders;
+    }
+    item.existingSettlementId = fresh.existingSettlementId;
+    item.existingStatus = fresh.existingStatus;
+  }
+
+  const { data: activeCarriers, error: activeCarriersError } = await supabaseAdmin
     .from("carriers")
     .select("id, name, vehicle_description")
     .eq("is_active", true);
+  if (activeCarriersError) throw activeCarriersError;
 
   const carriersList = [...(activeCarriers || [])];
   let createdCount = 0;
   let updatedCount = 0;
+  let linkedCount = 0;
 
   for (const item of items) {
     const source = item.source === "entregados" ? "entregados" : "entregando";
@@ -655,12 +732,14 @@ async function confirmEntregandoItems(actor: AuthorizedUser, items: any[]) {
     }
 
     const runNumber = item.runNumber || 1;
-    let { data: routeSheet } = await supabaseAdmin.from("route_sheets")
+    const { data: foundRouteSheet, error: routeSheetError } = await supabaseAdmin.from("route_sheets")
       .select("id, code")
       .eq("delivery_date", item.deliveryDate)
       .eq("carrier_id", matchedCarrier.id)
       .eq("run_number", runNumber)
       .maybeSingle();
+    if (routeSheetError) throw routeSheetError;
+    let routeSheet = foundRouteSheet;
 
     const routeCode = `HR-${item.deliveryDate.replace(/-/g, '')}-${matchedCarrier.name.slice(0, 3).toUpperCase()}-R${runNumber}`;
 
@@ -678,19 +757,25 @@ async function confirmEntregandoItems(actor: AuthorizedUser, items: any[]) {
       routeSheet = createdRoute;
     }
 
-    let { data: existingSettlement } = await supabaseAdmin
+    const { data: foundSettlement, error: existingSettlementError } = await supabaseAdmin
       .from("treasury_settlements")
-      .select("id, status, change_fund, tolls_total, extraordinary_total, electronic_total, counted_cash, shortage_recovered")
+      .select("id, status, route_sheet_id, change_fund, tolls_total, extraordinary_total, electronic_total, counted_cash, shortage_recovered")
       .eq("route_sheet_id", routeSheet.id)
+      .neq("status", "archived")
       .maybeSingle();
+    if (existingSettlementError) throw existingSettlementError;
+    let existingSettlement = foundSettlement;
     if (!existingSettlement && item.existingSettlementId) {
       const existingById = await supabaseAdmin.from("treasury_settlements")
-        .select("id, status, change_fund, tolls_total, extraordinary_total, electronic_total, counted_cash, shortage_recovered")
-        .eq("id", item.existingSettlementId).eq("settlement_date", item.deliveryDate).maybeSingle();
+        .select("id, status, route_sheet_id, change_fund, tolls_total, extraordinary_total, electronic_total, counted_cash, shortage_recovered")
+        .eq("id", item.existingSettlementId).eq("settlement_date", item.deliveryDate).neq("status", "archived").maybeSingle();
       if (existingById.error) throw existingById.error;
       existingSettlement = existingById.data;
     }
-    if (existingSettlement?.status === "confirmed") continue;
+    if (existingSettlement && item.existingSettlementId && existingSettlement.id !== item.existingSettlementId) {
+      throw new Error(`El recorrido de ${item.carrierName} ya está asociado a otra rendición. Revisá las duplicadas antes de continuar.`);
+    }
+    if (existingSettlement?.status === "confirmed" && existingSettlement.route_sheet_id) continue;
     if (routeSheet) {
       const routeUpdate = await supabaseAdmin.from("route_sheets").update({
         total_theoretical_cash: deliveriesTotal,
@@ -718,6 +803,7 @@ async function confirmEntregandoItems(actor: AuthorizedUser, items: any[]) {
         : normalizedStatus.includes("anulad") ? "anulado"
         : normalizedStatus.includes("cancelad") ? "cancelado"
         : normalizedStatus.includes("no entregad") ? "no entregado"
+        : /pendiente[_ ]ruteo/.test(normalizedStatus) ? "pendiente_ruteo"
         : normalizedStatus.includes("entregando") || normalizedStatus.includes("en recorrido") ? "en_recorrido"
         : "entregado";
       const excluded = isExcludedDeliveryStatus(deliveryStatus);
@@ -780,6 +866,18 @@ async function confirmEntregandoItems(actor: AuthorizedUser, items: any[]) {
 
     const changeFund = Math.max(0, asNumber(item.changeFund));
 
+    if (existingSettlement?.status === "confirmed") {
+      const { data: linked, error: linkError } = await supabaseAdmin.from("treasury_settlements")
+        .update({ route_sheet_id: routeSheet.id, updated_at: new Date().toISOString() })
+        .eq("id", existingSettlement.id)
+        .is("route_sheet_id", null)
+        .select("id")
+        .single();
+      if (linkError || !linked) throw linkError || new Error("La rendición cambió mientras se vinculaban los pedidos.");
+      linkedCount++;
+      continue;
+    }
+
     if (existingSettlement) {
       if (existingSettlement.status === 'draft') {
         const finalChangeFund = source === "entregados" ? Number(existingSettlement.change_fund || 0)
@@ -825,7 +923,7 @@ async function confirmEntregandoItems(actor: AuthorizedUser, items: any[]) {
     }
   }
 
-  return { created: createdCount, updated: updatedCount };
+  return { created: createdCount, updated: updatedCount, linked: linkedCount };
 }
 
 async function importCurrentMonth(actor: AuthorizedUser) {
@@ -851,6 +949,8 @@ async function importCurrentMonth(actor: AuthorizedUser) {
   if (carriersError) throw carriersError;
 
   let countsAssociated = 0;
+  let imported = 0;
+  let skippedArchived = 0;
   for (const item of monthRows) {
     const row = item.row;
     const code = String(row[1]).trim().toUpperCase();
@@ -912,11 +1012,23 @@ async function importCurrentMonth(actor: AuthorizedUser) {
       denomination: denomination.denomination,
       quantity: Math.max(0, Math.trunc(asNumber(countRow[index + 3]))),
     })).filter(entry => entry.quantity > 0) : [];
+
+    const { data: previouslyImported, error: previousError } = await supabaseAdmin
+      .from("treasury_settlements")
+      .select("route_sheet_id, status")
+      .eq("code", code)
+      .maybeSingle();
+    if (previousError) throw previousError;
+    // Importing a legacy row must never reactivate a rendition that Treasury archived.
+    if (previouslyImported?.status === "archived") {
+      skippedArchived += 1;
+      continue;
+    }
     if (countRow) countsAssociated += 1;
 
     const payload = {
       code,
-      route_sheet_id: null,
+      route_sheet_id: previouslyImported?.route_sheet_id || null,
       settlement_date: item.date,
       carrier_id: matchedCarrier?.id || null,
       carrier_name: matchedCarrier?.name || importedCarrierName,
@@ -961,8 +1073,9 @@ async function importCurrentMonth(actor: AuthorizedUser) {
       const result = await supabaseAdmin.from("treasury_settlement_electronic_tickets").insert(electronicTickets.map(ticket => ({ settlement_id: settlement.id, ...ticket })));
       if (result.error) throw result.error;
     }
+    imported += 1;
   }
-  return { imported: monthRows.length, countsAssociated, month: `${String(current.month).padStart(2, "0")}/${current.year}` };
+  return { imported, skippedArchived, countsAssociated, month: `${String(current.month).padStart(2, "0")}/${current.year}` };
 }
 
 export async function POST(request: Request) {
@@ -971,7 +1084,30 @@ export async function POST(request: Request) {
   const actor = authorization.actor;
   try {
     const body = await request.json() as SavePayload;
+    if (body.action === "archive" || body.action === "delete-archived") {
+      if (!body.settlementId) return NextResponse.json({ error: "Falta la rendición." }, { status: 400 });
+      if (body.action === "delete-archived" && !actor.canImportMonth) {
+        return NextResponse.json({ error: "Sólo un administrador puede eliminar rendiciones archivadas." }, { status: 403 });
+      }
+      const reason = String(body.archiveReason || "").trim();
+      if (body.action === "archive" && (!reason || reason.length > 1000)) {
+        return NextResponse.json({ error: "Ingresá un motivo de baja de hasta 1.000 caracteres." }, { status: 400 });
+      }
+      const result = await supabaseAdmin.rpc(body.action === "archive" ? "archive_treasury_settlement" : "delete_archived_treasury_settlement", {
+        p_actor_id: actor.id, p_settlement_id: body.settlementId,
+        ...(body.action === "archive" ? { p_reason: reason } : {}),
+      });
+      if (result.error) return NextResponse.json({ error: readableError(result.error) }, { status: result.error.code === "42501" ? 403 : 409 });
+      return NextResponse.json({ success: true, settlement: result.data });
+    }
+    if (body.settlementId) {
+      const current = await supabaseAdmin.from("treasury_settlements").select("status").eq("id", body.settlementId).maybeSingle();
+      if (current.error) throw current.error;
+      if (!current.data) return NextResponse.json({ error: "La rendición no existe." }, { status: 404 });
+      if (current.data.status === "archived") return NextResponse.json({ error: "La rendición está archivada y no admite cambios." }, { status: 409 });
+    }
     if (body.action === "import-month") {
+      if (!actor.canImportMonth) return NextResponse.json({ error: "Sólo un administrador puede importar rendiciones desde la planilla." }, { status: 403 });
       const result = await importCurrentMonth(actor);
       return NextResponse.json({ success: true, ...result });
     }
@@ -991,7 +1127,7 @@ export async function POST(request: Request) {
       if (settlementError) throw settlementError;
       if (settlement.status !== "draft") return NextResponse.json({ error: "La rendición confirmada no se puede modificar." }, { status: 409 });
       const { data: delivery, error: deliveryError } = await supabaseAdmin.from("deliveries")
-        .select("id, route_sheet_id, order_id, status").eq("id", body.deliveryId).single();
+        .select("id, route_sheet_id, order_id, status, failure_reason").eq("id", body.deliveryId).single();
       if (deliveryError) throw deliveryError;
       if (!settlement.route_sheet_id || delivery.route_sheet_id !== settlement.route_sheet_id) return NextResponse.json({ error: "El pedido no pertenece a esta rendición." }, { status: 400 });
       if (!delivery.order_id) return NextResponse.json({ error: "El pedido no tiene un importe verificable." }, { status: 400 });
@@ -1013,7 +1149,7 @@ export async function POST(request: Request) {
           console.warn("[Rendiciones] No se pudo verificar el importe en la planilla:", sheetError);
         }
       }
-      const oldExcluded = isExcludedDeliveryStatus(delivery.status || "");
+      const oldExcluded = isExcludedDeliveryStatus(settlementDeliveryStatus(delivery.status, delivery.failure_reason));
       const newExcluded = isExcludedDeliveryStatus(body.deliveryStatus);
       const adjustment = oldExcluded === newExcluded ? 0 : newExcluded ? -amount : amount;
       const deliveriesTotal = Math.max(0, Number(settlement.deliveries_total || 0) + adjustment);
@@ -1060,21 +1196,23 @@ export async function POST(request: Request) {
         .select("id, name");
       const paymentMethodId = pms?.find(p => p.name.toLowerCase().includes("efectivo"))?.id || pms?.[0]?.id;
 
-      const { data: settlement } = await supabaseAdmin
+      const { data: settlement, error: settlementError } = await supabaseAdmin
         .from("treasury_settlements")
-        .select("id, code, route_sheet_id")
+        .select("id, code, carrier_name, route_sheet_id")
         .eq("id", settlementId)
         .maybeSingle();
 
+      if (settlementError) throw settlementError;
+      if (!settlement) return NextResponse.json({ error: "La rendición no existe." }, { status: 404 });
       let dateStr = (movementDate || "").trim();
       if (/^\d{2}\/\d{2}\/\d{4}$/.test(dateStr)) {
         const [d, m, y] = dateStr.split("/");
         dateStr = `${y}-${m}-${d}`;
       }
       if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-        dateStr = new Date().toISOString().split("T")[0];
+        dateStr = treasuryToday();
       }
-      const createdAt = new Date(dateStr + "T12:00:00").toISOString();
+      const createdAt = treasuryDateTime(dateStr);
 
       const toInsert = rawMovements.map(m => {
         const isExpense = m.type === "Gasto" || m.type === "egreso";
@@ -1102,7 +1240,7 @@ export async function POST(request: Request) {
           payment_method_id: paymentMethodId,
           financial_account_id: account.id,
           concept: (m.concept || m.detail || "Movimiento Rendición").trim(),
-          notes: `Rendición ${code} (${carrierName || ''}). ${m.notes || ''}`.trim(),
+          notes: `Rendición ${settlement.code} (${settlement.carrier_name || ''}). ${m.notes || ''}`.trim(),
           business_unit: "ZONO",
           route_sheet_id: settlement?.route_sheet_id || null,
           created_by: actor.id,
@@ -1114,12 +1252,14 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Todos los montos de los movimientos son cero." }, { status: 400 });
       }
 
-      const { data: inserted, error: insertError } = await supabaseAdmin
-        .from("cash_transactions")
-        .insert(toInsert)
-        .select("id, concept, amount, type, created_at, category, financial_account_id");
-
-      if (insertError) throw insertError;
+      const { data: inserted, error: insertError } = await supabaseAdmin.rpc("generate_treasury_settlement_movements", {
+        p_actor_id: actor.id,
+        p_settlement_id: settlementId,
+        p_mode: body.generationMode || "initial",
+        p_previous_ids: body.previousMovementIds || [],
+        p_movements: toInsert,
+      });
+      if (insertError) return NextResponse.json({ error: readableError(insertError) }, { status: insertError.code === "42501" ? 403 : 409 });
 
       return NextResponse.json({
         success: true,
@@ -1148,30 +1288,32 @@ export async function POST(request: Request) {
       .single();
     if (carrierError || !carrier) return NextResponse.json({ error: "El transportista seleccionado no está disponible." }, { status: 400 });
 
-    const { data, error } = await supabaseAdmin.rpc("save_manual_treasury_settlement", {
-      p_actor_id: actor.id,
-      p_settlement_id: body.action === "create" ? null : body.settlementId,
-      p_code: String(body.code || "").slice(0, 80),
-      p_settlement_date: body.settlementDate,
-      p_carrier_name: carrier.name,
-      p_route_detail: String(body.routeDetail || "").slice(0, 500),
-      p_deliveries_total: Math.max(0, asNumber(body.deliveriesTotal)),
-      p_electronic_total: Math.max(0, asNumber(body.electronicTotal)),
-      p_change_fund: Math.max(0, asNumber(body.changeFund)),
-      p_shortage_recovered: asNumber(body.shortageRecovered),
-      p_notes: String(body.notes || "").slice(0, 4000),
-      p_whatsapp_message: String(body.whatsappMessage || "").slice(0, 4000),
-      p_count_date: body.countDate || null,
-      p_counted_cash_override: body.countedCashOverride == null ? null : Math.max(0, asNumber(body.countedCashOverride)),
-      p_expenses: expenses.filter(expense => asNumber(expense.amount) > 0).map((expense, index) => ({
+    const { data, error } = await supabaseAdmin.rpc("save_treasury_settlement_with_orders", {
+      p_delivery_statuses: body.deliveryStatuses || [],
+      p_save: {
+        p_actor_id: actor.id,
+        p_settlement_id: body.action === "create" ? null : body.settlementId,
+        p_code: String(body.code || "").slice(0, 80),
+        p_settlement_date: body.settlementDate,
+        p_carrier_name: carrier.name,
+        p_route_detail: String(body.routeDetail || "").slice(0, 500),
+        p_deliveries_total: Math.max(0, asNumber(body.deliveriesTotal)),
+        p_electronic_total: Math.max(0, asNumber(body.electronicTotal)),
+        p_change_fund: Math.max(0, asNumber(body.changeFund)),
+        p_shortage_recovered: asNumber(body.shortageRecovered),
+        p_notes: String(body.notes || "").slice(0, 4000),
+        p_whatsapp_message: String(body.whatsappMessage || "").slice(0, 4000),
+        p_count_date: body.countDate || null,
+        p_counted_cash_override: body.countedCashOverride == null ? null : Math.max(0, asNumber(body.countedCashOverride)),
+        p_expenses: expenses.filter(expense => asNumber(expense.amount) > 0).map((expense, index) => ({
         expense_type: expense.type, amount: asNumber(expense.amount),
         reference: String(expense.reference || "").slice(0, 500), notes: String(expense.notes || "").slice(0, 1000), sort_order: index,
       })),
-      p_cash_counts: cashCounts.filter(count => asNumber(count.quantity) > 0).map(count => ({
+        p_cash_counts: cashCounts.filter(count => asNumber(count.quantity) > 0).map(count => ({
         money_kind: count.kind, denomination: asNumber(count.denomination), quantity: Math.max(0, Math.trunc(asNumber(count.quantity))),
       })),
-      p_confirm: body.action === "confirm",
-      p_electronic_tickets: electronicTickets.filter(ticket => asNumber(ticket.amount) > 0).map((ticket, index) => ({
+        p_confirm: body.action === "confirm",
+        p_electronic_tickets: electronicTickets.filter(ticket => asNumber(ticket.amount) > 0).map((ticket, index) => ({
         amount: asNumber(ticket.amount),
         reference: String(ticket.reference || "").slice(0, 500),
         payment_type: String(ticket.payment_type || "POINT").slice(0, 50),
@@ -1181,6 +1323,7 @@ export async function POST(request: Request) {
         notes: ticket.notes ? String(ticket.notes).slice(0, 1000) : null,
         sort_order: index,
       })),
+      },
     });
     if (error) throw error;
     const { error: carrierUpdateError } = await supabaseAdmin

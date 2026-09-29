@@ -5,6 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 import { getArgentinaDaysAgoString } from '@/lib/utils';
 import { fetchSpreadsheetCsv } from '@/lib/googleSheets';
 import { getUnimportedSellerOrders } from '@/lib/unimportedOrders';
+import { deduplicateReservationItems } from '@/lib/stockReservationItems';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.dummy';
@@ -241,18 +242,7 @@ export async function GET() {
     };
     const sheetRows = parseCSV(csvText);
 
-    // Deduplicate pending items by order legacy_code + product_id to prevent double counting
-    const seenOrderKeys = new Set<string>();
-    const pendingItems = rawPendingItems.filter((item: any) => {
-      const code = (item.orders?.legacy_code || '').trim();
-      if (code) {
-        const pKey = item.product_id || item.product_name;
-        const key = `${code}_${pKey}`;
-        if (seenOrderKeys.has(key)) return false;
-        seenOrderKeys.add(key);
-      }
-      return true;
-    });
+    const pendingItems = deduplicateReservationItems(rawPendingItems);
 
     const productByIdMap = new Map<string, any>();
     dbProducts.forEach((p: any) => productByIdMap.set(p.id, p));
@@ -392,18 +382,7 @@ export async function POST() {
     };
     const sheetRows = parseCSV(csvText);
 
-    // Deduplicate pending items by order legacy_code + product_id to prevent double counting
-    const seenPostOrderKeys = new Set<string>();
-    const pendingItems = rawPostPendingItems.filter((item: any) => {
-      const code = (item.orders?.legacy_code || '').trim();
-      if (code) {
-        const pKey = item.product_id || item.product_name;
-        const key = `${code}_${pKey}`;
-        if (seenPostOrderKeys.has(key)) return false;
-        seenPostOrderKeys.add(key);
-      }
-      return true;
-    });
+    const pendingItems = deduplicateReservationItems(rawPostPendingItems);
 
     const productByIdMap = new Map<string, any>();
     dbProducts.forEach((p: any) => productByIdMap.set(p.id, p));

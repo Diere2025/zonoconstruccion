@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, User } from '@supabase/supabase-js';
+import { authenticateSystemAdministrator } from '@/lib/systemAdminAccess';
 import {
   ImpersonationTicket,
   signImpersonationTicket,
@@ -13,7 +14,6 @@ const COOKIE_NAME = 'zono_impersonation';
 const SESSION_SECONDS = 8 * 60 * 60;
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const knownAdminEmails = new Set(['diego.boveda@gmail.com', 'caroibarra.93@gmail.com']);
 
 function response(data: unknown, status = 200): NextResponse {
   const result = NextResponse.json(data, { status });
@@ -29,12 +29,9 @@ function adminClient() {
 }
 
 async function authenticatedAdministrator(request: NextRequest): Promise<User | null> {
-  const user = await authenticatedUser(request);
-  if (!user?.email) return null;
-  const client = adminClient();
-  if (knownAdminEmails.has(user.email.toLowerCase())) return user;
-  const { data: seller } = await client.from('sellers').select('role').eq('id', user.id).maybeSingle();
-  return seller?.role === 'admin' ? user : null;
+  const result = await authenticateSystemAdministrator(request, adminClient());
+  if (!result.user && result.status === 503) throw new Error(result.error);
+  return result.user;
 }
 
 async function authenticatedUser(request: NextRequest): Promise<User | null> {

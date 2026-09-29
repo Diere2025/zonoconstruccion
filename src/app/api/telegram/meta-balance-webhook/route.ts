@@ -126,4 +126,3 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'No se pudo entregar al webhook existente' }, { status: 503 });
   }
 }
-

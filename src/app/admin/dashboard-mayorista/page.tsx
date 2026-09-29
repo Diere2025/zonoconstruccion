@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useMemo, Suspense } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { formatPrice } from "@/lib/utils";
 import {
   TrendingUp,
@@ -226,6 +226,7 @@ const MonthlyTrendSection = React.memo(function MonthlyTrendSection({
 });
 
 function WholesaleDashboardContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const urlTab = searchParams.get('tab');
 
@@ -233,6 +234,12 @@ function WholesaleDashboardContent() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<'clients' | 'products' | 'sellers' | 'localities' | 'mapping'>('clients');
+
+  function navigateTab(tab: typeof activeTab) {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('tab', tab);
+    router.push(`/admin/dashboard-mayorista?${params.toString()}`, { scroll: false });
+  }
 
   // Filter state
   const [periodPreset, setPeriodPreset] = useState<string>('all');
@@ -327,6 +334,8 @@ function WholesaleDashboardContent() {
         const el = document.getElementById('mapping-section');
         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }, 100);
+    } else {
+      setActiveTab('clients');
     }
   }, [urlTab]);
 
@@ -455,7 +464,7 @@ function WholesaleDashboardContent() {
         <div className="flex flex-wrap items-center gap-2.5">
           <button
             onClick={() => {
-              setActiveTab('mapping');
+              navigateTab('mapping');
               const el = document.getElementById('mapping-section');
               if (el) el.scrollIntoView({ behavior: 'smooth' });
             }}
@@ -669,7 +678,7 @@ function WholesaleDashboardContent() {
               return (
                 <button
                   key={tab.id}
-                  onClick={() => setActiveTab(tab.id as any)}
+                  onClick={() => navigateTab(tab.id as typeof activeTab)}
                   className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition cursor-pointer shrink-0 ${
                     active
                       ? 'bg-blue-50 text-blue-700 border border-blue-200 shadow-2xs'

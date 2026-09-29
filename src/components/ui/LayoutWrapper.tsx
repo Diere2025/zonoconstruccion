@@ -16,6 +16,7 @@ export function LayoutWrapper({ children }: LayoutWrapperProps) {
   const isPortal = 
     pathname.startsWith("/admin") || 
     pathname.startsWith("/vendedores") || 
+    pathname === "/incidencias" || pathname.startsWith("/incidencias/") ||
     pathname.startsWith("/reset-password") ||
     pathname.startsWith("/presupuesto") ||
     pathname.startsWith("/cotizador");

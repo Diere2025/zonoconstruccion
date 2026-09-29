@@ -27,6 +27,7 @@ async function getSellerRole(userId: string, email?: string): Promise<string | n
   if (rolePromise && cachedUserId === userId) {
     return rolePromise;
   }
+  if (cachedUserId !== userId) cachedRole = null;
   cachedUserId = userId;
 
   const fetchPromise = (async () => {
@@ -38,32 +39,33 @@ async function getSellerRole(userId: string, email?: string): Promise<string | n
           .eq('id', userId)
           .maybeSingle();
 
+        if (error) throw error;
         if (data?.role) {
-          cachedRole = data.role;
+          if (cachedUserId === userId) cachedRole = data.role;
           return data.role;
         }
       }
 
       if (email) {
-        const { data: byEmail } = await supabase
+        const { data: byEmail, error } = await supabase
           .from('sellers')
           .select('role')
-          .ilike('email', email)
+          .ilike('email', email.replace(/[%_]/g, '\\$&'))
           .maybeSingle();
 
+        if (error) throw error;
         if (byEmail?.role) {
-          cachedRole = byEmail.role;
+          if (cachedUserId === userId) cachedRole = byEmail.role;
           return byEmail.role;
         }
       }
 
-      // Default role for authenticated user
-      return 'seller';
+      return null;
     } catch (err) {
       console.warn("Exception fetching seller role:", err);
-      return 'seller';
+      return null;
     } finally {
-      rolePromise = null;
+      if (cachedUserId === userId) rolePromise = null;
     }
   })();
 
@@ -80,6 +82,9 @@ function clearRoleCache() {
   globalIsAdmin = false;
   if (typeof window !== "undefined") {
     sessionStorage.removeItem('zono_user_role');
+    sessionStorage.removeItem('zono_user_roles');
+    sessionStorage.removeItem('zono_user_id');
+    sessionStorage.removeItem('zono_can_use_wholesale');
     sessionStorage.removeItem('zono_user_email');
     sessionStorage.removeItem('zono_role_loaded');
     sessionStorage.removeItem('zono_is_restricted');
@@ -179,6 +184,7 @@ export default function AdminLayoutWrapper({
       const userIsAuthorized = role === 'admin' || role === 'seller' || role === 'logistica' || role === 'administracion' || role === 'fletero' || role === 'compras' || Boolean(role);
       
       if (typeof window !== "undefined" && role) {
+        sessionStorage.setItem('zono_user_id', user.id);
         sessionStorage.setItem('zono_user_role', role);
         sessionStorage.setItem('zono_user_email', email);
       }
@@ -211,6 +217,7 @@ export default function AdminLayoutWrapper({
     }
 
     let isMounted = true;
+    let roleCheckTimer: ReturnType<typeof setTimeout> | undefined;
     addLog("AdminLayout mounted, checking session...");
 
     // Safety timeout: Never hang on loading spinner
@@ -249,8 +256,9 @@ export default function AdminLayoutWrapper({
 
     checkAuth();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
       if (!isMounted) return;
+      clearTimeout(roleCheckTimer);
 
       if (!newSession?.user) {
         clearRoleCache();
@@ -263,7 +271,11 @@ export default function AdminLayoutWrapper({
       } else {
         globalAdminSession = newSession;
         if (globalCheckedUserId !== newSession.user.id) {
-          await processUserRole(newSession.user);
+          // Supabase awaits auth listeners while holding the session lock.
+          // Database queries must start after this synchronous callback returns.
+          roleCheckTimer = setTimeout(() => {
+            if (isMounted) void processUserRole(newSession.user);
+          }, 0);
         }
         if (isMounted) {
           setSession(newSession);
@@ -273,6 +285,7 @@ export default function AdminLayoutWrapper({
 
     return () => {
       isMounted = false;
+      clearTimeout(roleCheckTimer);
       clearTimeout(timer);
       subscription.unsubscribe();
     };

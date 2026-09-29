@@ -143,8 +143,8 @@ export default function CajaDiariaPage() {
       // 4. Obtener clientes y proveedores para conciliación
       const { data: cls } = await supabase
         .from('clients')
-        .select('id, full_name, business_name')
-        .order('full_name');
+        .select('id, business_name')
+        .order('business_name');
       if (cls) setClients(cls);
 
       const { data: sups } = await supabase
@@ -176,7 +176,7 @@ export default function CajaDiariaPage() {
 
           const { data: cp } = await supabase
             .from('client_payments')
-            .select('id, cash_transaction_id, client_id, order_id, clients(full_name, business_name), orders(customer_name, order_date, total_amount)')
+            .select('id, cash_transaction_id, client_id, order_id, clients(business_name), orders(customer_name, order_date, total_amount)')
             .in('cash_transaction_id', txIds);
 
           const { data: sp } = await supabase
@@ -925,9 +925,9 @@ export default function CajaDiariaPage() {
                               {isReconciled ? (
                                 <div className="inline-flex items-center gap-1 bg-blue-50 border border-blue-100 text-blue-700 px-2 py-0.5 rounded text-[10px] font-bold">
                                   <UserCheck className="w-3.5 h-3.5 text-blue-500" />
-                                  <span className="max-w-[120px] truncate" title={clientRec ? `Cliente: ${clientRec.clients?.business_name || clientRec.clients?.full_name}` : `Proveedor: ${supplierRec.suppliers?.name}`}>
+                                  <span className="max-w-[120px] truncate" title={clientRec ? `Cliente: ${clientRec.clients?.business_name || 'Cliente'}` : `Proveedor: ${supplierRec.suppliers?.name}`}>
                                     {clientRec 
-                                      ? (clientRec.clients?.business_name || clientRec.clients?.full_name || 'Cliente') 
+                                      ? (clientRec.clients?.business_name || 'Cliente')
                                       : (supplierRec.suppliers?.name || 'Proveedor')}
                                   </span>
                                   <button
@@ -1183,7 +1183,7 @@ export default function CajaDiariaPage() {
                     >
                       <option value="">-- Seleccionar Cliente --</option>
                       {clients.map(c => (
-                        <option key={c.id} value={c.id}>{c.business_name || c.full_name}</option>
+                        <option key={c.id} value={c.id}>{c.business_name || 'Cliente'}</option>
                       ))}
                     </select>
                   </div>
