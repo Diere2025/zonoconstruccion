@@ -62,7 +62,7 @@ function normalizeKey(str: string): string {
     .replace(/[^a-z0-9]/g, '');
 }
 
-export async function syncCostsFromSheet() {
+async function syncCostsFromSheet() {
   const logs: string[] = [];
   const addLog = (msg: string) => logs.push(`[${new Date().toLocaleTimeString()}] ${msg}`);
 
