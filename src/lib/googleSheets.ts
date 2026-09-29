@@ -629,6 +629,100 @@ function makeRange(sheetName: string, startColumn: string, endColumn: string, ro
 
 const CALCULATED_COLUMNS = ['Z', 'AC', 'AD', 'AH', 'AL', 'AP', 'AT', 'AX', 'BB', 'BF', 'BJ', 'BN', 'BR', 'BV', 'BZ'];
 
+/** Amplía sólo cuando el alta necesita filas fuera de la grilla existente. */
+export async function ensureOrderSheetRowCapacity(
+  spreadsheetId: string,
+  sheetName: string,
+  rowNumbers: number[],
+  columnOffset: number,
+  token: string
+): Promise<void> {
+  if (!rowNumbers.length) return;
+  if (rowNumbers.some(row => !Number.isSafeInteger(row) || row < 2)) {
+    throw new Error('Las filas de pedidos deben ser enteros mayores o iguales a 2');
+  }
+  const headers = { Authorization: `Bearer ${token}` };
+  const metadata = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties`,
+    { headers, cache: 'no-store' }
+  );
+  if (!metadata.ok) throw new Error(`No se pudo verificar la capacidad de ${sheetName} (${metadata.status})`);
+  const properties = (await metadata.json()).sheets?.find(
+    (sheet: { properties: { title: string } }) => sheet.properties.title === sheetName
+  )?.properties;
+  if (!properties) throw new Error(`No se encontró la hoja ${sheetName}`);
+  const { sheetId, gridProperties } = properties;
+  const { rowCount, columnCount } = gridProperties;
+  const requiredRow = Math.max(...rowNumbers);
+  if (requiredRow <= rowCount) return;
+  if (!Number.isSafeInteger(rowCount) || rowCount < 2 || !Number.isSafeInteger(columnCount) || columnCount < 1) {
+    throw new Error(`La grilla de ${sheetName} no tiene una fila plantilla válida`);
+  }
+
+  // Leer una pequeña cola de filas permite conservar las fórmulas propias de
+  // cada planilla incluso si la última fila plantilla está vacía.
+  const firstTemplateRow = Math.max(2, rowCount - 19);
+  const escapedName = sheetName.replace(/'/g, "''");
+  const firstColumn = shiftColumn('Z', columnOffset);
+  const lastColumn = shiftColumn('BZ', columnOffset);
+  const templateRange = `'${escapedName}'!${firstColumn}${firstTemplateRow}:${lastColumn}${rowCount}`;
+  const template = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(templateRange)}?valueRenderOption=FORMULA`,
+    { headers, cache: 'no-store' }
+  );
+  if (!template.ok) throw new Error(`No se pudo leer la plantilla de ${sheetName} (${template.status})`);
+  const templateRows: string[][] = (await template.json()).values || [];
+  const addedRows = Math.max(100, requiredRow - rowCount);
+  const destination = {
+    sheetId, startRowIndex: rowCount, endRowIndex: rowCount + addedRows,
+    startColumnIndex: 0, endColumnIndex: columnCount
+  };
+  const source = { ...destination, startRowIndex: rowCount - 1, endRowIndex: rowCount };
+  const requests: unknown[] = [
+    { appendDimension: { sheetId, dimension: 'ROWS', length: addedRows } },
+    { copyPaste: { source, destination, pasteType: 'PASTE_FORMAT' } },
+    { copyPaste: { source, destination, pasteType: 'PASTE_DATA_VALIDATION' } }
+  ];
+  for (const baseColumn of CALCULATED_COLUMNS) {
+    const column = columnToNumber(shiftColumn(baseColumn, columnOffset)) - 1;
+    if (column >= columnCount) continue;
+    const templateColumn = column + 1 - columnToNumber(firstColumn);
+    let hasFormula = false;
+    for (let index = templateRows.length - 1; index >= 0; index--) {
+      const value = templateRows[index]?.[templateColumn];
+      if (typeof value !== 'string' || !value.startsWith('=')) continue;
+      hasFormula = true;
+      // Una fórmula matricial pertenece a su celda de origen, no a cada fila.
+      if (/\bARRAYFORMULA\s*\(/i.test(value)) break;
+      requests.push({ copyPaste: {
+        source: { ...source, startRowIndex: firstTemplateRow + index - 1,
+          endRowIndex: firstTemplateRow + index, startColumnIndex: column, endColumnIndex: column + 1 },
+        destination: { ...destination, startColumnIndex: column, endColumnIndex: column + 1 },
+        pasteType: 'PASTE_FORMULA'
+      } });
+      break;
+    }
+    if (!hasFormula) {
+      // Si la cola plantilla no tiene fórmulas, usar los mismos cálculos que
+      // la reparación de filas de vendedores. repeatCell ajusta referencias.
+      requests.push({ repeatCell: {
+        range: { ...destination, startColumnIndex: column, endColumnIndex: column + 1 },
+        cell: { userEnteredValue: { formulaValue: buildCalculatedFormula(baseColumn, rowCount + 1, columnOffset) } },
+        fields: 'userEnteredValue'
+      } });
+    }
+  }
+  // Nunca se copian valores: los códigos, clientes y pagos anteriores quedan
+  // intactos. Sheets ajusta las referencias relativas de las fórmulas copiadas.
+  const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ requests })
+  });
+  if (!response.ok) {
+    throw new Error(`No se pudieron agregar filas a ${sheetName} (${response.status}): ${await response.text()}`);
+  }
+}
+
 function buildCalculatedFormula(baseColumn: string, rowNumber: number, columnOffset: number): string {
   const column = shiftColumn(baseColumn, columnOffset);
   if (baseColumn === 'Z') {
@@ -1112,6 +1206,8 @@ export async function appendOrderToSellerSheet(
   const firstRowNumber = slots[0]?.rowNumber || 2;
   const isMultiChunk = itemChunks.length > 1;
 
+  await ensureOrderSheetRowCapacity(spreadsheetId, sheetName, slots.map(slot => slot.rowNumber), 0, token);
+
   await restoreSellerRowFormats(
     spreadsheetId, sheetName, slots.map(slot => slot.rowNumber), token,
     normalizeCategoryForSheet(order.category)
@@ -1407,6 +1503,7 @@ async function appendOrderToOperationalSheet(
     );
     const itemChunks = splitOrderItemsForRows(order, codes.length);
     const token = await getGoogleAccessToken();
+    await ensureOrderSheetRowCapacity(spreadsheetId, sheetName, rowNumbers, columnOffset, token);
     const batchData = rowNumbers.flatMap((rowNumber, index) => {
       const rowOrder = makeContinuationOrder(order, itemChunks[index], codes, index);
       return [
