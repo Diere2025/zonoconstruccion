@@ -3,14 +3,15 @@
 import React, { useState, useEffect, useCallback, Suspense } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { LogOut, Users, Menu, X, ChevronRight, ChevronDown, Shield, KeyRound, Eye, EyeOff, CheckCircle2, AlertCircle, Loader2, Boxes } from "lucide-react";
-import { visibleErpModules, activeErpLink, type ErpLink as SidebarLink } from "@/lib/erpNavigation";
+import { LogOut, Users, Menu, X, ChevronRight, Shield, KeyRound, Eye, EyeOff, CheckCircle2, AlertCircle, Loader2, Boxes, Search } from "lucide-react";
+import { visibleErpModules, activeErpLink } from "@/lib/erpNavigation";
 import { ErpNavigationContext } from "@/components/ui/ErpNavigationContext";
 import { supabase } from "@/lib/supabase";
 import { loadUserRoleProfile, type UserRoleProfile } from "@/lib/userRoleProfile";
 import { createAuthenticatedRequester } from "@/lib/authenticatedRequest";
 
 const adminRequest = createAuthenticatedRequester(supabase);
+const normalizeNavigationSearch = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
 interface AdminLayoutProps {
   children: React.ReactNode;
@@ -185,7 +186,7 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
   const [isLoadingImpersonationUsers, setIsLoadingImpersonationUsers] = useState(false);
   const [isSwitchingSession, setIsSwitchingSession] = useState(false);
   const [impersonationError, setImpersonationError] = useState('');
-  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
+  const [navigationSearch, setNavigationSearch] = useState('');
 
   useEffect(() => {
     let mounted = true;
@@ -580,47 +581,15 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
   };
 
   const visibleModules = visibleErpModules({ roles: userRoles, restrictedSeller: isRestrictedSeller, canUseWholesale });
+  const navigationTerm = normalizeNavigationSearch(navigationSearch.trim());
+  const filteredModules = visibleModules.map(section => ({
+    ...section,
+    links: normalizeNavigationSearch(`${section.title} ${section.description}`).includes(navigationTerm)
+      ? section.links
+      : section.links.filter(link => normalizeNavigationSearch(link.name).includes(navigationTerm))
+  })).filter(section => section.links.length > 0);
   const activeLink = activeErpLink(visibleModules, pathname, searchParams.toString());
   const isActive = (path: string) => activeLink?.link.href === path;
-  const activeSectionTitle = activeLink?.module.title;
-
-  useEffect(() => {
-    // Asegurar que la sección que contiene la página activa esté expandida al navegar
-    if (activeSectionTitle) {
-        setCollapsedSections(prev => {
-          if (prev[activeSectionTitle] === true) {
-            const next = { ...prev };
-            delete next[activeSectionTitle];
-            return next;
-          }
-          return prev;
-        });
-    }
-  }, [activeSectionTitle, pathname, searchParams]);
-
-  const isSectionCollapsed = (sectionTitle: string, visibleLinks: SidebarLink[]) => {
-    // 1. Si el usuario clickeó manualmente para abrir o cerrar esta sección durante su sesión
-    if (collapsedSections[sectionTitle] !== undefined) {
-      return collapsedSections[sectionTitle];
-    }
-    // 2. Si contiene la página actualmente activa, permanece abierta para no perder contexto
-    const hasActive = visibleLinks.some(link => isActive(link.href));
-    if (hasActive) return false;
-
-    // 3. Para administradores, las secciones con muchas opciones (> 2 opciones) aparecen contraídas por defecto
-    if (isAdminRole && visibleLinks.length > 2) {
-      return true;
-    }
-
-    return false;
-  };
-
-  const toggleSection = (sectionTitle: string, currentlyCollapsed: boolean) => {
-    setCollapsedSections(prev => ({
-      ...prev,
-      [sectionTitle]: !currentlyCollapsed,
-    }));
-  };
 
   // Compute dynamic breadcrumbs from current pathname
   const getBreadcrumbs = () => {
@@ -713,6 +682,17 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
           className={`mx-3 mt-4 flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold ${pathname === '/admin' ? 'bg-brand-600 text-white' : 'hover:bg-slate-800 text-slate-200'}`}>
           <Boxes className="h-4 w-4" /> Inicio
         </Link>
+        <label className="mx-3 mt-3 flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800/70 px-3 text-slate-400 focus-within:border-brand-400 focus-within:text-slate-200">
+          <Search className="h-4 w-4 shrink-0" />
+          <span className="sr-only">Buscar módulos o pantallas del menú</span>
+          <input
+            type="search"
+            value={navigationSearch}
+            onChange={event => setNavigationSearch(event.target.value)}
+            placeholder="Buscar en el menú…"
+            className="w-full min-w-0 bg-transparent py-2 text-xs text-white placeholder:text-slate-400 outline-none"
+          />
+        </label>
         {/* Navigation Content */}
         <div className="flex-1 overflow-y-auto custom-sidebar-scrollbar px-3 py-4 space-y-6">
           {!isRoleLoaded ? (
@@ -724,44 +704,22 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
               </div>
             </div>
           ) : (
-            visibleModules.map((section, sIdx) => {
+            filteredModules.map(section => {
               const visibleLinks = section.links;
-
-              if (visibleLinks.length === 0) return null;
-
-              const collapsed = isSectionCollapsed(section.title, visibleLinks);
               const hasActive = visibleLinks.some(link => isActive(link.href));
 
               return (
-                <div key={sIdx} className="space-y-1">
-                  <button
-                    type="button"
-                    onClick={() => toggleSection(section.title, collapsed)}
-                    className="w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-[10px] font-bold text-slate-400 uppercase tracking-wider hover:text-slate-200 hover:bg-slate-800/50 transition-colors group cursor-pointer text-left select-none"
-                    aria-expanded={!collapsed}
-                  >
+                <div key={section.id} className="space-y-1">
+                  <div className="flex items-center justify-between px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                     <span className="flex items-center gap-1.5 truncate">
                       {section.title}
                       {hasActive && (
                         <span className="w-1.5 h-1.5 rounded-full bg-brand-400 shrink-0" title="Página activa en este módulo" />
                       )}
                     </span>
-                    <div className="flex items-center gap-1.5 shrink-0 ml-1">
-                      {collapsed && (
-                        <span className="text-[9px] font-bold text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded group-hover:text-slate-300">
-                          {visibleLinks.length}
-                        </span>
-                      )}
-                      <ChevronDown 
-                        className={`w-3.5 h-3.5 text-slate-500 group-hover:text-slate-300 transition-transform duration-200 ${
-                          collapsed ? '-rotate-90' : 'rotate-0'
-                        }`} 
-                      />
-                    </div>
-                  </button>
+                  </div>
 
-                  {!collapsed && (
-                    <div className="space-y-0.5 animate-in fade-in-50 duration-150">
+                    <div className="space-y-0.5">
                       {visibleLinks.map(link => {
                         const Icon = link.icon;
                         const active = isActive(link.href);
@@ -791,10 +749,12 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
                         );
                       })}
                     </div>
-                  )}
                 </div>
               );
             })
+          )}
+          {isRoleLoaded && filteredModules.length === 0 && (
+            <p role="status" className="px-3 py-4 text-xs text-slate-400">No encontramos opciones para “{navigationSearch}”.</p>
           )}
 
         </div>
