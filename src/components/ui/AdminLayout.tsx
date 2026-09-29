@@ -437,6 +437,7 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
     // Incidencias checks its independent capabilities in its own session/API.
     if (pathname === '/admin') return;
     if (pathname === '/incidencias' || pathname.startsWith('/incidencias/')) return;
+    if (pathname === '/desarrollos-futuros') return;
     const search = typeof window !== 'undefined' ? window.location.search : '';
     if (pathname === '/admin/finanzas/eerr' && !isAdminRole) {
       router.replace(hasRole('administracion') ? '/admin/finanzas' : '/vendedores');
@@ -580,7 +581,7 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
     window.location.href = "/admin";
   };
 
-  const visibleModules = visibleErpModules({ roles: userRoles, restrictedSeller: isRestrictedSeller, canUseWholesale });
+  const visibleModules = visibleErpModules({ roles: userRoles, restrictedSeller: isRestrictedSeller, canUseWholesale, userId: isRoleLoaded ? cachedIdentityUserId : null });
   const navigationTerm = normalizeNavigationSearch(navigationSearch.trim());
   const filteredModules = visibleModules.map(section => ({
     ...section,

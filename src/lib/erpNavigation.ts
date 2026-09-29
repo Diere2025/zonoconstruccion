@@ -1,5 +1,5 @@
 import type { ComponentType } from 'react';
-import { AlertTriangle, BarChart3, BookOpen, Boxes, Calculator, ClipboardCheck, ClipboardList, Clock, Coins, Database, Factory, FileSpreadsheet, FileText, Layers, Link2, Map, Package, PackageCheck, PlusCircle, Printer, RefreshCw, Settings, ShieldCheck, ShoppingBag, ShoppingCart, Target, TrendingUp, Truck, Upload, Users, Wallet } from 'lucide-react';
+import { AlertTriangle, BarChart3, BookOpen, Boxes, Calculator, ClipboardCheck, ClipboardList, Clock, Coins, Database, Factory, FileSpreadsheet, FileText, Layers, Lightbulb, Link2, Map, Package, PackageCheck, PlusCircle, Printer, RefreshCw, Settings, ShieldCheck, ShoppingBag, ShoppingCart, Target, TrendingUp, Truck, Upload, Users, Wallet } from 'lucide-react';
 
 export type UserRole = 'seller' | 'admin' | 'logistica' | 'fletero' | 'administracion' | 'compras';
 export interface ErpLink {
@@ -10,6 +10,7 @@ export interface ErpLink {
   adminOnly?: boolean;
   sellerOnly?: boolean;
   allowedRoles?: UserRole[];
+  userOnly?: string;
 }
 export interface ErpModule {
   id: string;
@@ -22,6 +23,7 @@ export interface NavigationIdentity {
   roles: UserRole[];
   restrictedSeller: boolean;
   canUseWholesale: boolean;
+  userId?: string | null;
 }
 
 export const erpModules: ErpModule[] = [
@@ -111,16 +113,21 @@ export const erpModules: ErpModule[] = [
     { id: "soporte-4", name: "Configuración General", href: "/admin/ajustes", icon: Settings, adminOnly: true },
     { id: "soporte-5", name: "Sincronizar Planillas", href: "/admin/importar-pedidos", icon: Upload, adminOnly: true },
   ] },
+  { id: 'desarrollos-futuros', title: 'Desarrollos futuros', description: 'Ideas y planes de evolución del ERP.', icon: Lightbulb, links: [
+    { id: 'desarrollos-futuros-1', name: 'Documentos de planificación', href: '/desarrollos-futuros', icon: FileText, userOnly: '381df0d1-183f-4ccb-aaf2-8147c76159a9' },
+  ] },
 ];
 
 // One visibility policy for both the sidebar and the home screen.
 export function visibleErpModules(identity: NavigationIdentity): ErpModule[] {
-  const { roles, restrictedSeller, canUseWholesale } = identity;
+  const { roles, restrictedSeller, canUseWholesale, userId } = identity;
   const admin = roles.includes('admin');
   const specialized = !admin && !roles.includes('seller') && roles.some(role =>
     ['logistica', 'fletero', 'administracion', 'compras'].includes(role));
   return erpModules.map(module => ({ ...module, links: module.links.filter(link => {
+    if (link.userOnly && link.userOnly !== userId) return false;
     if (link.href === '/incidencias') return true;
+    if (link.href === '/desarrollos-futuros') return true;
     if (specialized) return Boolean(link.allowedRoles?.some(role => roles.includes(role)));
     if (restrictedSeller && !admin) {
       const wholesale = canUseWholesale && [
