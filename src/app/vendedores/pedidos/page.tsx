@@ -72,6 +72,8 @@ import { calculateCascadingDiscounts } from "@/lib/orderDiscounts";
 
 const requestFormData = createAuthenticatedRequester(supabase);
 const ANABEL_SELLER_ID = '9876203c-8e16-48db-958e-37c54441fd9b';
+const PICKUP_ADDRESS_ID = 'retiro_deposito_fabrica';
+const PICKUP_LABEL = 'Retiro en depósito/fábrica';
 const normalizedClientPhone = (value: string) => {
   const digits = value.replace(/\D/g, '');
   if (digits.startsWith('549') && digits.length >= 10) return digits.slice(3);
@@ -1272,6 +1274,7 @@ export default function PedidosPage() {
   const [appliedWholesaleDiscountLabel, setAppliedWholesaleDiscountLabel] = useState("");
   const isNewClient = !selectedClientId;
   const [selectedAddressId, setSelectedAddressId] = useState("");
+  const manualAddressClientIdRef = useRef('');
   const [clientSearchQuery, setClientSearchQuery] = useState("");
   const [debouncedClientSearch, setDebouncedClientSearch] = useState("");
   const [debouncedOrderSearch, setDebouncedOrderSearch] = useState("");
@@ -1645,16 +1648,19 @@ export default function PedidosPage() {
     const selected = localities.find(l => l.id === localidadId);
     if (selected) {
       setLocalitySearch(selected.name);
+    } else if (selectedAddressId === PICKUP_ADDRESS_ID) {
+      setLocalitySearch('Depósito');
     } else {
       setLocalitySearch("");
     }
-  }, [localidadId, localities]);
+  }, [localidadId, localities, selectedAddressId]);
 
   const [direccion, setDireccion] = useState("");
   const [aclaraciones, setAclaraciones] = useState("");
   const [linkMaps, setLinkMaps] = useState("");
   
   const [flete, setFlete] = useState("");
+  const isPickup = selectedAddressId === PICKUP_ADDRESS_ID;
 
   // New Locality Modal State
   const [isAddLocalityModalOpen, setIsAddLocalityModalOpen] = useState(false);
@@ -1736,7 +1742,7 @@ export default function PedidosPage() {
     if (!selectedLocality) return;
     lastAutoLocalityIdRef.current = localidadId;
     const deliveryTime = selectedLocality.zones?.delivery_times;
-    setFlete(deliveryTime?.name || "");
+    if (!isPickup) setFlete(deliveryTime?.name || "");
     const isRegular = deliveryTimes.find(dt => dt.name === deliveryTime?.name)?.category === 'Regular'
       || deliveryTime?.name === 'Regular';
     const deliveryDays = isRegular ? [1, 2, 3, 4, 5, 6] : deliveryTime?.delivery_days;
@@ -1752,7 +1758,7 @@ export default function PedidosPage() {
       : initialDate);
     // La fecha del pedido y la configuración cargada después no deben reescribir ajustes manuales.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [localidadId, localities]);
+  }, [localidadId, localities, isPickup]);
 
   const [paymentType, setPaymentType] = useState<'efectivo' | 'tarjeta'>('efectivo');
   const [cardInstallments, setCardInstallments] = useState<number>(1);
@@ -3006,6 +3012,7 @@ export default function PedidosPage() {
   useEffect(() => {
     async function fetchAddresses() {
       if (!selectedClientId) {
+        manualAddressClientIdRef.current = '';
         lastRetailAutofillClientIdRef.current = '';
         setClientAddresses([]);
         setAppliedWholesaleDiscountLabel("");
@@ -3086,6 +3093,8 @@ export default function PedidosPage() {
       
       if (data) {
         setClientAddresses(data);
+        // Una carga tardía de direcciones no debe pisar el retiro elegido a mano.
+        if (manualAddressClientIdRef.current === selectedClientId) return;
         // Auto-select principal, default or queried address
         if (data.length > 0) {
           let selectedAddress = data[0];
@@ -3126,13 +3135,28 @@ export default function PedidosPage() {
 
   // Handle Address change
   const handleAddressChange = (addressId: string) => {
+    manualAddressClientIdRef.current = selectedClientId;
     setSelectedAddressId(addressId);
+    if (addressId === PICKUP_ADDRESS_ID) {
+      const depot = localities.find(locality => locality.name.trim().toLowerCase() === 'depósito');
+      setIsLocalityDropdownOpen(false);
+      setDireccion(PICKUP_LABEL);
+      setLocalidadId(depot?.id || PICKUP_ADDRESS_ID);
+      setLocalitySearch('Depósito');
+      setLinkMaps('');
+      setAclaraciones('');
+      setFlete(PICKUP_LABEL);
+      setIsFreeShipping(true);
+      setShippingCost(0);
+      return;
+    }
     if (addressId === "nueva_direccion") {
       setDireccion("");
       setLocalidadId("");
       setLocalitySearch("");
       setLinkMaps("");
       setAclaraciones("");
+      setFlete("");
       return;
     }
     const addr = clientAddresses.find(a => a.id === addressId);
@@ -3147,6 +3171,7 @@ export default function PedidosPage() {
       }
       setLinkMaps(addr.map_link || "");
       setAclaraciones(addr.delivery_notes || "");
+      setFlete(loc?.zones?.delivery_times?.name || "");
     }
   };
 
@@ -3421,7 +3446,7 @@ export default function PedidosPage() {
       });
 
       const mappedItems: OrderItem[] = (itemsData || []).map(item => {
-        const prod = products.find(p => p.id === item.product_id);
+        const prod = products.find(p => p.id === item.product_id) || allProducts.find(p => p.id === item.product_id);
         const isIncludedZero = item.unit_price === 0;
         const basePrice = isIncludedZero ? 0 : (prod?.price || item.unit_price);
         const discountType = (item.discount_percentage && item.discount_percentage > 0 && !isIncludedZero) ? 'percentage' : undefined;
@@ -3505,7 +3530,9 @@ export default function PedidosPage() {
       }
       
       // 4. Set address and shipping details
-      if (order.shipping_address_id) {
+      if (order.locality === 'Depósito' && order.freight_type === PICKUP_LABEL) {
+        setSelectedAddressId(PICKUP_ADDRESS_ID);
+      } else if (order.shipping_address_id) {
         setSelectedAddressId(order.shipping_address_id);
       } else {
         setSelectedAddressId("nueva_direccion");
@@ -4039,7 +4066,7 @@ export default function PedidosPage() {
       client_phone: newClientPhones[0] || "",
       client_phone_secondary: newClientPhones[1] || "",
       address: direccion || "",
-      locality: locObj?.name || "",
+      locality: isPickup ? 'Depósito' : locObj?.name || "",
       zone_name: locObj?.zones?.name || "",
       google_maps_link: linkMaps || "",
       whaticket_link: whaticketLink || "",
@@ -4701,7 +4728,7 @@ export default function PedidosPage() {
   };
 
   const subtotal = Math.max(0, itemsGrossSubtotal - orderDiscountAmount);
-  const shippingAmount = isFreeShipping ? 0 : shippingCost;
+  const shippingAmount = isPickup || isFreeShipping ? 0 : shippingCost;
 
   const orderBaseAmount = Math.max(0, subtotal + shippingAmount);
 
@@ -5006,7 +5033,7 @@ export default function PedidosPage() {
 
   const openOrderReview = () => {
     if (editingOrderId) {
-      const locName = localities.find(l => l.id === localidadId)?.name || "";
+      const locName = isPickup ? 'Depósito' : localities.find(l => l.id === localidadId)?.name || "";
       const selectedPayMethodName = dbPaymentMethods.find(m => m.id === paymentsList[0]?.payment_method_id)?.name || 'Efectivo';
       const payStatusName = paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? 'Señado' : 'Contra Entrega');
       const diffs = computeOrderDiff(originalOrderSnapshot, {
@@ -5043,7 +5070,7 @@ export default function PedidosPage() {
       alert("Seleccioná un cliente existente o registrá uno nuevo.");
       return;
     }
-    if (!localidadId) {
+    if (!localidadId && !isPickup) {
       alert("Seleccioná la localidad de entrega.");
       return;
     }
@@ -5116,7 +5143,7 @@ export default function PedidosPage() {
       }
 
       let finalClientId = selectedClientId;
-      let finalAddressId = selectedAddressId;
+      let finalAddressId: string | null = isPickup ? null : selectedAddressId;
       let addressSnapshot: any = null;
 
       // 1. Si es nuevo cliente, registrar primero en base de datos
@@ -5159,6 +5186,9 @@ export default function PedidosPage() {
           map_link: newAddr.map_link,
           delivery_notes: newAddr.delivery_notes
         };
+      } else if (isPickup) {
+        // El retiro pertenece al pedido; no se agrega a las direcciones del cliente.
+        finalAddressId = null;
       } else if (selectedAddressId === "nueva_direccion" || (() => {
         const saved = clientAddresses.find(a => a.id === selectedAddressId);
         return !!saved && (
@@ -5206,7 +5236,7 @@ export default function PedidosPage() {
       }
 
       // Obtener nombre de localidad para retro-compatibilidad
-      const locName = localities.find(l => l.id === localidadId)?.name || "";
+      const locName = isPickup ? 'Depósito' : localities.find(l => l.id === localidadId)?.name || "";
 
       // 2. Crear o Actualizar Pedido de Venta
       let orderData: any = null;
@@ -6533,6 +6563,7 @@ export default function PedidosPage() {
                           {clientAddresses.map(a => (
                             <option key={a.id} value={a.id}>{a.alias} - {a.full_address}</option>
                           ))}
+                          <option value={PICKUP_ADDRESS_ID}>{PICKUP_LABEL}</option>
                           <option value="nueva_direccion">+ Cargar otra dirección (Manual)</option>
                         </select>
                       </div>
@@ -6713,9 +6744,16 @@ export default function PedidosPage() {
             {/* Ubicación de Entrega */}
             <div className="space-y-4 bg-slate-50/90 p-4 rounded-xl border border-slate-200/95">
               <h3 className="flex items-center gap-1.5 font-black text-slate-800 border-b border-slate-200/60 pb-1.5 text-xs uppercase tracking-wider">
-                <MapPin className="w-4 h-4 text-brand-500" /> Destino de Reparto
+                <MapPin className="w-4 h-4 text-brand-500" /> {isPickup ? 'Lugar de retiro' : 'Destino de Reparto'}
               </h3>
               <div className="space-y-3">
+                {isPickup ? (
+                  <div className="space-y-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                    <p className="text-xs font-bold text-emerald-800">{PICKUP_LABEL}</p>
+                    <p className="text-[11px] text-emerald-700">Este pedido se retira en depósito. La dirección guardada del cliente se conserva para futuros envíos.</p>
+                    <textarea value={deliveryDetail} onChange={e => setDeliveryDetail(e.target.value)} placeholder="Indicaciones para el retiro (opcional)" className="w-full rounded-lg border border-emerald-200 bg-white p-2 text-xs outline-none" />
+                  </div>
+                ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div className="space-y-1 relative">
                     <div className="flex items-center justify-between">
@@ -6933,6 +6971,7 @@ export default function PedidosPage() {
                     />
                   </div>
                 </div>
+                )}
               </div>
             </div>
 
@@ -6984,7 +7023,11 @@ export default function PedidosPage() {
                   <Clock className="w-4 h-4 text-brand-500" /> Tipo de Entrega
                 </h3>
                 <div className="grid grid-cols-2 gap-2">
-                  {deliveryTimes.length === 0 ? (
+                  {isPickup ? (
+                    <div className="col-span-2 flex h-[50px] items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-3 text-xs font-bold text-emerald-800">
+                      <Check className="h-4 w-4" /> {PICKUP_LABEL}
+                    </div>
+                  ) : deliveryTimes.length === 0 ? (
                     <p className="text-[10px] text-slate-400 font-bold py-2 col-span-2 text-center">Cargando opciones...</p>
                   ) : (
                     (() => {
@@ -7731,7 +7774,7 @@ export default function PedidosPage() {
                   )}
                   
                   {/* Costo de Envío / Flete */}
-                  <div className="flex flex-col gap-1.5 p-2.5 bg-white rounded-xl border border-slate-200">
+                  {!isPickup && <div className="flex flex-col gap-1.5 p-2.5 bg-white rounded-xl border border-slate-200">
                     <div className="flex items-center justify-between">
                       <span className="text-[9px] font-black text-slate-600 uppercase tracking-wide">Costo de Flete</span>
                       <label className="flex items-center gap-1.5 cursor-pointer select-none">
@@ -7759,7 +7802,7 @@ export default function PedidosPage() {
                         />
                       </div>
                     )}
-                  </div>
+                  </div>}
 
                   {/* Factura con IVA 21% */}
                   <div className="bg-white rounded-xl border border-slate-200 p-2.5 space-y-1.5 shadow-2xs">
@@ -9728,7 +9771,7 @@ export default function PedidosPage() {
                     )}
                   </h2>
                   <p className="text-xs font-medium text-slate-500">
-                    {isNewClient ? newClientName : cliente} • {localities.find(l => l.id === localidadId)?.name || 'Sin localidad'}
+                    {isNewClient ? newClientName : cliente} • {isPickup ? 'Depósito' : localities.find(l => l.id === localidadId)?.name || 'Sin localidad'}
                   </p>
                 </div>
               </div>
@@ -10837,6 +10880,7 @@ export default function PedidosPage() {
         onClose={() => setIsVisualModalOpen(false)}
         products={products}
         orderItems={orderItems}
+        retailProducts={allProducts}
         onAddProduct={addItem}
         onAddProducts={addItems}
         onUpdateQuantity={updateQuantity}

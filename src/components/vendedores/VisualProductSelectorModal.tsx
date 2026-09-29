@@ -42,6 +42,7 @@ import { supabase } from "@/lib/supabase";
 import { evaluateDiscountSuggestions, DiscountSuggestion } from "@/lib/discountRules";
 import { formatPrice, normalizeText } from "@/lib/utils";
 import VisualSelectorQuickProducts from './VisualSelectorQuickProducts';
+import RetailProductPicker from './RetailProductPicker';
 
 export interface VisualOrderItem extends Product {
   quantity: number;
@@ -58,6 +59,8 @@ export interface VisualProductSelectorModalProps {
   isOpen: boolean;
   onClose: () => void;
   products: Product[];
+  retailProducts?: Product[];
+  onAddRetailProduct?: (product: Product) => void;
   orderItems?: VisualOrderItem[];
   onAddProduct: (product: Product) => void;
   onAddProducts?: (products: Product[]) => void;
@@ -115,6 +118,8 @@ export default function VisualProductSelectorModal({
   isOpen,
   onClose,
   products,
+  retailProducts,
+  onAddRetailProduct,
   orderItems = [],
   onAddProduct,
   onAddProducts,
@@ -144,6 +149,7 @@ export default function VisualProductSelectorModal({
 
   // Search & Navigation
   const [searchQuery, setSearchQuery] = useState("");
+  const [catalogSource, setCatalogSource] = useState<'mayorista' | 'minorista'>('mayorista');
   const [mobileTab, setMobileTab] = useState<'catalog' | 'cart'>('catalog');
 
   // Cascade Navigation State
@@ -256,6 +262,7 @@ export default function VisualProductSelectorModal({
 
   const handleClose = () => {
     handleReset();
+    setCatalogSource('mayorista');
     onClose();
   };
 
@@ -718,6 +725,22 @@ export default function VisualProductSelectorModal({
             mobileTab === 'cart' ? 'hidden lg:flex' : 'flex'
           }`}>
 
+            {isWholesaleContext && (
+              <div className="flex shrink-0 gap-2 border-b border-slate-200 p-3" aria-label="Origen de productos">
+                {(['mayorista', 'minorista'] as const).map(source => (
+                  <button key={source} type="button" aria-pressed={catalogSource === source} onClick={() => { handleReset(); setCatalogSource(source); }} className={`rounded-lg px-3 py-2 text-xs font-bold ${catalogSource === source ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+                    {source === 'mayorista' ? 'Lista mayorista' : 'Productos minoristas'}
+                  </button>
+                ))}
+              </div>
+            )}
+            {isWholesaleContext && catalogSource === 'minorista' ? (
+              <RetailProductPicker products={retailProducts} onAddProduct={product => {
+                (onAddRetailProduct || onAddProduct)(product);
+                setAddedFeedback(`Se agregó ${product.name}`);
+                setTimeout(() => setAddedFeedback(null), 2500);
+              }} />
+            ) : (<>
             {/* SEARCH BAR AT TOP OF LEFT COLUMN */}
             <div className="p-3.5 border-b border-slate-100 bg-slate-50/70 shrink-0">
               <div className="relative">
@@ -1490,6 +1513,7 @@ export default function VisualProductSelectorModal({
               </>
             )}
 
+            </>)}
             {/* Mobile Footer for Left Column */}
             <div className="lg:hidden p-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between shrink-0">
               <span className="text-xs font-bold text-slate-600">

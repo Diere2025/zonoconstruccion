@@ -52,6 +52,7 @@ interface QuoteCartItem {
   liters?: string;
   variant: "standard" | "ciego";
   allowsCiego: boolean;
+  catalogSource?: 'mayorista' | 'minorista';
   quantity: number;
   priceList: number;
   priceCorralon: number;
@@ -147,7 +148,8 @@ export default function PresupuestosMayoristaPage() {
         category: item.metadata?.category || '',
         liters: item.metadata?.liters,
         variant: item.variant === 'ciego' ? 'ciego' : 'standard',
-        allowsCiego: getWholesaleCatalogKind({ name: item.product_name, category: item.metadata?.category || '' }) === 'tank',
+        allowsCiego: item.metadata?.catalogSource !== 'minorista' && getWholesaleCatalogKind({ name: item.product_name, category: item.metadata?.category || '' }) === 'tank',
+        catalogSource: item.metadata?.catalogSource,
         quantity: Number(item.quantity),
         priceList: Number(item.list_unit_price),
         priceCorralon: Number(item.list_unit_price),
@@ -441,6 +443,27 @@ export default function PresupuestosMayoristaPage() {
     selectedProducts.forEach(handleAddVisualProduct);
   };
 
+  const handleAddRetailProduct = (product: Product) => {
+    setCartItems(previous => {
+      const existing = previous.find(item => item.productId === product.id && item.variant === 'standard');
+      if (product.is_discontinued && (existing?.quantity || 0) + 1 > Number(product.stock_current || 0)) return previous;
+      if (existing) return previous.map(item => item.id === existing.id ? { ...item, quantity: item.quantity + 1 } : item);
+      return [...previous, {
+        id: `${product.id}-minorista-${Date.now()}`,
+        productId: product.id,
+        name: product.name,
+        category: product.category,
+        variant: 'standard',
+        allowsCiego: false,
+        catalogSource: 'minorista',
+        quantity: 1,
+        priceList: Number(product.price),
+        priceCorralon: Number(product.price),
+        priceDistributor: Number(product.price)
+      }];
+    });
+  };
+
   const handleUpdateCustomPrice = (cartItemId: string, price: number) => {
     setCartItems(previous => previous.map(item => item.id === cartItemId
       ? { ...item, customPrice: Math.max(0, price) }
@@ -722,7 +745,7 @@ export default function PresupuestosMayoristaPage() {
         ? Math.round((1 - item.effectiveUnitPrice / item.priceList) * 10000) / 100
         : 0,
       subtotal: item.subtotal,
-      metadata: { category: item.category, liters: item.liters, discountType: item.discountType, discountValue: item.discountValue }
+      metadata: { category: item.category, liters: item.liters, discountType: item.discountType, discountValue: item.discountValue, catalogSource: item.catalogSource }
     }))
   });
 
@@ -1093,6 +1116,7 @@ export default function PresupuestosMayoristaPage() {
         products={visualProducts}
         orderItems={visualOrderItems}
         onAddProduct={handleAddVisualProduct}
+        onAddRetailProduct={handleAddRetailProduct}
         onAddProducts={handleAddVisualProducts}
         onUpdateQuantity={handleUpdateQuantity}
         onUpdateCustomPrice={handleUpdateCustomPrice}
