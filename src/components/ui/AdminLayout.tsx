@@ -448,6 +448,7 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
       const query = search;
       const isWholesaleRoute =
         pathname === '/vendedores/presupuestos-mayorista' ||
+        (pathname === '/vendedores/cotizaciones' && new URLSearchParams(query).get('channel') === 'mayorista') ||
         (pathname === '/vendedores/clientes' && query.includes('client_type=mayoristas')) ||
         (pathname.startsWith('/vendedores/pedidos') && query.includes('client_type=mayoristas'));
       const isRestrictedRouteAllowed =

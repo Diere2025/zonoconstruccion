@@ -126,7 +126,8 @@ export function visibleErpModules(identity: NavigationIdentity): ErpModule[] {
       const wholesale = canUseWholesale && [
         '/vendedores/pedidos?tab=form&client_type=mayoristas',
         '/vendedores/pedidos?tab=list&list_type=todos&status=Todos&client_type=mayoristas',
-        '/vendedores/clientes?client_type=mayoristas', '/vendedores/presupuestos-mayorista'
+        '/vendedores/clientes?client_type=mayoristas', '/vendedores/presupuestos-mayorista',
+        '/vendedores/cotizaciones?channel=mayorista'
       ].includes(link.href);
       return wholesale || [
         '/vendedores', '/vendedores/presupuestos',
