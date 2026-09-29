@@ -59,15 +59,22 @@ async function handle(request: NextRequest, context: Context): Promise<NextRespo
                 if (filter)
                     query = query.eq(field, field.endsWith('_id') || field === 'created_by' ? uuid(filter) : filter);
             }
-            if (params.get('view') === 'unassigned')
+            const view = params.get('view') || 'pending';
+            if (view === 'pending')
+                query = params.get('mode') === 'manage'
+                    ? query.eq('assignee_id', user.id).in('status', ['new', 'in_progress'])
+                    : query.in('status', ['waiting_requester', 'waiting_validation']);
+            if (view === 'unassigned')
                 query = query.is('assignee_id', null).not('status', 'in', '(closed,cancelled)');
-            if (params.get('view') === 'assigned')
+            if (view === 'assigned')
                 query = query.eq('assignee_id', user.id).not('status', 'in', '(closed,cancelled)');
-            if (params.get('view') === 'action')
+            if (view === 'action')
                 query = query.in('status', ['waiting_requester', 'waiting_validation']);
-            if (params.get('view') === 'open')
+            if (view === 'all')
+                query = query.neq('status', 'closed');
+            if (view === 'open')
                 query = query.not('status', 'in', '(closed,cancelled)');
-            if (params.get('view') === 'closed')
+            if (view === 'closed')
                 query = query.eq('status', 'closed');
             const q = params.get('q')?.trim().slice(0, 160);
             if (q) {
