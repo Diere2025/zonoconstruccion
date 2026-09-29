@@ -199,8 +199,7 @@ export default function PresupuestosMayoristaPage() {
           const prods: WholesaleProduct[] = json.products
             .filter((p: any) =>
               p.defaultCommercialized !== false &&
-              p.isCommercialized !== false &&
-              getWholesaleCatalogKind(p)
+              p.isCommercialized !== false
             )
             .map((p: any) => {
               const baseCost = p.costBaseReal || 50000;

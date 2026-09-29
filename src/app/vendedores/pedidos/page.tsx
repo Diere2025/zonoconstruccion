@@ -68,7 +68,6 @@ import { calculateBulkPrices } from "@/lib/erp/prices";
 import { createBulkStockTransactions } from "@/lib/erp/stock";
 import { evaluateDiscountSuggestions, DiscountSuggestion } from "@/lib/discountRules";
 import { buildSheetOrderItems, normalizeProductNameForSheet } from "@/lib/googleSheets";
-import { getWholesaleCatalogKind } from "@/lib/visualSelectorConfig";
 import { calculateCascadingDiscounts } from "@/lib/orderDiscounts";
 
 const requestFormData = createAuthenticatedRequester(supabase);
@@ -1492,9 +1491,10 @@ export default function PedidosPage() {
         // su fila exacta (con otro precio) cuando se procesaba después.
         const exactProductByWholesaleIndex = new Map<number, Product>();
         const reservedExactProductIds = new Set<string>();
-        const wholesaleTankCatalog = data.products.filter(wholesale => getWholesaleCatalogKind(wholesale));
+        // The endpoint already returns only products enabled in the published list.
+        const wholesaleCatalog = data.products;
 
-        wholesaleTankCatalog.forEach((wholesale, index) => {
+        wholesaleCatalog.forEach((wholesale, index) => {
           const wholesaleName = normalizeText(wholesale.name || '').trim();
           if (!wholesaleName) return;
           const exactProduct = allProducts.find((product) => {
@@ -1509,7 +1509,7 @@ export default function PedidosPage() {
         });
 
         const usedProductIds = new Set<string>();
-        const matchedProducts = wholesaleTankCatalog.flatMap((wholesale, wholesaleIndex) => {
+        const matchedProducts = wholesaleCatalog.flatMap((wholesale, wholesaleIndex) => {
           const wholesaleTokens = getTokens(wholesale.name || '');
           const wholesaleText = wholesaleTokens.join(' ');
           const wholesaleCapacity = wholesaleTokens.find((token: string) => /^\d{2,4}l$/.test(token));

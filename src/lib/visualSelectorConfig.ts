@@ -137,7 +137,7 @@ type WholesaleCatalogProduct = Pick<Product, 'name'> & Partial<Pick<Product, 'ca
 export type WholesaleCatalogKind = 'tank' | 'accessory' | 'sanitation';
 
 /**
- * Include only product families published in the wholesale price list.
+ * Classify known visual families. List membership is determined by the published list.
  */
 export function getWholesaleCatalogKind(product: WholesaleCatalogProduct): WholesaleCatalogKind | null {
   const text = `${product.name || ''} ${product.sku || ''} ${product.category || ''}`
@@ -861,7 +861,7 @@ export function generateDefaultVisualConfig(products: Product[]): VisualCatalogC
 }
 
 export function generateWholesaleVisualConfig(products: Product[]): VisualCatalogConfig {
-  const allowedProducts = products.filter(product => getWholesaleCatalogKind(product));
+  const allowedProducts = products;
   const defaultConfig = generateDefaultVisualConfig(allowedProducts);
   const tankFamily = defaultConfig.families.find(family => family.id === 'tanques');
 
@@ -994,6 +994,34 @@ export function generateWholesaleVisualConfig(products: Product[]): VisualCatalo
       imageUrl: accessoryProducts.find(product => product.image_url)?.image_url,
       isActive: true,
       subgroups: accessorySubgroups
+    });
+  }
+
+  const assignedProductIds = new Set(
+    families.flatMap(family => family.subgroups.flatMap(subgroup => subgroup.items.map(item => item.productId)))
+  );
+  const otherProducts = allowedProducts.filter(product => !assignedProductIds.has(product.id));
+  if (otherProducts.length > 0) {
+    families.push({
+      id: 'otros_mayorista',
+      name: 'Otros Productos',
+      description: 'Otros productos publicados en la lista mayorista',
+      imageUrl: otherProducts.find(product => product.image_url)?.image_url,
+      isActive: true,
+      subgroups: [{
+        id: 'otros_mayorista_productos',
+        name: 'Otros Productos',
+        isActive: true,
+        itemsViewMode: 'list',
+        items: otherProducts.map(product => ({
+          id: `item_${product.id}`,
+          label: product.name,
+          description: product.name,
+          imageUrl: product.image_url,
+          isActive: true,
+          productId: product.id
+        }))
+      }]
     });
   }
 
