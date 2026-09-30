@@ -308,10 +308,10 @@ export async function POST(request: Request) {
     dbLocalities.forEach(r => localitiesMap.set(normalizeLocalityFuzzy(r.name), r.id));
 
     const advSourcesMap = new Map();
-    dbAdvSources.forEach(r => advSourcesMap.set(normalizeText(normalizePaymentMethodForSheet(r.name)), r.id));
+    dbAdvSources.forEach(r => advSourcesMap.set(normalizeText(r.name), r.id));
 
     const orderMediumsMap = new Map();
-    dbOrderMediums.forEach(r => orderMediumsMap.set(normalizeText(normalizePaymentMethodForSheet(r.name)), r.id));
+    dbOrderMediums.forEach(r => orderMediumsMap.set(normalizeText(r.name), r.id));
 
     const payMethodsMap = new Map();
     dbPaymentMethods.forEach(r => payMethodsMap.set(normalizeText(normalizePaymentMethodForSheet(r.name)), r));

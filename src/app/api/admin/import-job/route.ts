@@ -468,10 +468,10 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
     (localitiesRes.data || []).forEach(r => localitiesMap.set(normalizeLocalityFuzzy(r.name), r.id));
 
     const advSourcesMap = new Map();
-    advertisingSources.forEach(r => advSourcesMap.set(normalizeText(normalizePaymentMethodForSheet(r.name)), r.id));
+    advertisingSources.forEach(r => advSourcesMap.set(normalizeText(r.name), r.id));
 
     const orderMediumsMap = new Map();
-    (orderMediumsRes.data || []).forEach(r => orderMediumsMap.set(normalizeText(normalizePaymentMethodForSheet(r.name)), r.id));
+    (orderMediumsRes.data || []).forEach(r => orderMediumsMap.set(normalizeText(r.name), r.id));
 
     const payMethodsMap = new Map();
     (paymentMethodsRes.data || []).forEach(r => payMethodsMap.set(normalizeText(normalizePaymentMethodForSheet(r.name)), r.id));
