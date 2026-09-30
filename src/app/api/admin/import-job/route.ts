@@ -1,3 +1,4 @@
+import { cuotaSimpleInstallments, isRetiredPaymentMethod } from "@/lib/cuotaSimple";
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 import { NextResponse, after } from 'next/server';
@@ -375,7 +376,7 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
               installments = parseInt(pwMatch[1], 10);
               name = `Payway${installments} (Sept-26)`;
             } else if (name.toLowerCase().includes("cuota simple")) {
-              installments = 6;
+              installments = cuotaSimpleInstallments(name) || 6;
             } else if (name.match(/(\d+)\s*cuota/i)) {
               installments = parseInt(name.match(/(\d+)\s*cuota/i)![1], 10);
             }
@@ -390,7 +391,7 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
                 await supabaseAdmin.from('payment_methods').update({ surcharge_percentage: surchargePercentage, installments }).eq('id', existing.id);
               }
             } else {
-              await supabaseAdmin.from('payment_methods').insert({ name, surcharge_percentage: surchargePercentage, installments, is_active: true, is_default: false });
+              await supabaseAdmin.from('payment_methods').insert({ name, surcharge_percentage: surchargePercentage, installments, is_active: !isRetiredPaymentMethod(name), is_default: false });
             }
           }
           await addLog("💳 Medios de pago y recargos sincronizados con éxito.");

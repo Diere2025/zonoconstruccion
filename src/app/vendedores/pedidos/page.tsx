@@ -1,5 +1,7 @@
 "use client";
 
+import { isRetiredPaymentMethod } from "@/lib/cuotaSimple";
+
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { 
   Calendar, 
@@ -1769,26 +1771,15 @@ export default function PedidosPage() {
 
   const activePaymentMethods = useMemo(() => {
     const seen = new Set<string>();
-    // Excluir opciones individuales de Payway para agruparlas bajo la opción principal "Payway"
     const nonPaywayList = (dbPaymentMethods || [])
       .filter(pm => pm.is_active !== false)
-      .filter(pm => !(pm.name || '').toLowerCase().includes('payway'))
+      .filter(pm => !isRetiredPaymentMethod(pm.name || ''))
       .filter(pm => {
         const key = (pm.name || '').trim().toLowerCase();
         if (!key || seen.has(key)) return false;
         seen.add(key);
         return true;
       });
-
-    const hasPayway = (dbPaymentMethods || []).some(pm => (pm.name || '').toLowerCase().includes('payway'));
-    if (hasPayway) {
-      nonPaywayList.push({
-        id: 'payway_group',
-        name: 'Payway',
-        surcharge_percentage: 0,
-        installments: 1
-      });
-    }
 
     return nonPaywayList.sort((a, b) => {
       const isCashA = a.id === "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3" || /efectivo|^contado$/i.test(a.name || "");
@@ -1799,18 +1790,6 @@ export default function PedidosPage() {
     });
   }, [dbPaymentMethods]);
 
-  const getPaywayMethodByInstallments = (inst: number) => {
-    return (
-      (dbPaymentMethods || []).find(m => (m.name || '').toLowerCase().includes('payway') && m.installments === inst) ||
-      (dbPaymentMethods || []).find(m => (m.name || '').toLowerCase().includes('payway'))
-    );
-  };
-
-  const isPaywayPaymentMethod = (methodId: string) => {
-    if (methodId === 'payway_group') return true;
-    const pm = (dbPaymentMethods || []).find(m => m.id === methodId);
-    return !!(pm && (pm.name || '').toLowerCase().includes('payway'));
-  };
   const [isFreeShipping, setIsFreeShipping] = useState(true);
   const [shippingCost, setShippingCost] = useState<number>(0);
   const [includeIVA, setIncludeIVA] = useState(false);
@@ -8048,23 +8027,9 @@ export default function PedidosPage() {
                         <div className="flex flex-col gap-1">
                           <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider">Medio de Pago</span>
                           <select
-                            value={isPaywayPaymentMethod(p.payment_method_id) ? 'payway_group' : p.payment_method_id}
+                            value={p.payment_method_id}
                             onChange={(e) => {
                               const val = e.target.value;
-                              if (val === 'payway_group') {
-                                const targetPm = getPaywayMethodByInstallments(1);
-                                setPaymentsList(prev => prev.map(item => {
-                                  if (item.id === p.id) {
-                                    return {
-                                      ...item,
-                                      payment_method_id: targetPm ? targetPm.id : val,
-                                      card_surcharge: targetPm ? targetPm.surcharge_percentage : 13.5,
-                                      card_installments: targetPm ? targetPm.installments : 1
-                                    };
-                                  }
-                                  return item;
-                                }));
-                              } else {
                                 const pm = dbPaymentMethods.find(m => m.id === val);
                                 setPaymentsList(prev => prev.map(item => {
                                   if (item.id === p.id) {
@@ -8077,7 +8042,6 @@ export default function PedidosPage() {
                                   }
                                   return item;
                                 }));
-                              }
                             }}
                             className="w-full px-2.5 py-1.5 text-xs font-bold border border-slate-200 rounded-lg outline-none bg-slate-50 text-slate-700 focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500"
                           >
@@ -8118,60 +8082,6 @@ export default function PedidosPage() {
                         </div>
                       </div>
 
-                      {/* Sub-selector de Planes de Cuotas Payway */}
-                      {isPaywayPaymentMethod(p.payment_method_id) && (
-                        <div className="bg-blue-50/70 p-2.5 rounded-lg border border-blue-200/80 flex flex-col gap-1.5">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[8.5px] font-black text-blue-900 uppercase tracking-wider">
-                              💳 Planes de Cuotas Payway
-                            </span>
-                            <span className="text-[8px] font-bold text-blue-600">
-                              Seleccioná el plan de cuotas y recargo
-                            </span>
-                          </div>
-                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-                            {[
-                              { inst: 1, sur: 13.5, label: "1 cuota", tag: "+13,5%" },
-                              { inst: 3, sur: 32.0, label: "3 cuotas", tag: "+32%" },
-                              { inst: 6, sur: 43.2, label: "6 cuotas", tag: "+43,2%" },
-                              { inst: 12, sur: 61.4, label: "12 cuotas", tag: "+61,4%" },
-                            ].map((plan) => {
-                              const isSelected = (p.card_installments === plan.inst && p.card_surcharge === plan.sur) || (!p.card_installments && plan.inst === 1);
-                              return (
-                                <button
-                                  key={plan.inst}
-                                  type="button"
-                                  onClick={() => {
-                                    const targetPm = getPaywayMethodByInstallments(plan.inst);
-                                    setPaymentsList(prev => prev.map(item => {
-                                      if (item.id === p.id) {
-                                        return {
-                                          ...item,
-                                          payment_method_id: targetPm ? targetPm.id : item.payment_method_id,
-                                          card_surcharge: plan.sur,
-                                          card_installments: plan.inst
-                                        };
-                                      }
-                                      return item;
-                                    }));
-                                  }}
-                                  className={`px-2 py-1.5 rounded-lg border text-center transition-all cursor-pointer ${
-                                    isSelected
-                                      ? "bg-blue-600 border-blue-600 text-white shadow-sm font-black ring-2 ring-blue-300"
-                                      : "bg-white border-blue-200 text-slate-700 hover:bg-blue-100/60 font-bold"
-                                  }`}
-                                >
-                                  <div className="text-[11px] leading-tight">{plan.label}</div>
-                                  <div className={`text-[9.5px] leading-tight mt-0.5 ${isSelected ? "text-blue-100" : "text-blue-600"}`}>
-                                    {plan.tag}
-                                  </div>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
-
                       {/* Configuración de Tarjeta Específica si corresponde */}
                       {p.isCard && (
                         <div className="bg-brand-50/50 p-2.5 rounded-lg border border-brand-100 flex flex-col sm:flex-row gap-3 items-center justify-between">
@@ -8188,16 +8098,7 @@ export default function PedidosPage() {
                                 className="w-12 px-1 py-0.5 text-[10px] font-bold border border-slate-200 rounded text-center outline-none bg-white text-slate-700"
                               />
                               <div className="flex items-center gap-1">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setPaymentsList(prev => prev.map(item => item.id === p.id ? { ...item, card_surcharge: 42 } : item));
-                                  }}
-                                  className={`px-1.5 py-0.5 text-[9px] font-bold rounded border transition-colors cursor-pointer ${p.card_surcharge === 42 ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
-                                  title="Aplicar recargo 42% (Cuota Simple)"
-                                >
-                                  42%
-                                </button>
+
                                 <button
                                   type="button"
                                   onClick={() => {

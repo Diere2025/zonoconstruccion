@@ -6,7 +6,7 @@ import { createClient, type User } from '@supabase/supabase-js';
 import { DEFAULT_ORDER_NOTE_RATES } from '@/lib/logisticsOrderNotes';
 import { categorizationSku, warehouseCategoryConfig, warehouseProductKey, WAREHOUSE_CATEGORY_SETTING_ID } from '@/lib/warehouseCategoryConfig';
 
-const SETTING_ID = 'logistics_payway_rates';
+import { CUOTA_SIMPLE_PLANS } from '@/lib/cuotaSimple';
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const knownAdminEmails = new Set(['diego.boveda@gmail.com', 'caroibarra.93@gmail.com']);
@@ -115,19 +115,8 @@ async function saveWarehouseCategories(request: NextRequest) {
 
 function validRates(value: unknown): value is number[] {
   return Array.isArray(value)
-    && value.length === 5
+    && value.length === CUOTA_SIMPLE_PLANS.length
     && value.every(rate => typeof rate === 'number' && Number.isFinite(rate) && rate >= 0 && rate <= 300);
-}
-
-function savedRates(value: unknown): number[] {
-  const stored = value && typeof value === 'object' && 'rates' in value ? value.rates : null;
-  if (Array.isArray(stored) && stored.length === 4) {
-    const migrated = [...stored, DEFAULT_ORDER_NOTE_RATES[4]];
-    if (validRates(migrated)) return migrated;
-  }
-  const rates = stored ?? [...DEFAULT_ORDER_NOTE_RATES];
-  if (!validRates(rates)) throw new Error('La configuración de cuotas guardada no es válida.');
-  return rates;
 }
 
 export async function GET(request: NextRequest) {
@@ -140,12 +129,14 @@ export async function GET(request: NextRequest) {
       console.warn('[NotaPedidoConfig] No se pudo verificar permiso de edición:', roleError);
       return false;
     });
-    const { data, error } = await client.from('site_settings').select('value').eq('id', SETTING_ID).maybeSingle();
+    const { data, error } = await client.from('payment_methods').select('name, surcharge_percentage')
+      .eq('is_active', true).in('name', CUOTA_SIMPLE_PLANS.map(plan => plan.name));
     if (error) throw error;
-    const saved = data?.value
-      ? (typeof data.value === 'string' ? JSON.parse(data.value) : data.value)
-      : null;
-    const rates = savedRates(saved);
+    const rates = CUOTA_SIMPLE_PLANS.map((plan, index) => {
+      const method = data?.find(method => method.name === plan.name);
+      return method ? Number(method.surcharge_percentage) : DEFAULT_ORDER_NOTE_RATES[index];
+    });
+    if (!validRates(rates)) throw new Error('La configuración de cuotas guardada no es válida.');
     const canEdit = await canEditPromise;
     return response({ rates, canEdit });
   } catch (error) {
@@ -163,15 +154,15 @@ export async function PUT(request: NextRequest) {
 
     const body = await request.json() as { rates?: unknown };
     if (!validRates(body.rates)) {
-      return response({ error: 'Ingresá cinco recargos válidos entre 0% y 300%.' }, 400);
+      return response({ error: 'Ingresá tres recargos válidos entre 0% y 300%.' }, 400);
     }
 
-    const { error } = await adminClient().from('site_settings').upsert({
-      id: SETTING_ID,
-      value: JSON.stringify({ rates: body.rates }),
-      updated_at: new Date().toISOString()
-    }, { onConflict: 'id' });
-    if (error) throw error;
+    const client = adminClient();
+    for (const [index, plan] of CUOTA_SIMPLE_PLANS.entries()) {
+      const { error } = await client.from('payment_methods').update({ surcharge_percentage: body.rates[index] })
+        .eq('name', plan.name).eq('is_active', true);
+      if (error) throw error;
+    }
     return response({ rates: body.rates, canEdit: true });
   } catch (error) {
     console.error('[NotaPedidoConfig] Error al guardar:', error);

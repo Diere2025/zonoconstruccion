@@ -1,4 +1,5 @@
 "use client";
+import { cuotaSimpleInstallments, isRetiredPaymentMethod } from "@/lib/cuotaSimple";
 
 import React, { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/Button";
@@ -312,7 +313,7 @@ export default function ImportarPedidosPage() {
                 installments = parseInt(pwMatch[1], 10);
                 name = `Payway${installments} (Sept-26)`;
               } else if (name.toLowerCase().includes("cuota simple")) {
-                installments = 6;
+                installments = cuotaSimpleInstallments(name) || 6;
               } else if (name.match(/(\d+)\s*cuota/i)) {
                 installments = parseInt(name.match(/(\d+)\s*cuota/i)![1], 10);
               }
@@ -328,7 +329,7 @@ export default function ImportarPedidosPage() {
                   if (error) throw error;
                 }
               } else {
-                const { error } = await supabase.from('payment_methods').insert({ name, surcharge_percentage: surchargePercentage, installments, is_active: true, is_default: false });
+                const { error } = await supabase.from('payment_methods').insert({ name, surcharge_percentage: surchargePercentage, installments, is_active: !isRetiredPaymentMethod(name), is_default: false });
                 if (error) throw error;
               }
             }

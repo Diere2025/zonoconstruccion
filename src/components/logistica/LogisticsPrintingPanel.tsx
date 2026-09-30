@@ -161,19 +161,19 @@ export default function LogisticsPrintingPanel() {
   const [warehousePrint, setWarehousePrint] = useState<{ orders: LogisticsPrintOrder[]; mode: 'separar' | 'separar-total' | 'cargar'; settings: OrderNoteSettings; categories: string[] } | null>(null);
   const [printCategories, setPrintCategories] = useState<string[]>(DEFAULT_PRINT_CATEGORIES);
   const [noteSettings, setNoteSettings] = useState<OrderNoteSettings>(emptyNoteSettings);
-  const [paywayStatus, setPaywayStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
-  const [paywayError, setPaywayError] = useState('');
-  const paywayRetryTimer = useRef<number | null>(null);
+  const [cuotaSimpleStatus, setCuotaSimpleStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [cuotaSimpleError, setCuotaSimpleError] = useState('');
+  const cuotaSimpleRetryTimer = useRef<number | null>(null);
   const [multipleDocumentWarnings, setMultipleDocumentWarnings] = useState<MultipleDocumentWarning[]>([]);
   const [showPrintWarning, setShowPrintWarning] = useState(false);
   const pendingPrintType = useRef<OutputType | null>(null);
   const processingVersion = useRef(0);
   const [tripWarning, setTripWarning] = useState<{ groups: OrderNoteGroup[]; printing: boolean } | null>(null);
 
-  const loadPaywayRates = useCallback(async (attempt = 0) => {
-    if (paywayRetryTimer.current !== null) window.clearTimeout(paywayRetryTimer.current);
-    paywayRetryTimer.current = null;
-    setPaywayStatus('loading');
+  const loadCuotaSimpleRates = useCallback(async (attempt = 0) => {
+    if (cuotaSimpleRetryTimer.current !== null) window.clearTimeout(cuotaSimpleRetryTimer.current);
+    cuotaSimpleRetryTimer.current = null;
+    setCuotaSimpleStatus('loading');
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) throw new Error('Iniciá sesión para consultar los recargos de cuotas.');
@@ -186,34 +186,34 @@ export default function LogisticsPrintingPanel() {
         if (refreshed.session?.access_token) response = await fetchRates(refreshed.session.access_token);
       }
       const payload = await response.json() as { rates?: number[]; canEdit?: boolean; error?: string };
-      if (!response.ok || !Array.isArray(payload.rates) || payload.rates.length !== 5) throw new Error(payload.error || 'No se pudieron cargar los recargos de cuotas.');
+      if (!response.ok || !Array.isArray(payload.rates) || payload.rates.length !== DEFAULT_ORDER_NOTE_RATES.length) throw new Error(payload.error || 'No se pudieron cargar los recargos de cuotas.');
       setNoteSettings(current => ({ ...current, posnetRates: payload.rates! }));
-      setPaywayError('');
-      setPaywayStatus('ready');
+      setCuotaSimpleError('');
+      setCuotaSimpleStatus('ready');
     } catch (loadError) {
       const message = loadError instanceof Error ? loadError.message : 'No se pudieron consultar las cuotas.';
       if (attempt < 2) {
-        paywayRetryTimer.current = window.setTimeout(() => void loadPaywayRates(attempt + 1), 1000 * (attempt + 1));
+        cuotaSimpleRetryTimer.current = window.setTimeout(() => void loadCuotaSimpleRates(attempt + 1), 1000 * (attempt + 1));
       } else {
-        setPaywayError(message);
-        setPaywayStatus('error');
+        setCuotaSimpleError(message);
+        setCuotaSimpleStatus('error');
       }
     }
   }, []);
 
   useEffect(() => {
-    if (paywayStatus === 'idle') void loadPaywayRates();
-  }, [paywayStatus, loadPaywayRates]);
+    if (cuotaSimpleStatus === 'idle') void loadCuotaSimpleRates();
+  }, [cuotaSimpleStatus, loadCuotaSimpleRates]);
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (session && (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION')) {
-        setPaywayStatus(current => current === 'error' ? 'idle' : current);
+        setCuotaSimpleStatus(current => current === 'error' ? 'idle' : current);
       }
     });
     return () => {
       subscription.unsubscribe();
-      if (paywayRetryTimer.current !== null) window.clearTimeout(paywayRetryTimer.current);
+      if (cuotaSimpleRetryTimer.current !== null) window.clearTimeout(cuotaSimpleRetryTimer.current);
     };
   }, []);
 
@@ -441,7 +441,7 @@ export default function LogisticsPrintingPanel() {
     if (type === 'remitos' && selectedRemittances.length === 0) return;
     if ((type === 'separar' || type === 'cargar') && !hasWarehouseProducts) return;
     if (type === 'separar-total' && !hasTotalWarehouseProducts) return;
-    if (type === 'nota-pedido' && paywayStatus !== 'ready') return;
+    if (type === 'nota-pedido' && cuotaSimpleStatus !== 'ready') return;
     if (['nota-pedido', 'separar', 'cargar'].includes(type) && selectedTripGroups.length > 1 && !tripsConfirmed) {
       pendingPrintType.current = type;
       setTripWarning({ groups: selectedTripGroups, printing: true });
@@ -481,7 +481,7 @@ export default function LogisticsPrintingPanel() {
     || (type === 'remitos' && selectedRemittances.length === 0)
     || ((type === 'separar' || type === 'cargar') && !hasWarehouseProducts)
     || (type === 'separar-total' && !hasTotalWarehouseProducts)
-    || (type === 'nota-pedido' && paywayStatus !== 'ready');
+    || (type === 'nota-pedido' && cuotaSimpleStatus !== 'ready');
 
   return (
     <div className="space-y-5">
@@ -510,7 +510,7 @@ export default function LogisticsPrintingPanel() {
         </div>
         {loading && <p className="mt-2 text-xs font-bold text-blue-700">Procesando los pedidos pegados…</p>}
         {gridDirty && !loading && <p className="mt-2 text-xs font-bold text-amber-700">{error ? 'No se pudo aplicar el pegado.' : 'Hay cambios en la grilla: pulsá Aplicar grilla antes de imprimir.'} {error && <button type="button" onClick={() => void processPastedRows(pastedRowsRef.current)} className="underline">Reintentar procesamiento</button>}</p>}
-        {paywayStatus === 'error' && <p className="mt-2 text-xs font-bold text-amber-700">No se pudo preparar la planilla de cobros: {paywayError} <button type="button" onClick={() => void loadPaywayRates()} className="underline">Reintentar</button></p>}
+        {cuotaSimpleStatus === 'error' && <p className="mt-2 text-xs font-bold text-amber-700">No se pudo preparar la planilla de cobros: {cuotaSimpleError} <button type="button" onClick={() => void loadCuotaSimpleRates()} className="underline">Reintentar</button></p>}
         <div className="mt-4 flex flex-col gap-3 border-t border-slate-200 pt-4 xl:flex-row xl:items-end xl:justify-between">
           <div>
             <h2 className="text-sm font-black text-slate-900">Formato de impresión</h2>
