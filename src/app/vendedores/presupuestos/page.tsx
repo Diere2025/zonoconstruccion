@@ -1216,30 +1216,6 @@ export default function PresupuestosPage() {
                       }} 
                       className="w-12 px-1.5 py-0.5 text-xs font-bold border border-slate-200 rounded text-center focus:ring-2 focus:ring-brand-500/10 outline-none bg-white text-red-500" 
                     />
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setPaymentType('tarjeta');
-                          setCardSurcharge(45.5);
-                          setCardInstallments(6);
-                        }}
-                        className={`px-1.5 py-0.5 text-[9px] font-bold rounded border transition-colors cursor-pointer ${cardSurcharge === 45.5 && paymentType === 'tarjeta' ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
-                        title="Aplicar 45,5% (Cuota Simple x6)"
-                      >45,5%</button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setPaymentType('tarjeta');
-                          setCardSurcharge(51);
-                          setCardInstallments(1);
-                        }}
-                        className={`px-1.5 py-0.5 text-[9px] font-bold rounded border transition-colors cursor-pointer ${cardSurcharge === 51 && paymentType === 'tarjeta' ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
-                        title="Aplicar 51% (Tarjeta Naranja)"
-                      >
-                        51%
-                      </button>
-                    </div>
                   </div>
                 </div>
                 
