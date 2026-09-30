@@ -246,7 +246,7 @@ export default function PostventaPage() {
       // Process payment methods
       if (pmsRes.data) {
         setPaymentMethods(pmsRes.data);
-        const cashMethod = pmsRes.data.find(p => p.name.toLowerCase().includes("efectivo"));
+        const cashMethod = pmsRes.data.find(p => /efectivo|^contado$/i.test(p.name || ""));
         if (cashMethod) setSelectedPaymentMethodId(cashMethod.id);
         else if (pmsRes.data.length > 0) setSelectedPaymentMethodId(pmsRes.data[0].id);
       }
@@ -492,7 +492,7 @@ export default function PostventaPage() {
     }
 
     // Cash register requirement check
-    const isCashPayment = selectedPaymentMethodId && paymentMethods.find(p => p.id === selectedPaymentMethodId)?.name.toLowerCase().includes("efectivo");
+    const isCashPayment = selectedPaymentMethodId && /efectivo|^contado$/i.test(paymentMethods.find(p => p.id === selectedPaymentMethodId)?.name || "");
     const needsCashRegister = (differenceAmount !== 0) && (settlementMethod === 'caja') && (isCashPayment || differenceAmount < 0);
     
     if (needsCashRegister && !openRegister) {

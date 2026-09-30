@@ -122,7 +122,7 @@ export default function CajaDiariaPage() {
       if (pms) {
         setPaymentMethods(pms);
         // Default to cash method if present
-        const cashMethod = pms.find(p => p.name.toLowerCase().includes("efectivo") || p.id === 'a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3');
+        const cashMethod = pms.find(p => /efectivo|^contado$/i.test(p.name || "") || p.id === 'a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3');
         if (cashMethod) setTxPaymentMethod(cashMethod.id);
         else if (pms.length > 0) setTxPaymentMethod(pms[0].id);
       }

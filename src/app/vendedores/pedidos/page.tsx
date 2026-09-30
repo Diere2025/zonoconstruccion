@@ -115,6 +115,7 @@ const WHOLESALE_ADVERTISING_SOURCES = [
 ];
 
 const RETAIL_ADVERTISING_SOURCES = [
+  "Meta - Escaleras",
   "Mayorista",
   "Meta - Tanques Aquafort",
   "Meta - Termotanques Universal",
@@ -1790,8 +1791,8 @@ export default function PedidosPage() {
     }
 
     return nonPaywayList.sort((a, b) => {
-      const isCashA = a.id === "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3" || (a.name || "").toLowerCase().includes("efectivo");
-      const isCashB = b.id === "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3" || (b.name || "").toLowerCase().includes("efectivo");
+      const isCashA = a.id === "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3" || /efectivo|^contado$/i.test(a.name || "");
+      const isCashB = b.id === "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3" || /efectivo|^contado$/i.test(b.name || "");
       if (isCashA && !isCashB) return -1;
       if (!isCashA && isCashB) return 1;
       return (a.name || "").localeCompare(b.name || "", undefined, { numeric: true });
@@ -1964,7 +1965,7 @@ export default function PedidosPage() {
     }
     return {
       id: "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3",
-      name: "Efectivo / Transferencia",
+      name: "Contado",
       surcharge_percentage: 0,
       installments: 1
     };
@@ -2938,7 +2939,7 @@ export default function PedidosPage() {
     if (dbPaymentMethods.length > 0 && !editingOrderId) {
       const defaultPm = dbPaymentMethods.find(pm => 
         pm.id === "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3" || 
-        (pm.name && pm.name.toLowerCase().includes("efectivo"))
+        (pm.name && /efectivo|^contado$/i.test(pm.name || ""))
       ) || dbPaymentMethods.find(pm => pm.is_default) || dbPaymentMethods[0];
 
       if (defaultPm) {
@@ -3807,7 +3808,7 @@ export default function PedidosPage() {
     setFlete("");
     const defaultPm = dbPaymentMethods.find(pm => 
       pm.id === "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3" || 
-      (pm.name && pm.name.toLowerCase().includes("efectivo"))
+      (pm.name && /efectivo|^contado$/i.test(pm.name || ""))
     ) || dbPaymentMethods.find(pm => pm.is_default) || dbPaymentMethods[0];
     setPaymentType('efectivo');
     setCardInstallments(defaultPm ? (defaultPm.installments || 1) : 1);
@@ -3950,7 +3951,7 @@ export default function PedidosPage() {
 
     // 4. Nombre de Método de pago y totales
     const pm = dbPaymentMethods.find(m => m.id === rawOrder.payment_method_id);
-    const pmName = pm?.name || "Efectivo / Transferencia";
+    const pmName = pm?.name || "Contado";
     const totalsObj = rawOrder.totals || {};
 
     const zoneName = rawOrder.zones 
@@ -4081,7 +4082,7 @@ export default function PedidosPage() {
       max_delivery_date: entregaMaxima || "",
       delivery_notes: cleanDeliveryNotes(aclaraciones) || "",
       delivery_detail: cleanDeliveryNotes(deliveryDetail) || "",
-      payment_method_name: pmObj?.name || "Efectivo / Transferencia",
+      payment_method_name: pmObj?.name || "Contado",
       payment_status: paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? 'Seniado' : 'Impago'),
       total_amount: total,
       subtotal: subtotal,
@@ -4146,7 +4147,7 @@ export default function PedidosPage() {
       }
 
       const sellerId = order.seller_id || currentUserId;
-      const selectedPayMethodName = dbPaymentMethods.find(m => m.id === order.payment_method_id)?.name || 'Efectivo';
+      const selectedPayMethodName = dbPaymentMethods.find(m => m.id === order.payment_method_id)?.name || 'Contado';
       const totalsObj = order.totals || {};
 
       let clientPhone = '';
@@ -5034,7 +5035,7 @@ export default function PedidosPage() {
   const openOrderReview = () => {
     if (editingOrderId) {
       const locName = isPickup ? 'Depósito' : localities.find(l => l.id === localidadId)?.name || "";
-      const selectedPayMethodName = dbPaymentMethods.find(m => m.id === paymentsList[0]?.payment_method_id)?.name || 'Efectivo';
+      const selectedPayMethodName = dbPaymentMethods.find(m => m.id === paymentsList[0]?.payment_method_id)?.name || 'Contado';
       const payStatusName = paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? 'Señado' : 'Contra Entrega');
       const diffs = computeOrderDiff(originalOrderSnapshot, {
         customer_name: isNewClient ? newClientName : cliente,
@@ -5421,7 +5422,7 @@ export default function PedidosPage() {
 
         // Persistir el trabajo junto al pedido; el servidor lo procesa luego.
         {
-          const selectedPayMethodName = dbPaymentMethods.find(m => m.id === paymentsList[0]?.payment_method_id)?.name || 'Efectivo';
+          const selectedPayMethodName = dbPaymentMethods.find(m => m.id === paymentsList[0]?.payment_method_id)?.name || 'Contado';
           const clientPhone = isNewClient || (isAnabelSeller && !isWholesaleContext)
             ? (newClientPhones.map(cleanPhoneForSaving).filter(Boolean)[0] || '')
             : (clients.find(c => c.id === selectedClientId)?.phone_primary || '');
@@ -5749,7 +5750,7 @@ export default function PedidosPage() {
             ? 'Mayorista'
             : (FACUNDO_SELLER_IDS.includes(seller_id) ? FACUNDO_RETAIL_SOURCE : detailedSheetSource);
           const mediumName = orderMediums.find(m => m.id === selectedOrderMediumId)?.name || 'WhatsApp';
-          const selectedPayMethodName = dbPaymentMethods.find(m => m.id === paymentsList[0]?.payment_method_id)?.name || 'Efectivo';
+          const selectedPayMethodName = dbPaymentMethods.find(m => m.id === paymentsList[0]?.payment_method_id)?.name || 'Contado';
 
           const sheetOrderPayload = {
             deliveryDate: entregaInicial,
@@ -5816,7 +5817,7 @@ export default function PedidosPage() {
         if (!sellerFullName) {
           sellerFullName = (seller_id === loggedInUserId ? (currentSeller?.full_name || userData.user.user_metadata?.full_name) : '') || 'Vendedor';
         }
-        const selectedPayMethodName = dbPaymentMethods.find(m => m.id === paymentsList[0]?.payment_method_id)?.name || 'Efectivo';
+        const selectedPayMethodName = dbPaymentMethods.find(m => m.id === paymentsList[0]?.payment_method_id)?.name || 'Contado';
         const payStatusName = paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? `Señado (${formatPrice(depositAmount)})` : 'Contra Entrega');
         const clientPhone = isNewClient || (isAnabelSeller && !isWholesaleContext)
             ? (newClientPhones.map(cleanPhoneForSaving).filter(Boolean)[0] || '')
@@ -5967,7 +5968,7 @@ export default function PedidosPage() {
       setPaymentType('efectivo');
       const defaultPm = dbPaymentMethods.find(pm => 
         pm.id === "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3" || 
-        (pm.name && pm.name.toLowerCase().includes("efectivo"))
+        (pm.name && /efectivo|^contado$/i.test(pm.name || ""))
       ) || dbPaymentMethods.find(pm => pm.is_default) || dbPaymentMethods[0];
       if (defaultPm) {
         setSelectedPaymentMethodId(defaultPm.id);

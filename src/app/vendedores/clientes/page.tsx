@@ -260,7 +260,7 @@ export default function ClientesPage() {
       if (error) throw error;
       setPaymentMethods(data || []);
       if (data && data.length > 0) {
-        const cashMethod = data.find(p => p.name.toLowerCase().includes("efectivo") || p.id === 'a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3');
+        const cashMethod = data.find(p => /efectivo|^contado$/i.test(p.name || "") || p.id === 'a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3');
         if (cashMethod) setPaymentMethodId(cashMethod.id);
         else setPaymentMethodId(data[0].id);
       }
@@ -306,7 +306,7 @@ export default function ClientesPage() {
     setSelectedIngresoId("");
     
     if (paymentMethods.length > 0) {
-      const cashMethod = paymentMethods.find(p => p.name.toLowerCase().includes("efectivo") || p.id === 'a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3');
+      const cashMethod = paymentMethods.find(p => /efectivo|^contado$/i.test(p.name || "") || p.id === 'a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3');
       if (cashMethod) setPaymentMethodId(cashMethod.id);
       else setPaymentMethodId(paymentMethods[0].id);
     }

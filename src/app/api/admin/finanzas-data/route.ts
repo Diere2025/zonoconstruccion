@@ -330,7 +330,7 @@ export async function GET(request: Request) {
       const filtered = (data || []).filter((o: any) => {
         const hasDeposit = o.totals?.has_deposit;
         const pmName = o.payment_methods?.name || '';
-        const isCash = pmName.toLowerCase().includes('efectivo');
+        const isCash = /efectivo|^contado$/i.test(pmName || "");
         return hasDeposit || !isCash;
       });
 

@@ -931,7 +931,7 @@ function FinanceWorkspace() {
       const pms = pmsRes.data || [];
       const dbAccs = faRes.data || [];
 
-      const pmEfectivoId = pms.find(p => p.name.toLowerCase().includes("efectivo"))?.id;
+      const pmEfectivoId = pms.find(p => /efectivo|^contado$/i.test(p.name || ""))?.id;
       const pmTransferenciaId = pms.find(p => p.name.toLowerCase().includes("transferencia") || p.name.toLowerCase().includes("mercado"))?.id;
 
       const adminUserId = '381df0d1-183f-4ccb-aaf2-8147c76159a9';
@@ -1591,7 +1591,7 @@ function FinanceWorkspace() {
       
       let matchedPm = null;
       if (accType === 'efectivo') {
-        matchedPm = pms.find(p => p.name.toLowerCase().includes("efectivo"));
+        matchedPm = pms.find(p => /efectivo|^contado$/i.test(p.name || ""));
       } else {
         matchedPm = pms.find(p => p.name.toLowerCase().includes("transferencia") || p.name.toLowerCase().includes("mercado"));
       }
@@ -2059,7 +2059,7 @@ function FinanceWorkspace() {
         const accType = selectedAcc?.type || 'efectivo';
         let matchedPm = null;
         if (accType === 'efectivo') {
-          matchedPm = pms.find(p => p.name.toLowerCase().includes("efectivo"));
+          matchedPm = pms.find(p => /efectivo|^contado$/i.test(p.name || ""));
         } else {
           matchedPm = pms.find(p => p.name.toLowerCase().includes("transferencia") || p.name.toLowerCase().includes("mercado"));
         }

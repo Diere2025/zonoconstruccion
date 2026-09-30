@@ -2828,7 +2828,7 @@ export default function ComprasAdminPage() {
       }
 
       if (paymentMethods.length > 0) {
-        const cashMethod = paymentMethods.find(p => p.name.toLowerCase().includes("efectivo"));
+        const cashMethod = paymentMethods.find(p => /efectivo|^contado$/i.test(p.name || ""));
         if (cashMethod) setEvalPaymentMethodId(cashMethod.id);
         else setEvalPaymentMethodId(paymentMethods[0].id);
       }
@@ -2853,7 +2853,7 @@ export default function ComprasAdminPage() {
     const finalDifferenceAmount = finalExchangeAmount - claim.refund_amount;
     
     // Check cash register if using cash settlement
-    const isCashPayment = evalPaymentMethodId && paymentMethods.find(p => p.id === evalPaymentMethodId)?.name.toLowerCase().includes("efectivo");
+    const isCashPayment = evalPaymentMethodId && /efectivo|^contado$/i.test(paymentMethods.find(p => p.id === evalPaymentMethodId)?.name || "");
     const needsCashRegister = (finalDifferenceAmount !== 0) && (evalSettlementMethod === 'caja') && (isCashPayment || finalDifferenceAmount < 0);
     
     if (needsCashRegister && !openRegister) {

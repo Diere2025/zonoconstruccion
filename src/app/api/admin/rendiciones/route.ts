@@ -1194,7 +1194,7 @@ export async function POST(request: Request) {
       const { data: pms } = await supabaseAdmin
         .from("payment_methods")
         .select("id, name");
-      const paymentMethodId = pms?.find(p => p.name.toLowerCase().includes("efectivo"))?.id || pms?.[0]?.id;
+      const paymentMethodId = pms?.find(p => /efectivo|^contado$/i.test(p.name || ""))?.id || pms?.[0]?.id;
 
       const { data: settlement, error: settlementError } = await supabaseAdmin
         .from("treasury_settlements")

@@ -364,7 +364,7 @@ export default function PresupuestadorPublico() {
 
     text += `\n*TOTAL ESTIMADO:* $${totalPrice.toLocaleString("es-AR")}\n\n`;
     text += `*Envío:* A coordinar con vendedora\n`;
-    text += `*Medio de pago:* Efectivo / Transferencia\n`;
+    text += `*Medio de pago:* Contado\n`;
     text += `--------------------------------\n`;
     text += `_Generado con el Cotizador Online ZonoHome_`;
 

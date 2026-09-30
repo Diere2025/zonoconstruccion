@@ -113,11 +113,11 @@ export default function PresupuestosPage() {
 
   const matchedMethod = dbPaymentMethods.find(m => m.surcharge_percentage === cardSurcharge && m.installments === cardInstallments);
   const paymentMethodName = paymentType === 'efectivo' 
-    ? "Efectivo / Transferencia" 
+    ? "Contado"
     : (matchedMethod ? matchedMethod.name : (cardInstallments === 1 ? "Tarjeta de Crédito (1 Pago)" : `Tarjeta de Crédito (${cardInstallments} Cuotas)`));
 
   const selectedPaymentMethod = paymentType === 'efectivo' 
-    ? { id: "1", name: "Efectivo / Transferencia", surcharge_percentage: 0, installments: 1, is_active: true }
+    ? { id: "1", name: "Contado", surcharge_percentage: 0, installments: 1, is_active: true }
     : { id: matchedMethod?.id || "2", name: paymentMethodName, surcharge_percentage: cardSurcharge, installments: cardInstallments, is_active: true };
   
   const [isFreeShipping, setIsFreeShipping] = useState(true);
@@ -1191,7 +1191,7 @@ export default function PresupuestosPage() {
                 }}
                 className="w-full px-2.5 py-1.5 text-xs font-bold border border-slate-200 rounded-lg outline-none bg-slate-50 text-slate-700 focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 cursor-pointer"
               >
-                <option value="efectivo">💵 Efectivo / Transferencia (0% Recargo)</option>
+                <option value="efectivo">💵 Contado (0% Recargo)</option>
                 {dbPaymentMethods
                   .filter(m => m.surcharge_percentage > 0 && !(m.name || '').toLowerCase().includes('payway'))
                   .map(pm => (
@@ -1269,7 +1269,7 @@ export default function PresupuestosPage() {
                     checked={paymentType === 'efectivo'}
                     onChange={() => setPaymentType('efectivo')}
                   />
-                  <span className="font-bold text-slate-800 text-xs">Efectivo / Transferencia</span>
+                  <span className="font-bold text-slate-800 text-xs">Contado</span>
                 </div>
                 <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
                   0% Recargo

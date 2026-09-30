@@ -290,6 +290,12 @@ export interface SheetOrderPayload {
   items?: SheetOrderItem[];
 }
 
+/** Keep old browser payloads compatible with the renamed payment method. */
+export function normalizePaymentMethodForSheet(name?: string | null): string {
+  const value = (name || '').trim();
+  return /^efectivo\s*\/\s*transferencia$/i.test(value) ? 'Contado' : value;
+}
+
 const VALID_SHEET_CATEGORIES = [
   'MEP',
   'LATEX',
@@ -835,7 +841,7 @@ function buildOrderUpdateBatchData(
   }
 
   batchData.push(
-    { range: makeRange(sheetName, 'U', 'W', rowNumber, columnOffset), values: [[normalizeCategoryForSheet(order.category), order.paymentMethod || '', order.identification || '']] },
+    { range: makeRange(sheetName, 'U', 'W', rowNumber, columnOffset), values: [[normalizeCategoryForSheet(order.category), normalizePaymentMethodForSheet(order.paymentMethod), order.identification || '']] },
     { range: makeRange(sheetName, 'X', 'Y', rowNumber, columnOffset), values: [[order.paymentStatus || 'No Abonado', order.depositOrPaidAmount ?? 0]] },
     { range: makeRange(sheetName, 'AA', 'AB', rowNumber, columnOffset), values: [[normalizeFreightForSheet(order.freightType), order.freightCost ?? 0]] }
   );
@@ -1266,7 +1272,7 @@ export async function appendOrderToSellerSheet(
       },
       {
         range: `'${sheetName}'!U${rowNumber}:W${rowNumber}`,
-        values: [[normalizeCategoryForSheet(order.category), order.paymentMethod || '', order.identification || '']]
+        values: [[normalizeCategoryForSheet(order.category), normalizePaymentMethodForSheet(order.paymentMethod), order.identification || '']]
       },
       {
         range: `'${sheetName}'!X${rowNumber}:Y${rowNumber}`,

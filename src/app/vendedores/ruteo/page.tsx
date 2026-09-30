@@ -811,7 +811,7 @@ export default function RuteoPage() {
       const payData = (payRes.data || []) as PaymentMethod[];
       setPaymentMethods(payData);
       if (payData.length > 0) {
-        const defaultMethodId = payData.find(p => p.id === "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3" || (p.name && p.name.toLowerCase().includes("efectivo")))?.id || payData.find((p) => p.is_default)?.id || payData[0].id;
+        const defaultMethodId = payData.find(p => p.id === "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3" || (p.name && /efectivo|^contado$/i.test(p.name || "")))?.id || payData.find((p) => p.is_default)?.id || payData[0].id;
         setSelectedMethodId(defaultMethodId);
         setTakeAwayMethodId(defaultMethodId);
       }
@@ -2331,7 +2331,7 @@ export default function RuteoPage() {
   const handleConfirmReconciliation = async () => {
     if (!reconcilingRouteSheet) return;
     
-    const cashMethod = paymentMethods.find(m => m.name.toLowerCase().includes('efectivo'));
+    const cashMethod = paymentMethods.find(m => /efectivo|^contado$/i.test(m.name || ""));
     const theoreticalCash = reconciliationDrafts
       .filter(p => p.payment_method_id === cashMethod?.id)
       .reduce((sum, p) => sum + Number(p.amount), 0);
@@ -2477,7 +2477,7 @@ export default function RuteoPage() {
         
       if (draftsErr) throw draftsErr;
 
-      const cashMethod = paymentMethods.find(m => m.name.toLowerCase().includes('efectivo'));
+      const cashMethod = paymentMethods.find(m => /efectivo|^contado$/i.test(m.name || ""));
       const theoreticalCash = (reconciliationDrafts || [])
         .filter(p => p.payment_method_id === cashMethod?.id)
         .reduce((sum, p) => sum + Number(p.amount), 0);
@@ -2620,7 +2620,7 @@ export default function RuteoPage() {
       
       // 2. Create cash transaction if method is cash and register is open
       const selectedMethod = paymentMethods.find(m => m.id === takeAwayMethodId);
-      const isCash = selectedMethod?.name.toLowerCase().includes('efectivo');
+      const isCash = /efectivo|^contado$/i.test(selectedMethod?.name || "");
       
       if (openRegister && isCash && payment) {
         const deliveryCode = processingTakeAwayOrder.legacy_code || processingTakeAwayOrder.id.substring(0, 8);
@@ -6879,7 +6879,7 @@ export default function RuteoPage() {
 
             {/* Balance and Arqueo form */}
             {(() => {
-              const cashMethod = paymentMethods.find(m => m.name.toLowerCase().includes('efectivo'));
+              const cashMethod = paymentMethods.find(m => /efectivo|^contado$/i.test(m.name || ""));
               const theoreticalCash = reconciliationDrafts
                 .filter(p => p.payment_method_id === cashMethod?.id)
                 .reduce((sum, p) => sum + Number(p.amount), 0);

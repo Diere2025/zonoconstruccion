@@ -575,7 +575,7 @@ export default function PrintableOrderModal({
                       MÉTODO DE PAGO
                     </div>
                     <div style={{ fontSize: "11.5px", fontWeight: 800, color: "#0f172a", marginTop: "2px" }}>
-                      {order.payment_method_name || "Efectivo / Transferencia"}
+                      {order.payment_method_name || "Contado"}
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "5px" }}>
                       <span style={{ fontSize: "9px", color: "#64748b", fontWeight: 700 }}>Estado de Pago:</span>
