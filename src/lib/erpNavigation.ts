@@ -1,5 +1,5 @@
 import type { ComponentType } from 'react';
-import { AlertTriangle, BarChart3, BookOpen, Boxes, Calculator, ClipboardCheck, ClipboardList, Clock, Coins, Database, Factory, FileSpreadsheet, FileText, Layers, Lightbulb, Link2, Map, Package, PackageCheck, PlusCircle, Printer, RefreshCw, Settings, ShieldCheck, ShoppingBag, ShoppingCart, Target, TrendingUp, Truck, Upload, Users, Wallet } from 'lucide-react';
+import { AlertTriangle, BarChart3, BookOpen, Boxes, Calculator, CalendarDays, ClipboardCheck, ClipboardList, Clock, Coins, Database, Factory, FileSpreadsheet, FileText, Layers, Lightbulb, Link2, Map, Package, PackageCheck, PlusCircle, Printer, RefreshCw, Settings, ShieldCheck, ShoppingBag, ShoppingCart, Target, TrendingUp, Truck, Upload, Users, Wallet } from 'lucide-react';
 
 export type UserRole = 'seller' | 'admin' | 'logistica' | 'fletero' | 'administracion' | 'compras';
 export interface ErpLink {
@@ -55,6 +55,7 @@ export const erpModules: ErpModule[] = [
     { id: "tesoreria-2", name: "Rendiciones de Recorridos", href: "/admin/rendiciones", icon: ClipboardList, allowedRoles: ['admin', 'administracion'] },
     { id: "tesoreria-3", name: "Caja Diaria", href: "/admin/caja", icon: Wallet, adminOnly: true },
     { id: "tesoreria-4", name: "Movimientos", href: "/admin/finanzas", icon: Coins, allowedRoles: ['admin', 'administracion'] },
+    { id: "tesoreria-planificacion", name: "Planificación de pagos", href: "/admin/finanzas/planificacion", icon: CalendarDays, adminOnly: true },
     { id: "tesoreria-5", name: "Cuentas y saldos", href: "/admin/finanzas?tab=accounts", icon: Wallet, allowedRoles: ['admin', 'administracion'] },
     { id: "tesoreria-6", name: "Cuentas corrientes", href: "/admin/finanzas?tab=cc", icon: BookOpen, allowedRoles: ['admin', 'administracion'] },
     { id: "tesoreria-7", name: "Comprobantes a validar", href: "/admin/finanzas?tab=validations", icon: ShieldCheck, allowedRoles: ['admin', 'administracion'] },
@@ -80,11 +81,9 @@ export const erpModules: ErpModule[] = [
     { id: "compras-3", name: "Alertas de Costos", href: "/admin/compras?tab=alerts", icon: AlertTriangle, allowedRoles: ['admin', 'compras'] },
     { id: "compras-4", name: "Proveedores", href: "/admin/compras?tab=suppliers", icon: Users, adminOnly: true },
     { id: "compras-5", name: "Listas de Proveedores", href: "/admin/compras?tab=pricelists", icon: FileSpreadsheet, adminOnly: true },
-    { id: "compras-6", name: "Registrar Compra", href: "/admin/compras?tab=new_purchase", icon: PlusCircle, adminOnly: true },
     { id: "compras-7", name: "Recepción de Remitos", href: "/admin/compras?tab=receptions", icon: PackageCheck, adminOnly: true },
     { id: "compras-8", name: "Historial de Compras", href: "/admin/compras?tab=purchases_history", icon: Clock, adminOnly: true },
     { id: "compras-9", name: "Precios y Fórmulas", href: "/admin/compras?tab=relations", icon: Calculator, adminOnly: true },
-    { id: "compras-10", name: "Importar Compras", href: "/admin/compras?tab=import_compras", icon: Upload, adminOnly: true },
   ] },
   { id: 'produccion', title: 'Fábrica y Producción', description: 'Fabricación, recetas, insumos y costos.', icon: Factory, links: [
     { id: "produccion-1", name: "Control de Producción", href: "/admin/produccion", icon: Factory, adminOnly: true },

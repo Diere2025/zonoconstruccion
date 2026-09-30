@@ -1,7 +1,9 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
+import { createAuthenticatedRequester } from "@/lib/authenticatedRequest";
+import { treasuryToday } from "@/lib/treasuryTransactionTime";
 import { 
   Truck, 
   Plus, 
@@ -171,6 +173,16 @@ interface PaymentMethod {
   name: string;
   surcharge_percentage: number;
   is_active: boolean;
+}
+
+function receptionOrderCodes(reception: any): string {
+  const codes = new Set<string>();
+  if (reception.purchase_orders?.oc_code) codes.add(reception.purchase_orders.oc_code);
+  for (const item of reception.purchase_reception_items || []) {
+    const code = item.purchase_order_items?.purchase_orders?.oc_code;
+    if (code) codes.add(code);
+  }
+  return codes.size ? [...codes].join(', ') : 'Sin OC de origen';
 }
 
 const DatePickerDDMMYYYY = ({
@@ -402,6 +414,13 @@ export default function ComprasAdminPage() {
   const [loadingRecDetail, setLoadingRecDetail] = useState(false);
   const [showNewReceptionModal, setShowNewReceptionModal] = useState(false);
 
+  const receiptApi = useRef(createAuthenticatedRequester(supabase));
+  const receiptRequestId = useRef<string | null>(null);
+  const receiptSaving = useRef(false);
+  const [savingReception, setSavingReception] = useState(false);
+  const [receptionDate, setReceptionDate] = useState(treasuryToday());
+  const [receptionCurrency, setReceptionCurrency] = useState<'ARS' | 'USD'>('ARS');
+
   // New Reception Form states
   const [receptionSupplierId, setReceptionSupplierId] = useState("");
   const [receptionSlipNumber, setReceptionSlipNumber] = useState("");
@@ -412,9 +431,6 @@ export default function ComprasAdminPage() {
   const [receptionAlignPO, setReceptionAlignPO] = useState(false);
 
   // Importer States
-  const [importType, setImportType] = useState<'ocs' | 'detalle_ocs' | 'recepciones' | 'conciliacion_unificada'>('conciliacion_unificada');
-  const [importLog, setImportLog] = useState<string[]>([]);
-  const [importing, setImporting] = useState(false);
   // --- Purchase Calculator States ---
   const [calcSupplierId, setCalcSupplierId] = useState("");
   const [calcSupplierSearchText, setCalcSupplierSearchText] = useState("");
@@ -602,23 +618,10 @@ export default function ComprasAdminPage() {
   const [searchRelationTerm, setSearchRelationTerm] = useState("");
 
   // --- NEW PURCHASE FORM STATE ---
-  const [purchaseSupplierId, setPurchaseSupplierId] = useState("");
-  const [purchaseInvoiceNumber, setPurchaseInvoiceNumber] = useState("");
-  const [purchaseDate, setPurchaseDate] = useState(new Date().toISOString().split('T')[0]);
-  const [purchaseDueDate, setPurchaseDueDate] = useState("");
-  const [purchaseCurrency, setPurchaseCurrency] = useState<'ARS' | 'USD'>('ARS');
-  const [purchaseNotes, setPurchaseNotes] = useState("");
-  const [purchaseItems, setPurchaseItems] = useState<{ productId: string, name: string, sku: string, quantity: number, unitCost: number }[]>([]);
   
   // Selected product to add to current purchase
-  const [currentItemProductId, setCurrentItemProductId] = useState("");
-  const [currentItemQuantity, setCurrentItemQuantity] = useState("1");
-  const [currentItemUnitCost, setCurrentItemUnitCost] = useState("");
-  const [isSubmittingPurchase, setIsSubmittingPurchase] = useState(false);
 
   // States for searchable product combobox
-  const [productSearchQuery, setProductSearchQuery] = useState("");
-  const [showProductSearchDropdown, setShowProductSearchDropdown] = useState(false);
 
   useEffect(() => {
     if (!filterSupplierId) {
@@ -627,6 +630,11 @@ export default function ComprasAdminPage() {
   }, [filterSupplierId]);
 
   useEffect(() => {
+    if (showNewReceptionModal) {
+      receiptRequestId.current = crypto.randomUUID();
+      setReceptionDate(treasuryToday());
+      setReceptionCurrency("ARS");
+    }
     if (!showNewReceptionModal) {
       setModalSupplierSearchText("");
       setModalOCSearchText("");
@@ -638,17 +646,6 @@ export default function ComprasAdminPage() {
       setPoProductSearchText("");
     }
   }, [showNewPOModal]);
-
-  useEffect(() => {
-    if (!currentItemProductId) {
-      setProductSearchQuery("");
-    } else {
-      const prod = products.find(p => p.id === currentItemProductId);
-      if (prod) {
-        setProductSearchQuery(prod.name + (prod.sku ? ` (${prod.sku})` : ''));
-      }
-    }
-  }, [currentItemProductId, products]);
 
   // States for searchable recipe components combobox
   const [componentSearchQuery, setComponentSearchQuery] = useState("");
@@ -672,22 +669,10 @@ export default function ComprasAdminPage() {
   const [plModalSearchQuery, setPlModalSearchQuery] = useState("");
 
   // Immediate payment states
-  const [payImmediately, setPayImmediately] = useState(false);
-  const [immediatePaymentAmount, setImmediatePaymentAmount] = useState("");
-  const [immediatePaymentMethodId, setImmediatePaymentMethodId] = useState("");
 
   // Nuevos estados para centros de costos y conciliación
-  const [costCenters, setCostCenters] = useState<any[]>([]);
-  const [purchaseCostCenterId, setPurchaseCostCenterId] = useState("");
   const [detailTab, setDetailTab] = useState<'items' | 'payments'>('items');
   const [associatedPayments, setAssociatedPayments] = useState<any[]>([]);
-  const [unreconciledEgresos, setUnreconciledEgresos] = useState<any[]>([]);
-  const [selectedEgresoId, setSelectedEgresoId] = useState("");
-  const [newPaymentAmount, setNewPaymentAmount] = useState("");
-  const [newPaymentMethodId, setNewPaymentMethodId] = useState("");
-  const [newPaymentNotes, setNewPaymentNotes] = useState("");
-  const [submittingNewPayment, setSubmittingNewPayment] = useState(false);
-  const [submittingLink, setSubmittingLink] = useState(false);
   const [loadingPayments, setLoadingPayments] = useState(false);
 
   // Claims & Exchanges evaluation states
@@ -777,7 +762,7 @@ export default function ComprasAdminPage() {
     const operatorTabs = ['purchase_orders', 'purchase_calculator', 'alerts'];
     if (tab && validTabs.includes(tab) && (isPurchaseAdmin || operatorTabs.includes(tab))) {
       setActiveSubTab(tab as any);
-    } else if (!isPurchaseAdmin) {
+    } else {
       setActiveSubTab('purchase_orders');
     }
   }, [purchaseAccessLoaded, isPurchaseAdmin, searchParams]);
@@ -866,23 +851,6 @@ export default function ComprasAdminPage() {
         .order("created_at", { ascending: false });
       if (rets) setClaims(rets);
 
-      // Fetch cost centers
-      const { data: ccs } = await supabase
-        .from("cost_centers")
-        .select("*")
-        .eq("is_active", true)
-        .order("name");
-      if (ccs) {
-        setCostCenters(ccs);
-        // Set default cost center to 'LOG' if available, otherwise first
-        const logCc = ccs.find(c => c.code === 'LOG');
-        if (logCc) {
-          setPurchaseCostCenterId(logCc.id);
-        } else if (ccs.length > 0) {
-          setPurchaseCostCenterId(ccs[0].id);
-        }
-      }
-
       // Fetch supplier purchases history
       const { data: purc } = await supabase
         .from("supplier_purchases")
@@ -906,7 +874,7 @@ export default function ComprasAdminPage() {
       // Fetch Purchase Receptions
       const { data: recs } = await supabase
         .from("purchase_receptions")
-        .select("*, supplier:suppliers(name), purchase_orders(oc_code)")
+        .select("*, supplier:suppliers(name), purchase_orders(oc_code), purchase_reception_items(purchase_order_items(purchase_orders(oc_code)))")
         .order("reception_date", { ascending: false });
       if (recs) setReceptions(recs);
 
@@ -929,18 +897,6 @@ export default function ComprasAdminPage() {
         .eq("is_active", true);
       if (payMethods) {
         setPaymentMethods(payMethods);
-        if (payMethods.length > 0) {
-          setImmediatePaymentMethodId(payMethods[0].id);
-          setNewPaymentMethodId(payMethods[0].id);
-        }
-      }
-
-      if (payMethods) {
-        setPaymentMethods(payMethods);
-        if (payMethods.length > 0) {
-          setImmediatePaymentMethodId(payMethods[0].id);
-          setNewPaymentMethodId(payMethods[0].id);
-        }
       }
 
     } catch (e) {
@@ -1533,7 +1489,8 @@ export default function ComprasAdminPage() {
         .from('purchase_reception_items')
         .select(`
           *,
-          product:products(id, name, sku)
+          product:products(id, name, sku),
+          purchase_order_items(purchase_orders(oc_code))
         `)
         .eq('purchase_reception_id', recId);
       
@@ -1546,6 +1503,16 @@ export default function ComprasAdminPage() {
       setLoadingRecDetail(false);
     }
   };
+
+  useEffect(() => {
+    const receptionId = searchParams.get('reception');
+    const reception = receptions.find(rec => rec.id === receptionId);
+    if (reception && isPurchaseAdmin) {
+      setSelectedReception(reception);
+      void fetchReceptionDetails(reception.id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, receptions, isPurchaseAdmin]);
 
   const handleSelectSupplierInModal = (supId: string, name: string) => {
     setReceptionSupplierId(supId);
@@ -1580,7 +1547,7 @@ export default function ComprasAdminPage() {
     if (error) {
       alert("Error al cargar ítems de la OC: " + error.message);
     } else if (data) {
-      const items = data.map(item => {
+      const items = data.filter(item => item.status !== 'Cancelado' && !item.shortfall_closed).map(item => {
         const pending = Math.max(0, Number(item.quantity_ordered) - Number(item.quantity_received));
         return {
           poItemId: item.id,
@@ -1617,7 +1584,7 @@ export default function ComprasAdminPage() {
     if (error) {
       alert("Error al cargar ítems de la OC: " + error.message);
     } else if (data) {
-      const items = data.map(item => {
+      const items = data.filter(item => item.status !== 'Cancelado' && !item.shortfall_closed).map(item => {
         const pending = Math.max(0, Number(item.quantity_ordered) - Number(item.quantity_received));
         return {
           poItemId: item.id,
@@ -1637,44 +1604,10 @@ export default function ComprasAdminPage() {
   };
 
   const handleFulfillPOWithoutStock = async (poId: string, ocCode: string) => {
-    if (!confirm(`¿Marcar la orden ${ocCode} como cumplida/recibida SIN modificar el stock físico (ya que fue impactado externamente o en planilla)?`)) {
-      return;
-    }
-
-    try {
-      // 1. Fetch items of the PO
-      const { data: items, error: itemsErr } = await supabase
-        .from('purchase_order_items')
-        .select('id, quantity_ordered')
-        .eq('purchase_order_id', poId);
-
-      if (itemsErr) throw itemsErr;
-
-      // 2. Update each item to quantity_received = quantity_ordered, status = 'Cumplido'
-      for (const it of (items || [])) {
-        await supabase
-          .from('purchase_order_items')
-          .update({
-            quantity_received: it.quantity_ordered,
-            status: 'Cumplido'
-          })
-          .eq('id', it.id);
-      }
-
-      // 3. Update PO status to 'Cumplido'
-      const { error: poErr } = await supabase
-        .from('purchase_orders')
-        .update({ status: 'Cumplido' })
-        .eq('id', poId);
-
-      if (poErr) throw poErr;
-
-      alert(`Orden de Compra ${ocCode} marcada como cumplida con éxito (sin alterar stock físico).`);
-      loadAllData(true);
-    } catch (err: any) {
-      console.error("Error fulfilling PO:", err);
-      alert("Error al marcar la orden como cumplida: " + err.message);
-    }
+    const po = purchaseOrders.find(order => order.id === poId);
+    if (!po) { alert("No se encontró la OC " + ocCode); return; }
+    setReceptionUpdateStock(false);
+    await handleOpenReceptionForPO(po);
   };
 
   const handleRevertPOStatus = async (poId: string, ocCode: string) => {
@@ -1683,11 +1616,17 @@ export default function ComprasAdminPage() {
     }
 
     try {
+      const { data: receipts, error: receiptError } = await supabase.from('purchase_receptions').select('id').eq('purchase_order_id', poId).limit(1);
+      if (receiptError) throw receiptError;
+      if (receipts?.length) { alert('La OC tiene recepciones registradas. Revisá sus remitos y la deuda asociada antes de revertirla.'); return; }
+
       // 1. Revert PO items of this PO to quantity_received = 0, status = 'Pendiente'
       const { error: itemsErr } = await supabase
         .from('purchase_order_items')
         .update({
           quantity_received: 0,
+          legacy_received_quantity: 0,
+          shortfall_closed: false,
           status: 'Pendiente'
         })
         .eq('purchase_order_id', poId);
@@ -1712,1034 +1651,35 @@ export default function ComprasAdminPage() {
 
   const handleSaveReception = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!receptionSupplierId) {
-      alert("Proveedor es requerido.");
-      return;
+    if (receiptSaving.current) return;
+    if (!receptionSupplierId) { alert("Proveedor es requerido."); return; }
+    if (receptionItems.some(i => !Number.isFinite(i.quantityReceivedNew) || i.quantityReceivedNew < 0 || !Number.isFinite(i.unitCost) || i.unitCost < 0)) {
+      alert("Revisá las cantidades y los costos."); return;
     }
-    const hasItems = receptionItems.some(i => i.quantityReceivedNew > 0);
-    if (!hasItems) {
-      alert("Debe ingresar cantidad recibida para al menos un artículo.");
-      return;
-    }
-
+    const activeItems = receptionItems.filter(i => i.quantityReceivedNew > 0);
+    if (!activeItems.length) { alert("Ingresá cantidad recibida para al menos un artículo."); return; }
+    receiptSaving.current = true;
+    setSavingReception(true);
+    receiptRequestId.current ||= crypto.randomUUID();
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      const currentUserId = user?.id;
-      const activeItems = receptionItems.filter(i => i.quantityReceivedNew > 0);
-
-      // 1. Create Purchase Reception
-      const receptionNoteFinal = receptionUpdateStock 
-        ? (receptionNotes || null)
-        : ((receptionNotes ? receptionNotes + ' - ' : '') + '[Recepción administrativa sin impacto en stock]');
-
-      const { data: newRec, error: recErr } = await supabase
-        .from('purchase_receptions')
-        .insert({
-          reception_date: new Date().toISOString(),
-          supplier_id: receptionSupplierId,
-          delivery_slip_number: receptionSlipNumber || null,
-          purchase_order_id: receptionPOId || null,
-          notes: receptionNoteFinal,
-          created_by: currentUserId
-        })
-        .select()
-        .single();
-
-      if (recErr) throw recErr;
-
-      if (receptionUpdateStock) {
-        // Option A: Normal stock update via reception items trigger
-        const itemsPayload = activeItems.map(item => ({
-          purchase_reception_id: newRec.id,
-          purchase_order_item_id: item.poItemId || null,
-          product_id: item.productId,
-          quantity_received: item.quantityReceivedNew,
-          unit_cost: item.unitCost
-        }));
-
-        const { error: itemsErr } = await supabase
-          .from('purchase_reception_items')
-          .insert(itemsPayload);
-
-        if (itemsErr) throw itemsErr;
-      } else {
-        // Option B: Direct PO items and PO status update without altering stock_physical
-        for (const item of activeItems) {
-          if (item.poItemId) {
-            const newRecTotal = (item.quantityReceivedPrior || 0) + item.quantityReceivedNew;
-            const isComplete = newRecTotal >= item.quantityOrdered;
-            await supabase
-              .from('purchase_order_items')
-              .update({
-                quantity_received: newRecTotal,
-                status: isComplete ? 'Cumplido' : 'Parcial'
-              })
-              .eq('id', item.poItemId);
-          }
-        }
-
-        if (receptionPOId) {
-          const { data: allPoItems } = await supabase
-            .from('purchase_order_items')
-            .select('quantity_ordered, quantity_received')
-            .eq('purchase_order_id', receptionPOId);
-
-          const allDone = allPoItems && allPoItems.every(i => Number(i.quantity_received) >= Number(i.quantity_ordered));
-          const hasAny = allPoItems && allPoItems.some(i => Number(i.quantity_received) > 0);
-
-          await supabase
-            .from('purchase_orders')
-            .update({
-              status: allDone ? 'Cumplido' : (hasAny ? 'Parcial' : 'Pendiente')
-            })
-            .eq('id', receptionPOId);
-        }
-      }
-
-      // Si el usuario indicó alinear la OC con lo recibido (ej. el proveedor envió menos y no enviará el resto):
-      if (receptionAlignPO && receptionPOId) {
-        for (const item of activeItems) {
-          if (item.poItemId) {
-            const newRecTotal = (item.quantityReceivedPrior || 0) + item.quantityReceivedNew;
-            if (newRecTotal > 0 && newRecTotal < item.quantityOrdered) {
-              await supabase
-                .from('purchase_order_items')
-                .update({
-                  quantity_ordered: newRecTotal,
-                  subtotal: newRecTotal * item.unitCost,
-                  status: 'Cumplido'
-                })
-                .eq('id', item.poItemId);
-            }
-          }
-        }
-        // Recalcular cabecera de la OC
-        const { data: allPoItems } = await supabase
-          .from('purchase_order_items')
-          .select('quantity_ordered, quantity_received, unit_cost, status')
-          .eq('purchase_order_id', receptionPOId);
-
-        const nonCancelled = (allPoItems || []).filter(i => i.status !== 'Cancelado');
-        const allDone = nonCancelled.length > 0 && nonCancelled.every(i => Number(i.quantity_received) >= Number(i.quantity_ordered));
-        const newTotalAmt = nonCancelled.reduce((acc, i) => acc + (Number(i.quantity_ordered) * Number(i.unit_cost)), 0);
-
-        await supabase
-          .from('purchase_orders')
-          .update({
-            total_amount: newTotalAmt,
-            status: allDone ? 'Cumplido' : 'Parcial'
-          })
-          .eq('id', receptionPOId);
-
-        // Invalidate cache
-        setPoItemsMap(prev => {
-          const next = { ...prev };
-          delete next[receptionPOId];
-          return next;
-        });
-      }
-
-      // 3. Create Account Payable (supplier_purchases) to integrate with Cash/Finance
-      const totalAmount = activeItems.reduce((acc, i) => acc + (i.quantityReceivedNew * i.unitCost), 0);
-      const { error: invoiceErr } = await supabase
-        .from('supplier_purchases')
-        .insert({
-          supplier_id: receptionSupplierId,
-          invoice_number: receptionSlipNumber || `REC-${newRec.id.substring(0,8).toUpperCase()}`,
-          purchase_date: new Date().toISOString(),
-          total_amount: totalAmount,
-          paid_amount: 0,
-          currency: 'ARS',
-          status: 'Pendiente',
-          notes: receptionNotes || `Remito de Recepción asociado a OC`,
-          created_by: currentUserId
-        });
-
-      if (invoiceErr) console.error("Error creating financial accounts payable record:", invoiceErr);
-
-      alert(receptionUpdateStock 
-        ? "Documento de Recepción registrado con éxito! El stock físico ha sido incrementado."
-        : "Documento de Recepción registrado con éxito (sin alterar el stock físico ya que fue impactado externamente)."
-      );
+      await receiptApi.current('/api/admin/supplier-accounts', { method: 'POST', body: JSON.stringify({
+        action: 'receipt', id: receiptRequestId.current, supplierId: receptionSupplierId,
+        poId: receptionPOId || null, slip: receptionSlipNumber, date: receptionDate, currency: receptionCurrency,
+        stock: receptionUpdateStock, close: receptionAlignPO, notes: receptionNotes,
+        items: activeItems.map(i => ({ poItemId: i.poItemId || null, productId: i.productId || null,
+          productName: i.productName, quantity: i.quantityReceivedNew, unitCost: i.unitCost }))
+      }) });
+      alert("Recepción y deuda registradas." + (receptionUpdateStock ? " Se incrementó el stock físico." : " Sin modificar stock físico."));
       setShowNewReceptionModal(false);
-      setReceptionSupplierId("");
-      setReceptionSlipNumber("");
-      setReceptionPOId("");
-      setReceptionNotes("");
-      setReceptionItems([]);
-      setModalSupplierSearchText("");
-      setModalOCSearchText("");
-      loadAllData(true);
-    } catch (err: any) {
-      console.error("Error creating reception:", err);
-      alert("Error al registrar remito de recepción: " + err.message);
-    }
+      setReceptionSupplierId(""); setReceptionSlipNumber(""); setReceptionPOId("");
+      setReceptionNotes(""); setReceptionItems([]); setModalSupplierSearchText(""); setModalOCSearchText("");
+      setPoItemsMap({});
+      await loadAllData(true);
+    } catch (err: any) { alert("Error al registrar la recepción: " + err.message); }
+    finally { receiptSaving.current = false; setSavingReception(false); }
   };
 
   // Helper helper function to parse CSV row text into fields
-  const parseCSVLine = (line: string, delimiter: string) => {
-    const result: string[] = [];
-    let current = '';
-    let inQuotes = false;
-
-    for (let i = 0; i < line.length; i++) {
-      const char = line[i];
-      if (char === '"' || char === "'") {
-        inQuotes = !inQuotes;
-      } else if (char === delimiter && !inQuotes) {
-        result.push(current.trim());
-        current = '';
-      } else {
-        current += char;
-      }
-    }
-    result.push(current.trim());
-    return result;
-  };
-
-  const executeImportCSV = async (
-    fileText: string,
-    type: 'ocs' | 'detalle_ocs' | 'recepciones' | 'conciliacion_unificada',
-    addLog: (msg: string) => void
-  ) => {
-    try {
-      const lines = fileText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-      if (lines.length <= 1) {
-        throw new Error("El archivo CSV está vacío o solo contiene cabeceras.");
-      }
-
-      // Detect delimiter
-      const firstLine = lines[0];
-      const delimiter = firstLine.includes(';') ? ';' : ',';
-      
-      let headerLineIndex = 0;
-      for (let i = 0; i < lines.length; i++) {
-        const parsedHeaders = parseCSVLine(lines[i], delimiter).map(h => h.replace(/^["']|["']$/g, '').trim());
-        const hasActualHeaders = parsedHeaders.some(h => 
-          h.toLowerCase().includes('proveedor') || 
-          h.toLowerCase().includes('producto') || 
-          h.toLowerCase().includes('código') || 
-          h.toLowerCase().includes('codigo') || 
-          h.toLowerCase().includes('fecha')
-        );
-        if (hasActualHeaders) {
-          headerLineIndex = i;
-          break;
-        }
-      }
-      
-      const headers = parseCSVLine(lines[headerLineIndex], delimiter).map(h => h.replace(/^["']|["']$/g, '').trim());
-      addLog(`Headers detectados en línea ${headerLineIndex}: [${headers.join(', ')}] (Delimitador: '${delimiter}')`);
-
-      const rows: any[] = [];
-      for (let i = headerLineIndex + 1; i < lines.length; i++) {
-        const fields = parseCSVLine(lines[i], delimiter).map(f => f.replace(/^["']|["']$/g, '').trim());
-        if (fields.length >= headers.length) {
-          const rowObj: any = {};
-          headers.forEach((h, idx) => {
-            if (h) {
-              rowObj[h] = fields[idx];
-            }
-          });
-          rows.push(rowObj);
-        }
-      }
-
-      addLog(`Procesando ${rows.length} filas del archivo...`);
-
-      // Retrieve all suppliers and products mapping to reduce DB requests
-      const { data: dbSuppliers } = await supabase.from('suppliers').select('id, name');
-      
-      let dbProducts: any[] = [];
-      let productPage = 0;
-      const pageSize = 1000;
-      let hasMoreProducts = true;
-      while (hasMoreProducts) {
-        const { data, error } = await supabase
-          .from('products')
-          .select('id, name, sku')
-          .range(productPage * pageSize, (productPage + 1) * pageSize - 1);
-        if (error) throw error;
-        if (data && data.length > 0) {
-          dbProducts = [...dbProducts, ...data];
-          productPage++;
-          if (data.length < pageSize) hasMoreProducts = false;
-        } else {
-          hasMoreProducts = false;
-        }
-      }
-
-      let successCount = 0;
-      let errorCount = 0;
-
-      // Helper helper function to find or create supplier
-      const getOrCreateSupplier = async (supplierName: string) => {
-        if (!supplierName) return null;
-        const found = dbSuppliers?.find(s => s.name.toLowerCase().trim() === supplierName.toLowerCase().trim());
-        if (found) return found.id;
-
-        // Auto-create supplier
-        addLog(`➕ Proveedor '${supplierName}' no encontrado. Creándolo...`);
-        const { data: newSup, error: supErr } = await supabase
-          .from('suppliers')
-          .insert({
-            name: supplierName,
-            base_discount_percentage: 0,
-            delivery_time_days: 0
-          })
-          .select()
-          .single();
-        if (supErr) throw supErr;
-        dbSuppliers?.push(newSup);
-        return newSup.id;
-      };
-
-      // Helper helper function to find or create product
-      const getOrCreateProduct = async (productName: string) => {
-        if (!productName) return null;
-        let found = dbProducts?.find(p => p.name.toLowerCase().trim() === productName.toLowerCase().trim());
-        if (found) return found.id;
-
-        // Try fuzzy SKU match
-        const skuMatch = productName.match(/\(([^)]+)\)$/);
-        if (skuMatch) {
-          const skuVal = skuMatch[1];
-          found = dbProducts?.find(p => p.sku === skuVal);
-          if (found) return found.id;
-        }
-
-        // Auto-create product
-        addLog(`➕ Producto '${productName}' no encontrado en catálogo. Creándolo de forma automática...`);
-        const skuAuto = productName.trim();
-        const { data: newProd, error: prodErr } = await supabase
-          .from('products')
-          .insert({
-            name: productName,
-            sku: skuAuto,
-            price: 0,
-            fixed_price: true,
-            markup_percentage: 0,
-            markup_wholesale_percentage: 0,
-            category: 'otro',
-            is_active: true
-          })
-          .select()
-          .single();
-        if (prodErr) throw prodErr;
-        dbProducts?.push(newProd);
-        return newProd.id;
-      };
-
-      if (type === 'ocs') {
-        // Headers: Código OC, Fecha, Proveedor, Condición de Pago, Plazo de Pago, fecha estimada entrega, Notas, Total, Estado
-        for (const row of rows) {
-          try {
-            const ocCode = row['Código OC'] || row['Codigo OC'];
-            if (!ocCode) continue;
-
-            const supName = row['Proveedor'];
-            const supId = await getOrCreateSupplier(supName);
-            if (!supId) {
-              addLog(`⚠️ Fila saltada: Proveedor vacío para OC ${ocCode}`);
-              continue;
-            }
-
-            const rawDate = row['Fecha'];
-            let orderDate = new Date();
-            if (rawDate) {
-              const parts = rawDate.split('/');
-              if (parts.length === 3) orderDate = new Date(`${parts[2]}-${parts[1]}-${parts[0]}T12:00:00`);
-            }
-
-            const rawEstDate = row['fecha estimada entrega'] || row['fecha estimada de entrega'];
-            let estDate = null;
-            if (rawEstDate) {
-              const parts = rawEstDate.split('/');
-              if (parts.length === 3) estDate = new Date(`${parts[2]}-${parts[1]}-${parts[0]}T12:00:00`);
-            }
-
-            const paymentCond = row['Condición de Pago'] || row['Condicion de Pago'] || 'Efectivo';
-            const termDays = parseInt(row['Plazo de Pago']) || 0;
-            const notes = row['Notas'];
-            const totalStr = (row['Total'] || '0').replace(/[^0-9.-]/g, '');
-            const totalAmt = parseFloat(totalStr) || 0;
-            const rawStatus = row['Estado'] || 'Pendiente';
-            
-            let status = 'Pendiente';
-            if (rawStatus.toLowerCase().includes('cumplido')) status = 'Cumplido';
-            else if (rawStatus.toLowerCase().includes('parcial')) status = 'Parcial';
-            else if (rawStatus.toLowerCase().includes('cancelado') || rawStatus.toLowerCase().includes('anulado')) status = 'Cancelado';
-
-            const { error: poErr } = await supabase
-              .from('purchase_orders')
-              .upsert({
-                oc_code: ocCode.toUpperCase().trim(),
-                supplier_id: supId,
-                order_date: orderDate.toISOString(),
-                estimated_delivery_date: estDate ? estDate.toISOString() : null,
-                payment_condition: paymentCond,
-                payment_term_days: termDays,
-                notes: notes || null,
-                total_amount: totalAmt,
-                status: status
-              }, { onConflict: 'oc_code' });
-
-            if (poErr) throw poErr;
-            successCount++;
-          } catch (e: any) {
-            errorCount++;
-            addLog(`❌ Error procesando OC: ${e.message}`);
-          }
-        }
-        addLog(`✅ Importación finalizada. OCs exitosas: ${successCount}. Errores: ${errorCount}`);
-      }
-
-      else if (type === 'detalle_ocs') {
-        // Headers: Código OP, Fecha Pedido, Proveedor, Detalle, Cantidad Pedida, Costo Unitario, Subtotal, Nuevos Recibidos, Pendientes, Estado por línea de Pedido, Enviada, Cancelar
-        // Fetch all purchase orders codes
-        const { data: dbPOs } = await supabase.from('purchase_orders').select('id, oc_code');
-
-        for (const row of rows) {
-          try {
-            const opCode = row['Código OP'] || row['Codigo OP'];
-            if (!opCode) continue;
-
-            const po = dbPOs?.find(p => p.oc_code.toLowerCase().trim() === opCode.toLowerCase().trim());
-            if (!po) {
-              addLog(`⚠️ Saltado: Orden de Compra ${opCode} no existe en base de datos. Asegurate de importar la cabecera primero.`);
-              continue;
-            }
-
-            const rawDetails = row['Detalle'];
-            const productId = await getOrCreateProduct(rawDetails);
-
-            const qtyOrdered = parseFloat(row['Cantidad Pedida']) || 0;
-            const costUnit = parseFloat((row['Costo Unitario'] || '0').replace(/[^0-9.-]/g, '')) || 0;
-            const subtotal = qtyOrdered * costUnit;
-            const qtyReceived = parseFloat(row['Nuevos Recibidos']) || 0;
-            
-            const rawLineStatus = row['Estado por línea de Pedido'] || row['Estado por linea de Pedido'] || row['Linea de Pedido'] || row['Linea de pedido'] || 'Pendiente';
-            let lineStatus = 'Pendiente';
-            const isCancelledSheet = row['Cancelar'] === 'SI' || row['Cancelar'] === 'si' || row['Cancelar'] === 'Yes' || row['Cancelar'] === 'yes';
-            
-            if (isCancelledSheet) {
-              lineStatus = 'Cancelado';
-            } else if (rawLineStatus.toLowerCase().includes('cumplida') || rawLineStatus.toLowerCase().includes('cumplido')) {
-              lineStatus = 'Cumplido';
-            } else if (rawLineStatus.toLowerCase().includes('parcial')) {
-              lineStatus = 'Parcial';
-            }
-
-            // Check if item already exists to avoid duplicates
-            const { data: existing } = await supabase
-              .from('purchase_order_items')
-              .select('id')
-              .eq('purchase_order_id', po.id)
-              .eq('raw_product_name', rawDetails)
-              .limit(1);
-
-            if (existing && existing.length > 0) {
-              const { error: updateErr } = await supabase
-                .from('purchase_order_items')
-                .update({
-                  product_id: productId,
-                  quantity_ordered: qtyOrdered,
-                  quantity_received: qtyReceived,
-                  unit_cost: costUnit,
-                  subtotal: subtotal,
-                  status: lineStatus
-                })
-                .eq('id', existing[0].id);
-              if (updateErr) throw updateErr;
-            } else {
-              const { error: insertErr } = await supabase
-                .from('purchase_order_items')
-                .insert({
-                  purchase_order_id: po.id,
-                  product_id: productId,
-                  raw_product_name: rawDetails,
-                  quantity_ordered: qtyOrdered,
-                  quantity_received: qtyReceived,
-                  unit_cost: costUnit,
-                  subtotal: subtotal,
-                  status: lineStatus
-                });
-              if (insertErr) throw insertErr;
-            }
-
-            successCount++;
-          } catch (e: any) {
-            errorCount++;
-            addLog(`❌ Error procesando línea OC: ${e.message}`);
-          }
-        }
-        addLog(`✅ Importación finalizada. Líneas exitosas: ${successCount}. Errores: ${errorCount}`);
-      }
-
-      else if (type === 'recepciones') {
-        // Headers: Fecha, Proveedor, Producto, Cantidad, Orden de Compra, Número de Remito, Observaciones
-        const { data: dbPOs } = await supabase.from('purchase_orders').select('id, oc_code');
-
-        for (const row of rows) {
-          try {
-            const rawDate = row['Fecha'];
-            if (!rawDate || !rawDate.includes('/')) continue;
-            
-            let recDate = new Date();
-            const parts = rawDate.split('/');
-            if (parts.length === 3) recDate = new Date(`${parts[2]}-${parts[1]}-${parts[0]}T12:00:00`);
-
-            const supName = row['Proveedor'];
-            const supId = await getOrCreateSupplier(supName);
-            if (!supId) continue;
-
-            const productName = row['Producto'];
-            const productId = await getOrCreateProduct(productName);
-            if (!productId) continue;
-
-            const qty = parseFloat(row['Cantidad']) || 0;
-            if (qty <= 0) continue;
-
-            const ocCode = row['Orden de Compra'];
-            const slipNum = row['Número de Remito'] || row['Numero de Remito'];
-            const obs = row['Observaciones'];
-
-            let poId = null;
-            let poItemId = null;
-            let unitCost = 0;
-
-            if (ocCode) {
-              let po = dbPOs?.find(p => p.oc_code.toLowerCase().trim() === ocCode.toLowerCase().trim());
-              if (!po) {
-                // Auto-create OC in-situ!
-                addLog(`⚙️ OC ${ocCode} no encontrada. Creándola in-situ para recibir el remito...`);
-                const { data: newPo, error: poErr } = await supabase
-                  .from('purchase_orders')
-                  .insert({
-                    oc_code: ocCode.toUpperCase().trim(),
-                    supplier_id: supId,
-                    order_date: recDate.toISOString(),
-                    estimated_delivery_date: recDate.toISOString(),
-                    payment_condition: 'Efectivo',
-                    status: 'Cumplido',
-                    notes: `OC generada de forma automática por remito in-situ`
-                  })
-                  .select()
-                  .single();
-
-                if (poErr) throw poErr;
-                po = newPo;
-                dbPOs?.push(newPo);
-              }
-              poId = po?.id || null;
-
-              // Find order item
-              const { data: dbItems } = await supabase
-                .from('purchase_order_items')
-                .select('id, unit_cost')
-                .eq('purchase_order_id', poId)
-                .eq('raw_product_name', productName)
-                .limit(1);
-
-              if (dbItems && dbItems.length > 0) {
-                poItemId = dbItems[0].id;
-                unitCost = Number(dbItems[0].unit_cost);
-              } else {
-                // Insert item into OC line in-situ
-                const { data: newItem, error: itemErr } = await supabase
-                  .from('purchase_order_items')
-                  .insert({
-                    purchase_order_id: poId,
-                    product_id: productId,
-                    raw_product_name: productName,
-                    quantity_ordered: qty,
-                    quantity_received: qty,
-                    unit_cost: 0,
-                    subtotal: 0,
-                    status: 'Cumplido'
-                  })
-                  .select()
-                  .single();
-                if (itemErr) throw itemErr;
-                poItemId = newItem.id;
-              }
-            }
-
-            // Find or create reception row
-            const slipKey = slipNum || `AUTO-${recDate.getTime()}-${Math.floor(Math.random()*1000)}`;
-            let { data: existingRec } = await supabase
-              .from('purchase_receptions')
-              .select('id')
-              .eq('supplier_id', supId)
-              .eq('delivery_slip_number', slipKey)
-              .limit(1);
-
-            let receptionId = existingRec && existingRec.length > 0 ? existingRec[0].id : null;
-            if (!receptionId) {
-              const { data: newRec, error: recErr } = await supabase
-                .from('purchase_receptions')
-                .insert({
-                  reception_date: recDate.toISOString(),
-                  supplier_id: supId,
-                  delivery_slip_number: slipKey,
-                  purchase_order_id: poId,
-                  notes: obs || null
-                })
-                .select()
-                .single();
-              if (recErr) throw recErr;
-              receptionId = newRec.id;
-            }
-
-            // Insert reception item (Triggers will auto-update stock and PO line received counts!)
-            const { error: insertItemErr } = await supabase
-              .from('purchase_reception_items')
-              .insert({
-                purchase_reception_id: receptionId,
-                purchase_order_item_id: poItemId,
-                product_id: productId,
-                quantity_received: qty,
-                unit_cost: unitCost
-              });
-
-            if (insertItemErr) throw insertItemErr;
-            successCount++;
-          } catch (e: any) {
-            errorCount++;
-            addLog(`❌ Error procesando recepción: ${e.message}`);
-          }
-        }
-        addLog(`✅ Importación finalizada. Recepciones exitosas: ${successCount}. Errores: ${errorCount}`);
-      }
-
-      else if (type === 'conciliacion_unificada') {
-        const parseSpanishFloat = (valStr: string): number => {
-          if (!valStr) return 0;
-          let clean = valStr.replace(/[\$\s]/g, '');
-          if (clean.includes(',') && clean.includes('.')) {
-            if (clean.indexOf('.') < clean.indexOf(',')) {
-              clean = clean.replace(/\./g, '').replace(',', '.');
-            } else {
-              clean = clean.replace(/,/g, '');
-            }
-          } else if (clean.includes(',')) {
-            clean = clean.replace(',', '.');
-          }
-          const parsed = parseFloat(clean);
-          return isNaN(parsed) ? 0 : parsed;
-        };
-
-        const normalizeText = (str: string): string => {
-          if (!str) return '';
-          return str
-            .toLowerCase()
-            .normalize("NFD")
-            .replace(/[\u0300-\u036f]/g, "")
-            .replace(/[^a-z0-9]/g, "")
-            .trim();
-        };
-
-        const findKey = (row: any, searchTerms: string[]): string | null => {
-          const keys = Object.keys(row);
-          for (const key of keys) {
-            const normKey = normalizeText(key);
-            if (searchTerms.some(term => normalizeText(term) === normKey || normKey.includes(normalizeText(term)))) {
-              return key;
-            }
-          }
-          return null;
-        };
-
-        addLog(`📦 Analizando columnas para Planilla Unificada...`);
-
-        const groupedDocuments = new Map<string, any[]>();
-
-        for (const row of rows) {
-          const dateKey = findKey(row, ['Fecha', 'fecha recibida']);
-          const docNumKey = findKey(row, ['N°', 'Nro', 'Número de boleta', 'Numero de boleta', 'comprobante', 'factura']);
-          const typeKey = findKey(row, ['Tipo']);
-          const supplierKey = findKey(row, ['Proveedor']);
-          const productKey = findKey(row, ['Producto', 'Detalle Producto', 'Detalle']);
-          const qtyKey = findKey(row, ['Cantidad']);
-          const priceKey = findKey(row, ['Precio Unitario', 'Precio Unitario de Lista']);
-          const coefKey = findKey(row, ['Coeficiente', 'Coeficiente de descuento']);
-          const ivaKey = findKey(row, ['IVA', 'Si tiene IVA']);
-          const iibbKey = findKey(row, ['IIBB', 'Si tiene percepción de IIBB']);
-          const cabaKey = findKey(row, ['CABA', 'Si tiene percepción de CABA']);
-          const otrasKey = findKey(row, ['Otras', 'Otras percepciones']);
-          const totalParcialKey = findKey(row, ['Total Parcial desp', 'Total Parcial', 'Total parcial dsp de impuestos']);
-          const totalDocKey = findKey(row, ['Total']);
-          const statusKey = findKey(row, ['Estado']);
-
-          const rawDate = dateKey ? row[dateKey] : '';
-          
-          let itemDate = new Date();
-          if (rawDate && rawDate.includes('/')) {
-            const parts = rawDate.split('/');
-            if (parts.length === 3) {
-              const day = parseInt(parts[0], 10);
-              const month = parseInt(parts[1], 10) - 1;
-              const year = parseInt(parts[2], 10);
-              itemDate = new Date(year, month, day, 12, 0, 0);
-            }
-          } else if (rawDate && rawDate.includes('-')) {
-            itemDate = new Date(rawDate);
-          }
-
-          if (itemDate.getFullYear() < 2026) {
-            continue; // Skip 2025 and earlier
-          }
-
-          const rawDocNum = docNumKey ? row[docNumKey] : '';
-          const rawType = typeKey ? row[typeKey] : '';
-          const rawSupplier = supplierKey ? row[supplierKey] : '';
-          const rawProduct = productKey ? row[productKey] : '';
-          const rawQty = qtyKey ? row[qtyKey] : '0';
-          const rawPrice = priceKey ? row[priceKey] : '0';
-          const rawCoef = coefKey ? row[coefKey] : '1';
-          const rawIva = ivaKey ? row[ivaKey] : '1';
-          const rawIibb = iibbKey ? row[iibbKey] : '0';
-          const rawCaba = cabaKey ? row[cabaKey] : '0';
-          const rawOtras = otrasKey ? row[otrasKey] : '0';
-          const rawTotalParcial = totalParcialKey ? row[totalParcialKey] : '0';
-          const rawTotalDoc = totalDocKey ? row[totalDocKey] : '0';
-          const rawStatus = statusKey ? row[statusKey] : '';
-
-          if (!rawSupplier || !rawDocNum || !rawProduct) {
-            continue;
-          }
-
-          const item = {
-            date: rawDate,
-            docNum: rawDocNum.trim(),
-            docType: rawType.trim(),
-            supplier: rawSupplier.trim(),
-            productName: rawProduct.trim(),
-            quantity: parseSpanishFloat(rawQty),
-            listPrice: parseSpanishFloat(rawPrice),
-            coef: parseSpanishFloat(rawCoef),
-            iva: parseSpanishFloat(rawIva),
-            iibb: parseSpanishFloat(rawIibb),
-            caba: parseSpanishFloat(rawCaba),
-            otras: parseSpanishFloat(rawOtras),
-            totalParcial: parseSpanishFloat(rawTotalParcial),
-            totalDoc: parseSpanishFloat(rawTotalDoc),
-            status: rawStatus.trim().toUpperCase()
-          };
-
-          const groupKey = `${item.supplier.toLowerCase()}||${item.docNum.toLowerCase()}`;
-          const existingGroup = groupedDocuments.get(groupKey) || [];
-          existingGroup.push(item);
-          groupedDocuments.set(groupKey, existingGroup);
-        }
-
-        addLog(`📋 Encontrados ${groupedDocuments.size} documentos únicos en el CSV. Procesando...`);
-
-        const { data: { user } } = await supabase.auth.getUser();
-        const currentUserId = user?.id || null;
-
-        for (const [groupKey, items] of groupedDocuments.entries()) {
-          try {
-            const firstItem = items[0];
-            const supplierName = firstItem.supplier;
-            const docNum = firstItem.docNum;
-            const rawType = firstItem.docType;
-            const docDateStr = firstItem.date;
-
-            addLog(`⚙️ Procesando Documento N° ${docNum} de Proveedor ${supplierName}...`);
-
-            const supplierId = await getOrCreateSupplier(supplierName);
-            if (!supplierId) {
-              addLog(`⚠️ Proveedor ${supplierName} no pudo ser resuelto. Saltando documento.`);
-              continue;
-            }
-
-            let docDate = new Date();
-            if (docDateStr && docDateStr.includes('/')) {
-              const parts = docDateStr.split('/');
-              if (parts.length === 3) docDate = new Date(`${parts[2]}-${parts[1]}-${parts[0]}T12:00:00`);
-            }
-
-            const totalDocAmt = items.reduce((sum, it) => sum + it.totalParcial, 0);
-
-            const lowerType = rawType.toLowerCase();
-            let mappedDocType: 'Factura' | 'Nota de Crédito' | 'Remito' = 'Factura';
-            if (lowerType.includes('nc') || lowerType.includes('nota de credito') || lowerType.includes('nota de crédito')) {
-              mappedDocType = 'Nota de Crédito';
-            } else if (lowerType.includes('boleta') || lowerType.includes('remito')) {
-              mappedDocType = 'Remito';
-            }
-
-            const ocCode = `OC-${supplierName.toUpperCase().replace(/[^A-Z0-9]/g, '').substring(0, 5)}-${docNum}`;
-            
-            const { data: existingOC } = await supabase
-              .from('purchase_orders')
-              .select('id')
-              .eq('oc_code', ocCode)
-              .limit(1);
-
-            let poId = existingOC && existingOC.length > 0 ? existingOC[0].id : null;
-            if (!poId) {
-              const { data: newPo, error: poErr } = await supabase
-                .from('purchase_orders')
-                .insert({
-                  oc_code: ocCode,
-                  supplier_id: supplierId,
-                  order_date: docDate.toISOString(),
-                  estimated_delivery_date: docDate.toISOString(),
-                  payment_condition: 'Efectivo',
-                  notes: `OC generada automáticamente de planilla de conciliación`,
-                  total_amount: totalDocAmt,
-                  status: items.every(it => it.status === 'OK') ? 'Cumplido' : (items.some(it => it.status === 'OK') ? 'Parcial' : 'Pendiente'),
-                  created_by: currentUserId
-                })
-                .select()
-                .single();
-              if (poErr) throw poErr;
-              poId = newPo.id;
-            }
-
-            const poItemMap = new Map<string, string>();
-            for (const it of items) {
-              const prodId = await getOrCreateProduct(it.productName);
-              if (!prodId) continue;
-
-              const baseUnitCost = it.listPrice * it.coef;
-              const subtotal = it.quantity * baseUnitCost;
-
-              const { data: existingPOItem } = await supabase
-                .from('purchase_order_items')
-                .select('id')
-                .eq('purchase_order_id', poId)
-                .eq('raw_product_name', it.productName)
-                .limit(1);
-
-              let poItemId = existingPOItem && existingPOItem.length > 0 ? existingPOItem[0].id : null;
-              const lineStatus = it.status === 'OK' ? 'Cumplido' : 'Pendiente';
-
-              if (!poItemId) {
-                const { data: newPOItem, error: itemErr } = await supabase
-                  .from('purchase_order_items')
-                  .insert({
-                    purchase_order_id: poId,
-                    product_id: prodId,
-                    raw_product_name: it.productName,
-                    quantity_ordered: it.quantity,
-                    quantity_received: it.status === 'OK' ? it.quantity : 0,
-                    unit_cost: baseUnitCost,
-                    subtotal: subtotal,
-                    status: lineStatus
-                  })
-                  .select()
-                  .single();
-                if (itemErr) throw itemErr;
-                poItemId = newPOItem.id;
-              } else {
-                const { error: updateErr } = await supabase
-                  .from('purchase_order_items')
-                  .update({
-                    quantity_received: it.status === 'OK' ? it.quantity : 0,
-                    status: lineStatus
-                  })
-                  .eq('id', poItemId);
-                if (updateErr) throw updateErr;
-              }
-
-              poItemMap.set(it.productName, poItemId);
-            }
-
-            const hasReceivedItems = items.some(it => it.status === 'OK');
-            let receptionId = null;
-
-            if (hasReceivedItems) {
-              const slipNumber = docNum;
-              
-              const { data: existingRec } = await supabase
-                .from('purchase_receptions')
-                .select('id')
-                .eq('supplier_id', supplierId)
-                .eq('delivery_slip_number', slipNumber)
-                .limit(1);
-
-              receptionId = existingRec && existingRec.length > 0 ? existingRec[0].id : null;
-              if (!receptionId) {
-                const { data: newRec, error: recErr } = await supabase
-                  .from('purchase_receptions')
-                  .insert({
-                    reception_date: docDate.toISOString(),
-                    supplier_id: supplierId,
-                    delivery_slip_number: slipNumber,
-                    purchase_order_id: poId,
-                    notes: `Remito unificado - importado de conciliación`,
-                    created_by: currentUserId
-                  })
-                  .select()
-                  .single();
-                if (recErr) throw recErr;
-                receptionId = newRec.id;
-              }
-
-              for (const it of items) {
-                if (it.status !== 'OK') continue;
-                const prodId = await getOrCreateProduct(it.productName);
-                if (!prodId) continue;
-                const poItemId = poItemMap.get(it.productName) || null;
-                const baseUnitCost = it.listPrice * it.coef;
-
-                const { data: existingRecItem } = await supabase
-                  .from('purchase_reception_items')
-                  .select('id')
-                  .eq('purchase_reception_id', receptionId)
-                  .eq('product_id', prodId)
-                  .limit(1);
-
-                if (!existingRecItem || existingRecItem.length === 0) {
-                  const { error: recItemErr } = await supabase
-                    .from('purchase_reception_items')
-                    .insert({
-                      purchase_reception_id: receptionId,
-                      purchase_order_item_id: poItemId,
-                      product_id: prodId,
-                      quantity_received: it.quantity,
-                      unit_cost: baseUnitCost
-                    });
-                  if (recItemErr) throw recItemErr;
-                }
-              }
-            }
-
-            const { data: existingSupPurchase } = await supabase
-              .from('supplier_purchases')
-              .select('id')
-              .eq('supplier_id', supplierId)
-              .eq('invoice_number', docNum)
-              .limit(1);
-
-            let purchaseId = existingSupPurchase && existingSupPurchase.length > 0 ? existingSupPurchase[0].id : null;
-            if (!purchaseId) {
-              const { data: newSupPurchase, error: spErr } = await supabase
-                .from('supplier_purchases')
-                .insert({
-                  supplier_id: supplierId,
-                  invoice_number: docNum,
-                  purchase_date: docDate.toISOString(),
-                  due_date: docDate.toISOString(),
-                  total_amount: totalDocAmt,
-                  paid_amount: 0,
-                  currency: 'ARS',
-                  status: 'Pendiente',
-                  document_type: mappedDocType,
-                  purchase_order_id: poId,
-                  purchase_reception_id: receptionId,
-                  notes: `Factura importada y vinculada a OC ${ocCode}`,
-                  created_by: currentUserId
-                })
-                .select()
-                .single();
-              if (spErr) throw spErr;
-              purchaseId = newSupPurchase.id;
-            }
-
-            for (const it of items) {
-              const prodId = await getOrCreateProduct(it.productName);
-              if (!prodId) continue;
-
-              const finalUnitCost = it.quantity > 0 ? (it.totalParcial / it.quantity) : 0;
-
-              const { data: existingSPItem } = await supabase
-                .from('supplier_purchase_items')
-                .select('id')
-                .eq('purchase_id', purchaseId)
-                .eq('product_id', prodId)
-                .limit(1);
-
-              if (!existingSPItem || existingSPItem.length === 0) {
-                const { error: spItemErr } = await supabase
-                  .from('supplier_purchase_items')
-                  .insert({
-                    purchase_id: purchaseId,
-                    product_id: prodId,
-                    quantity: it.quantity,
-                    unit_cost: finalUnitCost
-                  });
-                if (spItemErr) throw spItemErr;
-              }
-            }
-
-            successCount++;
-          } catch (err: any) {
-            errorCount++;
-            addLog(`❌ Error procesando comprobante: ${err.message || err}`);
-          }
-        }
-
-        addLog(`✅ Conciliación unificada finalizada. Comprobantes exitosos: ${successCount}. Errores: ${errorCount}`);
-      }
-
-    } catch (err: any) {
-      console.error(err);
-      addLog(`❌ Error crítico de importación: ${err.message}`);
-      throw err;
-    }
-  };
-
-  const handleImportCSVs = async (fileText: string, type: 'ocs' | 'detalle_ocs' | 'recepciones' | 'conciliacion_unificada') => {
-    setImporting(true);
-    setImportLog([]);
-    const logList: string[] = [];
-    const addLog = (msg: string) => {
-      console.log(msg);
-      logList.push(msg);
-      setImportLog([...logList]);
-    };
-
-    try {
-      addLog(`📋 Iniciando importación de ${type.toUpperCase()}...`);
-      await executeImportCSV(fileText, type, addLog);
-    } catch (err) {
-      // Errors already logged in executeImportCSV
-    } finally {
-      setImporting(false);
-      loadAllData(true);
-    }
-  };
-
-  const handleSyncFromSpreadsheet = async () => {
-    const confirm = window.confirm("¿Estás seguro de que deseas sincronizar las Órdenes de Compra, Recepciones y Facturas directamente desde la planilla de Conciliación de Facturas? Esto sobrescribirá y actualizará los comprobantes.");
-    if (!confirm) return;
-
-    setImporting(true);
-    setImportLog([]);
-    const logList: string[] = [];
-    const addLog = (msg: string) => {
-      console.log(msg);
-      logList.push(msg);
-      setImportLog([...logList]);
-    };
-
-    try {
-      const sheetId = '1orAhg5O_8AHeFihgeXvT512TvokQmf3qDQWQAVVjpNk';
-      const gid = '134506688';
-      
-      addLog("📥 Descargando Planilla Unificada de Conciliación desde Google Sheets...");
-      const res = await fetch(`/api/admin/fetch-sheet?id=${sheetId}&gid=${gid}`);
-      if (!res.ok) throw new Error("Error al descargar planilla de conciliación de Google Sheets.");
-      const csvText = await res.text();
-      
-      addLog("⚡ Procesando e importando conciliación unificada de compras...");
-      await executeImportCSV(csvText, 'conciliacion_unificada', addLog);
-
-      addLog("✨ Sincronización masiva finalizada con éxito desde Google Sheets!");
-      alert("Sincronización con la planilla de conciliación completada con éxito.");
-    } catch (err: any) {
-      addLog(`❌ Error en sincronización: ${err.message}`);
-      alert("Error durante la sincronización: " + err.message);
-    } finally {
-      setImporting(false);
-      loadAllData(true);
-    }
-  };
-
   // --- REPLENISHMENT ASSISTANT & CALCULATOR HELPERS ---
   const getValidReceptionDate = (baseDate: Date, coverageDays: number, graceDays: number = 2): { targetDate: Date; displayDays: number } => {
     // Total working days to add:
@@ -4585,530 +3525,16 @@ export default function ComprasAdminPage() {
     }
   };
 
-  // --- NEW PURCHASE LOGIC ---
-  const handleAddPurchaseItem = () => {
-    if (!currentItemProductId || !currentItemQuantity || !currentItemUnitCost) {
-      alert("Seleccioná un producto y completá cantidad y costo.");
-      return;
-    }
-
-    const qty = Number(currentItemQuantity);
-    const cost = Number(currentItemUnitCost);
-
-    if (isNaN(qty) || qty <= 0) {
-      alert("La cantidad debe ser mayor a 0.");
-      return;
-    }
-    if (isNaN(cost) || cost < 0) {
-      alert("El costo unitario debe ser mayor o igual a 0.");
-      return;
-    }
-
-    const prod = products.find(p => p.id === currentItemProductId);
-    if (!prod) return;
-
-    // Check if item already exists in current list
-    const existsIdx = purchaseItems.findIndex(i => i.productId === prod.id);
-    if (existsIdx > -1) {
-      const updated = [...purchaseItems];
-      updated[existsIdx].quantity += qty;
-      updated[existsIdx].unitCost = cost; // Overwrite with newest cost
-      setPurchaseItems(updated);
-    } else {
-      setPurchaseItems(prev => [...prev, {
-        productId: prod.id,
-        name: prod.name,
-        sku: prod.sku || "SIN SKU",
-        quantity: qty,
-        unitCost: cost
-      }]);
-    }
-
-    // Reset inputs
-    setCurrentItemProductId("");
-    setCurrentItemQuantity("1");
-    setCurrentItemUnitCost("");
-  };
-
-  const handleRemovePurchaseItem = (idx: number) => {
-    setPurchaseItems(prev => prev.filter((_, i) => i !== idx));
-  };
-
-  const loadPaymentsAndEgresos = async (purchaseId: string, currency: string) => {
+  const loadPurchasePayments = async (purchaseId: string) => {
     setLoadingPayments(true);
     try {
-      // 1. Fetch associated payments
-      const { data: payments, error: payError } = await supabase
-        .from('supplier_payments')
-        .select(`
-          *,
-          payment_methods(name),
-          cash_transactions(concept, amount)
-        `)
-        .eq('purchase_id', purchaseId)
-        .order('created_at', { ascending: true });
-      if (payError) throw payError;
-      setAssociatedPayments(payments || []);
-
-      // 2. Fetch unreconciled cash transactions (egresos of category 'pago_proveedor' or 'gasto_general' in same currency)
-      const { data: allEgresos, error: egresosError } = await supabase
-        .from('cash_transactions')
-        .select(`
-          *,
-          payment_methods(name)
-        `)
-        .eq('type', 'egreso')
-        .eq('currency', currency)
-        .in('category', ['pago_proveedor', 'gasto_general'])
-        .order('created_at', { ascending: false });
-      
-      if (egresosError) throw egresosError;
-
-      // Find all cash_transaction_id already linked in supplier_payments
-      const { data: linkedPayments, error: linkedError } = await supabase
-        .from('supplier_payments')
-        .select('cash_transaction_id')
-        .not('cash_transaction_id', 'is', null);
-
-      if (linkedError) throw linkedError;
-
-      const linkedIds = new Set(linkedPayments?.map(p => p.cash_transaction_id) || []);
-      const unreconciled = (allEgresos || []).filter(e => !linkedIds.has(e.id));
-      setUnreconciledEgresos(unreconciled);
-      setSelectedEgresoId("");
-    } catch (e: any) {
-      console.error("Error loading payments/egresos:", e);
-    } finally {
-      setLoadingPayments(false);
-    }
-  };
-
-  const handleLinkEgreso = async () => {
-    if (!selectedPurchase || !selectedEgresoId) return;
-    setSubmittingLink(true);
-    try {
-      const egreso = unreconciledEgresos.find(e => e.id === selectedEgresoId);
-      if (!egreso) throw new Error("Movimiento de caja no encontrado.");
-
-      const remainingBalance = selectedPurchase.total_amount - selectedPurchase.paid_amount;
-      if (remainingBalance <= 0) {
-        throw new Error("La compra ya se encuentra completamente pagada.");
-      }
-
-      const imputeAmount = Math.min(remainingBalance, egreso.amount);
-
-      const { data: { user } } = await supabase.auth.getUser();
-      const currentUserId = user?.id;
-      if (!currentUserId) throw new Error("No autenticado.");
-
-      const { error: payErr } = await supabase
-        .from('supplier_payments')
-        .insert({
-          supplier_id: selectedPurchase.supplier_id,
-          purchase_id: selectedPurchase.id,
-          amount: imputeAmount,
-          currency: selectedPurchase.currency,
-          payment_method_id: egreso.payment_method_id,
-          cash_transaction_id: egreso.id,
-          notes: `Vinculado con Egreso de Caja: ${egreso.concept || 'S/C'}`,
-          created_by: currentUserId
-        });
-
-      if (payErr) throw payErr;
-
-      const newPaidAmount = selectedPurchase.paid_amount + imputeAmount;
-      const newStatus: "Pendiente" | "Parcial" | "Pagado" | "Anulado" = newPaidAmount >= selectedPurchase.total_amount ? 'Pagado' : 'Parcial';
-
-      const { error: updateErr } = await supabase
-        .from('supplier_purchases')
-        .update({
-          paid_amount: newPaidAmount,
-          status: newStatus
-        })
-        .eq('id', selectedPurchase.id);
-
-      if (updateErr) throw updateErr;
-
-      const updatedPurchase = {
-        ...selectedPurchase,
-        paid_amount: newPaidAmount,
-        status: newStatus
-      };
-      setSelectedPurchase(updatedPurchase);
-      setPurchases(prev => prev.map(p => p.id === selectedPurchase.id ? updatedPurchase : p));
-
-      alert("Egreso de caja vinculado con éxito.");
-      await loadPaymentsAndEgresos(selectedPurchase.id, selectedPurchase.currency);
-    } catch (err: any) {
-      alert("Error al vincular movimiento: " + err.message);
-    } finally {
-      setSubmittingLink(false);
-    }
-  };
-
-  const handleRegisterNewPayment = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedPurchase) return;
-
-    const payAmt = Number(newPaymentAmount);
-    if (isNaN(payAmt) || payAmt <= 0) {
-      alert("Monto inválido.");
-      return;
-    }
-
-    const remainingBalance = selectedPurchase.total_amount - selectedPurchase.paid_amount;
-    if (payAmt > remainingBalance) {
-      alert("El pago no puede superar el saldo restante de la compra.");
-      return;
-    }
-
-    const pm = paymentMethods.find(p => p.id === newPaymentMethodId);
-    const isCash = pm?.name.toLowerCase().includes("efectivo");
-    if (isCash && !openRegister) {
-      alert("Debe tener una Caja Abierta para registrar pagos en efectivo.");
-      return;
-    }
-
-    setSubmittingNewPayment(true);
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      const currentUserId = user?.id;
-      if (!currentUserId) throw new Error("No autenticado.");
-
-      let cashTxId: string | undefined = undefined;
-
-      if (isCash && openRegister) {
-        const { data: txData, error: txError } = await supabase
-          .from('cash_transactions')
-          .insert({
-            register_id: openRegister.id,
-            type: 'egreso',
-            category: 'pago_proveedor',
-            amount: payAmt,
-            currency: selectedPurchase.currency,
-            exchange_rate: 1.0,
-            payment_method_id: newPaymentMethodId,
-            reference_id: selectedPurchase.id,
-            concept: `Pago a Proveedor: ${selectedPurchase.supplier?.name || ''} - Factura: ${selectedPurchase.invoice_number}`,
-            cost_center_id: selectedPurchase.cost_center_id || null,
-            notes: newPaymentNotes || `Pago registrado desde Compras`,
-            created_by: currentUserId
-          })
-          .select()
-          .single();
-
-        if (txError) throw txError;
-        cashTxId = txData.id;
-
-        const changeAmountArs = selectedPurchase.currency === 'ARS' ? payAmt : 0;
-        const changeAmountUsd = selectedPurchase.currency === 'USD' ? payAmt : 0;
-        const newExpectedArs = openRegister.expected_balance_ars - changeAmountArs;
-        const newExpectedUsd = openRegister.expected_balance_usd - changeAmountUsd;
-
-        await supabase
-          .from('cash_registers')
-          .update({
-            expected_balance_ars: newExpectedArs,
-            expected_balance_usd: newExpectedUsd
-          })
-          .eq('id', openRegister.id);
-      }
-
-      const { error: payErr } = await supabase
-        .from('supplier_payments')
-        .insert({
-          supplier_id: selectedPurchase.supplier_id,
-          purchase_id: selectedPurchase.id,
-          amount: payAmt,
-          currency: selectedPurchase.currency,
-          payment_method_id: newPaymentMethodId,
-          cash_transaction_id: cashTxId || null,
-          notes: newPaymentNotes || `Pago factura de compra ${selectedPurchase.invoice_number}`,
-          created_by: currentUserId
-        });
-
-      if (payErr) throw payErr;
-
-      const newPaidAmount = selectedPurchase.paid_amount + payAmt;
-      const newStatus: "Pendiente" | "Parcial" | "Pagado" | "Anulado" = newPaidAmount >= selectedPurchase.total_amount ? 'Pagado' : 'Parcial';
-
-      const { error: updateErr } = await supabase
-        .from('supplier_purchases')
-        .update({
-          paid_amount: newPaidAmount,
-          status: newStatus
-        })
-        .eq('id', selectedPurchase.id);
-
-      if (updateErr) throw updateErr;
-
-      const updatedPurchase = {
-        ...selectedPurchase,
-        paid_amount: newPaidAmount,
-        status: newStatus
-      };
-      setSelectedPurchase(updatedPurchase);
-      setPurchases(prev => prev.map(p => p.id === selectedPurchase.id ? updatedPurchase : p));
-
-      setNewPaymentAmount("");
-      setNewPaymentNotes("");
-
-      alert("Pago registrado correctamente.");
-      await loadPaymentsAndEgresos(selectedPurchase.id, selectedPurchase.currency);
-    } catch (err: any) {
-      alert("Error al registrar pago: " + err.message);
-    } finally {
-      setSubmittingNewPayment(false);
-    }
-  };
-
-  const handleUnlinkPayment = async (paymentId: string) => {
-    if (!selectedPurchase) return;
-    if (!confirm("¿Seguro que querés desvincular o anular este pago?")) return;
-
-    setLoadingPayments(true);
-    try {
-      const payment = associatedPayments.find(p => p.id === paymentId);
-      if (!payment) throw new Error("Pago no encontrado.");
-
-      const { error: deletePayErr } = await supabase
-        .from('supplier_payments')
-        .delete()
-        .eq('id', paymentId);
-
-      if (deletePayErr) throw deletePayErr;
-
-      if (payment.cash_transaction_id) {
-        const isLinked = payment.notes?.includes("Vinculado con Egreso de Caja");
-        if (!isLinked) {
-          const { data: tx } = await supabase
-            .from('cash_transactions')
-            .select('*')
-            .eq('id', payment.cash_transaction_id)
-            .single();
-
-          if (tx) {
-            await supabase.from('cash_transactions').delete().eq('id', tx.id);
-
-            const changeAmountArs = tx.currency === 'ARS' ? tx.amount : 0;
-            const changeAmountUsd = tx.currency === 'USD' ? tx.amount : 0;
-            
-            const { data: reg } = await supabase
-              .from('cash_registers')
-              .select('*')
-              .eq('id', tx.register_id)
-              .single();
-            
-            if (reg) {
-              await supabase
-                .from('cash_registers')
-                .update({
-                  expected_balance_ars: reg.expected_balance_ars + changeAmountArs,
-                  expected_balance_usd: reg.expected_balance_usd + changeAmountUsd
-                })
-                .eq('id', reg.id);
-            }
-          }
-        }
-      }
-
-      const newPaidAmount = Math.max(0, selectedPurchase.paid_amount - payment.amount);
-      const newStatus: "Pendiente" | "Parcial" | "Pagado" | "Anulado" = newPaidAmount === 0 ? 'Pendiente' : (newPaidAmount >= selectedPurchase.total_amount ? 'Pagado' : 'Parcial');
-
-      const { error: updateErr } = await supabase
-        .from('supplier_purchases')
-        .update({
-          paid_amount: newPaidAmount,
-          status: newStatus
-        })
-        .eq('id', selectedPurchase.id);
-
-      if (updateErr) throw updateErr;
-
-      const updatedPurchase = {
-        ...selectedPurchase,
-        paid_amount: newPaidAmount,
-        status: newStatus
-      };
-      setSelectedPurchase(updatedPurchase);
-      setPurchases(prev => prev.map(p => p.id === selectedPurchase.id ? updatedPurchase : p));
-
-      alert("Pago eliminado/desvinculado correctamente.");
-      await loadPaymentsAndEgresos(selectedPurchase.id, selectedPurchase.currency);
-    } catch (err: any) {
-      alert("Error al anular pago: " + err.message);
-    } finally {
-      setLoadingPayments(false);
-    }
-  };
-
-  const handleSavePurchase = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!purchaseSupplierId || !purchaseInvoiceNumber) {
-      alert("Proveedor y Nro de Factura son requeridos.");
-      return;
-    }
-    if (purchaseItems.length === 0) {
-      alert("Debés agregar al menos un artículo a la compra.");
-      return;
-    }
-
-    setIsSubmittingPurchase(true);
-
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      const currentUserId = user?.id;
-      if (!currentUserId) throw new Error("No autenticado.");
-
-      const purchaseTotal = purchaseItems.reduce((acc, item) => acc + (item.quantity * item.unitCost), 0);
-
-      let paidAmt = 0;
-      let cashTxId: string | undefined = undefined;
-
-      if (payImmediately) {
-        const payAmt = Number(immediatePaymentAmount);
-        if (isNaN(payAmt) || payAmt <= 0) {
-          throw new Error("El monto de pago inmediato debe ser mayor a 0.");
-        }
-        if (payAmt > purchaseTotal) {
-          throw new Error("El pago no puede superar el total de la compra.");
-        }
-        paidAmt = payAmt;
-
-        const pm = paymentMethods.find(p => p.id === immediatePaymentMethodId);
-        const isCash = pm?.name.toLowerCase().includes("efectivo");
-        
-        if (isCash) {
-          if (!openRegister) {
-            throw new Error("Debe tener una Caja Abierta para registrar egresos en efectivo.");
-          }
-        }
-      }
-
-      const purchaseStatus = paidAmt === 0 ? 'Pendiente' : (paidAmt === purchaseTotal ? 'Pagado' : 'Parcial');
-      const { data: purchaseData, error: purchaseErr } = await supabase
-        .from('supplier_purchases')
-        .insert({
-          supplier_id: purchaseSupplierId,
-          invoice_number: purchaseInvoiceNumber,
-          purchase_date: new Date(purchaseDate).toISOString(),
-          due_date: purchaseDueDate ? new Date(purchaseDueDate).toISOString() : null,
-          total_amount: purchaseTotal,
-          paid_amount: paidAmt,
-          currency: purchaseCurrency,
-          status: purchaseStatus,
-          cost_center_id: purchaseCostCenterId || null,
-          notes: purchaseNotes || null,
-          created_by: currentUserId
-        })
-        .select()
-        .single();
-
-      if (purchaseErr) throw purchaseErr;
-
-      const itemsPayload = purchaseItems.map(item => ({
-        purchase_id: purchaseData.id,
-        product_id: item.productId,
-        quantity: item.quantity,
-        unit_cost: item.unitCost
-      }));
-
-      const { error: itemsErr } = await supabase
-        .from('supplier_purchase_items')
-        .insert(itemsPayload);
-
-      if (itemsErr) throw itemsErr;
-
-      const stockPayload = purchaseItems.map(item => ({
-        product_id: item.productId,
-        quantity: item.quantity,
-        type: 'Compra',
-        reference_id: purchaseData.id,
-        user_id: currentUserId
-      }));
-
-      const { error: stockErr } = await supabase
-        .from('inventory_transactions')
-        .insert(stockPayload);
-
-      if (stockErr) throw stockErr;
-
-      if (payImmediately && paidAmt > 0) {
-        const pm = paymentMethods.find(p => p.id === immediatePaymentMethodId);
-        const isCash = pm?.name.toLowerCase().includes("efectivo");
-
-        if (isCash && openRegister) {
-          const { data: txData, error: txError } = await supabase
-            .from('cash_transactions')
-            .insert({
-              register_id: openRegister.id,
-              type: 'egreso',
-              category: 'pago_proveedor',
-              amount: paidAmt,
-              currency: purchaseCurrency,
-              exchange_rate: 1.0,
-              payment_method_id: immediatePaymentMethodId,
-              reference_id: purchaseData.id,
-              cost_center_id: purchaseCostCenterId || null,
-              concept: `Pago inmediato de factura ${purchaseInvoiceNumber}`,
-              notes: `Pago inmediato de factura ${purchaseInvoiceNumber}`,
-              created_by: currentUserId
-            })
-            .select()
-            .single();
-
-          if (txError) throw txError;
-          cashTxId = txData.id;
-
-          const changeAmountArs = purchaseCurrency === 'ARS' ? paidAmt : 0;
-          const changeAmountUsd = purchaseCurrency === 'USD' ? paidAmt : 0;
-          const newExpectedArs = openRegister.expected_balance_ars - changeAmountArs;
-          const newExpectedUsd = openRegister.expected_balance_usd - changeAmountUsd;
-
-          await supabase
-            .from('cash_registers')
-            .update({
-              expected_balance_ars: newExpectedArs,
-              expected_balance_usd: newExpectedUsd
-            })
-            .eq('id', openRegister.id);
-        }
-
-        const { error: payErr } = await supabase
-          .from('supplier_payments')
-          .insert({
-            supplier_id: purchaseSupplierId,
-            purchase_id: purchaseData.id,
-            amount: paidAmt,
-            currency: purchaseCurrency,
-            payment_method_id: immediatePaymentMethodId,
-            cash_transaction_id: cashTxId || null,
-            notes: `Pago inicial factura de compra ${purchaseInvoiceNumber}`,
-            created_by: currentUserId
-          });
-
-        if (payErr) throw payErr;
-      }
-
-      alert("Compra registrada correctamente. El inventario ha sido incrementado.");
-      
-      setPurchaseSupplierId("");
-      setPurchaseInvoiceNumber("");
-      setPurchaseDate(new Date().toISOString().split('T')[0]);
-      setPurchaseDueDate("");
-      setPurchaseCurrency("ARS");
-      setPurchaseNotes("");
-      setPurchaseItems([]);
-      setPayImmediately(false);
-      setImmediatePaymentAmount("");
-
-      await loadAllData();
-      navigateSubTab('purchases_history');
-    } catch (err: any) {
-      alert("Error al registrar la compra: " + err.message);
-    } finally {
-      setIsSubmittingPurchase(false);
-    }
+      const { data, error } = await supabase.from('supplier_payments')
+        .select('*, payment_methods(name), cash_transactions(concept, amount)')
+        .eq('purchase_id', purchaseId).order('created_at', { ascending: true });
+      if (error) throw error;
+      setAssociatedPayments(data || []);
+    } catch (error) { console.error('Error al cargar pagos del proveedor:', error); }
+    finally { setLoadingPayments(false); }
   };
 
   const handleViewPurchaseDetails = async (purchase: SupplierPurchase) => {
@@ -5117,17 +3543,17 @@ export default function ComprasAdminPage() {
     setDetailTab('items');
     try {
       const { data: items, error } = await supabase
-        .from('supplier_purchase_items')
+        .from(purchase.purchase_reception_id ? 'purchase_reception_items' : 'supplier_purchase_items')
         .select(`
           *,
           product:products(name, sku)
         `)
-        .eq('purchase_id', purchase.id);
+        .eq(purchase.purchase_reception_id ? 'purchase_reception_id' : 'purchase_id', purchase.purchase_reception_id || purchase.id);
 
       if (error) throw error;
       setPurchaseItemsDetail(items || []);
       
-      await loadPaymentsAndEgresos(purchase.id, purchase.currency);
+      await loadPurchasePayments(purchase.id);
     } catch (err: any) {
       alert("Error al cargar detalles de la compra: " + err.message);
     } finally {
@@ -5157,12 +3583,14 @@ export default function ComprasAdminPage() {
         .from('supplier_purchases')
         .update({
           invoice_number: editInvoiceNumber,
-          purchase_date: editPurchaseDate ? new Date(editPurchaseDate).toISOString() : null,
+          ...(!editingPurchase.purchase_reception_id && {
+            purchase_date: editPurchaseDate ? new Date(editPurchaseDate).toISOString() : null,
+            status: editStatus,
+            purchase_order_id: editPOId || null
+          }),
           total_amount: editTotalAmount,
           document_type: editDocumentType,
-          status: editStatus,
-          notes: editNotes || null,
-          purchase_order_id: editPOId || null
+          notes: editNotes || null
         })
         .eq('id', editingPurchase.id);
 
@@ -5205,7 +3633,6 @@ export default function ComprasAdminPage() {
     return `${p.name} ${p.sku || ''}`.toLowerCase().includes(searchRelationTerm.toLowerCase());
   });
 
-  const totalPurchaseFormAmount = purchaseItems.reduce((acc, item) => acc + (item.quantity * item.unitCost), 0);
 
   // Make vs Buy calculations for the currently selected product
   const getSimulatedBomCost = (productId: string) => {
@@ -5437,6 +3864,7 @@ export default function ComprasAdminPage() {
           >
             Explorador de Recetas
           </button>
+
         </div>
       </div>
 
@@ -5470,14 +3898,6 @@ export default function ComprasAdminPage() {
                 setShowNewPOModal(true);
               }} className="rounded-xl gap-1.5 py-2 px-3 text-xs font-black">
                 <Plus className="w-3.5 h-3.5" /> Nueva OC
-              </Button>
-              <Button
-                onClick={handleSyncFromSpreadsheet}
-                disabled={importing}
-                className="rounded-xl gap-1.5 py-2 px-3 text-xs font-black bg-emerald-600 hover:bg-emerald-700 text-white"
-              >
-                <ArrowRightLeft className="w-3.5 h-3.5" />
-                {importing ? "Sincronizando..." : "Sincronizar con Planilla"}
               </Button>
             </div>
           </div>
@@ -5656,7 +4076,7 @@ export default function ComprasAdminPage() {
                                     title="Marcar como Cumplida / Ya recibida por fuera (Sin tocar stock)"
                                   >
                                     <CheckCircle2 className="w-3.5 h-3.5" />
-                                    <span className="text-[10px] font-black uppercase">Cumplir (Sin Stock)</span>
+                                    <span className="text-[10px] font-black uppercase">Recibir sin stock</span>
                                   </button>
                                   <button
                                     onClick={() => handleOpenReceptionForPO(po)}
@@ -5755,7 +4175,7 @@ export default function ComprasAdminPage() {
                                     </thead>
                                     <tbody className="divide-y divide-slate-100 text-slate-700 font-medium">
                                       {poItemsMap[po.id].map(item => {
-                                        const pendingQty = Math.max(0, item.quantity_ordered - item.quantity_received);
+                                        const pendingQty = item.shortfall_closed ? 0 : Math.max(0, item.quantity_ordered - item.quantity_received);
                                         return (
                                           <tr key={item.id} className="hover:bg-slate-50/30 transition-colors">
                                             <td className="p-2.5 pl-4 text-slate-900 font-bold">
@@ -5776,7 +4196,7 @@ export default function ComprasAdminPage() {
                                                 item.status === 'Cancelado' ? 'bg-rose-50 text-rose-700 border border-rose-200' :
                                                 'bg-slate-50 text-slate-700 border border-slate-200'
                                               }`}>
-                                                {item.status}
+                                                {item.shortfall_closed ? 'Faltante cerrado' : item.status}
                                               </span>
                                             </td>
                                             <td className="p-2.5 text-center pr-4">
@@ -5905,7 +4325,7 @@ export default function ComprasAdminPage() {
                                   item.status === 'Cancelado' ? 'bg-rose-50 text-rose-700 border border-rose-200' :
                                   'bg-slate-50 text-slate-700 border border-slate-200'
                                 }`}>
-                                  {item.status}
+                                  {item.shortfall_closed ? 'Faltante cerrado' : item.status}
                                 </span>
                               </td>
                             </tr>
@@ -5985,7 +4405,7 @@ export default function ComprasAdminPage() {
                             }}
                             className="bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl font-black text-xs px-4 py-2.5 flex items-center gap-1.5"
                           >
-                            <CheckCircle2 className="w-4 h-4" /> Cumplir (Sin Stock)
+                            <CheckCircle2 className="w-4 h-4" /> Recibir sin stock
                           </Button>
                           <Button
                             type="button"
@@ -6417,7 +4837,7 @@ export default function ComprasAdminPage() {
                         <tr className="bg-slate-50 border-b text-slate-400 font-bold uppercase tracking-wider">
                           <th className="p-3 whitespace-nowrap">Artículo / Detalle</th>
                           <th className="p-3 text-right whitespace-nowrap" style={{ width: '120px' }}>Cant. Pedida</th>
-                          <th className="p-3 text-right whitespace-nowrap" style={{ width: '150px' }}>Costo Unitario ($)</th>
+                          <th className="p-3 text-right whitespace-nowrap" style={{ width: '150px' }}>Costo Unitario</th>
                           <th className="p-3 text-right whitespace-nowrap">Subtotal</th>
                           <th className="p-3 text-center whitespace-nowrap" style={{ width: '60px' }}>Acciones</th>
                         </tr>
@@ -6831,7 +5251,7 @@ export default function ComprasAdminPage() {
                                 <td className="p-3 text-slate-900">
                                   <div className="font-bold">{item.rawProductName} {item.sku ? `(${item.sku})` : ''}</div>
                                   {item.status && (
-                                    <span className="text-[10px] text-slate-400 font-normal">Estado: {item.status}</span>
+                                    <span className="text-[10px] text-slate-400 font-normal">Estado: {item.shortfall_closed ? 'Faltante cerrado' : item.status}</span>
                                   )}
                                 </td>
                                 <td className="p-3 text-center">
@@ -6973,7 +5393,7 @@ export default function ComprasAdminPage() {
           <div className="flex justify-between items-center bg-white p-4 rounded-xl border border-slate-200/60 shadow-sm">
             <div>
               <h3 className="font-black text-slate-900 text-sm">Recepción de Mercadería</h3>
-              <p className="text-xs text-slate-400">Registrá los remitos de ingreso de tus proveedores para actualizar stock físico en base a OCs.</p>
+              <p className="text-xs text-slate-400">Registrá lo recibido para generar la deuda y actualizar la OC, con o sin impacto en stock.</p>
             </div>
             <Button onClick={() => {
               setReceptionSupplierId("");
@@ -6981,6 +5401,10 @@ export default function ComprasAdminPage() {
               setReceptionPOId("");
               setReceptionNotes("");
               setReceptionItems([]);
+              setReceptionUpdateStock(false);
+              setReceptionAlignPO(false);
+              setModalSupplierSearchText("");
+              setModalOCSearchText("");
               setShowNewReceptionModal(true);
             }} className="rounded-xl gap-1.5 py-2 px-3 text-xs font-black">
               <Plus className="w-3.5 h-3.5" /> Registrar Recepción
@@ -7011,7 +5435,7 @@ export default function ComprasAdminPage() {
                         <td className="p-4 text-brand-600 font-black">{rec.delivery_slip_number || `Remito-${rec.id.substring(0,8).toUpperCase()}`}</td>
                         <td className="p-4 font-normal">{formatDateDDMMYYYY(rec.reception_date)}</td>
                         <td className="p-4 text-slate-900">{rec.supplier?.name}</td>
-                        <td className="p-4 text-slate-700">{rec.purchase_orders?.oc_code || 'Sin OC de origen'}</td>
+                        <td className="p-4 text-slate-700">{receptionOrderCodes(rec)}</td>
                         <td className="p-4 font-normal text-slate-500 max-w-xs truncate">{rec.notes || '-'}</td>
                         <td className="p-4 text-center">
                           <button
@@ -7053,7 +5477,8 @@ export default function ComprasAdminPage() {
                   <div className="space-y-4">
                     <div className="grid grid-cols-2 gap-4 text-xs font-bold bg-slate-50 p-4 rounded-2xl border border-slate-100 text-slate-700">
                       <p>Nro Remito: <span className="text-slate-900">{selectedReception.delivery_slip_number || 'S/D'}</span></p>
-                      <p>OC Relacionada: <span className="text-slate-900">{selectedReception.purchase_orders?.oc_code || 'Sin OC de origen'}</span></p>
+                      <p>Stock: <span className="text-slate-900">{selectedReception.impacts_stock === false ? "Sin impacto" : "Con impacto"}</span> · Moneda: {selectedReception.currency || "ARS"}</p>
+                      <p>OC Relacionada: <span className="text-slate-900">{receptionOrderCodes(selectedReception)}</span></p>
                       {selectedReception.notes && <p className="col-span-2 font-normal">Notas: {selectedReception.notes}</p>}
                     </div>
 
@@ -7062,6 +5487,7 @@ export default function ComprasAdminPage() {
                         <thead>
                           <tr className="bg-slate-50 border-b text-slate-400 font-bold uppercase tracking-wider">
                             <th className="p-3 whitespace-nowrap">Artículo / Detalle</th>
+                            <th className="p-3 whitespace-nowrap">OC</th>
                             <th className="p-3 text-right whitespace-nowrap">Cant. Recibida</th>
                             <th className="p-3 text-right whitespace-nowrap">Costo Unitario ($)</th>
                             <th className="p-3 text-right whitespace-nowrap">Subtotal</th>
@@ -7070,7 +5496,8 @@ export default function ComprasAdminPage() {
                         <tbody className="divide-y divide-slate-100 font-bold text-slate-700">
                           {receptionItemsDetail.map(item => (
                             <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
-                              <td className="p-3 text-slate-900">{item.product?.name} {item.product?.sku && item.product.sku !== item.product?.name && !item.product.sku.endsWith('_OLD') && !item.product.sku.startsWith('AUTO-') ? `(${item.product.sku})` : ''}</td>
+                              <td className="p-3 text-slate-900">{item.product?.name || item.product_name || "Artículo sin catálogo"} {item.product?.sku && item.product.sku !== item.product?.name && !item.product.sku.endsWith('_OLD') && !item.product.sku.startsWith('AUTO-') ? `(${item.product.sku})` : ''}</td>
+                              <td className="p-3 text-slate-700">{item.purchase_order_items?.purchase_orders?.oc_code || '—'}</td>
                               <td className="p-3 text-right text-green-600">{item.quantity_received}</td>
                               <td className="p-3 text-right">{formatPrice(item.unit_cost)}</td>
                               <td className="p-3 text-right text-slate-900">{formatPrice(item.quantity_received * item.unit_cost)}</td>
@@ -7116,9 +5543,10 @@ export default function ComprasAdminPage() {
                       <input
                         type="date"
                         required
+                        disabled={Boolean(editingPurchase?.purchase_reception_id)}
                         value={editPurchaseDate}
                         onChange={e => setEditPurchaseDate(e.target.value)}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500 disabled:bg-slate-100"
                       />
                     </div>
                   </div>
@@ -7154,6 +5582,7 @@ export default function ComprasAdminPage() {
                       <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Estado de Pago</label>
                       <select
                         value={editStatus}
+                        disabled={Boolean(editingPurchase?.purchase_reception_id)}
                         onChange={e => setEditStatus(e.target.value as any)}
                         className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
                       >
@@ -7167,6 +5596,7 @@ export default function ComprasAdminPage() {
                       <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">OC Asociada</label>
                       <select
                         value={editPOId}
+                        disabled={Boolean(editingPurchase?.purchase_reception_id)}
                         onChange={e => setEditPOId(e.target.value)}
                         className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
                       >
@@ -7220,13 +5650,21 @@ export default function ComprasAdminPage() {
                 <div className="flex justify-between items-center border-b pb-4">
                   <div>
                     <h3 className="text-lg font-black text-slate-900">Registrar Recepción de Mercadería</h3>
-                    <p className="text-xs text-slate-400">Ingresá el remito del proveedor. Podés vincularlo a una OC o registrarlo in-situ (creando la OC automática de respaldo).</p>
+                    <p className="text-xs text-slate-400">Ingresá el remito del proveedor, vinculado a una OC o sin OC. La recepción genera la deuda por el importe recibido.</p>
                   </div>
-                  <button type="button" onClick={() => setShowNewReceptionModal(false)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-colors">
+                  <button type="button" disabled={savingReception} onClick={() => setShowNewReceptionModal(false)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-colors">
                     <X className="w-5 h-5" />
                   </button>
                 </div>
 
+                <div className="grid grid-cols-2 gap-4">
+                  <label className="text-xs font-bold text-slate-500">Fecha de recepción
+                    <input type="date" required value={receptionDate} onChange={e => setReceptionDate(e.target.value)} className="w-full border rounded-lg p-2 mt-1" />
+                  </label>
+                  <label className="text-xs font-bold text-slate-500">Moneda de la deuda
+                    <select value={receptionCurrency} onChange={e => setReceptionCurrency(e.target.value as 'ARS' | 'USD')} className="w-full border rounded-lg p-2 mt-1"><option value="ARS">Pesos (ARS)</option><option value="USD">Dólares (USD)</option></select>
+                  </label>
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="space-y-1 relative">
                     <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Proveedor *</label>
@@ -7434,9 +5872,9 @@ export default function ComprasAdminPage() {
                         className="w-4 h-4 mt-0.5 sm:mt-0 rounded text-amber-600 focus:ring-amber-500 border-amber-300 cursor-pointer"
                       />
                       <label htmlFor="alignPOCheck" className="text-xs font-bold text-amber-950 cursor-pointer select-none">
-                        Alinear OC con lo recibido (Cerrar faltantes si el proveedor no enviará el resto)
+                        Cerrar faltantes de la OC si el proveedor no enviará el resto
                         <span className="block text-[11px] text-amber-800 font-normal mt-0.5">
-                          Si el proveedor envió menos unidades de las pedidas (ej. un termo menos), ajusta la cantidad pedida de la OC a lo recibido para cerrar la orden como Cumplida.
+                          Conserva las cantidades originalmente pedidas y cierra el saldo pendiente de recepción.
                         </span>
                       </label>
                     </div>
@@ -7600,11 +6038,11 @@ export default function ComprasAdminPage() {
                 </div>
 
                 <div className="flex justify-end gap-3 border-t pt-4">
-                  <Button type="button" onClick={() => setShowNewReceptionModal(false)} className="bg-slate-100 text-slate-600 hover:bg-slate-200 py-2.5 px-4 rounded-xl">
+                  <Button type="button" disabled={savingReception} onClick={() => setShowNewReceptionModal(false)} className="bg-slate-100 text-slate-600 hover:bg-slate-200 py-2.5 px-4 rounded-xl">
                     Cancelar
                   </Button>
-                  <Button type="submit" className="bg-brand-600 hover:bg-brand-700 py-2.5 px-6 rounded-xl text-white">
-                    <Check className="w-4 h-4 mr-1.5" /> Confirmar Entrada
+                  <Button type="submit" disabled={savingReception} className="bg-brand-600 hover:bg-brand-700 py-2.5 px-6 rounded-xl text-white">
+                    <Check className="w-4 h-4 mr-1.5" /> {savingReception ? "Guardando…" : "Confirmar recepción y deuda"}
                   </Button>
                 </div>
               </form>
@@ -8105,74 +6543,6 @@ export default function ComprasAdminPage() {
       )}
 
       {/* SUBTAB: IMPORTER */}
-      {activeSubTab === 'import_compras' && (
-        <div className="space-y-6">
-          <div className="bg-white p-6 rounded-3xl border border-slate-200/60 shadow-sm space-y-6">
-            <div>
-              <h3 className="font-black text-slate-900 text-base">Importador Masivo de Órdenes y Recepciones (Google Sheets)</h3>
-              <p className="text-xs text-slate-400">Pegá las columnas de la planilla directamente o subí un archivo CSV para actualizar el histórico del sistema.</p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="space-y-4">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Tipo de Hoja a Importar *</label>
-                  <select
-                    value={importType}
-                    onChange={e => setImportType(e.target.value as any)}
-                    className="w-full px-4 py-3 rounded-xl border bg-slate-50 font-bold text-xs"
-                  >
-                    <option value="conciliacion_unificada">1. Planilla de Conciliación de Facturas (Unificada)</option>
-                    <option value="ocs">2. Cabeceras de OCs (Hoja "OCs")</option>
-                    <option value="detalle_ocs">3. Detalle de OCs (Hoja "DetalleOCs")</option>
-                    <option value="recepciones">4. Recepciones / Remitos (Hoja "DocumentosDeRecepción")</option>
-                  </select>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Copiar y Pegar Datos (Valores separados por Coma o Tabulación)</label>
-                  <textarea
-                    id="csvPasteArea"
-                    rows={12}
-                    placeholder="Pegá acá las celdas copiadas directamente de la planilla Excel o Google Sheets (incluyendo la fila de cabecera)..."
-                    className="w-full p-4 rounded-2xl border bg-slate-50 font-mono text-[10px] font-bold"
-                  ></textarea>
-                </div>
-
-                <div className="flex gap-3">
-                  <Button
-                    disabled={importing}
-                    onClick={() => {
-                      const area = document.getElementById("csvPasteArea") as HTMLTextAreaElement;
-                      if (!area || !area.value.trim()) {
-                        alert("Por favor pegá datos en el campo de texto.");
-                        return;
-                      }
-                      handleImportCSVs(area.value, importType);
-                    }}
-                    className="bg-brand-600 hover:bg-brand-700 py-3 px-6 rounded-xl font-black text-xs text-white flex-1"
-                  >
-                    {importing ? "Procesando importación..." : "Iniciar Procesamiento de Pegado"}
-                  </Button>
-                </div>
-              </div>
-
-              {/* Logs / Progress Box */}
-              <div className="bg-slate-950 text-emerald-400 p-4 rounded-3xl font-mono text-[10px] space-y-2 h-[350px] overflow-y-auto border border-slate-800 shadow-inner">
-                <p className="text-slate-500 font-bold border-b border-slate-900 pb-1.5">LOGS DE IMPORTACIÓN EN TIEMPO REAL:</p>
-                {importLog.length === 0 ? (
-                  <p className="text-slate-600 font-normal">Los logs de importación se mostrarán aquí cuando comience el procesamiento.</p>
-                ) : (
-                  importLog.map((log, idx) => (
-                    <p key={idx} className="leading-relaxed">{log}</p>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* SUBTAB 1: PROVEEDORES */}
       {activeSubTab === 'suppliers' && (
         <div className="space-y-4">
@@ -8803,351 +7173,6 @@ export default function ComprasAdminPage() {
                 })}
               </tbody>
             </table>
-          </div>
-        </div>
-      )}
-
-      {/* SUBTAB 4: REGISTRAR COMPRA (NUEVA FACTURA) */}
-      {activeSubTab === 'new_purchase' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Formulario Principal de la Factura */}
-          <div className="lg:col-span-2 space-y-6">
-            <form onSubmit={handleSavePurchase} className="bg-white rounded-3xl p-6 border border-slate-200/60 shadow-sm space-y-6">
-              <div className="flex items-center gap-2 border-b pb-4 text-slate-800">
-                <ShoppingBag className="w-5 h-5 text-brand-600" />
-                <h3 className="text-base font-black">Cargar Factura / Remito de Compra</h3>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Proveedor *</label>
-                  <select
-                    required
-                    value={purchaseSupplierId}
-                    onChange={e => setPurchaseSupplierId(e.target.value)}
-                    className="w-full px-4 py-3 rounded-xl border bg-slate-50 font-bold text-xs"
-                  >
-                    <option value="">-- Seleccionar Proveedor --</option>
-                    {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                  </select>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Número de Comprobante *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Ej. FC-A-0001-00001234"
-                    value={purchaseInvoiceNumber}
-                    onChange={e => setPurchaseInvoiceNumber(e.target.value)}
-                    className="w-full px-4 py-3 rounded-xl border bg-slate-50 font-bold text-xs"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Fecha de Compra *</label>
-                  <DatePickerDDMMYYYY
-                    value={purchaseDate}
-                    onChange={setPurchaseDate}
-                    required
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Fecha de Vencimiento</label>
-                  <DatePickerDDMMYYYY
-                    value={purchaseDueDate}
-                    onChange={setPurchaseDueDate}
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Moneda *</label>
-                  <select
-                    value={purchaseCurrency}
-                    onChange={e => setPurchaseCurrency(e.target.value as any)}
-                    className="w-full px-4 py-3 rounded-xl border bg-slate-50 font-bold text-xs"
-                  >
-                    <option value="ARS">Pesos Argentinos (ARS)</option>
-                    <option value="USD">Dólares Estadounidenses (USD)</option>
-                  </select>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Centro de Costo *</label>
-                  <select
-                    required
-                    value={purchaseCostCenterId}
-                    onChange={e => setPurchaseCostCenterId(e.target.value)}
-                    className="w-full px-4 py-3 rounded-xl border bg-slate-50 font-bold text-xs"
-                  >
-                    <option value="">-- Seleccionar Centro de Costo --</option>
-                    {costCenters.map(cc => (
-                      <option key={cc.id} value={cc.id}>
-                        [{cc.code}] {cc.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="space-y-1.5 md:col-span-2">
-                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Notas Internas</label>
-                  <input
-                    type="text"
-                    placeholder="Detalles sobre entrega o flete..."
-                    value={purchaseNotes}
-                    onChange={e => setPurchaseNotes(e.target.value)}
-                    className="w-full px-4 py-3 rounded-xl border bg-slate-50 font-bold text-xs"
-                  />
-                </div>
-              </div>
-
-              {/* Sección de pago inmediato */}
-              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/50 space-y-4">
-                <div className="flex items-center gap-3">
-                  <input
-                    type="checkbox"
-                    id="payImmediately"
-                    checked={payImmediately}
-                    onChange={e => {
-                      setPayImmediately(e.target.checked);
-                      if (e.target.checked) setImmediatePaymentAmount(totalPurchaseFormAmount.toString());
-                    }}
-                    className="rounded text-brand-600 focus:ring-brand-500 cursor-pointer w-4 h-4"
-                  />
-                  <label htmlFor="payImmediately" className="text-xs font-bold text-slate-700 cursor-pointer select-none">
-                    Registrar pago inmediato hacia esta compra (Amortizar)
-                  </label>
-                </div>
-
-                {payImmediately && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 animate-in fade-in duration-100">
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Monto a Pagar ({purchaseCurrency})</label>
-                      <input
-                        type="number"
-                        placeholder="0.00"
-                        value={immediatePaymentAmount}
-                        onChange={e => setImmediatePaymentAmount(e.target.value)}
-                        className="w-full px-3 py-2 rounded-xl border bg-white font-bold text-xs text-right"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Medio de Pago</label>
-                      <select
-                        value={immediatePaymentMethodId}
-                        onChange={e => setImmediatePaymentMethodId(e.target.value)}
-                        className="w-full px-3 py-2 rounded-xl border bg-white font-bold text-xs"
-                      >
-                        {paymentMethods.map(pm => (
-                          <option key={pm.id} value={pm.id}>
-                            {pm.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="flex items-center justify-between border-t pt-4">
-                <div>
-                  <span className="text-[10px] font-black uppercase text-slate-400">Total Compra</span>
-                  <div className="text-2xl font-black text-slate-900">
-                    {formatPrice(totalPurchaseFormAmount)}
-                  </div>
-                </div>
-
-                <Button 
-                  type="submit" 
-                  disabled={isSubmittingPurchase || purchaseItems.length === 0} 
-                  className="rounded-xl px-6 py-3 font-bold gap-2 text-xs"
-                >
-                  {isSubmittingPurchase ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" /> Registrando...
-                    </>
-                  ) : (
-                    <>
-                      <Save className="w-4 h-4" /> Registrar Compra
-                    </>
-                  )}
-                </Button>
-              </div>
-            </form>
-          </div>
-
-          {/* Selector y Carga de Artículos (Detalle) */}
-          <div className="space-y-6">
-            <div className="bg-white rounded-3xl p-6 border border-slate-200/60 shadow-sm space-y-6">
-              <div className="flex items-center gap-2 border-b pb-4 text-slate-800">
-                <Plus className="w-5 h-5 text-brand-600" />
-                <h3 className="text-base font-black">Agregar Artículos</h3>
-              </div>
-
-              <div className="space-y-4">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Producto *</label>
-                  <div className="relative" onClick={e => e.stopPropagation()}>
-                    <input
-                      type="text"
-                      placeholder="-- Buscar Producto --"
-                      value={productSearchQuery}
-                      onChange={e => {
-                        setProductSearchQuery(e.target.value);
-                        setShowProductSearchDropdown(true);
-                      }}
-                      onFocus={() => {
-                        setShowProductSearchDropdown(true);
-                        setProductSearchQuery("");
-                      }}
-                      onBlur={() => {
-                        setTimeout(() => {
-                          setShowProductSearchDropdown(false);
-                          const matched = products.find(p => p.id === currentItemProductId);
-                          if (matched) {
-                            setProductSearchQuery(matched.name + (matched.sku ? ` (${matched.sku})` : ''));
-                          } else {
-                            setProductSearchQuery("");
-                          }
-                        }, 200);
-                      }}
-                      className="w-full pl-4 pr-10 py-3 rounded-xl border border-slate-200 bg-slate-50 font-bold text-xs outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 transition-all cursor-pointer text-slate-800"
-                    />
-                    <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
-
-                    {showProductSearchDropdown && (
-                      <div className="absolute left-0 right-0 mt-1 max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-lg z-50 py-1">
-                        {(() => {
-                          const query = productSearchQuery.toLowerCase().trim();
-                          const filtered = products.filter(p => {
-                            const nameMatch = p.name.toLowerCase().includes(query);
-                            const skuMatch = p.sku ? p.sku.toLowerCase().includes(query) : false;
-                            return nameMatch || skuMatch;
-                          });
-
-                          if (filtered.length === 0) {
-                            return (
-                              <div className="px-4 py-2 text-xs text-slate-500 italic">
-                                No se encontraron productos
-                              </div>
-                            );
-                          }
-
-                          return filtered.map(p => (
-                            <button
-                              key={p.id}
-                              type="button"
-                              onMouseDown={() => {
-                                setCurrentItemProductId(p.id);
-                                setProductSearchQuery(p.name + (p.sku ? ` (${p.sku})` : ''));
-                                setShowProductSearchDropdown(false);
-
-                                // Trigger the auto-fill cost logic that was in the original select's onChange
-                                const rel = relations.find(r => r.product_id === p.id && r.is_primary) || relations.find(r => r.product_id === p.id);
-                                const supplierId = rel?.supplier_id;
-                                if (p.cost_price && Number(p.cost_price) > 0) {
-                                  setCurrentItemUnitCost(String(p.cost_price));
-                                } else if (supplierId) {
-                                  setCurrentItemUnitCost("");
-                                }
-                              }}
-                              className={`w-full px-4 py-2.5 text-left text-xs font-bold transition-all block border-b border-slate-50 last:border-0 ${
-                                currentItemProductId === p.id
-                                  ? 'bg-brand-50 text-brand-700 font-black'
-                                  : 'text-slate-700 hover:bg-slate-50'
-                              }`}
-                            >
-                              <div className="flex flex-col">
-                                <span className="text-[11px] leading-tight">{p.name}</span>
-                                {p.sku && (
-                                  <span className="text-[9px] text-slate-400 font-mono mt-0.5">SKU: {p.sku}</span>
-                                )}
-                              </div>
-                            </button>
-                          ));
-                        })()}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Cantidad *</label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={currentItemQuantity}
-                      onChange={e => setCurrentItemQuantity(e.target.value)}
-                      className="w-full px-4 py-3 rounded-xl border bg-slate-50 font-bold text-xs text-right"
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Costo Unit. *</label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="any"
-                      placeholder="0.00"
-                      value={currentItemUnitCost}
-                      onChange={e => setCurrentItemUnitCost(e.target.value)}
-                      className="w-full px-4 py-3 rounded-xl border bg-slate-50 font-bold text-xs text-right"
-                    />
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleAddPurchaseItem}
-                  className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs py-3 rounded-xl transition-all shadow-sm shadow-slate-900/10 flex items-center justify-center gap-1.5"
-                >
-                  <Plus className="w-4 h-4" /> Cargar al Detalle
-                </button>
-              </div>
-            </div>
-
-            {/* Listado temporal de artículos agregados */}
-            <div className="bg-white rounded-3xl p-6 border border-slate-200/60 shadow-sm space-y-4">
-              <div className="flex justify-between items-center border-b pb-3">
-                <span className="text-xs font-black text-slate-700 uppercase">Detalle de Comprobante</span>
-                <span className="bg-brand-50 text-brand-700 text-[10px] px-2 py-0.5 rounded font-black">
-                  {purchaseItems.length} Ítem(s)
-                </span>
-              </div>
-
-              <div className="divide-y divide-slate-100 max-h-64 overflow-y-auto pr-1">
-                {purchaseItems.map((item, idx) => (
-                  <div key={idx} className="py-2.5 flex justify-between items-start gap-2 text-xs">
-                    <div className="flex-1 min-w-0">
-                      <div className="font-bold text-slate-800 truncate">{item.name}</div>
-                      <div className="text-[10px] text-slate-400 font-bold font-mono uppercase tracking-wider">{item.sku}</div>
-                      <div className="text-[10px] text-slate-500 font-semibold mt-0.5">
-                        {item.quantity} u. x {formatPrice(item.unitCost)}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <div className="font-black text-slate-900 text-right">
-                        {formatPrice(item.quantity * item.unitCost)}
-                      </div>
-                      <button 
-                        onClick={() => handleRemovePurchaseItem(idx)}
-                        className="text-slate-300 hover:text-red-500 transition-colors p-1"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-
-                {purchaseItems.length === 0 && (
-                  <div className="py-6 text-center text-slate-400 font-medium text-xs">
-                    No cargaste ítems a la factura todavía.
-                  </div>
-                )}
-              </div>
-            </div>
           </div>
         </div>
       )}
@@ -9858,7 +7883,7 @@ export default function ComprasAdminPage() {
             {detailTab === 'items' && (
               <div className="space-y-4">
                 <h4 className="text-xs font-black text-slate-600 uppercase tracking-widest">
-                  Artículos Recibidos (Ingreso a Stock)
+                  Artículos del comprobante
                 </h4>
 
                 <div className="border border-slate-100 rounded-xl overflow-hidden">
@@ -9881,13 +7906,13 @@ export default function ComprasAdminPage() {
                       ) : purchaseItemsDetail.map(item => (
                         <tr key={item.id} className="hover:bg-slate-50/50">
                           <td className="px-4 py-2.5">
-                            <div className="font-bold text-slate-800">{item.product?.name}</div>
+                            <div className="font-bold text-slate-800">{item.product?.name || item.product_name || "Artículo sin catálogo"}</div>
                             <div className="text-[10px] font-mono text-slate-400 font-semibold uppercase">{item.product?.sku}</div>
                           </td>
-                          <td className="px-4 py-2.5 text-right font-bold text-slate-700">{item.quantity}</td>
+                          <td className="px-4 py-2.5 text-right font-bold text-slate-700">{item.quantity_received ?? item.quantity}</td>
                           <td className="px-4 py-2.5 text-right font-bold text-slate-600">{formatPrice(item.unit_cost)}</td>
                           <td className="px-4 py-2.5 text-right font-black text-slate-900">
-                            {formatPrice(item.quantity * item.unit_cost)}
+                            {formatPrice((item.quantity_received ?? item.quantity) * item.unit_cost)}
                           </td>
                         </tr>
                       ))}
@@ -9911,6 +7936,7 @@ export default function ComprasAdminPage() {
 
             {detailTab === 'payments' && (
               <div className="space-y-6">
+                <div className="text-xs rounded-xl bg-slate-50 p-3 text-slate-600">Los pagos se registran e imputan desde <a href="/admin/finanzas?tab=flow" className="text-brand-600 underline font-bold">Finanzas → Movimientos</a>. Esta vista conserva el historial.</div>
                 {/* Balance summary cards */}
                 <div className="grid grid-cols-3 gap-3">
                   <div className="bg-slate-50 border border-slate-200/60 p-3 rounded-xl">
@@ -9947,7 +7973,6 @@ export default function ComprasAdminPage() {
                             <th className="px-3 py-1.5">Monto</th>
                             <th className="px-3 py-1.5">Medio</th>
                             <th className="px-3 py-1.5">Detalles</th>
-                            <th className="px-3 py-1.5 text-right">Acción</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
@@ -9965,14 +7990,6 @@ export default function ComprasAdminPage() {
                               <td className="px-3 py-2 text-slate-500 truncate max-w-[120px]" title={pay.notes}>
                                 {pay.notes}
                               </td>
-                              <td className="px-3 py-2 text-right">
-                                <button
-                                  onClick={() => handleUnlinkPayment(pay.id)}
-                                  className="text-[10px] font-black uppercase text-rose-600 hover:text-rose-800 tracking-wider hover:underline"
-                                >
-                                  Desvincular
-                                </button>
-                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -9981,96 +7998,6 @@ export default function ComprasAdminPage() {
                   )}
                 </div>
 
-                {/* Form panels for registration or linking */}
-                {selectedPurchase.total_amount - selectedPurchase.paid_amount > 0 && (
-                  <div className="border-t pt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Register New Payment Form */}
-                    <form onSubmit={handleRegisterNewPayment} className="space-y-3 bg-slate-50/40 border border-slate-100 p-3 rounded-2xl">
-                      <h5 className="text-[10px] font-black uppercase text-slate-600 tracking-wider">Registrar Nuevo Pago</h5>
-                      
-                      <div className="grid grid-cols-2 gap-2">
-                        <div className="space-y-1">
-                          <label className="text-[9px] font-black uppercase text-slate-400">Monto</label>
-                          <input
-                            type="number"
-                            required
-                            step="any"
-                            max={selectedPurchase.total_amount - selectedPurchase.paid_amount}
-                            placeholder="0.00"
-                            value={newPaymentAmount}
-                            onChange={e => setNewPaymentAmount(e.target.value)}
-                            className="w-full px-2.5 py-1.5 text-xs font-bold border rounded-lg bg-white"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-[9px] font-black uppercase text-slate-400">Medio</label>
-                          <select
-                            value={newPaymentMethodId}
-                            onChange={e => setNewPaymentMethodId(e.target.value)}
-                            className="w-full px-2.5 py-1.5 text-xs font-bold border rounded-lg bg-white"
-                          >
-                            <option value="">Medio...</option>
-                            {paymentMethods.map(pm => (
-                              <option key={pm.id} value={pm.id}>{pm.name}</option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
-
-                      <div className="space-y-1">
-                        <label className="text-[9px] font-black uppercase text-slate-400">Observaciones</label>
-                        <input
-                          type="text"
-                          placeholder="Notas..."
-                          value={newPaymentNotes}
-                          onChange={e => setNewPaymentNotes(e.target.value)}
-                          className="w-full px-2.5 py-1.5 text-xs font-bold border rounded-lg bg-white"
-                        />
-                      </div>
-
-                      <button
-                        type="submit"
-                        disabled={submittingNewPayment}
-                        className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5"
-                      >
-                        {submittingNewPayment ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3.5 h-3.5" />} Registrar Pago
-                      </button>
-                    </form>
-
-                    {/* Impute/Link Existing Egreso Form */}
-                    <div className="space-y-3 bg-slate-50/40 border border-slate-100 p-3 rounded-2xl flex flex-col justify-between">
-                      <div>
-                        <h5 className="text-[10px] font-black uppercase text-slate-600 tracking-wider">Vincular Egreso Caja</h5>
-                        <p className="text-[9px] text-slate-400 mt-0.5 leading-snug">Imputá un movimiento egreso de caja huérfano en {selectedPurchase.currency}.</p>
-                        
-                        <div className="mt-2 space-y-1">
-                          <label className="text-[9px] font-black uppercase text-slate-400">Movimiento Libre</label>
-                          <select
-                            value={selectedEgresoId}
-                            onChange={e => setSelectedEgresoId(e.target.value)}
-                            className="w-full px-2.5 py-1.5 text-xs font-bold border rounded-lg bg-white"
-                          >
-                            <option value="">Seleccione movimiento...</option>
-                            {unreconciledEgresos.map(e => (
-                              <option key={e.id} value={e.id}>
-                                [{formatDateDDMMYYYY(e.created_at)}] {e.concept || e.category} - {formatPrice(e.amount)} {e.currency}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={handleLinkEgreso}
-                        disabled={submittingLink || !selectedEgresoId}
-                        className="w-full py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
-                      >
-                        {submittingLink ? <Loader2 className="w-3 h-3 animate-spin" /> : <Link2 className="w-3.5 h-3.5" />} Vincular Egreso
-                      </button>
-                    </div>
-                  </div>
-                )}
               </div>
             )}
 

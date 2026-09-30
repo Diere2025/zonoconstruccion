@@ -32,6 +32,7 @@ import { Button } from "@/components/ui/Button";
 import { formatPrice, formatDateDDMMYYYY } from "@/lib/utils";
 import { useSearchParams, useRouter } from "next/navigation";
 import FinanceToolbar, { type QuickMovement, type OptionalFinanceColumn } from "@/components/finanzas/FinanceToolbar";
+import SupplierAccounts from "@/components/finanzas/SupplierAccounts";
 import FinancialConceptManager from "@/components/finanzas/FinancialConceptManager";
 import SearchableSelect from "@/components/ui/SearchableSelect";
 import { financialAccountLabel } from "@/lib/financialAccountLabels";
@@ -186,6 +187,7 @@ interface PendingPurchase {
   total_amount: number;
   paid_amount: number;
   status: string;
+  currency?: 'ARS' | 'USD';
   supplier?: {
     name: string;
   } | null;
@@ -367,17 +369,6 @@ interface ClientBalanceItem {
   balance_usd: number;
 }
 
-interface SupplierBalanceItem {
-  id: string;
-  name: string;
-  total_purchases_ars: number;
-  total_payments_ars: number;
-  balance_ars: number;
-  total_purchases_usd: number;
-  total_payments_usd: number;
-  balance_usd: number;
-}
-
 export interface AccountReconciliation {
   id: string;
   accountName: string;
@@ -406,7 +397,8 @@ const INITIAL_BALANCES_2026: Record<string, number> = {
   'Visa.Galicia': 0,
   'Inversiones': 0,
   'Cuenta MP3': 0,
-  'Cuenta MP4': 0
+  'Cuenta MP4': 0,
+  'Cuenta MP5': 0
 };
 
 function DateInput({
@@ -520,7 +512,6 @@ function FinanceWorkspace() {
   const [conceptCatalogError, setConceptCatalogError] = useState("");
   const [isConceptManagerOpen, setIsConceptManagerOpen] = useState(false);
   const [clientsBalances, setClientsBalances] = useState<ClientBalanceItem[]>([]);
-  const [suppliersBalances, setSuppliersBalances] = useState<SupplierBalanceItem[]>([]);
   const [reconciliationReport, setReconciliationReport] = useState<AccountReconciliation[]>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('zono_finanzas_reconciliation');
@@ -893,7 +884,6 @@ function FinanceWorkspace() {
       if (!res.ok) throw new Error("Error loading checking accounts balances");
       const payload = await res.json();
       if (payload.clientsBalances) setClientsBalances(payload.clientsBalances);
-      if (payload.suppliersBalances) setSuppliersBalances(payload.suppliersBalances);
     } catch (err) {
       console.error("Error al cargar cuentas corrientes:", err);
     } finally {
@@ -962,6 +952,7 @@ function FinanceWorkspace() {
         'Cuenta.MP2': { dbName: 'Cuenta MP2', currency: 'ARS', isCash: false },
         'Cuenta.MP3': { dbName: 'Cuenta MP3', currency: 'ARS', isCash: false },
         'Cuenta.MP4': { dbName: 'Cuenta MP4', currency: 'ARS', isCash: false },
+        'Cuenta.MP5': { dbName: 'Cuenta MP5', currency: 'ARS', isCash: false },
         'Cuenta.MPCaro': { dbName: 'Cuenta MP3', currency: 'ARS', isCash: false },
         'Cuenta.Galicia': { dbName: 'Cuenta Galicia', currency: 'ARS', isCash: false },
         'Galicia.Mas': { dbName: 'Galicia.Mas', currency: 'ARS', isCash: false },
@@ -1155,7 +1146,10 @@ function FinanceWorkspace() {
 
         const appNet = appNets[accInfo.id] || 0;
         const expectedFinal = expectedDbBalances[dbAccName];
-        const initialBalance = expectedFinal - txSum - appNet;
+        // MP5 is present in the central Finanzas sheet but has no separate balance tab.
+        // Its first movements are from September 2026, so do not manufacture an
+        // offsetting opening balance when the full sheet sync is run later.
+        const initialBalance = dbAccName === 'Cuenta MP5' ? 0 : expectedFinal - txSum - appNet;
 
         if (Math.abs(initialBalance) > 0.01) {
           const isCash = dbAccName === 'Caja Efectivo Pesos';
@@ -1265,7 +1259,9 @@ function FinanceWorkspace() {
           });
 
           const appNet = appNets[accInfo.id] || 0;
-          const sheetDeclared = expectedDbBalances[dbAccName] ?? 0;
+          const sheetDeclared = dbAccName === 'Cuenta MP5'
+            ? (INITIAL_BALANCES_2026[dbAccName] ?? 0) + txSum + appNet
+            : expectedDbBalances[dbAccName] ?? 0;
           const initialBal = INITIAL_BALANCES_2026[dbAccName] ?? 0;
           const calculatedBalance = initialBal + txSum + appNet;
           const diff = sheetDeclared - calculatedBalance;
@@ -1567,6 +1563,22 @@ function FinanceWorkspace() {
       return;
     }
 
+    if (txCategory === 'Proveedores') {
+      if (!selectedSupplierId || txType !== 'egreso') {
+        alert('Elegí el proveedor y registrá el pago como egreso.');
+        return;
+      }
+      if (linkToPurchase) {
+        const purchase = pendingPurchases.find(p => p.id === selectedPurchaseId);
+        const account = financialAccounts.find(a => a.id === txAccountId);
+        if (!purchase || purchase.supplier_id !== selectedSupplierId || (purchase.currency || 'ARS') !== (account?.currency || 'ARS')
+          || amount > Number(purchase.total_amount) - Number(purchase.paid_amount)) {
+          alert('Elegí una compra del proveedor en la misma moneda y un importe que no supere su saldo. Para un anticipo, desmarcá la vinculación a compra.');
+          return;
+        }
+      }
+    }
+
     // Obtener medio de pago por defecto
     const { data: pms } = await supabase
       .from('payment_methods')
@@ -1655,22 +1667,23 @@ function FinanceWorkspace() {
       }
 
       // Vincular Proveedores si corresponde
-      if (txCategory === "Proveedores" && linkToPurchase && selectedPurchaseId) {
+      if (txCategory === "Proveedores" && selectedSupplierId) {
         const { error: payErr } = await supabase
           .from('supplier_payments')
           .insert({
             supplier_id: selectedSupplierId,
-            purchase_id: selectedPurchaseId,
+            purchase_id: linkToPurchase ? selectedPurchaseId : null,
             amount: amount,
             currency: currency,
             payment_method_id: defaultPmId,
             cash_transaction_id: targetTxId,
             financial_account_id: txAccountId,
-            notes: txConcept.trim()
+            notes: txConcept.trim(),
+            created_by: userId
           });
         if (payErr) throw payErr;
 
-        const pur = pendingPurchases.find(p => p.id === selectedPurchaseId);
+        const pur = linkToPurchase ? pendingPurchases.find(p => p.id === selectedPurchaseId) : null;
         if (pur) {
           const newPaid = Number(pur.paid_amount) + amount;
           const newStatus = newPaid >= Number(pur.total_amount) ? 'Pagado' : 'Parcial';
@@ -1872,7 +1885,23 @@ function FinanceWorkspace() {
     e.preventDefault();
     if (!reconcilingTx) return;
     
-    const amount = Number(linkAmount) || reconcilingTx.amount;
+    const amount = linkAmount.trim() ? Number(linkAmount) : Number(reconcilingTx.amount);
+    if (!Number.isFinite(amount) || amount <= 0 || amount > Number(reconcilingTx.amount)) {
+      alert('Ingresá un importe positivo que no supere el movimiento.');
+      return;
+    }
+    if (reconcilingTx.type === 'egreso' && reconcilingTx.category === 'Proveedores') {
+      const purchase = pendingPurchases.find(p => p.id === linkPurchaseId);
+      const previousApplied = (reconcilingTx.supplier_payments || [])
+        .filter(payment => payment.purchase_id === linkPurchaseId)
+        .reduce((sum, payment) => sum + Number(payment.amount), 0);
+      if (!linkSupplierId || !purchase || purchase.supplier_id !== linkSupplierId ||
+        (purchase.currency || 'ARS') !== reconcilingTx.currency ||
+        amount > Number(purchase.total_amount) - Number(purchase.paid_amount) + previousApplied) {
+        alert('Elegí una compra pendiente del mismo proveedor y moneda, sin superar su saldo.');
+        return;
+      }
+    }
     
     setSubmittingLink(true);
     try {
@@ -1944,13 +1973,14 @@ function FinanceWorkspace() {
           if (pur) {
             const newPaid = Number(pur.paid_amount) + amount;
             const newStatus = newPaid >= Number(pur.total_amount) ? 'Pagado' : 'Parcial';
-            await supabase
+            const { error: purchaseUpdateError } = await supabase
               .from('supplier_purchases')
               .update({
                 paid_amount: newPaid,
                 status: newStatus
               })
               .eq('id', linkPurchaseId);
+            if (purchaseUpdateError) throw purchaseUpdateError;
           }
         } else if (reconcilingTx.category === 'Sueldos') {
           if (!linkEmployeeId) {
@@ -3082,44 +3112,7 @@ function FinanceWorkspace() {
               )}
             </div>
 
-            {/* Cuentas Corrientes Proveedores */}
-            <div className="bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm space-y-4">
-              <div className="pb-2.5 border-b border-slate-100">
-                <h3 className="font-black text-slate-800 text-xs uppercase tracking-wider">Saldos de Proveedores</h3>
-                <p className="text-[10px] text-slate-400 font-bold">Resumen de deudas comerciales por compras a proveedores de insumos.</p>
-              </div>
-
-              {loading ? (
-                <div className="py-12 text-center text-slate-400 text-xs font-bold">Cargando balances de proveedores...</div>
-              ) : suppliersBalances.length === 0 ? (
-                <div className="py-12 text-center text-slate-400 text-xs font-bold">No se encontraron proveedores con historial comercial.</div>
-              ) : (
-                <div className="overflow-y-auto max-h-[400px] divide-y divide-slate-100 pr-2">
-                  {suppliersBalances.map(s => {
-                    const hasArs = s.balance_ars !== 0;
-                    const hasUsd = s.balance_usd !== 0;
-                    return (
-                      <div key={s.id} className="py-3 flex justify-between items-center text-xs">
-                        <div className="font-bold text-slate-900">{s.name}</div>
-                        <div className="text-right space-y-1 font-mono">
-                          {hasArs && (
-                            <div className={s.balance_ars > 0 ? 'text-rose-600 font-black' : 'text-emerald-600 font-black'}>
-                              {s.balance_ars > 0 ? 'Debemos: ' : 'A favor: '}{formatPrice(Math.abs(s.balance_ars))}
-                            </div>
-                          )}
-                          {hasUsd && (
-                            <div className={s.balance_usd > 0 ? 'text-rose-600 font-black' : 'text-emerald-600 font-black'}>
-                              {s.balance_usd > 0 ? 'Debemos: ' : 'A favor: '}US$ {Math.abs(s.balance_usd).toLocaleString('es-AR')}
-                            </div>
-                          )}
-                          {!hasArs && !hasUsd && <div className="text-slate-400 font-black">Al día ✓</div>}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+            <SupplierAccounts />
 
           </div>
         </div>

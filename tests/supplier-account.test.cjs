@@ -1,0 +1,31 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const ts = require('typescript');
+const exportsObject = {};
+vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/lib/supplierAccount.ts', 'utf8'), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS }
+}).outputText, { exports: exportsObject });
+const { supplierLedger, isAccountDate, openingAmount } = exportsObject;
+const start = { supplier_id: 's', start_date: '2026-09-29', opening_ars: 25, opening_usd: -10, notes: 'Conciliado' };
+const entry = (id, date, amount, currency = 'ARS', extra = {}) => ({ source_id: id, source: amount < 0 ? 'payment' : 'purchase', supplier_id: 's', entry_date: date, amount, currency, voided: false, ...extra });
+const entries = [entry('old', '2026-09-28', 100), entry('new', '2026-09-29', 80), entry('pay', '2026-09-30', -40), entry('usd', '2026-09-30', 15, 'USD'), entry('void', '2026-10-01', 300, 'ARS', { voided: true }), entry('credit', '2026-10-01', -5, 'ARS', { source: 'purchase', kind: 'Nota de Crédito' })];
+let ledger = supplierLedger(start, entries, []);
+assert.equal(ledger.balance_ars, 60);
+assert.equal(ledger.balance_usd, 5);
+assert.equal(ledger.rows.find(r => r.source_id === 'old').included, false);
+assert.equal(ledger.rows.find(r => r.source_id === 'new').balance, 105);
+ledger = supplierLedger(start, entries, [{ source: 'purchase', source_id: 'old', included: true, notes: 'No incluido en apertura' }]);
+assert.equal(ledger.balance_ars, 160);
+assert.equal(ledger.rows.find(r => r.source_id === 'new').balance, 205);
+assert.equal(supplierLedger(null, entries, []).balance_ars, 0);
+assert.equal(supplierLedger(start, entries, [{ source: 'purchase', source_id: 'new', included: false, notes: 'Duplicado' }]).balance_ars, -20);
+assert.equal(supplierLedger({ ...start, opening_ars: 0 }, [entry('a', '2026-09-29', 0.1), entry('b', '2026-09-29', 0.2)], []).balance_ars, 0.3);
+assert.equal(supplierLedger(start, entries, [{ source: 'purchase', source_id: 'void', included: true, notes: 'Intento' }]).balance_ars, 60);
+assert.equal(isAccountDate('2026-02-30'), false);
+assert.equal(isAccountDate('2026-09-29'), true);
+assert.equal(openingAmount('-123.45'), -123.45);
+assert.throws(() => openingAmount(''));
+assert.throws(() => openingAmount('Infinity'));
+assert.throws(() => openingAmount('1.001'));
+console.log('Supplier account cutover, currencies, credits, history and validation: OK');

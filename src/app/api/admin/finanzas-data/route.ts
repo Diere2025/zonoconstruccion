@@ -38,7 +38,7 @@ export async function GET(request: Request) {
       ] = await Promise.all([
         supabaseAdmin.from('employees').select('id,full_name,cuit,role,base_salary,is_active').eq('is_active', true).order('full_name'),
         supabaseAdmin.from('suppliers').select('id,name').order('name'),
-        supabaseAdmin.from('supplier_purchases').select('id,supplier_id,invoice_number,total_amount,paid_amount,status,supplier:suppliers(name)').neq('status', 'Pagado').neq('status', 'Anulado').order('purchase_date', { ascending: false }),
+        supabaseAdmin.from('supplier_purchases').select('id,supplier_id,invoice_number,total_amount,paid_amount,status,currency,supplier:suppliers(name)').neq('status', 'Pagado').neq('status', 'Anulado').order('purchase_date', { ascending: false }),
         supabaseAdmin.from('route_sheets').select('*, carriers(name)').order('delivery_date', { ascending: false }).limit(200),
         supabaseAdmin.rpc('get_financial_accounts_balances'),
         supabaseAdmin.from('cost_centers').select('id,name,code,is_active').eq('is_active', true).order('name')

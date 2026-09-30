@@ -61,7 +61,8 @@ function workspace(overrides = {}, query = '') {
     '@/components/finanzas/FinanceToolbar': { __esModule: true, default: toolbar },
     '@/components/ui/SearchableSelect': { __esModule: true, default: searchableSelect },
     '@/lib/financialAccountLabels': labels,
-    '@/components/finanzas/FinancialConceptManager': { __esModule: true, default: () => null }
+    '@/components/finanzas/FinancialConceptManager': { __esModule: true, default: () => null },
+    '@/components/finanzas/SupplierAccounts': { __esModule: true, default: () => null }
   };
   const exports = compile(source, name => modules[name] || require(name));
   let tree;

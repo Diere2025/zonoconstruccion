@@ -39,7 +39,20 @@ test('restricted sellers receive wholesale links only when individually enabled'
   const enabled = urls(visibleErpModules(identity(['seller'], true, true)));
   assert.ok(enabled.includes('/vendedores/presupuestos-mayorista'));
   assert.ok(!enabled.includes('/admin/dashboard-mayorista'));
-  assert.ok(!enabled.includes('/vendedores/cotizaciones?channel=mayorista'));
+  assert.ok(enabled.includes('/vendedores/cotizaciones?channel=mayorista'));
+  assert.ok(!enabled.includes('/vendedores/cotizaciones?channel=minorista'));
+});
+
+test('restricted wholesale sellers can open saved wholesale quotes directly', () => {
+  const layout = fs.readFileSync('src/components/ui/AdminLayout.tsx', 'utf8');
+  const expression = layout.match(/const isWholesaleRoute =([\s\S]*?);/)[1];
+  const canOpen = (pathname, query, canUseWholesale) => canUseWholesale &&
+    vm.runInNewContext(expression, { pathname, query, URLSearchParams });
+  assert.equal(canOpen('/vendedores/cotizaciones', '?channel=mayorista', true), true);
+  assert.equal(canOpen('/vendedores/cotizaciones', '?channel=mayorista', false), false);
+  for (const query of ['', '?channel=minorista', '?channel=todos', '?other=channel=mayorista']) {
+    assert.equal(canOpen('/vendedores/cotizaciones', query, true), false, query);
+  }
 });
 
 test('query parameters select the correct module and screen; detail and printing aliases retain context', () => {

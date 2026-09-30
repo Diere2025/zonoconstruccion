@@ -6081,7 +6081,7 @@ export default function PedidosPage() {
                 {editingOrderId 
                   ? "Modificá los datos del pedido y actualizá la reserva de stock."
                   : isWholesaleContext
-                    ? "Pedido comercial de AquaFort: usá los productos y precios de la lista mayorista."
+                    ? "Pedido comercial de AquaFort: usá la lista mayorista o agregá productos del minorista desde el selector."
                     : "Ingresá los datos del cliente, productos y logística con reserva automática de stock."}
               </p>
             </div>
@@ -6910,7 +6910,7 @@ export default function PedidosPage() {
                     <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Dirección Exacta *</label>
                     <input 
                       type="text" 
-                      required 
+                      required
                       value={direccion} 
                       onChange={e => setDireccion(e.target.value)} 
                       placeholder="Ej. Mitre 540" 
