@@ -2,7 +2,7 @@ export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 import { NextResponse, after } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { fetchSpreadsheetCsv, setOrderStatusInSellerSheetByCode, createLogisticsCancellationReasonLookup } from '@/lib/googleSheets';
+import { fetchSpreadsheetCsv, setOrderStatusInSellerSheetByCode, createLogisticsCancellationReasonLookup, normalizePaymentMethodForSheet } from '@/lib/googleSheets';
 import { isDiscountProductLine, resolveImportedOrderChannel, sheetDiscountAmount } from '@/lib/wholesaleOrders';
 import { oncePerKey } from '@/lib/orderSync';
 import {
@@ -363,7 +363,7 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
           
           for (const row of pmRows) {
             if (row.length < 2) continue;
-            let name = row[0].trim();
+            let name = normalizePaymentMethodForSheet(row[0].trim());
             const surchargeStr = row[1].trim();
             if (!name) continue;
             const floatVal = parseFloat(surchargeStr.replace(',', '.'));
@@ -381,7 +381,7 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
             }
             
             const existing = existingPms.find(pm => 
-              pm.name.toLowerCase() === name.toLowerCase() ||
+              normalizePaymentMethodForSheet(pm.name).toLowerCase() === name.toLowerCase() ||
               (pwMatch && pm.name.toLowerCase().includes(`payway${installments}`)) ||
               (pwMatch && pm.name.toLowerCase().includes(`payway (${installments}`))
             );
@@ -468,13 +468,13 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
     (localitiesRes.data || []).forEach(r => localitiesMap.set(normalizeLocalityFuzzy(r.name), r.id));
 
     const advSourcesMap = new Map();
-    advertisingSources.forEach(r => advSourcesMap.set(normalizeText(r.name), r.id));
+    advertisingSources.forEach(r => advSourcesMap.set(normalizeText(normalizePaymentMethodForSheet(r.name)), r.id));
 
     const orderMediumsMap = new Map();
-    (orderMediumsRes.data || []).forEach(r => orderMediumsMap.set(normalizeText(r.name), r.id));
+    (orderMediumsRes.data || []).forEach(r => orderMediumsMap.set(normalizeText(normalizePaymentMethodForSheet(r.name)), r.id));
 
     const payMethodsMap = new Map();
-    (paymentMethodsRes.data || []).forEach(r => payMethodsMap.set(normalizeText(r.name), r.id));
+    (paymentMethodsRes.data || []).forEach(r => payMethodsMap.set(normalizeText(normalizePaymentMethodForSheet(r.name)), r.id));
 
     const productMap = new Map();
     products.forEach(p => {
@@ -637,7 +637,7 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
           if (matchedSeller) sellerId = matchedSeller.id;
 
           let localityId = localitiesMap.get(normalizeLocalityFuzzy(rawLocality)) || null;
-          let paymentMethodId = payMethodsMap.get(normalizeText(rawPaymentMethod)) || null;
+          let paymentMethodId = payMethodsMap.get(normalizeText(normalizePaymentMethodForSheet(rawPaymentMethod))) || null;
           if (!paymentMethodId && rawPaymentMethod) {
             const pw = rawPaymentMethod.match(/payway\s*(\d+)/i);
             if (pw) {

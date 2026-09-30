@@ -2,7 +2,7 @@ export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { fetchSpreadsheetCsv, setOrderStatusInSellerSheetByCode, createLogisticsCancellationReasonLookup } from '@/lib/googleSheets';
+import { fetchSpreadsheetCsv, setOrderStatusInSellerSheetByCode, createLogisticsCancellationReasonLookup, normalizePaymentMethodForSheet } from '@/lib/googleSheets';
 import { splitOrderCodes } from '@/lib/orderSync';
 import { findImportOrders } from '@/lib/importOrderLookup';
 import { centralDeliveryOutcome } from '@/lib/deliveryAttemptSync';
@@ -308,13 +308,13 @@ export async function POST(request: Request) {
     dbLocalities.forEach(r => localitiesMap.set(normalizeLocalityFuzzy(r.name), r.id));
 
     const advSourcesMap = new Map();
-    dbAdvSources.forEach(r => advSourcesMap.set(normalizeText(r.name), r.id));
+    dbAdvSources.forEach(r => advSourcesMap.set(normalizeText(normalizePaymentMethodForSheet(r.name)), r.id));
 
     const orderMediumsMap = new Map();
-    dbOrderMediums.forEach(r => orderMediumsMap.set(normalizeText(r.name), r.id));
+    dbOrderMediums.forEach(r => orderMediumsMap.set(normalizeText(normalizePaymentMethodForSheet(r.name)), r.id));
 
     const payMethodsMap = new Map();
-    dbPaymentMethods.forEach(r => payMethodsMap.set(normalizeText(r.name), r));
+    dbPaymentMethods.forEach(r => payMethodsMap.set(normalizeText(normalizePaymentMethodForSheet(r.name)), r));
 
     const phoneLinesMap = new Map();
     dbPhoneLines.forEach(r => phoneLinesMap.set(r.phone_number, r.id));
@@ -489,7 +489,7 @@ export async function POST(request: Request) {
       }
 
       const advSourceId = advSourcesMap.get(normalizeText(rawAdvSource)) || null;
-      const paymentMethodObj = payMethodsMap.get(normalizeText(rawPayMethod)) || null;
+      const paymentMethodObj = payMethodsMap.get(normalizeText(normalizePaymentMethodForSheet(rawPayMethod))) || null;
       const paymentMethodId = paymentMethodObj ? paymentMethodObj.id : null;
       const sellerObj = dbSellers.find(s => s.id === sellerId);
       const channel = resolveImportedOrderChannel({
