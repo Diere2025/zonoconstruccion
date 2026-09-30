@@ -1,6 +1,6 @@
 # Planificación de pagos: puesta en marcha
 
-Estado: implementación incorporada al checkout local y disponible en la ruta `/admin/finanzas/planificacion`. Las migraciones `v115` y `v116` y la [carga inicial conciliada](planificacion-pagos-conciliacion-2026-09.md) se aplicaron a la base Supabase de producción configurada en `.env.local` entre el 29 y el 30/09/2026. La aplicación no se publicó.
+Estado: módulo publicado el 30/09/2026 en `feature/erp-modular` y disponible en `/admin/finanzas/planificacion`. La ruta de producción respondió 200 y la API rechazó con 401 una lectura sin sesión. Las migraciones `v115` a `v120` y la [carga inicial conciliada](planificacion-pagos-conciliacion-2026-09.md) están aplicadas en la base Supabase de producción configurada en `.env.local`.
 
 ## Alcance de esta entrega
 
@@ -36,7 +36,7 @@ El módulo no escribe en caja, movimientos financieros, cuentas corrientes ni su
 - `tsc --noEmit --incremental false` y ESLint de los archivos nuevos: correctos.
 - Pruebas de proyección: reservas, transferencias, parciales, escenarios y saldo cero.
 - Migración ejecutada en PGlite con operaciones de creación idempotente, parcial, reversión, cierre, cuotas, reserva, transferencia, recurrencia e importación duplicada.
-- `next build --webpack` no completó en el worktree: `node_modules` está enlazado como junction al checkout principal y Webpack intenta resolver las entradas de Next desde una ruta relativa inválida. Hace falta instalar dependencias dentro del checkout de integración o ejecutar la compilación allí.
+- `next build --webpack` completó en un checkout aislado con dependencias propias; la suite integrada terminó con 245 pruebas aprobadas.
 
 ## Límites antes de conciliar la planilla
 
