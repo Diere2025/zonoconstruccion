@@ -10,8 +10,8 @@ export type Item = {
   scenario_rule_id?: string | null; supplier_id?: string | null; employee_id?: string | null;
   version: number; created_at?: string; updated_at?: string;
 };
-export type Realization = { id: string; item_id: string; fund_id: string; amount: string | number; effective_date: string; reversed_at: string | null; cash_transaction_id?: string | null };
-export type Reservation = { id: string; fund_id: string; amount: string | number; effective_date: string; kind: 'reserve' | 'release' | 'consume'; target_item_id: string | null; reversed_at: string | null };
+export type Realization = { id: string; item_id: string; fund_id: string; amount: string | number; effective_date: string; reversed_at: string | null; cash_transaction_id?: string | null; created_at?: string };
+export type Reservation = { id: string; fund_id: string; amount: string | number; effective_date: string; kind: 'reserve' | 'release' | 'consume'; target_item_id: string | null; reversed_at: string | null; realization_id?: string | null };
 export type Transfer = { id: string; source_fund_id: string; destination_fund_id: string; amount: string | number; effective_date: string; notes: string | null; reversed_at: string | null };
 export type ScenarioRate = { id: string; fund_id: string; title: string; valid_from: string; valid_until: string | null; weekdays: number[]; optimistic: string | number; intermediate: string | number; pessimistic: string | number; active: boolean };
 export type ProjectionRow = { date: string; fund_id: string; opening: number; income: number; expense: number; closing: number; reserved: number; free: number; missing: number; overdue: number };
@@ -37,7 +37,7 @@ export function scenarioAmount(rate: ScenarioRate, scenario: Scenario): number {
 
 export function project(input: {
   funds: Fund[]; balances: Balance[]; items: Item[]; realizations: Realization[];
-  reservations: Reservation[]; transfers?: Transfer[]; rates: ScenarioRate[]; from: string; to: string; today: string;
+  reservations: Reservation[]; transfers?: Transfer[]; rates: ScenarioRate[]; from: string; to: string; today: string; realizedOnly?: boolean;
 }): ProjectionRow[] {
   const { funds, balances, items, realizations, reservations, rates, from, to, today } = input;
   if (!validDate(from) || !validDate(to) || !validDate(today) || from > to) throw new Error('Rango de fechas inválido');
@@ -66,6 +66,7 @@ export function project(input: {
         if (event.target_item_id) reservedByItem.set(event.target_item_id, Math.max(0,(reservedByItem.get(event.target_item_id) || 0)+effect));
       }
       for (const item of fundItems) {
+        if (input.realizedOnly) continue;
         const realized = byItem.get(item.id) || 0;
         const amount = item.amount === null ? null : cents(item.amount);
         const pending = amount === null ? null : Math.max(0, amount - realized - cents(item.closed_amount ?? 0));
@@ -91,12 +92,14 @@ export function project(input: {
         else expense += cents(realization.amount);
       }
       for (const rate of rates) {
+        if (input.realizedOnly) continue;
         if (rate.fund_id !== fund.id || !rate.active || date < rate.valid_from || (rate.valid_until && date > rate.valid_until)) continue;
         if (!rate.weekdays.includes(isoWeekday(date))) continue;
         if (items.some(item => item.scenario_rule_id === rate.id && item.scheduled_date === date)) continue;
         income += scenarioAmount(rate, fund.scenario);
       }
       for (const transfer of input.transfers || []) {
+        if (input.realizedOnly) continue;
         if (transfer.reversed_at || transfer.effective_date !== date) continue;
         if (transfer.source_fund_id === fund.id) expense += cents(transfer.amount);
         if (transfer.destination_fund_id === fund.id) income += cents(transfer.amount);
@@ -106,4 +109,26 @@ export function project(input: {
     }
   }
   return output;
+}
+
+export function runningRealizationBalances(rows: ProjectionRow[], items: Item[], realizations: Realization[], reservations: Reservation[]): Record<string, number> {
+  const result: Record<string, number> = {};
+  const itemKinds = new Map(items.map(item => [item.id, item.kind]));
+  for (const row of rows) {
+    const dailyReservations = reservations.filter(event => !event.reversed_at && event.fund_id === row.fund_id && event.effective_date === row.date);
+    // The daily projection already includes consumption. Undo it until its payment occurs.
+    let free = cents(row.opening) - cents(row.reserved)
+      - dailyReservations.filter(event => event.kind === 'consume').reduce((sum, event) => sum + cents(event.amount), 0);
+    const events = realizations.filter(event => !event.reversed_at && event.fund_id === row.fund_id && event.effective_date === row.date)
+      .sort((a, b) => (a.created_at || '').localeCompare(b.created_at || '') || a.id.localeCompare(b.id));
+    for (const event of events) {
+      const kind = itemKinds.get(event.item_id);
+      if (!kind) continue;
+      free += (kind === 'income' ? 1 : -1) * cents(event.amount);
+      free += dailyReservations.filter(reserve => reserve.kind === 'consume' && reserve.realization_id === event.id)
+        .reduce((sum, reserve) => sum + cents(reserve.amount), 0);
+      result[event.id] = money(free);
+    }
+  }
+  return result;
 }

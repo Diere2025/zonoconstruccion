@@ -3,12 +3,12 @@ import { createContext, useCallback, useContext, useEffect, useState } from 'rea
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { Session } from '@supabase/supabase-js';
-import { Bell, ClipboardList, Loader2, Plus, Settings, ShieldCheck } from 'lucide-react';
+import { ClipboardList, Loader2, Plus, Settings, ShieldCheck } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { AdminLayout } from '@/components/ui/AdminLayout';
 import { ModernLogin } from '@/components/auth/ModernLogin';
 import { supportRequest, errorMessage } from '@/lib/support/client';
-import type { SupportMe, SupportNotification } from '@/lib/support/types';
+import type { SupportMe } from '@/lib/support/types';
 type Identity = SupportMe & {
     impersonating?: boolean;
 };
@@ -51,16 +51,14 @@ function AuthenticatedShell({ children }: {
 }) {
     const [me, setMe] = useState<Identity | null>(null);
     const [error, setError] = useState('');
-    const [notices, setNotices] = useState<SupportNotification[]>([]);
-    const [showNotices, setShowNotices] = useState(false);
     const pathname = usePathname();
+    const shipping = pathname.startsWith('/solicitudes-logistica');
+    const root = shipping ? '/solicitudes-logistica' : '/incidencias';
     const refresh = useCallback(async () => {
         try {
-            const [identity, notifications] = await Promise.all([supportRequest<Identity>('me'), supportRequest<{
-                    items: SupportNotification[];
-                }>('notifications')]);
+            const identity = await supportRequest<Identity>('me');
             setMe(identity);
-            setNotices(notifications.items);
+            window.dispatchEvent(new Event('support-notifications-refresh'));
             setError('');
         }
         catch (e) {
@@ -72,12 +70,10 @@ function AuthenticatedShell({ children }: {
         let running = false;
         const load = async () => { if (!alive || running)
             return; running = true; try {
-            const [identity, notifications] = await Promise.all([supportRequest<Identity>('me'), supportRequest<{
-                    items: SupportNotification[];
-                }>('notifications')]);
+            const identity = await supportRequest<Identity>('me');
             if (alive) {
                 setMe(identity);
-                setNotices(notifications.items);
+                window.dispatchEvent(new Event('support-notifications-refresh'));
                 setError('');
             }
         }
@@ -97,18 +93,15 @@ function AuthenticatedShell({ children }: {
         window.addEventListener('focus', focus);
         return () => { alive = false; clearInterval(timer); window.removeEventListener('focus', focus); };
     }, []);
-    const unread = notices.filter(n => !n.read_at).length;
     return <AdminLayout><div className="mx-auto w-full p-3 text-slate-900 sm:p-4">
     <header className="mb-3 flex flex-wrap items-center justify-between gap-4">
-      <h1 className="text-lg font-semibold tracking-tight">Incidencias</h1>
-      <div className="relative flex items-center gap-2"><button aria-label={`Notificaciones: ${unread} sin leer`} aria-expanded={showNotices} onClick={() => setShowNotices(!showNotices)} className={secondaryClass}><Bell className="size-4"/>{unread > 0 && <span className="rounded-full bg-indigo-600 px-2 text-xs text-white">{unread}</span>}</button><Link href="/incidencias/nueva" className={primaryClass}><Plus className="size-4"/>Nuevo ticket</Link>
-        {showNotices && <div className="absolute right-0 top-14 z-40 max-h-96 w-80 overflow-auto rounded-2xl border border-slate-200 bg-white p-3 shadow-xl"><h2 className="mb-2 font-semibold">Actividad reciente</h2>{notices.length === 0 ? <p className="p-3 text-sm text-slate-500">No hay avisos por ahora.</p> : notices.map(n => <Link key={n.id} onClick={() => setShowNotices(false)} href={`/incidencias/${n.ticket_id}`} className={`mb-1 block rounded-md p-3 text-sm hover:bg-slate-100 ${n.read_at ? 'text-slate-500' : 'bg-indigo-50 text-indigo-900'}`}>{eventLabels[n.kind] || 'Nueva actividad en una incidencia'}<span className="mt-1 block text-xs">Abrir incidencia →</span></Link>)}</div>}
-      </div>
+      <h1 className="text-lg font-semibold tracking-tight">{shipping?'Solicitudes a Logística':'Incidencias'}</h1>
+      <Link href={`${root}/nueva`} className={primaryClass}><Plus className="size-4"/>{shipping?'Solicitar cotización':'Nuevo ticket'}</Link>
     </header>
     {error && <div className="mb-4"><Alert>{error}</Alert><button onClick={() => void refresh()} className={`${secondaryClass} mt-2`}>Reintentar</button></div>}
     {me && <SupportContext.Provider value={{ me, refresh }}><nav aria-label="Incidencias" className="mb-3 flex flex-wrap gap-2 border-b border-slate-200 pb-2">
-      {me.is_manager && <Tab href="/incidencias" active={pathname === '/incidencias' || pathname === '/incidencias/gestion'}><ShieldCheck className="size-4"/>Gestión</Tab>}
-      <Tab href={me.is_manager ? '/incidencias/mis' : '/incidencias'} active={pathname === '/incidencias/mis' || (!me.is_manager && pathname === '/incidencias')}><ClipboardList className="size-4"/>Mis solicitudes</Tab>
+      {me.is_manager && <Tab href={root} active={pathname === root || pathname === `${root}/gestion`}><ShieldCheck className="size-4"/>Gestión</Tab>}
+      <Tab href={me.is_manager ? `${root}/mis` : root} active={pathname === `${root}/mis` || (!me.is_manager && pathname === root)}><ClipboardList className="size-4"/>Mis solicitudes</Tab>
       {me.is_admin && <Tab href="/incidencias/configuracion" active={pathname === '/incidencias/configuracion'}><Settings className="size-4"/>Configuración</Tab>}
     </nav>{me.impersonating && <div className="mb-4"><Alert>Estás viendo la cuenta de otro usuario. Volvé a tu cuenta para realizar cambios.</Alert></div>}{children}</SupportContext.Provider>}
     {!me && !error && <Loading />}
@@ -119,4 +112,4 @@ function Tab({ href, active, children }: {
     active: boolean;
     children: React.ReactNode;
 }) { return <Link href={href} className={`inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-semibold ${active ? 'bg-indigo-100 text-indigo-700' : 'text-slate-500 hover:bg-slate-100'}`}>{children}</Link>; }
-export const eventLabels: Record<string, string> = { imported: 'Importado de la planilla', create: 'Incidencia creada', take: 'Incidencia tomada', assign: 'Responsable asignado', classify: 'Clasificación actualizada', message: 'Nuevo mensaje', request_info: 'Solicitud de información', request_action: 'Acción solicitada', request_validation: 'Solución lista para probar', respond: 'Respuesta del solicitante', validate: 'Solución confirmada y ticket cerrado', reject: 'La prueba sigue fallando', withdraw: 'Solicitud retirada', cancel: 'Incidencia cancelada', close_admin: 'Cierre administrativo', reopen: 'Incidencia reabierta', restore: 'Incidencia restaurada', transfer: 'Transferencia de sector', unassigned: 'Incidencia enviada a la bandeja sin asignar' };
+export { eventLabels } from '@/lib/support/eventLabels';

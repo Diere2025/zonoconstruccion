@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { isoWeekday, money, project, scenarioAmount, validDate, type Balance, type Fund, type Item, type Realization, type Reservation, type ScenarioRate, type Transfer } from './model';
+import { isoWeekday, money, project, runningRealizationBalances, scenarioAmount, validDate, type Balance, type Fund, type Item, type Realization, type Reservation, type ScenarioRate, type Transfer } from './model';
 
 export class PlanningError extends Error {
   constructor(message: string, public status = 400) { super(message); }
@@ -14,6 +14,9 @@ export async function planningContext(request: Request) {
   if (!url || !anon || !secret) throw new PlanningError('Planificación no está configurada en el servidor.', 503);
   const auth = createClient(url, anon, { auth: { persistSession: false, autoRefreshToken: false } });
   const { data: { user }, error } = await auth.auth.getUser(token);
+  if (error && (error.name === 'AuthRetryableFetchError' || !error.status || error.status === 429 || error.status >= 500)) {
+    throw new PlanningError('No se pudo verificar la sesión con Supabase. Revisá la conexión y reintentá.', 503);
+  }
   if (error || !user) throw new PlanningError('La sesión venció. Volvé a ingresar.', 401);
   const db = createClient(url, secret, { auth: { persistSession: false, autoRefreshToken: false } });
   const byId = await db.from('sellers').select('role,roles,is_active').eq('id', user.id).maybeSingle();
@@ -64,14 +67,16 @@ export async function planningSnapshot(request: Request, from: string, to: strin
   const projectionReliableFrom = imports.some(row => row.source_hash === '401bcbdfb76434eb738568d6b148808e26474dfc64e05ea54a1f620bd262d0ff')
     ? '2026-09-30' : null;
   const importedSourceRows = projectionReliableFrom
-    ? await allRows<{ source_key: string; fund_id: string; source_date: string; sheet_row: number; title: string; classification: string; source_effect: number | null; source_balance: number | null }>(
+    ? await allRows<{ source_key: string; item_id: string | null; fund_id: string; source_date: string; sheet_row: number; title: string; classification: string; source_effect: number | null; source_balance: number | null }>(
       db.from('payment_planning_source_rows')
-        .select('source_key,fund_id,source_date,sheet_row,title,classification,source_effect,source_balance')
+        .select('source_key,item_id,fund_id,source_date,sheet_row,title,classification,source_effect,source_balance')
         .gte('source_date', from).lte('source_date', to)
-        .in('classification', ['opening', 'scenario', 'reserve', 'release'])
         .order('source_date').order('sheet_row')
     ) : [];
   const historicalOpenings = new Map<string, { fund_id: string; date: string; opening: number }>();
+  const historicalClosings = new Map<string, { fund_id: string; date: string; closing: number }>();
+  const historicalItemBalances: Record<string, number> = {};
+  const historicalItemOrder: Record<string, number> = {};
   const incomeEntries: { fund_id: string; date: string; title: string; amount: number; origin: 'sheet' | 'scenario' }[] = [];
   const reserveEntries: { fund_id: string; date: string; title: string; amount: number; kind: 'reserve' | 'release'; origin: 'sheet' | 'planned' }[] = [];
   const sourceTitles = new Map(importedSourceRows.map(row => [row.source_key, row.title]));
@@ -79,6 +84,13 @@ export async function planningSnapshot(request: Request, from: string, to: strin
     if (!allowed.has(row.fund_id)) continue;
     if (row.source_date >= projectionReliableFrom!) continue;
     const key = `${row.source_date}:${row.fund_id}`;
+    if (row.source_balance !== null) {
+      historicalClosings.set(key, { fund_id: row.fund_id, date: row.source_date, closing: Number(row.source_balance) });
+      if (row.item_id) {
+        historicalItemBalances[row.item_id] = Number(row.source_balance);
+        historicalItemOrder[row.item_id] = row.sheet_row;
+      }
+    }
     if (!historicalOpenings.has(key) && row.source_balance !== null && ['opening', 'scenario'].includes(row.classification)) {
       const opening = Number(row.source_balance) - (row.classification === 'scenario' ? Number(row.source_effect || 0) : 0);
       historicalOpenings.set(key, { fund_id: row.fund_id, date: row.source_date, opening });
@@ -105,6 +117,12 @@ export async function planningSnapshot(request: Request, from: string, to: strin
     rates: rates.filter(row => allowed.has(row.fund_id)),
     transfers: transfers.filter(row => allowed.has(row.source_fund_id) && allowed.has(row.destination_fund_id)), from, to, today
   });
+  const realizedProjection = project({
+    funds: visibleFunds, balances: balances.filter(row => allowed.has(row.fund_id)), items: shownItems,
+    realizations: realizations.filter(row => allowed.has(row.fund_id)),
+    reservations: reservations.filter(row => allowed.has(row.fund_id)), rates: [], transfers: [], from, to, today, realizedOnly: true
+  });
+  const realizationBalances = runningRealizationBalances(realizedProjection, shownItems, realizations, reservations);
   for (const row of projection) {
     if (projectionReliableFrom && row.date < projectionReliableFrom) continue;
     const fund = visibleFunds.find(entry => entry.id === row.fund_id);
@@ -126,6 +144,8 @@ export async function planningSnapshot(request: Request, from: string, to: strin
     projection, today, from, to, canImport: admin && imports.length === 0, importedSource: imports.at(-1) || null,
     projectionReliableFrom,
     historicalOpenings: [...historicalOpenings.values()],
+    historicalClosings: [...historicalClosings.values()], historicalItemBalances, historicalItemOrder,
+    realizedProjection, realizationBalances,
     incomeEntries,
     reserveEntries,
     unanchoredFunds: visibleFunds.filter(fund => !balances.some(row => row.fund_id === fund.id && row.effective_date <= from)).map(fund => fund.id)

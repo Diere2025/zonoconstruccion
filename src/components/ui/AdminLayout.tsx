@@ -9,6 +9,7 @@ import { ErpNavigationContext } from "@/components/ui/ErpNavigationContext";
 import { supabase } from "@/lib/supabase";
 import { loadUserRoleProfile, type UserRoleProfile } from "@/lib/userRoleProfile";
 import { createAuthenticatedRequester } from "@/lib/authenticatedRequest";
+import { SupportNotifications } from "@/components/support/SupportNotifications";
 
 const adminRequest = createAuthenticatedRequester(supabase);
 const normalizeNavigationSearch = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
@@ -436,8 +437,7 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
     if (!isRoleLoaded) return;
     // Incidencias checks its independent capabilities in its own session/API.
     if (pathname === '/admin') return;
-    if (pathname === '/incidencias' || pathname.startsWith('/incidencias/')) return;
-    if (pathname === '/desarrollos-futuros') return;
+    if (pathname === '/incidencias' || pathname.startsWith('/incidencias/') || pathname === '/solicitudes-logistica' || pathname.startsWith('/solicitudes-logistica/')) return;
     const search = typeof window !== 'undefined' ? window.location.search : '';
     if (pathname === '/admin/finanzas/eerr' && !isAdminRole) {
       router.replace(hasRole('administracion') ? '/admin/finanzas' : '/vendedores');
@@ -581,7 +581,7 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
     window.location.href = "/admin";
   };
 
-  const visibleModules = visibleErpModules({ roles: userRoles, restrictedSeller: isRestrictedSeller, canUseWholesale, userId: isRoleLoaded ? cachedIdentityUserId : null });
+  const visibleModules = visibleErpModules({ roles: userRoles, restrictedSeller: isRestrictedSeller, canUseWholesale });
   const navigationTerm = normalizeNavigationSearch(navigationSearch.trim());
   const filteredModules = visibleModules.map(section => ({
     ...section,
@@ -851,6 +851,7 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
           </div>
 
           <div className="flex items-center gap-3">
+            <SupportNotifications />
             {/* Live System Status Pill */}
             <div className="hidden sm:flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-medium">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { authorize, body, json, privateHeaders, storageClient } from '@/lib/support/server';
 import { SupportError, databaseError, inspectImage, object, operation, uuid } from '@/lib/support/validation';
 import type { SupportMe } from '@/lib/support/types';
+import { pendingResponsibilityFilter } from '@/lib/support/responsibility';
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 type Context = {
@@ -9,7 +10,7 @@ type Context = {
         path: string[];
     }>;
 };
-const actions = new Set(['take', 'assign', 'classify', 'request_info', 'request_action', 'request_validation', 'respond', 'validate', 'reject', 'withdraw', 'close_admin', 'cancel', 'reopen', 'restore', 'transfer']);
+const actions = new Set(['take', 'assign', 'classify', 'request_info', 'request_action', 'request_validation', 'respond', 'validate', 'reject', 'withdraw', 'close_admin', 'cancel', 'reopen', 'restore', 'transfer', 'shipping_quote', 'shipping_finish', 'shipping_requote']);
 function cursor(raw: string | null): [
     string,
     string
@@ -42,12 +43,20 @@ async function handle(request: NextRequest, context: Context): Promise<NextRespo
         databaseError(result.error);
         return json({ ...result.data, impersonating });
     }
+    if (path.length === 1 && path[0] === 'responsibles' && isGet) {
+        const result = await db.rpc('support_responsibility_options');
+        databaseError(result.error);
+        return json(result.data);
+    }
     if (path[0] === 'tickets' && path.length === 1) {
         if (isGet) {
             const me = await db.rpc('support_me');
             databaseError(me.error);
             const identity = me.data as SupportMe;
             let query = db.from('support_tickets').select('*');
+            const workflow = params.get('workflow') || 'incident';
+            if (!['incident', 'shipping'].includes(workflow)) throw new SupportError('La bandeja solicitada no es válida.');
+            query = query.eq('workflow', workflow);
             if (params.get('mode') !== 'manage')
                 query = query.eq('created_by', user.id);
             else if (!identity.is_manager)
@@ -62,7 +71,7 @@ async function handle(request: NextRequest, context: Context): Promise<NextRespo
             const view = params.get('view') || 'pending';
             if (view === 'pending')
                 query = params.get('mode') === 'manage'
-                    ? query.eq('assignee_id', user.id).in('status', ['new', 'in_progress'])
+                    ? query.or(pendingResponsibilityFilter(identity)).in('status', ['new', 'in_progress'])
                     : query.in('status', ['waiting_requester', 'waiting_validation']);
             if (view === 'unassigned')
                 query = query.is('assignee_id', null).not('status', 'in', '(closed,cancelled)');
@@ -70,8 +79,8 @@ async function handle(request: NextRequest, context: Context): Promise<NextRespo
                 query = query.eq('assignee_id', user.id).not('status', 'in', '(closed,cancelled)');
             if (view === 'action')
                 query = query.in('status', ['waiting_requester', 'waiting_validation']);
-            if (view === 'all')
-                query = query.neq('status', 'closed');
+            // All really includes pending, unassigned, completed and cancelled requests.
+            if (view === 'cancelled') query = query.eq('status', 'cancelled');
             if (view === 'open')
                 query = query.not('status', 'in', '(closed,cancelled)');
             if (view === 'closed')
@@ -189,9 +198,17 @@ async function handle(request: NextRequest, context: Context): Promise<NextRespo
     }
     if (path[0] === 'notifications' && path.length === 1) {
         if (isGet) {
-            const result = await db.from('support_notifications').select('id,ticket_id,kind,read_at,created_at').order('created_at', { ascending: false }).limit(40);
+            const [result, unread] = await Promise.all([
+                db.from('support_notifications').select('id,ticket_id,kind,read_at,created_at,ticket:support_tickets!ticket_id(workflow,number,title)')
+                    .order('read_at', { ascending: true, nullsFirst: true }).order('created_at', { ascending: false }).limit(40),
+                db.from('support_notifications').select('id', { count: 'exact', head: true }).is('read_at', null),
+            ]);
             databaseError(result.error);
-            return json({ items: result.data || [] });
+            databaseError(unread.error);
+            return json({ unread_count: unread.count || 0, items: (result.data || []).map(row => {
+                const ticket = Array.isArray(row.ticket) ? row.ticket[0] : row.ticket;
+                return { ...row, workflow: ticket?.workflow, number: ticket?.number, title: ticket?.title };
+            }) });
         }
         if (request.method === 'PATCH') {
             const op = operation(await body(request));

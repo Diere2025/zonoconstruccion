@@ -3393,7 +3393,7 @@ function FinanceWorkspace() {
                   id="tx-supplier" label="Proveedor" value={selectedSupplierId}
                   options={suppliers.map(supplier => ({ value: supplier.id, label: supplier.name }))}
                   onChange={value => { setSelectedSupplierId(value); setSelectedPurchaseId(""); }}
-                  required={linkToPurchase} placeholder="Seleccionar proveedor"
+                  required placeholder="Seleccionar proveedor"
                 />
                   {selectedSupplierId && (
                     <div className="space-y-2">

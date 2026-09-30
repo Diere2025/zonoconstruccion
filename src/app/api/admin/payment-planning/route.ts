@@ -55,7 +55,7 @@ export async function GET(request: Request) {
   } catch (error) { return failure(error); }
 }
 
-const actions = new Set(['create_item','update_item','move_item','cancel_item','realize','realize_with_movement','reverse_realization','close_remaining','reopen_remaining','create_installments','observe_balance','reservation','scenario','create_rate','transfer','create_recurrence','generate_recurrence','import_rows']);
+const actions = new Set(['create_item','create_realized','update_item','move_item','cancel_item','realize','realize_with_movement','reverse_realization','close_remaining','reopen_remaining','create_installments','observe_balance','reservation','scenario','create_rate','transfer','create_recurrence','generate_recurrence','import_rows']);
 export async function POST(request: Request) {
   try {
     const { db, actor } = await planningContext(request);
@@ -65,6 +65,8 @@ export async function POST(request: Request) {
     }
     const { data, error } = body.action === 'move_item'
       ? await db.rpc('payment_planning_move_item', { p_actor: actor, p_key: body.key, p_payload: body.payload })
+      : body.action === 'create_realized'
+      ? await db.rpc('payment_planning_create_realized', { p_actor: actor, p_key: body.key, p_payload: body.payload })
       : body.action === 'realize_with_movement'
       ? await db.rpc('payment_planning_realize_with_movement', { p_actor: actor, p_key: body.key, p_payload: body.payload })
       : await db.rpc('payment_planning_mutate', {

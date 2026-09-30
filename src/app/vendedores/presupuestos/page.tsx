@@ -1,6 +1,7 @@
 "use client";
 
-import { isRetiredPaymentMethod } from "@/lib/cuotaSimple";
+import PaymentMethodSelector from "@/components/vendedores/PaymentMethodSelector";
+import { isCuotaSimplePaymentMethod, isRetiredPaymentMethod } from "@/lib/cuotaSimple";
 
 import React, { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
@@ -1140,18 +1141,20 @@ export default function PresupuestosPage() {
               <label className="block text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1">
                 Elegir Plan de Pago / Recargo
               </label>
-              <select
-                value={
-                  paymentType === 'efectivo'
-                    ? 'efectivo'
-                    : (dbPaymentMethods.find(m => m.surcharge_percentage === cardSurcharge && m.installments === cardInstallments)?.id || 'custom')
-                }
-                onChange={(e) => {
-                  const val = e.target.value;
+              <PaymentMethodSelector
+                methods={dbPaymentMethods.filter(m => m.surcharge_percentage > 0 && !isRetiredPaymentMethod(m.name || ''))}
+                value={paymentType === 'efectivo' ? 'efectivo' : (matchedMethod?.id || 'custom')}
+                extraOptions={[
+                  { value: 'efectivo', label: 'Contado (0% Recargo)' },
+                  { value: 'custom', label: 'Personalizado (Ingresar recargo manual)' }
+                ]}
+                onChange={(val) => {
                   if (val === 'efectivo') {
                     setPaymentType('efectivo');
                   } else if (val === 'custom') {
                     setPaymentType('tarjeta');
+                    setCardSurcharge(0);
+                    setCardInstallments(1);
                   } else {
                     const pm = dbPaymentMethods.find(m => m.id === val);
                     if (pm) {
@@ -1161,21 +1164,11 @@ export default function PresupuestosPage() {
                     }
                   }
                 }}
-                className="w-full px-2.5 py-1.5 text-xs font-bold border border-slate-200 rounded-lg outline-none bg-slate-50 text-slate-700 focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 cursor-pointer"
-              >
-                <option value="efectivo">💵 Contado (0% Recargo)</option>
-                {dbPaymentMethods
-                  .filter(m => m.surcharge_percentage > 0 && !isRetiredPaymentMethod(m.name || ''))
-                  .map(pm => (
-                    <option key={pm.id} value={pm.id}>
-                      💳 {pm.name} (+{pm.surcharge_percentage}% Recargo{pm.installments > 1 && !pm.name.toLowerCase().includes('cuota') ? ` - ${pm.installments} cuotas` : ''})
-                    </option>
-                  ))}
-                <option value="custom">⚙️ Personalizado (Ingresar recargo manual)</option>
-              </select>
+              />
 
             </div>
 
+            {!(paymentType === 'tarjeta' && isCuotaSimplePaymentMethod(matchedMethod?.name || '')) && (
             <div className="space-y-2">
               <label className={`flex items-center justify-between p-2.5 rounded-lg border-2 cursor-pointer transition-colors ${paymentType === 'efectivo' ? 'border-brand-500 bg-brand-50' : 'border-slate-100 hover:border-slate-200'}`}>
                 <div className="flex items-center gap-2.5">
@@ -1238,6 +1231,7 @@ export default function PresupuestosPage() {
                 )}
               </label>
             </div>
+            )}
           </div>
         </div>
 

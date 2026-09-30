@@ -14,6 +14,13 @@ export interface Person {
     name: string;
     active: boolean;
 }
+export interface ResponsiblePerson extends Person {
+    sector_ids: string[];
+}
+export interface ResponsibilityOptions {
+    sectors: Sector[];
+    people: ResponsiblePerson[];
+}
 export interface SupportMe {
     user_id: string;
     is_admin: boolean;
@@ -25,6 +32,10 @@ export interface SupportMe {
     impersonating?: boolean;
 }
 export interface Ticket {
+    workflow: 'incident' | 'shipping';
+    shipping_request: import('./shipping').ShippingRequest | null;
+    shipping_quotes: import('./shipping').ShippingQuote[];
+    shipping_selected: number | null;
     id: string;
     number: number;
     created_by: string;
@@ -85,6 +96,9 @@ export interface ActionRequest {
     };
 }
 export interface SupportNotification {
+    number?: number;
+    title?: string;
+    workflow?: 'incident' | 'shipping';
     id: string;
     ticket_id: string;
     kind: string;
@@ -95,3 +109,7 @@ export const code = (number: number) => `INC-${String(number).padStart(6, '0')}`
 export const dateLabel = (value: string) => new Date(value).toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', dateStyle: 'short', timeStyle: 'short' });
 export const isOpen = (status: Status) => status !== 'closed' && status !== 'cancelled';
 export const manages = (me: SupportMe, ticket: Ticket) => me.is_admin || me.sector_ids.includes(ticket.sector_id);
+export function responsibleLabel(ticket: Pick<Ticket, 'sector_id' | 'assignee_id'>, sectors: Sector[], name: (id: string) => string): string {
+    if (ticket.assignee_id) return name(ticket.assignee_id);
+    return `Equipo de ${sectors.find(s => s.id === ticket.sector_id)?.name || 'área responsable'}`;
+}

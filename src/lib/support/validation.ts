@@ -115,6 +115,13 @@ const dbErrors: Record<string, [
     number,
     string
 ]> = {
+    SUPPORT_RESPONSIBLE_REQUIRED: [422, 'Elegí un responsable: una persona o el equipo de un área.'],
+    SUPPORT_RESPONSIBLE_INVALID: [422, 'El responsable debe estar activo y tener acceso al área elegida.'],
+    SUPPORT_AREA_EMPTY: [422, 'El área elegida no tiene responsables activos. Consultá al administrador.'],
+    SHIPPING_REQUEST_INVALID: [422, 'Completá destino, provincia, código postal y productos con cantidades.'],
+    SHIPPING_QUOTE_INVALID: [422, 'Revisá las opciones: transporte, importes, pago, plazo y vigencia son obligatorios.'],
+    SHIPPING_QUOTE_EXPIRED: [422, 'La cotización venció. Pedí o publicá una recotización.'],
+    SHIPPING_SECTOR_UNAVAILABLE: [422, 'El sector de Logística está desactivado. Consultá al administrador.'],
     SUPPORT_FORBIDDEN: [403, 'No tenés permiso para realizar esta acción.'],
     SUPPORT_NOT_FOUND: [404, 'No se encontró la incidencia.'],
     SUPPORT_CONFLICT: [409, 'La incidencia cambió. Actualizá y revisá la información antes de volver a enviar.'],

@@ -13,6 +13,7 @@ type Options = { accounts: Account[]; concepts: Concept[] };
 type Props = {
   item: Item; sourceFund: Fund; funds: Fund[]; initialAmount: string; initialDate: string;
   working: boolean; error: string; onClose: () => void;
+  heading?: string; initialNotes?: string; onBack?: () => void;
   onSave: (action: string, payload: Record<string, unknown>) => Promise<boolean>;
 };
 
@@ -32,12 +33,12 @@ const defaultAccount = (accounts: Account[], fund: Fund) => {
 };
 
 export default function RealizePlanningModal({ item, sourceFund, funds, initialAmount, initialDate,
-  working, error, onClose, onSave }: Props) {
+  working, error, onClose, onSave, heading, initialNotes = '', onBack }: Props) {
   const [amount, setAmount] = useState(initialAmount);
   const [date, setDate] = useState(initialDate);
   const [dateDraft, setDateDraft] = useState(() => dateNumber(initialDate));
   const [fundId, setFundId] = useState(item.fund_id);
-  const [notes, setNotes] = useState('');
+  const [notes, setNotes] = useState(initialNotes);
   const [withMovement, setWithMovement] = useState(false);
   const [options, setOptions] = useState<Options | null>(null);
   const [loadingOptions, setLoadingOptions] = useState(false);
@@ -86,7 +87,7 @@ export default function RealizePlanningModal({ item, sourceFund, funds, initialA
 
   return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-3" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
     <form onSubmit={submit} className="max-h-[94vh] w-full max-w-md space-y-3 overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl">
-      <div className="flex items-center justify-between"><h2 className="text-lg font-semibold">Registrar realización</h2><button type="button" aria-label="Cerrar" onClick={onClose}><X size={19}/></button></div>
+      <div className="flex items-center justify-between"><h2 className="text-lg font-semibold">{heading || 'Registrar realización'}</h2><button type="button" aria-label="Cerrar" onClick={onClose}><X size={19}/></button></div>
       <p className="text-xs text-slate-500">{item.title} · {item.kind === 'expense' ? 'Pago' : 'Ingreso'}</p>
       {(localError || error) && <p role="alert" className="rounded-lg bg-red-50 p-2 text-sm text-red-700">{localError || error}</p>}
       <label className="block text-sm font-medium">Importe<input required type="number" min="0.01" step="0.01" value={amount} onChange={event => setAmount(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2"/></label>
@@ -110,7 +111,7 @@ export default function RealizePlanningModal({ item, sourceFund, funds, initialA
         <p className="text-xs text-slate-500">El Movimiento y la realización se guardan juntos. La caja elegida determina el fondo donde se registra el importe realizado.</p>
       </div> : <label className="block text-sm font-medium">Fondo de planificación<select value={fundId} onChange={event=>setFundId(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2">{funds.filter(fund=>fund.currency===sourceFund.currency).map(fund=><option key={fund.id} value={fund.id}>{fund.name}</option>)}</select></label>}
       <label className="block text-sm font-medium">Nota<input value={notes} onChange={event=>setNotes(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2"/></label>
-      <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={onClose} className="rounded-lg border border-slate-200 px-3 py-2 text-sm">Cerrar</button><button disabled={working || (withMovement && (loadingOptions || !options))} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{working?'Guardando…':withMovement?'Guardar y generar Movimiento':'Guardar'}</button></div>
+      <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={onBack || onClose} className="rounded-lg border border-slate-200 px-3 py-2 text-sm">{onBack ? 'Volver' : 'Cerrar'}</button><button disabled={working || (withMovement && (loadingOptions || !options))} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{working?'Guardando…':withMovement?'Guardar y generar Movimiento':'Guardar'}</button></div>
     </form>
   </div>;
 }

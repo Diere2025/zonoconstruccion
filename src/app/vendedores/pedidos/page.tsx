@@ -1,6 +1,7 @@
 "use client";
 
-import { isRetiredPaymentMethod } from "@/lib/cuotaSimple";
+import PaymentMethodSelector from "@/components/vendedores/PaymentMethodSelector";
+import { isCuotaSimplePaymentMethod, isRetiredPaymentMethod } from "@/lib/cuotaSimple";
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { 
@@ -8026,31 +8027,19 @@ export default function PedidosPage() {
                         {/* Selector de Medio de Pago */}
                         <div className="flex flex-col gap-1">
                           <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider">Medio de Pago</span>
-                          <select
+                          <PaymentMethodSelector
+                            methods={activePaymentMethods}
                             value={p.payment_method_id}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                                const pm = dbPaymentMethods.find(m => m.id === val);
-                                setPaymentsList(prev => prev.map(item => {
-                                  if (item.id === p.id) {
-                                    return {
-                                      ...item,
-                                      payment_method_id: val,
-                                      card_surcharge: pm ? pm.surcharge_percentage : 0,
-                                      card_installments: pm ? pm.installments : 1
-                                    };
-                                  }
-                                  return item;
-                                }));
+                            onChange={(val) => {
+                              const pm = dbPaymentMethods.find(m => m.id === val);
+                              setPaymentsList(prev => prev.map(item => item.id === p.id ? {
+                                ...item,
+                                payment_method_id: val,
+                                card_surcharge: pm ? pm.surcharge_percentage : 0,
+                                card_installments: pm ? pm.installments : 1
+                              } : item));
                             }}
-                            className="w-full px-2.5 py-1.5 text-xs font-bold border border-slate-200 rounded-lg outline-none bg-slate-50 text-slate-700 focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500"
-                          >
-                            {activePaymentMethods.map(pm => (
-                              <option key={pm.id} value={pm.id}>
-                                {pm.name} {pm.surcharge_percentage > 0 ? `(+${pm.surcharge_percentage}% Recargo)` : ''}
-                              </option>
-                            ))}
-                          </select>
+                          />
                         </div>
 
                         {/* Monto del Comprobante / Pago */}
@@ -8091,6 +8080,7 @@ export default function PedidosPage() {
                               <input
                                 type="number"
                                 value={p.card_surcharge}
+                                readOnly={isCuotaSimplePaymentMethod(dbPaymentMethods.find(m => m.id === p.payment_method_id)?.name || "")}
                                 onChange={(e) => {
                                   const val = Number(e.target.value);
                                   setPaymentsList(prev => prev.map(item => item.id === p.id ? { ...item, card_surcharge: val } : item));
@@ -8103,6 +8093,7 @@ export default function PedidosPage() {
                               <input
                                 type="number"
                                 value={p.card_installments}
+                                readOnly={isCuotaSimplePaymentMethod(dbPaymentMethods.find(m => m.id === p.payment_method_id)?.name || "")}
                                 onChange={(e) => {
                                   const val = Number(e.target.value);
                                   setPaymentsList(prev => prev.map(item => item.id === p.id ? { ...item, card_installments: val } : item));

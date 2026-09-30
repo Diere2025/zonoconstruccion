@@ -7,12 +7,15 @@ import { priorities, ticketTypes } from '@/lib/support/types';
 import { Alert, fieldClass, primaryClass, secondaryClass, useSupport } from './SupportShell';
 import { AttachmentEditor, pastedImages, usePendingImages } from './AttachmentEditor';
 import { useUnsavedChanges } from './useUnsavedChanges';
+import { ResponsibilityPicker } from './ResponsibilityPicker';
 export function TicketForm() {
     const { me } = useSupport();
     const router = useRouter();
     const uploads = usePendingImages();
     const [type, setType] = useState('error');
     const [priority, setPriority] = useState('medium');
+    const [sector, setSector] = useState('');
+    const [responsible, setResponsible] = useState('');
     const [busy, setBusy] = useState(false);
     const [progress, setProgress] = useState('');
     const [error, setError] = useState('');
@@ -23,11 +26,14 @@ export function TicketForm() {
         e.preventDefault();
         if (busy || me.impersonating)
             return;
+        if (!sector || !responsible) { setError('Elegí un responsable: una persona o el equipo de un área.'); return; }
         const form = new FormData(e.currentTarget);
         const payload: Record<string, unknown> = {};
         for (const field of ['title', 'description', 'sector_id', 'module', 'steps', 'expected', 'actual', 'impact'])
             payload[field] = String(form.get(field) || '').trim();
         payload.type = type;
+        payload.responsibility_kind = responsible === 'area' ? 'area' : 'person';
+        payload.assignee_id = responsible === 'area' ? null : responsible;
         payload.suggested_priority = priority;
         setBusy(true);
         setError('');
@@ -60,9 +66,10 @@ export function TicketForm() {
     {error && <Alert>{error}</Alert>}
     <fieldset disabled={busy || me.impersonating} className="space-y-5">
       <label className="block text-sm font-semibold">Título<input autoFocus name="title" required minLength={5} maxLength={160} className={`${fieldClass} mt-2`} placeholder="Ej.: No puedo eliminar una rendición"/></label>
-      <div className="grid gap-4 sm:grid-cols-2"><label className="text-sm font-semibold">Sector responsable<select name="sector_id" required className={`${fieldClass} mt-2`} defaultValue={me.sectors.find(s => s.name.startsWith('General'))?.id}><option value="">Elegí un sector</option>{me.sectors.filter(s => s.active).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label><label className="text-sm font-semibold">Tipo<select className={`${fieldClass} mt-2`} value={type} onChange={e => setType(e.target.value)}>{Object.entries(ticketTypes).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label></div>
+      <ResponsibilityPicker sector={sector} assignee={responsible} onChange={(area, person) => { setSector(area); setResponsible(person); }}/>
+      <label className="block text-sm font-semibold">Tipo<select className={`${fieldClass} mt-2`} value={type} onChange={e => setType(e.target.value)}>{Object.entries(ticketTypes).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
       <label className="block text-sm font-semibold">Descripción<textarea name="description" required minLength={10} maxLength={10000} rows={5} className={`${fieldClass} mt-2`} placeholder="Explicá qué pasó y cómo afecta tu trabajo. Pegá una captura con Ctrl+V si ayuda."/></label>
-      <div className="grid gap-4 sm:grid-cols-2"><label className="text-sm font-semibold">Módulo o área afectada <span className="font-normal text-slate-400">(opcional)</span><input name="module" maxLength={160} className={`${fieldClass} mt-2`} placeholder="Ej.: Tesorería y Finanzas"/></label><label className="text-sm font-semibold">Prioridad sugerida<select className={`${fieldClass} mt-2`} value={priority} onChange={e => setPriority(e.target.value)}>{Object.entries(priorities).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label></div>
+      <div className="grid gap-4 sm:grid-cols-2"><label className="text-sm font-semibold">Área o módulo afectado <span className="font-normal text-slate-400">(opcional)</span><input name="module" maxLength={160} className={`${fieldClass} mt-2`} placeholder="Ej.: Ventas, Tesorería o carga de pedidos"/></label><label className="text-sm font-semibold">Prioridad sugerida<select className={`${fieldClass} mt-2`} value={priority} onChange={e => setPriority(e.target.value)}>{Object.entries(priorities).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label></div>
       <label className="block text-sm font-semibold">Impacto en el trabajo {priority === 'critical' ? '' : '(opcional)'}<textarea name="impact" required={priority === 'critical'} minLength={priority === 'critical' ? 10 : undefined} maxLength={2000} rows={2} className={`${fieldClass} mt-2`} placeholder="¿Qué tarea está bloqueada? ¿A cuántas personas afecta?"/></label>
       {type === 'error' && <details className="rounded-xl border border-slate-200 p-4"><summary className="cursor-pointer text-sm font-semibold">Agregar detalles para reproducir el error (opcional)</summary><div className="mt-4 space-y-3">{[['steps', 'Pasos para reproducir'], ['expected', 'Qué esperabas que suceda'], ['actual', 'Qué sucedió realmente']].map(([name, label]) => <label className="block text-sm" key={name}>{label}<textarea name={name} rows={2} maxLength={5000} className={`${fieldClass} mt-2`}/></label>)}</div></details>}
       <AttachmentEditor images={uploads.images} onChange={uploads.setImages} disabled={busy}/>

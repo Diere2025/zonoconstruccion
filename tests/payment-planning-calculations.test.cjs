@@ -6,7 +6,7 @@ const vm = require('node:vm');
 const source = fs.readFileSync('src/lib/paymentPlanning/model.ts', 'utf8');
 const exportsValue = {};
 vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, { exports: exportsValue });
-const { cents, project } = exportsValue;
+const { cents, project, runningRealizationBalances } = exportsValue;
 const fund = { id: 'cash', name: 'Efectivo', kind: 'cash', currency: 'ARS', scenario: 'intermedio', active: true };
 const balance = { id: 'balance', fund_id: 'cash', effective_date: '2026-09-28', amount: '100.00', reserved_amount: '0.00', notes: '' };
 const item = (id, kind, amount, scheduled_date = '2026-09-29') => ({ id, fund_id: 'cash', kind, title: id, amount, scheduled_date, due_date: null, status: 'active', priority: 'normal', notes: '', source: 'manual', version: 1 });
@@ -82,4 +82,37 @@ test('moving a planned payment changes its day and fund projections', () => {
   assert.equal(after.find(row=>row.date==='2026-09-29' && row.fund_id==='cash').free,100);
   assert.equal(after.find(row=>row.date==='2026-09-30' && row.fund_id==='personal').free,75);
   assert.equal(after.filter(row=>row.date==='2026-09-30').reduce((sum,row)=>sum+row.free,0),175);
+});
+
+test('realized balances exclude pending payments and scenario income and follow payment order', () => {
+  const items = [item('payment','expense','50.00'), item('receipt','income','30.00'), item('pending','expense','70.00')];
+  const realizations = [
+    {id:'r2',item_id:'receipt',fund_id:'cash',amount:'30.00',effective_date:'2026-09-29',reversed_at:null,created_at:'2026-09-29T11:00:00Z'},
+    {id:'r1',item_id:'payment',fund_id:'cash',amount:'50.00',effective_date:'2026-09-29',reversed_at:null,created_at:'2026-09-29T10:00:00Z'},
+    {id:'reversed',item_id:'pending',fund_id:'cash',amount:'10.00',effective_date:'2026-09-29',reversed_at:'2026-09-29T12:00:00Z'}
+  ];
+  const rate = {id:'rate',fund_id:'cash',title:'Estimate',valid_from:'2026-09-28',valid_until:null,weekdays:[1,2,3,4,5,6],optimistic:'60',intermediate:'40',pessimistic:'30',active:true};
+  const rows = project({...base,items,realizations,rates:[rate],realizedOnly:true});
+  assert.equal(rows.find(row=>row.date==='2026-09-29').free,80);
+  const balances = runningRealizationBalances(rows,items,realizations,[]);
+  assert.equal(balances.r1,50);
+  assert.equal(balances.r2,80);
+  assert.equal(balances.reversed,undefined);
+});
+
+test('a realized payment releases only its assigned consumed reserve in running balances', () => {
+  const items = [item('salary','expense','20.00'),item('other','expense','10.00')];
+  const realizations = [
+    {id:'salary-r',item_id:'salary',fund_id:'cash',amount:'20.00',effective_date:'2026-09-29',reversed_at:null,created_at:'2026-09-29T10:00:00Z'},
+    {id:'other-r',item_id:'other',fund_id:'cash',amount:'10.00',effective_date:'2026-09-29',reversed_at:null,created_at:'2026-09-29T11:00:00Z'}
+  ];
+  const reservations = [
+    {id:'reserve',fund_id:'cash',kind:'reserve',amount:'30.00',effective_date:'2026-09-28',target_item_id:'salary',reversed_at:null},
+    {id:'consume',fund_id:'cash',kind:'consume',amount:'20.00',effective_date:'2026-09-29',target_item_id:'salary',realization_id:'salary-r',reversed_at:null}
+  ];
+  const rows = project({...base,items,realizations,reservations,realizedOnly:true});
+  const balances = runningRealizationBalances(rows,items,realizations,reservations);
+  assert.equal(balances['salary-r'],70);
+  assert.equal(balances['other-r'],60);
+  assert.equal(rows.find(row=>row.date==='2026-09-29').free,60);
 });

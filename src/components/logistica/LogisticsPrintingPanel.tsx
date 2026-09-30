@@ -185,9 +185,9 @@ export default function LogisticsPrintingPanel() {
         const { data: refreshed } = await supabase.auth.refreshSession();
         if (refreshed.session?.access_token) response = await fetchRates(refreshed.session.access_token);
       }
-      const payload = await response.json() as { rates?: number[]; canEdit?: boolean; error?: string };
+      const payload = await response.json() as { rates?: number[]; pointRate?: number; canEdit?: boolean; error?: string };
       if (!response.ok || !Array.isArray(payload.rates) || payload.rates.length !== DEFAULT_ORDER_NOTE_RATES.length) throw new Error(payload.error || 'No se pudieron cargar los recargos de cuotas.');
-      setNoteSettings(current => ({ ...current, posnetRates: payload.rates! }));
+      setNoteSettings(current => ({ ...current, posnetRates: payload.rates!, pointRate: payload.pointRate ?? 7 }));
       setCuotaSimpleError('');
       setCuotaSimpleStatus('ready');
     } catch (loadError) {
@@ -485,6 +485,51 @@ export default function LogisticsPrintingPanel() {
 
   return (
     <div className="space-y-5">
+      <section className="rounded-2xl border border-emerald-200 bg-white p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="flex items-center gap-2 text-xs font-black text-slate-800"><ClipboardPaste className="h-4 w-4" /> Pegar pedidos</h3>
+            <p className="mt-1 text-[10px] font-semibold text-slate-500">Copiá filas completas de la planilla. Cada pegado se procesa y agrega a los pedidos existentes.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => setGridEditing(current => !current)} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-[10px] font-black uppercase text-slate-700 hover:bg-slate-100">
+              {gridEditing ? 'Ocultar grilla' : 'Editar grilla'}
+            </button>
+            <button type="button" onClick={clearGrid} className="flex items-center justify-center gap-1.5 rounded-xl border border-rose-200 bg-white px-3 py-2 text-[10px] font-black uppercase text-rose-700 hover:bg-rose-50">
+              <Trash2 className="h-3.5 w-3.5" /> Limpiar pedidos
+            </button>
+          </div>
+        </div>
+        <textarea value="" onChange={() => {}} onPaste={handlePaste} aria-label="Pegar pedidos aquí" placeholder="Pegar aquí" className="mt-3 h-24 w-full resize-none rounded-xl border-2 border-dashed border-emerald-300 bg-emerald-100/70 p-4 text-center text-sm font-bold text-emerald-800 outline-none placeholder:text-emerald-800 transition-colors hover:border-emerald-400 hover:bg-emerald-100 focus:border-emerald-500 focus:bg-emerald-100 focus:ring-2 focus:ring-emerald-200/60" />
+        <p className="mt-1 text-[10px] text-slate-500">El contenido pegado no queda visible en este cuadro; podés pegar más filas cuando quieras.</p>
+        {gridEditing && <div className="mt-3 flex flex-wrap justify-end gap-2">
+          <button type="button" onClick={addEmptyRow} className="flex items-center gap-1.5 rounded-xl border border-slate-300 px-3 py-2 text-[10px] font-black uppercase text-slate-700 hover:bg-slate-100"><Plus className="h-3.5 w-3.5" /> Agregar fila</button>
+          <button type="button" onClick={() => processPastedRows()} disabled={loading || !gridDirty} className="flex items-center gap-1.5 rounded-xl border border-slate-300 px-3 py-2 text-[10px] font-black uppercase text-slate-700 hover:bg-slate-100 disabled:opacity-50"><FileCheck2 className="h-3.5 w-3.5" /> Aplicar grilla</button>
+        </div>}
+        {gridEditing && <div className="mt-3 max-h-[360px] overflow-auto rounded-xl border border-slate-200">
+          <table className="border-collapse text-[10px]">
+            <thead className="sticky top-0 z-10 bg-slate-100 text-slate-600">
+              <tr>
+                <th className="sticky left-0 z-20 w-10 min-w-10 border border-slate-200 bg-slate-100 px-2 py-2 text-center">#</th>
+                {columns.map(column => <th key={column.index} style={{ minWidth: column.width }} className="border border-slate-200 px-2 py-2 text-left font-black">{column.label}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {pastedRows.map((row, rowIndex) => (
+                <tr key={rowIndex}>
+                  <td className="sticky left-0 z-[5] border border-slate-200 bg-slate-50 px-2 text-center font-mono font-bold text-slate-400">{rowIndex + 1}</td>
+                  {columns.map(column => (
+                    <td key={column.index} className="border border-slate-200 p-0">
+                      <input value={row[column.index] || ''} onChange={event => updateCell(rowIndex, column.index, event.target.value)} className="h-8 w-full bg-white px-2 outline-none focus:bg-blue-50 focus:ring-1 focus:ring-inset focus:ring-blue-500" />
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>}
+      </section>
+
       <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="text-[10px] font-black uppercase tracking-wide text-slate-500">Imprimir selección</span>
@@ -562,50 +607,7 @@ export default function LogisticsPrintingPanel() {
           </div>
       </section>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-4" style={{ order: 1 }}>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h3 className="flex items-center gap-2 text-xs font-black text-slate-800"><ClipboardPaste className="h-4 w-4" /> Pegar pedidos</h3>
-            <p className="mt-1 text-[10px] font-semibold text-slate-500">Copiá filas completas de la planilla. Cada pegado se procesa y agrega a los pedidos existentes.</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => setGridEditing(current => !current)} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-[10px] font-black uppercase text-slate-700 hover:bg-slate-100">
-              {gridEditing ? 'Ocultar grilla' : 'Editar grilla'}
-            </button>
-            <button type="button" onClick={clearGrid} className="flex items-center justify-center gap-1.5 rounded-xl border border-rose-200 bg-white px-3 py-2 text-[10px] font-black uppercase text-rose-700 hover:bg-rose-50">
-              <Trash2 className="h-3.5 w-3.5" /> Limpiar pedidos
-            </button>
-          </div>
-        </div>
-        <textarea value="" onChange={() => {}} onPaste={handlePaste} aria-label="Pegar pedidos aquí" placeholder="Pegar aquí" className="mt-3 h-24 w-full resize-none rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 p-4 text-center text-sm font-bold text-slate-700 outline-none placeholder:text-slate-500 focus:border-blue-500 focus:bg-white" />
-        <p className="mt-1 text-[10px] text-slate-500">El contenido pegado no queda visible en este cuadro; podés pegar más filas cuando quieras.</p>
-        {gridEditing && <div className="mt-3 flex flex-wrap justify-end gap-2">
-          <button type="button" onClick={addEmptyRow} className="flex items-center gap-1.5 rounded-xl border border-slate-300 px-3 py-2 text-[10px] font-black uppercase text-slate-700 hover:bg-slate-100"><Plus className="h-3.5 w-3.5" /> Agregar fila</button>
-          <button type="button" onClick={() => processPastedRows()} disabled={loading || !gridDirty} className="flex items-center gap-1.5 rounded-xl border border-slate-300 px-3 py-2 text-[10px] font-black uppercase text-slate-700 hover:bg-slate-100 disabled:opacity-50"><FileCheck2 className="h-3.5 w-3.5" /> Aplicar grilla</button>
-        </div>}
-        {gridEditing && <div className="mt-3 max-h-[360px] overflow-auto rounded-xl border border-slate-200">
-          <table className="border-collapse text-[10px]">
-            <thead className="sticky top-0 z-10 bg-slate-100 text-slate-600">
-              <tr>
-                <th className="sticky left-0 z-20 w-10 min-w-10 border border-slate-200 bg-slate-100 px-2 py-2 text-center">#</th>
-                {columns.map(column => <th key={column.index} style={{ minWidth: column.width }} className="border border-slate-200 px-2 py-2 text-left font-black">{column.label}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {pastedRows.map((row, rowIndex) => (
-                <tr key={rowIndex}>
-                  <td className="sticky left-0 z-[5] border border-slate-200 bg-slate-50 px-2 text-center font-mono font-bold text-slate-400">{rowIndex + 1}</td>
-                  {columns.map(column => (
-                    <td key={column.index} className="border border-slate-200 p-0">
-                      <input value={row[column.index] || ''} onChange={event => updateCell(rowIndex, column.index, event.target.value)} className="h-8 w-full bg-white px-2 outline-none focus:bg-blue-50 focus:ring-1 focus:ring-inset focus:ring-blue-500" />
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>}
-      </section>
+
       </div>
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">

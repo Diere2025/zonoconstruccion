@@ -255,7 +255,7 @@ const DatePickerDDMMYYYY = ({
 export default function ComprasAdminPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const [activeSubTab, setActiveSubTab] = useState<'suppliers' | 'pricelists' | 'relations' | 'new_purchase' | 'purchases_history' | 'alerts' | 'hold_orders' | 'claims_exchanges' | 'boms' | 'production' | 'insumos' | 'make_vs_buy' | 'bom_explorer' | 'purchase_orders' | 'receptions' | 'import_compras' | 'purchase_calculator'>('purchase_orders');
+  const [activeSubTab, setActiveSubTab] = useState<'suppliers' | 'pricelists' | 'relations' | 'purchases_history' | 'alerts' | 'hold_orders' | 'claims_exchanges' | 'boms' | 'production' | 'insumos' | 'make_vs_buy' | 'bom_explorer' | 'purchase_orders' | 'receptions' | 'purchase_calculator'>('purchase_orders');
   const [loading, setLoading] = useState(true);
   const [purchaseAccessLoaded, setPurchaseAccessLoaded] = useState(false);
   const [isPurchaseAdmin, setIsPurchaseAdmin] = useState(false);
@@ -758,7 +758,7 @@ export default function ComprasAdminPage() {
   useEffect(() => {
     if (!purchaseAccessLoaded) return;
     const tab = searchParams.get('tab');
-    const validTabs = ['suppliers', 'pricelists', 'relations', 'new_purchase', 'purchases_history', 'alerts', 'hold_orders', 'claims_exchanges', 'boms', 'production', 'insumos', 'make_vs_buy', 'bom_explorer', 'purchase_orders', 'receptions', 'import_compras', 'purchase_calculator'];
+    const validTabs = ['suppliers', 'pricelists', 'relations', 'purchases_history', 'alerts', 'hold_orders', 'claims_exchanges', 'boms', 'production', 'insumos', 'make_vs_buy', 'bom_explorer', 'purchase_orders', 'receptions', 'purchase_calculator'];
     const operatorTabs = ['purchase_orders', 'purchase_calculator', 'alerts'];
     if (tab && validTabs.includes(tab) && (isPurchaseAdmin || operatorTabs.includes(tab))) {
       setActiveSubTab(tab as any);
@@ -3714,12 +3714,6 @@ export default function ComprasAdminPage() {
             Precios y Fórmulas
           </button>
           <button hidden={productionTabs.includes(activeSubTab) || activeSubTab === 'hold_orders' || activeSubTab === 'claims_exchanges'}
-            onClick={() => navigateSubTab('new_purchase')}
-            className={`${isPurchaseAdmin ? '' : 'hidden'} px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${activeSubTab === 'new_purchase' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-          >
-            Registrar Compra
-          </button>
-          <button hidden={productionTabs.includes(activeSubTab) || activeSubTab === 'hold_orders' || activeSubTab === 'claims_exchanges'}
             onClick={() => navigateSubTab('purchases_history')}
             className={`${isPurchaseAdmin ? '' : 'hidden'} px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${activeSubTab === 'purchases_history' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
           >
@@ -3736,12 +3730,6 @@ export default function ComprasAdminPage() {
             className={`${isPurchaseAdmin ? '' : 'hidden'} px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${activeSubTab === 'receptions' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
           >
             Recepción Remitos
-          </button>
-          <button hidden={productionTabs.includes(activeSubTab) || activeSubTab === 'hold_orders' || activeSubTab === 'claims_exchanges'}
-            onClick={() => navigateSubTab('import_compras')}
-            className={`${isPurchaseAdmin ? '' : 'hidden'} px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${activeSubTab === 'import_compras' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-          >
-            Importar Planilla
           </button>
           <button hidden={productionTabs.includes(activeSubTab) || activeSubTab === 'hold_orders' || activeSubTab === 'claims_exchanges'}
             onClick={() => {
@@ -3833,36 +3821,6 @@ export default function ComprasAdminPage() {
             className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${activeSubTab === 'make_vs_buy' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
           >
             Fabricar o Comprar
-          </button>
-          <button hidden={!productionTabs.includes(activeSubTab) || !isPurchaseAdmin}
-            onClick={() => {
-              navigateSubTab('bom_explorer');
-              setBomExplorerTab('tree');
-              if (products.length > 0 && !explorerProductId) {
-                const firstMfg = products.find(p => p.production_type === 'fabricado' || p.production_type === 'ensamblado');
-                if (firstMfg) {
-                  setExplorerProductId(firstMfg.id);
-                }
-              }
-              if (products.length > 0 && !compareProductAId) {
-                const mfgProds = products.filter(p => p.production_type === 'fabricado' || p.production_type === 'ensamblado');
-                if (mfgProds.length > 0) {
-                  setCompareProductAId(mfgProds[0].id);
-                  if (mfgProds.length > 1) {
-                    setCompareProductBId(mfgProds[1].id);
-                  }
-                }
-              }
-              if (products.length > 0 && !reverseInsumoId) {
-                const firstUsedInsumo = products.find(p => allBoms.some(b => b.component_product_id === p.id));
-                if (firstUsedInsumo) {
-                  setReverseInsumoId(firstUsedInsumo.id);
-                }
-              }
-            }}
-            className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${activeSubTab === 'bom_explorer' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-          >
-            Explorador de Recetas
           </button>
 
         </div>

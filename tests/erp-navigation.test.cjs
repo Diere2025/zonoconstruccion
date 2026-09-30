@@ -25,11 +25,12 @@ test('specialized roles keep their authorized links and multi-role users receive
     const visible = visibleErpModules(identity([role]));
     assert.ok(!visible.some(module => module.id === 'direccion'));
     assert.ok(urls(visible).includes('/incidencias'));
+    assert.ok(urls(visible).includes('/solicitudes-logistica'));
     assert.ok(!urls(visible).includes('/vendedores/pedidos?tab=form&client_type=minoristas'));
   }
   const combined = new Set(urls(visibleErpModules(identity(['administracion', 'compras']))));
   for (const href of [...urls(visibleErpModules(identity(['administracion']))), ...urls(visibleErpModules(identity(['compras'])))]) assert.ok(combined.has(href), href);
-  assert.deepEqual(Array.from(urls(visibleErpModules(identity(['fletero'])))).sort(), ['/admin/cobros-mp', '/incidencias'].sort());
+  assert.deepEqual(Array.from(urls(visibleErpModules(identity(['fletero'])))).sort(), ['/admin/cobros-mp', '/incidencias', '/solicitudes-logistica'].sort());
 });
 
 test('restricted sellers receive wholesale links only when individually enabled', () => {
@@ -72,6 +73,7 @@ test('query parameters select the correct module and screen; detail and printing
     ['/admin/finanzas', 'tab=accounts', 'tesoreria', 'Cuentas y saldos'],
     ['/admin/rendiciones/123', '', 'tesoreria', 'Rendiciones de Recorridos'],
     ['/incidencias/123', '', 'soporte', 'Incidencias y Tickets'],
+    ['/solicitudes-logistica/123', '', 'logistica', 'Solicitudes a Logística'],
     ['/vendedores/ruteo/remitos', '', 'logistica', 'Impresión Logística']
   ];
   for (const [path, query, module, screen] of cases) {

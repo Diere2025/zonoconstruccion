@@ -277,13 +277,13 @@
     display: flex !important;
     align-items: flex-start !important;
     justify-content: space-between !important;
-    height: 17mm !important;
-    padding-bottom: 3mm !important;
+    height: 10mm !important;
+    padding-bottom: 1mm !important;
     border-bottom: 0.55mm solid #17212e !important;
   }
 
   .order-note-eyebrow {
-    font-size: 7pt !important;
+    font-size: 6.2pt !important;
     font-weight: 700 !important;
     letter-spacing: 0.11em !important;
     color: #586575 !important;
@@ -295,8 +295,8 @@
   }
 
   .order-note-header h1 {
-    margin: 1.5mm 0 0 !important;
-    font-size: 18pt !important;
+    margin: 0.8mm 0 0 !important;
+    font-size: 14pt !important;
     line-height: 1 !important;
     font-weight: 800 !important;
     letter-spacing: -0.025em !important;
@@ -328,45 +328,49 @@
 
   .order-note-meta {
     display: grid !important;
-    grid-template-columns: 1fr 1fr !important;
-    gap: 5mm !important;
-    margin: 4mm 0 5mm !important;
-  }
-
-  .order-note-meta-group {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 0 !important;
+    margin: 2mm 0 1.5mm !important;
     border: 0.2mm solid #c7ced6 !important;
-    border-radius: 1.5mm !important;
+    border-radius: 1mm !important;
     overflow: hidden !important;
   }
 
-  .order-note-meta-group > div {
+  .order-note-meta > div {
     display: grid !important;
-    grid-template-columns: 31mm 1fr !important;
-    height: 6.5mm !important;
+    grid-template-columns: 24mm minmax(0, 1fr) !important;
+    height: 5mm !important;
     align-items: center !important;
+    border-right: 0.2mm solid #dce1e6 !important;
     border-bottom: 0.2mm solid #dce1e6 !important;
-    font-size: 8.5pt !important;
+    font-size: 8pt !important;
   }
 
-  .order-note-meta-group > div:last-child {
+  .order-note-meta > div:nth-child(3n) {
+    border-right: 0 !important;
+  }
+
+  .order-note-meta > div:nth-child(n + 4) {
     border-bottom: 0 !important;
   }
 
-  .order-note-meta-group b {
+  .order-note-meta b {
     height: 100% !important;
-    padding: 1.5mm 2.5mm !important;
+    display: flex !important;
+    align-items: center !important;
+    padding: 0.5mm 1.5mm !important;
     background: #f0f3f6 !important;
     border-right: 0.2mm solid #dce1e6 !important;
     color: #4f5b68 !important;
-    font-size: 7pt !important;
+    font-size: 6.5pt !important;
     font-weight: 700 !important;
     text-transform: uppercase !important;
     letter-spacing: 0.04em !important;
   }
 
-  .order-note-meta-group span {
+  .order-note-meta span {
     overflow: hidden !important;
-    padding: 1mm 2.5mm !important;
+    padding: 0.5mm 1.5mm !important;
     white-space: nowrap !important;
     text-overflow: ellipsis !important;
     font-weight: 700 !important;
@@ -424,7 +428,24 @@
   .order-note-table .order-note-installment {
     background: #e7eef4 !important;
     border-left-color: #aebcca !important;
-    font-size: 7.7pt !important;
+    font-size: 7pt !important;
+  }
+
+  .order-note-installment-count,
+  .order-note-installment-rate {
+    display: block !important;
+    white-space: nowrap !important;
+  }
+
+  .order-note-installment-rate {
+    margin-top: 0.8mm !important;
+    font-size: 6.5pt !important;
+  }
+
+  .order-note-table .order-note-amount {
+    padding-left: 0.5mm !important;
+    padding-right: 0.5mm !important;
+    font-size: 7.4pt !important;
   }
 
   .order-note-table .order-note-cuota-column {
@@ -496,8 +517,22 @@
     background: #fff !important;
   }
 
+  .order-note-table .order-note-payment-status {
+    text-align: center !important;
+    font-weight: 700 !important;
+    color: #334155 !important;
+    background: #f2f6f9 !important;
+    font-size: 8pt !important;
+  }
+
+  .order-note-agreed-amount {
+    display: block !important;
+    font-size: 6.5pt !important;
+    font-weight: 700 !important;
+  }
+
   .order-note-route {
-    margin: -1mm 0 3mm !important;
+    margin: 0 0 1.5mm !important;
     font-size: 8pt !important;
     color: #334155 !important;
   }
@@ -505,8 +540,8 @@
   .order-note-footer {
     display: flex !important;
     justify-content: space-between !important;
-    margin-top: 4mm !important;
-    padding-top: 2mm !important;
+    margin-top: 3mm !important;
+    padding-top: 1.5mm !important;
     border-top: 0.2mm solid #c7ced6 !important;
     color: #667381 !important;
     font-size: 7pt !important;
