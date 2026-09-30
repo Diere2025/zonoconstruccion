@@ -12,7 +12,8 @@ function load(name, dependencies = {}) {
   return exports;
 }
 const print = load('logisticsPrintOrders');
-const notes = load('logisticsOrderNotes', { './logisticsPrintOrders': print });
+const plans = load('cuotaSimple');
+const notes = load('logisticsOrderNotes', { './logisticsPrintOrders': print, './cuotaSimple': plans });
 
 function row(code, date = '24/09/2026', driver = 'Chofer A', route = 'R1') {
   const values = Array(84).fill('');
@@ -27,6 +28,52 @@ function row(code, date = '24/09/2026', driver = 'Chofer A', route = 'R1') {
   values[83] = '7:20';
   return values;
 }
+
+test('current installment names and retired methods are recognized', () => {
+  for (const [index, plan] of plans.CUOTA_SIMPLE_PLANS.entries()) {
+    assert.equal(plans.cuotaSimpleInstallments(plan.name), [2, 3, 6][index]);
+    assert.equal(plans.isRetiredPaymentMethod(plan.name), false);
+    assert.equal(notes.selectedOrderNoteCardIndex(plan.name), index);
+  }
+  for (const name of ['Payway6 (Sept-26)', 'Cuota Simple (Sept-26)', 'Cuota Simple (Mayo-26)']) {
+    assert.equal(plans.isRetiredPaymentMethod(name), true);
+    assert.equal(notes.selectedOrderNoteCardIndex(name), null);
+  }
+  assert.equal(plans.isRetiredPaymentMethod('Contado'), false);
+});
+
+test('cash and each preselected plan share a base without compounding surcharges', () => {
+  const base = { ...print.parseLogisticsPrintRows([row('JS1')])[0], productsSubtotal: 100000, pendingBalance: 100000 };
+  const expected = [122000, 128000, 145500];
+  assert.deepEqual(Array.from(notes.orderNoteCardAmounts(base, notes.DEFAULT_ORDER_NOTE_RATES)), expected);
+  for (const [index, plan] of plans.CUOTA_SIMPLE_PLANS.entries()) {
+    for (const surcharge of [0, expected[index] - 100000]) {
+      const order = { ...base, paymentMethod: plan.name, pendingBalance: expected[index], surcharge };
+      assert.equal(notes.orderNoteBaseAmount(order, notes.DEFAULT_ORDER_NOTE_RATES), 100000);
+      assert.deepEqual(Array.from(notes.orderNoteCardAmounts(order, notes.DEFAULT_ORDER_NOTE_RATES)), expected);
+    }
+  }
+});
+
+test('a saved custom total is preserved in its selected installment column', () => {
+  const order = { ...print.parseLogisticsPrintRows([row('JS1')])[0], paymentMethod: 'Cuota Simple x3 (oct26)', productsSubtotal: 100000, surcharge: 25000, pendingBalance: 125000 };
+  assert.deepEqual(Array.from(notes.orderNoteCardAmounts(order, notes.DEFAULT_ORDER_NOTE_RATES)), [122000, 125000, 145500]);
+});
+
+test('historical Payway and inflated legacy Cuota Simple recover their base', () => {
+  const base = { ...print.parseLogisticsPrintRows([row('JS1')])[0], productsSubtotal: 100000 };
+  const payway = { ...base, paymentMethod: 'Payway6 (Sept-26)', pendingBalance: 143200, surcharge: 43200 };
+  assert.equal(notes.orderNoteBaseAmount(payway, notes.DEFAULT_ORDER_NOTE_RATES), 100000);
+  assert.equal(notes.orderNoteBaseAmount({ ...payway, surcharge: 0 }, notes.DEFAULT_ORDER_NOTE_RATES), 100000);
+  const legacy = { ...base, paymentMethod: 'Cuota Simple (Sept-26)', productsSubtotal: 142000, surcharge: 59640, pendingBalance: 201640 };
+  assert.equal(notes.orderNoteBaseAmount(legacy, notes.DEFAULT_ORDER_NOTE_RATES), 100000);
+  assert.deepEqual(Array.from(notes.orderNoteCardAmounts(legacy, notes.DEFAULT_ORDER_NOTE_RATES)), [122000, 128000, 145500]);
+});
+
+test('fully paid orders never show an amount to collect', () => {
+  const order = { ...print.parseLogisticsPrintRows([row('JS1')])[0], paymentMethod: 'Cuota Simple x6 (oct26)', surcharge: 45500, productsSubtotal: 100000, pendingBalance: 0 };
+  assert.deepEqual(Array.from(notes.orderNoteCardAmounts(order, notes.DEFAULT_ORDER_NOTE_RATES)), [0, 0, 0]);
+});
 
 test('equivalent dates and trip formatting stay on the same sheet', () => {
   const rows = [row('JS1'), row('JS2', '2026-09-24', ' chofer  a ')];

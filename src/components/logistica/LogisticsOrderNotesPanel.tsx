@@ -58,24 +58,12 @@ export function PrintableOrderNotes({ orders, settings }: { orders: LogisticsPri
           {(page.trip.zone || page.trip.route) && <div className="order-note-route">Recorrido: {orderNoteRoutes(page.orders)}</div>}
           <table className="order-note-table">
             <colgroup>
-              <col style={{ width: '3%' }} />
-              <col style={{ width: '9%' }} />
-              <col style={{ width: '14%' }} />
-              <col style={{ width: '9%' }} />
-              <col style={{ width: '12%' }} />
-              <col style={{ width: '9%' }} />
-              <col style={{ width: '7.5%' }} />
-              <col style={{ width: '7.5%' }} />
-              <col style={{ width: '7.5%' }} />
-              <col style={{ width: '7.5%' }} />
-              <col style={{ width: '8%' }} />
-              <col style={{ width: '6%' }} />
+              {['3%', '9%', '16%', '10%', '16%', '10%', '10%', '10%', '10%', '6%'].map((width, index) => <col key={index} style={{ width }} />)}
             </colgroup>
             <thead>
               <tr className="order-note-posnet-heading">
                 <th colSpan={6}></th>
-                <th colSpan={4}>PAYWAY</th>
-                <th className="order-note-cuota-heading">CUOTA SIMPLE</th>
+                <th colSpan={3} className="order-note-cuota-heading">CUOTA SIMPLE</th>
                 <th></th>
               </tr>
               <tr>
@@ -84,11 +72,10 @@ export function PrintableOrderNotes({ orders, settings }: { orders: LogisticsPri
                 <th>Cliente</th>
                 <th>Localidad</th>
                 <th>Medio de pago</th>
-                <th>Monto /<br />transferencia</th>
-                {['1 cuota', '3 cuotas', '6 cuotas', '12 cuotas'].map(label => (
-                  <th className="order-note-installment" key={label}>{label}</th>
+                <th>Pago Contado</th>
+                {[2, 3, 6].map((installments, index) => (
+                  <th className="order-note-installment" key={installments}>{installments} cuotas · {settings.posnetRates[index].toLocaleString('es-AR')}%</th>
                 ))}
-                <th className="order-note-installment order-note-cuota-column">6 cuotas</th>
                 <th className="order-note-delivery-heading">Entregado</th>
               </tr>
             </thead>
@@ -105,7 +92,7 @@ export function PrintableOrderNotes({ orders, settings }: { orders: LogisticsPri
                     <td>{order.paymentMethod}</td>
                     <td className="order-note-amount"><span style={{ display: 'block', width: '100%', textAlign: 'center' }}>{formatNumber(orderNoteBaseAmount(order, settings.posnetRates))}</span></td>
                     {cardAmounts.map((amount, rateIndex) => (
-                      <td className={`order-note-amount ${rateIndex === 4 ? 'order-note-cuota-amount' : 'order-note-posnet'} ${selectedCardIndex === rateIndex ? 'order-note-selected-option' : ''}`} key={rateIndex}>
+                      <td className={`order-note-amount order-note-posnet ${selectedCardIndex === rateIndex ? 'order-note-selected-option' : ''}`} key={rateIndex}>
                         {amount === null ? '' : <span style={{ display: 'flex', width: '100%', justifyContent: 'center', alignItems: 'center', gap: '1mm' }}>{selectedCardIndex === rateIndex && <strong className="order-note-selected-mark">✓</strong>}{formatNumber(amount)}</span>}
                       </td>
                     ))}
@@ -116,7 +103,7 @@ export function PrintableOrderNotes({ orders, settings }: { orders: LogisticsPri
             </tbody>
           </table>
           <footer className="order-note-footer">
-            <span>Verificar medio de pago e importe antes de confirmar cada entrega.</span>
+            <span>✓ Plan elegido. Las alternativas se calculan sin duplicar el recargo. Verificar importe antes de cobrar.</span>
             <span>{page.orders.length} {page.orders.length === 1 ? 'pedido' : 'pedidos'} en esta hoja</span>
           </footer>
         </section>

@@ -1,5 +1,7 @@
 "use client";
 
+import { isRetiredPaymentMethod } from "@/lib/cuotaSimple";
+
 import React, { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
@@ -109,7 +111,7 @@ export default function PresupuestosPage() {
   const [dbPaymentMethods, setDbPaymentMethods] = useState<{ id: string; name: string; surcharge_percentage: number; installments: number }[]>([]);
   const [paymentType, setPaymentType] = useState<'efectivo' | 'tarjeta'>('efectivo');
   const [cardInstallments, setCardInstallments] = useState<number>(6);
-  const [cardSurcharge, setCardSurcharge] = useState<number>(42);
+  const [cardSurcharge, setCardSurcharge] = useState<number>(45.5);
 
   const matchedMethod = dbPaymentMethods.find(m => m.surcharge_percentage === cardSurcharge && m.installments === cardInstallments);
   const paymentMethodName = paymentType === 'efectivo' 
@@ -1142,44 +1144,14 @@ export default function PresupuestosPage() {
                 value={
                   paymentType === 'efectivo'
                     ? 'efectivo'
-                    : (cardSurcharge === 13.5 || cardSurcharge === 32 || cardSurcharge === 43.2 || cardSurcharge === 61.4 || (dbPaymentMethods.find(m => m.surcharge_percentage === cardSurcharge && m.installments === cardInstallments)?.name || '').toLowerCase().includes('payway'))
-                      ? 'payway'
-                      : (dbPaymentMethods.find(m => m.surcharge_percentage === cardSurcharge && m.installments === cardInstallments)?.id || 'custom')
+                    : (dbPaymentMethods.find(m => m.surcharge_percentage === cardSurcharge && m.installments === cardInstallments)?.id || 'custom')
                 }
                 onChange={(e) => {
                   const val = e.target.value;
                   if (val === 'efectivo') {
                     setPaymentType('efectivo');
-                  } else if (val === 'payway') {
-                    setPaymentType('tarjeta');
-                    setCardSurcharge(13.5);
-                    setCardInstallments(1);
                   } else if (val === 'custom') {
                     setPaymentType('tarjeta');
-                  } else if (val === 'cuota-42') {
-                    setPaymentType('tarjeta');
-                    setCardSurcharge(42);
-                    setCardInstallments(6);
-                  } else if (val === 'naranja-51') {
-                    setPaymentType('tarjeta');
-                    setCardSurcharge(51);
-                    setCardInstallments(1);
-                  } else if (val === 'payway-1') {
-                    setPaymentType('tarjeta');
-                    setCardSurcharge(13.5);
-                    setCardInstallments(1);
-                  } else if (val === 'payway-3') {
-                    setPaymentType('tarjeta');
-                    setCardSurcharge(32);
-                    setCardInstallments(3);
-                  } else if (val === 'payway-6') {
-                    setPaymentType('tarjeta');
-                    setCardSurcharge(43.2);
-                    setCardInstallments(6);
-                  } else if (val === 'payway-12') {
-                    setPaymentType('tarjeta');
-                    setCardSurcharge(61.4);
-                    setCardInstallments(12);
                   } else {
                     const pm = dbPaymentMethods.find(m => m.id === val);
                     if (pm) {
@@ -1193,70 +1165,15 @@ export default function PresupuestosPage() {
               >
                 <option value="efectivo">💵 Efectivo / Transferencia (0% Recargo)</option>
                 {dbPaymentMethods
-                  .filter(m => m.surcharge_percentage > 0 && !(m.name || '').toLowerCase().includes('payway'))
+                  .filter(m => m.surcharge_percentage > 0 && !isRetiredPaymentMethod(m.name || ''))
                   .map(pm => (
                     <option key={pm.id} value={pm.id}>
                       💳 {pm.name} (+{pm.surcharge_percentage}% Recargo{pm.installments > 1 && !pm.name.toLowerCase().includes('cuota') ? ` - ${pm.installments} cuotas` : ''})
                     </option>
                   ))}
-                <option value="payway">💳 Payway (Elegir cuotas: 1, 3, 6 o 12)</option>
-                {dbPaymentMethods.filter(m => m.surcharge_percentage > 0).length === 0 && (
-                  <>
-                    <option value="payway-1">💳 Payway1 (Sept-26) (+13.5% Recargo)</option>
-                    <option value="payway-3">💳 Payway3 (Sept-26) (+32% Recargo)</option>
-                    <option value="payway-6">💳 Payway6 (Sept-26) (+43.2% Recargo)</option>
-                    <option value="payway-12">💳 Payway12 (Sept-26) (+61.4% Recargo)</option>
-                    <option value="cuota-42">💳 Cuota Simple (Sept-26) (+42% Recargo - 6 cuotas)</option>
-                    <option value="naranja-51">💳 Tarjeta Naranja (Sept-26) (+51% Recargo - 1 cuota)</option>
-                  </>
-                )}
                 <option value="custom">⚙️ Personalizado (Ingresar recargo manual)</option>
               </select>
 
-              {/* Sub-selector de Planes de Cuotas Payway */}
-              {(paymentType === 'tarjeta' && (cardSurcharge === 13.5 || cardSurcharge === 32 || cardSurcharge === 43.2 || cardSurcharge === 61.4 || (dbPaymentMethods.find(m => m.surcharge_percentage === cardSurcharge && m.installments === cardInstallments)?.name || '').toLowerCase().includes('payway'))) && (
-                <div className="mt-2.5 p-3 bg-blue-50/70 border border-blue-200 rounded-xl flex flex-col gap-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[9.5px] font-black text-blue-900 uppercase tracking-wider">
-                      💳 Planes de Cuotas Payway
-                    </span>
-                    <span className="text-[9px] font-bold text-blue-600">
-                      Elegí la cantidad de cuotas y recargo
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    {[
-                      { inst: 1, sur: 13.5, label: "1 Pago", tag: "+13,5% Recargo" },
-                      { inst: 3, sur: 32.0, label: "3 Cuotas", tag: "+32% Recargo" },
-                      { inst: 6, sur: 43.2, label: "6 Cuotas", tag: "+43,2% Recargo" },
-                      { inst: 12, sur: 61.4, label: "12 Cuotas", tag: "+61,4% Recargo" },
-                    ].map((plan) => {
-                      const isSelected = cardInstallments === plan.inst && cardSurcharge === plan.sur;
-                      return (
-                        <button
-                          key={plan.inst}
-                          type="button"
-                          onClick={() => {
-                            setPaymentType('tarjeta');
-                            setCardSurcharge(plan.sur);
-                            setCardInstallments(plan.inst);
-                          }}
-                          className={`p-2 rounded-lg border text-left transition-all cursor-pointer ${
-                            isSelected
-                              ? "bg-blue-600 border-blue-600 text-white shadow-sm ring-2 ring-blue-300"
-                              : "bg-white border-blue-200 text-slate-700 hover:bg-blue-100/60"
-                          }`}
-                        >
-                          <span className="block text-xs font-black">{plan.label}</span>
-                          <span className={`block text-[10px] ${isSelected ? "text-blue-100 font-bold" : "text-blue-600 font-medium"}`}>
-                            {plan.tag}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
             </div>
 
             <div className="space-y-2">
@@ -1304,14 +1221,12 @@ export default function PresupuestosPage() {
                         type="button"
                         onClick={() => {
                           setPaymentType('tarjeta');
-                          setCardSurcharge(42);
+                          setCardSurcharge(45.5);
                           setCardInstallments(6);
                         }}
-                        className={`px-1.5 py-0.5 text-[9px] font-bold rounded border transition-colors cursor-pointer ${cardSurcharge === 42 && paymentType === 'tarjeta' ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
-                        title="Aplicar 42% (Cuota Simple)"
-                      >
-                        42%
-                      </button>
+                        className={`px-1.5 py-0.5 text-[9px] font-bold rounded border transition-colors cursor-pointer ${cardSurcharge === 45.5 && paymentType === 'tarjeta' ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
+                        title="Aplicar 45,5% (Cuota Simple x6)"
+                      >45,5%</button>
                       <button
                         type="button"
                         onClick={() => {
