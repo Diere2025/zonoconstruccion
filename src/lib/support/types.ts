@@ -22,6 +22,7 @@ export interface ResponsibilityOptions {
     people: ResponsiblePerson[];
 }
 export interface SupportMe {
+    pending_requests?: PendingSupportRequest[];
     user_id: string;
     is_admin: boolean;
     is_manager: boolean;
@@ -30,6 +31,13 @@ export interface SupportMe {
     people: Person[];
     assignee_ids?: string[];
     impersonating?: boolean;
+}
+export interface PendingSupportRequest {
+    ticket_id: string;
+    kind: 'information' | 'action' | 'validation';
+    workflow: 'incident' | 'shipping';
+    number: number;
+    title: string;
 }
 export interface Ticket {
     workflow: 'incident' | 'shipping';
@@ -77,6 +85,9 @@ export interface SupportEvent {
     visibility: 'public' | 'internal';
     created_at: string;
     details: {
+        assignee_id?: string | null;
+        sector_id?: string;
+        priority?: Priority;
         status?: Status;
         from?: Status;
         legacy_id?: string;

@@ -1,6 +1,6 @@
 'use client';
 import type { ShippingQuote, ShippingRequest } from '@/lib/support/shipping';
-import { paymentLabels, quoteExpired } from '@/lib/support/shipping';
+import { paymentLabels, quoteExpired, shippingMapUrl } from '@/lib/support/shipping';
 import { fieldClass, secondaryClass } from './SupportShell';
 
 export const emptyQuote = (): ShippingQuote => ({ carrier: '', cost: NaN, customer_price: NaN, payment: 'origin', delivery: '', valid_until: '', conditions: '' });
@@ -23,5 +23,6 @@ export function ShippingQuoteList({ quotes, selected, selection, onSelect, histo
     </article>; })}</div>;
 }
 export function ShippingRequestSummary({ request }: { request: ShippingRequest }) {
-    return <dl className="space-y-2 text-sm">{[['Destino', `${request.locality}, ${request.province} · CP ${request.postal_code}`], ['Dirección', request.address], ['Cliente', request.customer], ['Presupuesto / pedido', request.reference], ['Productos y cantidades', request.products], ['Condiciones de entrega', request.conditions]].filter(([, value]) => value).map(([label, value]) => <div key={label}><dt className="text-xs text-slate-500">{label}</dt><dd className="whitespace-pre-wrap break-words">{value}</dd></div>)}</dl>;
+    const mapUrl = shippingMapUrl(request.map_url);
+    return <dl className="space-y-2 text-sm">{[['Destino', `${request.locality}, ${request.province}${request.postal_code ? ` · CP ${request.postal_code}` : ''}`], ['Dirección', request.address], ['Cliente', request.customer], ['Presupuesto / pedido', request.reference], ['Productos y cantidades', request.products], ['Condiciones de entrega', request.conditions]].filter(([, value]) => value).map(([label, value]) => <div key={label}><dt className="text-xs text-slate-500">{label}</dt><dd className="whitespace-pre-wrap break-words">{value}</dd></div>)}{mapUrl && <div><dt className="text-xs text-slate-500">Ubicación de entrega</dt><dd><a href={mapUrl} target="_blank" rel="noopener noreferrer" className="font-medium text-indigo-600 underline">Abrir mapa ↗</a></dd></div>}</dl>;
 }

@@ -1,5 +1,10 @@
 import type { SupportMe } from './types';
 
+export function managementVisibilityFilter(me: Pick<SupportMe, 'user_id' | 'sector_ids'>): string {
+    const personal = `created_by.eq.${me.user_id}`;
+    return me.sector_ids.length ? `${personal},sector_id.in.(${me.sector_ids.join(',')})` : personal;
+}
+
 export function pendingResponsibilityFilter(me: Pick<SupportMe, 'user_id' | 'is_admin' | 'sector_ids'>): string {
     const personal = `assignee_id.eq.${me.user_id}`;
     if (me.is_admin) return `${personal},assignee_id.is.null`;

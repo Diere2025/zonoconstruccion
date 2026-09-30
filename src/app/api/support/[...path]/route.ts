@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { authorize, body, json, privateHeaders, storageClient } from '@/lib/support/server';
 import { SupportError, databaseError, inspectImage, object, operation, uuid } from '@/lib/support/validation';
 import type { SupportMe } from '@/lib/support/types';
-import { pendingResponsibilityFilter } from '@/lib/support/responsibility';
+import { managementVisibilityFilter, pendingResponsibilityFilter } from '@/lib/support/responsibility';
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 type Context = {
@@ -10,7 +10,7 @@ type Context = {
         path: string[];
     }>;
 };
-const actions = new Set(['take', 'assign', 'classify', 'request_info', 'request_action', 'request_validation', 'respond', 'validate', 'reject', 'withdraw', 'close_admin', 'cancel', 'reopen', 'restore', 'transfer', 'shipping_quote', 'shipping_finish', 'shipping_requote']);
+const actions = new Set(['edit', 'take', 'assign', 'classify', 'request_info', 'request_action', 'request_validation', 'respond', 'validate', 'reject', 'withdraw', 'close_admin', 'cancel', 'reopen', 'restore', 'transfer', 'shipping_quote', 'shipping_finish', 'shipping_requote']);
 function cursor(raw: string | null): [
     string,
     string
@@ -39,9 +39,17 @@ async function handle(request: NextRequest, context: Context): Promise<NextRespo
     const params = request.nextUrl.searchParams;
     const limit = Math.max(1, Math.min(100, Number(params.get('limit')) || 25));
     if (path.length === 1 && path[0] === 'me' && isGet) {
-        const result = await db.rpc('support_me');
+        const [result, pending] = await Promise.all([
+            db.rpc('support_me'),
+            db.from('support_action_requests').select('ticket_id,kind,ticket:support_tickets!ticket_id(workflow,number,title)')
+                .eq('recipient_id', user.id).eq('state', 'open').order('created_at', { ascending: true }),
+        ]);
         databaseError(result.error);
-        return json({ ...result.data, impersonating });
+        databaseError(pending.error);
+        return json({ ...result.data, impersonating, pending_requests: (pending.data || []).flatMap(row => {
+            const ticket = Array.isArray(row.ticket) ? row.ticket[0] : row.ticket;
+            return ticket ? [{ ticket_id: row.ticket_id, kind: row.kind, ...ticket }] : [];
+        }) });
     }
     if (path.length === 1 && path[0] === 'responsibles' && isGet) {
         const result = await db.rpc('support_responsibility_options');
@@ -62,7 +70,7 @@ async function handle(request: NextRequest, context: Context): Promise<NextRespo
             else if (!identity.is_manager)
                 throw new SupportError('No tenés acceso a gestión.', 403);
             else if (!identity.is_admin)
-                query = query.in('sector_id', identity.sector_ids);
+                query = query.or(managementVisibilityFilter(identity));
             for (const field of ['status', 'priority', 'type', 'sector_id', 'assignee_id', 'created_by']) {
                 const filter = params.get(field);
                 if (filter)
@@ -127,7 +135,7 @@ async function handle(request: NextRequest, context: Context): Promise<NextRespo
             let query = db.from('support_events').select('id,actor_id,kind,visibility,created_at,details,message_id,message:support_messages!message_id(body,attachments:support_attachments(id,name,mime,bytes,width,height,message_id))').eq('ticket_id', id);
             const category = params.get('category') || 'all';
             if (!['all','conversation','notes'].includes(category)) throw new SupportError('La vista de historial no es válida.');
-            if (category === 'conversation') query = query.eq('visibility','public').not('message_id','is',null).not('kind','in','(create,imported)');
+            if (category === 'conversation') query = query.eq('visibility','public').or('message_id.not.is.null,kind.in.(assign,take,transfer,classify,unassigned)').not('kind','in','(create,imported)');
             if (category === 'notes') query = query.eq('visibility','internal').not('message_id','is',null);
             const after = cursor(params.get('cursor'));
             if (after)
@@ -143,7 +151,9 @@ async function handle(request: NextRequest, context: Context): Promise<NextRespo
             const command = path[2] === 'messages' ? 'message' : path[2] === 'read' ? 'read' : String(raw.action);
             if (path[2] === 'actions' && !actions.has(command))
                 throw new SupportError('La acción no es válida.');
-            const result = await db.rpc('support_command', { p_command: command, p_ticket: id, p_key: op.key, p_version: op.version, p_data: op.data });
+            const result = command === 'edit'
+                ? await db.rpc('support_edit_ticket', { p_ticket: id, p_key: op.key, p_version: op.version, p_data: op.data })
+                : await db.rpc('support_command', { p_command: command, p_ticket: id, p_key: op.key, p_version: op.version, p_data: op.data });
             databaseError(result.error);
             return json(result.data);
         }

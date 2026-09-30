@@ -7,6 +7,7 @@ import { Bell, Loader2, X } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { errorMessage, supportRequest } from '@/lib/support/client';
 import { eventLabels } from '@/lib/support/eventLabels';
+import { administrativeEvents } from '@/lib/support/eventContext';
 import { code, dateLabel, type SupportNotification } from '@/lib/support/types';
 
 interface Notifications { items: SupportNotification[]; unread_count: number }
@@ -30,33 +31,34 @@ export function SupportNotifications() {
 
 function NotificationBell() {
     const [data, setData] = useState<Notifications | null>(null);
-    const [open, setOpen] = useState(false);
+    const [openedPath, setOpenedPath] = useState<string | null>(null);
     const [error, setError] = useState('');
-    const [loading, setLoading] = useState(false);
+    const [loading, setLoading] = useState(true);
     const container = useRef<HTMLDivElement>(null);
     const alive = useRef(false);
     const running = useRef(false);
     const pending = useRef(false);
     const pathname = usePathname();
+    const open = openedPath === pathname;
+    const setOpen = (value: boolean) => setOpenedPath(value ? pathname : null);
     const refresh = useCallback(async () => {
         if (!alive.current) return;
         if (running.current) { pending.current = true; return; }
         running.current = true;
-        setLoading(true);
-        try {
-            const result = await supportRequest<Notifications>('notifications');
-            if (alive.current) { setData(result); setError(''); }
-        } catch (e) {
-            if (alive.current) setError(errorMessage(e));
-        } finally {
-            running.current = false;
-            if (alive.current) setLoading(false);
-            if (alive.current && pending.current) { pending.current = false; void refresh(); }
-        }
+        do {
+            pending.current = false;
+            try {
+                const result = await supportRequest<Notifications>('notifications');
+                if (alive.current) { setData(result); setError(''); }
+            } catch (e) {
+                if (alive.current) setError(errorMessage(e));
+            }
+        } while (alive.current && pending.current);
+        running.current = false;
+        if (alive.current) setLoading(false);
     }, []);
     useEffect(() => {
         alive.current = true;
-        void refresh();
         const visibleRefresh = () => { if (document.visibilityState === 'visible') void refresh(); };
         const timer = setInterval(visibleRefresh, 30000);
         window.addEventListener('focus', visibleRefresh);
@@ -70,15 +72,18 @@ function NotificationBell() {
             window.removeEventListener('support-notifications-refresh', visibleRefresh);
         };
     }, [refresh]);
-    useEffect(() => { setOpen(false); void refresh(); }, [pathname, refresh]);
+    useEffect(() => {
+        const timer = setTimeout(() => void refresh(), 0);
+        return () => clearTimeout(timer);
+    }, [pathname, refresh]);
     useEffect(() => {
         if (!open) return;
         const outside = (event: PointerEvent) => {
-            if (!container.current?.contains(event.target as Node)) setOpen(false);
+            if (!container.current?.contains(event.target as Node)) setOpenedPath(null);
         };
         const escape = (event: KeyboardEvent) => {
             if (event.key === 'Escape') {
-                setOpen(false);
+                setOpenedPath(null);
                 container.current?.querySelector('button')?.focus();
             }
         };
@@ -110,6 +115,7 @@ function NotificationBell() {
                     className={`mb-1 block rounded-lg p-3 text-sm hover:bg-slate-100 ${notice.read_at ? 'text-slate-500' : 'bg-indigo-50 text-indigo-950'}`}>
                     <div className="flex items-center gap-2"><span className="flex-1 font-semibold">{eventLabels[notice.kind] || 'Nueva actividad'}</span>{!notice.read_at && <span className="rounded-full bg-indigo-600 px-2 py-0.5 text-[10px] font-semibold text-white">Sin leer</span>}</div>
                     {notice.title && <p className="mt-1 truncate">{notice.number ? `${code(notice.number)} · ` : ''}{notice.title}</p>}
+                    {administrativeEvents.includes(notice.kind) && <p className="mt-1 text-xs text-slate-600">Aviso informativo: se actualizaron los datos del ticket. Abrilo para ver el cambio y su motivo.</p>}
                     <p className="mt-1 text-xs text-slate-500">{dateLabel(notice.created_at)}</p>
                     <span className="mt-2 block text-xs font-semibold text-indigo-600">Abrir {notice.workflow === 'shipping' ? 'solicitud' : 'incidencia'} →</span>
                 </Link>)}

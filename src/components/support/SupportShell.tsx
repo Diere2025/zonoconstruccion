@@ -9,6 +9,7 @@ import { AdminLayout } from '@/components/ui/AdminLayout';
 import { ModernLogin } from '@/components/auth/ModernLogin';
 import { supportRequest, errorMessage } from '@/lib/support/client';
 import type { SupportMe } from '@/lib/support/types';
+import { PendingRequestsNotice } from './PendingRequestsNotice';
 type Identity = SupportMe & {
     impersonating?: boolean;
 };
@@ -54,6 +55,7 @@ function AuthenticatedShell({ children }: {
     const pathname = usePathname();
     const shipping = pathname.startsWith('/solicitudes-logistica');
     const root = shipping ? '/solicitudes-logistica' : '/incidencias';
+    const pendingRequests = (me?.pending_requests || []).filter(request => request.workflow === (shipping ? 'shipping' : 'incident'));
     const refresh = useCallback(async () => {
         try {
             const identity = await supportRequest<Identity>('me');
@@ -101,9 +103,9 @@ function AuthenticatedShell({ children }: {
     {error && <div className="mb-4"><Alert>{error}</Alert><button onClick={() => void refresh()} className={`${secondaryClass} mt-2`}>Reintentar</button></div>}
     {me && <SupportContext.Provider value={{ me, refresh }}><nav aria-label="Incidencias" className="mb-3 flex flex-wrap gap-2 border-b border-slate-200 pb-2">
       {me.is_manager && <Tab href={root} active={pathname === root || pathname === `${root}/gestion`}><ShieldCheck className="size-4"/>Gestión</Tab>}
-      <Tab href={me.is_manager ? `${root}/mis` : root} active={pathname === `${root}/mis` || (!me.is_manager && pathname === root)}><ClipboardList className="size-4"/>Mis solicitudes</Tab>
+      <Tab href={me.is_manager ? `${root}/mis` : root} active={pathname === `${root}/mis` || (!me.is_manager && pathname === root)}><ClipboardList className="size-4"/>Mis solicitudes{pendingRequests.length > 0 && <span aria-label={`${pendingRequests.length} requieren tu respuesta`} className="rounded-full bg-violet-600 px-2 py-0.5 text-xs text-white">{pendingRequests.length}</span>}</Tab>
       {me.is_admin && <Tab href="/incidencias/configuracion" active={pathname === '/incidencias/configuracion'}><Settings className="size-4"/>Configuración</Tab>}
-    </nav>{me.impersonating && <div className="mb-4"><Alert>Estás viendo la cuenta de otro usuario. Volvé a tu cuenta para realizar cambios.</Alert></div>}{children}</SupportContext.Provider>}
+    </nav>{me.impersonating && <div className="mb-4"><Alert>Estás viendo la cuenta de otro usuario. Volvé a tu cuenta para realizar cambios.</Alert></div>}{(pathname === root || pathname === `${root}/gestion`) && <PendingRequestsNotice requests={pendingRequests}/>} {children}</SupportContext.Provider>}
     {!me && !error && <Loading />}
   </div></AdminLayout>;
 }

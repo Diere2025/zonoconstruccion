@@ -614,8 +614,10 @@ export default function RuteoPage() {
     try {
       setLoading(true);
 
-      const withSignal = <T extends { abortSignal: (signal: AbortSignal) => T }>(query: T) =>
+      const withSignal = <T extends { abortSignal: (signal: AbortSignal) => unknown }>(query: T): T => {
         query.abortSignal(controller.signal);
+        return query;
+      };
       
       // Filter at the database: loading every unfinished delivery and then
       // discarding most of them in the browser made this request prone to

@@ -12,6 +12,11 @@ test('pending inbox includes personal tickets and teams belonging to the user',(
  assert.equal(responsibility.pendingResponsibilityFilter({user_id:'admin',is_admin:true,sector_ids:[]}),'assignee_id.eq.admin,assignee_id.is.null');
  assert.equal(responsibility.pendingResponsibilityFilter({user_id:'user',is_admin:false,sector_ids:[]}),'assignee_id.eq.user');
 });
+
+test('management includes a manager’s own closed requests outside their assigned areas',()=>{
+ assert.equal(responsibility.managementVisibilityFilter({user_id:'carolina',sector_ids:['administration','finance']}),'created_by.eq.carolina,sector_id.in.(administration,finance)');
+ assert.equal(responsibility.managementVisibilityFilter({user_id:'carolina',sector_ids:[]}),'created_by.eq.carolina');
+});
 test('taking a ticket is offered for team responsibility and preserves a named assignee',()=>{
  const me={user_id:'manager',is_admin:true,sector_ids:[]};const ticket={workflow:'incident',created_by:'owner',status:'new',sector_id:'logistics',assignee_id:null};
  assert.ok(actions.availableActions(me,ticket).includes('take'));

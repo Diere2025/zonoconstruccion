@@ -5,10 +5,16 @@ export interface ShippingRequest {
     province: string;
     postal_code: string;
     address: string;
+    map_url?: string;
     customer: string;
     reference: string;
     products: string;
     conditions: string;
+}
+export const argentinaProvinces = ['Buenos Aires', 'Ciudad Autónoma de Buenos Aires', 'Catamarca', 'Chaco', 'Chubut', 'Córdoba', 'Corrientes', 'Entre Ríos', 'Formosa', 'Jujuy', 'La Pampa', 'La Rioja', 'Mendoza', 'Misiones', 'Neuquén', 'Río Negro', 'Salta', 'San Juan', 'San Luis', 'Santa Cruz', 'Santa Fe', 'Santiago del Estero', 'Tierra del Fuego, Antártida e Islas del Atlántico Sur', 'Tucumán'] as const;
+export function shippingMapUrl(value?: string): string | null {
+    if (!value) return null;
+    try { const url = new URL(value); return ['https:', 'http:'].includes(url.protocol) ? url.href : null; } catch { return null; }
 }
 export interface ShippingQuote {
     carrier: string;

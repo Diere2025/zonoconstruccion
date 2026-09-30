@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const ts = require('typescript');
 const vm = require('node:vm');
-function load(file, imports={}) {const exports={};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,require:name=>imports[name],Intl,Date});return exports;}
+function load(file, imports={}) {const exports={};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,require:name=>imports[name],Intl,Date,URL});return exports;}
 const types=load('src/lib/support/types.ts');
 const shipping=load('src/lib/support/shipping.ts');
 const actions=load('src/lib/support/actions.ts',{'./types':types,'./shipping':shipping});
@@ -28,4 +28,13 @@ test('logistics managers can resolve without a carrier and request information w
     assert.ok(allowed.includes('request_validation'));assert.ok(allowed.includes('request_info'));assert.ok(allowed.includes('close_admin'));assert.ok(allowed.includes('cancel'));
     assert.equal(allowed.includes('request_action'),false);
     assert.equal(actions.actionLabel('request_validation',ticket),'Publicar cotización');
+});
+
+test('shipping destinations include every Argentine jurisdiction and only open web map links',()=>{
+ assert.equal(shipping.argentinaProvinces.length,24);
+ assert.equal(new Set(shipping.argentinaProvinces).size,24);
+ assert.equal(shipping.argentinaProvinces[0],'Buenos Aires');
+ assert.ok(shipping.argentinaProvinces.includes('Ciudad Autónoma de Buenos Aires'));
+ assert.equal(shipping.shippingMapUrl('https://maps.app.goo.gl/ejemplo'),'https://maps.app.goo.gl/ejemplo');
+ for(const value of [undefined,'','javascript:alert(1)','not a URL'])assert.equal(shipping.shippingMapUrl(value),null);
 });

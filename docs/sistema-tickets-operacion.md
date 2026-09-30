@@ -11,7 +11,7 @@ Se trasladaron las 8 incidencias de la planilla histórica el 28/09/2026, por pe
 ## Para quienes cargan incidencias
 
 1. Abrir Incidencias y elegir Nuevo ticket.
-2. Escribir título y descripción, elegir sector y tipo. Si se desconoce el sector, usar General / No sé.
+2. Escribir título y descripción, elegir el área responsable y asignar la atención a una persona o al equipo de esa área. Indicar por separado el área o módulo afectado y el tipo de solicitud.
 3. Pegar una captura con Ctrl+V en el mensaje o zona de adjuntos, arrastrarla o seleccionarla. Se aceptan JPG, PNG y WebP. Hasta 5 imágenes y 25 MB por envío; cada una hasta 10 MB.
 4. Enviar. El ticket aparece en Mis solicitudes; otros solicitantes no pueden verlo.
 5. Cuando se solicite información o una acción, elegir Responder solicitud. Un comentario común conserva el estado pendiente.
@@ -24,12 +24,12 @@ Se trasladaron las 8 incidencias de la planilla histórica el 28/09/2026, por pe
 - La entrada `/incidencias` abre Gestión para administradores y responsables de sector. Para los solicitantes abre sus propias solicitudes. La pestaña Mis solicitudes permite a un gestor consultar solo los tickets que solicitó personalmente, mediante `/incidencias/mis`.
 - La tabla de Gestión distingue solicitante y responsable en columnas. En las 8 incidencias históricas, Carolina Ibarra es la solicitante y Diego el responsable; por eso aparecen en Gestión para Diego y en Mis solicitudes para Carolina.
 - `scripts/test-support-landing.cjs` comprobó en Chrome que un administrador entra directamente a Gestión, ve las 8 incidencias de Carolina y su nombre como solicitante, puede abrir el detalle y mantiene separadas sus solicitudes personales. Utiliza una cuenta temporal; no cambia los tickets importados. La revisión de tipos y el lint de las pantallas modificadas también pasaron.
-- Tomar una incidencia o asignarla a un responsable habilitado. Sector responsable y módulo afectado son datos diferentes.
+- Cada incidencia tiene como responsable una persona o el equipo del área elegida. Los tickets del equipo aparecen en Pendientes de sus gestores; A mi cargo muestra las asignaciones personales. Área responsable y área o módulo afectado son datos diferentes.
 - Pedir información o pedir una acción conserva al responsable y coloca la siguiente tarea en manos del creador.
 - Solicitar prueba requiere explicar la solución y cómo probarla.
 - Mensajes públicos y notas internas tienen áreas distintas. Las notas y sus imágenes quedan reservadas a los gestores habilitados.
 - Un cierre administrativo exige motivo y queda identificado como cierre sin validación del solicitante.
-- Configuración permite agregar/renombrar sectores y habilitar responsables. Quitar un permiso devuelve su trabajo abierto a la bandeja sin asignar si pierde capacidad para gestionarlo.
+- Configuración permite agregar/renombrar áreas y habilitar sus integrantes. Quitar un permiso devuelve el trabajo abierto de esa persona al equipo del área si pierde capacidad para gestionarlo.
 - Para desactivar un sector, transferir primero sus tickets abiertos. Para otorgar administración global, usar el control específico: no cambia roles del ERP.
 - Al navegar mediante “Ver como”, la interfaz aplica la identidad del usuario efectivo y bloquea los cambios a través de las rutas del módulo.
 
@@ -109,3 +109,35 @@ La preparación del esquema se confirma antes de subir imágenes: los hooks de D
 Los adjuntos publicados y el historial no tienen borrado desde la interfaz. Acordar una política de retención antes de agregar eliminación automática. Mantener respaldo de Postgres y de los objetos de Storage por separado; no asumir que uno contiene al otro.
 
 Para revertir una publicación, volver a la versión anterior de la aplicación y desactivar las rutas del módulo. Conservar tablas y archivos para poder retomar. No deshacer v106 mediante borrado de datos. El cambio de navegación en `AdminLayout` es acotado: agrega el acceso para usuarios de todos los sectores.
+
+
+## Solicitudes a Logística: cotización de envíos
+
+El acceso está en Logística y Distribución → Solicitudes a Logística, ruta /solicitudes-logistica. Reutiliza los permisos, conversación, adjuntos privados y avisos de soporte, con una bandeja y circuito propios. La migración v123 está aplicada. Pablo Jara (cuenta de Logística pablojara@zono.com.ar) y Matías Vega son responsables habilitados en el sector de Logística; no se modificaron sus roles del ERP. La otra cuenta homónima de Pablo no recibió permisos.
+
+1. Ventas elige Solicitar cotización y completa localidad, provincia, CP y productos con cantidades. Puede agregar cliente, dirección, condiciones, referencia de presupuesto/pedido e imágenes. La referencia es descriptiva: no cambia un pedido ni confirma un despacho.
+2. Logística ve todas las solicitudes abiertas de su sector. Puede tomar una, asignarla entre los responsables habilitados o pedir información al solicitante.
+3. Publicar cotización permite hasta cinco alternativas con expreso, costo de transporte, importe al cliente en ARS, pago en origen/destino, plazo, vigencia y condiciones. Si no hay transporte posible, Finalizar sin elección requiere motivo.
+4. Ventas elige una opción vigente y finaliza, pide recotización con motivo o cancela la solicitud. Logística también puede cancelar. Restaurar una cancelada requiere administrador. La selección no programa una entrega ni modifica importes comerciales.
+5. Una cotización vencida no puede elegirse. La fecha incluye todo el día indicado en Buenos Aires. Después de reabrir o pedir recotización, las alternativas anteriores se muestran como referencia y requieren nueva publicación.
+
+Los estados son Pendiente, Cotizando, Faltan datos, Cotizada, Finalizada y Cancelada. Internamente usan los estados existentes con workflow=shipping; las incidencias conservan workflow=incident y su circuito original. La bandeja inicial de envíos muestra todas las abiertas, incluyendo las que están a cargo del equipo de Logística. Todas incluye también finalizadas y canceladas. Los avisos enlazan a la sección correspondiente.
+
+La función support_command valida datos y transiciones también ante RPC directa. support_command_core queda privada; los cambios conservan control de versión, permisos e idempotencia. Las alternativas publicadas quedan en el mensaje y evento histórico, además de la cotización actual. El solicitante continúa viendo solo sus solicitudes; los gestores habilitados ven su sector. No se comparte un tarifario entre vendedores ni se envían mensajes externos.
+
+Validación: 44 controles transaccionales de base (datos ficticios revertidos), 18 pruebas unitarias/de regresión, lint del módulo y revisión de tipos de src. El ensayo scripts/test-shipping-live.cjs verificó creación, publicación, recotización y selección desde Chrome, avisos con enlaces correctos, acceso ajeno denegado y separación de incidencias; elimina sus cuentas y tickets al finalizar. Capturas en output/shipping-tests/. La revisión de tipos global encuentra errores en copias históricas bajo output/contado-2026-09-30/code-before; la configuración de comprobación acotada a src está en output/shipping-tests/tsconfig.json.
+
+node scripts/apply-shipping-requests.cjs ensaya dentro de una transacción revertida. --apply instala si falta, ejecuta los controles, habilita las dos cuentas verificadas y recarga el esquema. No reaplicar v109 después de v123: reemplazaría la función envolvente. La aplicación publicada necesita un despliegue con estas rutas; la migración sola no publica pantallas.
+
+
+## Integración de incidencias y solicitudes a Logística (30/09/2026)
+
+Los cambios de los chats «Mostrar incidencias nuevas» y «Evaluar gestión en sistema de ticket» conviven en la misma carpeta de trabajo, `D:/GitHub/zonoconstruccion`, en la rama `codex/optimizacion-rendimiento`. El trabajo del módulo continúa en «Mostrar incidencias nuevas» con ambos contextos consolidados. No hay una segunda rama de estos chats que se deba fusionar.
+
+- La campana de la barra superior funciona en todo el ERP y reúne avisos de incidencias y solicitudes a Logística. Prioriza los avisos sin leer, cuenta también los que exceden la vista previa y abre cada ticket en su sección correspondiente. Se actualiza cada 30 segundos y después de leer un ticket.
+- Las incidencias requieren elegir un responsable desde su creación: una persona habilitada o el equipo del área. Las solicitudes de cotización se destinan automáticamente al equipo de Logística, donde Pablo Jara y Matías Vega conservan sus permisos.
+- **Editar datos** presenta una sola selección de área y responsable, prioridad y tipo. El motivo se pide solo si cambia el área. **Guardar cambios** guarda la edición completa en una transacción; si falla una parte, no se aplican cambios parciales. En cotizaciones se conserva el área de Logística y el tipo de solicitud operativa.
+- El encabezado del detalle acompaña el desplazamiento normal de la página para que no se superponga al formulario.
+- Las migraciones `db_migration_v123_shipping_requests.sql`, `db_migration_v124_support_responsibility.sql` y `db_migration_v125_support_edit_ticket.sql` están aplicadas. La última corrige también la validación duplicada que bloqueaba transferencias. No reaplicar v109 ni reemplazar las funciones de soporte con definiciones anteriores a estas migraciones.
+
+Validación conjunta: `node --test tests/support-session.test.cjs tests/support-validation.test.cjs tests/support-notifications.test.cjs tests/support-responsibility.test.cjs tests/shipping-requests.test.cjs`. Los ensayos SQL de `scripts/apply-shipping-requests.cjs` y `scripts/test-support-responsibility-database.cjs`, sin `--apply`, revierten todos sus datos. La aplicación local usa el código conjunto; la publicación del sitio sigue pendiente de un despliegue de ese mismo conjunto.
