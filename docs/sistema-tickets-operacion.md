@@ -37,10 +37,10 @@ Se trasladaron las 8 incidencias de la planilla histórica el 28/09/2026, por pe
 
 La bandeja muestra columnas de ticket, estado, solicitante, responsable, sector, prioridad y actualización. En pantallas pequeñas conserva ticket/estado y permite desplegar los otros datos por fila. Los filtros quedan en la URL y se restauran con «Volver a la bandeja». Las ocho incidencias históricas caben en una pantalla de 1440 × 900.
 
-1. Abrir el ticket y elegir **Enviar a revisión**, visible arriba. Completar **Qué se resolvió** y **Qué debe probar**. Se puede enviar directamente desde Nuevo, sin tomarlo antes.
+1. En un ticket **Nuevo**, elegir **Poner en atención**, visible arriba como acción principal y también disponible en las acciones de la bandeja. Pasa a **En atención** y conserva al responsable asignado; si estaba a cargo del equipo, quien inicia la atención queda como responsable. Luego elegir **Enviar a revisión** y completar **Qué se resolvió** y **Qué debe probar**. También se puede enviar directamente desde Nuevo.
 2. El estado queda **En revisión** y la bandeja indica quién debe probar. El solicitante ve las instrucciones y las acciones **Funciona, cerrar** o **Sigue fallando**. Si falla, explica el resultado y el caso vuelve a atención.
 3. El administrador puede elegir **Cerrar ahora** en cualquier estado abierto y registrar el motivo. El sistema cancela la solicitud pendiente y registra cierre administrativo sin atribuir validación al solicitante. No hay cierre por tiempo transcurrido.
-4. Pedir información, pedir una acción, retomar atención, cancelar y reabrir están en **Más acciones**. Responsable, clasificación y transferencia están en **Editar datos**.
+4. **Retomar atención** queda visible arriba cuando el ticket espera respuesta o revisión. Pedir información, pedir una acción, cancelar y reabrir están en **Más acciones**. Responsable, clasificación y transferencia están en **Editar datos**. El texto para el solicitante distingue una solicitud pendiente de atención de una que ya está en atención.
 
 El detalle muestra los datos principales en una fila y el reporte junto a la conversación. La captura original permanece visible. **Conversación** muestra mensajes públicos recientes, **Actividad** conserva eventos e importaciones desplegables y **Notas internas** está reservada a gestores. La categoría se filtra en servidor antes de paginar 20 eventos, sin descargar notas privadas para ocultarlas después.
 

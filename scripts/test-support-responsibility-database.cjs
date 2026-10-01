@@ -43,6 +43,13 @@ async function ticket(id){return(await db.query('select * from public.support_ti
   await actor(other);equal((await db.query('select id from public.support_tickets where id=$1',[t.id])).rowCount,0);
   await actor(owner);const individual=await command('create',null,null,{...data,responsibility_kind:'person',assignee_id:first});
   t=await ticket(individual.id);equal(t.assignee_id,first);
+  // Poner en atención reuses assign for named responsibility, preserving the person.
+  await actor(admin);const startVersion=t.version,startKey=randomUUID(),startData={responsibility_kind:'person',assignee_id:first};
+  const started=await command('assign',t.id,startVersion,startData,startKey);
+  equal(await command('assign',t.id,startVersion,startData,startKey),started);
+  t=await ticket(t.id);equal(t.status,'in_progress');equal(t.assignee_id,first);equal(t.version,startVersion+1);
+  await denied(()=>command('assign',t.id,startVersion,startData),/SUPPORT_CONFLICT/);
+  await actor(owner);await denied(()=>command('assign',t.id,t.version,startData),/SUPPORT_FORBIDDEN/);
   await actor(first);await command('assign',t.id,t.version,{responsibility_kind:'area',assignee_id:null});t=await ticket(t.id);equal(t.assignee_id,null);
   await denied(()=>command('assign',t.id,t.version,{assignee_id:null}),/SUPPORT_RESPONSIBLE_REQUIRED/);
   await command('take',t.id,t.version);t=await ticket(t.id);equal(t.assignee_id,first);equal(t.status,'in_progress');

@@ -1,11 +1,11 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
-import { actionLabel, availableActions, type TicketAction } from '@/lib/support/actions';
+import { actionCommand, actionLabel, availableActions, type TicketAction } from '@/lib/support/actions';
 import { isShipping, quoteExpired, type ShippingQuote } from '@/lib/support/shipping';
 import { emptyQuote, ShippingQuoteEditor, ShippingQuoteList } from './ShippingQuotes';
 import { commandBody, errorMessage, supportRequest } from '@/lib/support/client';
-import { code, type SupportMe, type Ticket } from '@/lib/support/types';
+import { code, responsibleLabel, type SupportMe, type Ticket } from '@/lib/support/types';
 import { Alert, fieldClass, primaryClass, secondaryClass } from './SupportShell';
 import { AttachmentEditor, pastedImages, usePendingImages } from './AttachmentEditor';
 import { useUnsavedChanges } from './useUnsavedChanges';
@@ -31,14 +31,15 @@ export function TicketActionDialog({ ticket, action, onClose, onDone }: { ticket
     const requester = context?.me.people.find(p=>p.id===ticket.created_by)?.name || 'el solicitante';
     const permits = context && !context.me.impersonating && availableActions(context.me,context.ticket).includes(action);
     const withImages = ['request_validation','request_info','request_action','reject'].includes(action);
-    const requiresBody = !['take','validate'].includes(action) && !(shipping && action === 'request_validation');
+    const requiresBody = !['start','take','validate'].includes(action) && !(shipping && action === 'request_validation');
     const submit = async (event: React.FormEvent) => {
         event.preventDefault(); if (busy || !permits || !context) return;
         setBusy(true);setError('');
         try {
             const attachments = withImages ? await images.upload(ticket.id,'public',setProgress) : [];
-            const command = shipping ? ({ request_validation: 'shipping_quote', validate: 'shipping_finish', reject: 'shipping_requote' } as Record<string, string>)[action] || action : action;
-            await supportRequest(`tickets/${ticket.id}/actions`, { method:'POST', body:commandBody({body,solution,attachments,confirmed:action==='validate', ...(shipping && action === 'request_validation' ? { quotes } : {}), ...(shipping && action === 'validate' ? { selected } : {})}, context.ticket.version, command, key.current) });
+            const operation = actionCommand(action, context.ticket);
+            const command = shipping ? ({ request_validation: 'shipping_quote', validate: 'shipping_finish', reject: 'shipping_requote' } as Record<string, string>)[action] || operation.command : operation.command;
+            await supportRequest(`tickets/${ticket.id}/actions`, { method:'POST', body:commandBody({body,solution,attachments,confirmed:action==='validate', ...operation.payload, ...(shipping && action === 'request_validation' ? { quotes } : {}), ...(shipping && action === 'validate' ? { selected } : {})}, context.ticket.version, command, key.current) });
             images.clear();setBody('');setSolution('');await onDone();onClose();
         } catch(e) { setError(errorMessage(e));
             if (shipping && action==='validate') setSelected(-1);
@@ -52,6 +53,7 @@ export function TicketActionDialog({ ticket, action, onClose, onDone }: { ticket
         {action==='close_admin' && <p className="text-sm text-slate-600">Se cerrará sin esperar la confirmación de {requester}. El motivo quedará registrado.</p>}
         {action==='validate' && <p className="text-sm">{shipping ? 'Elegí la alternativa que se comunicará al cliente. Esto finaliza la solicitud de cotización; el despacho se gestiona por separado.' : '¿Probaste la solución y confirmás que funciona? Al confirmar se cerrará el ticket.'}</p>}
         {action==='take' && <p className="text-sm">Quedarás como responsable de este ticket.</p>}
+        {action==='start' && context && <p className="text-sm">El ticket pasará de Nuevo a En atención. {context.ticket.assignee_id ? `Responsable: ${responsibleLabel(context.ticket,context.me.sectors,id=>context.me.people.find(p=>p.id===id)?.name || 'Usuario')}.` : 'Quedarás como responsable de este ticket.'}</p>}
         <fieldset disabled={busy} className="space-y-3">
           {shipping && action==='request_validation' && <ShippingQuoteEditor quotes={quotes} onChange={value => {setQuotes(value);setQuotesDirty(true);}}/>}
           {shipping && action==='validate' && context && <ShippingQuoteList quotes={context.ticket.shipping_quotes} selection={selected} onSelect={setSelected}/>}

@@ -17,8 +17,33 @@ test('management includes a manager’s own closed requests outside their assign
  assert.equal(responsibility.managementVisibilityFilter({user_id:'carolina',sector_ids:['administration','finance']}),'created_by.eq.carolina,sector_id.in.(administration,finance)');
  assert.equal(responsibility.managementVisibilityFilter({user_id:'carolina',sector_ids:[]}),'created_by.eq.carolina');
 });
-test('taking a ticket is offered for team responsibility and preserves a named assignee',()=>{
+test('starting attention is offered for both team and individual incident responsibility',()=>{
  const me={user_id:'manager',is_admin:true,sector_ids:[]};const ticket={workflow:'incident',created_by:'owner',status:'new',sector_id:'logistics',assignee_id:null};
- assert.ok(actions.availableActions(me,ticket).includes('take'));
- assert.ok(!actions.availableActions(me,{...ticket,assignee_id:'other-manager'}).includes('take'));
+ assert.ok(actions.availableActions(me,ticket).includes('start'));
+ assert.ok(actions.availableActions(me,{...ticket,assignee_id:'other-manager'}).includes('start'));
+ assert.equal(actions.actionLabel('start',ticket),'Poner en atención');
+});
+
+test('starting attention takes team tickets and preserves an already assigned person',()=>{
+ const ticket={workflow:'incident',status:'new',assignee_id:null};
+ const team=actions.actionCommand('start',ticket);
+ assert.equal(team.command,'take');assert.deepEqual(Object.keys(team.payload),[]);
+ const assigned=actions.actionCommand('start',{...ticket,assignee_id:'other-manager'});
+ assert.equal(assigned.command,'assign');
+ assert.equal(assigned.payload.assignee_id,'other-manager');
+ assert.equal(assigned.payload.responsibility_kind,'person');
+ assert.equal(actions.actionCommand('withdraw',ticket).command,'withdraw');
+});
+
+test('only authorized managers can start new tickets; waiting cases offer resume attention',()=>{
+ const me={user_id:'manager',is_admin:false,sector_ids:['logistics']};
+ const ticket={workflow:'incident',created_by:'owner',status:'new',sector_id:'logistics',assignee_id:'manager'};
+ assert.ok(actions.availableActions(me,ticket).includes('start'));
+ assert.ok(!actions.availableActions({...me,user_id:'owner',sector_ids:[]},ticket).includes('start'));
+ assert.ok(!actions.availableActions(me,{...ticket,sector_id:'it'}).includes('start'));
+ for(const status of ['in_progress','waiting_requester','waiting_validation','closed','cancelled']) {
+  const allowed=actions.availableActions(me,{...ticket,status});
+  assert.ok(!allowed.includes('start'));
+  assert.equal(allowed.includes('withdraw'),['waiting_requester','waiting_validation'].includes(status));
+ }
 });

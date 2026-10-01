@@ -76,7 +76,8 @@ export async function GET(request: Request) {
 
     // 1. Fetch main EERR range and Master Logistics sheet in parallel
     const [values, masterDeliveriesSheetRows] = await Promise.all([
-      fetchSpreadsheetValues(SPREADSHEET_ID, 'EERR!A1:AK40'),
+      // Read complete rows so the last days of the month are never truncated.
+      fetchSpreadsheetValues(SPREADSHEET_ID, 'EERR!1:40'),
       fetchSpreadsheetValues(LOGISTICS_SPREADSHEET_ID, "'🔴 Entregados'!A1:Z").catch(err => {
         console.warn('[API EERR] Could not fetch master logistics sheet:', err);
         return null;
@@ -94,7 +95,7 @@ export async function GET(request: Request) {
 
     for (let c = 8; c < headerRow.length; c++) {
       const h = (headerRow[c] || '').trim();
-      if (h) {
+      if (/^\d{1,2}\/\d{1,2}$/.test(h)) {
         dayHeaders.push(h);
         dayColIndices.push(c);
       }
