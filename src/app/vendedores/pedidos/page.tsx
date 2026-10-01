@@ -2177,7 +2177,34 @@ export default function PedidosPage() {
     lines.push(`📝 **PEDIDO MODIFICADO: ${params.legacyCode}${sellerTag}**`);
     lines.push(``);
     lines.push(`🔄 **CAMBIOS REALIZADOS:**`);
-    params.changes.forEach(c => lines.push(`• ${c}`));
+    params.changes.forEach(change => {
+      let compact = change;
+      if (change.startsWith('➕ Producto agregado: ')) {
+        compact = change.replace('➕ Producto agregado: ', '➕ Agrega ').replace(/ \([^)]*\)$/, '');
+      } else if (change.startsWith('➖ Producto quitado: ')) {
+        compact = change.replace('➖ Producto quitado: ', '➖ Saca ');
+      } else if (change.startsWith('💰 Monto Total: ')) {
+        compact = change.replace('💰 Monto Total: ', '💰 Total ');
+      } else {
+        const shortChanges: Record<string, string> = {
+          '📅 Fecha de Entrega:': '📅 Cambia fecha de entrega',
+          '📦 Cantidad cambiada:': '📦 Cambia cantidad',
+          '💲 Precio cambiado:': '💲 Cambia precio',
+          '👤 Cliente:': '👤 Cambia cliente',
+          '📍 Localidad:': '📍 Cambia localidad',
+          '🏠 Dirección:': '🏠 Cambia dirección',
+          '🚚 Flete:': '🚚 Cambia flete',
+          '💳 Estado de Pago:': '💳 Cambia estado de pago',
+          '📝 Detalle Entrega:': '📝 Cambia detalle de entrega',
+          'Se modificaron los datos del pedido.': 'Cambia datos del pedido',
+          'ℹ️ Actualización general de información del pedido.': 'ℹ️ Cambia datos del pedido',
+        };
+        const prefix = Object.keys(shortChanges).find(key => change.startsWith(key));
+        if (prefix) compact = shortChanges[prefix];
+      }
+      const line = `• ${compact}`;
+      if (!lines.includes(line)) lines.push(line);
+    });
     if (params.logisticsObservation && params.logisticsObservation.trim()) {
       lines.push(``);
       lines.push(`💬 **Observación para Logística:** ${params.logisticsObservation.trim()}`);
@@ -2187,13 +2214,12 @@ export default function PedidosPage() {
       const central = params.operationalSync.central;
       const deliveries = params.operationalSync.deliveriesCurrent;
       lines.push(``);
-      lines.push(`📊 **SINCRONIZACIÓN DE PLANILLAS:**`);
       lines.push(central?.success
-        ? `✅ Cambio en Central${central.sheetName ? ` (${central.sheetName})` : ''}`
-        : `❌ Cambio en Central: ${central?.message || 'No se pudo sincronizar'}`);
+        ? `✅ Central`
+        : `❌ Central: ${central?.message || 'No se pudo sincronizar'}`);
       lines.push(deliveries?.success
-        ? `✅ Cambio en Entregas Actual (${deliveries.sheetName || 'Hoja no informada'})`
-        : `❌ Cambio en Entregas Actual: ${deliveries?.message || 'No se pudo sincronizar'}`);
+        ? `✅ Entregas Actual`
+        : `❌ Entregas Actual: ${deliveries?.message || 'No se pudo sincronizar'}`);
     }
 
     return lines.join('\n');
