@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { calculateBulkPrices } from '@/lib/erp/prices';
 
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
@@ -26,6 +27,19 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ success: false, error: 'La lista mayorista del ERP está incompleta.' }, { status: 503 });
   }
 
+  // These complete kits and the coupling also belong in the B2B picker.
+  // Only a published wholesale row can override their retail price.
+  const { data: retailExtras, error: extrasError } = await db.from('products')
+    .select('*')
+    .eq('is_active', true)
+    .or('name.ilike.%kit%instal%,name.ilike.%awaduct%cupla%110%');
+  if (extrasError) {
+    return NextResponse.json({ success: false, error: 'No se pudieron cargar los kits y accesorios.' }, { status: 503 });
+  }
+  const publishedIds = new Set(rows.map(row => row.erp_product_id));
+  const extras = (retailExtras || []).filter(product => !publishedIds.has(product.id));
+  const retailPrices = await calculateBulkPrices(db, extras, 'minorista');
+
   return NextResponse.json({
     success: true,
     isPersistedList: true,
@@ -36,7 +50,7 @@ export async function GET(req: NextRequest) {
       globalDiscountCorralonPct: Number(list.global_discount_corralon_pct || 0),
       globalDiscountDistributorPct: Number(list.global_discount_dist_pct || 0)
     },
-    products: rows.map(row => ({
+    products: [...rows.map(row => ({
       id: row.erp_product_id,
       listItemId: row.product_id,
       name: row.product_name,
@@ -48,6 +62,15 @@ export async function GET(req: NextRequest) {
       priceList: Number(row.price_list),
       priceCorralon: Number(row.price_corralon),
       priceDistributor: Number(row.price_distributor)
-    }))
+    })), ...extras.map(product => ({
+      id: product.id,
+      name: product.name,
+      category: product.category,
+      isCommercialized: true,
+      catalogSource: 'minorista',
+      priceList: Number(retailPrices[product.id]?.price ?? product.price),
+      priceCorralon: Number(retailPrices[product.id]?.price ?? product.price),
+      priceDistributor: Number(retailPrices[product.id]?.price ?? product.price)
+    }))]
   });
 }

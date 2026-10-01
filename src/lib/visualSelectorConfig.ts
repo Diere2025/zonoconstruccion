@@ -860,7 +860,7 @@ export function generateDefaultVisualConfig(products: Product[]): VisualCatalogC
   });
 }
 
-export function generateWholesaleVisualConfig(products: Product[]): VisualCatalogConfig {
+export function generateWholesaleVisualConfig(products: Product[], retailConfig?: VisualCatalogConfig): VisualCatalogConfig {
   const allowedProducts = products;
   const defaultConfig = generateDefaultVisualConfig(allowedProducts);
   const tankFamily = defaultConfig.families.find(family => family.id === 'tanques');
@@ -938,6 +938,41 @@ export function generateWholesaleVisualConfig(products: Product[]): VisualCatalo
   }
 
   const families: VisualFamily[] = [];
+  const generatedKits = defaultConfig.families
+    .find(family => family.id === 'biodigestores')?.subgroups
+    .find(subgroup => subgroup.id === 'kits_instalacion');
+  const configuredKits = retailConfig?.families.flatMap(family => family.subgroups)
+    .find(subgroup => subgroup.id === 'kits_instalacion');
+  const installationKits = generatedKits && {
+    ...generatedKits,
+    items: generatedKits.items.map(item => {
+      const configured = configuredKits?.items.find(candidate =>
+        (candidate.productId || candidate.comboItems?.[0]?.productId) === item.productId);
+      if (!configured?.isCombo || !configured.comboItems?.length) return item;
+      return {
+        ...item,
+        description: configured.description,
+        comboItems: configured.comboItems.map((component, index) => ({
+          ...component,
+          customPrice: index === 0 ? item.price : 0,
+          basePrice: index === 0 ? item.price : 0,
+          discountType: undefined,
+          discountValue: undefined
+        }))
+      };
+    })
+  };
+  const installationKitIds = new Set(installationKits?.items.map(item => item.productId));
+  if (installationKits?.items.length) {
+    families.push({
+      id: 'kits_instalacion_mayorista',
+      name: 'Kits de Instalación Completa',
+      description: installationKits.description,
+      imageUrl: installationKits.imageUrl,
+      isActive: true,
+      subgroups: [installationKits]
+    });
+  }
   if (tankFamily) {
     const subgroups = tankFamily.subgroups
       .map(subgroup => ({
@@ -952,7 +987,8 @@ export function generateWholesaleVisualConfig(products: Product[]): VisualCatalo
     if (subgroups.length > 0) families.push({ ...tankFamily, subgroups });
   }
 
-  const sanitationProducts = allowedProducts.filter(product => getWholesaleCatalogKind(product) === 'sanitation');
+  const sanitationProducts = allowedProducts.filter(product =>
+    !installationKitIds.has(product.id) && getWholesaleCatalogKind(product) === 'sanitation');
   const sanitationGroups = [
     { id: 'biodigestores', name: 'Biodigestores', matches: (text: string) => text.includes('biodigest') || text.includes('autolimp') },
     { id: 'septicas', name: 'Cámaras Sépticas', matches: (text: string) => text.includes('septica') },
