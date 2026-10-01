@@ -94,6 +94,7 @@ const deduceCategoryFromTitle = (title: string, brand?: string): string => {
   if (lower.includes('cisterna')) return 'Tanques Cisterna';
   if (lower.includes('biodigestor') || lower.includes('sépti') || lower.includes('septi')) return 'Biodigestores';
   if (lower.includes('desengrasadora')) return 'Cámaras Desengrasadoras';
+  if (/membrana\s+techos?\b/.test(lower)) return 'MEPS';
   if (lower.includes('membrana') || lower.includes('latex') || lower.includes('látex') || lower.includes('pintura')) return 'Pinturas';
   if (lower.includes('bomba') || lower.includes('compresor') || lower.includes('cargador')) return 'Herramientas';
   if (brand && (brand.toLowerCase() === 'cooper' || brand.toLowerCase() === 'sirena')) return 'Hogar';

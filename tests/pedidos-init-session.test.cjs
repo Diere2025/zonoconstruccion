@@ -7,6 +7,7 @@ const ts = require('typescript');
 function endpoint(authResult) {
   const exports = {};
   let queries = 0;
+  const sourceWrites = [];
   let options;
   const client = {
     auth: { getUser: async () => authResult },
@@ -17,7 +18,10 @@ function endpoint(authResult) {
         then(resolve, reject) { return Promise.resolve(result).then(resolve, reject); },
         maybeSingle: async () => ({ data: { id: 'owner', role: 'admin', seller_type: 'minorista' }, error: null }),
       };
-      for (const method of ['select', 'eq', 'order', 'limit', 'range', 'in', 'update', 'insert']) query[method] = () => query;
+      for (const method of ['select', 'eq', 'order', 'limit', 'range', 'in', 'update', 'insert']) query[method] = () => {
+        if (table === 'advertising_sources' && ['update', 'insert'].includes(method)) sourceWrites.push(method);
+        return query;
+      };
       if (table === 'advertising_sources') result.data = ['Cliente', 'Página web', 'Reenviado de Minorista', 'Recomendado', 'Otro'].map(name => ({ name }));
       return query;
     },
@@ -35,7 +39,7 @@ function endpoint(authResult) {
   });
   return { get: token => exports.GET(new Request('https://example.test/api/vendedores/pedidos-init?userId=owner', {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
-  })), queries: () => queries, options: () => options };
+  })), queries: () => queries, options: () => options, sourceWrites: () => sourceWrites };
 }
 
 test('missing and expired sessions return 401 before reading business data', async () => {
@@ -65,6 +69,7 @@ test('a verified administrator can load the form, with session storage and fetch
   assert.equal(response.status, 200);
   assert.equal((await response.json()).role, 'admin');
   assert.ok(api.queries() > 0);
+  assert.deepEqual(api.sourceWrites(), [], 'opening the form must not recreate or reactivate configured sources');
   assert.equal(api.options().auth.persistSession, false);
   assert.equal(api.options().auth.autoRefreshToken, false);
   await api.options().global.fetch('https://example.test/auth', {});

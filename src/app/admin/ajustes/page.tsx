@@ -3,7 +3,9 @@
 import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/Button";
 import { 
-  Plus, 
+  Plus,
+  ArrowUp,
+  ArrowDown,
   Trash2, 
   X, 
   Loader2, 
@@ -24,6 +26,7 @@ import {
   Sparkles
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { AdvertisingSource, AdvertisingSourceChannel, advertisingSourceChannel, sortAdvertisingSources } from "@/lib/advertisingSources";
 import { optimizeImageUpload } from "@/lib/optimizeImageUpload";
 import { Product } from "@/types";
 import VisualSelectorSettings from "@/components/admin/VisualSelectorSettings";
@@ -48,12 +51,6 @@ interface OrderMedium {
   id: string;
   name: string;
   requires_phone_line: boolean;
-  is_active: boolean;
-}
-
-interface AdvertisingSource {
-  id: string;
-  name: string;
   is_active: boolean;
 }
 
@@ -95,6 +92,9 @@ export default function AjustesPage() {
 
   const [newSourceName, setNewSourceName] = useState("");
   const [savingSource, setSavingSource] = useState(false);
+  const [newSourceChannel, setNewSourceChannel] = useState<AdvertisingSourceChannel>('minorista');
+  const [savingSourceOrder, setSavingSourceOrder] = useState(false);
+  const [savingSourceChannelId, setSavingSourceChannelId] = useState<string | null>(null);
 
   // Edit states for Reception
   const [editingLineId, setEditingLineId] = useState<string | null>(null);
@@ -153,7 +153,7 @@ export default function AjustesPage() {
         if (sellersRes.data) setSellers(sellersRes.data);
         if (linesRes.data) setPhoneLines(linesRes.data);
         if (mediumsRes.data) setOrderMediums(mediumsRes.data);
-        if (sourcesRes.data) setAdvertisingSources(sourcesRes.data);
+        if (sourcesRes.data) setAdvertisingSources(sortAdvertisingSources(sourcesRes.data));
 
         // Fetch site settings
         const { data: settingsData } = await supabase
@@ -352,7 +352,7 @@ export default function AjustesPage() {
 
   const refreshSources = async () => {
     const { data } = await supabase.from("advertising_sources").select("*").order("name");
-    if (data) setAdvertisingSources(data);
+    if (data) setAdvertisingSources(sortAdvertisingSources(data));
   };
 
   const handleAddPhoneLine = async (e: React.FormEvent) => {
@@ -537,7 +537,9 @@ export default function AjustesPage() {
     try {
       const { error } = await supabase.from("advertising_sources").insert({
         name: newSourceName.trim(),
-        is_active: true
+        is_active: true,
+        channel: newSourceChannel,
+        sort_order: Math.max(0, ...advertisingSources.map(source => source.sort_order ?? 0)) + 1
       });
 
       if (error) throw error;
@@ -548,6 +550,37 @@ export default function AjustesPage() {
       alert("Error al agregar procedencia: " + err.message);
     } finally {
       setSavingSource(false);
+    }
+  };
+
+  const handleMoveSource = async (index: number, direction: -1 | 1) => {
+    const target = index + direction;
+    if (savingSourceOrder || target < 0 || target >= advertisingSources.length) return;
+    setSavingSourceOrder(true);
+    const reordered = [...advertisingSources];
+    [reordered[index], reordered[target]] = [reordered[target], reordered[index]];
+    try {
+      const { error } = await supabase.rpc('reorder_advertising_sources', { p_ids: reordered.map(source => source.id) });
+      if (error) throw error;
+      setAdvertisingSources(reordered.map((source, position) => ({ ...source, sort_order: position + 1 })));
+    } catch (err: any) {
+      alert('Error al ordenar procedencias: ' + err.message);
+      await refreshSources();
+    } finally {
+      setSavingSourceOrder(false);
+    }
+  };
+
+  const handleSourceChannelChange = async (id: string, channel: AdvertisingSourceChannel) => {
+    setSavingSourceChannelId(id);
+    try {
+      const { error } = await supabase.from('advertising_sources').update({ channel }).eq('id', id).select('id').single();
+      if (error) throw error;
+      setAdvertisingSources(previous => previous.map(source => source.id === id ? { ...source, channel } : source));
+    } catch (err: any) {
+      alert('Error al cambiar el canal: ' + err.message);
+    } finally {
+      setSavingSourceChannelId(null);
     }
   };
 
@@ -1436,6 +1469,7 @@ export default function AjustesPage() {
                 <p className="text-slate-500 font-medium mt-1 text-sm">
                   Parámetros de procedencia publicitaria y comercial obligatorios para los vendedores al cargar un pedido.
                 </p>
+                <p className="text-slate-500 mt-2 text-sm">Elegí el canal y usá las flechas para guardar el orden en que aparecen al cargar pedidos.</p>
               </div>
 
               <div className="space-y-8">
@@ -1454,10 +1488,18 @@ export default function AjustesPage() {
                         className="px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-4 focus:ring-brand-500/10 text-xs font-bold bg-white text-slate-700"
                       />
                     </div>
+                    <label className="flex flex-col gap-1.5 text-xs font-bold text-slate-600">
+                      Canal
+                      <select value={newSourceChannel} onChange={e => setNewSourceChannel(e.target.value as AdvertisingSourceChannel)} className="px-4 py-3 rounded-xl border border-slate-200 bg-white">
+                        <option value="minorista">Minoristas</option>
+                        <option value="mayorista">Mayoristas</option>
+                        <option value="ambos">Ambos canales</option>
+                      </select>
+                    </label>
                   </div>
                   <button
                     type="submit"
-                    disabled={savingSource}
+                    disabled={savingSource || savingSourceOrder}
                     className="px-5 py-3 bg-brand-600 hover:bg-brand-700 text-white rounded-xl font-black uppercase tracking-widest text-[9px] transition-all flex items-center gap-1.5 shadow-md shadow-brand-600/10 self-start cursor-pointer"
                   >
                     {savingSource ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
@@ -1471,13 +1513,15 @@ export default function AjustesPage() {
                     <table className="w-full text-left">
                       <thead>
                         <tr className="bg-slate-50 border-b border-slate-100">
-                          <th className="px-5 py-4 text-[9px] font-black uppercase tracking-wider text-slate-400 w-3/4">Procedencia</th>
+                          <th className="px-5 py-4 text-[9px] font-black uppercase tracking-wider text-slate-400">Procedencia</th>
+                          <th className="px-5 py-4 text-[9px] font-black uppercase tracking-wider text-slate-400 text-center">Canal</th>
+                          <th className="px-5 py-4 text-[9px] font-black uppercase tracking-wider text-slate-400 text-center w-28">Orden</th>
                           <th className="px-5 py-4 text-[9px] font-black uppercase tracking-wider text-slate-400 text-center w-28">Vigente</th>
                           <th className="px-5 py-4 text-[9px] font-black uppercase tracking-wider text-slate-400 text-center w-28">Acción</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {advertisingSources.map((source) => {
+                        {advertisingSources.map((source, sourceIndex) => {
                           const isEditing = source.id === editingSourceId;
                           return (
                             <tr key={source.id} className="hover:bg-slate-50/50 transition-colors">
@@ -1494,10 +1538,23 @@ export default function AjustesPage() {
                                 )}
                               </td>
                               <td className="px-5 py-4 text-center">
+                                <select aria-label={`Canal de ${source.name}`} value={advertisingSourceChannel(source)} disabled={savingSourceChannelId !== null || savingSourceOrder || isEditing} onChange={e => handleSourceChannelChange(source.id, e.target.value as AdvertisingSourceChannel)} className="px-2 py-2 rounded-lg border border-slate-200 bg-white text-xs disabled:opacity-50">
+                                  <option value="minorista">Minoristas</option>
+                                  <option value="mayorista">Mayoristas</option>
+                                  <option value="ambos">Ambos canales</option>
+                                </select>
+                              </td>
+                              <td className="px-5 py-4 text-center">
+                                <div className="flex items-center justify-center gap-1">
+                                  <button type="button" title={`Subir ${source.name}`} aria-label={`Subir ${source.name}`} disabled={sourceIndex === 0 || savingSourceOrder || savingSource || editingSourceId !== null} onClick={() => handleMoveSource(sourceIndex, -1)} className="p-2 rounded-lg hover:bg-slate-100 disabled:opacity-30"><ArrowUp className="w-4 h-4" /></button>
+                                  <button type="button" title={`Bajar ${source.name}`} aria-label={`Bajar ${source.name}`} disabled={sourceIndex === advertisingSources.length - 1 || savingSourceOrder || savingSource || editingSourceId !== null} onClick={() => handleMoveSource(sourceIndex, 1)} className="p-2 rounded-lg hover:bg-slate-100 disabled:opacity-30"><ArrowDown className="w-4 h-4" /></button>
+                                </div>
+                              </td>
+                              <td className="px-5 py-4 text-center">
                                 <button
                                   type="button"
-                                  disabled={isEditing}
                                   onClick={() => handleToggleSourceActive(source.id, source.is_active)}
+                                  disabled={isEditing || savingSourceOrder}
                                   className="focus:outline-none transition-transform active:scale-95 inline-block cursor-pointer disabled:opacity-50"
                                 >
                                   {source.is_active ? (
@@ -1534,6 +1591,7 @@ export default function AjustesPage() {
                                       <button
                                         type="button"
                                         onClick={() => handleStartEditSource(source)}
+                                        disabled={savingSourceOrder}
                                         className="p-2 bg-slate-50 hover:bg-brand-600 text-slate-500 hover:text-white border border-slate-100 hover:border-brand-600 rounded-xl transition-all cursor-pointer"
                                         title="Editar procedencia"
                                       >
@@ -1542,6 +1600,7 @@ export default function AjustesPage() {
                                       <button
                                         type="button"
                                         onClick={() => handleDeleteSource(source.id, source.name)}
+                                        disabled={savingSourceOrder}
                                         className="p-2 bg-red-50 hover:bg-red-600 text-red-600 hover:text-white border border-red-100 hover:border-red-600 rounded-xl transition-all cursor-pointer"
                                         title="Eliminar procedencia"
                                       >
@@ -1556,7 +1615,7 @@ export default function AjustesPage() {
                         })}
                         {advertisingSources.length === 0 && (
                           <tr>
-                            <td colSpan={3} className="text-center py-10 font-bold text-slate-400 text-xs">
+                            <td colSpan={5} className="text-center py-10 font-bold text-slate-400 text-xs">
                               No hay procedencias registradas en el sistema.
                             </td>
                           </tr>

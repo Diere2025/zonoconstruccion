@@ -1003,6 +1003,8 @@ export default function AdminDashboard() {
           return orderPrimaryCategory || 'Tanques de Agua';
         }
 
+        if (/membrana\s+techos?\b/.test(pName)) return 'MEPS';
+
         if (pName.includes('bomba') || cat === 'Bombas') {
           return 'Bombas';
         } else if (pName.includes('puerta') || pName.includes('ventana') || cat === 'Aberturas') {

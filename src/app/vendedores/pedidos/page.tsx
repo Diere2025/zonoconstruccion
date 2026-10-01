@@ -1,5 +1,6 @@
 "use client";
 
+import { AdvertisingSource, advertisingSourcesForChannel } from "@/lib/advertisingSources";
 import PaymentMethodSelector from "@/components/vendedores/PaymentMethodSelector";
 import { isCuotaSimplePaymentMethod, isRetiredPaymentMethod } from "@/lib/cuotaSimple";
 
@@ -95,12 +96,6 @@ interface OrderItem extends Product {
   baseQuantity?: number;
 }
 
-interface AdvertisingSource {
-  id: string;
-  name: string;
-  is_active: boolean;
-}
-
 interface WholesaleCatalogItem {
   id?: string;
   name: string;
@@ -108,39 +103,6 @@ interface WholesaleCatalogItem {
   priceList?: number;
   price_list?: number;
 }
-
-const WHOLESALE_ADVERTISING_SOURCES = [
-  "Cliente",
-  "Página web",
-  "Reenviado de Minorista",
-  "Recomendado",
-  "Otro"
-];
-
-const RETAIL_ADVERTISING_SOURCES = [
-  "Meta - Escaleras",
-  "Mayorista",
-  "Meta - Tanques Aquafort",
-  "Meta - Termotanques Universal",
-  "Meta - Termotanques Cooper",
-  "Meta - Biodigestores Biofort",
-  "Meta - MEPS / Equilibrio",
-  "Orgánico / Cliente Habitual / Recomendado"
-];
-
-const ALLOWED_ADVERTISING_SOURCES = [
-  ...WHOLESALE_ADVERTISING_SOURCES,
-  ...RETAIL_ADVERTISING_SOURCES
-];
-
-const DEFAULT_ADVERTISING_SOURCES: AdvertisingSource[] = [
-  { id: "a4df04ca-29aa-4328-b2ec-a35a53a5caeb", name: "Meta - Tanques Aquafort", is_active: true },
-  { id: "afb44df7-4252-4a06-8581-6d2002fb67be", name: "Meta - Termotanques Universal", is_active: true },
-  { id: "6a07b438-0b85-48d8-ad80-a8e567683f66", name: "Meta - Termotanques Cooper", is_active: true },
-  { id: "2e43372c-ab9b-4fb9-904a-bb14f67f25f7", name: "Meta - Biodigestores Biofort", is_active: true },
-  { id: "f29edda0-a7d6-4731-b865-cd9b335f755b", name: "Meta - MEPS / Equilibrio", is_active: true },
-  { id: "71b1f7f7-0bc5-4ed4-9ebd-5b9383f00571", name: "Orgánico / Cliente Habitual / Recomendado", is_active: true }
-];
 
 const ALLOWED_ORDER_MEDIUMS = [
   "Whaticket",
@@ -1381,27 +1343,21 @@ export default function PedidosPage() {
         const cached = localStorage.getItem("cached_pedidos_adv") || sessionStorage.getItem("cached_pedidos_adv");
         if (cached) {
           const parsed = JSON.parse(cached);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            const clean = parsed.filter((a: any) => a && a.is_active !== false && ALLOWED_ADVERTISING_SOURCES.includes(a.name));
-            if (clean.length > 0) return clean;
+          if (Array.isArray(parsed)) {
+            const clean = parsed.filter((a: any) => a && a.is_active !== false);
+            return clean;
           }
         }
       } catch (e) {}
     }
-    return DEFAULT_ADVERTISING_SOURCES;
+    return [];
   });
   const isFacundoSelectedSeller = FACUNDO_SELLER_IDS.includes(selectedSellerId || currentUserId);
   const filteredAdvertisingSources = useMemo(() => {
-    const contextSources = isWholesaleContext
-      ? WHOLESALE_ADVERTISING_SOURCES
-      : (isFacundoSelectedSeller ? [FACUNDO_RETAIL_SOURCE] : RETAIL_ADVERTISING_SOURCES);
-    return advertisingSources
-      .filter(a => a && a.is_active !== false && contextSources.includes(a.name))
-      .sort((a, b) => {
-        const idxA = contextSources.indexOf(a.name);
-        const idxB = contextSources.indexOf(b.name);
-        return (idxA !== -1 ? idxA : 999) - (idxB !== -1 ? idxB : 999);
-      });
+    const sources = advertisingSourcesForChannel(advertisingSources, isWholesaleContext ? 'mayorista' : 'minorista');
+    return !isWholesaleContext && isFacundoSelectedSeller
+      ? sources.filter(source => source.name === FACUNDO_RETAIL_SOURCE)
+      : sources;
   }, [advertisingSources, isWholesaleContext, isFacundoSelectedSeller]);
   const [orderMediums, setOrderMediums] = useState<OrderMedium[]>([
     { id: "e9654dad-9352-4f31-8f01-b12c57289993", name: "Whaticket", requires_phone_line: false, is_active: true },
@@ -2598,13 +2554,13 @@ export default function PedidosPage() {
           try {
             const parsedAdv = JSON.parse(cachedAdv);
             const cleanAdv = Array.isArray(parsedAdv)
-              ? parsedAdv.filter((a: any) => a && a.is_active !== false && ALLOWED_ADVERTISING_SOURCES.includes(a.name))
+              ? parsedAdv.filter((a: any) => a && a.is_active !== false)
               : [];
-            if (cleanAdv.length > 0) {
+            if (Array.isArray(parsedAdv)) {
               setAdvertisingSources(cleanAdv);
             }
           } catch (e) {
-            // Mantener DEFAULT_ADVERTISING_SOURCES
+            // Esperar la consulta de las procedencias configuradas.
           }
           try {
             const parsedMed = JSON.parse(cachedMediums);
@@ -2646,8 +2602,8 @@ export default function PedidosPage() {
               supabase.from('order_mediums').select('*').eq('is_active', true).order('name'),
               supabase.from('payment_methods').select('*').eq('is_active', true).order('name')
             ]);
-            const freshAdv = (freshAdvRes.data || []).filter((a: any) => ALLOWED_ADVERTISING_SOURCES.includes(a.name));
-            if (!freshAdvRes.error && freshAdv.length > 0) {
+            const freshAdv = (freshAdvRes.data || []).filter((a: any) => a && a.is_active !== false);
+            if (!freshAdvRes.error) {
               setAdvertisingSources(freshAdv);
               sessionStorage.setItem("cached_pedidos_adv", JSON.stringify(freshAdv));
               try { localStorage.setItem("cached_pedidos_adv", JSON.stringify(freshAdv)); } catch (e) {}
@@ -2743,8 +2699,8 @@ export default function PedidosPage() {
         setListType(payload.role === 'admin' ? 'todos' : 'mis_pedidos');
 
         if (payload.advertisingSources) {
-          const cleanAdv = (payload.advertisingSources || []).filter((a: any) => a && a.is_active !== false && ALLOWED_ADVERTISING_SOURCES.includes(a.name));
-          if (cleanAdv.length > 0) {
+          const cleanAdv = (payload.advertisingSources || []).filter((a: any) => a && a.is_active !== false);
+          if (Array.isArray(payload.advertisingSources)) {
             setAdvertisingSources(cleanAdv);
             sessionStorage.setItem("cached_pedidos_adv", JSON.stringify(cleanAdv));
             try {
