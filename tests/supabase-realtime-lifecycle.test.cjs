@@ -21,6 +21,8 @@ test('payment statistics updates retain the channel and unmount removes it', () 
   let removed = 0;
   let payments = [];
   let stats = { totalCount: 0, totalAmount: 0 };
+  let refreshes = 0;
+  let scheduledRefresh;
   const handlers = {};
   const channel = {
     on: (_, config, callback) => { handlers[`${config.table}:${config.event}`] = callback; return channel; },
@@ -32,6 +34,9 @@ test('payment statistics updates retain the channel and unmount removes it', () 
     setPayments: update => { payments = update(payments); },
     setStats: update => { stats = update(stats); },
     setIsRealtimeActive: () => {}, playChime: () => {}, loadAccounts: () => {},
+    loadPaymentsRef: { current: () => { refreshes++; } },
+    setTimeout: callback => { scheduledRefresh = callback; return 1; },
+    clearTimeout: () => { scheduledRefresh = undefined; },
     useEffect: (callback, next) => {
       if (!dependencies || next.some((value, index) => value !== dependencies[index])) {
         cleanup?.(); cleanup = callback(); dependencies = next;
@@ -42,8 +47,9 @@ test('payment statistics updates retain the channel and unmount removes it', () 
   const context = vm.createContext(scope);
   script.runInContext(context);
   handlers['mp_payments:INSERT']({ new: { id: 'first', amount: 10 } });
-  assert.equal(stats.totalCount, 1);
-  assert.equal(stats.totalAmount, 10);
+  assert.equal(stats.totalCount, 0, 'a realtime insert must not blindly increment filtered totals');
+  scheduledRefresh();
+  assert.equal(refreshes, 1);
   scope.stats = stats;
   script.runInContext(context);
   assert.equal(opened, 1, 'updating stats reconnected Realtime');
@@ -52,4 +58,5 @@ test('payment statistics updates retain the channel and unmount removes it', () 
   assert.equal(payments[0].amount, 20);
   cleanup();
   assert.equal(removed, 1);
+  assert.equal(scheduledRefresh, undefined, 'unmount cancels the pending refresh');
 });

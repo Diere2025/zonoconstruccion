@@ -25,7 +25,7 @@ test('rejects missing, malformed and impossible calendar dates', () => {
   assert.equal(isMPPaymentOnDay('invalid', '2026-09-29'), false);
 });
 
-async function callList(role, date) {
+async function callList(role, date, options = {}) {
   const fs = require('node:fs');
   const vm = require('node:vm');
   const ts = require('typescript');
@@ -37,7 +37,14 @@ async function callList(role, date) {
       queries.push({ table, calls });
       const query = new Proxy({}, {
         get(_, method) {
-          if (method === 'then') return resolve => resolve({ data: [], error: null });
+          if (method === 'then') return resolve => {
+            const select = calls.findLast(c => c[0] === 'select')?.[1];
+            const range = calls.find(c => c[0] === 'range');
+            const limit = calls.find(c => c[0] === 'limit')?.[1];
+            const rows = options.rows || [];
+            const data = table === 'mp_accounts' ? [] : range ? rows.slice(range[1], range[2] + 1) : rows.slice(0, limit);
+            resolve({ data, error: select === 'amount, id' && options.statsError ? { message: 'Stats unavailable' } : null });
+          };
           if (method === 'maybeSingle') return async () => ({ data: { role, roles: [] } });
           return (...args) => { calls.push([method, ...args]); return query; };
         },
@@ -50,7 +57,7 @@ async function callList(role, date) {
     compilerOptions: { module: ts.ModuleKind.CommonJS },
   }).outputText;
   vm.runInNewContext(code, {
-    exports, process, console, URL,
+    exports, process, console: { ...console, error() {} }, URL,
     require(name) {
       if (name === 'next/server') return { NextResponse: { json: (body, options) => ({ body, status: options?.status || 200 }) } };
       if (name === '@supabase/supabase-js') return { createClient: () => client };
@@ -58,10 +65,11 @@ async function callList(role, date) {
       throw new Error(`Unexpected import ${name}`);
     },
   });
-  const response = await exports.GET(new Request(`https://example.com/api/admin/cobros-mp-data?dateRange=SPECIFIC_DATE&date=${date}`, {
+  const params = new URLSearchParams({ dateRange: 'SPECIFIC_DATE', date, ...options.filters });
+  const response = await exports.GET(new Request(`https://example.com/api/admin/cobros-mp-data?${params}`, {
     headers: { authorization: 'Bearer test' },
   }));
-  return { response, calls: queries.find(q => q.table === 'mp_payments')?.calls };
+  return { response, queries, calls: queries.find(q => q.table === 'mp_payments')?.calls };
 }
 
 test('API queries the requested day for administration', async () => {
@@ -70,6 +78,38 @@ test('API queries the requested day for administration', async () => {
   assert.equal(response.body.effectiveRange, 'SPECIFIC_DATE');
   assert.ok(calls.some(c => c[0] === 'gte' && c[1] === 'received_at' && c[2] === '2026-09-29T03:00:00.000Z'));
   assert.ok(calls.some(c => c[0] === 'lt' && c[1] === 'received_at' && c[2] === '2026-09-30T03:00:00.000Z'));
+});
+
+test('totals and list apply identical filters, including hidden and internal payments', async () => {
+  for (const dateRange of ['TODAY', 'YESTERDAY', 'LAST_3_DAYS', 'LAST_7_DAYS', 'ALL', 'SPECIFIC_DATE']) {
+    const { response, queries } = await callList('admin', '2026-09-26', {
+      filters: { dateRange, accountId: 'cobroszono', type: 'TRANSFERENCIA', linkedStatus: 'LINKED', fleteroFilter: 'WITH_FLETERO', search: 'JS25645', showHidden: 'true', hideInternal: 'true' },
+      rows: [{ amount: 37000 }, { amount: '179100' }],
+    });
+    assert.equal(response.status, 200);
+    assert.equal(response.body.filteredStats.totalCount, 2);
+    assert.equal(response.body.filteredStats.totalAmount, 216100);
+    const paymentQueries = queries.filter(q => q.table === 'mp_payments');
+    const filters = calls => calls.filter(c => !['select', 'order', 'limit', 'range'].includes(c[0]));
+    assert.deepEqual(filters(paymentQueries[0].calls), filters(paymentQueries[1].calls));
+  }
+});
+
+test('historical totals include every page beyond the visible 300 payments', async () => {
+  const rows = Array.from({ length: 1205 }, (_, id) => ({ id: String(id), amount: 10 }));
+  const { response, queries } = await callList('admin', '', { filters: { dateRange: 'ALL' }, rows });
+  assert.equal(response.body.data.length, 300);
+  assert.equal(response.body.filteredStats.totalCount, 1205);
+  assert.equal(response.body.filteredStats.totalAmount, 12050);
+  assert.equal(queries.filter(q => q.calls.some(c => c[0] === 'range')).length, 2);
+});
+
+test('empty filters return zero and statistics errors do not return a misleading amount', async () => {
+  const empty = await callList('admin', '2026-09-26');
+  assert.equal(empty.response.body.filteredStats.totalCount, 0);
+  assert.equal(empty.response.body.filteredStats.totalAmount, 0);
+  const failed = await callList('admin', '2026-09-26', { statsError: true });
+  assert.equal(failed.response.status, 500);
 });
 
 test('API rejects impossible dates before reading payments', async () => {

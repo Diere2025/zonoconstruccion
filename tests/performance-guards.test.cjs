@@ -27,7 +27,7 @@ test('stock sources overlap and historical order pages use bounded batches', () 
   assert.doesNotMatch(unimported, /count: 'exact'/);
 });
 
-test('payment list and daily totals are requested together', () => {
+test('payment list and filtered totals are requested together', () => {
   const route = fs.readFileSync('src/app/api/admin/cobros-mp-data/route.ts', 'utf8');
-  assert.match(route, /Promise\.all\(\[\s*query\.limit\(300\),\s*todayStatsPromise/);
+  assert.match(route, /Promise\.all\(\[\s*query\.limit\(300\),\s*filteredStatsPromise/);
 });

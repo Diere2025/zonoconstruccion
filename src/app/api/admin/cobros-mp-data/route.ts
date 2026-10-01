@@ -159,42 +159,7 @@ export async function GET(request: Request) {
       const fifteenMinsAgoIso = new Date(now.getTime() - 15 * 60 * 1000).toISOString();
       const oneHourAgoIso = new Date(now.getTime() - 60 * 60 * 1000).toISOString();
 
-      let query = supabaseAdmin
-        .from('mp_payments')
-        .select('*')
-        .order('received_at', { ascending: false });
-
-      // Non-admin / non-administracion users NEVER see internal user payments, or if admin explicitly hides them
-      if (!isAdminOrAdminStaff || hideInternal) {
-        query = query.or('is_internal.is.null,is_internal.eq.false');
-      }
-
-      // Hidden filter: only admin and administracion can view hidden items
-      if (isAdminOrAdminStaff && showHidden) {
-        query = query.eq('is_hidden', true);
-      } else {
-        query = query.or('is_hidden.is.null,is_hidden.eq.false');
-      }
-
-      // Date Range Filter with strict Argentina timezone boundaries
-      if (isFletero || dateRange === 'LAST_15_MIN') {
-        query = query.gte('received_at', fifteenMinsAgoIso);
-      } else if (dateRange === 'LAST_HOUR') {
-        query = query.gte('received_at', oneHourAgoIso);
-      } else if (dateRange === 'SPECIFIC_DATE' && specificDayBounds) {
-        query = query.gte('received_at', specificDayBounds.startIso).lt('received_at', specificDayBounds.endExclusiveIso);
-      } else if (dateRange === 'TODAY') {
-        query = query.gte('received_at', todayBounds.startIso).lte('received_at', todayBounds.endIso);
-      } else if (dateRange === 'YESTERDAY') {
-        query = query.gte('received_at', yesterdayBounds.startIso).lte('received_at', yesterdayBounds.endIso);
-      } else if (dateRange === 'YESTERDAY_TODAY') {
-        query = query.gte('received_at', yesterdayBounds.startIso);
-      } else if (dateRange === 'LAST_3_DAYS') {
-        query = query.gte('received_at', threeDaysBounds.startIso);
-      } else if (dateRange === 'LAST_7_DAYS') {
-        query = query.gte('received_at', sevenDaysBounds.startIso);
-      }
-
+      let accountFilter = '';
       if (accountId && accountId !== 'ALL') {
         const cleanAcc = accountId.trim();
         const { data: matchedAccounts } = await supabaseAdmin
@@ -223,68 +188,108 @@ export async function GET(request: Request) {
           orClauses.push(`account_name.ilike."%${n}%"`);
         });
 
-        query = query.or(orClauses.join(','));
+        accountFilter = orClauses.join(',');
       }
 
-      if (type && type !== 'ALL') {
-        query = query.eq('payment_type', type);
-      }
-
-      if (linkedStatus === 'UNLINKED') {
-        // A manually linked order can have a code even when no matching orders row exists.
-        query = query.is('order_id', null).is('order_code', null);
-      } else if (linkedStatus === 'LINKED') {
-        query = query.or('order_id.not.is.null,order_code.not.is.null');
-      }
-
-      if (fleteroFilter === 'WITH_FLETERO') {
-        query = query.not('confirmed_by_fletero_name', 'is', null);
-      } else if (fleteroFilter === 'WITHOUT_FLETERO') {
-        query = query.is('confirmed_by_fletero_name', null);
-      } else if (fleteroFilter && fleteroFilter !== 'ALL') {
-        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(fleteroFilter);
-        if (isUuid) {
-          query = query.or(`confirmed_by_fletero_id.eq.${fleteroFilter},confirmed_by_fletero_name.ilike.%${fleteroFilter}%`);
-        } else {
-          query = query.ilike('confirmed_by_fletero_name', `%${fleteroFilter}%`);
-        }
-      }
-
-      if (search) {
-        query = query.or(`payer_name.ilike.%${search}%,formatted_amount.ilike.%${search}%,raw_body.ilike.%${search}%,order_code.ilike.%${search}%`);
-      }
-
-      // Calculate stats ONLY for Admin & Administracion using exact Argentina Today boundaries.
-      // Start it together with the list query so the endpoint pays only the slower wait.
-      let todayStatsPromise: Promise<{ totalCount: number; totalAmount: number } | null> = Promise.resolve(null);
-      if (isAdminOrAdminStaff) {
-        let todayQ = supabaseAdmin
+      // Both queries use the same filters; totals include matches beyond the 300-row list.
+      const createFilteredQuery = () => {
+        let query = supabaseAdmin
           .from('mp_payments')
-          .select('amount, is_internal')
-          .gte('received_at', todayBounds.startIso)
-          .lte('received_at', todayBounds.endIso)
-          .or('is_hidden.is.null,is_hidden.eq.false');
+          .select('*')
+          .order('received_at', { ascending: false });
 
+        // Non-admin / non-administracion users NEVER see internal user payments, or if admin explicitly hides them
         if (!isAdminOrAdminStaff || hideInternal) {
-          todayQ = todayQ.or('is_internal.is.null,is_internal.eq.false');
+          query = query.or('is_internal.is.null,is_internal.eq.false');
         }
 
-        todayStatsPromise = Promise.resolve(todayQ).then(({ data: todayRecords }) => ({
-          totalCount: todayRecords ? todayRecords.length : 0,
-          totalAmount: todayRecords ? todayRecords.reduce((acc, p) => acc + (Number(p.amount) || 0), 0) : 0
-        }));
-      }
+        // Hidden filter: only admin and administracion can view hidden items
+        if (isAdminOrAdminStaff && showHidden) {
+          query = query.eq('is_hidden', true);
+        } else {
+          query = query.or('is_hidden.is.null,is_hidden.eq.false');
+        }
 
-      const [{ data, error }, todayStats] = await Promise.all([
+        // Date Range Filter with strict Argentina timezone boundaries
+        if (isFletero || dateRange === 'LAST_15_MIN') {
+          query = query.gte('received_at', fifteenMinsAgoIso);
+        } else if (dateRange === 'LAST_HOUR') {
+          query = query.gte('received_at', oneHourAgoIso);
+        } else if (dateRange === 'SPECIFIC_DATE' && specificDayBounds) {
+          query = query.gte('received_at', specificDayBounds.startIso).lt('received_at', specificDayBounds.endExclusiveIso);
+        } else if (dateRange === 'TODAY') {
+          query = query.gte('received_at', todayBounds.startIso).lte('received_at', todayBounds.endIso);
+        } else if (dateRange === 'YESTERDAY') {
+          query = query.gte('received_at', yesterdayBounds.startIso).lte('received_at', yesterdayBounds.endIso);
+        } else if (dateRange === 'YESTERDAY_TODAY') {
+          query = query.gte('received_at', yesterdayBounds.startIso);
+        } else if (dateRange === 'LAST_3_DAYS') {
+          query = query.gte('received_at', threeDaysBounds.startIso);
+        } else if (dateRange === 'LAST_7_DAYS') {
+          query = query.gte('received_at', sevenDaysBounds.startIso);
+        }
+
+        if (accountFilter) query = query.or(accountFilter);
+
+        if (type && type !== 'ALL') {
+          query = query.eq('payment_type', type);
+        }
+
+        if (linkedStatus === 'UNLINKED') {
+          // A manually linked order can have a code even when no matching orders row exists.
+          query = query.is('order_id', null).is('order_code', null);
+        } else if (linkedStatus === 'LINKED') {
+          query = query.or('order_id.not.is.null,order_code.not.is.null');
+        }
+
+        if (fleteroFilter === 'WITH_FLETERO') {
+          query = query.not('confirmed_by_fletero_name', 'is', null);
+        } else if (fleteroFilter === 'WITHOUT_FLETERO') {
+          query = query.is('confirmed_by_fletero_name', null);
+        } else if (fleteroFilter && fleteroFilter !== 'ALL') {
+          const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(fleteroFilter);
+          if (isUuid) {
+            query = query.or(`confirmed_by_fletero_id.eq.${fleteroFilter},confirmed_by_fletero_name.ilike.%${fleteroFilter}%`);
+          } else {
+            query = query.ilike('confirmed_by_fletero_name', `%${fleteroFilter}%`);
+          }
+        }
+
+        if (search) {
+          query = query.or(`payer_name.ilike.%${search}%,formatted_amount.ilike.%${search}%,raw_body.ilike.%${search}%,order_code.ilike.%${search}%`);
+        }
+
+        return query;
+      };
+
+      const query = createFilteredQuery();
+      const filteredStatsPromise = isAdminOrAdminStaff ? (async () => {
+        const pageSize = 1000;
+        let totalCount = 0;
+        let totalAmount = 0;
+        for (let offset = 0; ; offset += pageSize) {
+          const { data: rows, error: statsError } = await createFilteredQuery()
+            .select('amount, id')
+            .order('id', { ascending: false })
+            .range(offset, offset + pageSize - 1);
+          if (statsError) throw statsError;
+          totalCount += rows?.length || 0;
+          totalAmount += (rows || []).reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
+          if (!rows || rows.length < pageSize) break;
+        }
+        return { totalCount, totalAmount };
+      })() : Promise.resolve(null);
+
+      const [{ data, error }, filteredStats] = await Promise.all([
         query.limit(300),
-        todayStatsPromise
+        filteredStatsPromise
       ]);
       if (error) throw error;
 
       return NextResponse.json({
         success: true,
         data: data || [],
-        todayStats,
+        filteredStats,
         effectiveRole: userRole,
         effectiveRange: dateRange
       });

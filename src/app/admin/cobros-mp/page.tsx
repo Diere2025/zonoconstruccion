@@ -885,14 +885,20 @@ export default function CobrosMercadoPagoPage() {
       const data = await res.json();
       if (data.success && requestId === paymentsRequestRef.current) {
         setPayments(data.data || []);
-        setStats(data.todayStats || null);
+        setStats(data.filteredStats || null);
+      } else if (requestId === paymentsRequestRef.current) {
+        setStats(null);
       }
     } catch (e) {
+      if (requestId === paymentsRequestRef.current) setStats(null);
       console.error('Error loading MP payments:', e);
     } finally {
       if (requestId === paymentsRequestRef.current) setIsLoading(false);
     }
   }, [currentUserRole, isRoleLoaded, selectedAccountId, selectedDateRange, selectedDate, selectedType, selectedLinkedStatus, selectedFleteroFilter, search, showHidden, hideInternal]);
+
+  const loadPaymentsRef = useRef(loadPayments);
+  useEffect(() => { loadPaymentsRef.current = loadPayments; }, [loadPayments]);
 
   useEffect(() => {
     loadAccounts();
@@ -923,12 +929,18 @@ export default function CobrosMercadoPagoPage() {
   // Supabase Realtime Subscription
   useEffect(() => {
     if (!isRoleLoaded || currentUserRole === 'seller') return;
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+    const refreshFilteredStats = () => {
+      clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => { void loadPaymentsRef.current(); }, 500);
+    };
     const channel = supabase
       .channel('mp_payments_realtime')
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'mp_payments' },
         (payload) => {
+          refreshFilteredStats();
           const newPayment = payload.new as MPPayment;
           const isStaff = currentUserRole === 'admin' || currentUserRole === 'administracion';
           if (!isStaff && newPayment.is_internal) return;
@@ -937,10 +949,6 @@ export default function CobrosMercadoPagoPage() {
             if (prev.some((p) => p.id === newPayment.id)) return prev;
             return [newPayment, ...prev];
           });
-          setStats((prev) => prev ? ({
-            totalCount: prev.totalCount + 1,
-            totalAmount: prev.totalAmount + (Number(newPayment.amount) || 0)
-          }) : null);
           playChime();
         }
       )
@@ -949,6 +957,7 @@ export default function CobrosMercadoPagoPage() {
         { event: 'UPDATE', schema: 'public', table: 'mp_payments' },
         (payload) => {
           const updated = payload.new as MPPayment;
+          refreshFilteredStats();
           const isStaff = currentUserRole === 'admin' || currentUserRole === 'administracion';
           if (!isStaff && updated.is_internal) {
             setPayments((prev) => prev.filter((p) => p.id !== updated.id));
@@ -962,6 +971,7 @@ export default function CobrosMercadoPagoPage() {
         { event: 'DELETE', schema: 'public', table: 'mp_payments' },
         (payload) => {
           const deletedId = (payload.old as any)?.id;
+          refreshFilteredStats();
           if (deletedId) {
             setPayments((prev) => prev.filter((p) => p.id !== deletedId));
           }
@@ -979,6 +989,7 @@ export default function CobrosMercadoPagoPage() {
       });
 
     return () => {
+      clearTimeout(refreshTimer);
       supabase.removeChannel(channel);
     };
   }, [playChime, currentUserRole, isRoleLoaded, loadAccounts]);
@@ -1693,11 +1704,16 @@ export default function CobrosMercadoPagoPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="p-5 rounded-3xl bg-white border border-slate-200/80 shadow-xs flex items-center justify-between">
               <div>
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Recaudado Hoy</span>
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Recaudado según filtros</span>
                 <div className="text-2xl sm:text-3xl font-black text-[#001538] mt-0.5">
-                  {formatMPAmount(stats.totalAmount)}
+                  {isLoading ? '…' : formatMPAmount(stats.totalAmount)}
                 </div>
-                <span className="text-[11px] text-slate-500 font-medium">Ingresos de hoy en cuentas vinculadas</span>
+                <span className="text-[11px] text-slate-500 font-medium">
+                  {selectedDateRange === 'SPECIFIC_DATE'
+                    ? `Fecha: ${selectedDate.split('-').reverse().join('/')}`
+                    : ({ TODAY: 'Hoy', YESTERDAY: 'Ayer', LAST_3_DAYS: 'Últimos 3 días', LAST_7_DAYS: 'Últimos 7 días', ALL: 'Histórico' } as Record<string, string>)[selectedDateRange] || 'Período seleccionado'}
+                  {' · Filtros activos aplicados'}
+                </span>
               </div>
               <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 font-bold shadow-xs">
                 <Wallet className="w-6 h-6" />
@@ -1706,11 +1722,11 @@ export default function CobrosMercadoPagoPage() {
 
             <div className="p-5 rounded-3xl bg-white border border-slate-200/80 shadow-xs flex items-center justify-between">
               <div>
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Transacciones de Hoy</span>
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Transacciones según filtros</span>
                 <div className="text-2xl sm:text-3xl font-black text-[#001538] mt-0.5">
-                  {stats.totalCount}
+                  {isLoading ? '…' : stats.totalCount}
                 </div>
-                <span className="text-[11px] text-slate-500 font-medium">Cobros recibidos y validados</span>
+                <span className="text-[11px] text-slate-500 font-medium">Cobros que coinciden con los filtros activos</span>
               </div>
               <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center text-[#0069ff] font-bold shadow-xs">
                 <CheckCircle2 className="w-6 h-6" />
