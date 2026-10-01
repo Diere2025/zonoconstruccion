@@ -76,10 +76,7 @@ function formatReport(sales, meta, now = new Date()) {
     '<b>Facturación por tipo de producto</b>',
     ...(sales.categories.length ? sales.categories.map(c => `• ${escape(c.name.slice(0,60))}: ${ars.format(c.revenue)}`) : ['Sin pedidos hoy.']),
     '',
-    '<b>Top 10 productos por facturación</b>',
-    ...(sales.topProducts.length ? sales.topProducts.map((p,i) => `${i+1}. ${escape(p.name.slice(0,70))} — ${p.quantity} u. — ${ars.format(p.revenue)}`) : ['Sin productos vendidos hoy.']),
-    '',
-    '<i>Proyección a las 24:00 según el ritmo del día. Meta: S731.04, importes en USD. Ventas en ARS. El top considera productos con descuentos, sin envío ni impuestos.</i>'
+    '<i>Proyección a las 24:00 según el ritmo del día. Meta: S731.04, importes en USD. Ventas en ARS.</i>'
   ].join('\n');
 }
 async function allRows(build) {
