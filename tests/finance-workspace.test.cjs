@@ -2,6 +2,19 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { workspace } = require('./helpers/finance-workspace.cjs');
 
+test('bank import opens a review modal without synchronizing or replacing movements', () => {
+  const app = workspace();
+  assert.equal(app.state.get('isBankImportOpen'), false);
+  app.toolbar().onSync();
+  assert.equal(app.state.get('isBankImportOpen'), true);
+  app.render();
+  const modal = app.find(element => typeof element.props?.onImported === 'function');
+  assert.ok(modal);
+  assert.equal(app.writes(), 0);
+  modal.props.onClose();
+  assert.equal(app.state.get('isBankImportOpen'), false);
+});
+
 test('movement overflow uses measured available width and reserves space for its menu', () => {
   const fs = require('node:fs');
   const ts = require('typescript');

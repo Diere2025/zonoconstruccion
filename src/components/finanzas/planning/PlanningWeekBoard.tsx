@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState, type DragEvent } from 'react';
-import { AlertTriangle, ArrowRightLeft, Check, CheckCircle2, ChevronDown, GripVertical, Plus, RotateCcw } from 'lucide-react';
+import { AlertTriangle, ArrowRightLeft, Check, CheckCircle2, ChevronDown, GripVertical, Link2, Plus, RotateCcw } from 'lucide-react';
 import type { Fund, Item, ProjectionRow, Realization } from '@/lib/paymentPlanning/model';
 
 type Props = {
@@ -24,6 +24,7 @@ type Props = {
   historicalItemBalances: Record<string, number>;
   historicalItemOrder: Record<string, number>;
   onNewPayment: (date: string, fundId: string) => void;
+  onReconcile: (item: Item, date: string, fundId: string) => void;
   unanchoredFunds: string[];
   working: boolean;
   error: string;
@@ -43,7 +44,7 @@ const dateNumber = (value: string) => `${value.slice(8, 10)}/${value.slice(5, 7)
 
 export default function PlanningWeekBoard({ dates, funds, items, rows, realized, realizationDates, today,
   reliableFrom, historicalOpenings, incomeEntries, reserveEntries, latestRealizations, unreconciledItems,
-  realizedRows, realizationBalances, historicalClosings, historicalItemBalances, historicalItemOrder, onNewPayment,
+  realizedRows, realizationBalances, historicalClosings, historicalItemBalances, historicalItemOrder, onNewPayment, onReconcile,
   unanchoredFunds, working, error, onOpen, onMoveDialog, onRealize, onMove }: Props) {
   const draggedIdRef = useRef<string | null>(null);
   const lastTargetRef = useRef<{ date: string; fundId: string } | null>(null);
@@ -175,6 +176,7 @@ export default function PlanningWeekBoard({ dates, funds, items, rows, realized,
                     {remainder === null ? 'A confirmar' : `${item.kind === 'expense' ? '−' : '+'} ${format(done ? Number(item.amount) : remainder, fund.currency)}`}
                   </span>
                   {(done || partial) && afterPayment !== undefined && <span title={trustworthy ? 'Disponible luego de esta realización, sin ingresos estimados ni pagos pendientes' : 'Saldo de esta fila en la planilla original'} className={`ml-1 shrink-0 border-l pl-1 text-[10px] tabular-nums ${unlinked ? 'border-amber-300' : 'border-emerald-300'}`}>Saldo{!trustworthy ? ' hoja' : ''} <strong>{format(afterPayment, fund.currency)}</strong></span>}
+                  {item.status === 'active' && item.amount !== null && Number(item.amount)>0 && <button type="button" disabled={working} onClick={()=>onReconcile(item,date,fund.id)} title="Conciliar o ver Movimientos vinculados" aria-label={`Conciliar con Movimientos: ${item.title}`} className={`flex shrink-0 items-center gap-0.5 rounded p-0.5 ${unlinked ? 'text-amber-900 hover:bg-amber-200' : 'text-teal-800 hover:bg-teal-100'}`}><Link2 size={13}/>{unlinked && <span className="text-[10px] font-semibold">Conciliar</span>}</button>}
                   {done && <button type="button" onClick={() => onOpen(item)} title="Ver o revertir la realización" aria-label={`Ver o revertir la realización de ${item.title}`} className="shrink-0 rounded p-0.5 text-emerald-800 hover:bg-emerald-200"><RotateCcw size={12} /></button>}
                   {movable && <button type="button" onClick={() => onRealize(item)} title={item.kind === 'expense' ? 'Marcar pago como realizado' : 'Registrar cobro'} aria-label={`${item.kind === 'expense' ? 'Marcar pago como realizado' : 'Registrar cobro'}: ${item.title}`} className="shrink-0 rounded p-0.5 text-emerald-700 hover:bg-emerald-100"><Check size={12} /></button>}
                   {movable && <button type="button" onClick={() => onMoveDialog(item)} title="Mover fecha o caja" aria-label={`Mover fecha o caja: ${item.title}`} className="shrink-0 rounded p-0.5 text-teal-700 hover:bg-teal-100"><ArrowRightLeft size={12} /></button>}

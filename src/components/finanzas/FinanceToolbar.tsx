@@ -129,7 +129,7 @@ export default function FinanceToolbar(p: Props) {
             {openMenu === "actions" && <div className={menu}>
               <button type="button" className={menuItem} onClick={() => run(p.onConcepts)}><Search className="h-3.5 w-3.5" />Administrar conceptos</button>
               <button type="button" className={menuItem} onClick={() => run(p.onExport)}><Download className="h-3.5 w-3.5" />Exportar CSV</button>
-              <button type="button" disabled={p.syncing} className={menuItem} onClick={() => run(p.onSync)}><RefreshCw className={`h-3.5 w-3.5 ${p.syncing ? "animate-spin" : ""}`} />{p.syncing ? "Sincronizando…" : "Sincronizar planillas"}</button>
+              <button type="button" disabled={p.syncing} className={menuItem} onClick={() => run(p.onSync)}><RefreshCw className={`h-3.5 w-3.5 ${p.syncing ? "animate-spin" : ""}`} />{p.syncing ? "Importando…" : "Importar bancos · sólo faltantes"}</button>
             </div>}
           </div>
         </div>

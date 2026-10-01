@@ -34,6 +34,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import FinanceToolbar, { type QuickMovement, type OptionalFinanceColumn } from "@/components/finanzas/FinanceToolbar";
 import SupplierAccounts from "@/components/finanzas/SupplierAccounts";
 import FinancialConceptManager from "@/components/finanzas/FinancialConceptManager";
+import BankSheetImportModal from "@/components/finanzas/BankSheetImportModal";
 import SearchableSelect from "@/components/ui/SearchableSelect";
 import { financialAccountLabel } from "@/lib/financialAccountLabels";
 import type { FinancialConcept } from "@/lib/financialConcepts";
@@ -223,6 +224,7 @@ interface PendingOrder {
 }
 
 interface CashTransactionWithRelations {
+  treasury_settlement_id?: string | null;
   id: string;
   register_id: string | null;
   type: 'ingreso' | 'egreso';
@@ -498,8 +500,7 @@ function FinanceWorkspace() {
   const columnCount = 8 + Object.values(optionalColumns).filter(Boolean).length;
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [syncProgress, setSyncProgress] = useState("");
+  const [isBankImportOpen, setIsBankImportOpen] = useState(false);
   const [transactionNotice, setTransactionNotice] = useState<string | null>(null);
 
   // Lists from DB
@@ -891,454 +892,7 @@ function FinanceWorkspace() {
     }
   };
 
-  interface SpreadsheetTransaction {
-    type: 'ingreso' | 'egreso';
-    category: string;
-    sub_category: string | null;
-    business_unit: string;
-    amount: number;
-    currency: 'ARS' | 'USD';
-    exchange_rate: number;
-    concept: string;
-    notes?: string | null;
-    created_at: string;
-    payment_method_id: string;
-    financial_account_id?: string;
-  }
-
-  const handleSyncFromSheets = async () => {
-    const confirmSync = window.confirm(
-      "¿Deseas sincronizar el flujo de caja con las planillas de Google Sheets?\n\n" +
-      "• Se eliminarán los movimientos importados previamente.\n" +
-      "• Se mantendrán intactos los movimientos que hayas cargado manualmente desde esta aplicación.\n" +
-      "• Se recalcularán los saldos iniciales automáticamente para coincidir con el saldo real de cada cuenta."
-    );
-    if (!confirmSync) return;
-
-    setIsSyncing(true);
-    setSyncProgress("Iniciando conexión con Google Sheets...");
-    
-    try {
-      // 1. Fetch payment methods and accounts from DB dynamically
-      const [pmsRes, faRes] = await Promise.all([
-        supabase.from('payment_methods').select('id, name'),
-        supabase.from('financial_accounts').select('id, name, currency')
-      ]);
-
-      if (pmsRes.error) throw pmsRes.error;
-      if (faRes.error) throw faRes.error;
-
-      const pms = pmsRes.data || [];
-      const dbAccs = faRes.data || [];
-
-      const pmEfectivoId = pms.find(p => /efectivo|^contado$/i.test(p.name || ""))?.id;
-      const pmTransferenciaId = pms.find(p => p.name.toLowerCase().includes("transferencia") || p.name.toLowerCase().includes("mercado"))?.id;
-
-      const adminUserId = '381df0d1-183f-4ccb-aaf2-8147c76159a9';
-
-      if (!pmEfectivoId || !pmTransferenciaId) {
-        throw new Error("No se encontraron los medios de pago ('Efectivo' o 'Transferencia') configurados en la base de datos.");
-      }
-
-      const dbAccountsMap: Record<string, { id: string; currency: string }> = {};
-      dbAccs.forEach(r => {
-        dbAccountsMap[r.name] = { id: r.id, currency: r.currency };
-      });
-
-      // Account name mappings from sheet values to DB values
-      const sheetToDbMapping: Record<string, { dbName: string; currency: string; isCash: boolean }> = {
-        'Caja.EfectivoPesos': { dbName: 'Caja Efectivo Pesos', currency: 'ARS', isCash: true },
-        'Cuenta.MP1': { dbName: 'Cuenta MP1', currency: 'ARS', isCash: false },
-        'Cuenta.MP2': { dbName: 'Cuenta MP2', currency: 'ARS', isCash: false },
-        'Cuenta.MP3': { dbName: 'Cuenta MP3', currency: 'ARS', isCash: false },
-        'Cuenta.MP4': { dbName: 'Cuenta MP4', currency: 'ARS', isCash: false },
-        'Cuenta.MP5': { dbName: 'Cuenta MP5', currency: 'ARS', isCash: false },
-        'Cuenta.MPCaro': { dbName: 'Cuenta MP3', currency: 'ARS', isCash: false },
-        'Cuenta.Galicia': { dbName: 'Cuenta Galicia', currency: 'ARS', isCash: false },
-        'Galicia.Mas': { dbName: 'Galicia.Mas', currency: 'ARS', isCash: false },
-        'Cuenta.GaliciaMas': { dbName: 'Galicia.Mas', currency: 'ARS', isCash: false },
-        'Visa.Galicia': { dbName: 'Visa.Galicia', currency: 'ARS', isCash: false },
-        'Cuenta.VisaGalicia': { dbName: 'Visa.Galicia', currency: 'ARS', isCash: false },
-        'Cuenta.Santander': { dbName: 'Cuenta Santander', currency: 'ARS', isCash: false },
-        'Cuenta.ICBC': { dbName: 'Cuenta ICBC', currency: 'ARS', isCash: false },
-        'Inversiones': { dbName: 'Inversiones', currency: 'ARS', isCash: false },
-        'Caja.USD': { dbName: 'Caja Efectivo Dólares', currency: 'USD', isCash: true }
-      };
-
-      const balanceTargets = [
-        { id: movimientosSpreadsheetId, sheet: 'Movimientos - Caja', name: 'Caja.EfectivoPesos', colName: 'Saldo' },
-        { id: movimientosSpreadsheetId, sheet: 'Movimientos - Caja USD', name: 'Caja.USD', colName: 'Saldo' },
-        { id: bancosSpreadsheetId, sheet: 'Bancos - MercadoPago1', name: 'Cuenta.MP1', colName: 'Saldo' },
-        { id: bancosSpreadsheetId, sheet: 'Bancos - MercadoPago2', name: 'Cuenta.MP2', colName: 'Saldo' },
-        { id: bancosSpreadsheetId, sheet: 'Bancos - MercadoPago3', name: 'Cuenta.MP3', colName: 'Saldo' },
-        { id: bancosSpreadsheetId, sheet: 'Bancos - MercadoPago4', name: 'Cuenta.MP4', colName: 'Saldo' },
-        { id: bancosSpreadsheetId, sheet: 'Bancos - Galicia', name: 'Cuenta.Galicia', colName: 'Saldo' },
-        { id: bancosSpreadsheetId, sheet: 'Bancos - Galicia.Mas', name: 'Cuenta.GaliciaMas', colName: 'Saldo' },
-        { id: bancosSpreadsheetId, sheet: 'Bancos - Visa.Galicia', name: 'Cuenta.VisaGalicia', colName: 'Saldo' },
-        { id: bancosSpreadsheetId, sheet: 'Bancos - Santander', name: 'Cuenta.Santander', colName: 'Saldo' },
-        { id: bancosSpreadsheetId, sheet: 'Bancos - ICBC', name: 'Cuenta.ICBC', colName: 'Saldo' },
-        { id: bancosSpreadsheetId, sheet: 'Bancos - Inversiones', name: 'Inversiones', colName: 'Saldo' }
-      ];
-
-      // Helper to fetch Google Sheets CSV via Next.js server-side proxy (bypasses browser CORS / network restrictions)
-      const fetchSheetCsv = async (url: string): Promise<string> => {
-        const proxyUrl = `/api/admin/finanzas-data?action=fetch-sheet&url=${encodeURIComponent(url)}`;
-        const res = await fetch(proxyUrl);
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.error || `Error al conectar con la planilla (${res.status})`);
-        }
-        const json = await res.json();
-        if (!json.success || typeof json.csv !== 'string') {
-          throw new Error(json.error || "No se recibieron datos de la planilla");
-        }
-        return json.csv;
-      };
-
-      // 2. Fetch expected balances
-      setSyncProgress("Obteniendo saldos finales esperados desde las cuentas...");
-      const expectedBalances: Record<string, number> = {};
-      
-      for (const t of balanceTargets) {
-        try {
-          const url = `https://docs.google.com/spreadsheets/d/${t.id}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(t.sheet)}`;
-          const csvText = await fetchSheetCsv(url);
-          const rows = parseCSV(csvText);
-          
-          let headerIdx = -1;
-          for (let i = 0; i < Math.min(10, rows.length); i++) {
-            if (rows[i].includes(t.colName)) {
-              headerIdx = i;
-              break;
-            }
-          }
-          if (headerIdx === -1) continue;
-          
-          const headers = rows[headerIdx];
-          const saldoIdx = headers.indexOf(t.colName);
-          const fechaIdx = headers.findIndex(h => h.toLowerCase().includes('fecha'));
-          const conceptoIdx = headers.findIndex(h => h.toLowerCase().includes('concepto') || h.toLowerCase().includes('detalle'));
-
-          let lastBalance = 0;
-          for (let i = rows.length - 1; i > headerIdx; i--) {
-            const row = rows[i];
-            const hasDate = fechaIdx !== -1 && row[fechaIdx] && row[fechaIdx].trim().length > 0;
-            const hasConcept = conceptoIdx !== -1 && row[conceptoIdx] && row[conceptoIdx].trim().length > 0;
-            const hasSaldo = saldoIdx !== -1 && row[saldoIdx] && row[saldoIdx].trim().length > 0;
-
-            if ((hasDate || hasConcept) && hasSaldo) {
-              lastBalance = parseSpanishFloat(row[saldoIdx]);
-              break;
-            }
-          }
-          expectedBalances[t.name] = lastBalance;
-        } catch (errBal: any) {
-          console.warn(`[Finanzas Sync] No se pudo leer saldo de [${t.sheet}]: ${errBal.message}`);
-        }
-      }
-
-      const expectedDbBalances: Record<string, number> = {
-        'Caja Efectivo Pesos': expectedBalances['Caja.EfectivoPesos'] || 0,
-        'Caja Efectivo Dólares': expectedBalances['Caja.USD'] || 0,
-        'Cuenta MP1': expectedBalances['Cuenta.MP1'] || 0,
-        'Cuenta MP2': expectedBalances['Cuenta.MP2'] || 0,
-        'Cuenta MP3': expectedBalances['Cuenta.MP3'] || 0,
-        'Cuenta MP4': expectedBalances['Cuenta.MP4'] || 0,
-        'Cuenta Galicia': expectedBalances['Cuenta.Galicia'] || 0,
-        'Galicia.Mas': expectedBalances['Cuenta.GaliciaMas'] || 0,
-        'Visa.Galicia': expectedBalances['Cuenta.VisaGalicia'] || 0,
-        'Cuenta Santander': expectedBalances['Cuenta.Santander'] || 0,
-        'Cuenta ICBC': expectedBalances['Cuenta.ICBC'] || 0,
-        'Inversiones': expectedBalances['Inversiones'] || 0
-      };
-
-      // 3. Clear previous imported transactions
-      setSyncProgress("Limpiando transacciones importadas anteriormente...");
-      const { error: deleteErr } = await supabase
-        .from('cash_transactions')
-        .delete()
-        .eq('is_imported', true);
-      if (deleteErr) throw deleteErr;
-
-      // 4. Query net sum of app-entered transactions (is_imported = false)
-      setSyncProgress("Analizando movimientos manuales cargados en la App...");
-      const { data: appTxs, error: appTxsErr } = await supabase
-        .from('cash_transactions')
-        .select('financial_account_id, type, amount')
-        .eq('is_imported', false);
-      if (appTxsErr) throw appTxsErr;
-
-      const appNets: Record<string, number> = {};
-      (appTxs || []).forEach(tx => {
-        const accId = tx.financial_account_id;
-        if (!accId) return;
-        if (!appNets[accId]) appNets[accId] = 0;
-        const amount = Number(tx.amount) || 0;
-        if (tx.type === 'ingreso') {
-          appNets[accId] += amount;
-        } else {
-          appNets[accId] -= amount;
-        }
-      });
-
-      // 5. Download and Parse Finanzas tab (ARS Transactions)
-      setSyncProgress("Descargando movimientos en Pesos (ARS)...");
-      const finanzasUrl = `https://docs.google.com/spreadsheets/d/${finanzasSpreadsheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent('Finanzas - Finanzas')}`;
-      const finanzasCSV = await fetchSheetCsv(finanzasUrl);
-      const finanzasRows = parseCSV(finanzasCSV);
-
-      // Group ARS transactions by DB Account Name
-      const arsTransactionsGrouped: Record<string, SpreadsheetTransaction[]> = {};
-      Object.keys(dbAccountsMap).forEach(name => {
-        arsTransactionsGrouped[name] = [];
-      });
-
-      for (let i = 1; i < finanzasRows.length; i++) {
-        const row = finanzasRows[i];
-        if (row.length < 8) continue;
-        
-        const subCat = row[0];
-        const dateStr = row[1];
-        const concept = row[2];
-        const cat = row[3];
-        const businessUnit = row[4] || 'ZONO';
-        const typeStr = row[5];
-        const amountStr = row[6];
-        const sheetAccount = row[7];
-
-        if (!sheetAccount) continue;
-        const mapping = sheetToDbMapping[sheetAccount];
-        if (!mapping) continue;
-
-        const dbAccName = mapping.dbName;
-        const amount = parseSpanishFloat(amountStr);
-        if (amount <= 0) continue;
-
-        arsTransactionsGrouped[dbAccName].push({
-          type: typeStr === 'Ingreso' ? 'ingreso' : 'egreso',
-          category: cat || 'Otro',
-          sub_category: subCat || null,
-          business_unit: businessUnit,
-          amount: amount,
-          currency: 'ARS',
-          exchange_rate: 1.0,
-          concept: concept || 'Movimiento sin concepto',
-          created_at: parseSpanishDate(dateStr).toISOString(),
-          payment_method_id: mapping.isCash ? pmEfectivoId : pmTransferenciaId
-        });
-      }
-
-      // 6. Calculate and insert Initial Balances for ARS Accounts
-      setSyncProgress("Calculando saldos iniciales de cada cuenta...");
-      const allInsertions: SpreadsheetTransaction[] = [];
-
-      for (const [dbAccName, accInfo] of Object.entries(dbAccountsMap)) {
-        if (accInfo.currency !== 'ARS') continue;
-
-        let txSum = 0;
-        arsTransactionsGrouped[dbAccName].forEach(tx => {
-          if (tx.type === 'ingreso') {
-            txSum += tx.amount;
-          } else {
-            txSum -= tx.amount;
-          }
-        });
-
-        const appNet = appNets[accInfo.id] || 0;
-        const expectedFinal = expectedDbBalances[dbAccName];
-        // MP5 is present in the central Finanzas sheet but has no separate balance tab.
-        // Its first movements are from September 2026, so do not manufacture an
-        // offsetting opening balance when the full sheet sync is run later.
-        const initialBalance = dbAccName === 'Cuenta MP5' ? 0 : expectedFinal - txSum - appNet;
-
-        if (Math.abs(initialBalance) > 0.01) {
-          const isCash = dbAccName === 'Caja Efectivo Pesos';
-          allInsertions.push({
-            financial_account_id: accInfo.id,
-            type: initialBalance >= 0 ? 'ingreso' : 'egreso',
-            category: 'ingreso_capital',
-            sub_category: 'Saldo Inicial',
-            business_unit: 'ZONO',
-            amount: Math.abs(initialBalance),
-            currency: 'ARS',
-            exchange_rate: 1.0,
-            concept: 'Saldo Inicial al 01/01/2026',
-            created_at: '2026-01-01T12:00:00.000Z',
-            payment_method_id: isCash ? pmEfectivoId : pmTransferenciaId
-          });
-        }
-
-        arsTransactionsGrouped[dbAccName].forEach(tx => {
-          allInsertions.push({
-            ...tx,
-            financial_account_id: accInfo.id
-          });
-        });
-      }
-
-      // 7. Download and Parse Caja USD
-      setSyncProgress("Descargando movimientos en Dólares (USD)...");
-      const usdUrl = `https://docs.google.com/spreadsheets/d/${movimientosSpreadsheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent('Movimientos - Caja USD')}`;
-      const usdCSV = await fetchSheetCsv(usdUrl);
-      const usdRows = parseCSV(usdCSV);
-
-      const usdAccountId = dbAccountsMap['Caja Efectivo Dólares']?.id;
-      if (usdAccountId) {
-        for (let i = 1; i < usdRows.length; i++) {
-          const row = usdRows[i];
-          if (row.length < 8) continue;
-
-          const concept = row[1];
-          const dateStr = row[2];
-          const detail = row[3];
-          const cat = row[4];
-          const subCat = row[5];
-          const typeStr = row[6];
-          const amountStr = row[7];
-          const obs = row[13];
-          const cotizacionStr = row[17];
-
-          const amount = parseSpanishFloat(amountStr);
-          if (amount <= 0) continue;
-
-          const exchangeRate = parseSpanishFloat(cotizacionStr) || 1.0;
-          const notes = [detail, obs].filter(Boolean).join(' - ');
-
-          allInsertions.push({
-            financial_account_id: usdAccountId,
-            type: typeStr === 'Ingreso' ? 'ingreso' : 'egreso',
-            category: cat || 'Otro',
-            sub_category: subCat || null,
-            business_unit: 'ZONO',
-            amount: amount,
-            currency: 'USD',
-            exchange_rate: exchangeRate,
-            concept: concept || 'Movimiento sin concepto',
-            notes: notes || null,
-            created_at: parseSpanishDate(dateStr).toISOString(),
-            payment_method_id: pmEfectivoId
-          });
-        }
-      }
-
-      // 8. Bulk Insert into DB in chunks of 500
-      const chunkSize = 500;
-      const totalChunks = Math.ceil(allInsertions.length / chunkSize);
-      for (let i = 0; i < allInsertions.length; i += chunkSize) {
-        const chunk = allInsertions.slice(i, i + chunkSize);
-        setSyncProgress(`Insertando movimientos en base de datos (Lote ${Math.floor(i / chunkSize) + 1} de ${totalChunks})...`);
-        
-        const preparedChunk = chunk.map(item => ({
-          ...item,
-          created_by: userId || adminUserId,
-          is_imported: true
-        }));
-
-        const { error: insertErr } = await supabase
-          .from('cash_transactions')
-          .insert(preparedChunk);
-
-        if (insertErr) throw insertErr;
-      }
-
-      // 9. Build Reconciliation & Audit Report
-      const rep: AccountReconciliation[] = [];
-      for (const [dbAccName, accInfo] of Object.entries(dbAccountsMap)) {
-        if (accInfo.currency === 'ARS') {
-          let incSum = 0;
-          let expSum = 0;
-          let txSum = 0;
-          (arsTransactionsGrouped[dbAccName] || []).forEach(tx => {
-            if (tx.type === 'ingreso') {
-              incSum += tx.amount;
-              txSum += tx.amount;
-            } else {
-              expSum += tx.amount;
-              txSum -= tx.amount;
-            }
-          });
-
-          const appNet = appNets[accInfo.id] || 0;
-          const sheetDeclared = dbAccName === 'Cuenta MP5'
-            ? (INITIAL_BALANCES_2026[dbAccName] ?? 0) + txSum + appNet
-            : expectedDbBalances[dbAccName] ?? 0;
-          const initialBal = INITIAL_BALANCES_2026[dbAccName] ?? 0;
-          const calculatedBalance = initialBal + txSum + appNet;
-          const diff = sheetDeclared - calculatedBalance;
-
-          rep.push({
-            id: accInfo.id,
-            accountName: dbAccName,
-            currency: 'ARS',
-            initialBalance: initialBal,
-            calculatedBalance: calculatedBalance,
-            sheetDeclaredBalance: sheetDeclared,
-            difference: diff,
-            isExact: Math.abs(diff) < 1,
-            txCount: (arsTransactionsGrouped[dbAccName] || []).length,
-            totalIncome: incSum,
-            totalExpense: expSum,
-            appNet: appNet
-          });
-        }
-      }
-
-      if (usdAccountId) {
-        let usdIncSum = 0;
-        let usdExpSum = 0;
-        let usdTxSum = 0;
-        for (let i = 1; i < usdRows.length; i++) {
-          const row = usdRows[i];
-          if (row.length < 8) continue;
-          const typeStr = row[6];
-          const amount = parseSpanishFloat(row[7]);
-          if (amount <= 0) continue;
-          if (typeStr === 'Ingreso') {
-            usdIncSum += amount;
-            usdTxSum += amount;
-          } else {
-            usdExpSum += amount;
-            usdTxSum -= amount;
-          }
-        }
-        const usdDeclared = expectedDbBalances['Caja Efectivo Dólares'] ?? 0;
-        rep.push({
-          id: usdAccountId,
-          accountName: 'Caja Efectivo Dólares',
-          currency: 'USD',
-          initialBalance: 0,
-          calculatedBalance: usdDeclared,
-          sheetDeclaredBalance: usdDeclared,
-          difference: usdDeclared - usdTxSum,
-          isExact: Math.abs(usdDeclared - usdTxSum) < 0.01,
-          txCount: usdRows.length - 1,
-          totalIncome: usdIncSum,
-          totalExpense: usdExpSum,
-          appNet: 0
-        });
-      }
-
-      setReconciliationReport(rep);
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('zono_finanzas_reconciliation', JSON.stringify(rep));
-      }
-
-      setSyncProgress("Refrescando paneles y vistas...");
-      await Promise.all([
-        loadTransactions(),
-        loadFinancialAccounts()
-      ]);
-
-      setIsReconciliationModalOpen(true);
-
-    } catch (err) {
-      console.error(err);
-      alert("Error al sincronizar con planillas: " + (err as Error).message);
-    } finally {
-      setIsSyncing(false);
-      setSyncProgress("");
-    }
-  };
+  const handleSyncFromSheets = () => setIsBankImportOpen(true);
 
   // =========================================================================
   // MANEJO DE ACCIONES Y ENVIOS
@@ -1612,7 +1166,7 @@ function FinanceWorkspace() {
       let targetTxId = "";
       if (editingTx) {
         // Clean and reverse old links
-        await reverseAndCleanLinks(editingTx.id);
+        if (!editingTx.treasury_settlement_id) await reverseAndCleanLinks(editingTx.id);
 
         const { error: updateError } = await supabase
           .from('cash_transactions')
@@ -1667,7 +1221,7 @@ function FinanceWorkspace() {
       }
 
       // Vincular Proveedores si corresponde
-      if (txCategory === "Proveedores" && selectedSupplierId) {
+      if (!editingTx?.treasury_settlement_id && txCategory === "Proveedores" && selectedSupplierId) {
         const { error: payErr } = await supabase
           .from('supplier_payments')
           .insert({
@@ -1699,7 +1253,7 @@ function FinanceWorkspace() {
       }
 
       // Vincular Cobro/Ventas si corresponde
-      if (txCategory === "Recaudación" && linkToOrder && selectedOrderId) {
+      if (!editingTx?.treasury_settlement_id && txCategory === "Recaudación" && linkToOrder && selectedOrderId) {
         const ord = selectedOrder || pendingOrders.find(o => o.id === selectedOrderId);
         const { error: payErr } = await supabase
           .from('client_payments')
@@ -2435,7 +1989,7 @@ function FinanceWorkspace() {
             onClear={() => { setSearchTerm(""); setFilterAccountId("all"); setFilterType("all"); setFilterCategory("all"); setFilterCostCenterId("all"); handlePresetChange("30dias"); setCurrentPage(1); }}
             onRefresh={() => { void loadTransactions(); }} onNew={openQuickMovement} onTransfer={() => openQuickTransfer()}
             onConcepts={() => setIsConceptManagerOpen(true)} onExport={handleExportCSV} onSync={handleSyncFromSheets}
-            syncing={isSyncing} disabled={Boolean(initDataError && financialAccounts.length === 0)}
+            syncing={false} disabled={Boolean(initDataError && financialAccounts.length === 0)}
             showSummary={showSummary} onSummary={toggleSummary} columns={optionalColumns} onColumn={toggleColumn}
           />
 
@@ -4279,24 +3833,7 @@ function FinanceWorkspace() {
         </div>
       )}
       
-      {isSyncing && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl flex flex-col items-center text-center space-y-4 border border-slate-100">
-            <div className="w-16 h-16 rounded-2xl bg-brand-50 flex items-center justify-center text-brand-600 animate-bounce">
-              <RefreshCw className="w-8 h-8 animate-spin" />
-            </div>
-            <h3 className="font-black text-lg text-slate-800 uppercase tracking-wide">Sincronizando</h3>
-            <p className="text-slate-500 text-xs font-semibold leading-relaxed">
-              Estamos conectando con las planillas de Google Sheets y actualizando la base de datos de forma segura.
-            </p>
-            <div className="bg-slate-50 border border-slate-100 rounded-2xl px-4 py-2.5 w-full">
-              <span className="text-brand-600 font-bold text-xs animate-pulse">
-                {syncProgress}
-              </span>
-            </div>
-          </div>
-        </div>
-      )}
+      {isBankImportOpen && <BankSheetImportModal onClose={() => setIsBankImportOpen(false)} onImported={async () => { await Promise.all([loadTransactions(), loadFinancialAccounts()]); }}/>}
 
       {/* Modal de Auditoría y Conciliación de Cajas y Bancos */}
       {isReconciliationModalOpen && (

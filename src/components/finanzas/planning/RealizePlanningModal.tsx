@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { CalendarDays, X } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { createAuthenticatedRequester } from '@/lib/authenticatedRequest';
@@ -14,6 +14,7 @@ type Props = {
   item: Item; sourceFund: Fund; funds: Fund[]; initialAmount: string; initialDate: string;
   working: boolean; error: string; onClose: () => void;
   heading?: string; initialNotes?: string; onBack?: () => void;
+  movementOnly?: boolean;
   onSave: (action: string, payload: Record<string, unknown>) => Promise<boolean>;
 };
 
@@ -33,13 +34,13 @@ const defaultAccount = (accounts: Account[], fund: Fund) => {
 };
 
 export default function RealizePlanningModal({ item, sourceFund, funds, initialAmount, initialDate,
-  working, error, onClose, onSave, heading, initialNotes = '', onBack }: Props) {
+  working, error, onClose, onSave, heading, initialNotes = '', onBack, movementOnly = false }: Props) {
   const [amount, setAmount] = useState(initialAmount);
   const [date, setDate] = useState(initialDate);
   const [dateDraft, setDateDraft] = useState(() => dateNumber(initialDate));
   const [fundId, setFundId] = useState(item.fund_id);
   const [notes, setNotes] = useState(initialNotes);
-  const [withMovement, setWithMovement] = useState(false);
+  const [withMovement, setWithMovement] = useState(movementOnly);
   const [options, setOptions] = useState<Options | null>(null);
   const [loadingOptions, setLoadingOptions] = useState(false);
   const [accountId, setAccountId] = useState('');
@@ -48,10 +49,8 @@ export default function RealizePlanningModal({ item, sourceFund, funds, initialA
   const [detail, setDetail] = useState(item.title);
   const [localError, setLocalError] = useState('');
 
-  const enableMovement = async (checked: boolean) => {
-    setWithMovement(checked);
+  const loadMovementOptions = useCallback(async () => {
     setLocalError('');
-    if (!checked || options) return;
     setLoadingOptions(true);
     try {
       const loaded = await api('/api/admin/payment-planning?action=movement_options') as Options;
@@ -63,6 +62,15 @@ export default function RealizePlanningModal({ item, sourceFund, funds, initialA
       if (exact.length === 1) setConceptId(exact[0].id);
     } catch (cause) { setLocalError(cause instanceof Error ? cause.message : 'No se pudieron cargar las cajas y conceptos.'); }
     finally { setLoadingOptions(false); }
+  }, [sourceFund,item.kind,item.title]);
+  useEffect(() => {
+    if (!movementOnly) return;
+    const timer = setTimeout(() => { void loadMovementOptions(); },0);
+    return () => clearTimeout(timer);
+  }, [movementOnly,loadMovementOptions]);
+  const enableMovement = async (checked: boolean) => {
+    setWithMovement(checked);
+    if (checked && !options) await loadMovementOptions();
   };
   const compatibleAccounts = (options?.accounts || []).filter(account => account.is_active && account.currency === sourceFund.currency);
   const compatibleConcepts = (options?.concepts || []).filter(concept => concept.is_active &&
@@ -97,7 +105,7 @@ export default function RealizePlanningModal({ item, sourceFund, funds, initialA
           <span className="relative flex h-5 w-5 items-center justify-center text-slate-500"><CalendarDays size={16} aria-hidden="true"/><input type="date" aria-label="Elegir fecha de realización" value={date} onChange={event=>{if(event.target.value){setDate(event.target.value);setDateDraft(dateNumber(event.target.value));}}} className="absolute inset-0 h-full w-full cursor-pointer opacity-0"/></span>
         </span>
       </label>
-      <label className="flex items-center gap-2 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-sm font-medium text-teal-900"><input type="checkbox" checked={withMovement} onChange={event=>void enableMovement(event.target.checked)}/> Generar también un Movimiento</label>
+      {movementOnly ? <p className="rounded-lg bg-teal-50 p-2 text-xs text-teal-900">El Movimiento quedará vinculado a esta tarjeta. Los importes ya realizados se concilian sin volver a descontarlos.</p> : <label className="flex items-center gap-2 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-sm font-medium text-teal-900"><input type="checkbox" checked={withMovement} onChange={event=>void enableMovement(event.target.checked)}/> Generar también un Movimiento</label>}
       {withMovement ? <div className="space-y-3 rounded-xl border border-slate-200 p-3">
         <p className="text-xs text-slate-600">Tipo en Movimientos: <strong>{item.kind === 'expense' ? 'Egreso (Salida)' : 'Ingreso (Entrada)'}</strong></p>
         {loadingOptions ? <p className="text-xs text-slate-500">Cargando cajas y conceptos…</p> : <>
