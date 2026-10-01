@@ -415,6 +415,7 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
     if (hasRole('compras')) {
       allowedPaths.add('/admin/stock');
       allowedPaths.add('/admin/compras');
+      allowedPaths.add('/admin/importar-pedidos');
     }
 
     const pathAllowed = Array.from(allowedPaths).some(route => {

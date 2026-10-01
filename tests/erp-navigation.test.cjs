@@ -44,6 +44,25 @@ test('restricted sellers receive wholesale links only when individually enabled'
   assert.ok(!enabled.includes('/vendedores/cotizaciones?channel=minorista'));
 });
 
+test('Compras can open sheet synchronization from the menu and route guard', () => {
+  const route = '/admin/importar-pedidos';
+  for (const roles of [['compras'], ['admin'], ['administracion', 'compras']]) {
+    assert.ok(urls(visibleErpModules(identity(roles))).includes(route));
+  }
+  for (const role of ['seller', 'administracion', 'logistica', 'fletero']) {
+    assert.ok(!urls(visibleErpModules(identity([role]))).includes(route), role);
+  }
+
+  const layout = fs.readFileSync('src/components/ui/AdminLayout.tsx', 'utf8');
+  const guard = layout.match(/const canAccessSpecializedRoute = useCallback\(\(path: string, search: string\) => \{([\s\S]*?)\}, \[hasRole, isAdminRole\]\);/)[1];
+  const compiled = ts.transpileModule(`function canAccess(path: string, search: string) {${guard}}`, {}).outputText;
+  const canOpen = roles => vm.runInNewContext(`${compiled}\ncanAccess('${route}', '')`, {
+    isAdminRole: roles.includes('admin'), hasRole: role => roles.includes(role), Set, Array, URLSearchParams
+  });
+  for (const roles of [['compras'], ['admin'], ['administracion', 'compras']]) assert.equal(canOpen(roles), true);
+  for (const role of ['administracion', 'logistica', 'fletero']) assert.equal(canOpen([role]), false, role);
+});
+
 test('restricted wholesale sellers can open saved wholesale quotes directly', () => {
   const layout = fs.readFileSync('src/components/ui/AdminLayout.tsx', 'utf8');
   const expression = layout.match(/const isWholesaleRoute =([\s\S]*?);/)[1];

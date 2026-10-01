@@ -109,7 +109,7 @@ export const erpModules: ErpModule[] = [
     { id: "soporte-2", name: "Recursos y Preguntas Frecuentes", href: "/vendedores/recursos", icon: BookOpen },
     { id: "soporte-3", name: "Gestión de Usuarios", href: "/admin/vendedores", icon: Users, adminOnly: true },
     { id: "soporte-4", name: "Configuración General", href: "/admin/ajustes", icon: Settings, adminOnly: true },
-    { id: "soporte-5", name: "Sincronizar Planillas", href: "/admin/importar-pedidos", icon: Upload, adminOnly: true },
+    { id: "soporte-5", name: "Sincronizar Planillas", href: "/admin/importar-pedidos", icon: Upload, allowedRoles: ['admin', 'compras'] },
   ] },
 ];
 
