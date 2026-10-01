@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
+import { isMPPaymentOnDay } from '@/lib/mpPaymentDate';
 import { 
   ShieldCheck, 
   Search, 
@@ -201,6 +202,8 @@ export default function CobrosMercadoPagoPage() {
     }
     return 'LAST_3_DAYS';
   });
+  const [selectedDate, setSelectedDate] = useState('');
+  const paymentsRequestRef = useRef(0);
   const [showHidden, setShowHidden] = useState(false);
   const [hideInternal, setHideInternal] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
@@ -360,6 +363,7 @@ export default function CobrosMercadoPagoPage() {
 
   const filteredPayments = useMemo(() => {
     return payments.filter((p) => {
+      if (selectedDateRange === 'SPECIFIC_DATE' && !isMPPaymentOnDay(p.received_at, selectedDate)) return false;
       // Realtime updates can change a payment's link after the server filtered the list.
       const isLinked = Boolean(p.order_id || p.order_code?.trim());
       if (selectedLinkedStatus === 'UNLINKED' && isLinked) return false;
@@ -395,7 +399,7 @@ export default function CobrosMercadoPagoPage() {
       }
       return true;
     });
-  }, [payments, selectedAccountId, selectedLinkedStatus, selectedFleteroFilter, getAccountDisplay, hideInternal]);
+  }, [payments, selectedDateRange, selectedDate, selectedAccountId, selectedLinkedStatus, selectedFleteroFilter, getAccountDisplay, hideInternal]);
 
   // Unique accounts available for filtering (deduplicated by display name)
   const uniqueAccounts = useMemo(() => {
@@ -861,6 +865,7 @@ export default function CobrosMercadoPagoPage() {
   // Load Payments
   const loadPayments = useCallback(async () => {
     if (!isRoleLoaded) return;
+    const requestId = ++paymentsRequestRef.current;
     setIsLoading(true);
     try {
       const params = new URLSearchParams({
@@ -868,6 +873,7 @@ export default function CobrosMercadoPagoPage() {
         role: currentUserRole,
         accountId: selectedAccountId,
         dateRange: selectedDateRange,
+        date: selectedDateRange === 'SPECIFIC_DATE' ? selectedDate : '',
         type: selectedType,
         linkedStatus: selectedLinkedStatus,
         fleteroFilter: selectedFleteroFilter,
@@ -877,16 +883,16 @@ export default function CobrosMercadoPagoPage() {
       });
       const res = await fetchCobrosData(`/api/admin/cobros-mp-data?${params.toString()}`);
       const data = await res.json();
-      if (data.success) {
+      if (data.success && requestId === paymentsRequestRef.current) {
         setPayments(data.data || []);
         setStats(data.todayStats || null);
       }
     } catch (e) {
       console.error('Error loading MP payments:', e);
     } finally {
-      setIsLoading(false);
+      if (requestId === paymentsRequestRef.current) setIsLoading(false);
     }
-  }, [currentUserRole, isRoleLoaded, selectedAccountId, selectedDateRange, selectedType, selectedLinkedStatus, selectedFleteroFilter, search, showHidden, hideInternal]);
+  }, [currentUserRole, isRoleLoaded, selectedAccountId, selectedDateRange, selectedDate, selectedType, selectedLinkedStatus, selectedFleteroFilter, search, showHidden, hideInternal]);
 
   useEffect(() => {
     loadAccounts();
@@ -1739,7 +1745,7 @@ export default function CobrosMercadoPagoPage() {
               </div>
 
               {/* Date Range Selector (Adapted to user role) */}
-              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0">
+              <div className="flex flex-wrap items-center gap-1.5 pb-1 md:pb-0">
                 {isAdminOrStaff && (
                   <>
                     <button
@@ -1792,6 +1798,19 @@ export default function CobrosMercadoPagoPage() {
                     >
                       Histórico
                     </button>
+                    <label className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold border ${selectedDateRange === 'SPECIFIC_DATE' ? 'bg-blue-50 border-blue-300 text-blue-900' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
+                      Fecha:
+                      <input
+                        type="date"
+                        aria-label="Filtrar cobros por fecha específica"
+                        value={selectedDateRange === 'SPECIFIC_DATE' ? selectedDate : ''}
+                        onChange={(e) => {
+                          setSelectedDate(e.target.value);
+                          setSelectedDateRange(e.target.value ? 'SPECIFIC_DATE' : 'TODAY');
+                        }}
+                        className="min-w-0 bg-transparent font-semibold focus:outline-none focus:ring-2 focus:ring-[#0069ff]/20 rounded"
+                      />
+                    </label>
                   </>
                 )}
 

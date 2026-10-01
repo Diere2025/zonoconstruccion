@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { getMPPaymentDayBounds } from '@/lib/mpPaymentDate';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.dummy';
@@ -144,6 +145,13 @@ export async function GET(request: Request) {
         };
       };
 
+      const specificDayBounds = dateRange === 'SPECIFIC_DATE'
+        ? getMPPaymentDayBounds(searchParams.get('date') || '')
+        : null;
+      if (dateRange === 'SPECIFIC_DATE' && !specificDayBounds) {
+        return NextResponse.json({ error: 'Fecha inválida. Usá el formato AAAA-MM-DD.' }, { status: 400 });
+      }
+
       const todayBounds = getArgDayBounds(0);
       const yesterdayBounds = getArgDayBounds(-1);
       const threeDaysBounds = getArgDayBounds(-2);
@@ -173,6 +181,8 @@ export async function GET(request: Request) {
         query = query.gte('received_at', fifteenMinsAgoIso);
       } else if (dateRange === 'LAST_HOUR') {
         query = query.gte('received_at', oneHourAgoIso);
+      } else if (dateRange === 'SPECIFIC_DATE' && specificDayBounds) {
+        query = query.gte('received_at', specificDayBounds.startIso).lt('received_at', specificDayBounds.endExclusiveIso);
       } else if (dateRange === 'TODAY') {
         query = query.gte('received_at', todayBounds.startIso).lte('received_at', todayBounds.endIso);
       } else if (dateRange === 'YESTERDAY') {
