@@ -23,7 +23,7 @@ export async function sendPersonalOrderAlert(
   submittedAt: string
 ): Promise<PersonalOrderAlert> {
   const { data: order, error: orderError } = await db.from('orders')
-    .select('id,order_date,customer_name,total_amount,status')
+    .select('id,order_date,category,total_amount,status')
     .eq('id', orderId).single();
   if (orderError || !order) throw new Error('No se pudo consultar el pedido para el aviso personal.');
   if (order.status === 'Cancelado') return { attempted: false, sent: false };
@@ -68,16 +68,12 @@ export async function sendPersonalOrderAlert(
     return { attempted: true, sent: false, message: 'Falta configurar el bot de modificaciones de Telegram.' };
   }
 
-  const label = code || order.id.slice(0, 8);
+  void code;
   const text = [
-    '🛒 <b>Nuevo pedido cargado</b>',
-    `📦 <b>Pedido:</b> <code>${escapeHtml(label)}</code>`,
-    `👤 <b>Cliente:</b> ${escapeHtml(order.customer_name || 'Sin nombre')}`,
+    `📦 <b>Pedido N° ${count}</b>`,
     `💰 <b>Importe:</b> ${money.format(Number(order.total_amount || 0))}`,
-    '',
-    `📅 <b>Acumulado del ${date.split('-').reverse().join('/')}</b>`,
-    `📦 <b>Pedidos:</b> ${count}`,
-    `💵 <b>Facturación:</b> ${money.format(revenue)}`
+    `🏷️ <b>Tipo de producto:</b> ${escapeHtml(order.category || 'Otros')}`,
+    `💵 <b>Acumulado:</b> ${money.format(revenue)}`
   ].join('\n');
   const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
     method: 'POST',
