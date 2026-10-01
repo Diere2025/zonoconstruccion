@@ -1412,6 +1412,7 @@ export default function PedidosPage() {
 
   // Default Order Medium to Whaticket
   useEffect(() => {
+    if (isEditingRef.current || editingOrderIdRef.current) return;
     if (filteredOrderMediums.length > 0 && !selectedOrderMediumId) {
       const whaticketMedium = filteredOrderMediums.find(m => m.name.toLowerCase() === 'whaticket');
       if (whaticketMedium) {
@@ -1549,7 +1550,7 @@ export default function PedidosPage() {
   // Los pedidos B2B ingresan por WhatsApp sin asociar una línea telefónica.
   // La procedencia comercial se elige explícitamente en cada pedido.
   useEffect(() => {
-    if (!isWholesaleForm || editingOrderId) return;
+    if (isEditingRef.current || !isWholesaleForm || editingOrderId) return;
     const whatsappMedium = orderMediums.find(medium => medium.name.toLowerCase() === 'whatsapp');
     if (whatsappMedium) setSelectedOrderMediumId(whatsappMedium.id);
     setSelectedPhoneLineId("");
@@ -1558,7 +1559,7 @@ export default function PedidosPage() {
   // Facundo comparte una única secuencia AQ-FP. La procedencia de planilla es
   // la que distingue inequívocamente sus pedidos minoristas de los mayoristas.
   useEffect(() => {
-    if (isWholesaleContext || !isFacundoSelectedSeller || editingOrderId) return;
+    if (isEditingRef.current || isWholesaleContext || !isFacundoSelectedSeller || editingOrderId) return;
     const organicSource = advertisingSources.find(source => source.name === FACUNDO_RETAIL_SOURCE);
     if (organicSource) {
       setSelectedAdvertisingSourceId(organicSource.id);
@@ -1567,7 +1568,7 @@ export default function PedidosPage() {
   }, [advertisingSources, editingOrderId, isFacundoSelectedSeller, isWholesaleContext]);
 
   useEffect(() => {
-    if (editingOrderId) return;
+    if (isEditingRef.current || editingOrderId) return;
     setCommercialBrand(isWholesaleContext || isFacundoSelectedSeller ? 'aquafort' : 'zono');
   }, [editingOrderId, isFacundoSelectedSeller, isWholesaleContext]);
   const [deliveryDetail, setDeliveryDetail] = useState("");
@@ -1693,6 +1694,11 @@ export default function PedidosPage() {
 
   // Sólo un cambio de localidad precarga el tipo y las fechas de entrega.
   useEffect(() => {
+    // Los datos guardados prevalecen durante la carga y toda la edición.
+    if (isEditingRef.current || editingOrderIdRef.current) {
+      lastAutoLocalityIdRef.current = localidadId;
+      return;
+    }
     if (!localidadId) {
       lastAutoLocalityIdRef.current = "";
       return;
@@ -1989,8 +1995,6 @@ export default function PedidosPage() {
   const [logisticsObservation, setLogisticsObservation] = useState("");
   const [editChangesSummary, setEditChangesSummary] = useState<string[]>([]);
   const [showModificationSuccessModal, setShowModificationSuccessModal] = useState(false);
-  const [generatedModificationMessage, setGeneratedModificationMessage] = useState("");
-  const [copiedModificationMessage, setCopiedModificationMessage] = useState(false);
 
   const [showOrderHistoryModal, setShowOrderHistoryModal] = useState(false);
   const [selectedOrderForHistory, setSelectedOrderForHistory] = useState<any>(null);
@@ -2872,6 +2876,7 @@ export default function PedidosPage() {
 
   // Pre-select default payment method once loaded
   useEffect(() => {
+    if (isEditingRef.current || editingOrderIdRef.current) return;
     if (dbPaymentMethods.length > 0 && !editingOrderId) {
       const defaultPm = dbPaymentMethods.find(pm => 
         pm.id === "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3" || 
@@ -2947,6 +2952,8 @@ export default function PedidosPage() {
 
   // Fetch client addresses when client selection changes
   useEffect(() => {
+    let cancelled = false;
+    const canAutofill = () => !cancelled && !isEditingRef.current && !editingOrderIdRef.current;
     async function fetchAddresses() {
       if (!selectedClientId) {
         manualAddressClientIdRef.current = '';
@@ -2956,7 +2963,7 @@ export default function PedidosPage() {
         return;
       }
 
-      if (isEditingRef.current) {
+      if (!canAutofill()) {
         // En modo edición de pedido, cargamos las direcciones del cliente para el dropdown,
         // pero NO pisamos los datos del formulario ya establecidos del pedido.
         const { data } = await supabase
@@ -2996,6 +3003,7 @@ export default function PedidosPage() {
           .select('default_discount_coef, default_discount_label')
           .eq('id', selectedClientId)
           .maybeSingle();
+        if (!canAutofill()) return;
         const coefficient = Number(wholesaleClient?.default_discount_coef);
         if (Number.isFinite(coefficient) && coefficient >= 0 && coefficient < 1) {
           const discountPct = Math.round((1 - coefficient) * 10000) / 100;
@@ -3016,7 +3024,7 @@ export default function PedidosPage() {
         .order('created_at', { ascending: false })
         .limit(1)
         .then(({ data: ordData }) => {
-          if (ordData && ordData.length > 0 && ordData[0].whaticket_link) {
+          if (canAutofill() && ordData && ordData.length > 0 && ordData[0].whaticket_link) {
             setWhaticketLink(ordData[0].whaticket_link);
           }
         });
@@ -3029,7 +3037,9 @@ export default function PedidosPage() {
         .order("created_at", { ascending: false });
       
       if (data) {
+        if (cancelled) return;
         setClientAddresses(data);
+        if (!canAutofill()) return;
         // Una carga tardía de direcciones no debe pisar el retiro elegido a mano.
         if (manualAddressClientIdRef.current === selectedClientId) return;
         // Auto-select principal, default or queried address
@@ -3068,6 +3078,7 @@ export default function PedidosPage() {
       if (isAnabelSeller && !isWholesaleContext) lastRetailAutofillClientIdRef.current = selectedClientId;
     }
     fetchAddresses();
+    return () => { cancelled = true; };
   }, [selectedClientId, clients, isWholesaleContext, localities, sourceQuoteId, isAnabelSeller]);
 
   // Handle Address change
@@ -3283,14 +3294,31 @@ export default function PedidosPage() {
             query = query.limit(100);
           }
           
-          const { data, error } = await query;
+          // Code lookup uses the authenticated client's RLS permissions only.
+          // View filters (including "Mis pedidos" and the seller dropdown) must
+          // not hide an otherwise accessible order.
+          const codeSearch = debouncedOrderSearch.trim();
+          const codeQuery = codeSearch
+            ? supabase.from('orders')
+                .select('*, zones(name), sellers(full_name), clients(is_wholesale)')
+                .ilike('legacy_code', `%${codeSearch.replace(/[\\%_]/g, '\\$&')}%`)
+                .order('order_date', { ascending: false })
+                .order('created_at', { ascending: false })
+                .limit(500)
+            : Promise.resolve({ data: [], error: null });
+          const [listResult, codeResult] = await Promise.all([query, codeQuery]);
+          const error = listResult.error || codeResult.error;
           if (isCancelled) return;
           if (error) {
             console.error("Error fetching orders:", error.message || error.details || JSON.stringify(error) || error);
             setOrdersError(error.message || "Error al cargar pedidos");
-          } else if (data) {
+          } else if (listResult.data) {
             setOrdersError(null);
-            setOrders(data);
+            const mergedOrders = new Map<string, any>();
+            for (const order of [...(codeResult.data || []), ...listResult.data]) {
+              mergedOrders.set(order.id, order);
+            }
+            setOrders(Array.from(mergedOrders.values()));
           }
         } catch (err: any) {
           if (isCancelled) return;
@@ -3365,6 +3393,8 @@ export default function PedidosPage() {
       }
     }
     isEditingRef.current = true;
+    // También conservar el destino de una copia cuando los catálogos se refrescan.
+    manualAddressClientIdRef.current = order.client_id || '';
     try {
       setSubmitting(true);
       
@@ -3495,6 +3525,9 @@ export default function PedidosPage() {
           foundLoc = localities.find(l => norm(l.name) === targetNorm);
         }
         if (foundLoc) locId = foundLoc.id;
+      }
+      if (!locId && order.locality === 'Depósito' && order.freight_type === PICKUP_LABEL) {
+        locId = PICKUP_ADDRESS_ID;
       }
       
       if (locId) {
@@ -3715,9 +3748,7 @@ export default function PedidosPage() {
       alert("Error al cargar el pedido: " + err.message);
     } finally {
       setSubmitting(false);
-      setTimeout(() => {
-        isEditingRef.current = false;
-      }, 600);
+      isEditingRef.current = false;
     }
   };
 
@@ -4851,6 +4882,10 @@ export default function PedidosPage() {
 
 
   const filteredOrders = sortedOrders.filter(p => {
+    // Code matches were fetched independently of the view filters, with RLS.
+    const codeSearch = debouncedOrderSearch.trim().toLowerCase();
+    if (codeSearch && String(p.legacy_code || '').toLowerCase().includes(codeSearch)) return true;
+
     const isWholesale = isOrderWholesale(p);
     const hasMinoristas = selectedChannels.includes('minoristas');
     const hasMayoristas = selectedChannels.includes('mayoristas');
@@ -5748,7 +5783,7 @@ export default function PedidosPage() {
           console.error('Error in sheet update:', sUpdErr);
         }
 
-        // 3. Construir mensaje formateado para copiar y pegar (listo para WhatsApp o bot de Telegram)
+        // 3. Construir el aviso automático para Logística.
         let sellerFullName = sellersList.find(s => s.id === seller_id)?.full_name;
         if (!sellerFullName) {
           sellerFullName = (seller_id === loggedInUserId ? (currentSeller?.full_name || userData.user.user_metadata?.full_name) : '') || 'Vendedor';
@@ -5795,8 +5830,6 @@ export default function PedidosPage() {
         }
 
         setNotifiedLogistics(telegramSuccess);
-        setGeneratedModificationMessage(copyMsg);
-        setCopiedModificationMessage(false);
         setShowModificationSuccessModal(true);
 
         // Actualizar estado local
@@ -9706,7 +9739,7 @@ export default function PedidosPage() {
         </div>
       )}
 
-      {/* Modal 2: Éxito de Modificación y Mensaje Copiable para WhatsApp / Telegram */}
+      {/* Modal 2: Confirmación de modificación y estado del aviso automático */}
       {showModificationSuccessModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-150">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-xl max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200 border border-slate-100 overflow-hidden">
@@ -9743,12 +9776,7 @@ export default function PedidosPage() {
 
             {/* Body */}
             <div className="p-5 overflow-y-auto space-y-4 flex-1">
-              <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200/80 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-black text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                    <Copy className="w-3.5 h-3.5 text-slate-500" />
-                    Mensaje de Modificación
-                  </span>
+              <div className="text-sm text-slate-700">
                   {isLogisticallyRelevant ? (
                     notifiedLogistics ? (
                       <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100/90 border border-emerald-200 px-2 py-0.5 rounded-full flex items-center gap-1 shadow-2xs">
@@ -9758,7 +9786,7 @@ export default function PedidosPage() {
                     ) : (
                       <span className="text-[10px] font-bold text-amber-800 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-full flex items-center gap-1 shadow-2xs">
                         <AlertTriangle className="w-3 h-3 text-amber-600" />
-                        No enviado a Telegram (Copiar abajo)
+                        No se pudo enviar el aviso automático a Telegram
                       </span>
                     )
                   ) : (
@@ -9766,10 +9794,6 @@ export default function PedidosPage() {
                       ℹ️ Sin alerta a Logística (Cambio administrativo)
                     </span>
                   )}
-                </div>
-                <div className="bg-white rounded-xl border border-slate-200 p-3.5 text-xs font-mono text-slate-800 whitespace-pre-wrap select-all max-h-64 overflow-y-auto leading-relaxed">
-                  {generatedModificationMessage}
-                </div>
               </div>
             </div>
 
@@ -9789,20 +9813,6 @@ export default function PedidosPage() {
                 Cerrar y Ver Pedidos
               </button>
 
-              <button
-                type="button"
-                onClick={async () => {
-                  const ok = await copyRichMessageToClipboard(generatedModificationMessage);
-                  if (ok) {
-                    setCopiedModificationMessage(true);
-                    setTimeout(() => setCopiedModificationMessage(false), 2500);
-                  }
-                }}
-                className="w-full sm:w-auto px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-xs flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 cursor-pointer"
-              >
-                {copiedModificationMessage ? <CheckCheck className="w-4 h-4 text-emerald-200" /> : <Copy className="w-4 h-4" />}
-                {copiedModificationMessage ? "¡Mensaje Copiado al Portapapeles!" : "Copiar Mensaje para Telegram / WhatsApp"}
-              </button>
             </div>
           </div>
         </div>
