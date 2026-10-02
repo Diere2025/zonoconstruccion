@@ -29,6 +29,8 @@ import {
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { formatPrice } from "@/lib/utils";
+import { commissionItemSubtotal, sellerCommissionBase } from "@/lib/sellerCommissionBase";
+import { normalizeCommissionCategory as normalizeToMacroCategory } from "@/lib/sellerCommissionCategory";
 
 // Commission Matrix Rules Interfaces
 export interface TierRate {
@@ -188,19 +190,7 @@ export default function SellerCommissionsPage() {
         setConfig(configData.rules);
       }
 
-      // 2. Compute date range for selected month
-      const startDateStr = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-01`;
-      const lastDay = new Date(selectedYear, selectedMonth, 0).getDate();
-      const endDateStr = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
-
-      // Query from 2 months prior up to the 15th of the next month to catch all postponed deliveries
-      const priorDate = new Date(selectedYear, selectedMonth - 3, 1);
-      const queryStartStr = `${priorDate.getFullYear()}-${String(priorDate.getMonth() + 1).padStart(2, '0')}-01`;
-      
-      const nextDate = new Date(selectedYear, selectedMonth, 15);
-      const queryEndStr = `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, '0')}-${String(nextDate.getDate()).padStart(2, '0')}T23:59:59`;
-
-      // 3. Paginated fetch of delivered orders created in candidate range
+      // Fetch all delivered orders; the effective delivery date determines the period below.
       let allDeliveredOrders: any[] = [];
       let from = 0;
       const step = 1000;
@@ -216,6 +206,7 @@ export default function SellerCommissionsPage() {
             initial_delivery_date,
             customer_name,
             total_amount,
+            totals,
             status,
             category,
             seller_id,
@@ -225,8 +216,7 @@ export default function SellerCommissionsPage() {
             deliveries ( delivery_date, real_delivery_date, status, route_sheets ( id, delivery_date, status ) )
           `)
           .eq("status", "Entregado")
-          .gte("order_date", queryStartStr)
-          .lte("order_date", queryEndStr)
+          .order("id")
           .range(from, from + step - 1);
 
         if (pageErr) throw pageErr;
@@ -239,10 +229,20 @@ export default function SellerCommissionsPage() {
         }
       }
 
+      const loadProducts = async () => {
+        const data: any[] = [];
+        for (let offset = 0; ; offset += step) {
+          const page = await supabase.from("products").select("id, category, name")
+            .order("id").range(offset, offset + step - 1);
+          if (page.error) throw page.error;
+          data.push(...(page.data || []));
+          if (!page.data || page.data.length < step) return { data };
+        }
+      };
       const [sellersRes, exchangesRes, productsRes] = await Promise.all([
         supabase.from("sellers").select("id, full_name, email"),
-        supabase.from("returns_exchanges").select("id, order_id, legacy_code, type, status"),
-        supabase.from("products").select("id, category, name")
+        supabase.from("returns_exchanges").select("id, order_id, type, status"),
+        loadProducts()
       ]);
 
       setOrders(allDeliveredOrders);
@@ -262,24 +262,6 @@ export default function SellerCommissionsPage() {
   useEffect(() => {
     loadAllData();
   }, [selectedYear, selectedMonth]);
-
-  // Helper to normalize raw database categories into clean Macro Categories
-  const normalizeToMacroCategory = (rawCat?: string): string => {
-    const c = (rawCat || "").trim();
-    const lower = c.toLowerCase();
-    if (lower.includes("instalaci") || lower.includes("colocaci")) return "Instalaciones";
-    if (lower.includes("tanque") || lower.includes("cisterna") || lower.includes("complementos para tanques")) return "Tanques de Agua";
-    if (lower.includes("biodigestor") || lower.includes("séptica") || lower.includes("septica") || lower.includes("desengrasadora")) return "Biodigestores";
-    if (lower.includes("membrana") || lower.includes("meps")) return "MEPS";
-    if (lower.includes("pintura")) return "Pinturas";
-    if (lower.includes("herramienta")) return "Herramientas";
-    if (lower.includes("termotanque")) return "Termotanques";
-    if (lower.includes("termofusión") || lower.includes("termofusion") || lower.includes("caño")) return "Caños Termofusión";
-    if (lower.includes("escalera")) return "Escaleras";
-    if (lower.includes("insumo")) return "Insumos";
-    if (c && c !== "otro" && c !== "Otros" && c !== "Interno") return c;
-    return "Otros";
-  };
 
   // Calculate all available clean macro product categories
   const allAvailableCategories = useMemo(() => {
@@ -324,12 +306,10 @@ export default function SellerCommissionsPage() {
   // Calculate Seller Commission Summaries
   const sellerSummaries = useMemo<SellerCommissionSummary[]>(() => {
     const exchangeOrderIds = new Set<string>();
-    const exchangeLegacyCodes = new Set<string>();
 
     exchanges.forEach(ex => {
       if (ex.type === 'cambio' && ex.status !== 'Rechazado') {
         if (ex.order_id) exchangeOrderIds.add(ex.order_id);
-        if (ex.legacy_code) exchangeLegacyCodes.add(ex.legacy_code.trim().toLowerCase());
       }
     });
 
@@ -424,7 +404,7 @@ export default function SellerCommissionsPage() {
 
       // Exclusion Check 2: Orders linked to exchanges or starting with CAMB/DEV
       const hasExchangePrefix = legacyParts.some((p: string) => p.startsWith('camb') || p.startsWith('dev'));
-      const isExchange = exchangeOrderIds.has(order.id) || legacyParts.some((p: string) => p && exchangeLegacyCodes.has(p)) || hasExchangePrefix;
+      const isExchange = exchangeOrderIds.has(order.id) || hasExchangePrefix;
       if (isExchange) {
         sellerEntry.excluded_orders.push({ ...order, exclude_reason: 'Asociado a Cambio/Devolución o prefijo CAMB/DEV' });
         return;
@@ -449,25 +429,14 @@ export default function SellerCommissionsPage() {
         return;
       }
 
-      // Calculate raw sum of items
-      let rawItemsTotal = 0;
-      items.forEach((item: any) => {
-        rawItemsTotal += Number(item.subtotal || (item.unit_price * item.quantity) || 0);
-      });
-
-      const orderTotal = Number(order.total_amount || 0);
-      // Scale factor to proportionally distribute order total_amount across items so order sum matches orderTotal
-      let scaleFactor = 1;
-      if (rawItemsTotal > 0 && orderTotal > 0) {
-        scaleFactor = orderTotal / rawItemsTotal;
-      }
+      const { scaleFactor } = sellerCommissionBase(order);
 
       let orderNetProductAmount = 0;
 
       items.forEach((item: any) => {
         const itemCat = getItemCategory(item, order.category);
         const grp = getCategoryGroupForCategory(itemCat);
-        const rawSubtotal = Number(item.subtotal || (item.unit_price * item.quantity) || 0);
+        const rawSubtotal = commissionItemSubtotal(item);
         const normalizedSubtotal = rawSubtotal * scaleFactor;
 
         orderNetProductAmount += normalizedSubtotal;
@@ -805,7 +774,7 @@ export default function SellerCommissionsPage() {
               <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Solo Pedidos "Entregados"
             </div>
             <div className="flex items-center gap-1.5 text-[11px]">
-              <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Sin Fletes ni Tarjetas
+              <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Productos netos de descuentos, sin flete ni recargos
             </div>
             <div className="flex items-center gap-1.5 text-[11px]">
               <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Excluye Pedidos de Cambio
