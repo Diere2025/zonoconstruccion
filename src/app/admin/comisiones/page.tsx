@@ -30,7 +30,8 @@ import {
 import { supabase } from "@/lib/supabase";
 import { formatPrice } from "@/lib/utils";
 import { commissionItemSubtotal, sellerCommissionBase } from "@/lib/sellerCommissionBase";
-import { normalizeCommissionCategory as normalizeToMacroCategory } from "@/lib/sellerCommissionCategory";
+import { normalizeCommissionCategory as normalizeToMacroCategory, resolveCommissionProductCategory } from "@/lib/sellerCommissionCategory";
+import { summarizeCommissionProducts, type CommissionProductLine, type CommissionProductSummary } from "@/lib/sellerCommissionProducts";
 
 // Commission Matrix Rules Interfaces
 export interface TierRate {
@@ -112,6 +113,7 @@ interface SellerCommissionSummary {
   effective_commission_pct: number;
   included_orders: any[];
   excluded_orders: any[];
+  product_breakdowns: CommissionProductSummary[];
 }
 
 export default function SellerCommissionsPage() {
@@ -282,18 +284,15 @@ export default function SellerCommissionsPage() {
 
   // Helper to map item category to clean macro category
   const getItemCategory = (item: any, orderCat?: string): string => {
-    const nameLower = ((item.product_name || item.name || "") as string).toLowerCase();
-    if (nameLower.includes("instalaci") || nameLower.includes("colocaci")) return "Instalaciones";
-    if (item.product_id) {
-      const prod = products.find(p => p.id === item.product_id);
-      if (prod?.category) return normalizeToMacroCategory(prod.category);
-    }
-    if (orderCat) return normalizeToMacroCategory(orderCat);
-    return "Otros";
+    const prod = item.product_id ? products.find(p => p.id === item.product_id) : undefined;
+    return resolveCommissionProductCategory(item.product_name || item.name || prod?.name || '', prod?.category, orderCat);
   };
 
   // Helper to determine which Category Group an item belongs to
   const getCategoryGroupForCategory = (catName: string): CategoryGroupConfig => {
+    if (catName === 'Adicionales sin comisión') return {
+      id: 'additional_no_commission', name: 'Adicionales sin comisión', categories: [catName], rates: [],
+    };
     for (const grp of config.category_groups) {
       if (grp.categories.some(c => c.toLowerCase() === catName.toLowerCase())) {
         return grp;
@@ -334,6 +333,7 @@ export default function SellerCommissionsPage() {
       included_orders: any[];
       excluded_orders: any[];
       group_sales: Map<string, number>;
+      product_lines: CommissionProductLine[];
     }>();
 
     const processedSellerCodes = new Map<string, Set<string>>();
@@ -347,7 +347,8 @@ export default function SellerCommissionsPage() {
         seller_email: s.email || '',
         included_orders: [],
         excluded_orders: [],
-        group_sales: new Map()
+        group_sales: new Map(),
+        product_lines: []
       });
     });
 
@@ -443,6 +444,15 @@ export default function SellerCommissionsPage() {
 
         const currentGrpSales = sellerEntry.group_sales.get(grp.id) || 0;
         sellerEntry.group_sales.set(grp.id, currentGrpSales + normalizedSubtotal);
+        sellerEntry.product_lines.push({
+          product_id: item.product_id,
+          product_name: item.product_name || products.find(p => p.id === item.product_id)?.name || 'Producto sin nombre',
+          category: itemCat,
+          group_id: grp.id,
+          group_name: grp.name,
+          quantity: Number(item.quantity ?? 0),
+          net_sales: normalizedSubtotal,
+        });
       });
 
       sellerEntry.included_orders.push({
@@ -499,6 +509,13 @@ export default function SellerCommissionsPage() {
         };
       });
 
+      const additionalSales = sellerData.group_sales.get('additional_no_commission');
+      if (additionalSales !== undefined) groupBreakdowns.push({
+        group_id: 'additional_no_commission', group_name: 'Adicionales sin comisión',
+        net_sales: additionalSales, applied_rate_pct: 0, calculated_commission: 0,
+        final_commission: 0, was_capped: false,
+      });
+
       const effectivePct = totalNetSales > 0 ? (totalCommissionPayable / totalNetSales) * 100 : 0;
 
       let ordersCount = 0;
@@ -518,7 +535,8 @@ export default function SellerCommissionsPage() {
         total_commission_payable: totalCommissionPayable,
         effective_commission_pct: effectivePct,
         included_orders: sellerData.included_orders,
-        excluded_orders: sellerData.excluded_orders
+        excluded_orders: sellerData.excluded_orders,
+        product_breakdowns: summarizeCommissionProducts(sellerData.product_lines, groupBreakdowns)
       });
     });
 
@@ -1223,14 +1241,14 @@ export default function SellerCommissionsPage() {
       {/* Seller Order Audit Modal */}
       {selectedSellerAudit && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-white w-full max-w-6xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
             <div className="p-5 bg-slate-950 text-white flex items-center justify-between shrink-0">
               <div>
                 <h3 className="font-black text-sm uppercase tracking-wider">
-                  Auditoría de Pedidos - {selectedSellerAudit.seller_name}
+                  Auditoría de Comisiones - {selectedSellerAudit.seller_name}
                 </h3>
                 <p className="text-xs text-slate-400">
-                  Desglose de pedidos incluidos y excluidos para el período {periodLabel}.
+                  Productos y pedidos del período {periodLabel}.
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -1274,7 +1292,7 @@ export default function SellerCommissionsPage() {
                   }}
                   className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer"
                 >
-                  <Download className="w-3.5 h-3.5" /> Exportar CSV
+                  <Download className="w-3.5 h-3.5" /> CSV Pedidos
                 </button>
                 <button
                   onClick={() => setSelectedSellerAudit(null)}
@@ -1303,6 +1321,61 @@ export default function SellerCommissionsPage() {
                 <div>
                   <span className="block text-[10px] text-slate-400 uppercase font-black">Pedidos Válidos</span>
                   <span className="font-bold text-slate-800">{selectedSellerAudit.total_orders_count} pedidos</span>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <h4 className="font-black text-slate-900 text-xs uppercase tracking-wider flex items-center gap-1.5">
+                    <Package className="w-4 h-4 text-brand-600" /> Productos sumarizados ({selectedSellerAudit.product_breakdowns.length})
+                  </h4>
+                  <button onClick={() => {
+                    const headers = ['Producto', 'Categoría', 'Grupo', 'Cantidad', 'Subtotal neto', 'Comisión (%)', 'Comisión ($)'];
+                    const rows = selectedSellerAudit.product_breakdowns.map(p => [p.product_name, p.category, p.group_name, p.quantity, p.net_sales, p.rate_pct, p.commission]);
+                    const csv = [headers, ...rows].map(row => row.map(value => `"${String(value).replace(/"/g, '""')}"`).join(',')).join('\n');
+                    const url = URL.createObjectURL(new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' }));
+                    const link = document.createElement('a'); link.href = url;
+                    link.download = `comisiones_productos_${selectedSellerAudit.seller_name.replace(/\s+/g, '_')}_${selectedYear}_${selectedMonth}.csv`;
+                    link.click(); URL.revokeObjectURL(url);
+                  }} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 cursor-pointer">
+                    <Download className="w-3.5 h-3.5" /> CSV Productos
+                  </button>
+                </div>
+                <p className="text-xs text-slate-500">De mayor a menor facturación. Subtotales netos de descuentos, sin flete ni recargos. El porcentaje corresponde al grupo y tramo del vendedor.</p>
+                <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-100 text-slate-700 font-black text-[10px] uppercase">
+                      <tr>
+                        <th className="py-2.5 px-3">Producto</th>
+                        <th className="py-2.5 px-3">Categoría / grupo</th>
+                        <th className="py-2.5 px-3 text-right">Cantidad</th>
+                        <th className="py-2.5 px-3 text-right">Subtotal neto</th>
+                        <th className="py-2.5 px-3 text-right">Comisión %</th>
+                        <th className="py-2.5 px-3 text-right">Comisión $</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {selectedSellerAudit.product_breakdowns.map(p => (
+                        <tr key={p.key} className="hover:bg-slate-50">
+                          <td className="py-2.5 px-3 font-semibold text-slate-900">{p.product_name}</td>
+                          <td className="py-2.5 px-3"><span className="block font-semibold">{p.category}</span><span className="text-[10px] text-slate-500">{p.group_name}</span></td>
+                          <td className="py-2.5 px-3 text-right tabular-nums">{p.quantity.toLocaleString('es-AR', { maximumFractionDigits: 3 })}</td>
+                          <td className="py-2.5 px-3 text-right whitespace-nowrap tabular-nums">{p.net_sales.toLocaleString('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 2 })}</td>
+                          <td className="py-2.5 px-3 text-right whitespace-nowrap">{p.rate_pct.toLocaleString('es-AR', { maximumFractionDigits: 2 })}%</td>
+                          <td className="py-2.5 px-3 text-right font-bold text-emerald-700 whitespace-nowrap tabular-nums">{p.commission.toLocaleString('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 2 })}</td>
+                        </tr>
+                      ))}
+                      {selectedSellerAudit.product_breakdowns.length === 0 && <tr><td colSpan={6} className="p-4 text-center text-slate-500">No hay productos incluidos en este período.</td></tr>}
+                    </tbody>
+                    <tfoot className="bg-slate-100 font-bold text-slate-900">
+                      <tr>
+                        <td colSpan={3} className="py-3 px-3">Total</td>
+                        <td className="py-3 px-3 text-right whitespace-nowrap">{selectedSellerAudit.total_net_sales.toLocaleString('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 2 })}</td>
+                        <td />
+                        <td className="py-3 px-3 text-right text-emerald-700 whitespace-nowrap">{selectedSellerAudit.total_commission_payable.toLocaleString('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 2 })}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
                 </div>
               </div>
 

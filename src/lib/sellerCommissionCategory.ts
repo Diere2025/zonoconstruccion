@@ -15,3 +15,14 @@ export function normalizeCommissionCategory(rawCat?: string): string {
   if (c && c !== 'otro' && c !== 'Otros' && c !== 'Interno') return c;
   return 'Otros';
 }
+
+export function resolveCommissionProductCategory(name: string, productCategory?: string, orderCategory?: string): string {
+  const n = name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (n.includes('adicional') && n.includes('instalacion') && n.includes('biofort')) return 'Adicionales sin comisión';
+  if (n.includes('instalaci') || n.includes('colocaci')) return 'Instalaciones';
+  if (n.includes('konan') && (n.includes('bomba') || n.includes('kbp12'))) return 'Herramientas';
+  if (n.includes('equilibrio') && (n.includes('membrana techos') || /mep\s+frentes/.test(n))) return 'Pinturas';
+  if (/^biolam\b/.test(n)) return 'Biodigestores';
+  if (/^wp\b/.test(n)) return /tanque|cisterna/.test(n) ? 'Tanques de Agua' : 'Biodigestores';
+  return normalizeCommissionCategory(productCategory || orderCategory);
+}
