@@ -1,4 +1,5 @@
 "use client";
+import { detectOrderCategory, hasBiodigestor, resolveOrderCategory } from "@/lib/orderCategory";
 
 import { AdvertisingSource, advertisingSourcesForChannel } from "@/lib/advertisingSources";
 import { sellerFirstName, cancellationReasonText } from "@/lib/orderNotificationText";
@@ -643,82 +644,7 @@ export default function PedidosPage() {
     setOpenItemDiscountIds(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const detectedCategory = useMemo(() => {
-    if (orderItems.length === 0) return "OTRO";
-
-    // A complete BioFort installation contains many $0 accessories. Its category
-    // must be defined by the installation item, not by the most numerous accessory.
-    const hasBiofortInstallation = orderItems.some(item => {
-      const full = `${item.name || ""} ${item.sku || ""} ${item.category || ""}`.toLowerCase();
-      const isInstallation = full.includes("instalaci") || full.includes("mano de obra");
-      const isBiofort = full.includes("biofort") || full.includes("biodigestor") || full.includes("séptic") || full.includes("septic");
-      return isInstallation && isBiofort;
-    });
-    if (hasBiofortInstallation) return "INSTALACIÓN BIOFORT";
-    
-    let termotanqueCount = 0;
-    let tanquesCount = 0;
-    let biofortCount = 0;
-    let instalacionBiofortCount = 0;
-    let mepCount = 0;
-    let rolloMembranaCount = 0;
-    let latexCount = 0;
-    let baseCount = 0;
-    let escalerasCount = 0;
-    let colombraroCount = 0;
-    let herramientasCount = 0;
-    let otrosCount = 0;
-    
-    orderItems.forEach(item => {
-      const nameLower = (item.name || "").toLowerCase();
-      const skuLower = (item.sku || "").toLowerCase();
-      const full = `${nameLower} ${skuLower}`;
-
-      if (full.includes("instalaci") || full.includes("mano de obra")) {
-        instalacionBiofortCount += item.quantity;
-      } else if (full.includes("termotanque") || full.includes("termo")) {
-        termotanqueCount += item.quantity;
-      } else if (full.includes("biodigestor") || full.includes("septic") || full.includes("séptic") || full.includes("desengrasadora") || full.includes("lodos") || full.includes("biofort")) {
-        biofortCount += item.quantity;
-      } else if (full.includes("base hierro") || (full.includes("base") && !full.includes("tanque") && !full.includes("revestimiento"))) {
-        baseCount += item.quantity;
-      } else if (full.includes("aquafort") || full.includes("tanque") || full.includes("flotante") || full.includes("flotador") || full.includes("bicapa") || full.includes("tricapa") || full.includes("cuatricapa") || full.includes("cisterna")) {
-        tanquesCount += item.quantity;
-      } else if (full.includes("rollo") || full.includes("asfalt") || full.includes("aluflex") || full.includes("megaflex") || full.includes("membrana en rollo")) {
-        rolloMembranaCount += item.quantity;
-      } else if (full.includes("látex") || full.includes("latex") || full.includes("bianca") || full.includes("andina")) {
-        latexCount += item.quantity;
-      } else if (full.includes("meps") || full.includes("mep") || full.includes("equilibrio") || full.includes("revestimiento") || full.includes("membrana")) {
-        mepCount += item.quantity;
-      } else if (full.includes("escalera")) {
-        escalerasCount += item.quantity;
-      } else if (full.includes("colombraro")) {
-        colombraroCount += item.quantity;
-      } else if (full.includes("kld") || full.includes("caterpillar") || full.includes("herramienta") || full.includes("morsa") || full.includes("taladro") || full.includes("amoladora")) {
-        herramientasCount += item.quantity;
-      } else {
-        otrosCount += item.quantity;
-      }
-    });
-    
-    const counts = [
-      { cat: "TANQUES", count: tanquesCount },
-      { cat: "TERMOTANQUES", count: termotanqueCount },
-      { cat: "BIODIGESTOR", count: biofortCount },
-      { cat: "INSTALACIÓN BIOFORT", count: instalacionBiofortCount },
-      { cat: "BASE", count: baseCount },
-      { cat: "LATEX", count: latexCount },
-      { cat: "ROLLO MEMBRANA", count: rolloMembranaCount },
-      { cat: "MEP", count: mepCount },
-      { cat: "ESCALERAS", count: escalerasCount },
-      { cat: "COLOMBRARO", count: colombraroCount },
-      { cat: "HERRAMIENTAS ELÉCTRICAS", count: herramientasCount },
-      { cat: "OTRO", count: otrosCount }
-    ];
-    
-    counts.sort((a, b) => b.count - a.count);
-    return counts[0].count > 0 ? counts[0].cat : "OTRO";
-  }, [orderItems]);
+  const detectedCategory = useMemo(() => detectOrderCategory(orderItems), [orderItems]);
 
   const [usageCounts, setUsageCounts] = useState<Record<string, number>>({});
   const [role, setRole] = useState<'seller' | 'admin'>('seller');
@@ -4200,7 +4126,7 @@ export default function PedidosPage() {
         locality: order.locality || '',
         address: order.address || '',
         mapsLink: order.google_maps_link || '',
-        category: order.category || 'General',
+        category: resolveOrderCategory(items, order.category),
         paymentMethod: selectedPayMethodName,
         identification: '',
         paymentStatus: totalsObj.payment_timing === 'paid' ? 'Abonado' : (totalsObj.payment_timing === 'partial' ? 'Señado' : 'No Abonado'),
@@ -5356,7 +5282,7 @@ export default function PedidosPage() {
               : (originalOrderSnapshot?.status || 'Pendiente'),
             hold_reason: orderStatus === 'En Espera' ? holdReason : null,
             hold_product_id: orderStatus === 'En Espera' && holdProductId ? holdProductId : null,
-            category: orderCategory === 'auto' ? detectedCategory : orderCategory,
+            category: resolveOrderCategory(orderItems, orderCategory),
             commercial_brand: commercialBrand
           })
           .eq('id', editingOrderId)
@@ -5473,7 +5399,7 @@ export default function PedidosPage() {
             locality: locName,
             address: direccion,
             mapsLink: linkMaps || '',
-            category: orderCategory === 'auto' ? detectedCategory : orderCategory,
+            category: resolveOrderCategory(orderItems, orderCategory),
             paymentMethod: selectedPayMethodName,
             identification: newClientTaxId || '',
             paymentStatus: paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? 'Señado' : 'No Abonado'),
@@ -5588,7 +5514,7 @@ export default function PedidosPage() {
           legacy_code: finalLegacyCode || null,
           hold_reason: orderStatus === 'En Espera' ? holdReason : null,
           hold_product_id: orderStatus === 'En Espera' && holdProductId ? holdProductId : null,
-          category: orderCategory === 'auto' ? detectedCategory : orderCategory
+          category: resolveOrderCategory(orderItems, orderCategory)
         };
 
         if (seller_id !== loggedInUserId) {
@@ -5774,7 +5700,7 @@ export default function PedidosPage() {
             locality: locName,
             address: direccion,
             mapsLink: linkMaps || '',
-            category: orderCategory === 'auto' ? detectedCategory : orderCategory,
+            category: resolveOrderCategory(orderItems, orderCategory),
             paymentMethod: selectedPayMethodName,
             identification: newClientTaxId || '',
             paymentStatus: paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? 'Señado' : 'No Abonado'),
@@ -6236,7 +6162,8 @@ export default function PedidosPage() {
                 <div className="space-y-1">
                   <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Categoría del Pedido</label>
                   <select
-                    value={orderCategory}
+                    value={hasBiodigestor(orderItems) ? "BIODIGESTOR" : orderCategory}
+                    disabled={hasBiodigestor(orderItems)}
                     onChange={e => setOrderCategory(e.target.value)}
                     className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 transition-all cursor-pointer text-slate-800 h-[34px]"
                   >

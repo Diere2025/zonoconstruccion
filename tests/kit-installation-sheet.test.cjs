@@ -34,6 +34,7 @@ function compile(file, extras = {}) {
 const sheetProductsLib = compile('src/lib/sheetProducts.ts');
 const googleSheetsLib = compile('src/lib/googleSheets.ts', {
   require(name) {
+    if (name === './orderCategory') return compile('src/lib/orderCategory.ts');
     if (name === './sheetProducts' || name === '@/lib/sheetProducts') return sheetProductsLib;
     if (name === './cancelledOrderSheet') return compile('src/lib/cancelledOrderSheet.ts');
     if (name === './sellerSheetMaintenance') return compile('src/lib/sellerSheetMaintenance.ts');
