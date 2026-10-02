@@ -1,6 +1,7 @@
 "use client";
 
 import { AdvertisingSource, advertisingSourcesForChannel } from "@/lib/advertisingSources";
+import { sellerFirstName, cancellationReasonText } from "@/lib/orderNotificationText";
 import PaymentMethodSelector from "@/components/vendedores/PaymentMethodSelector";
 import { isCuotaSimplePaymentMethod, isRetiredPaymentMethod } from "@/lib/cuotaSimple";
 
@@ -2173,8 +2174,9 @@ export default function PedidosPage() {
     };
   }): string => {
     const lines: string[] = [];
-    const sellerTag = params.sellerName ? ` (${params.sellerName})` : '';
-    lines.push(`📝 **PEDIDO MODIFICADO: ${params.legacyCode}${sellerTag}**`);
+    const firstName = sellerFirstName(params.sellerName);
+    const sellerTag = firstName ? ` (${firstName})` : '';
+    lines.push(`📝 **MODIFICADO: ${params.legacyCode}${sellerTag}**`);
     lines.push(``);
     lines.push(`🔄 **CAMBIOS REALIZADOS:**`);
     params.changes.forEach(change => {
@@ -2231,9 +2233,10 @@ export default function PedidosPage() {
     reason: string;
   }): string => {
     const lines: string[] = [];
-    const sellerTag = params.sellerName ? ` (${params.sellerName})` : '';
-    lines.push(`🚨 **PEDIDO ANULADO: ${params.legacyCode}${sellerTag}**`);
-    lines.push(`❌ **Motivo de Anulación:** ${params.reason.trim()}`);
+    const firstName = sellerFirstName(params.sellerName);
+    const sellerTag = firstName ? ` (${firstName})` : '';
+    lines.push(`🚨 **ANULADO: ${params.legacyCode}${sellerTag}**`);
+    lines.push(`❌ **Motivo:** ${cancellationReasonText(params.reason)}`);
 
     return lines.join('\n');
   };

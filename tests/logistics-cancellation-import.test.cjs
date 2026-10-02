@@ -38,7 +38,7 @@ test('imports reuse one read of B:D and a new import refreshes the reasons', asy
 test('cancellation notice uses the imported reason', async () => {
   let message;
   const worker = load('src/lib/processOrderCancellation.ts', {
-    require: () => ({ cancelOrderInAllSheets: async () => ({
+    require: name => name.includes('orderNotificationText') ? load('src/lib/orderNotificationText.ts').exports : ({ cancelOrderInAllSheets: async () => ({
       seller: { success: true }, central: { success: true },
       cancelledSheet: { success: true }, deliveriesCurrent: { success: true }
     }) }),
@@ -48,9 +48,14 @@ test('cancellation notice uses the imported reason', async () => {
       return { ok: true, json: async () => ({ ok: true }) };
     }
   }).exports;
-  await worker.processOrderCancellation({}, 'https://example.com', {
+  const db = { from: () => ({ select() { return this; }, eq() { return this; }, maybeSingle: async () => ({data:{full_name:'Jazmín Sánchez'}}) }) };
+  await worker.processOrderCancellation(db, 'https://example.com', {
     order_id: 'test', seller_id: 'seller', payload: { reason: 'Anulado por Logística. Sin stock' }
   }, { legacy_code: 'LK01514', customer_name: 'Cliente' });
-  assert.match(message, /Motivo de Anulación:\*\* Anulado por Logística\. Sin stock/);
+  assert.match(message, /ANULADO: LK01514 \(Jazmín\)/);
+  assert.match(message, /Motivo:\*\* Sin stock/);
+  assert.match(message, /✅ Cancelados Logística/);
+  assert.match(message, /✅ Entregas Actual/);
+  assert.doesNotMatch(message, /PEDIDO|Cliente|Sánchez|Registrado en|Retirado de|Motivo de Anulación/);
   assert.doesNotMatch(message, /Anulado desde ERP/);
 });

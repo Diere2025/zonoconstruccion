@@ -1,5 +1,6 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import { cancelOrderInAllSheets } from '@/lib/googleSheets';
+import { sellerFirstName, cancellationReasonText } from '@/lib/orderNotificationText';
 
 export async function processOrderCancellation(
   db: SupabaseClient, origin: string,
@@ -20,8 +21,8 @@ export async function processOrderCancellation(
       ['cancelledSheet','Cancelados'],['deliveriesCurrent','Entregas Actual']] as const) {
       if (!cancellationSync[key].success) warnings.push(`${label}: ${cancellationSync[key].message || 'No se pudo anular'}`);
     }
-    if (cancellationSync.cancelledSheet.success) completedSteps.push('✅ Registrado en Cancelados de Logística.');
-    if (cancellationSync.deliveriesCurrent.success) completedSteps.push('✅ Retirado de Entregas Actual.');
+    if (cancellationSync.cancelledSheet.success) completedSteps.push('✅ Cancelados Logística');
+    if (cancellationSync.deliveriesCurrent.success) completedSteps.push('✅ Entregas Actual');
   } else {
     const creation = await db.from('order_sync_jobs').select('status,message').eq('order_id',job.order_id).eq('kind','create').maybeSingle();
     if (creation.error || creation.data?.status === 'attention' || !creation.data) {
@@ -30,12 +31,19 @@ export async function processOrderCancellation(
   }
   let telegramSent = false;
   try {
+    let firstName = '';
+    try {
+      const seller = await db.from('sellers').select('full_name').eq('id', job.seller_id).maybeSingle();
+      firstName = sellerFirstName(seller.data?.full_name);
+    } catch {
+      // A missing seller lookup must not prevent the cancellation notice.
+    }
+    const sellerTag = firstName ? ` (${firstName})` : '';
     const response = await fetch(new URL('/api/vendedores/telegram-notify', origin), {
       method:'POST', headers:{'Content-Type':'application/json'},
       body:JSON.stringify({type:'cancellation', legacyCode:code, message:[
-        `🚨 **PEDIDO ANULADO: ${code || job.order_id.slice(0,8)}**`,
-        order.customer_name ? `Cliente: ${order.customer_name}` : '',
-        `❌ **Motivo de Anulación:** ${reason}`,
+        `🚨 **ANULADO: ${code || job.order_id.slice(0,8)}${sellerTag}**`,
+        `❌ **Motivo:** ${cancellationReasonText(reason)}`,
         ...completedSteps,
         warnings.length ? `⚠️ Revisar sincronización:\n${warnings.join('\n')}` : ''
       ].filter(Boolean).join('\n')})
