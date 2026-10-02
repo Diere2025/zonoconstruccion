@@ -1,3 +1,4 @@
+import { hasBiodigestor } from './orderCategory';
 import { cancelledRowCells, cancellationMonthSerial, logisticsCancellationReasons, logisticsCancellationReason } from './cancelledOrderSheet';
 import type { SheetCellValue } from './cancelledOrderSheet';
 import { restoreSellerRowFormats } from './sellerSheetMaintenance';
@@ -311,7 +312,8 @@ const VALID_SHEET_CATEGORIES = [
   'INSTALACIÓN BIOFORT'
 ];
 
-function normalizeCategoryForSheet(cat?: string | null): string {
+function normalizeCategoryForSheet(cat?: string | null, items: SheetOrderItem[] = []): string {
+  if (hasBiodigestor(items)) return 'BIODIGESTOR';
   if (!cat) return 'OTRO';
   const c = cat.toUpperCase().trim();
   if (VALID_SHEET_CATEGORIES.includes(c)) return c;
@@ -841,7 +843,7 @@ function buildOrderUpdateBatchData(
   }
 
   batchData.push(
-    { range: makeRange(sheetName, 'U', 'W', rowNumber, columnOffset), values: [[normalizeCategoryForSheet(order.category), normalizePaymentMethodForSheet(order.paymentMethod), order.identification || '']] },
+    { range: makeRange(sheetName, 'U', 'W', rowNumber, columnOffset), values: [[normalizeCategoryForSheet(order.category, order.items), normalizePaymentMethodForSheet(order.paymentMethod), order.identification || '']] },
     { range: makeRange(sheetName, 'X', 'Y', rowNumber, columnOffset), values: [[order.paymentStatus || 'No Abonado', order.depositOrPaidAmount ?? 0]] },
     { range: makeRange(sheetName, 'AA', 'AB', rowNumber, columnOffset), values: [[normalizeFreightForSheet(order.freightType), order.freightCost ?? 0]] }
   );
@@ -1032,7 +1034,7 @@ async function updateOrderInOperationalSheet(
     const token = await getGoogleAccessToken();
     const itemChunks = splitOrderItemsForRows(order, targets.length);
     const batchData = targets.flatMap((target, index) => {
-      const orderForRow = { ...order, items: itemChunks[index] };
+      const orderForRow = { ...order, category: normalizeCategoryForSheet(order.category, order.items), items: itemChunks[index] };
       return buildOrderUpdateBatchData(sheetName, target.rowNumber, orderForRow, logisticsObservation, columnOffset, statusOverride);
     });
     await Promise.all(targets.map(target =>
@@ -1214,7 +1216,7 @@ export async function appendOrderToSellerSheet(
   await ensureOrderSheetRowCapacity(spreadsheetId, sheetName, slots.map(slot => slot.rowNumber), 0, token);
   await restoreSellerRowFormats(
     spreadsheetId, sheetName, slots.map(slot => slot.rowNumber), token,
-    normalizeCategoryForSheet(order.category)
+    normalizeCategoryForSheet(order.category, order.items)
   );
 
   for (let chunkIdx = 0; chunkIdx < itemChunks.length; chunkIdx++) {
@@ -1272,7 +1274,7 @@ export async function appendOrderToSellerSheet(
       },
       {
         range: `'${sheetName}'!U${rowNumber}:W${rowNumber}`,
-        values: [[normalizeCategoryForSheet(order.category), normalizePaymentMethodForSheet(order.paymentMethod), order.identification || '']]
+        values: [[normalizeCategoryForSheet(order.category, order.items), normalizePaymentMethodForSheet(order.paymentMethod), order.identification || '']]
       },
       {
         range: `'${sheetName}'!X${rowNumber}:Y${rowNumber}`,
@@ -1481,6 +1483,7 @@ function makeContinuationOrder(
 
   return {
     ...order,
+    category: normalizeCategoryForSheet(order.category, order.items),
     items,
     deliveryNotes,
     // Los importes pertenecen sólo a la primera línea cuando el pedido se
@@ -1715,7 +1718,7 @@ export async function updateOrderInSellerSheet(
     buildOrderUpdateBatchData(
       sheetName,
       target.rowNumber,
-      { ...order, items: itemChunks[index] },
+      { ...order, category: normalizeCategoryForSheet(order.category, order.items), items: itemChunks[index] },
       logisticsObservation,
       0,
       sheetStatus
@@ -1723,7 +1726,7 @@ export async function updateOrderInSellerSheet(
   );
   await restoreSellerRowFormats(
     spreadsheetId, sheetName, targetRows.map(target => target.rowNumber), token,
-    normalizeCategoryForSheet(order.category)
+    normalizeCategoryForSheet(order.category, order.items)
   );
   await Promise.all(targetRows.map(target =>
     restoreMissingCalculatedFormulas(spreadsheetId, sheetName, target.rowNumber, 0, token)

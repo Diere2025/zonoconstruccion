@@ -1,3 +1,4 @@
+import { hasBiodigestor } from '@/lib/orderCategory';
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
@@ -678,6 +679,7 @@ export async function POST(request: Request) {
       let mepsCount = 0;
       let escalerasCount = 0;
       let pinturasCount = 0;
+      const categoryItems: { name: string; quantity: number }[] = [];
 
       for (let pIdx = 30; pIdx < row.length; pIdx += 4) {
         const prodName = (row[pIdx] || "").trim();
@@ -686,6 +688,7 @@ export async function POST(request: Request) {
         const qty = parseInt(prodQtyRaw.replace(/[^0-9.-]/g, ''), 10) || 0;
         if (qty <= 0) continue;
 
+        categoryItems.push({ name: prodName, quantity: qty });
         const nameLower = prodName.toLowerCase();
         if (nameLower.includes("termotanque") || nameLower.includes("termo")) termotanqueCount += qty;
         else if (nameLower.includes("aquafort") || nameLower.includes("tanque") || nameLower.includes("base") || nameLower.includes("flotante") || nameLower.includes("flotador")) tanquesCount += qty;
@@ -706,6 +709,7 @@ export async function POST(request: Request) {
       ];
       counts.sort((a, b) => b.count - a.count);
       if (counts[0].count > 0) deducedCategory = counts[0].cat;
+      if (hasBiodigestor(categoryItems)) deducedCategory = "BIODIGESTOR";
 
       let dbOrderStatus = 'Pendiente';
       const normStatus = normalizeText(rawStatus);

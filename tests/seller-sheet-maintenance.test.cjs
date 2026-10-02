@@ -81,7 +81,8 @@ function integration(failRepair = false, itemCount = 1) {
   };
   const sheets = load('src/lib/googleSheets.ts', {
     fetch, process: { env: {} },
-    require(name) { return load(`src/lib/${name.slice(2)}.ts`, { fetch }).exports; }
+    require(name) {
+      if (name === './orderCategory') { const exports = {}; vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/lib/orderCategory.ts', 'utf8'), {compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText, {exports}); return exports; } return load(`src/lib/${name.slice(2)}.ts`, { fetch }).exports; }
   });
   sheets.context.slots = Array.from({ length: Math.ceil(itemCount / 12) }, (_, i) => ({ code: 'TEST' + i, rowNumber: 7 + i }));
   vm.runInContext("getGoogleAccessToken = async () => 'test-token'; getNextAvailableSheetSlots = async () => slots", sheets.context);

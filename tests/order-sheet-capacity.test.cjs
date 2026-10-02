@@ -45,6 +45,7 @@ function fixture({rows=2699,offset=0,failExpansion=false}={}) {
   };
   const context=vm.createContext({exports,fetch,process:{env:{}},console:{error(){},warn(){}},
     require(name){
+      if (name === './orderCategory') { const exports = {}; vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/lib/orderCategory.ts', 'utf8'), {compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText, {exports}); return exports; }
       if(name==='./sellerSheetMaintenance')return {restoreSellerRowFormats:async()=>{calls.push({maintenance:true});}};
       if(name==='./sheetProducts')return {normalizeProductNameForSheet:name=>name};
       return {};
@@ -133,4 +134,20 @@ test('an expansion permission failure prevents order writes and blocks the downs
   assert.equal(result.deliveriesCurrent.success,false);
   assert.ok(!f.calls.some(c=>c.body?.data));
   assert.equal(f.calls.filter(c=>c.url.endsWith('?fields=sheets.properties')).length,1);
+});
+
+test('biodigestor overrides an old OTRO payload in every seller and operational row',async()=>{
+  const f=fixture();
+  vm.runInContext("getNextAvailableSheetSlots=async()=>[{code:'JS1',rowNumber:2700},{code:'JS2',rowNumber:2701}]; getNextEmptyOperationalRows=async()=>[2700,2701]",f.context);
+  const order={clientName:'Cliente',category:'OTRO',items:[
+    {name:'BioFort - Biodigestor 500L',quantity:1,unitPrice:100},
+    ...Array.from({length:12},()=>({name:'Otro producto',quantity:100,unitPrice:10}))
+  ]};
+  await f.exports.appendOrderToSellerSheet('seller','Pendientes',order);
+  const operational=await f.exports.appendNewOrderToOperationalSheets(['JS1','JS2'],order);
+  assert.equal(operational.central.success,true);
+  assert.equal(operational.deliveriesCurrent.success,true);
+  const categories=f.calls.flatMap(c=>c.body?.data||[]).filter(d=>/![UT]\d+:[VW]\d+$/.test(d.range));
+  assert.equal(categories.length,6);
+  assert.ok(categories.every(d=>d.values[0][0]==='BIODIGESTOR'));
 });
