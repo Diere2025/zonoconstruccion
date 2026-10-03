@@ -28,7 +28,7 @@ function compile(source, imports, extras = {}) {
   return exports;
 }
 
-function workspace(overrides = {}, query = '') {
+function workspace(overrides = {}, query = '', environment = {}) {
   const source = fs.readFileSync('src/app/admin/finanzas/page.tsx', 'utf8').replace('function FinanceWorkspace()', 'export function FinanceWorkspace()');
   const workspaceSource = source.slice(source.indexOf('export function FinanceWorkspace()'));
   const names = [...workspaceSource.matchAll(/const \[(\w+)(?:,[^\]]*)?\]\s*=\s*useState/g)].map(match => match[1]);
@@ -58,7 +58,7 @@ function workspace(overrides = {}, query = '') {
     'next/navigation': { useSearchParams: () => new URLSearchParams(query), useRouter: () => ({ push() {}, replace() {} }) },
     '@/lib/treasuryTransactionTime': { treasuryToday: () => '2026-09-28', treasuryDateTime: value => `${value}T12:00:00-03:00` },
     '@/lib/supabase': { supabase: { from: () => { writes++; throw new Error('Unexpected database call in UI check'); } } },
-    '@/lib/authenticatedRequest': {createAuthenticatedRequester:()=>()=>{throw new Error('Unexpected request in render');}},
+    '@/lib/authenticatedRequest': {createAuthenticatedRequester:()=>environment.request || (()=>{throw new Error('Unexpected request in render');})},
     '@/lib/financialOperations/types': compile(fs.readFileSync('src/lib/financialOperations/types.ts','utf8'),require),
     '@/components/finanzas/operations/OperationEditor': {__esModule:true,default:()=>null},
     '@/components/finanzas/operations/OperationChooser': {__esModule:true,default:()=>null},
@@ -73,7 +73,7 @@ function workspace(overrides = {}, query = '') {
     '@/components/finanzas/BankSheetImportModal': { __esModule: true, default: () => null },
     '@/components/finanzas/SupplierAccounts': { __esModule: true, default: () => null }
   };
-  const exports = compile(source, name => modules[name] || require(name));
+  const exports = compile(source, name => modules[name] || require(name), {prompt:environment.prompt || (()=>'Prueba de anulación'),alert:environment.alert || (()=>{}),crypto:require('node:crypto').webcrypto});
   let tree;
   function render() { cursor = 0; effects.length = 0; tree = exports.FinanceWorkspace(); return tree; }
   function find(predicate, element = tree) {

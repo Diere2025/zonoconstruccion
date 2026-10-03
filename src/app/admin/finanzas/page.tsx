@@ -7,13 +7,13 @@ import { supabase } from "@/lib/supabase";
 import OperationEditor from '@/components/finanzas/operations/OperationEditor';
 import OperationChooser from '@/components/finanzas/operations/OperationChooser';
 import { createAuthenticatedRequester } from '@/lib/authenticatedRequest';
-import { inferOperationType, operationLabels, type OperationType, type OperationSummary } from '@/lib/financialOperations/types';
+import { inferOperationType, isInactiveFinancialMovement, operationLabels, type OperationType, type OperationSummary } from '@/lib/financialOperations/types';
 const financialRequest = createAuthenticatedRequester(supabase);
 const localOperationRead = (url:string,options?:RequestInit) => {
   if(options && (options.method || 'GET')!=='GET')throw new Error('La revisión local solo permite consultar.');
   return financialRequest(url==='/api/admin/financial-operations'?`${url}?preview=real`:url,options);
 };
-const financeFetch = async (url: string) => { const payload = await financialRequest(url); return {ok:true,json:async()=>payload}; };
+const financeFetch = async (url: string, fresh = false) => { const payload = await financialRequest(url, fresh ? {} : undefined); return {ok:true,json:async()=>payload}; };
 import { 
   Wallet, 
   ArrowUpRight, 
@@ -408,7 +408,11 @@ function FinanceWorkspace() {
   const approvalAttempt = useRef<{signature:string;key:string}|null>(null);
   const [operationEditor, setOperationEditor] = useState<{kind:OperationType;payrollKind?:string;transactionId?:string;sourceAccountId?:string;duplicate?:boolean}|null>(null);
   const [choosingOperation,setChoosingOperation]=useState(false);
-  const operationSaved = () => { void loadTransactions(); void loadFinancialAccounts(); void initData(); void loadValidationOrders(); };
+  const operationSaved = async () => { await Promise.all([loadTransactions(false, true), loadFinancialAccounts(), initData(), loadValidationOrders()]); };
+  const transactionLoadVersion = useRef(0);
+  const cancellationInFlight = useRef(false);
+  const [cancellingTransactionId, setCancellingTransactionId] = useState<string | null>(null);
+  const [showCancelled, setShowCancelled] = useState(false);
   const searchParams = useSearchParams();
   const router = useRouter();
   const tab = searchParams.get("tab");
@@ -796,24 +800,27 @@ function FinanceWorkspace() {
     return () => clearTimeout(timer);
   }, [linkOrderSearchQuery, isLinkModalOpen, reconcilingTx]);
 
-  const loadTransactions = async (showLoading = true) => {
+  const loadTransactions = async (showLoading = true, fresh = false) => {
+    const version = ++transactionLoadVersion.current;
     if (showLoading) setLoading(true);
     try {
-      const res = await financeFetch(`/api/admin/finanzas-data?action=transactions&startDate=${startDate}&endDate=${endDate}`);
+      const res = await financeFetch(`/api/admin/finanzas-data?action=transactions&startDate=${startDate}&endDate=${endDate}`, fresh);
       if (!res.ok) {
         throw new Error("No se pudieron cargar los movimientos. La base de datos no responde.");
       }
       const payload = await res.json();
+      if (version !== transactionLoadVersion.current) return;
       if (payload.transactions) {
         setTransactions(payload.transactions);
       }
       setOperationsAvailable(payload.features?.financialOperations ?? true);
       setTransactionsError("");
     } catch (err) {
+      if (version !== transactionLoadVersion.current) return;
       setTransactions([]);
       setTransactionsError(err instanceof Error ? err.message : "No se pudieron cargar los movimientos.");
     } finally {
-      if (showLoading) setLoading(false);
+      if (version === transactionLoadVersion.current) setLoading(false);
     }
   };
 
@@ -998,15 +1005,19 @@ function FinanceWorkspace() {
 
   // Eliminar Transacción (Solo Admin)
   const handleDeleteTx = async (txId: string, concept: string | null) => {
-    if(operationsAvailable===false)return;
+    if(operationsAvailable===false || cancellationInFlight.current || transactions.some(t => t.id === txId && isInactiveFinancialMovement(t)))return;
     const reason = prompt(`Motivo de anulación de "${concept || 'Sin concepto'}". Se conservará el historial y se compensará el importe:`);
     if (!reason?.trim()) return;
+    cancellationInFlight.current = true;
+    setCancellingTransactionId(txId);
     try {
       const snapshot = await financialRequest(`/api/admin/financial-operations?transaction_id=${txId}`);
+      if (snapshot.operation?.status === 'cancelled' || snapshot.transaction.reversal_of_transaction_id) { await loadTransactions(false, true); return; }
       await financialRequest('/api/admin/financial-operations',{method:'POST',body:JSON.stringify({action:'cancel',key:crypto.randomUUID(),reason:reason.trim(),
         target:{transaction_id:snapshot.transaction.id,operation_id:snapshot.operation?.id,expected_version:snapshot.operation?.version,expected_transaction:snapshot.transaction}})});
-      operationSaved();
+      await operationSaved();
     } catch(error) { alert(error instanceof Error?error.message:'No se pudo anular.'); }
+    finally { cancellationInFlight.current = false; setCancellingTransactionId(null); }
   };
 
   // =========================================================================
@@ -1025,6 +1036,7 @@ function FinanceWorkspace() {
   // Transacciones Filtradas
   const filteredTransactions = useMemo(() => {
     return transactions.filter(t => {
+      if (!showCancelled && isInactiveFinancialMovement(t)) return false;
       // 0. Rango de Fechas (Filtro en cliente para Fecha Inicio)
       const txDate = treasuryToday(new Date(t.created_at));
       if (txDate < startDate) {
@@ -1073,7 +1085,7 @@ function FinanceWorkspace() {
 
       return true;
     });
-  }, [transactions, filterAccountId, filterType, filterCategory, filterCostCenterId, searchTerm, startDate]);
+  }, [transactions, showCancelled, filterAccountId, filterType, filterCategory, filterCostCenterId, searchTerm, startDate]);
 
   // KPIs Financieros Consolidados (Pesos y Dólares por separado)
   const financialKPIs = useMemo(() => {
@@ -1083,6 +1095,7 @@ function FinanceWorkspace() {
     let expenseUsd = 0;
 
     filteredTransactions.forEach(t => {
+      if (isInactiveFinancialMovement(t)) return;
       const amt = Number(t.amount) || 0;
       if (t.currency === 'USD') {
         if (t.type === 'ingreso') incomeUsd += amt;
@@ -1227,7 +1240,8 @@ function FinanceWorkspace() {
             type={filterType} onType={value => { setFilterType(value); setCurrentPage(1); }}
             category={filterCategory} onCategory={value => { setFilterCategory(value); setCurrentPage(1); }} categories={categoriesList}
             unit={filterCostCenterId} onUnit={value => { setFilterCostCenterId(value); setCurrentPage(1); }} units={costCenters}
-            onClear={() => { setSearchTerm(""); setFilterAccountId("all"); setFilterType("all"); setFilterCategory("all"); setFilterCostCenterId("all"); handlePresetChange("30dias"); setCurrentPage(1); }}
+            showCancelled={showCancelled} onShowCancelled={value => { setShowCancelled(value); setCurrentPage(1); }}
+            onClear={() => { setShowCancelled(false); setSearchTerm(""); setFilterAccountId("all"); setFilterType("all"); setFilterCategory("all"); setFilterCostCenterId("all"); handlePresetChange("30dias"); setCurrentPage(1); }}
             onRefresh={() => { void loadTransactions(); }} onNew={openQuickMovement} onTransfer={() => openQuickTransfer()}
             onConcepts={() => setIsConceptManagerOpen(true)} onExport={handleExportCSV} onSync={handleSyncFromSheets}
             syncing={false} disabled={(operationsAvailable===false && !localInspection) || Boolean(initDataError && financialAccounts.length === 0)}
@@ -1329,6 +1343,7 @@ function FinanceWorkspace() {
                       let lastDate = "";
                       return paginatedTransactions.map(t => {
                         const isIngreso = t.type === 'ingreso';
+                        const inactive = isInactiveFinancialMovement(t);
                         const currentDate = formatDateDDMMYYYY(t.created_at);
                         const showDateDivider = currentDate !== lastDate;
                         lastDate = currentDate;
@@ -1375,6 +1390,7 @@ function FinanceWorkspace() {
                                     <div className="flex min-w-0 items-center gap-1.5">
                                       <button type="button" aria-label={`Ver detalle de ${t.concept || "movimiento"}`} aria-expanded={Boolean(expandedTransactions[t.id])} onClick={() => setExpandedTransactions(value => ({ ...value, [t.id]: !value[t.id] }))} className="shrink-0 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-brand-600"><ChevronRight className={`h-3 w-3 transition-transform ${expandedTransactions[t.id] ? "rotate-90" : ""}`} /></button>
                                       <span className="truncate font-bold" title={t.concept || ""}>{t.concept || "-"}</span>
+                                      {inactive && <span className="shrink-0 rounded bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold text-amber-800">{t.reversal_of_transaction_id ? 'Compensación' : 'Anulado'}</span>}
                                       {t.is_imported && (
                                         <span className="inline-flex items-center gap-0.5 text-blue-700 bg-blue-50 px-1 py-0.2 rounded text-[7px] font-black uppercase tracking-wider scale-90 select-none shrink-0" title="Importado desde planilla de cálculo">
                                           Planilla
@@ -1406,7 +1422,7 @@ function FinanceWorkspace() {
                                 <td className="py-1.5 px-2 text-right">
                                   <div className="flex justify-end gap-1">
                                     <button
-                                      disabled={operationsAvailable===false}
+                                      type="button" disabled={operationsAvailable===false || inactive || Boolean(cancellingTransactionId)}
                                       onClick={() => setOperationEditor({kind:inferOperationType(t),transactionId:t.id})}
                                       className="p-1 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded transition-colors"
                                       title="Editar movimiento"
@@ -1417,7 +1433,7 @@ function FinanceWorkspace() {
                                       <summary aria-label="Más acciones del movimiento" className="cursor-pointer list-none rounded p-1 text-slate-400 hover:bg-slate-100"><MoreHorizontal className="h-3.5 w-3.5" /></summary>
                                       <div className="absolute right-0 top-full z-20 min-w-32 rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
                                     <button
-                                      disabled={operationsAvailable===false}
+                                      type="button" disabled={operationsAvailable===false || inactive || Boolean(cancellingTransactionId)}
                                       onClick={() => handleDuplicateTx(t)}
                                       className="flex w-full items-center gap-2 rounded px-2 py-2 text-xs text-slate-700 hover:bg-slate-50"
                                       title="Duplicar movimiento"
@@ -1425,12 +1441,12 @@ function FinanceWorkspace() {
                                       <Copy className="w-3.5 h-3.5" /> Duplicar
                                     </button>
                                     <button
-                                      disabled={operationsAvailable===false}
+                                      type="button" disabled={operationsAvailable===false || inactive || Boolean(cancellingTransactionId)}
                                       onClick={() => handleDeleteTx(t.id, t.concept)}
                                       className="flex w-full items-center gap-2 rounded px-2 py-2 text-xs text-red-600 hover:bg-red-50"
                                       title="Anular movimiento"
                                     >
-                                      <Trash2 className="w-3.5 h-3.5" /> Eliminar
+                                      <Trash2 className="w-3.5 h-3.5" /> {cancellingTransactionId === t.id ? 'Anulando…' : 'Anular'}
                                     </button>
                                       </div>
                                     </details>
@@ -1460,9 +1476,9 @@ function FinanceWorkspace() {
                                               ⚠️ Empleado no asociado
                                             </span>
                                             <button
-                                              type="button"
+                                              type="button" disabled={inactive || Boolean(cancellingTransactionId)}
                                               onClick={() => {
-                                                if(operationsAvailable===false)return;
+                                                if(operationsAvailable===false || inactive)return;
                                                 setReconcilingTx(t);
                                                 setLinkEmployeeId("");
                                                 setLinkAmount(t.amount.toString());
@@ -1489,9 +1505,9 @@ function FinanceWorkspace() {
                                               ⚠️ Compra no asociada
                                             </span>
                                             <button
-                                              type="button"
+                                              type="button" disabled={inactive || Boolean(cancellingTransactionId)}
                                               onClick={() => {
-                                                if(operationsAvailable===false)return;
+                                                if(operationsAvailable===false || inactive)return;
                                                 setReconcilingTx(t);
                                                 setLinkSupplierId("");
                                                 setLinkPurchaseId("");
@@ -1519,9 +1535,9 @@ function FinanceWorkspace() {
                                               ⚠️ Venta no asociada
                                             </span>
                                             <button
-                                              type="button"
+                                              type="button" disabled={inactive || Boolean(cancellingTransactionId)}
                                               onClick={() => {
-                                                if(operationsAvailable===false)return;
+                                                if(operationsAvailable===false || inactive)return;
                                                 setReconcilingTx(t);
                                                 setLinkOrderId("");
                                                 setLinkSelectedOrder(null);
@@ -1549,9 +1565,9 @@ function FinanceWorkspace() {
                                               ⚠️ HR no asociada
                                             </span>
                                             <button
-                                              type="button"
+                                              type="button" disabled={inactive || Boolean(cancellingTransactionId)}
                                               onClick={() => {
-                                                if(operationsAvailable===false)return;
+                                                if(operationsAvailable===false || inactive)return;
                                                 setReconcilingTx(t);
                                                 setLinkRouteSheetId("");
                                                 setIsLinkModalOpen(true);

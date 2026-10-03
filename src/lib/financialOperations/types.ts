@@ -19,6 +19,10 @@ export type OperationInput = {
 export type OperationSummary = { id: string; operation_type: OperationType; version: number; status: string; detail: OperationInput['detail'] };
 export type OperationTarget = { transaction_id: string; operation_id?: string; expected_version?: number; expected_transaction?: Record<string, unknown> };
 
+export function isInactiveFinancialMovement(tx: { financial_operations?: { status: string } | null; reversal_of_transaction_id?: string | null }): boolean {
+  return tx.financial_operations?.status === 'cancelled' || Boolean(tx.reversal_of_transaction_id);
+}
+
 export function inferOperationType(tx: { category: string; type: string; employee_id?: string | null;
   supplier_payments?: unknown[]; client_payments?: unknown[]; notes?: string | null;financial_operations?:OperationSummary|null }): OperationType {
   if(tx.financial_operations)return tx.financial_operations.operation_type;

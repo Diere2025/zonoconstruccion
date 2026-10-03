@@ -28,6 +28,8 @@ interface Props {
   unit: string;
   onUnit: (value: string) => void;
   units: { id: string; name: string; code: string }[];
+  showCancelled: boolean;
+  onShowCancelled: (value: boolean) => void;
   onClear: () => void;
   onRefresh: () => void;
   onNew: (kind: QuickMovement) => void;
@@ -94,7 +96,7 @@ export default function FinanceToolbar(p: Props) {
     document.addEventListener("keydown", close);
     return () => document.removeEventListener("keydown", close);
   }, [openMenu]);
-  const additionalFilters = Number(p.category !== "all") + Number(p.unit !== "all");
+  const additionalFilters = Number(p.category !== "all") + Number(p.unit !== "all") + Number(p.showCancelled);
   const toggleMenu = (name: typeof openMenu) => setOpenMenu(current => current === name ? null : name);
   const run = (fn: () => void) => { setOpenMenu(null); fn(); };
 
@@ -157,6 +159,7 @@ export default function FinanceToolbar(p: Props) {
         <button type="button" onClick={p.onRefresh} aria-label="Actualizar movimientos" title="Actualizar movimientos" className={action}><RefreshCw className="h-3.5 w-3.5" /></button>
       </div>
       {moreFilters && <div className="mt-2.5 flex flex-wrap gap-3 border-t border-slate-100 pt-2.5">
+        <label className="flex items-center gap-2 text-xs font-semibold text-slate-500"><input type="checkbox" checked={p.showCancelled} onChange={e => p.onShowCancelled(e.target.checked)} className="accent-brand-600" />Mostrar anulados y compensaciones</label>
         <label className="flex max-w-full min-w-0 items-center gap-2 text-xs font-semibold text-slate-500">Categoría<AdaptiveSelect value={p.category} onChange={e => p.onCategory(e.target.value)} className={`${control} max-w-64 min-w-0`}><option value="all">Todas las categorías</option>{p.categories.map(c => <option key={c} value={c}>{c}</option>)}</AdaptiveSelect></label>
         <label className="flex max-w-full min-w-0 items-center gap-2 text-xs font-semibold text-slate-500">Área / centro de costo<AdaptiveSelect value={p.unit} onChange={e => p.onUnit(e.target.value)} className={`${control} max-w-64 min-w-0`}><option value="all">Todas las áreas</option>{p.units.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}</AdaptiveSelect></label>
       </div>}
