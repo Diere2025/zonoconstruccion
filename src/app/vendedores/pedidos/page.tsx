@@ -1,5 +1,4 @@
 "use client";
-import { detectOrderCategory, hasBiodigestor, resolveOrderCategory } from "@/lib/orderCategory";
 
 import { AdvertisingSource, advertisingSourcesForChannel } from "@/lib/advertisingSources";
 import { sellerFirstName, cancellationReasonText } from "@/lib/orderNotificationText";
@@ -74,6 +73,7 @@ import { calculateBulkPrices } from "@/lib/erp/prices";
 import { createBulkStockTransactions } from "@/lib/erp/stock";
 import { evaluateDiscountSuggestions, DiscountSuggestion } from "@/lib/discountRules";
 import { buildSheetOrderItems, normalizeProductNameForSheet } from "@/lib/googleSheets";
+import { detectOrderCategory, hasBiodigestor, resolveOrderCategory } from "@/lib/orderCategory";
 import { calculateCascadingDiscounts } from "@/lib/orderDiscounts";
 
 const requestFormData = createAuthenticatedRequester(supabase);
@@ -2927,7 +2927,7 @@ export default function PedidosPage() {
           .eq("client_id", selectedClientId)
           .order("is_default", { ascending: false })
           .order("created_at", { ascending: false });
-        if (data) {
+        if (data && !cancelled) {
           setClientAddresses(data);
         }
         return;

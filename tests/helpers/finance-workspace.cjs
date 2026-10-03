@@ -22,7 +22,7 @@ const transactions = Array.from({ length: 55 }, (_, i) => ({
 function compile(source, imports, extras = {}) {
   const exports = {};
   vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText, {
-    exports, require: imports, console, Date, URL, setTimeout, clearTimeout,
+    exports, require: imports, console, Date, URL, setTimeout, clearTimeout,process:{env:{NODE_ENV:'development'}},
     localStorage: { getItem: () => null, setItem() {} }, ...extras
   });
   return exports;
@@ -30,7 +30,8 @@ function compile(source, imports, extras = {}) {
 
 function workspace(overrides = {}, query = '') {
   const source = fs.readFileSync('src/app/admin/finanzas/page.tsx', 'utf8').replace('function FinanceWorkspace()', 'export function FinanceWorkspace()');
-  const names = [...source.matchAll(/const \[(\w+),[^\]]*\]\s*=\s*useState/g)].map(match => match[1]);
+  const workspaceSource = source.slice(source.indexOf('export function FinanceWorkspace()'));
+  const names = [...workspaceSource.matchAll(/const \[(\w+)(?:,[^\]]*)?\]\s*=\s*useState/g)].map(match => match[1]);
   const state = new Map(Object.entries({ loading: false, financialAccounts: accounts, transactions, startDate: '2026-08-29', endDate: '2026-09-28', ...overrides }));
   let cursor = 0;
   let writes = 0;
@@ -43,27 +44,34 @@ function workspace(overrides = {}, query = '') {
       return [state.get(name), value => state.set(name, typeof value === 'function' ? value(state.get(name)) : value)];
     },
     useMemo: fn => fn(),
+    useRef: value => ({current:value}),
     useEffect: fn => { effects.push(fn); }
   };
   const icons = require('lucide-react');
   const labels = compile(fs.readFileSync('src/lib/financialAccountLabels.ts', 'utf8'), require);
   const componentImports = name => name === 'lucide-react' ? icons : name === '@/lib/financialAccountLabels' ? labels : require(name);
-  const toolbar = compile(fs.readFileSync('src/components/finanzas/FinanceToolbar.tsx', 'utf8'), componentImports).default;
   const searchableSelect = compile(fs.readFileSync('src/components/ui/SearchableSelect.tsx', 'utf8'), componentImports).default;
+  const adaptiveSelect=compile(fs.readFileSync('src/components/ui/AdaptiveSelect.tsx','utf8'),name=>name==='./SearchableSelect'?{__esModule:true,default:searchableSelect}:componentImports(name)).default;
+  const toolbar = compile(fs.readFileSync('src/components/finanzas/FinanceToolbar.tsx', 'utf8'), name=>name==='@/components/ui/AdaptiveSelect'?{__esModule:true,default:adaptiveSelect}:componentImports(name)).default;
   const modules = {
     'react': hooks,
     'next/navigation': { useSearchParams: () => new URLSearchParams(query), useRouter: () => ({ push() {}, replace() {} }) },
     '@/lib/treasuryTransactionTime': { treasuryToday: () => '2026-09-28', treasuryDateTime: value => `${value}T12:00:00-03:00` },
     '@/lib/supabase': { supabase: { from: () => { writes++; throw new Error('Unexpected database call in UI check'); } } },
+    '@/lib/authenticatedRequest': {createAuthenticatedRequester:()=>()=>{throw new Error('Unexpected request in render');}},
+    '@/lib/financialOperations/types': compile(fs.readFileSync('src/lib/financialOperations/types.ts','utf8'),require),
+    '@/components/finanzas/operations/OperationEditor': {__esModule:true,default:()=>null},
+    '@/components/finanzas/operations/OperationChooser': {__esModule:true,default:()=>null},
     'lucide-react': icons,
     '@/components/ui/Button': { Button: props => React.createElement('button', props) },
     '@/lib/utils': { formatPrice: n => `$${Number(n).toLocaleString('es-AR')}`, formatDateDDMMYYYY: value => { const [y,m,d] = value.slice(0,10).split('-'); return `${d}/${m}/${y}`; } },
     '@/components/finanzas/FinanceToolbar': { __esModule: true, default: toolbar },
     '@/components/ui/SearchableSelect': { __esModule: true, default: searchableSelect },
+    '@/components/ui/AdaptiveSelect': { __esModule: true, default: adaptiveSelect },
     '@/lib/financialAccountLabels': labels,
     '@/components/finanzas/FinancialConceptManager': { __esModule: true, default: () => null },
-    '@/components/finanzas/SupplierAccounts': { __esModule: true, default: () => null },
-    '@/components/finanzas/BankSheetImportModal': { __esModule: true, default: () => null }
+    '@/components/finanzas/BankSheetImportModal': { __esModule: true, default: () => null },
+    '@/components/finanzas/SupplierAccounts': { __esModule: true, default: () => null }
   };
   const exports = compile(source, name => modules[name] || require(name));
   let tree;

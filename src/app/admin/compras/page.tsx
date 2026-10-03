@@ -674,6 +674,7 @@ export default function ComprasAdminPage() {
   const [detailTab, setDetailTab] = useState<'items' | 'payments'>('items');
   const [associatedPayments, setAssociatedPayments] = useState<any[]>([]);
   const [loadingPayments, setLoadingPayments] = useState(false);
+  const [purchasePaymentsError,setPurchasePaymentsError]=useState('');
 
   // Claims & Exchanges evaluation states
   const [selectedClaim, setSelectedClaim] = useState<any | null>(null);
@@ -3527,13 +3528,12 @@ export default function ComprasAdminPage() {
 
   const loadPurchasePayments = async (purchaseId: string) => {
     setLoadingPayments(true);
+    setPurchasePaymentsError('');
     try {
-      const { data, error } = await supabase.from('supplier_payments')
-        .select('*, payment_methods(name), cash_transactions(concept, amount)')
-        .eq('purchase_id', purchaseId).order('created_at', { ascending: true });
-      if (error) throw error;
-      setAssociatedPayments(data || []);
-    } catch (error) { console.error('Error al cargar pagos del proveedor:', error); }
+      setAssociatedPayments([]);
+      const data = await receiptApi.current(`/api/admin/financial-operations?purchase_id=${purchaseId}`);
+      setAssociatedPayments(data.payments || []);
+    } catch (error) { setPurchasePaymentsError(error instanceof Error?error.message:'No se pudieron cargar las imputaciones.'); }
     finally { setLoadingPayments(false); }
   };
 
@@ -7916,6 +7916,7 @@ export default function ComprasAdminPage() {
                 {/* Associated payments table */}
                 <div className="space-y-2">
                   <h4 className="text-xs font-black text-slate-600 uppercase tracking-widest">Pagos Realizados</h4>
+                  {purchasePaymentsError && <p role="alert" className="text-xs text-red-700">{purchasePaymentsError}</p>}
                   {loadingPayments ? (
                     <div className="py-6 text-center">
                       <Loader2 className="w-5 h-5 animate-spin mx-auto text-brand-500" />
@@ -7940,7 +7941,8 @@ export default function ComprasAdminPage() {
                                 {formatDateDDMMYYYY(pay.created_at)}
                               </td>
                               <td className="px-3 py-2 font-black text-slate-850">
-                                {formatPrice(pay.amount)} {pay.currency}
+                                <span className={pay.reversed_at?'line-through text-slate-400':''}>{formatPrice(pay.amount)} {pay.currency}</span>
+                                {pay.reversed_at && <span className="ml-1 text-xs text-red-600">Anulado</span>}
                               </td>
                               <td className="px-3 py-2 font-medium text-slate-600">
                                 {pay.payment_methods?.name || "Efectivo"}

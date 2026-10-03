@@ -1,0 +1,7 @@
+{
+  "extends":"../tsconfig.json",
+  "compilerOptions":{"incremental":false},
+  "include":["../next-env.d.ts","../src/app/vista-previa-movimientos/**/*.tsx","../src/app/admin/finanzas/page.tsx","../src/app/admin/compras/page.tsx","../src/app/api/admin/financial-operations/route.ts","../src/app/api/admin/special-financial-operations/route.ts","../src/app/api/admin/finanzas-data/route.ts","../src/lib/paymentPlanning/reconciliationServer.ts"],
+  "exclude":["../node_modules"],
+  "files":["../src/app/api/admin/financial-people/route.ts","../src/app/admin/personal/page.tsx"]
+}

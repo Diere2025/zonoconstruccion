@@ -12,12 +12,14 @@ interface Props {
   required?: boolean;
   placeholder?: string;
   clearOnSearch?: boolean;
+  disabled?:boolean;
+  hideLabel?:boolean;
 }
 
 const normalize = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("es").trim();
 
 /** Search selects an existing record; typed text cannot be submitted as a record id. */
-export default function SearchableSelect({ id, label, value, options, onChange, required = false, placeholder = "Seleccionar…", clearOnSearch = true }: Props) {
+export default function SearchableSelect({ id, label, value, options, onChange, required = false, placeholder = "Seleccionar…", clearOnSearch = true,disabled=false,hideLabel=false }: Props) {
   const generatedId = useId();
   const inputId = id || generatedId;
   const listId = `${inputId}-options`;
@@ -32,8 +34,8 @@ export default function SearchableSelect({ id, label, value, options, onChange, 
   }, [options, query]);
   const highlightedIndex = Math.min(activeIndex, filtered.length - 1);
   useEffect(() => {
-    inputRef.current?.setCustomValidity(required && !selected ? "Seleccioná una opción de la lista." : "");
-  }, [required, selected]);
+    inputRef.current?.setCustomValidity(!disabled && required && !selected ? "Seleccioná una opción de la lista." : "");
+  }, [required, selected,disabled]);
   useEffect(() => {
     if (open && highlightedIndex >= 0) document.getElementById(`${listId}-${highlightedIndex}`)?.scrollIntoView({ block: "nearest" });
   }, [open, highlightedIndex, listId]);
@@ -48,11 +50,11 @@ export default function SearchableSelect({ id, label, value, options, onChange, 
 
   return (
     <div className="relative min-w-0">
-      <label htmlFor={inputId} className="mb-1 block text-xs font-semibold text-slate-500">{label}{required && <span className="text-slate-400"> *</span>}</label>
+      {!hideLabel && <label htmlFor={inputId} className="mb-1 block text-xs font-semibold text-slate-500">{label}{required && <span className="text-slate-400"> *</span>}</label>}
       <div className="relative">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
         <input
-          ref={inputRef} id={inputId} role="combobox" aria-autocomplete="list" aria-expanded={open}
+          ref={inputRef} id={inputId} disabled={disabled} aria-label={hideLabel?label:undefined} role="combobox" aria-autocomplete="list" aria-expanded={!disabled && open}
           aria-controls={open ? listId : undefined}
           aria-activedescendant={open && highlightedIndex >= 0 ? `${listId}-${highlightedIndex}` : undefined}
           autoComplete="off" aria-required={required} required={required && !selected}
@@ -78,10 +80,10 @@ export default function SearchableSelect({ id, label, value, options, onChange, 
           }}
           className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-16 text-sm font-medium text-slate-800 outline-none placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10"
         />
-        {value && <button type="button" aria-label={`Limpiar ${label.toLocaleLowerCase("es")}`} onMouseDown={event => event.preventDefault()} onClick={() => choose("")} className="absolute right-8 top-1/2 -translate-y-1/2 rounded p-1 text-slate-400 hover:text-slate-600"><X className="h-3.5 w-3.5" /></button>}
-        <button type="button" aria-label={`${open ? "Cerrar" : "Mostrar"} ${label.toLocaleLowerCase("es")}`} onMouseDown={event => event.preventDefault()} onClick={() => { if (open) setOpen(false); else { inputRef.current?.focus(); showOptions(); } }} className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-slate-400 hover:text-slate-600"><ChevronDown className="h-4 w-4" /></button>
+        {value && <button type="button" disabled={disabled} aria-label={`Limpiar ${label.toLocaleLowerCase("es")}`} onMouseDown={event => event.preventDefault()} onClick={() => choose("")} className="absolute right-8 top-1/2 -translate-y-1/2 rounded p-1 text-slate-400 hover:text-slate-600"><X className="h-3.5 w-3.5" /></button>}
+        <button type="button" disabled={disabled} aria-label={`${open ? "Cerrar" : "Mostrar"} ${label.toLocaleLowerCase("es")}`} onMouseDown={event => event.preventDefault()} onClick={() => { if (open) setOpen(false); else { inputRef.current?.focus(); showOptions(); } }} className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-slate-400 hover:text-slate-600"><ChevronDown className="h-4 w-4" /></button>
       </div>
-      {open && <div id={listId} role="listbox" aria-label={label} className="absolute left-0 right-0 top-full z-30 mt-1 max-h-48 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-xl">
+      {!disabled && open && <div id={listId} role="listbox" aria-label={label} className="absolute left-0 right-0 top-full z-30 mt-1 max-h-48 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-xl">
         {filtered.length ? filtered.map((option, index) => <button
           key={option.value} id={`${listId}-${index}`} type="button" role="option" tabIndex={-1}
           aria-selected={option.value === value} onMouseDown={event => event.preventDefault()} onClick={() => choose(option.value)}

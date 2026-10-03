@@ -1,10 +1,11 @@
 "use client";
+import AdaptiveSelect from "@/components/ui/AdaptiveSelect";
 
 import { useEffect, useRef, useState } from "react";
 import { ArrowRightLeft, ChevronDown, Download, PlusCircle, RefreshCw, Search, SlidersHorizontal, Users } from "lucide-react";
 import { financialAccountLabel } from "@/lib/financialAccountLabels";
 
-export type QuickMovement = "general" | "eventuales" | "proveedor" | "gasto" | "adelanto";
+export type QuickMovement = "general" | "eventuales" | "proveedor" | "gasto" | "adelanto" | "cobro" | "sueldo" | "impuesto";
 export type OptionalFinanceColumn = "subcategory" | "efe" | "notes";
 
 interface Props {
@@ -50,13 +51,15 @@ const menuItem = "flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-lef
 const extraMovements = [
   { kind: "proveedor", label: "Pago a proveedor" },
   { kind: "gasto", label: "Gasto operativo" },
-  { kind: "adelanto", label: "Adelanto de sueldo" }
+  {kind:"cobro",label:"Cobro de cliente"},
+  {kind:"impuesto",label:"Pago de impuesto"}
 ] as const;
 
 export function visibleMovementCount(available: number, widths: number[]) {
-  for (let count = 3; count >= 0; count--) {
+  const extraCount=Math.max(0,widths.length-4);
+  for (let count = extraCount; count >= 0; count--) {
     const visible = widths.slice(0, 3 + count);
-    if (count < 3) visible.push(widths[6]);
+    if (count < extraCount) visible.push(widths[3+extraCount]);
     if (visible.reduce((sum, width) => sum + width, 0) + (visible.length - 1) * 8 <= available) return count;
   }
   return 0;
@@ -101,14 +104,14 @@ export default function FinanceToolbar(p: Props) {
       <div ref={measurementsRef} aria-hidden="true" className="invisible pointer-events-none fixed -left-[10000px] top-0 flex w-max gap-2">
         <span className={action}><PlusCircle className="h-3.5 w-3.5" />Nuevo movimiento</span>
         <span className={action}><ArrowRightLeft className="h-3.5 w-3.5" />Transferencia</span>
-        <span className={action}><Users className="h-3.5 w-3.5" />Carga de eventuales</span>
+        <span className={action}><Users className="h-3.5 w-3.5" />Pago al personal</span>
         {extraMovements.map(item => <span key={item.kind} className={action}>{item.label}</span>)}
         <span className={action}>Más movimientos <ChevronDown className="h-3 w-3" /></span>
       </div>
       <div ref={actionRowRef} className="flex flex-wrap items-center gap-2">
         <button type="button" disabled={p.disabled} onClick={() => p.onNew("general")} className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-brand-600 bg-brand-600 px-2.5 text-xs font-semibold text-white hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500/30 disabled:cursor-not-allowed disabled:opacity-50"><PlusCircle className="h-3.5 w-3.5" /> Nuevo movimiento</button>
         <button type="button" disabled={p.disabled} onClick={p.onTransfer} className={action}><ArrowRightLeft className="h-3.5 w-3.5" /> Transferencia</button>
-        <button type="button" disabled={p.disabled} onClick={() => p.onNew("eventuales")} className={action}><Users className="h-3.5 w-3.5" /> Carga de eventuales</button>
+        <button type="button" disabled={p.disabled} onClick={() => p.onNew("sueldo")} className={action}><Users className="h-3.5 w-3.5" /> Pago al personal</button>
         {extraMovements.slice(0, visibleExtras).map(item => <button key={item.kind} type="button" disabled={p.disabled} onClick={() => p.onNew(item.kind)} className={action}>{item.label}</button>)}
         {visibleExtras < extraMovements.length && <div className="relative">
           <button type="button" disabled={p.disabled} aria-expanded={openMenu === "movements"} onClick={() => toggleMenu("movements")} className={action}>Más movimientos <ChevronDown className="h-3 w-3" /></button>
@@ -128,6 +131,7 @@ export default function FinanceToolbar(p: Props) {
             <button type="button" aria-expanded={openMenu === "actions"} onClick={() => toggleMenu("actions")} className={action}>Más acciones <ChevronDown className="h-3 w-3" /></button>
             {openMenu === "actions" && <div className={menu}>
               <button type="button" className={menuItem} onClick={() => run(p.onConcepts)}><Search className="h-3.5 w-3.5" />Administrar conceptos</button>
+              <a href="/admin/personal" className={menuItem}><Users className="h-3.5 w-3.5" />Personal y prestadores</a>
               <button type="button" className={menuItem} onClick={() => run(p.onExport)}><Download className="h-3.5 w-3.5" />Exportar CSV</button>
               <button type="button" disabled={p.syncing} className={menuItem} onClick={() => run(p.onSync)}><RefreshCw className={`h-3.5 w-3.5 ${p.syncing ? "animate-spin" : ""}`} />{p.syncing ? "Importando…" : "Importar bancos · sólo faltantes"}</button>
             </div>}
@@ -139,22 +143,22 @@ export default function FinanceToolbar(p: Props) {
           <Search className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
           <input aria-label="Buscar movimiento" placeholder="Buscar concepto, subcategoría, notas…" value={p.search} onChange={e => p.onSearch(e.target.value)} className={`${control} w-full pl-8`} />
         </div>
-        <select aria-label="Período" value={p.period} onChange={e => p.onPeriod(e.target.value)} className={control}>
+        <AdaptiveSelect aria-label="Período" value={p.period} onChange={e => p.onPeriod(e.target.value)} className={control}>
           <option value="hoy">Hoy</option><option value="7dias">7 días</option><option value="30dias">30 días</option><option value="mes">Este mes</option><option value="año">Este año</option><option value="personalizado">Personalizado</option>
-        </select>
+        </AdaptiveSelect>
         {p.period === "personalizado" && <>
           <label className="flex items-center gap-1 text-xs text-slate-500">Desde<input type="date" aria-label="Desde" value={p.startDate} onChange={e => p.onStartDate(e.target.value)} className={control} /></label>
           <label className="flex items-center gap-1 text-xs text-slate-500">Hasta<input type="date" aria-label="Hasta" value={p.endDate} onChange={e => p.onEndDate(e.target.value)} className={control} /></label>
         </>}
-        <select aria-label="Cuenta financiera" value={p.account} onChange={e => p.onAccount(e.target.value)} className={`${control} max-w-60`}><option value="all">Todas las cuentas</option>{p.accounts.map(a => <option key={a.id} value={a.id}>{financialAccountLabel(a.name)}</option>)}</select>
-        <select aria-label="Tipo de movimiento" value={p.type} onChange={e => p.onType(e.target.value as "all" | "ingreso" | "egreso")} className={control}><option value="all">Todos los tipos</option><option value="ingreso">Ingresos</option><option value="egreso">Egresos</option></select>
+        <AdaptiveSelect aria-label="Cuenta financiera" value={p.account} onChange={e => p.onAccount(e.target.value)} className={`${control} max-w-60`}><option value="all">Todas las cuentas</option>{p.accounts.map(a => <option key={a.id} value={a.id}>{financialAccountLabel(a.name)}</option>)}</AdaptiveSelect>
+        <AdaptiveSelect aria-label="Tipo de movimiento" value={p.type} onChange={e => p.onType(e.target.value as "all" | "ingreso" | "egreso")} className={control}><option value="all">Todos los tipos</option><option value="ingreso">Ingresos</option><option value="egreso">Egresos</option></AdaptiveSelect>
         <button type="button" aria-expanded={moreFilters} onClick={() => setMoreFilters(value => !value)} className={action}><SlidersHorizontal className="h-3.5 w-3.5" />Más filtros{additionalFilters > 0 && <span className="rounded bg-brand-50 px-1 text-brand-700">{additionalFilters}</span>}</button>
         {(p.search || p.account !== "all" || p.type !== "all" || additionalFilters > 0 || p.period !== "30dias") && <button type="button" onClick={p.onClear} className="text-xs font-semibold text-brand-600 hover:underline">Limpiar filtros</button>}
         <button type="button" onClick={p.onRefresh} aria-label="Actualizar movimientos" title="Actualizar movimientos" className={action}><RefreshCw className="h-3.5 w-3.5" /></button>
       </div>
       {moreFilters && <div className="mt-2.5 flex flex-wrap gap-3 border-t border-slate-100 pt-2.5">
-        <label className="flex max-w-full min-w-0 items-center gap-2 text-xs font-semibold text-slate-500">Categoría<select value={p.category} onChange={e => p.onCategory(e.target.value)} className={`${control} max-w-64 min-w-0`}><option value="all">Todas las categorías</option>{p.categories.map(c => <option key={c} value={c}>{c}</option>)}</select></label>
-        <label className="flex max-w-full min-w-0 items-center gap-2 text-xs font-semibold text-slate-500">Área / centro de costo<select value={p.unit} onChange={e => p.onUnit(e.target.value)} className={`${control} max-w-64 min-w-0`}><option value="all">Todas las áreas</option>{p.units.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}</select></label>
+        <label className="flex max-w-full min-w-0 items-center gap-2 text-xs font-semibold text-slate-500">Categoría<AdaptiveSelect value={p.category} onChange={e => p.onCategory(e.target.value)} className={`${control} max-w-64 min-w-0`}><option value="all">Todas las categorías</option>{p.categories.map(c => <option key={c} value={c}>{c}</option>)}</AdaptiveSelect></label>
+        <label className="flex max-w-full min-w-0 items-center gap-2 text-xs font-semibold text-slate-500">Área / centro de costo<AdaptiveSelect value={p.unit} onChange={e => p.onUnit(e.target.value)} className={`${control} max-w-64 min-w-0`}><option value="all">Todas las áreas</option>{p.units.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}</AdaptiveSelect></label>
       </div>}
     </div>
   );

@@ -14,6 +14,7 @@ export function LayoutWrapper({ children }: LayoutWrapperProps) {
   
   // Detect if we are inside administrative or seller portals, or dedicated cotizador
   const isPortal = 
+    pathname === '/vista-previa-movimientos' ||
     pathname.startsWith("/admin") || 
     pathname.startsWith("/vendedores") || 
     pathname === '/solicitudes-logistica' || pathname.startsWith('/solicitudes-logistica/') ||

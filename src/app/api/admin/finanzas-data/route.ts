@@ -4,6 +4,8 @@ import { compareTreasuryTransactions } from '@/lib/treasuryTransactionTime';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { fetchSpreadsheetCsv } from '@/lib/googleSheets';
+import { financialContext } from '@/lib/financialOperations/server';
+import { OperationError } from '@/lib/financialOperations/validation';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.dummy';
@@ -20,8 +22,32 @@ type CashTransactionRow = {
   [key: string]: unknown;
 };
 
+async function financialOperationsAvailable() {
+  const result=await supabaseAdmin.from('cash_transactions').select('operation_id').limit(1);
+  if(!result.error)return true;
+  if(['42703','PGRST204'].includes(result.error.code) && /operation_id/i.test(result.error.message))return false;
+  throw result.error;
+}
+
+async function completeList(query:{range:(start:number,end:number)=>PromiseLike<{data:any[]|null;error:unknown}>}){
+  const rows:any[]=[];
+  for(let offset=0;;offset+=500){
+    const result=await query.range(offset,offset+499);
+    if(result.error)throw result.error;
+    rows.push(...(result.data || []));
+    if(!result.data || result.data.length<500)return {data:rows,error:null};
+  }
+}
+async function custodyAccounts(accounts:any[]){
+  const result=await supabaseAdmin.from('financial_custody_funds').select('account_id,custodian').eq('status','open').order('id');
+  if(result.error){if(['42P01','PGRST205'].includes(result.error.code)&&/financial_custody_funds/.test(result.error.message))return accounts;throw result.error;}
+  const custody=new Map((result.data||[]).map(f=>[f.account_id,f.custodian]));
+  return accounts.map(a=>({...a,is_custody:custody.has(a.id),custodian:custody.get(a.id)}));
+}
+
 export async function GET(request: Request) {
   try {
+    await financialContext(request);
     const { searchParams } = new URL(request.url);
     const action = searchParams.get('action') || 'init';
 
@@ -34,14 +60,16 @@ export async function GET(request: Request) {
         purchasesRes,
         routeSheetsRes,
         accountsRes,
-        costCentersRes
+        costCentersRes,
+        peopleRes
       ] = await Promise.all([
-        supabaseAdmin.from('employees').select('id,full_name,cuit,role,base_salary,is_active').eq('is_active', true).order('full_name'),
-        supabaseAdmin.from('suppliers').select('id,name').order('name'),
-        supabaseAdmin.from('supplier_purchases').select('id,supplier_id,invoice_number,total_amount,paid_amount,status,currency,supplier:suppliers(name)').neq('status', 'Pagado').neq('status', 'Anulado').order('purchase_date', { ascending: false }),
+        completeList(supabaseAdmin.from('employees').select('id,full_name,cuit,role,base_salary,is_active').eq('is_active', true).order('full_name').order('id')),
+        completeList(supabaseAdmin.from('suppliers').select('id,name').order('name').order('id')),
+        completeList(supabaseAdmin.from('supplier_purchases').select('id,supplier_id,invoice_number,total_amount,paid_amount,status,currency,supplier:suppliers(name)').neq('status', 'Pagado').neq('status', 'Anulado').order('purchase_date', { ascending: false }).order('id')),
         supabaseAdmin.from('route_sheets').select('*, carriers(name)').order('delivery_date', { ascending: false }).limit(200),
         supabaseAdmin.rpc('get_financial_accounts_balances'),
-        supabaseAdmin.from('cost_centers').select('id,name,code,is_active').eq('is_active', true).order('name')
+        supabaseAdmin.from('cost_centers').select('id,name,code,is_active').eq('is_active', true).order('name'),
+        completeList(supabaseAdmin.from('financial_people').select('id,full_name,kinds,employee_id,financial_people_concepts(concept_id)').eq('is_active',true).order('full_name').order('id'))
       ]);
 
       if (employeesRes.error) throw employeesRes.error;
@@ -50,19 +78,21 @@ export async function GET(request: Request) {
       if (routeSheetsRes.error) throw routeSheetsRes.error;
       if (accountsRes.error) throw accountsRes.error;
       if (costCentersRes.error) throw costCentersRes.error;
+      if (peopleRes.error) throw peopleRes.error;
 
       return NextResponse.json({
-        employees: employeesRes.data || [],
+        employees: (employeesRes.data || []).map(e=>({...e,person_id:peopleRes.data.find(p=>p.employee_id===e.id)?.id})),
+        people:peopleRes.data,
         suppliers: suppliersRes.data || [],
         pendingPurchases: purchasesRes.data || [],
         pendingOrders: [],
         routeSheets: routeSheetsRes.data || [],
-        financialAccounts: accountsRes.data || [],
+        financialAccounts: await custodyAccounts(accountsRes.data || []),
         costCenters: costCentersRes.data || []
       });
     }
 
-    if (action === 'search-pending-orders') {
+    if (action === 'search-pending-orders' || action === 'search-collection-orders') {
       const q = (searchParams.get('q') || '').trim();
       if (!q || q.length < 3) {
         return NextResponse.json({ pendingOrders: [] });
@@ -73,14 +103,16 @@ export async function GET(request: Request) {
         return NextResponse.json({ pendingOrders: [] });
       }
 
-      const { data, error } = await supabaseAdmin
+      const operationsAvailable=action==='search-collection-orders'?await financialOperationsAvailable():false;
+      let query = supabaseAdmin
         .from('orders')
-        .select('*, clients(business_name)')
-        .neq('payment_status', 'Abonado')
+        .select(`*, clients(business_name),client_payments(id,amount,currency,status,cash_transaction_id${operationsAvailable?',reversed_at':''})`)
         .neq('status', 'Cancelado')
         .or(`legacy_code.ilike.%${cleanQ}%,customer_name.ilike.%${cleanQ}%`)
         .order('order_date', { ascending: false })
         .limit(30);
+      if(action==='search-pending-orders')query=query.neq('payment_status','Abonado');
+      const {data,error}=await query;
 
       if (error) throw error;
       return NextResponse.json({ pendingOrders: data || [] });
@@ -90,7 +122,7 @@ export async function GET(request: Request) {
       const { data, error } = await supabaseAdmin.rpc('get_financial_accounts_balances');
       if (error) throw error;
 
-      return NextResponse.json({ financialAccounts: data || [] });
+      return NextResponse.json({ financialAccounts: await custodyAccounts(data || []) });
     }
 
     if (action === 'transactions') {
@@ -119,12 +151,15 @@ export async function GET(request: Request) {
       // movements are not silently omitted after the first 1000 records.
       const pageSize = 1000;
       const allData: CashTransactionRow[] = [];
+      let operationsAvailable=await financialOperationsAvailable();
 
       for (let from = 0; ; from += pageSize) {
         let query = supabaseAdmin
           .from('cash_transactions')
           .select(`
             *,
+            ${operationsAvailable?'financial_operations(id,operation_type,version,status,detail),':''}
+            payment_planning_realizations(id,item_id,reversed_at),
             financial_accounts(name, type),
             cost_centers(name, code),
             employees(full_name),
@@ -135,6 +170,7 @@ export async function GET(request: Request) {
               carriers(name)
             ),
             client_payments(
+              ${operationsAvailable?'reversed_at,':''}
               id,
               order_id,
               amount,
@@ -145,10 +181,11 @@ export async function GET(request: Request) {
               )
             ),
             supplier_payments(
+              ${operationsAvailable?'reversed_at,':''}
               id,
               purchase_id,
               amount,
-              supplier_purchases(
+              supplier_purchases!supplier_payments_purchase_id_fkey(
                 id,
                 invoice_number
               ),
@@ -168,9 +205,12 @@ export async function GET(request: Request) {
         }
 
         const { data, error } = await query;
+        if(error && from===0 && operationsAvailable && error.code==='PGRST200' && /financial_operations/.test(error.message)){
+          operationsAvailable=false;from-=pageSize;continue;
+        }
         if (error) throw error;
 
-        const page = data || [];
+        const page = (data || []) as unknown as CashTransactionRow[];
         allData.push(...page);
 
         if (page.length < pageSize) break;
@@ -190,6 +230,8 @@ export async function GET(request: Request) {
         
         return {
           ...t,
+          client_payments: Array.isArray(t.client_payments) ? t.client_payments.filter((p: {reversed_at?:string|null})=>!p.reversed_at) : [],
+          supplier_payments: Array.isArray(t.supplier_payments) ? t.supplier_payments.filter((p: {reversed_at?:string|null})=>!p.reversed_at) : [],
           running_balance: accountBalances[accId]
         };
       });
@@ -197,10 +239,13 @@ export async function GET(request: Request) {
       // Reverse to display newest first
       txsWithRunningBalance.reverse();
 
-      return NextResponse.json({ transactions: txsWithRunningBalance });
+      return NextResponse.json({ transactions: txsWithRunningBalance,features:{financialOperations:operationsAvailable} });
     }
 
     if (action === 'balances') {
+      const operationsAvailable=await financialOperationsAvailable();
+      const clientPaymentQuery=supabaseAdmin.from('client_payments').select('client_id, amount, currency').eq('status','Aprobado');
+      const supplierPaymentQuery=supabaseAdmin.from('supplier_payments').select('supplier_id, amount, currency');
       // Fetch clients, orders, payments, suppliers, purchases, and supplier payments in parallel
       const [
         clientsRes,
@@ -212,10 +257,10 @@ export async function GET(request: Request) {
       ] = await Promise.all([
         supabaseAdmin.from('clients').select('id, business_name'),
         supabaseAdmin.from('orders').select('client_id, total_amount, status'),
-        supabaseAdmin.from('client_payments').select('client_id, amount, currency'),
+        operationsAvailable?clientPaymentQuery.is('reversed_at',null):clientPaymentQuery,
         supabaseAdmin.from('suppliers').select('id, name'),
         supabaseAdmin.from('supplier_purchases').select('supplier_id, total_amount, status, currency, document_type'),
-        supabaseAdmin.from('supplier_payments').select('supplier_id, amount, currency')
+        operationsAvailable?supplierPaymentQuery.is('reversed_at',null):supplierPaymentQuery
       ]);
 
       if (clientsRes.error) throw clientsRes.error;
@@ -350,6 +395,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
 
   } catch (error: any) {
+    if(error instanceof OperationError) return NextResponse.json({error:error.message},{status:error.status});
     console.error('[API Finanzas Data] Error:', error);
     const unavailable = /fetch failed|timeout|ECONN/i.test(String(error?.message || error));
     return NextResponse.json(

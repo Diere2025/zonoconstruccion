@@ -10,6 +10,7 @@ export interface ErpLink {
   adminOnly?: boolean;
   sellerOnly?: boolean;
   allowedRoles?: UserRole[];
+  ownerEmail?: string;
 }
 export interface ErpModule {
   id: string;
@@ -22,12 +23,14 @@ export interface NavigationIdentity {
   roles: UserRole[];
   restrictedSeller: boolean;
   canUseWholesale: boolean;
+  email?: string;
 }
 
 export const erpModules: ErpModule[] = [
   { id: 'direccion', title: 'Dirección General', description: 'Seguimiento global, resultados y publicidad.', icon: BarChart3, links: [
     { id: "direccion-1", name: "Dashboard General", href: "/admin/dashboard", icon: BarChart3, adminOnly: true },
     { id: "direccion-2", name: "Meta Ads", href: "/admin/meta-ads", icon: Target, adminOnly: true },
+    { id: "direccion-prompts", name: "Prompts de campañas", href: "/admin/prompts-campanas", icon: FileText, ownerEmail: 'diego.boveda@gmail.com' },
     { id: "direccion-3", name: "Estado de Resultados (EERR)", href: "/admin/finanzas/eerr", icon: FileSpreadsheet, adminOnly: true },
     { id: "direccion-4", name: "Rentabilidad y Margen", href: "/admin/rentabilidad", icon: BarChart3, adminOnly: true },
     { id: "direccion-5", name: "Capital Estancado", href: "/admin/capital-estancado", icon: AlertTriangle, adminOnly: true },
@@ -120,6 +123,7 @@ export function visibleErpModules(identity: NavigationIdentity): ErpModule[] {
   const specialized = !admin && !roles.includes('seller') && roles.some(role =>
     ['logistica', 'fletero', 'administracion', 'compras'].includes(role));
   return erpModules.map(module => ({ ...module, links: module.links.filter(link => {
+    if (link.ownerEmail && identity.email?.trim().toLowerCase() !== link.ownerEmail) return false;
     if (link.href === '/incidencias' || link.href === '/solicitudes-logistica') return true;
     if (specialized) return Boolean(link.allowedRoles?.some(role => roles.includes(role)));
     if (restrictedSeller && !admin) {

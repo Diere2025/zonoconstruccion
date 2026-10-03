@@ -181,7 +181,7 @@ export default function CajaDiariaPage() {
 
           const { data: sp } = await supabase
             .from('supplier_payments')
-            .select('id, cash_transaction_id, supplier_id, purchase_id, suppliers(name), supplier_purchases(invoice_number, total_amount)')
+            .select('id, cash_transaction_id, supplier_id, purchase_id, suppliers(name), supplier_purchases!supplier_payments_purchase_id_fkey(invoice_number, total_amount)')
             .in('cash_transaction_id', txIds);
 
           const cpMap: Record<string, any> = {};
@@ -454,7 +454,7 @@ export default function CajaDiariaPage() {
 
         const { data: payData, error: payFetchError } = await supabase
           .from('supplier_payments')
-          .select('*, supplier_purchases(id, paid_amount, total_amount)')
+          .select('*, supplier_purchases!supplier_payments_purchase_id_fkey(id, paid_amount, total_amount)')
           .eq('id', reconciliation.id)
           .maybeSingle();
 

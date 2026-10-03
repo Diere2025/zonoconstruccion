@@ -582,7 +582,7 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
     window.location.href = "/admin";
   };
 
-  const visibleModules = visibleErpModules({ roles: userRoles, restrictedSeller: isRestrictedSeller, canUseWholesale });
+  const visibleModules = visibleErpModules({ roles: userRoles, restrictedSeller: isRestrictedSeller, canUseWholesale, email: userEmail });
   const navigationTerm = normalizeNavigationSearch(navigationSearch.trim());
   const filteredModules = visibleModules.map(section => ({
     ...section,
