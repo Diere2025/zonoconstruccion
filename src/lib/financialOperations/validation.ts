@@ -31,10 +31,15 @@ export function validateOperation(input: unknown): asserts input is OperationInp
   for (const field of ['sub_category','efe_category','notes'] as const) if (p[field] !== undefined && (typeof p[field] !== 'string' || p[field]!.length > (field === 'notes' ? 4000 : 240))) throw new OperationError('Texto fuera de rango.');
   if (!p.detail || typeof p.detail !== 'object' || Array.isArray(p.detail)) throw new OperationError('Detalle inválido.');
   for (const [key,value] of Object.entries(p.detail)) {
-    if (!['period','payroll_kind','beneficiary','reference','organism'].includes(key) || typeof value !== 'string' || value.length > 240) throw new OperationError('Detalle específico inválido.');
+    if (!['period','payroll_kind','beneficiary','reference','organism','supplier_kind','supplier_name'].includes(key) || typeof value !== 'string' || value.length > 240) throw new OperationError('Detalle específico inválido.');
   }
   if (p.operation_type === 'internal_transfer' && (!isUuid(p.destination_account_id) || p.destination_account_id === p.account_id)) throw new OperationError('Elegí dos cuentas distintas.');
-  if (p.operation_type === 'supplier_payment' && !isUuid(p.supplier_id)) throw new OperationError('Elegí un proveedor.');
+  if (p.detail.supplier_kind && (p.operation_type !== 'supplier_payment' || !['registered','eventual'].includes(p.detail.supplier_kind))) throw new OperationError('Variante de proveedor inválida.');
+  if (p.operation_type === 'supplier_payment') {
+    if (p.detail.supplier_kind === 'eventual') {
+      if (p.supplier_id || (p.allocations?.length || 0) > 0) throw new OperationError('La compra eventual no lleva proveedor registrado ni imputaciones.');
+    } else if (!isUuid(p.supplier_id)) throw new OperationError('Elegí un proveedor.');
+  }
   if (p.operation_type === 'customer_collection' && !isUuid(p.order_id)) throw new OperationError('Elegí el pedido cobrado.');
   if (['payroll_payment','tax_payment'].includes(p.operation_type) && !/^\d{4}-(0[1-9]|1[0-2])$/.test(p.detail.period || '')) throw new OperationError('Indicá el período.');
   if (p.operation_type === 'payroll_payment') {

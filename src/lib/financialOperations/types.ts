@@ -13,7 +13,7 @@ export type OperationInput = {
   cost_center_id?: string; route_sheet_id?: string; notes?: string; employee_id?: string;person_id?:string;
   supplier_id?: string; order_id?: string; client_payment_id?: string;
   allocations?: Array<{purchase_id: string; amount: string}>;
-  detail: { period?: string; payroll_kind?: string; beneficiary?: string; reference?: string; organism?: string };
+  detail: { period?: string; payroll_kind?: string; beneficiary?: string; reference?: string; organism?: string; supplier_kind?: 'registered' | 'eventual'; supplier_name?: string };
   voucher_ids?: string[];
 };
 export type OperationSummary = { id: string; operation_type: OperationType; version: number; status: string; detail: OperationInput['detail'] };

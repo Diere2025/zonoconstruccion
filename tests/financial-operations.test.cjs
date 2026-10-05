@@ -29,6 +29,30 @@ test('supplier allocations cannot exceed total or repeat a document',()=>{
  assert.throws(()=>validation.validateOperation({...value,allocations:[{purchase_id:id(4),amount:'10'},{purchase_id:id(4),amount:'10'}]}));
  validation.validateOperation({...value,allocations:[{purchase_id:id(4),amount:'40'}]});
 });
+test('eventual purchases allow optional merchant but reject supplier and invoice links',()=>{
+ const value={...base,operation_type:'supplier_payment',category:'Proveedores',detail:{supplier_kind:'eventual'}};
+ validation.validateOperation(value);
+ validation.validateOperation({...value,detail:{...value.detail,supplier_name:'Ferretería'}});
+ assert.throws(()=>validation.validateOperation({...value,supplier_id:id(3)}));
+ assert.throws(()=>validation.validateOperation({...value,allocations:[{purchase_id:id(4),amount:'10'}]}));
+ assert.throws(()=>validation.validateOperation({...value,detail:{supplier_kind:'invalid'}}));
+ assert.throws(()=>validation.validateOperation({...value,operation_type:'operating_expense'}));
+ assert.throws(()=>validation.validateOperation({...value,detail:{}}));
+});
+test('eventual purchase form hides supplier and advance controls and clears links when switching',()=>{
+ const {renderToStaticMarkup}=require('react-dom/server');
+ const eventual={...base,operation_type:'supplier_payment',detail:{supplier_kind:'eventual'},allocations:[]};
+ const tree=fields.SupplierFields({value:eventual,onChange:()=>{},suppliers:[],purchases:[]});
+ const html=renderToStaticMarkup(tree);
+ assert.ok(html.includes('Comercio / proveedor (opcional)'));
+ assert.ok(!html.includes('Anticipo sin imputar:'));
+ assert.ok(!html.includes('Proveedor de la operación'));
+ const registered={...eventual,supplier_id:id(3),allocations:[{purchase_id:id(4),amount:'10'}],detail:{}};let changed;
+ const controls=fields.SupplierFields({value:registered,onChange:v=>changed=v,suppliers:[],purchases:[]});
+ const variant=controls.props.children[0].props.children[1];
+ variant.props.onChange({target:{value:'eventual'}});
+ assert.equal(changed.supplier_id,undefined);assert.equal(changed.allocations.length,0);assert.equal(changed.detail.supplier_kind,'eventual');
+});
 test('payroll and tax require period and identified beneficiary or organism',()=>{
  assert.throws(()=>validation.validateOperation({...base,operation_type:'payroll_payment',detail:{period:'2026-10',payroll_kind:'advance'}}));
  validation.validateOperation({...base,operation_type:'payroll_payment',detail:{period:'2026-10',payroll_kind:'advance',beneficiary:'Eventual'}});

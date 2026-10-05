@@ -23,7 +23,15 @@ export function SupplierFields({value,onChange,suppliers,purchases}:{value:Opera
   const update=(id:string,amount:string)=>onChange({...value,allocations:[...allocations.filter(a=>a.purchase_id!==id),...(amount && Number(amount)>0?[{purchase_id:id,amount}]:[])]});
   const visible=purchases.filter(p=>p.supplier_id===value.supplier_id);
   const remainder=Number(value.amount || 0)-allocations.reduce((sum,a)=>sum+Number(a.amount),0);
+  const eventual=value.detail.supplier_kind==='eventual';
   return <div className="space-y-3">
+    <label className="block text-xs font-semibold">Tipo de pago<AdaptiveSelect aria-label="Tipo de pago a proveedor" className={fieldClass} value={eventual?'eventual':'registered'} onChange={e=>onChange({...value,supplier_id:undefined,allocations:[],detail:{...value.detail,supplier_kind:e.target.value as 'registered'|'eventual',supplier_name:''}})}>
+      <option value="registered">Proveedor registrado · facturas o anticipo</option><option value="eventual">Compra eventual · sin alta de proveedor</option>
+    </AdaptiveSelect></label>
+    {eventual ? <div className="space-y-2">
+      <label className="block text-xs font-semibold">Comercio / proveedor (opcional)<input aria-label="Comercio de la compra eventual" className={fieldClass} maxLength={240} placeholder="Ej.: ferretería" value={value.detail.supplier_name || ''} onChange={e=>onChange({...value,detail:{...value.detail,supplier_name:e.target.value}})}/></label>
+      <p className="text-xs text-slate-600">Detallá el producto comprado en el detalle de la operación. Se registra el egreso sin crear proveedor, cuenta corriente ni anticipo.</p>
+    </div> : <>
     <label className="block text-xs font-semibold">Proveedor<AdaptiveSelect aria-label="Proveedor de la operación" className={fieldClass} required value={value.supplier_id || ''} onChange={e=>onChange({...value,supplier_id:e.target.value,allocations:[]})}>
       <option value="">Seleccionar proveedor</option>{suppliers.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
     </AdaptiveSelect></label>
@@ -35,6 +43,7 @@ export function SupplierFields({value,onChange,suppliers,purchases}:{value:Opera
       {!visible.length && <p className="text-xs text-slate-500">Sin documentos pendientes: el pago quedará como anticipo.</p>}
       <p className={`text-sm font-semibold ${remainder<0?'text-red-600':'text-slate-700'}`}>Anticipo sin imputar: {remainder.toLocaleString('es-AR',{minimumFractionDigits:2})}</p>
     </div>}
+    </>}
   </div>;
 }
 export function TaxFields({value,onChange}:{value:OperationInput;onChange:(value:OperationInput)=>void}) {
