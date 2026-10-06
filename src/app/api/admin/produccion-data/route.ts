@@ -1,56 +1,9 @@
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
-import { fetchSpreadsheetCsv } from '@/lib/googleSheets';
+import { fetchSpreadsheetValueRanges } from '@/lib/googleSheets';
 
 const SPREADSHEET_ID = "1z_yqAdxYn0aESDIARhL_Y9KyYSidQ2tp7Ezkqde0IE0";
-
-function parseCSV(csvText: string): string[][] {
-  const rows: string[][] = [];
-  let currentRow: string[] = [];
-  let currentVal = '';
-  let insideQuotes = false;
-  const text = csvText.replace(/\r\n/g, '\n');
-
-  for (let i = 0; i < text.length; i++) {
-    const char = text[i];
-    const nextChar = text[i + 1];
-
-    if (insideQuotes) {
-      if (char === '"' && nextChar === '"') {
-        currentVal += '"';
-        i++;
-      } else if (char === '"') {
-        insideQuotes = false;
-      } else {
-        currentVal += char;
-      }
-    } else {
-      if (char === '"') {
-        insideQuotes = true;
-      } else if (char === ',') {
-        currentRow.push(currentVal.trim());
-        currentVal = '';
-      } else if (char === '\n') {
-        currentRow.push(currentVal.trim());
-        if (currentRow.some(cell => cell.length > 0)) {
-          rows.push(currentRow);
-        }
-        currentRow = [];
-        currentVal = '';
-      } else {
-        currentVal += char;
-      }
-    }
-  }
-  if (currentVal || currentRow.length > 0) {
-    currentRow.push(currentVal.trim());
-    if (currentRow.some(cell => cell.length > 0)) {
-      rows.push(currentRow);
-    }
-  }
-  return rows;
-}
 
 function parseDateToISO(str: string): { iso: string; formatted: string; timestamp: number } {
   if (!str) return { iso: "", formatted: "", timestamp: 0 };
@@ -138,16 +91,12 @@ export interface AssemblyItem {
 
 export async function GET() {
   try {
-    const fabUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=Fabricaci%C3%B3n`;
-    const ensUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=Ensamblaje`;
-
-    const [fabCsv, ensCsv] = await Promise.all([
-      fetchSpreadsheetCsv(fabUrl),
-      fetchSpreadsheetCsv(ensUrl)
+    // Read physical columns, including hidden rows/columns. The visualization
+    // CSV export can omit hidden fields and shift the positional mapping below.
+    const [fabRows, ensRows] = await fetchSpreadsheetValueRanges(SPREADSHEET_ID, [
+      "'Fabricación'!A:M",
+      "'Ensamblaje'!A:I"
     ]);
-
-    const fabRows = parseCSV(fabCsv);
-    const ensRows = parseCSV(ensCsv);
 
     const fabricacion: ProductionItem[] = [];
     const ensamblaje: AssemblyItem[] = [];
