@@ -10,7 +10,7 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT
 
 const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 
-type PaymentRole = 'admin' | 'administracion' | 'logistica' | 'fletero';
+type PaymentRole = 'seller' | 'admin' | 'administracion' | 'logistica' | 'fletero';
 
 async function getPaymentRole(request: Request): Promise<PaymentRole | null> {
   const token = request.headers.get('authorization')?.match(/^Bearer\s+(.+)$/i)?.[1];
@@ -31,6 +31,7 @@ async function getPaymentRole(request: Request): Promise<PaymentRole | null> {
   if (roles.has('administracion')) return 'administracion';
   if (roles.has('logistica')) return 'logistica';
   if (roles.has('fletero')) return 'fletero';
+  if (roles.has('seller')) return 'seller';
   return null;
 }
 
@@ -40,11 +41,14 @@ export async function GET(request: Request) {
     if (!userRole) return NextResponse.json({ error: 'Acceso denegado' }, { status: 403 });
     const { searchParams } = new URL(request.url);
     const action = searchParams.get('action') || 'list';
+    if (userRole === 'seller' && !['list', 'accounts', 'search-orders'].includes(action)) {
+      return NextResponse.json({ error: 'Acceso denegado' }, { status: 403 });
+    }
 
     if (action === 'accounts') {
       const { data, error } = await supabaseAdmin
         .from('mp_accounts')
-        .select('*')
+        .select(userRole === 'seller' ? 'id, name, alias, color, is_active' : '*')
         .order('name');
       if (error) throw error;
       return NextResponse.json({ success: true, data: data || [] });
@@ -112,7 +116,9 @@ export async function GET(request: Request) {
       const isAdminOrAdminStaff = userRole === 'admin' || userRole === 'administracion';
 
       // Apply strict role restrictions
-      if (isLogistica) {
+      if (userRole === 'seller') {
+        dateRange = 'TODAY';
+      } else if (isLogistica) {
         if (!['TODAY', 'YESTERDAY', 'LAST_3_DAYS', 'YESTERDAY_TODAY'].includes(dateRange)) {
           dateRange = 'LAST_3_DAYS';
         }
@@ -218,7 +224,8 @@ export async function GET(request: Request) {
         } else if (dateRange === 'SPECIFIC_DATE' && specificDayBounds) {
           query = query.gte('received_at', specificDayBounds.startIso).lt('received_at', specificDayBounds.endExclusiveIso);
         } else if (dateRange === 'TODAY') {
-          query = query.gte('received_at', todayBounds.startIso).lte('received_at', todayBounds.endIso);
+          const bounds = getMPPaymentDayBounds(argNow.toISOString().slice(0, 10))!;
+          query = query.gte('received_at', bounds.startIso).lt('received_at', bounds.endExclusiveIso);
         } else if (dateRange === 'YESTERDAY') {
           query = query.gte('received_at', yesterdayBounds.startIso).lte('received_at', yesterdayBounds.endIso);
         } else if (dateRange === 'YESTERDAY_TODAY') {
@@ -310,6 +317,21 @@ export async function POST(request: Request) {
     const action = searchParams.get('action');
     const body = await request.json().catch(() => ({}));
     body.userRole = userRole;
+    if (userRole === 'seller') {
+      if (!['link-order', 'unlink-order'].includes(action || '')) {
+        return NextResponse.json({ error: 'Acceso denegado' }, { status: 403 });
+      }
+      const day = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+      const bounds = getMPPaymentDayBounds(day)!;
+      const { data: payment, error } = await supabaseAdmin.from('mp_payments')
+        .select('id').eq('id', body.paymentId)
+        .gte('received_at', bounds.startIso).lt('received_at', bounds.endExclusiveIso)
+        .or('is_hidden.is.null,is_hidden.eq.false')
+        .or('is_internal.is.null,is_internal.eq.false').maybeSingle();
+      if (error || !payment) {
+        return NextResponse.json({ error: 'Solo podés vincular pagos visibles del día de hoy' }, { status: 403 });
+      }
+    }
 
     if (action === 'toggle-internal-payer') {
       const { paymentId, payerName, isInternal } = body;

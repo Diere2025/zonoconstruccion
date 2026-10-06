@@ -45,7 +45,7 @@ async function callList(role, date, options = {}) {
             const data = table === 'mp_accounts' ? [] : range ? rows.slice(range[1], range[2] + 1) : rows.slice(0, limit);
             resolve({ data, error: select === 'amount, id' && options.statsError ? { message: 'Stats unavailable' } : null });
           };
-          if (method === 'maybeSingle') return async () => ({ data: { role, roles: [] } });
+          if (method === 'maybeSingle') return async () => ({ data: table === 'sellers' ? { role, roles: [] } : options.payment || null });
           return (...args) => { calls.push([method, ...args]); return query; };
         },
       });
@@ -66,7 +66,9 @@ async function callList(role, date, options = {}) {
     },
   });
   const params = new URLSearchParams({ dateRange: 'SPECIFIC_DATE', date, ...options.filters });
-  const response = await exports.GET(new Request(`https://example.com/api/admin/cobros-mp-data?${params}`, {
+  const response = await exports[options.method || 'GET'](new Request(`https://example.com/api/admin/cobros-mp-data?${params}`, {
+    method: options.method || 'GET',
+    ...(options.method === 'POST' ? { body: JSON.stringify(options.body || { paymentId: 'payment-1', orderCode: 'JS1' }) } : {}),
     headers: { authorization: 'Bearer test' },
   }));
   return { response, queries, calls: queries.find(q => q.table === 'mp_payments')?.calls };
@@ -78,6 +80,54 @@ test('API queries the requested day for administration', async () => {
   assert.equal(response.body.effectiveRange, 'SPECIFIC_DATE');
   assert.ok(calls.some(c => c[0] === 'gte' && c[1] === 'received_at' && c[2] === '2026-09-29T03:00:00.000Z'));
   assert.ok(calls.some(c => c[0] === 'lt' && c[1] === 'received_at' && c[2] === '2026-09-30T03:00:00.000Z'));
+});
+
+test('sellers can only query today, even with historical or forged role filters', async () => {
+  for (const dateRange of ['ALL', 'SPECIFIC_DATE', 'YESTERDAY', 'LAST_3_DAYS', 'LAST_15_MIN', 'TODAY']) {
+    const { response, queries } = await callList('seller', '2020-01-01', {
+      filters: { dateRange, role: 'admin', showHidden: 'true' },
+    });
+    assert.equal(response.status, 200);
+    assert.equal(response.body.effectiveRole, 'seller');
+    assert.equal(response.body.effectiveRange, 'TODAY');
+    const day = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+    for (const { calls } of queries.filter(q => q.table === 'mp_payments')) {
+      assert.ok(calls.some(c => c[0] === 'gte' && c[1] === 'received_at' && c[2] === `${day}T03:00:00.000Z`));
+      assert.ok(calls.some(c => ['lt', 'lte'].includes(c[0]) && c[1] === 'received_at'));
+      assert.ok(calls.some(c => c[0] === 'or' && c[1] === 'is_internal.is.null,is_internal.eq.false'));
+      assert.ok(calls.some(c => c[0] === 'or' && c[1] === 'is_hidden.is.null,is_hidden.eq.false'));
+    }
+  }
+});
+
+test('sellers cannot manage accounts or internal payers, or change historical payments', async () => {
+  for (const action of ['internal-payers', 'fleteros']) {
+    assert.equal((await callList('seller', '', { filters: { action } })).response.status, 403);
+  }
+  for (const action of ['delete-payment', 'toggle-hide', 'save-account', 'simulate', 'clear-all', 'toggle-internal-payer', 'fletero-confirm', 'link-order', 'unlink-order']) {
+    const { response } = await callList('seller', '', { method: 'POST', filters: { action }, body: { paymentId: 'historical', orderCode: 'JS1', userRole: 'admin' } });
+    assert.equal(response.status, 403, action);
+  }
+});
+
+test('sellers can link and unlink visible payments today with server date guards', async () => {
+  for (const action of ['link-order', 'unlink-order']) {
+    const { response, queries } = await callList('seller', '', {
+      method: 'POST', filters: { action }, payment: { id: 'payment-1' },
+    });
+    assert.equal(response.status, 200, action);
+    const scope = queries.find(q => q.table === 'mp_payments').calls;
+    assert.ok(scope.some(c => c[0] === 'gte' && c[1] === 'received_at'));
+    assert.ok(scope.some(c => c[0] === 'lt' && c[1] === 'received_at'));
+    assert.ok(scope.some(c => c[0] === 'or' && c[1] === 'is_hidden.is.null,is_hidden.eq.false'));
+  }
+});
+
+test('seller account list returns only display fields', async () => {
+  const { response, queries } = await callList('seller', '', { filters: { action: 'accounts' } });
+  assert.equal(response.status, 200);
+  const selection = queries.find(q => q.table === 'mp_accounts').calls.find(c => c[0] === 'select')[1];
+  assert.equal(selection, 'id, name, alias, color, is_active');
 });
 
 test('totals and list apply identical filters, including hidden and internal payments', async () => {

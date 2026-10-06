@@ -197,7 +197,8 @@ export default function CobrosMercadoPagoPage() {
     if (typeof window !== 'undefined') {
       const r = cachedCobrosRole || (sessionStorage.getItem('zono_user_role') as UserRole);
       if (r === 'fletero') return 'LAST_15_MIN';
-      if (r === 'seller' || r === 'logistica') return 'LAST_3_DAYS';
+      if (r === 'seller') return 'TODAY';
+      if (r === 'logistica') return 'LAST_3_DAYS';
       if (r === 'admin' || r === 'administracion') return 'TODAY';
     }
     return 'LAST_3_DAYS';
@@ -363,6 +364,7 @@ export default function CobrosMercadoPagoPage() {
 
   const filteredPayments = useMemo(() => {
     return payments.filter((p) => {
+      if (currentUserRole === 'seller' && !isMPPaymentOnDay(p.received_at, new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10))) return false;
       if (selectedDateRange === 'SPECIFIC_DATE' && !isMPPaymentOnDay(p.received_at, selectedDate)) return false;
       // Realtime updates can change a payment's link after the server filtered the list.
       const isLinked = Boolean(p.order_id || p.order_code?.trim());
@@ -565,7 +567,7 @@ export default function CobrosMercadoPagoPage() {
 
         // Adjust default range per role
         if (detectedRole === 'seller') {
-          setSelectedDateRange('LAST_3_DAYS');
+          setSelectedDateRange('TODAY');
           setSelectedType('TRANSFERENCIA');
         } else if (detectedRole === 'logistica') {
           setSelectedDateRange('LAST_3_DAYS');
@@ -872,7 +874,7 @@ export default function CobrosMercadoPagoPage() {
         action: 'list',
         role: currentUserRole,
         accountId: selectedAccountId,
-        dateRange: selectedDateRange,
+        dateRange: currentUserRole === 'seller' ? 'TODAY' : selectedDateRange,
         date: selectedDateRange === 'SPECIFIC_DATE' ? selectedDate : '',
         type: selectedType,
         linkedStatus: selectedLinkedStatus,
@@ -1520,7 +1522,7 @@ export default function CobrosMercadoPagoPage() {
                 </div>
               </div>
               <p className="text-xs text-slate-500 font-medium truncate sm:whitespace-normal">
-                {isSellerRole ? 'Transferencias entrantes (Últimos 3 días)' :
+                {isSellerRole ? 'Transferencias entrantes de hoy (hora Argentina)' :
                  isLogisticaRole ? 'Cobros y transferencias para despacho (Últimos 3 días)' :
                  isFleteroRole ? 'Cobros en destino en tiempo real (Últimos 15 min)' :
                  'Centro de Control y Conciliación en Tiempo Real'}
@@ -1867,7 +1869,7 @@ export default function CobrosMercadoPagoPage() {
 
                 {isSellerRole && (
                   <span className="px-3 py-1.5 rounded-xl bg-blue-50 text-[#0069ff] border border-blue-200 text-xs font-bold">
-                    📅 Últimos 3 Días
+                    📅 Hoy · Hora Argentina
                   </span>
                 )}
 

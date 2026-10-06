@@ -445,8 +445,7 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
     } else if (isSpecializedOperator && pathname && !canAccessSpecializedRoute(pathname, search)) {
       const fallback = hasRole('compras') ? '/admin/compras?tab=purchase_orders' : '/admin/cobros-mp';
       router.replace(fallback);
-    } else if (hasRole('seller') && !isAdminRole && pathname === '/admin/cobros-mp') {
-      router.replace('/vendedores');
+
     } else if (isRestrictedSeller && isWholesalePermissionLoaded && pathname) {
       const query = search;
       const isWholesaleRoute =
@@ -455,6 +454,7 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
         (pathname === '/vendedores/clientes' && query.includes('client_type=mayoristas')) ||
         (pathname.startsWith('/vendedores/pedidos') && query.includes('client_type=mayoristas'));
       const isRestrictedRouteAllowed =
+        pathname === '/admin/cobros-mp' ||
         pathname === '/vendedores' ||
         pathname === '/vendedores/presupuestos' ||
         (pathname.startsWith('/vendedores/pedidos') && !query.includes('client_type=mayoristas')) ||

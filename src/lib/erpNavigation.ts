@@ -52,7 +52,7 @@ export const erpModules: ErpModule[] = [
     { id: "mayorista-6", name: "Presupuestos Mayoristas", href: "/vendedores/cotizaciones?channel=mayorista", icon: ClipboardCheck },
   ] },
   { id: 'tesoreria', title: 'Tesorería y Finanzas', description: 'Pagos, rendiciones, cuentas y comprobantes.', icon: Wallet, links: [
-    { id: "tesoreria-1", name: "Chequeo de Pagos", href: "/admin/cobros-mp", icon: ShieldCheck, allowedRoles: ['admin', 'logistica', 'fletero', 'administracion'] },
+    { id: "tesoreria-1", name: "Chequeo de Pagos", href: "/admin/cobros-mp", icon: ShieldCheck, allowedRoles: ['admin', 'seller', 'logistica', 'fletero', 'administracion'] },
     { id: "tesoreria-2", name: "Rendiciones de Recorridos", href: "/admin/rendiciones", icon: ClipboardList, allowedRoles: ['admin', 'administracion'] },
     { id: "tesoreria-3", name: "Caja Diaria", href: "/admin/caja", icon: Wallet, adminOnly: true },
     { id: "tesoreria-4", name: "Movimientos", href: "/admin/finanzas", icon: Coins, allowedRoles: ['admin', 'administracion'] },
@@ -134,7 +134,7 @@ export function visibleErpModules(identity: NavigationIdentity): ErpModule[] {
         '/vendedores/cotizaciones?channel=mayorista'
       ].includes(link.href);
       return wholesale || [
-        '/vendedores', '/vendedores/presupuestos',
+        '/admin/cobros-mp', '/vendedores', '/vendedores/presupuestos',
         '/vendedores/pedidos?tab=form&client_type=minoristas',
         '/vendedores/pedidos?tab=list&client_type=minoristas'
       ].includes(link.href);

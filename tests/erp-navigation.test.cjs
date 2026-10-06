@@ -105,3 +105,7 @@ test('query parameters select the correct module and screen; detail and printing
 test('unauthorized screens do not acquire a breadcrumb through another module', () => {
   assert.equal(activeErpLink(visibleErpModules(identity(['administracion'])), '/admin/finanzas/eerr', ''), undefined);
 });
+
+ test('sellers including restricted sellers can open payment checks', () => {
+ for (const restricted of [true, false]) assert.ok(urls(visibleErpModules(identity(['seller'], restricted))).includes('/admin/cobros-mp'));
+ });
