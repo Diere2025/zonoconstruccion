@@ -198,6 +198,11 @@ export default function ProduccionPage() {
     return `${MONTH_NAMES_ES[m - 1]} ${y}`;
   };
 
+  const now = new Date();
+  const previousMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const currentMonthLabel = formatMonthName(`${now.getFullYear()}-${now.getMonth() + 1}`);
+  const previousMonthLabel = formatMonthName(`${previousMonth.getFullYear()}-${previousMonth.getMonth() + 1}`);
+
   // Operator distinctive badges
   const getOperatorStyle = (name?: string | null) => {
     if (!name || name === "Sin Asignar") return { bg: "bg-slate-100", text: "text-slate-600", border: "border-slate-200", dot: "bg-slate-400" };
@@ -1133,8 +1138,8 @@ export default function ProduccionPage() {
                 }}
                 className="bg-transparent text-xs font-black text-slate-800 outline-none cursor-pointer pr-1"
               >
-                <option value="thisMonth">📅 Mes Actual (Agosto 2026)</option>
-                <option value="lastMonth">📅 Mes Anterior (Julio 2026)</option>
+                <option value="thisMonth">📅 Mes Actual ({currentMonthLabel})</option>
+                <option value="lastMonth">📅 Mes Anterior ({previousMonthLabel})</option>
                 <optgroup label="Histórico por Mes Completo">
                   {availableMonths.map(ym => (
                     <option key={ym} value={ym}>
