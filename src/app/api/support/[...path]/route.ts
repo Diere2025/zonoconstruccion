@@ -215,13 +215,27 @@ async function handle(request: NextRequest, context: Context): Promise<NextRespo
             ]);
             databaseError(result.error);
             databaseError(unread.error);
-            return json({ unread_count: unread.count || 0, items: (result.data || []).map(row => {
+            return json({ impersonating, unread_count: unread.count || 0, items: (result.data || []).map(row => {
                 const ticket = Array.isArray(row.ticket) ? row.ticket[0] : row.ticket;
                 return { ...row, workflow: ticket?.workflow, number: ticket?.number, title: ticket?.title };
             }) });
         }
         if (request.method === 'PATCH') {
             const op = operation(await body(request));
+            if (op.data.ids !== undefined || op.data.before !== undefined) {
+                const ids = op.data.ids;
+                const before = op.data.before;
+                if (ids !== undefined && (!Array.isArray(ids) || ids.length < 1 || ids.length > 40 || before !== undefined))
+                    throw new SupportError('Los avisos seleccionados no son válidos.');
+                if (before !== undefined && (typeof before !== 'string' || !Number.isFinite(Date.parse(before))))
+                    throw new SupportError('La fecha de lectura no es válida.');
+                const result = await db.rpc('support_read_notifications', {
+                    p_ids: Array.isArray(ids) ? ids.map(id => uuid(id)) : null,
+                    p_before: before === undefined ? null : before,
+                });
+                databaseError(result.error);
+                return json(result.data);
+            }
             const result = await db.rpc('support_command', { p_command: 'notification_read', p_ticket: null, p_key: op.key, p_version: null, p_data: op.data });
             databaseError(result.error);
             return json(result.data);

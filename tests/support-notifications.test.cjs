@@ -9,7 +9,7 @@ const source = fs.readFileSync('src/app/api/support/[...path]/route.ts', 'utf8')
 const start = source.indexOf("    if (path[0] === 'notifications'");
 const end = source.indexOf("    if (path[0] === 'settings'", start);
 const js = ts.transpileModule(`async function handle(db) {
-const path = ['notifications']; const isGet = true;
+const path = ['notifications']; const isGet = true; const impersonating = false;
 const json = value => value;
 const databaseError = error => { if (error) throw error; };
 ${source.slice(start, end)}
@@ -54,4 +54,46 @@ test('shipping notifications retain their destination and array-shaped joins wor
 
 test('count failures are reported instead of displaying a misleading zero', async () => {
     await assert.rejects(handler(database([], null, new Error('unavailable'))), /unavailable/);
+});
+
+const patchJs = ts.transpileModule(`async function patch(db, data) {
+const path = ['notifications']; const isGet = false; const request = { method: 'PATCH' };
+const json = value => value;
+const body = async () => data;
+const operation = value => ({ data: value, key: 'operation' });
+const uuid = value => { if (typeof value !== 'string' || !/^[0-9a-f-]{36}$/.test(value)) throw new Error('invalid UUID'); return value; };
+const databaseError = error => { if (error) throw error; };
+class SupportError extends Error {}
+${source.slice(start, end)}
+}`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+const patchHandler = vm.runInNewContext(patchJs + ';patch');
+const noticeId = '12345678-1234-1234-1234-123456789abc';
+test('visible notices use one scoped batch write and propagate persistence failures', async () => {
+    let calls = 0;
+    const result = await patchHandler({ rpc: async (name, params) => {
+        calls++;
+        assert.equal(name, 'support_read_notifications');
+        assert.deepEqual(Array.from(params.p_ids), [noticeId]);
+        assert.equal(params.p_before, null);
+        assert.equal(params.user_id, undefined);
+        return { data: { updated: 1 }, error: null };
+    } }, { ids: [noticeId] });
+    assert.equal(calls, 1);
+    assert.equal(result.updated, 1);
+    await assert.rejects(patchHandler({ rpc: async () => ({ error: new Error('write failed') }) }, { ids: [noticeId] }), /write failed/);
+});
+test('mark all passes a cutoff so newer activity stays unread', async () => {
+    const before = '2026-10-06T16:00:00.000Z';
+    await patchHandler({ rpc: async (name, params) => {
+        assert.equal(name, 'support_read_notifications');
+        assert.equal(params.p_ids, null);
+        assert.equal(params.p_before, before);
+        return { data: { updated: 57 }, error: null };
+    } }, { before });
+});
+test('invalid batches and dates are rejected before any database write', async () => {
+    const db = { rpc: () => assert.fail('Should not write') };
+    for (const data of [{ ids: [] }, { ids: [noticeId], before: '2026-10-06' }, { ids: Array(41).fill(noticeId) }, { ids: ['invalid'] }, { before: 'invalid' }]) {
+        await assert.rejects(patchHandler(db, data));
+    }
 });
