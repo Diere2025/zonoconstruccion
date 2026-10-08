@@ -76,6 +76,3 @@ function definition(name){const sql=fs.readFileSync('database/db_migration_v136_
  await rejected(()=>db.query('select save_financial_operation($1,$2,$3,$4,$5,$6)',[actor,randomUUID(),'cancel',base,{},'']),/guardado inválida/);
  await db.query('rollback');console.log('PASS isolated PostgreSQL cents regression: FIFO, partial payment, exclusions, repeatable migration, retry, editing, surplus, manual override and cancellation; isolated fixtures rolled back.');
 }catch(e){await db.query('rollback');throw e;}finally{await db.end();}})().catch(e=>{console.error(e.message, e.position, e.internalQuery, e.query);process.exitCode=1;});
-
-
-
