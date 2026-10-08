@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { isMPPaymentOnDay } from '@/lib/mpPaymentDate';
 import ReportDateRangePicker from '@/components/ui/ReportDateRangePicker';
 import type {AccountIncome} from '@/lib/mpAccountIncome';
+import MPAccountProjection from '@/components/MPAccountProjection';
 import {
   ShieldCheck,
   Search,
@@ -200,13 +201,12 @@ export default function CobrosMercadoPagoPage() {
       const r = cachedCobrosRole || (sessionStorage.getItem('zono_user_role') as UserRole);
       if (r === 'fletero') return 'LAST_15_MIN';
       if (r === 'seller') return 'TODAY';
-      if (r === 'logistica') return 'LAST_3_DAYS';
-      if (r === 'admin' || r === 'administracion') return 'TODAY';
+      if (r === 'logistica') return 'TODAY';
+      if (r === 'admin' || r === 'administracion') return 'CUSTOM_RANGE';
     }
-    return 'LAST_3_DAYS';
+    return 'CUSTOM_RANGE';
   });
-  const [selectedDate, setSelectedDate] = useState('');
-  const [dateFrom,setDateFrom]=useState(()=>new Date(Date.now()-3*3600000).toISOString().slice(0,7)+'-01');
+  const [dateFrom,setDateFrom]=useState(()=>new Date(Date.now()-3*3600000).toISOString().slice(0,10));
   const [dateTo,setDateTo]=useState(()=>new Date(Date.now()-3*3600000).toISOString().slice(0,10));
   const [accountIncome,setAccountIncome]=useState<AccountIncome[]>([]);
   const paymentsRequestRef = useRef(0);
@@ -370,7 +370,6 @@ export default function CobrosMercadoPagoPage() {
   const filteredPayments = useMemo(() => {
     return payments.filter((p) => {
       if (currentUserRole === 'seller' && !isMPPaymentOnDay(p.received_at, new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10))) return false;
-      if (selectedDateRange === 'SPECIFIC_DATE' && !isMPPaymentOnDay(p.received_at, selectedDate)) return false;
       // Realtime updates can change a payment's link after the server filtered the list.
       const isLinked = Boolean(p.order_id || p.order_code?.trim());
       if (selectedLinkedStatus === 'UNLINKED' && isLinked) return false;
@@ -406,7 +405,7 @@ export default function CobrosMercadoPagoPage() {
       }
       return true;
     });
-  }, [payments, selectedDateRange, selectedDate, selectedAccountId, selectedLinkedStatus, selectedFleteroFilter, getAccountDisplay, hideInternal]);
+  }, [payments, selectedDateRange, selectedAccountId, selectedLinkedStatus, selectedFleteroFilter, getAccountDisplay, hideInternal]);
 
   // Unique accounts available for filtering (deduplicated by display name)
   const uniqueAccounts = useMemo(() => {
@@ -880,7 +879,6 @@ export default function CobrosMercadoPagoPage() {
         role: currentUserRole,
         accountId: selectedAccountId,
         dateRange: currentUserRole === 'seller' ? 'TODAY' : selectedDateRange,
-        date: selectedDateRange === 'SPECIFIC_DATE' ? selectedDate : '',
         from:dateFrom,to:dateTo,
         type: selectedType,
         linkedStatus: selectedLinkedStatus,
@@ -904,7 +902,7 @@ export default function CobrosMercadoPagoPage() {
     } finally {
       if (requestId === paymentsRequestRef.current) setIsLoading(false);
     }
-  }, [currentUserRole, isRoleLoaded, selectedAccountId, selectedDateRange, selectedDate, dateFrom, dateTo, selectedType, selectedLinkedStatus, selectedFleteroFilter, search, showHidden, hideInternal]);
+  }, [currentUserRole, isRoleLoaded, selectedAccountId, selectedDateRange, dateFrom, dateTo, selectedType, selectedLinkedStatus, selectedFleteroFilter, search, showHidden, hideInternal]);
 
   const loadPaymentsRef = useRef(loadPayments);
   useEffect(() => { loadPaymentsRef.current = loadPayments; }, [loadPayments]);
@@ -1708,44 +1706,7 @@ export default function CobrosMercadoPagoPage() {
           </div>
         )}
 
-        {/* KPI Summary Cards (Hidden for sellers, logistica, and fleteros) */}
-        {isAdminOrStaff && stats && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="p-5 rounded-3xl bg-white border border-slate-200/80 shadow-xs flex items-center justify-between">
-              <div>
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Recaudado según filtros</span>
-                <div className="text-2xl sm:text-3xl font-black text-[#001538] mt-0.5">
-                  {isLoading ? '…' : formatMPAmount(stats.totalAmount)}
-                </div>
-                <span className="text-[11px] text-slate-500 font-medium">
-                  {selectedDateRange === 'SPECIFIC_DATE'
-                    ? `Fecha: ${selectedDate.split('-').reverse().join('/')}`
-                    : selectedDateRange==='CUSTOM_RANGE'?`${dateFrom.split('-').reverse().join('/')} al ${dateTo.split('-').reverse().join('/')}`
-                    : ({ TODAY: 'Hoy', YESTERDAY: 'Ayer', LAST_3_DAYS: 'Últimos 3 días', LAST_7_DAYS: 'Últimos 7 días', ALL: 'Histórico' } as Record<string, string>)[selectedDateRange] || 'Período seleccionado'}
-                  {' · Filtros activos aplicados'}
-                </span>
-              </div>
-              <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 font-bold shadow-xs">
-                <Wallet className="w-6 h-6" />
-              </div>
-            </div>
-
-            <div className="p-5 rounded-3xl bg-white border border-slate-200/80 shadow-xs flex items-center justify-between">
-              <div>
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Transacciones según filtros</span>
-                <div className="text-2xl sm:text-3xl font-black text-[#001538] mt-0.5">
-                  {isLoading ? '…' : stats.totalCount}
-                </div>
-                <span className="text-[11px] text-slate-500 font-medium">Cobros que coinciden con los filtros activos</span>
-              </div>
-              <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center text-[#0069ff] font-bold shadow-xs">
-                <CheckCircle2 className="w-6 h-6" />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {currentUserRole==='admin'&&accountIncome.length>0&&<section className="min-w-0 rounded-3xl border bg-white p-4 space-y-3"><h2 className="font-bold">Ingresos y proyección mensual por cuenta</h2><p className="text-xs text-slate-500">El período respeta los filtros. El acumulado mensual incluye todos los ingresos de cada cuenta, incluso archivados y propios. Promedio por día calendario desde el día 1 hasta la fecha de corte. Las metas se reinician cada mes.</p><div className="overflow-x-auto"><table className="w-full min-w-[800px] text-left text-sm"><thead><tr>{['Cuenta','Ingresos filtrados','Acumulado del mes','Promedio diario','Meta $40M','Límite $50M'].map(h=><th key={h} className="p-2">{h}</th>)}</tr></thead><tbody>{accountIncome.filter(a=>selectedAccountId==='ALL'||a.id===selectedAccountId).map(a=>{const label=(date:string|null,target:number)=>a.monthAmount>=target?'Alcanzado':!date?'Sin ingresos':date>a.monthEnd?'No alcanza este mes':date.split('-').reverse().join('/');return <tr key={a.id} className={a.monthAmount>=40000000?'border-t bg-amber-50':'border-t'}><td className="p-2">{a.name}<span className="block text-xs text-slate-500">Corte: {a.asOf.split('-').reverse().join('/')}</span></td><td>{formatMPAmount(a.periodAmount)}</td><td>{formatMPAmount(a.monthAmount)}</td><td>{formatMPAmount(a.dailyAverage)}</td><td>{label(a.date40,40000000)}</td><td>{label(a.date50,50000000)}</td></tr>})}</tbody></table></div></section>}
+        {currentUserRole === 'admin' && accountIncome.length > 0 && <MPAccountProjection accounts={accountIncome.filter(a => selectedAccountId === 'ALL' || a.id === selectedAccountId)} />}
         {/* Filters and Controls (Hidden for Transportistas) */}
         {!isFleteroRole && (
           <div className="p-4 sm:p-5 rounded-3xl bg-white border border-slate-200/80 shadow-xs space-y-4">
@@ -1774,72 +1735,11 @@ export default function CobrosMercadoPagoPage() {
               {/* Date Range Selector (Adapted to user role) */}
               <div className="flex flex-wrap items-center gap-1.5 pb-1 md:pb-0">
                 {isAdminOrStaff && (
-                  <>
-                    <button
-                      onClick={() => setSelectedDateRange('TODAY')}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
-                        selectedDateRange === 'TODAY'
-                          ? 'bg-[#0069ff] text-white shadow-xs'
-                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                      }`}
-                    >
-                      Hoy
-                    </button>
-                    <button
-                      onClick={() => setSelectedDateRange('YESTERDAY')}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
-                        selectedDateRange === 'YESTERDAY'
-                          ? 'bg-[#0069ff] text-white shadow-xs'
-                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                      }`}
-                    >
-                      Ayer
-                    </button>
-                    <button
-                      onClick={() => setSelectedDateRange('LAST_3_DAYS')}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
-                        selectedDateRange === 'LAST_3_DAYS'
-                          ? 'bg-[#0069ff] text-white shadow-xs'
-                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                      }`}
-                    >
-                      3 Días
-                    </button>
-                    <button
-                      onClick={() => setSelectedDateRange('LAST_7_DAYS')}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
-                        selectedDateRange === 'LAST_7_DAYS'
-                          ? 'bg-[#0069ff] text-white shadow-xs'
-                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                      }`}
-                    >
-                      7 Días
-                    </button>
-                    <button
-                      onClick={() => setSelectedDateRange('ALL')}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
-                        selectedDateRange === 'ALL'
-                          ? 'bg-[#0069ff] text-white shadow-xs'
-                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                      }`}
-                    >
-                      Histórico
-                    </button>
-                    <label className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold border ${selectedDateRange === 'SPECIFIC_DATE' ? 'bg-blue-50 border-blue-300 text-blue-900' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
-                      Fecha:
-                      <input
-                        type="date"
-                        aria-label="Filtrar cobros por fecha específica"
-                        value={selectedDateRange === 'SPECIFIC_DATE' ? selectedDate : ''}
-                        onChange={(e) => {
-                          setSelectedDate(e.target.value);
-                          setSelectedDateRange(e.target.value ? 'SPECIFIC_DATE' : 'TODAY');
-                        }}
-                        className="min-w-0 bg-transparent font-semibold focus:outline-none focus:ring-2 focus:ring-[#0069ff]/20 rounded"
-                      />
-                    </label>
-                    <ReportDateRangePicker from={dateFrom} to={dateTo} onChange={(from,to)=>{setDateFrom(from);setDateTo(to);setSelectedDateRange('CUSTOM_RANGE');}}/>
-                  </>
+                  <ReportDateRangePicker align="end" from={dateFrom} to={dateTo} onChange={(from, to) => {
+                    setDateFrom(from);
+                    setDateTo(to);
+                    setSelectedDateRange('CUSTOM_RANGE');
+                  }} />
                 )}
 
                 {isLogisticaRole && (
@@ -2048,6 +1948,44 @@ export default function CobrosMercadoPagoPage() {
                   <SlidersHorizontal className="w-3.5 h-3.5" /> Mantenimiento
                 </button>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* KPI Summary Cards (Hidden for sellers, logistica, and fleteros) */}
+        {isAdminOrStaff && stats && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="p-5 rounded-3xl bg-white border border-slate-200/80 shadow-xs flex items-center justify-between">
+              <div>
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Recaudado según filtros</span>
+                <div className="text-2xl sm:text-3xl font-black text-[#001538] mt-0.5">
+                  {isLoading ? '…' : formatMPAmount(stats.totalAmount)}
+                </div>
+                <span className="text-[11px] text-slate-500 font-medium">
+                  {selectedDateRange === 'CUSTOM_RANGE'
+                    ? dateFrom === dateTo && dateTo === new Date(Date.now() - 3 * 3600000).toISOString().slice(0, 10)
+                      ? 'Hoy'
+                      : dateFrom.split('-').reverse().join('/') + ' al ' + dateTo.split('-').reverse().join('/')
+                    : ({ TODAY: 'Hoy', YESTERDAY: 'Ayer', LAST_3_DAYS: 'Últimos 3 días' } as Record<string, string>)[selectedDateRange] || 'Período seleccionado'}
+                  {' · Filtros activos aplicados'}
+                </span>
+              </div>
+              <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 font-bold shadow-xs">
+                <Wallet className="w-6 h-6" />
+              </div>
+            </div>
+
+            <div className="p-5 rounded-3xl bg-white border border-slate-200/80 shadow-xs flex items-center justify-between">
+              <div>
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Transacciones según filtros</span>
+                <div className="text-2xl sm:text-3xl font-black text-[#001538] mt-0.5">
+                  {isLoading ? '…' : stats.totalCount}
+                </div>
+                <span className="text-[11px] text-slate-500 font-medium">Cobros que coinciden con los filtros activos</span>
+              </div>
+              <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center text-[#0069ff] font-bold shadow-xs">
+                <CheckCircle2 className="w-6 h-6" />
+              </div>
             </div>
           </div>
         )}

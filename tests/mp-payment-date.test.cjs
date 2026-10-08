@@ -30,6 +30,7 @@ async function callList(role, date, options = {}) {
   const vm = require('node:vm');
   const ts = require('typescript');
   const queries = [];
+  const incomeDates = [];
   const client = {
     auth: { getUser: async () => ({ data: { user: { id: 'user-1' } } }) },
     from(table) {
@@ -62,7 +63,7 @@ async function callList(role, date, options = {}) {
       if (name === 'next/server') return { NextResponse: { json: (body, options) => ({ body, status: options?.status || 200 }) } };
       if (name === '@supabase/supabase-js') return { createClient: () => client };
       if (name === '@/lib/mpPaymentDate') return { getMPPaymentDayBounds };
-      if (name === '@/lib/mpAccountIncomeServer') return {loadMonthlyAccountIncome:async()=>[]};
+      if (name === '@/lib/mpAccountIncomeServer') return {loadMonthlyAccountIncome:async(_db,asOf)=>{incomeDates.push(asOf);return [];}};
       throw new Error(`Unexpected import ${name}`);
     },
   });
@@ -72,7 +73,7 @@ async function callList(role, date, options = {}) {
     ...(options.method === 'POST' ? { body: JSON.stringify(options.body || { paymentId: 'payment-1', orderCode: 'JS1' }) } : {}),
     headers: { authorization: 'Bearer test' },
   }));
-  return { response, queries, calls: queries.find(q => q.table === 'mp_payments')?.calls };
+  return { response, queries, incomeDates, calls: queries.find(q => q.table === 'mp_payments')?.calls };
 }
 
 test('API queries the requested day for administration', async () => {
@@ -183,4 +184,18 @@ test('custom range is inclusive in Argentina and restricted by role',async()=>{
  assert.equal((await callList('admin','',{filters:{...options.filters,from:'2026-10-01'}})).response.status,400);
  const seller=await callList('seller','',options);assert.equal(seller.response.body.effectiveRange,'TODAY');assert.equal(seller.response.body.accountIncome,undefined);
  const staff=await callList('administracion','',options);assert.equal(staff.response.body.accountIncome,undefined);
+});
+
+
+test('monthly projection stays in the current Argentina month for historical payment ranges', async () => {
+  const today = new Date(Date.now() - 3 * 3600000).toISOString().slice(0, 10);
+  for (const filters of [
+    { dateRange: 'CUSTOM_RANGE', from: '2020-01-01', to: '2020-01-15' },
+    { dateRange: 'SPECIFIC_DATE', date: '2020-01-15' },
+    { dateRange: 'YESTERDAY' },
+  ]) {
+    const { response, incomeDates } = await callList('admin', '2020-01-15', { filters });
+    assert.equal(response.status, 200);
+    assert.deepEqual(incomeDates, [today]);
+  }
 });

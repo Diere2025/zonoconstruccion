@@ -163,8 +163,8 @@ export async function GET(request: Request) {
       const rangeEnd=dateRange==='CUSTOM_RANGE'?getMPPaymentDayBounds(searchParams.get('to')||''):null;
       if(dateRange==='CUSTOM_RANGE'&&(!rangeStart||!rangeEnd||rangeStart.startIso>rangeEnd.startIso))return NextResponse.json({error:'Rango de fechas inválido.'},{status:400});
       const today=argNow.toISOString().slice(0,10);
-      const requestedAsOf=dateRange==='CUSTOM_RANGE'?searchParams.get('to'):dateRange==='SPECIFIC_DATE'?searchParams.get('date'):dateRange==='YESTERDAY'?new Date(argNow.getTime()-86400000).toISOString().slice(0,10):today;
-      const asOf=requestedAsOf&&requestedAsOf<today?requestedAsOf:today;
+      // Monthly projection uses the current Argentina month, independently of list filters.
+      const asOf = today;
       const todayBounds = getArgDayBounds(0);
       const yesterdayBounds = getArgDayBounds(-1);
       const threeDaysBounds = getArgDayBounds(-2);
