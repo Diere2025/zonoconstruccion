@@ -736,7 +736,7 @@ export default function PresupuestosPage() {
     text += `_Presupuesto Detallado_\n\n`;
     
     quoteItems.forEach(item => {
-      const internalName = (item.sku && !item.sku.startsWith("AUTO-")) ? item.sku : (item.sku || item.name);
+      const internalName = (item.sku && !item.sku.startsWith("AUTO-")) ? item.sku : item.name;
       const isDisc = isDiscountItem(item);
       const base = item.basePrice !== undefined ? item.basePrice : (item.price || item.customPrice);
       const isDiscounted = !isDisc && base > item.customPrice && item.customPrice > 0;
@@ -1457,7 +1457,7 @@ export default function PresupuestosPage() {
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                       <div className="flex-1 min-w-0 pr-2">
                         <p className="font-extrabold text-slate-900 text-xs truncate leading-snug">
-                          {(item.sku && !item.sku.startsWith("AUTO-")) ? item.sku : (item.sku || item.name)}
+                          {(item.sku && !item.sku.startsWith("AUTO-")) ? item.sku : item.name}
                         </p>
                         <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
                           <span className="text-[11px] font-black text-slate-800">

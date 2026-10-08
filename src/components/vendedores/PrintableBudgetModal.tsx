@@ -531,7 +531,7 @@ export default function PrintableBudgetModal({
                     const rowBg = index % 2 === 0 ? "#ffffff" : "#f8fafc";
                     const displaySku = (item.sku && !item.sku.startsWith("AUTO-")) 
                       ? item.sku 
-                      : (item.sku || item.name || "Producto");
+                      : (item.name || "Producto");
 
                     return (
                       <tr key={`${item.id}-${index}`} style={{ backgroundColor: rowBg, borderBottom: "1px solid #e2e8f0", fontSize: "11px" }}>
