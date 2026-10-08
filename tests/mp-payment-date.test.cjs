@@ -43,9 +43,9 @@ async function callList(role, date, options = {}) {
             const limit = calls.find(c => c[0] === 'limit')?.[1];
             const rows = options.rows || [];
             const data = table === 'mp_accounts' ? [] : range ? rows.slice(range[1], range[2] + 1) : rows.slice(0, limit);
-            resolve({ data, error: select === 'amount, id' && options.statsError ? { message: 'Stats unavailable' } : null });
+            resolve({ data, error: select.startsWith('amount, id') && options.statsError ? { message: 'Stats unavailable' } : null });
           };
-          if (method === 'maybeSingle') return async () => ({ data: table === 'sellers' ? { role, roles: [] } : options.payment || null });
+          if (method === 'maybeSingle' || method === 'single') return async () => ({ data: table === 'sellers' ? { role, roles: [] } : options.payment || null });
           return (...args) => { calls.push([method, ...args]); return query; };
         },
       });
@@ -62,6 +62,7 @@ async function callList(role, date, options = {}) {
       if (name === 'next/server') return { NextResponse: { json: (body, options) => ({ body, status: options?.status || 200 }) } };
       if (name === '@supabase/supabase-js') return { createClient: () => client };
       if (name === '@/lib/mpPaymentDate') return { getMPPaymentDayBounds };
+      if (name === '@/lib/mpAccountIncomeServer') return {loadMonthlyAccountIncome:async()=>[]};
       throw new Error(`Unexpected import ${name}`);
     },
   });
@@ -174,4 +175,12 @@ test('specific date preserves logistics and carrier date restrictions', async ()
     assert.equal(response.status, 200);
     assert.equal(response.body.effectiveRange, range);
   }
+});
+
+test('custom range is inclusive in Argentina and restricted by role',async()=>{
+ const options={filters:{dateRange:'CUSTOM_RANGE',from:'2026-09-01',to:'2026-09-30'}};
+ const {response,calls}=await callList('admin','',options);assert.equal(response.status,200);assert.ok(calls.some(c=>c[0]==='gte'&&c[2]==='2026-09-01T03:00:00.000Z'));assert.ok(calls.some(c=>c[0]==='lt'&&c[2]==='2026-10-01T03:00:00.000Z'));
+ assert.equal((await callList('admin','',{filters:{...options.filters,from:'2026-10-01'}})).response.status,400);
+ const seller=await callList('seller','',options);assert.equal(seller.response.body.effectiveRange,'TODAY');assert.equal(seller.response.body.accountIncome,undefined);
+ const staff=await callList('administracion','',options);assert.equal(staff.response.body.accountIncome,undefined);
 });

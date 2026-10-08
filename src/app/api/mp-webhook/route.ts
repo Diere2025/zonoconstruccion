@@ -64,11 +64,11 @@ function parseMpNotification(title: string, text: string, bigText?: string) {
   }
 
   // Incoming validation: MUST explicitly be an incoming payment / cobro
-  const isExplicitIncoming = 
-    lower.includes('recibiste') || 
-    lower.includes('te transfiri') || 
-    lower.includes('te envió') || 
-    lower.includes('te enviaron') || 
+  const isExplicitIncoming =
+    lower.includes('recibiste') ||
+    lower.includes('te transfiri') ||
+    lower.includes('te envió') ||
+    lower.includes('te enviaron') ||
     lower.includes('ingresó') ||
     lower.includes('ingresaron') ||
     lower.includes('cobro') ||
@@ -303,6 +303,8 @@ async function handleProcessNotification(
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 
+  try {const {checkMonthlyIncomeAlerts}=await import('@/lib/mpMonthlyIncomeAlerts');await checkMonthlyIncomeAlerts();}catch(error){console.warn('[MP] Monthly income alerts:',error);}
+
   return NextResponse.json({
     success: true,
     message: 'Cobro registrado y transmitido con éxito',
@@ -351,7 +353,7 @@ export async function POST(request: Request) {
           if (tgConfig.enabled && tgConfig.bot_token && tgConfig.chat_id) {
             const arg = getArgentinaDateTime();
             const reason = body.message || 'Error en pantalla de Mercado Pago';
-            const errorMsg = 
+            const errorMsg =
 `🚨 *ALERTA: FALLA EN PESTAÑA MERCADO PAGO*
 
 La cuenta *${resolvedAccountName}* detectó una anomalía en el navegador:
@@ -443,9 +445,9 @@ ${body.clientTime ? `🕒 *Reloj extensión:* ${body.clientTime} hs\n` : ''}
       title = (url.searchParams.get('title') || url.searchParams.get('antitle') || url.searchParams.get('evtprm2') || '').replace(/%(?:an[a-z]+|evtprm[0-9]+)/gi, '').trim();
     }
 
-    const hasValidToken = 
-      tokenHeader === expectedSecret || 
-      tokenQuery === expectedSecret || 
+    const hasValidToken =
+      tokenHeader === expectedSecret ||
+      tokenQuery === expectedSecret ||
       (tokenHeader && tokenHeader.includes(expectedSecret));
 
     // Only if completely empty and valid token, provide a dummy test response
@@ -457,9 +459,9 @@ ${body.clientTime ? `🕒 *Reloj extensión:* ${body.clientTime} hs\n` : ''}
 
     const fullContent = `${title} ${text} ${bigText}`.toLowerCase();
 
-    const hasValidPayload = 
-      fullContent.includes('mercado') || 
-      fullContent.includes('$') || 
+    const hasValidPayload =
+      fullContent.includes('mercado') ||
+      fullContent.includes('$') ||
       fullContent.includes('transfir') ||
       fullContent.includes('recibiste') ||
       fullContent.includes('cobro');
@@ -521,4 +523,3 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
-

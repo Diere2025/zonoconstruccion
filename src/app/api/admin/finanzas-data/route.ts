@@ -119,7 +119,9 @@ export async function GET(request: Request) {
       const {data,error}=await query;
 
       if (error) throw error;
-      return NextResponse.json({ pendingOrders: data || [] });
+      const clients=action==='search-collection-orders'?await supabaseAdmin.from('clients').select('id,business_name').ilike('business_name',`%${cleanQ}%`).order('business_name').limit(30):{data:[],error:null};
+      if(clients.error)throw clients.error;
+      return NextResponse.json({ pendingOrders: data || [],clients:clients.data || [] });
     }
 
     if (action === 'accounts') {

@@ -3,6 +3,8 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { isMPPaymentOnDay } from '@/lib/mpPaymentDate';
+import ReportDateRangePicker from '@/components/ui/ReportDateRangePicker';
+import type {AccountIncome} from '@/lib/mpAccountIncome';
 import {
   ShieldCheck,
   Search,
@@ -204,6 +206,9 @@ export default function CobrosMercadoPagoPage() {
     return 'LAST_3_DAYS';
   });
   const [selectedDate, setSelectedDate] = useState('');
+  const [dateFrom,setDateFrom]=useState(()=>new Date(Date.now()-3*3600000).toISOString().slice(0,7)+'-01');
+  const [dateTo,setDateTo]=useState(()=>new Date(Date.now()-3*3600000).toISOString().slice(0,10));
+  const [accountIncome,setAccountIncome]=useState<AccountIncome[]>([]);
   const paymentsRequestRef = useRef(0);
   const [showHidden, setShowHidden] = useState(false);
   const [hideInternal, setHideInternal] = useState<boolean>(() => {
@@ -876,6 +881,7 @@ export default function CobrosMercadoPagoPage() {
         accountId: selectedAccountId,
         dateRange: currentUserRole === 'seller' ? 'TODAY' : selectedDateRange,
         date: selectedDateRange === 'SPECIFIC_DATE' ? selectedDate : '',
+        from:dateFrom,to:dateTo,
         type: selectedType,
         linkedStatus: selectedLinkedStatus,
         fleteroFilter: selectedFleteroFilter,
@@ -888,16 +894,17 @@ export default function CobrosMercadoPagoPage() {
       if (data.success && requestId === paymentsRequestRef.current) {
         setPayments(data.data || []);
         setStats(data.filteredStats || null);
+        setAccountIncome(data.effectiveRole==='admin'?data.accountIncome||[]:[]);
       } else if (requestId === paymentsRequestRef.current) {
-        setStats(null);
+        setStats(null);setAccountIncome([]);
       }
     } catch (e) {
-      if (requestId === paymentsRequestRef.current) setStats(null);
+      if (requestId === paymentsRequestRef.current) {setStats(null);setAccountIncome([]);}
       console.error('Error loading MP payments:', e);
     } finally {
       if (requestId === paymentsRequestRef.current) setIsLoading(false);
     }
-  }, [currentUserRole, isRoleLoaded, selectedAccountId, selectedDateRange, selectedDate, selectedType, selectedLinkedStatus, selectedFleteroFilter, search, showHidden, hideInternal]);
+  }, [currentUserRole, isRoleLoaded, selectedAccountId, selectedDateRange, selectedDate, dateFrom, dateTo, selectedType, selectedLinkedStatus, selectedFleteroFilter, search, showHidden, hideInternal]);
 
   const loadPaymentsRef = useRef(loadPayments);
   useEffect(() => { loadPaymentsRef.current = loadPayments; }, [loadPayments]);
@@ -1713,6 +1720,7 @@ export default function CobrosMercadoPagoPage() {
                 <span className="text-[11px] text-slate-500 font-medium">
                   {selectedDateRange === 'SPECIFIC_DATE'
                     ? `Fecha: ${selectedDate.split('-').reverse().join('/')}`
+                    : selectedDateRange==='CUSTOM_RANGE'?`${dateFrom.split('-').reverse().join('/')} al ${dateTo.split('-').reverse().join('/')}`
                     : ({ TODAY: 'Hoy', YESTERDAY: 'Ayer', LAST_3_DAYS: 'Últimos 3 días', LAST_7_DAYS: 'Últimos 7 días', ALL: 'Histórico' } as Record<string, string>)[selectedDateRange] || 'Período seleccionado'}
                   {' · Filtros activos aplicados'}
                 </span>
@@ -1737,6 +1745,7 @@ export default function CobrosMercadoPagoPage() {
           </div>
         )}
 
+        {currentUserRole==='admin'&&accountIncome.length>0&&<section className="min-w-0 rounded-3xl border bg-white p-4 space-y-3"><h2 className="font-bold">Ingresos y proyección mensual por cuenta</h2><p className="text-xs text-slate-500">El período respeta los filtros. El acumulado mensual incluye todos los ingresos de cada cuenta, incluso archivados y propios. Promedio por día calendario desde el día 1 hasta la fecha de corte. Las metas se reinician cada mes.</p><div className="overflow-x-auto"><table className="w-full min-w-[800px] text-left text-sm"><thead><tr>{['Cuenta','Ingresos filtrados','Acumulado del mes','Promedio diario','Meta $40M','Límite $50M'].map(h=><th key={h} className="p-2">{h}</th>)}</tr></thead><tbody>{accountIncome.filter(a=>selectedAccountId==='ALL'||a.id===selectedAccountId).map(a=>{const label=(date:string|null,target:number)=>a.monthAmount>=target?'Alcanzado':!date?'Sin ingresos':date>a.monthEnd?'No alcanza este mes':date.split('-').reverse().join('/');return <tr key={a.id} className={a.monthAmount>=40000000?'border-t bg-amber-50':'border-t'}><td className="p-2">{a.name}<span className="block text-xs text-slate-500">Corte: {a.asOf.split('-').reverse().join('/')}</span></td><td>{formatMPAmount(a.periodAmount)}</td><td>{formatMPAmount(a.monthAmount)}</td><td>{formatMPAmount(a.dailyAverage)}</td><td>{label(a.date40,40000000)}</td><td>{label(a.date50,50000000)}</td></tr>})}</tbody></table></div></section>}
         {/* Filters and Controls (Hidden for Transportistas) */}
         {!isFleteroRole && (
           <div className="p-4 sm:p-5 rounded-3xl bg-white border border-slate-200/80 shadow-xs space-y-4">
@@ -1829,6 +1838,7 @@ export default function CobrosMercadoPagoPage() {
                         className="min-w-0 bg-transparent font-semibold focus:outline-none focus:ring-2 focus:ring-[#0069ff]/20 rounded"
                       />
                     </label>
+                    <ReportDateRangePicker from={dateFrom} to={dateTo} onChange={(from,to)=>{setDateFrom(from);setDateTo(to);setSelectedDateRange('CUSTOM_RANGE');}}/>
                   </>
                 )}
 

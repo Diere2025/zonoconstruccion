@@ -102,8 +102,8 @@ const deduceCategoryFromTitle = (title: string, brand?: string): string => {
 };
 
 export async function POST() {
+  const logs: string[] = [];
   try {
-    const logs: string[] = [];
     const addLog = (msg: string) => {
       logs.push(`[${new Date().toLocaleTimeString()}] ${msg}`);
     };
@@ -204,7 +204,7 @@ export async function POST() {
         .select('id, name, business_unit, is_active');
 
       if (suppInsertErr) {
-        console.warn("Error auto-inserting suppliers:", suppInsertErr);
+        throw new Error(`No se pudieron registrar proveedores: ${suppInsertErr.message}`);
       } else if (insertedSuppliers) {
         insertedSuppliers.forEach(s => {
           dbSuppliersMap.set(normalizeProductName(s.name), s);
@@ -315,10 +315,9 @@ export async function POST() {
         }
 
         if (needsUpdate) {
-          await supabaseAdmin
-            .from('products')
-            .update(updates)
-            .eq('id', matchedProduct.id);
+          const { error: updateError } = await supabaseAdmin.from('products').update(updates).eq('id', matchedProduct.id);
+          if (updateError) throw new Error(`No se pudo actualizar ${matchedProduct.name}: ${updateError.message}`);
+          addLog(`Actualizado ${matchedProduct.name} [${matchedProduct.id}]: ${Object.entries(updates).map(([key,value])=>`${key}: ${matchedProduct[key]} → ${value}`).join('; ')}`);
         }
 
         allProductsToLink.push({
@@ -346,7 +345,8 @@ export async function POST() {
           .select('id, name, sku, brand')
           .single();
 
-        if (!insertErr && newProd) {
+        if (insertErr) throw new Error(`No se pudo crear ${cleanTitle}: ${insertErr.message}`);
+        if (newProd) {
           activeDbProductIds.add(newProd.id);
           insertedCount++;
           addLog(`  ✨ Nuevo producto insertado: ${cleanTitle} ($${sheetInfo.price})`);
@@ -383,10 +383,9 @@ export async function POST() {
         }
 
         if (needsUpdate) {
-          await supabaseAdmin
-            .from('products')
-            .update(updates)
-            .eq('id', p.id);
+          const { error: updateError } = await supabaseAdmin.from('products').update(updates).eq('id', p.id);
+          if (updateError) throw new Error(`No se pudo actualizar ${p.name}: ${updateError.message}`);
+          addLog(`Actualizado ${p.name} [${p.id}]: ${Object.entries(updates).map(([key,value])=>`${key}: ${p[key]} → ${value}`).join('; ')}`);
         }
       }
     }
@@ -450,8 +449,9 @@ export async function POST() {
 
         if (!upsertErr) {
           relationsLinkedCount += chunk.length;
+          for(const relation of chunk){const product=allProductsToLink.find(p=>p.id===relation.product_id);const supplier=Array.from(dbSuppliersMap.values()).find(s=>s.id===relation.supplier_id);addLog(`Proveedor vinculado: ${product?.name||relation.product_id} → ${supplier?.name||relation.supplier_id}`);}
         } else {
-          console.warn("Error upserting relations chunk:", upsertErr);
+          throw new Error(`No se pudieron vincular proveedores: ${upsertErr.message}`);
         }
       }
     }
@@ -495,6 +495,6 @@ export async function POST() {
 
   } catch (error: any) {
     console.error('[API Sync Products] Error:', error);
-    return NextResponse.json({ error: error.message || String(error) }, { status: 500 });
+    return NextResponse.json({ error: error.message || String(error), logs }, { status: 500 });
   }
 }

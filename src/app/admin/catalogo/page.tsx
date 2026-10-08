@@ -24,9 +24,9 @@ export default function AdminPage() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [schedulingProduct, setSchedulingProduct] = useState<Product | null>(null);
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
-  
 
-  
+
+
   // Settings State
   const [aboutImageUrl, setAboutImageUrl] = useState('');
   const [settingsFile, setSettingsFile] = useState<File | null>(null);
@@ -39,6 +39,7 @@ export default function AdminPage() {
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importStatus, setImportStatus] = useState<string | null>(null);
   const [importErrors, setImportErrors] = useState<string[]>([]);
+  const [syncLogs,setSyncLogs]=useState<string[]>([]);
 
   // Costs Import State
   const [costsImportData, setCostsImportData] = useState("");
@@ -127,7 +128,7 @@ export default function AdminPage() {
           .from('price_list_items')
           .select('price_list_id, sku, list_cost, final_cost, taxes')
           .in('price_list_id', activeListIds);
-        
+
         if (items) setProfitabilityItems(items);
         if (itemsErr) console.error("Error loading price list items:", itemsErr);
       } else {
@@ -199,7 +200,7 @@ export default function AdminPage() {
     let page = 0;
     const pageSize = 1000;
     let hasMore = true;
-    
+
     try {
       while (hasMore) {
         const { data, error } = await supabase
@@ -207,7 +208,7 @@ export default function AdminPage() {
           .select('*')
           .order('created_at', { ascending: false })
           .range(page * pageSize, (page + 1) * pageSize - 1);
-          
+
         if (error) throw error;
         if (data && data.length > 0) {
           allProducts = [...allProducts, ...data];
@@ -280,7 +281,7 @@ export default function AdminPage() {
         const fileExt = optimizedFile.name.split('.').pop();
         const filePath = `settings/about-${Math.random()}.${fileExt}`;
         const { error: uploadError } = await supabase.storage.from('product-images').upload(filePath, optimizedFile, { contentType: optimizedFile.type });
-        
+
         if (uploadError) {
           console.error("Error al subir imagen de fábrica:", uploadError);
           alert("Error al subir la imagen: " + uploadError.message);
@@ -298,14 +299,14 @@ export default function AdminPage() {
         { id: 'landing_categories', value: landingCategories.join(',') },
         { id: 'tanques_categories', value: tanquesCategories.join(',') },
       ]);
-      
+
       if (error) {
         console.error("Error en upsert de site_settings:", error);
         alert("🚨 Error de Base de Datos:\n" + error.message);
       } else {
-        setAboutImageUrl(finalUrl); 
-        setSettingsFile(null); 
-        alert("✅ ¡Configuración guardada con éxito!"); 
+        setAboutImageUrl(finalUrl);
+        setSettingsFile(null);
+        alert("✅ ¡Configuración guardada con éxito!");
         fetchSettings();
       }
     } catch (err) {
@@ -321,14 +322,14 @@ export default function AdminPage() {
     let currentWord = '';
     let inQuotes = false;
     let currentRow: string[] = [];
-    
+
     // Normalizamos saltos de línea por si viene de Windows (\r\n) -> (\n)
     const text = csvText.replace(/\r\n/g, '\n');
-    
+
     // Autodetectar delimitador según primera línea
     const firstLine = text.split('\n')[0] || '';
     const delimiter = firstLine.includes(';') ? ';' : ',';
-    
+
     for (let i = 0; i < text.length; i++) {
       const char = text[i];
       const nextChar = text[i + 1];
@@ -360,12 +361,12 @@ export default function AdminPage() {
         }
       }
     }
-    
+
     currentRow.push(currentWord.trim());
     if (currentRow.length > 1 || currentRow[0] !== '') {
       result.push(currentRow);
     }
-    
+
     return result;
   };
 
@@ -376,7 +377,7 @@ export default function AdminPage() {
     }
     setImportStatus("Procesando...");
     setImportErrors([]);
-    
+
     const rows = parseCSV(data);
     let updatedCount = 0;
     let errors = 0;
@@ -407,11 +408,11 @@ export default function AdminPage() {
         const priceStr = parts[1] || "0";
         const cleanStr = priceStr.replace(/[$\s]/g, ""); // Remover "$" y espacios
         let price = parseFloat(cleanStr.replace(/\./g, "").replace(",", "."));
-        
-        if (isNaN(price)) { 
+
+        if (isNaN(price)) {
           price = 0;
         }
-        
+
         // Intentar actualizar primero
         const { error: updateError, data } = await supabase
           .from('products')
@@ -455,11 +456,11 @@ export default function AdminPage() {
         const is_featured = parts[7] ? parts[7].toLowerCase() === 'true' : false;
         const description = parts[8] || "";
         const image_url = parts[9] || "";
-        
+
         const cleanStr = priceStr.replace(/[$\s]/g, "");
         let price = parseFloat(cleanStr.replace(/\./g, "").replace(",", "."));
-        
-        if (isNaN(price)) { 
+
+        if (isNaN(price)) {
           price = 0;
         }
 
@@ -492,13 +493,15 @@ export default function AdminPage() {
 
   const handleGoogleSheetsSync = async () => {
     setSubmittingType('sheets');
+    setSyncLogs([]);
     setImportStatus("Sincronizando productos vigentes y precios desde Google Sheets...");
     setImportErrors([]);
     try {
       const res = await fetch("/api/admin/sync-products", { method: "POST" });
       const data = await res.json();
+      setSyncLogs(data.logs || []);
       if (!res.ok || data.error) throw new Error(data.error || "Error en el servidor al sincronizar.");
-      
+
       setImportStatus(`Sincronización completada: ${data.pricesUpdatedCount} precios actualizados, ${data.activatedCount} activados, ${data.deactivatedCount} desactivados. Total activos: ${data.totalActiveProducts}.`);
       fetchProducts();
     } catch (e: any) {
@@ -520,7 +523,7 @@ export default function AdminPage() {
 
   const findProductMatch = (sheetName: string, dbProductsList: any[]) => {
     const normSheet = normalizeProductName(sheetName);
-    
+
     // 1. Exact cleaned match
     let match = dbProductsList.find(p => normalizeProductName(p.name) === normSheet || (p.sku && normalizeProductName(p.sku) === normSheet));
     if (match) return match;
@@ -595,7 +598,7 @@ export default function AdminPage() {
       // 5. Download BDProductos
       log("Descargando planilla de equivalencias BDProductos desde Google Sheets...");
       const bdProductsUrl = "https://docs.google.com/spreadsheets/d/1FRVREzG1O_m8SENpTv-bOgu7AmnS-Em-cxCy-5_fmGI/export?format=csv&gid=1789541813";
-      
+
       const bdSuppMap = new Map<string, string>();
       try {
         const bdRes = await fetch(`/api/admin/fetch-sheet?url=${encodeURIComponent(bdProductsUrl)}`, { cache: 'no-store' });
@@ -738,7 +741,7 @@ export default function AdminPage() {
 
           // Fallback to generic supplier
           if (!matchedSupplier) {
-            matchedSupplier = dbSuppliers.find(s => 
+            matchedSupplier = dbSuppliers.find(s =>
               s.name.toLowerCase() === "varios" || s.name.toLowerCase() === "zono"
             ) || dbSuppliers[0];
           }
@@ -797,7 +800,7 @@ export default function AdminPage() {
 
       const todayStr = new Date().toISOString().split('T')[0];
       const newListName = `COSTOS-SINC-${todayStr}`;
-      
+
       const totalSuppliers = rowsBySupplier.size;
       let sIdx = 1;
 
@@ -818,7 +821,7 @@ export default function AdminPage() {
             .from('price_list_items')
             .select('sku, list_cost, discount, discount_type, taxes')
             .eq('price_list_id', activeListId);
-          
+
           if (!error && data) {
             existingListItems = data;
           }
@@ -880,7 +883,7 @@ export default function AdminPage() {
         }
 
         log(`  -> Se detectaron ${variations.length} variaciones de costos.`);
-        
+
         // Log details of each variation
         variations.forEach(v => {
           if (v.isNew) {
@@ -947,7 +950,7 @@ export default function AdminPage() {
           const { error: insertErr } = await supabase
             .from('price_list_items')
             .insert(finalItems);
-          
+
           if (insertErr) {
             throw new Error(`Error al cargar los ítems de lista de precios: ${insertErr.message}`);
           }
@@ -999,7 +1002,7 @@ export default function AdminPage() {
         }
       });
       if (!response.ok) throw new Error("Error al descargar la planilla de costos.");
-      
+
       const csvText = await response.text();
       processCostsData(csvText);
     } catch (e: any) {
@@ -1015,7 +1018,7 @@ export default function AdminPage() {
 
   const handleDownloadCSV = () => {
     const header = ["SKU", "Nombre", "Precio", "Categoría", "Marca", "Dimensiones", "Oferta", "Destacado", "Descripción", "URL_Imagen"];
-    
+
     const rows = products.map(p => {
       const escapeCSV = (str: any) => {
         if (str == null) return "";
@@ -1025,7 +1028,7 @@ export default function AdminPage() {
         }
         return s;
       };
-      
+
       return [
         escapeCSV(p.sku),
         escapeCSV(p.name),
@@ -1039,10 +1042,10 @@ export default function AdminPage() {
         escapeCSV(p.image_url)
       ].join(",");
     });
-    
+
     const csvContent = [header.join(","), ...rows].join("\n");
     // Añadimos BOM para que Excel detecte correctamente el UTF-8 y los acentos
-    const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' }); 
+    const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -1061,7 +1064,7 @@ export default function AdminPage() {
 
   const handleCleanDuplicates = async () => {
     if (!confirm("Esto agrupará todos los productos por SKU y eliminará los duplicados manteniendo el que tenga mejor información. ¿Estás seguro?")) return;
-    
+
     setCleaningDuplicates(true);
     setCleanupResult(null);
     try {
@@ -1104,7 +1107,7 @@ export default function AdminPage() {
 
           // Salvar al primero, eliminar al resto
           const toDelete = scoredGroup.slice(1);
-          
+
           for (const item of toDelete) {
             await supabase.from('products').delete().eq('id', item.product.id);
             deletedCount++;
@@ -1171,7 +1174,7 @@ export default function AdminPage() {
             // El SKU en el sistema es el mismo nombre del pedido/planilla
             const match = name.match(/\(([^)]+)\)\s*$/);
             const skuCandidate = match ? match[1].trim() : name;
-            
+
             groups[name] = {
               name,
               skuCandidate,
@@ -1181,7 +1184,7 @@ export default function AdminPage() {
               avgPrice: 0
             };
           }
-          
+
           const g = groups[name];
           g.timesOrdered += 1;
           g.totalQuantity += item.quantity || 0;
@@ -1230,11 +1233,11 @@ export default function AdminPage() {
   const handleCreateOrphan = (orphan: any) => {
     let cleanName = orphan.name;
     const sku = orphan.skuCandidate || orphan.name;
-    
+
     if (orphan.skuCandidate && orphan.skuCandidate !== orphan.name) {
       cleanName = cleanName.replace(new RegExp(`\\s*\\(${orphan.skuCandidate}\\)\\s*$`, 'i'), '').trim();
     }
-    
+
     setEditingProduct({
       sku: sku,
       name: cleanName,
@@ -1279,7 +1282,7 @@ export default function AdminPage() {
       const rels = profitabilityRelations.filter(r => r.product_id === p.id);
       const primaryRel = rels.find(r => r.is_primary) || rels[0];
       const supplier = primaryRel ? profitabilitySuppliers.find(s => s.id === primaryRel.supplier_id) : null;
-      
+
       let cost = 0;
       let listCost = 0;
       let taxes = 21;
@@ -1330,7 +1333,7 @@ export default function AdminPage() {
   const totalAnalyzedCount = processedProfitabilityProducts.length;
   const missingCostCount = processedProfitabilityProducts.filter(p => !p.hasCost).length;
   const negativeMarginCount = processedProfitabilityProducts.filter(p => p.hasCost && p.marginalContribution < 0).length;
-  
+
   const productsWithCost = processedProfitabilityProducts.filter(p => p.hasCost);
   const avgProfitMargin = productsWithCost.length > 0
     ? productsWithCost.reduce((sum, p) => sum + p.profitMargin, 0) / productsWithCost.length
@@ -1338,21 +1341,21 @@ export default function AdminPage() {
 
   const handleExportProfitabilityCSV = () => {
     const header = [
-      "SKU", 
-      "Producto", 
-      "Categoría", 
-      "Marca", 
+      "SKU",
+      "Producto",
+      "Categoría",
+      "Marca",
       "Estado",
-      "Proveedor", 
+      "Proveedor",
       "Fórmula de Precio",
-      "Precio Venta", 
-      "Costo sin IVA", 
-      "IVA (%)", 
-      "Costo final (con IVA)", 
-      "Contribución Marginal ($)", 
+      "Precio Venta",
+      "Costo sin IVA",
+      "IVA (%)",
+      "Costo final (con IVA)",
+      "Contribución Marginal ($)",
       "Margen de Rentabilidad (%)"
     ];
-    
+
     const rows = processedProfitabilityProducts.map(p => {
       const escapeCSV = (str: any) => {
         if (str == null) return "";
@@ -1362,7 +1365,7 @@ export default function AdminPage() {
         }
         return s;
       };
-      
+
       return [
         escapeCSV(p.sku),
         escapeCSV(p.name),
@@ -1482,9 +1485,9 @@ export default function AdminPage() {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
             <div className="md:col-span-3 relative">
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
-              <input 
-                type="text" 
-                placeholder="Buscar por nombre, SKU o categoría..." 
+              <input
+                type="text"
+                placeholder="Buscar por nombre, SKU o categoría..."
                 className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all text-sm font-medium text-slate-800"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -1586,9 +1589,9 @@ export default function AdminPage() {
                       </td>
                       <td className="px-4 py-4 text-right">
                         <div className="flex items-center justify-end gap-2">
-                          <button 
-                            onClick={() => { setSchedulingProduct(product); setIsScheduleModalOpen(true); }} 
-                            className="p-2 text-slate-300 hover:text-amber-600 hover:bg-amber-50 rounded-xl transition-all" 
+                          <button
+                            onClick={() => { setSchedulingProduct(product); setIsScheduleModalOpen(true); }}
+                            className="p-2 text-slate-300 hover:text-amber-600 hover:bg-amber-50 rounded-xl transition-all"
                             title="Programar actualización de precio"
                           >
                             <CalendarClock className="w-4 h-4" />
@@ -1620,16 +1623,16 @@ export default function AdminPage() {
                   <Download className="w-4 h-4" />
                   Descargar CSV Actual
                 </button>
-                <a 
-                  href="/ejemplo_carga_masiva.csv" 
-                  download 
+                <a
+                  href="/ejemplo_carga_masiva.csv"
+                  download
                   className="text-xs font-bold text-slate-500 hover:text-slate-700 underline px-2 py-1"
                 >
                   Plantilla de Ejemplo
                 </a>
               </div>
             </div>
-            
+
             <div className="mb-6">
               <label className="flex flex-col items-center justify-center gap-2 bg-brand-50/50 hover:bg-brand-50 text-brand-700 p-6 rounded-2xl border-2 border-dashed border-brand-200 cursor-pointer transition-all group">
                 <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-sm group-hover:scale-105 transition-transform text-brand-600">
@@ -1644,18 +1647,19 @@ export default function AdminPage() {
             </div>
 
             <p className="text-slate-500 mb-4 text-xs font-medium">O pegá los datos manualmente en el cuadro inferior (formato CSV separado por comas):</p>
-            
+
             <div className="space-y-4">
               <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-[11px] font-mono text-slate-500">
                 Orden: SKU, Nombre, Precio, Categoría, Marca, Dimensiones, Oferta (true/false), Destacado (true/false), Descripción, URL Imagen
               </div>
-              <textarea 
+              <textarea
                 className="w-full h-48 p-4 rounded-xl border border-slate-200 focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 font-mono text-xs leading-relaxed outline-none bg-white text-slate-800"
                 placeholder={"Ejemplo:\nSKU-1, Producto A, 250000, Tanques, Aquafort, 1x1m, false, true, Mi producto, https://...\nSKU-2, Producto B, 50000, Bombas, Daewoo, 0.5x0.5m, true, false, Una bomba, https://..."}
                 value={importData}
                 onChange={(e) => setImportData(e.target.value)}
               />
               {importStatus && <div className={`p-3.5 rounded-xl text-xs font-bold text-center ${importErrors.length > 0 ? 'bg-red-600 text-white' : 'bg-slate-900 text-white'}`}>{importStatus}</div>}
+              {syncLogs.length>0&&<details open className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs"><summary className="cursor-pointer font-bold">Detalle de sincronización ({syncLogs.length} registros)</summary><pre className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap break-words font-mono">{syncLogs.join('\n')}</pre></details>}
               {importErrors.length > 0 && (
                 <div className="flex flex-col gap-3 animate-in fade-in duration-200">
                   <div className="bg-red-50 text-red-700 p-4 rounded-xl border border-red-100 max-h-48 overflow-y-auto text-[11px] font-mono leading-relaxed">
@@ -1707,7 +1711,7 @@ export default function AdminPage() {
               <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-[11px] font-mono text-slate-500">
                 Orden esperado del CSV manual: Producto (Nombre), P. Lista, Coef, IVA, Costo sin IVA
               </div>
-              <textarea 
+              <textarea
                 className="w-full h-40 p-4 rounded-xl border border-slate-200 focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 font-mono text-xs leading-relaxed outline-none bg-white text-slate-800"
                 placeholder={"Ejemplo:\nAlberti - Bidet Largo 3 agujeros, 0, 90%, 21%, 15000\nAlma rústica - Artículo A, 30000, 100%, 21%, 30000"}
                 value={costsImportData}
@@ -1721,7 +1725,7 @@ export default function AdminPage() {
               {costsImportLogs.length > 0 && (
                 <div className="space-y-1.5">
                   <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Consola de Progreso:</span>
-                  <div 
+                  <div
                     ref={costsConsoleRef}
                     className="bg-slate-950 text-emerald-400 font-mono text-[10px] p-3.5 rounded-xl max-h-48 overflow-y-auto space-y-1 leading-relaxed border border-slate-800"
                   >
@@ -1759,17 +1763,17 @@ export default function AdminPage() {
                 </div>
               )}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
-                <Button 
-                  onClick={handleManualCostsSync} 
-                  className="w-full py-3 text-sm font-bold rounded-xl bg-brand-600 hover:bg-brand-700 text-white shadow-sm" 
+                <Button
+                  onClick={handleManualCostsSync}
+                  className="w-full py-3 text-sm font-bold rounded-xl bg-brand-600 hover:bg-brand-700 text-white shadow-sm"
                   disabled={submittingCostsType !== null}
                 >
                   {submittingCostsType === 'manual' ? <Loader2 className="animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
                   Procesar Costos CSV Manual
                 </Button>
-                <Button 
-                  onClick={handleGoogleSheetsCostsSync} 
-                  className="w-full py-3 text-sm font-bold rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm" 
+                <Button
+                  onClick={handleGoogleSheetsCostsSync}
+                  className="w-full py-3 text-sm font-bold rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
                   disabled={submittingCostsType !== null}
                 >
                   {submittingCostsType === 'sheets' ? <Loader2 className="animate-spin" /> : <Coins className="w-4 h-4 mr-2" />}
@@ -1978,7 +1982,7 @@ export default function AdminPage() {
                                 className="bg-slate-50 border border-slate-200 text-slate-800 text-xs font-bold px-2.5 py-1 rounded-lg flex items-center gap-2 shadow-xs"
                               >
                                 <span>{sub.name}</span>
-                                
+
                                 {/* Quick Parent Reassign Select */}
                                 <select
                                   value={sub.parent_id || ""}
@@ -2277,7 +2281,7 @@ export default function AdminPage() {
                                 autoFocus
                               />
                             ) : (
-                              <div 
+                              <div
                                 onClick={() => {
                                   setEditingPriceId(p.id);
                                   setEditingPriceValue(p.price.toLocaleString('es-AR', { minimumFractionDigits: 0 }));
@@ -2379,7 +2383,7 @@ export default function AdminPage() {
               <div>
                 <h2 className="text-2xl font-black text-slate-900 tracking-tight">Productos Huérfanos Históricos</h2>
                 <p className="text-xs font-semibold text-slate-400 mt-1">
-                  Productos que figuran en ítems de pedidos históricos pero no existen en el catálogo actual de la tienda. 
+                  Productos que figuran en ítems de pedidos históricos pero no existen en el catálogo actual de la tienda.
                   Al crearlos, se asociarán automáticamente todos sus pedidos anteriores.
                 </p>
               </div>
@@ -2396,9 +2400,9 @@ export default function AdminPage() {
             <div className="flex flex-col sm:flex-row items-center gap-3 mb-6">
               <div className="flex-1 w-full relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-3.5 h-3.5" />
-                <input 
-                  type="text" 
-                  placeholder="Buscar por nombre o SKU..." 
+                <input
+                  type="text"
+                  placeholder="Buscar por nombre o SKU..."
                   className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 transition-all font-medium text-xs bg-white shadow-sm"
                   value={orphanSearchTerm}
                   onChange={(e) => setOrphanSearchTerm(e.target.value)}
@@ -2465,7 +2469,7 @@ export default function AdminPage() {
 
                       return filteredOrphans.map((orphan, idx) => {
                         const cleanOrphanName = orphan.name.replace(/\s*\([^)]+\)\s*$/, '').trim();
-                        const existingMatch = products.find(p => 
+                        const existingMatch = products.find(p =>
                           p.sku?.toLowerCase() === orphan.name.toLowerCase() ||
                           p.sku?.toLowerCase() === cleanOrphanName.toLowerCase() ||
                           (orphan.skuCandidate && p.sku?.toLowerCase() === orphan.skuCandidate.toLowerCase()) ||
@@ -2546,7 +2550,7 @@ export default function AdminPage() {
           <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl border border-slate-100">
             <h2 className="text-3xl font-black text-slate-900 mb-8 tracking-tighter">Ajustes de Landings</h2>
             <form onSubmit={handleSettingsSubmit} className="space-y-12">
-              
+
               {/* Sección Landing Principal */}
               <div className="space-y-6 bg-slate-50/50 p-6 rounded-3xl border border-slate-100">
                 <div className="border-b border-slate-200 pb-4 mb-6">
@@ -2593,7 +2597,7 @@ export default function AdminPage() {
                        </div>
                     )}
                   </div>
-                  
+
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">Categorías Ocultas (Agregar al inicio)</label>
                   <div className="flex flex-wrap gap-2">
                     {Array.from(new Set(products.map(p => p.category)))
@@ -2675,7 +2679,7 @@ export default function AdminPage() {
                        </div>
                     )}
                   </div>
-                  
+
                   <label className="block text-[10px] font-black text-blue-400 uppercase tracking-[0.2em] mb-4">Agregar Categorías a Landing Tanques</label>
                   <div className="flex flex-wrap gap-2">
                     {Array.from(new Set(products.map(p => p.category)))
@@ -2694,7 +2698,7 @@ export default function AdminPage() {
                   </div>
                 </div>
               </div>
-              
+
               <Button type="submit" disabled={savingSettings} className="w-full py-8 text-lg shadow-xl shadow-brand-600/20 font-black rounded-[2rem]">
                 {savingSettings ? <Loader2 className="animate-spin" /> : "Guardar Configuración"}
               </Button>
@@ -2708,20 +2712,20 @@ export default function AdminPage() {
                   </h3>
                   <p className="text-red-700/80 font-medium mt-2">Acciones destructivas para limpiar o reparar el catálogo general.</p>
                 </div>
-                
+
                 <div className="bg-white p-6 rounded-3xl border border-red-100 shadow-sm flex flex-col gap-4">
                   <div>
                     <h4 className="font-bold text-slate-900 mb-1">Limpiar Productos Duplicados</h4>
                     <p className="text-sm text-slate-500 font-medium">Agrupa productos con el mismo SKU y elimina los que tengan menor información (sin fotos, internos o sin descripción). Mantiene intacto el mejor producto de cada grupo.</p>
                   </div>
-                  
+
                   {cleanupResult && (
                     <div className={`p-4 rounded-xl text-sm font-bold ${cleanupResult.isError ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
                       {cleanupResult.message}
                     </div>
                   )}
 
-                  <button 
+                  <button
                     onClick={handleCleanDuplicates}
                     disabled={cleaningDuplicates}
                     className="w-full sm:w-auto self-start px-6 py-4 bg-red-100 text-red-700 hover:bg-red-600 hover:text-white rounded-2xl font-black uppercase tracking-widest text-xs transition-all flex items-center gap-2 disabled:opacity-50"
@@ -2739,10 +2743,10 @@ export default function AdminPage() {
       ) : null}
 
       {/* REUSABLE MODALS */}
-      <ProductFormModal 
-        product={editingProduct} 
-        isOpen={isFormOpen} 
-        onClose={() => setIsFormOpen(false)} 
+      <ProductFormModal
+        product={editingProduct}
+        isOpen={isFormOpen}
+        onClose={() => setIsFormOpen(false)}
         onSuccess={handleProductSuccess}
         allProducts={products}
       />

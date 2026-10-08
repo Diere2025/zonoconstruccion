@@ -4,6 +4,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getMPPaymentDayBounds } from '@/lib/mpPaymentDate';
+import { loadMonthlyAccountIncome } from '@/lib/mpAccountIncomeServer';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.dummy';
@@ -158,6 +159,12 @@ export async function GET(request: Request) {
         return NextResponse.json({ error: 'Fecha inválida. Usá el formato AAAA-MM-DD.' }, { status: 400 });
       }
 
+      const rangeStart=dateRange==='CUSTOM_RANGE'?getMPPaymentDayBounds(searchParams.get('from')||''):null;
+      const rangeEnd=dateRange==='CUSTOM_RANGE'?getMPPaymentDayBounds(searchParams.get('to')||''):null;
+      if(dateRange==='CUSTOM_RANGE'&&(!rangeStart||!rangeEnd||rangeStart.startIso>rangeEnd.startIso))return NextResponse.json({error:'Rango de fechas inválido.'},{status:400});
+      const today=argNow.toISOString().slice(0,10);
+      const requestedAsOf=dateRange==='CUSTOM_RANGE'?searchParams.get('to'):dateRange==='SPECIFIC_DATE'?searchParams.get('date'):dateRange==='YESTERDAY'?new Date(argNow.getTime()-86400000).toISOString().slice(0,10):today;
+      const asOf=requestedAsOf&&requestedAsOf<today?requestedAsOf:today;
       const todayBounds = getArgDayBounds(0);
       const yesterdayBounds = getArgDayBounds(-1);
       const threeDaysBounds = getArgDayBounds(-2);
@@ -221,6 +228,8 @@ export async function GET(request: Request) {
           query = query.gte('received_at', fifteenMinsAgoIso);
         } else if (dateRange === 'LAST_HOUR') {
           query = query.gte('received_at', oneHourAgoIso);
+        } else if (dateRange === 'CUSTOM_RANGE' && rangeStart && rangeEnd) {
+          query=query.gte('received_at',rangeStart.startIso).lt('received_at',rangeEnd.endExclusiveIso);
         } else if (dateRange === 'SPECIFIC_DATE' && specificDayBounds) {
           query = query.gte('received_at', specificDayBounds.startIso).lt('received_at', specificDayBounds.endExclusiveIso);
         } else if (dateRange === 'TODAY') {
@@ -274,22 +283,25 @@ export async function GET(request: Request) {
         const pageSize = 1000;
         let totalCount = 0;
         let totalAmount = 0;
+        const byAccount=new Map<string,{id:string;name:string;periodAmount:number}>();
         for (let offset = 0; ; offset += pageSize) {
           const { data: rows, error: statsError } = await createFilteredQuery()
-            .select('amount, id')
+            .select('amount, id, account_id, account_name')
             .order('id', { ascending: false })
             .range(offset, offset + pageSize - 1);
           if (statsError) throw statsError;
           totalCount += rows?.length || 0;
           totalAmount += (rows || []).reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
+          if(userRole==='admin')for(const payment of rows||[]){const p=payment as unknown as {account_id:string;account_name:string;amount:number};const id=p.account_id||p.account_name||'sin-cuenta';const previous=byAccount.get(id)||{id,name:p.account_name||id,periodAmount:0};previous.periodAmount+=Number(p.amount)||0;byAccount.set(id,previous);}
           if (!rows || rows.length < pageSize) break;
         }
-        return { totalCount, totalAmount };
+        return { totalCount, totalAmount, ...(userRole==='admin'?{accounts:[...byAccount.values()]}:{}) };
       })() : Promise.resolve(null);
 
-      const [{ data, error }, filteredStats] = await Promise.all([
+      const [{ data, error }, filteredStats, monthlyIncome] = await Promise.all([
         query.limit(300),
-        filteredStatsPromise
+        filteredStatsPromise,
+        userRole==='admin'?loadMonthlyAccountIncome(supabaseAdmin,asOf):Promise.resolve(null)
       ]);
       if (error) throw error;
 
@@ -297,6 +309,7 @@ export async function GET(request: Request) {
         success: true,
         data: data || [],
         filteredStats,
+        accountIncome: userRole==='admin'?(monthlyIncome||[]).map(account=>({...account,periodAmount:filteredStats?.accounts?.find(row=>row.id===account.id)?.periodAmount||0})):undefined,
         effectiveRole: userRole,
         effectiveRange: dateRange
       });

@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { calculateBulkPrices } from '@/lib/erp/prices';
+import {inheritVariantPrices} from '@/lib/catalogVariantPrices';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.dummy';
@@ -176,19 +177,7 @@ export async function GET(request: Request) {
       stock_current: p.stock_current !== undefined ? p.stock_current : 999
     }));
 
-    // Price inheritance for variants
-    productsWithPrices = productsWithPrices.map(p => {
-      if (p.parent_id) {
-        const parentProduct = productsWithPrices.find(parent => parent.id === p.parent_id);
-        if (parentProduct) {
-          return {
-            ...p,
-            price: parentProduct.price
-          };
-        }
-      }
-      return p;
-    });
+    productsWithPrices = inheritVariantPrices(productsWithPrices);
 
     // Localities mapping
     const mappedLocalities = (localitiesRes.data || []).map((item: any) => ({

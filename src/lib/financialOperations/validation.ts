@@ -19,7 +19,7 @@ export function validateOperation(input: unknown): asserts input is OperationInp
   if (!/^\d{4}-\d{2}-\d{2}$/.test(p.effective_date || '') || !Number.isFinite(Date.parse(p.effective_date))
     || new Date(p.effective_date).toISOString().slice(0,10) !== p.effective_date) throw new OperationError('Fecha inválida.');
   for (const field of ['account_id','payment_method_id'] as const) if (!isUuid(p[field])) throw new OperationError('Elegí cuenta y medio de pago.');
-  for (const field of ['destination_account_id','cost_center_id','route_sheet_id','financial_concept_id','employee_id','person_id','supplier_id','order_id','client_payment_id'] as const) {
+  for (const field of ['destination_account_id','cost_center_id','route_sheet_id','financial_concept_id','employee_id','person_id','supplier_id','client_id','order_id','client_payment_id'] as const) {
     if (p[field] && !isUuid(p[field])) throw new OperationError(`Referencia inválida: ${field}.`);
   }
   if (!['ingreso','egreso'].includes(p.direction)) throw new OperationError('Dirección inválida.');
@@ -41,7 +41,9 @@ export function validateOperation(input: unknown): asserts input is OperationInp
       if (p.supplier_id || (p.allocations?.length || 0) > 0) throw new OperationError('La compra eventual no lleva proveedor registrado ni imputaciones.');
     } else if (!isUuid(p.supplier_id)) throw new OperationError('Elegí un proveedor.');
   }
-  if (p.operation_type === 'customer_collection' && !isUuid(p.order_id)) throw new OperationError('Elegí el pedido cobrado.');
+  if (p.operation_type === 'customer_collection' && !isUuid(p.order_id) && !isUuid(p.client_id)) throw new OperationError('Elegí un pedido o un cliente para registrar el saldo a favor.');
+  if (p.client_id && p.operation_type !== 'customer_collection') throw new OperationError('Cliente incompatible con la operación.');
+  if (p.client_payment_id && !p.order_id) throw new OperationError('Elegí el pedido del cobro existente.');
   if (['payroll_payment','tax_payment'].includes(p.operation_type) && !/^\d{4}-(0[1-9]|1[0-2])$/.test(p.detail.period || '')) throw new OperationError('Indicá el período.');
   if (p.operation_type === 'payroll_payment') {
     if (!['salary','advance','temporary','agreement'].includes(p.detail.payroll_kind || '')) throw new OperationError('Elegí el concepto de personal.');

@@ -11,7 +11,7 @@ export type OperationInput = {
   direction: 'ingreso' | 'egreso'; amount: string; payment_method_id: string;
   concept: string; category: string; sub_category?: string; efe_category?: string; financial_concept_id?: string;
   cost_center_id?: string; route_sheet_id?: string; notes?: string; employee_id?: string;person_id?:string;
-  supplier_id?: string; order_id?: string; client_payment_id?: string;
+  supplier_id?: string; client_id?: string; order_id?: string; client_payment_id?: string;
   allocations?: Array<{purchase_id: string; amount: string}>;
   detail: { period?: string; payroll_kind?: string; beneficiary?: string; reference?: string; organism?: string; supplier_kind?: 'registered' | 'eventual'; supplier_name?: string; supplier_allocation_mode?: 'oldest_first' | 'documents' };
   voucher_ids?: string[]; confirm_without_voucher?:boolean;

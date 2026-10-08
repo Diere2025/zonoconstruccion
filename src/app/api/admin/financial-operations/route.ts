@@ -46,13 +46,18 @@ export async function GET(request: Request) {
       if (result.error) throw result.error;
       const snapshot = result.data;
       snapshot.payload.person_id=snapshot.operation?.person_id || undefined;
+      const receipt=snapshot.payload.operation_type==='customer_collection'?await db.from('client_payments').select('client_id,order_id,id').eq('cash_transaction_id',id).is('reversed_at',null).order('order_id',{nullsFirst:false}).limit(1).maybeSingle():{data:null,error:null};
+      if(receipt.error)throw receipt.error;
+      if(snapshot.payload.operation_type==='customer_collection'&&receipt.data){snapshot.payload.client_id=receipt.data.client_id;snapshot.payload.order_id=receipt.data.order_id||undefined;snapshot.payload.client_payment_id=receipt.data.order_id?receipt.data.id:undefined;}
+      const client=snapshot.payload.client_id?await db.from('clients').select('id,business_name').eq('id',snapshot.payload.client_id).single():{data:null,error:null};
+      if(client.error)throw client.error;
       const purchaseIds = (snapshot.payload.allocations || []).map((row:{purchase_id:string})=>row.purchase_id);
       const [purchases,order] = await Promise.all([
         purchaseIds.length ? db.from('supplier_purchases').select('id,supplier_id,invoice_number,total_amount,paid_amount,currency,created_at,purchase_date,document_type,purchase_order_id,purchase_reception_id,purchase_orders(oc_code),purchase_receptions(delivery_slip_number,reception_date,purchase_orders(oc_code))').in('id',purchaseIds) : Promise.resolve({data:[],error:null}),
         snapshot.payload.order_id ? db.from('orders').select('id,legacy_code,customer_name,total_amount,client_payments(id,amount,currency,status,cash_transaction_id,reversed_at)').eq('id',snapshot.payload.order_id).single() : Promise.resolve({data:null,error:null})
       ]);
       if (purchases.error || order.error) throw purchases.error || order.error;
-      return NextResponse.json({...snapshot,purchases:(purchases.data||[]).map(p=>({...p,editable_allocation_amount:snapshot.payload.allocations?.find((a:{purchase_id:string;amount:string})=>a.purchase_id===p.id)?.amount||'0'})),order:order.data},{headers:{'Cache-Control':'no-store'}});
+      return NextResponse.json({...snapshot,purchases:(purchases.data||[]).map(p=>({...p,editable_allocation_amount:snapshot.payload.allocations?.find((a:{purchase_id:string;amount:string})=>a.purchase_id===p.id)?.amount||'0'})),order:order.data,client:client.data},{headers:{'Cache-Control':'no-store'}});
     }
     const [methods,vouchers,conceptTypes] = await Promise.all([
       db.from('payment_methods').select('id,name').order('name'),

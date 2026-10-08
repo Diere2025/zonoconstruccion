@@ -27,6 +27,10 @@ export async function GET() {
       console.warn('[KeepAlive] Monitor alert check skipped:', mErr);
     }
 
+    try {
+      const {checkMonthlyIncomeAlerts}=await import('@/lib/mpMonthlyIncomeAlerts');
+      await checkMonthlyIncomeAlerts();
+    } catch(error) {console.warn('[KeepAlive] Monthly income alerts:',error);}
     const duration = Date.now() - start;
     let costsUpdate = null;
     try {
