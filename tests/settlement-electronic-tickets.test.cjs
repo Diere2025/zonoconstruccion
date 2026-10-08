@@ -27,3 +27,19 @@ test('payment id links an excluded order even when the ticket has no order code'
   const orders = [{ orderId: 'order-1', deliveryStatus: 'Anulado', linkedPayments: [{ id: 'mp-1' }] }];
   assert.equal(isExcludedSettlementTicket({ amount: 1000, mpPaymentId: 'mp-1' }, orders), true);
 });
+
+const {settlementDeliveryStatus,isSettlementDeliveryCorrection}=require('../src/lib/settlementOrders.ts');
+test('routing placeholder does not turn the active route into a failed delivery',()=>{
+ assert.equal(settlementDeliveryStatus('fallido','pendiente_ruteo'),'Entregando');
+ assert.equal(isSettlementDeliveryCorrection('fallido','pendiente_ruteo'),false);
+ assert.equal(isSettlementDeliveryCorrection('fallido','Postergado'),true);
+ assert.equal(settlementDeliveryStatus('entregado','Postergado'),'entregado');
+ assert.equal(isExcludedSettlementTicket({amount:108100,orderCode:'JS25544'},[{orderCode:'JS25544',deliveryStatus:settlementDeliveryStatus('fallido','pendiente_ruteo')}]),false);
+});
+
+const {settlementPreviewDeliveryStatus}=require('../src/lib/settlementOrders.ts');
+test('sheet delivery outcome wins while a manual postponed draft is retained on a still-active attempt',()=>{
+ assert.equal(settlementPreviewDeliveryStatus('🟢 Entregado','Postergado'),'🟢 Entregado');
+ assert.equal(settlementPreviewDeliveryStatus('Entregando','Postergado'),'Postergado');
+ assert.equal(settlementPreviewDeliveryStatus('Entregando',undefined),'Entregando');
+});

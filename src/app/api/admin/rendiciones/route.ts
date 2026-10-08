@@ -5,7 +5,7 @@ import { treasuryDateTime, treasuryToday } from "@/lib/treasuryTransactionTime";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { fetchSpreadsheetValueRanges, fetchSpreadsheetValues } from "@/lib/googleSheets";
-import { isExcludedDeliveryStatus, settlementOrdersTotal, settlementDeliveryStatus } from "@/lib/settlementOrders";
+import { isExcludedDeliveryStatus, settlementOrdersTotal, settlementDeliveryStatus, isSettlementDeliveryCorrection, settlementPreviewDeliveryStatus } from "@/lib/settlementOrders";
 import { reconcileImportedTickets } from "@/lib/treasuryTicketReconciliation";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -520,7 +520,8 @@ async function getEntregandoPreview(source: "entregando" | "entregados" = "entre
     const totalToCollect = asNumber(row[28]);
     const paidAmount = asNumber(row[23]);
     const paymentState = String(row[22] || "").trim();
-    const deliveryStatus = source === "entregados" ? String(row[15] || "").trim() : "Entregando";
+    const sheetStatus = String(row[15] || "").trim();
+    const deliveryStatus = sheetStatus || (source === "entregados" ? "" : "Entregando");
     const isPreviouslyPaid = paymentState.toLowerCase().includes("abonad") && !paymentState.toLowerCase().includes("no abonad");
     const fullOrderTotal = isPreviouslyPaid && paidAmount > 0 ? paidAmount : (totalToCollect + paidAmount);
     const stopOrder = parseInt(String(row[14] || "")) || 0;
@@ -590,14 +591,19 @@ async function getEntregandoPreview(source: "entregando" | "entregados" = "entre
       const byId = new Map((matchedOrders || []).map(order => [order.id, String(order.legacy_code).toUpperCase()]));
       if (byId.size === 0) continue;
       const { data: deliveries, error: deliveriesError } = await supabaseAdmin.from("deliveries")
-        .select("order_id, delivery_date, status, failure_reason").in("order_id", Array.from(byId.keys()));
+        .select("order_id, delivery_date, status, failure_reason, route_sheets(run_number, carriers(name))").in("order_id", Array.from(byId.keys()));
       if (deliveriesError) throw deliveriesError;
-      const corrected = new Map((deliveries || []).filter(delivery => isExcludedDeliveryStatus(settlementDeliveryStatus(delivery.status, delivery.failure_reason)))
-        .map(delivery => [`${byId.get(delivery.order_id)}|${delivery.delivery_date}`, settlementDeliveryStatus(delivery.status, delivery.failure_reason)]));
+      const corrected = new Map((deliveries || []).filter(delivery => isSettlementDeliveryCorrection(delivery.status, delivery.failure_reason))
+        .map(delivery => {
+          const route = Array.isArray(delivery.route_sheets) ? delivery.route_sheets[0] : delivery.route_sheets;
+          const carrier = Array.isArray(route?.carriers) ? route.carriers[0] : route?.carriers;
+          const day = String(delivery.delivery_date).slice(0, 10);
+          return [`${byId.get(delivery.order_id)}|${day}|${route?.run_number || 1}|${String(carrier?.name || "").trim().toLowerCase()}`, settlementDeliveryStatus(delivery.status, delivery.failure_reason)];
+        }));
       for (const group of groupList) {
         for (const order of group.orders) {
-          const status = corrected.get(`${order.orderCode.toUpperCase()}|${group.deliveryDate}`);
-          if (status) order.deliveryStatus = status;
+          const status = corrected.get(`${order.orderCode.toUpperCase()}|${group.deliveryDate}|${group.runNumber}|${group.carrierName.trim().toLowerCase()}`);
+          order.deliveryStatus = settlementPreviewDeliveryStatus(order.deliveryStatus || "Entregando", status);
         }
         group.totalAmount = settlementOrdersTotal(group.orders);
       }

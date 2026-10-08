@@ -7,8 +7,21 @@ export function isExcludedDeliveryStatus(status: string): boolean {
 export function settlementDeliveryStatus(status?: string | null, failureReason?: string | null): string {
   const normalized = String(status || "").trim().toLowerCase();
   if (normalized === "entregado" || normalized === "entregada") return status || "Entregado";
+  if (/^pendiente[_ ]ruteo$/i.test(String(failureReason || "").trim())) return normalized === "fallido" ? "Entregando" : (status || "");
   if (isExcludedDeliveryStatus(failureReason || "")) return failureReason!;
   return normalized === "fallido" ? (failureReason || "No entregado") : (status || "");
+}
+
+// Routing placeholders are not a manually recorded failed delivery.
+export function isSettlementDeliveryCorrection(status?: string | null, failureReason?: string | null): boolean {
+  const reason = String(failureReason || '').trim().toLowerCase();
+  if (reason === 'pendiente_ruteo' || reason === 'pendiente ruteo') return false;
+  return isExcludedDeliveryStatus(settlementDeliveryStatus(status, failureReason));
+}
+
+// An explicit outcome from the logistics sheet wins over an older draft correction.
+export function settlementPreviewDeliveryStatus(sheetStatus: string, correction?: string): string {
+  return correction && sheetStatus === 'Entregando' ? correction : sheetStatus;
 }
 
 export function settlementOrderAmount(order: { toCollectAmount?: number; totalAmount?: number; deliveryStatus?: string }): number {

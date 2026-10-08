@@ -201,3 +201,10 @@ test('pending voucher status survives reload and clears after attachment; cancel
  assert.equal(Boolean(voucherStatus.supplierVoucherPending({...tx,reversal_of_transaction_id:id(5)})),false);
  assert.equal(Boolean(voucherStatus.supplierVoucherPending({})),false);
 });
+
+test('payable document options exclude paid, voided, credit notes and another currency, retaining editable allocations',()=>{
+ const doc={id:id(4),supplier_id:id(3),currency:'ARS',total_amount:266291.44999999995,paid_amount:0,status:'Pendiente'};
+ assert.equal(supplierAllocation.supplierDocumentPending(doc),266291.45);
+ const docs=[doc,{...doc,id:id(5),paid_amount:266291.45},{...doc,id:id(6),document_type:'Nota de Crédito'},{...doc,id:id(7),currency:'USD'},{...doc,id:id(8),status:'Anulado'},{...doc,id:id(9),paid_amount:266291.45,editable_allocation_amount:'10.00'}];
+ assert.deepEqual(Array.from(supplierAllocation.payableSupplierDocuments(docs,id(3),'ARS'),p=>p.id),[id(4),id(9)]);
+});

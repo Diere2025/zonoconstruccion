@@ -3,7 +3,7 @@ import {useState} from 'react';
 import SelectionModal from './SelectionModal';
 import {fieldClass,purchaseLabel,type PurchaseOption} from './OperationFields';
 import type {OperationInput} from '@/lib/financialOperations/types';
-import {oldestSupplierAllocations,supplierDocumentPending} from '@/lib/financialOperations/supplierAllocation';
+import {oldestSupplierAllocations,supplierDocumentPending,payableSupplierDocuments} from '@/lib/financialOperations/supplierAllocation';
 import {moneyValue} from '@/lib/financialOperations/validation';
 
 type Allocation=NonNullable<OperationInput['allocations']>[number];
@@ -19,6 +19,7 @@ export default function SupplierDocuments({value,onChange,purchases,supplierName
  const [open,setOpen]=useState(false),[draft,setDraft]=useState<Allocation[]>([]),[query,setQuery]=useState(''),[error,setError]=useState('');
  const automatic=value.detail.supplier_allocation_mode==='oldest_first';
  const selectedCurrency=currency||purchases[0]?.currency||'ARS';
+ purchases=payableSupplierDocuments(purchases,value.supplier_id||'',selectedCurrency);
  const allocations=automatic?oldestSupplierAllocations(purchases,value.supplier_id||'',selectedCurrency,value.amount,value.effective_date):value.allocations||[];
  const assigned=allocations.reduce((sum,a)=>sum+Number(a.amount),0);
  const draftTotal=draft.reduce((sum,a)=>sum+(Number(a.amount)||0),0);
