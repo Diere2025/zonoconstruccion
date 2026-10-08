@@ -25,7 +25,7 @@ export function TicketDetail({id}:{id:string}) {
     const load=useCallback(async()=>{const result=await supportRequest<Detail>(`tickets/${id}`);setDetail(result);setError('');},[id]);
     const done=useCallback(async()=>{await load();setRevision(n=>n+1);await refresh();},[load,refresh]);
     useEffect(()=>{let alive=true;void supportRequest<Detail>(`tickets/${id}`).then(result=>{if(alive){setDetail(result);setError('');}}).catch(e=>{if(alive)setError(errorMessage(e));});return()=>{alive=false;};},[id,signal]);
-    useEffect(()=>{if(!me.impersonating)void supportRequest(`tickets/${id}/read`,{method:'POST',body:commandBody({})}).then(refresh).catch(()=>{});},[id,me.impersonating,refresh]);
+    useEffect(()=>{if(!detail || detail.ticket.id!==id || me.impersonating)return;void supportRequest(`tickets/${id}/read`,{method:'POST',body:commandBody({})}).then(()=>{window.dispatchEvent(new Event('support-notifications-refresh'));}).catch(e=>setError(errorMessage(e)));},[id,detail,me.impersonating]);
     const discard=()=>{if(dirty && !window.confirm('¿Descartar el borrador actual?'))return false;setDirty(false);setEditorKey(n=>n+1);return true;};
     if(!detail)return error?<><Alert>{error}</Alert><button className={secondaryClass} onClick={()=>void load().catch(e=>setError(errorMessage(e)))}>Reintentar</button></>:<Loading/>;
     const t=detail.ticket;const shipping=isShipping(t);const manager=manages(detail.me,t);const requester=t.created_by===me.user_id;const open=isOpen(t.status);const name=(user:string|null)=>detail.me.people.find(p=>p.id===user)?.name || 'Usuario';

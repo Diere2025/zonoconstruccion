@@ -2,28 +2,29 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
-import { 
-  ShieldCheck, 
-  Search, 
-  RefreshCw, 
-  Volume2, 
-  VolumeX, 
-  Sparkles, 
-  SlidersHorizontal, 
-  Copy, 
-  Check, 
-  Trash2, 
-  Smartphone, 
-  Plus, 
-  ExternalLink, 
-  ArrowUpRight, 
-  QrCode, 
-  CreditCard, 
-  Send, 
-  X, 
-  AlertCircle, 
-  TrendingUp, 
-  Clock, 
+import { isMPPaymentOnDay } from '@/lib/mpPaymentDate';
+import {
+  ShieldCheck,
+  Search,
+  RefreshCw,
+  Volume2,
+  VolumeX,
+  Sparkles,
+  SlidersHorizontal,
+  Copy,
+  Check,
+  Trash2,
+  Smartphone,
+  Plus,
+  ExternalLink,
+  ArrowUpRight,
+  QrCode,
+  CreditCard,
+  Send,
+  X,
+  AlertCircle,
+  TrendingUp,
+  Clock,
   Wallet,
   CheckCircle2,
   Inbox,
@@ -196,11 +197,14 @@ export default function CobrosMercadoPagoPage() {
     if (typeof window !== 'undefined') {
       const r = cachedCobrosRole || (sessionStorage.getItem('zono_user_role') as UserRole);
       if (r === 'fletero') return 'LAST_15_MIN';
-      if (r === 'seller' || r === 'logistica') return 'LAST_3_DAYS';
+      if (r === 'seller') return 'TODAY';
+      if (r === 'logistica') return 'LAST_3_DAYS';
       if (r === 'admin' || r === 'administracion') return 'TODAY';
     }
     return 'LAST_3_DAYS';
   });
+  const [selectedDate, setSelectedDate] = useState('');
+  const paymentsRequestRef = useRef(0);
   const [showHidden, setShowHidden] = useState(false);
   const [hideInternal, setHideInternal] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
@@ -286,8 +290,8 @@ export default function CobrosMercadoPagoPage() {
     const cleanId = (accountId || '').toLowerCase().trim();
     const acc = accounts.find(a =>
       (cleanId && a.id.toLowerCase() === cleanId) ||
-      a.id.toLowerCase() === clean || 
-      a.name.toLowerCase() === clean || 
+      a.id.toLowerCase() === clean ||
+      a.name.toLowerCase() === clean ||
       (a.alias && a.alias.toLowerCase() === clean)
     );
     return {
@@ -306,7 +310,7 @@ export default function CobrosMercadoPagoPage() {
 
       const paymentDate = d.toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' });
       const todayDate = now.toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' });
-      
+
       const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
       const yesterdayDate = yesterday.toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' });
 
@@ -360,6 +364,8 @@ export default function CobrosMercadoPagoPage() {
 
   const filteredPayments = useMemo(() => {
     return payments.filter((p) => {
+      if (currentUserRole === 'seller' && !isMPPaymentOnDay(p.received_at, new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10))) return false;
+      if (selectedDateRange === 'SPECIFIC_DATE' && !isMPPaymentOnDay(p.received_at, selectedDate)) return false;
       // Realtime updates can change a payment's link after the server filtered the list.
       const isLinked = Boolean(p.order_id || p.order_code?.trim());
       if (selectedLinkedStatus === 'UNLINKED' && isLinked) return false;
@@ -395,7 +401,7 @@ export default function CobrosMercadoPagoPage() {
       }
       return true;
     });
-  }, [payments, selectedAccountId, selectedLinkedStatus, selectedFleteroFilter, getAccountDisplay, hideInternal]);
+  }, [payments, selectedDateRange, selectedDate, selectedAccountId, selectedLinkedStatus, selectedFleteroFilter, getAccountDisplay, hideInternal]);
 
   // Unique accounts available for filtering (deduplicated by display name)
   const uniqueAccounts = useMemo(() => {
@@ -561,7 +567,7 @@ export default function CobrosMercadoPagoPage() {
 
         // Adjust default range per role
         if (detectedRole === 'seller') {
-          setSelectedDateRange('LAST_3_DAYS');
+          setSelectedDateRange('TODAY');
           setSelectedType('TRANSFERENCIA');
         } else if (detectedRole === 'logistica') {
           setSelectedDateRange('LAST_3_DAYS');
@@ -861,13 +867,15 @@ export default function CobrosMercadoPagoPage() {
   // Load Payments
   const loadPayments = useCallback(async () => {
     if (!isRoleLoaded) return;
+    const requestId = ++paymentsRequestRef.current;
     setIsLoading(true);
     try {
       const params = new URLSearchParams({
         action: 'list',
         role: currentUserRole,
         accountId: selectedAccountId,
-        dateRange: selectedDateRange,
+        dateRange: currentUserRole === 'seller' ? 'TODAY' : selectedDateRange,
+        date: selectedDateRange === 'SPECIFIC_DATE' ? selectedDate : '',
         type: selectedType,
         linkedStatus: selectedLinkedStatus,
         fleteroFilter: selectedFleteroFilter,
@@ -877,16 +885,22 @@ export default function CobrosMercadoPagoPage() {
       });
       const res = await fetchCobrosData(`/api/admin/cobros-mp-data?${params.toString()}`);
       const data = await res.json();
-      if (data.success) {
+      if (data.success && requestId === paymentsRequestRef.current) {
         setPayments(data.data || []);
-        setStats(data.todayStats || null);
+        setStats(data.filteredStats || null);
+      } else if (requestId === paymentsRequestRef.current) {
+        setStats(null);
       }
     } catch (e) {
+      if (requestId === paymentsRequestRef.current) setStats(null);
       console.error('Error loading MP payments:', e);
     } finally {
-      setIsLoading(false);
+      if (requestId === paymentsRequestRef.current) setIsLoading(false);
     }
-  }, [currentUserRole, isRoleLoaded, selectedAccountId, selectedDateRange, selectedType, selectedLinkedStatus, selectedFleteroFilter, search, showHidden, hideInternal]);
+  }, [currentUserRole, isRoleLoaded, selectedAccountId, selectedDateRange, selectedDate, selectedType, selectedLinkedStatus, selectedFleteroFilter, search, showHidden, hideInternal]);
+
+  const loadPaymentsRef = useRef(loadPayments);
+  useEffect(() => { loadPaymentsRef.current = loadPayments; }, [loadPayments]);
 
   useEffect(() => {
     loadAccounts();
@@ -917,12 +931,18 @@ export default function CobrosMercadoPagoPage() {
   // Supabase Realtime Subscription
   useEffect(() => {
     if (!isRoleLoaded || currentUserRole === 'seller') return;
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+    const refreshFilteredStats = () => {
+      clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => { void loadPaymentsRef.current(); }, 500);
+    };
     const channel = supabase
       .channel('mp_payments_realtime')
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'mp_payments' },
         (payload) => {
+          refreshFilteredStats();
           const newPayment = payload.new as MPPayment;
           const isStaff = currentUserRole === 'admin' || currentUserRole === 'administracion';
           if (!isStaff && newPayment.is_internal) return;
@@ -931,10 +951,6 @@ export default function CobrosMercadoPagoPage() {
             if (prev.some((p) => p.id === newPayment.id)) return prev;
             return [newPayment, ...prev];
           });
-          setStats((prev) => prev ? ({
-            totalCount: prev.totalCount + 1,
-            totalAmount: prev.totalAmount + (Number(newPayment.amount) || 0)
-          }) : null);
           playChime();
         }
       )
@@ -943,6 +959,7 @@ export default function CobrosMercadoPagoPage() {
         { event: 'UPDATE', schema: 'public', table: 'mp_payments' },
         (payload) => {
           const updated = payload.new as MPPayment;
+          refreshFilteredStats();
           const isStaff = currentUserRole === 'admin' || currentUserRole === 'administracion';
           if (!isStaff && updated.is_internal) {
             setPayments((prev) => prev.filter((p) => p.id !== updated.id));
@@ -956,6 +973,7 @@ export default function CobrosMercadoPagoPage() {
         { event: 'DELETE', schema: 'public', table: 'mp_payments' },
         (payload) => {
           const deletedId = (payload.old as any)?.id;
+          refreshFilteredStats();
           if (deletedId) {
             setPayments((prev) => prev.filter((p) => p.id !== deletedId));
           }
@@ -973,6 +991,7 @@ export default function CobrosMercadoPagoPage() {
       });
 
     return () => {
+      clearTimeout(refreshTimer);
       supabase.removeChannel(channel);
     };
   }, [playChime, currentUserRole, isRoleLoaded, loadAccounts]);
@@ -1480,30 +1499,30 @@ export default function CobrosMercadoPagoPage() {
                    currentUserRole === 'fletero' ? 'Transportista' : 'Ventas'}
                 </span>
                 <div className={`w-2 h-2 rounded-full shrink-0 ${isRealtimeActive ? 'bg-emerald-500 animate-pulse' : 'bg-amber-400'}`} title={isRealtimeActive ? 'Conectado a Realtime' : 'Conectando...'} />
-                
+
                 {/* Extension Monitor Heartbeat Badge */}
-                <div 
+                <div
                   className={`hidden sm:flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold border transition-colors ${
-                    isMonitorOnline 
-                      ? 'bg-emerald-50 text-emerald-700 border-emerald-300' 
+                    isMonitorOnline
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
                       : 'bg-rose-50 text-rose-700 border-rose-300 animate-pulse'
                   }`}
                   title={
-                    isMonitorOnline 
+                    isMonitorOnline
                       ? `Monitor Mercado Pago activo (${isOfficeHoursNow ? 'Oficina: máx 4m' : 'Nocturno: máx 15m'})\n` + accountsMonitorStatus.map(a => `• ${a.name}: ${a.client_time ? `${a.client_time} hs` : (a.secondsAgo !== null ? `hace ${a.secondsAgo}s` : 'OK')}`).join('\n')
                       : `Monitor Mercado Pago desconectado (${offlineAccounts.map(a => `${a.name}: ${a.minutesAgo !== null ? 'hace ' + a.minutesAgo + ' min' : 'sin señal'}`).join(', ')}) - Límite: ${isOfficeHoursNow ? '4 min' : '15 min'}`
                   }
                 >
                   <span className={`w-1.5 h-1.5 rounded-full ${isMonitorOnline ? 'bg-emerald-500' : 'bg-rose-500'}`} />
                   <span>
-                    {isMonitorOnline 
-                      ? `Monitor MP Online${accountsMonitorStatus.length > 1 ? ` (${accountsMonitorStatus.length} ctas)` : ''}` 
+                    {isMonitorOnline
+                      ? `Monitor MP Online${accountsMonitorStatus.length > 1 ? ` (${accountsMonitorStatus.length} ctas)` : ''}`
                       : `${offlineAccounts.length === 1 ? offlineAccounts[0].name : `${offlineAccounts.length} ctas`} Offline`}
                   </span>
                 </div>
               </div>
               <p className="text-xs text-slate-500 font-medium truncate sm:whitespace-normal">
-                {isSellerRole ? 'Transferencias entrantes (Últimos 3 días)' :
+                {isSellerRole ? 'Transferencias entrantes de hoy (hora Argentina)' :
                  isLogisticaRole ? 'Cobros y transferencias para despacho (Últimos 3 días)' :
                  isFleteroRole ? 'Cobros en destino en tiempo real (Últimos 15 min)' :
                  'Centro de Control y Conciliación en Tiempo Real'}
@@ -1547,8 +1566,8 @@ export default function CobrosMercadoPagoPage() {
             <button
               onClick={() => setSoundEnabled(!soundEnabled)}
               className={`p-2 rounded-xl border transition-all ${
-                soundEnabled 
-                  ? 'bg-blue-50/80 border-blue-200 text-[#0069ff] hover:bg-blue-100' 
+                soundEnabled
+                  ? 'bg-blue-50/80 border-blue-200 text-[#0069ff] hover:bg-blue-100'
                   : 'bg-slate-100 border-slate-200 text-slate-400 hover:text-slate-600'
               }`}
               title={soundEnabled ? 'Sonido Activado' : 'Sonido Silenciado'}
@@ -1607,11 +1626,11 @@ export default function CobrosMercadoPagoPage() {
                 {accountsMonitorStatus.length > 0 && (
                   <div className="mt-1.5 flex flex-wrap gap-2 text-[10px]">
                     {accountsMonitorStatus.map(acc => (
-                      <span 
-                        key={acc.id} 
+                      <span
+                        key={acc.id}
                         className={`px-2 py-0.5 rounded-md font-bold ${
-                          acc.isOnline 
-                            ? 'bg-emerald-900/60 text-emerald-200 border border-emerald-400/40' 
+                          acc.isOnline
+                            ? 'bg-emerald-900/60 text-emerald-200 border border-emerald-400/40'
                             : 'bg-rose-950/80 text-rose-200 border border-rose-300/60 animate-pulse'
                         }`}
                       >
@@ -1643,22 +1662,22 @@ export default function CobrosMercadoPagoPage() {
 
       {/* Main Container */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 space-y-6">
-        
+
         {/* Mobile Quick Actions & Status Strip */}
         {isAdminOrStaff && (
           <div className="sm:hidden flex items-center justify-between gap-2 p-3 bg-white border border-slate-200/80 rounded-2xl shadow-xs">
             <button
               onClick={() => setShowTelegramModal(true)}
               className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border transition-colors cursor-pointer ${
-                isMonitorOnline 
-                  ? 'bg-emerald-50 text-emerald-700 border-emerald-300' 
+                isMonitorOnline
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
                   : 'bg-rose-50 text-rose-700 border-rose-300 animate-pulse'
               }`}
             >
               <span className={`w-2 h-2 rounded-full ${isMonitorOnline ? 'bg-emerald-500' : 'bg-rose-500'}`} />
               <span>
-                {isMonitorOnline 
-                  ? `Monitor Online (${accountsMonitorStatus.length})` 
+                {isMonitorOnline
+                  ? `Monitor Online (${accountsMonitorStatus.length})`
                   : `${offlineAccounts.length === 1 ? offlineAccounts[0].name : `${offlineAccounts.length} ctas`} Offline`}
               </span>
             </button>
@@ -1687,11 +1706,16 @@ export default function CobrosMercadoPagoPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="p-5 rounded-3xl bg-white border border-slate-200/80 shadow-xs flex items-center justify-between">
               <div>
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Recaudado Hoy</span>
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Recaudado según filtros</span>
                 <div className="text-2xl sm:text-3xl font-black text-[#001538] mt-0.5">
-                  {formatMPAmount(stats.totalAmount)}
+                  {isLoading ? '…' : formatMPAmount(stats.totalAmount)}
                 </div>
-                <span className="text-[11px] text-slate-500 font-medium">Ingresos de hoy en cuentas vinculadas</span>
+                <span className="text-[11px] text-slate-500 font-medium">
+                  {selectedDateRange === 'SPECIFIC_DATE'
+                    ? `Fecha: ${selectedDate.split('-').reverse().join('/')}`
+                    : ({ TODAY: 'Hoy', YESTERDAY: 'Ayer', LAST_3_DAYS: 'Últimos 3 días', LAST_7_DAYS: 'Últimos 7 días', ALL: 'Histórico' } as Record<string, string>)[selectedDateRange] || 'Período seleccionado'}
+                  {' · Filtros activos aplicados'}
+                </span>
               </div>
               <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 font-bold shadow-xs">
                 <Wallet className="w-6 h-6" />
@@ -1700,11 +1724,11 @@ export default function CobrosMercadoPagoPage() {
 
             <div className="p-5 rounded-3xl bg-white border border-slate-200/80 shadow-xs flex items-center justify-between">
               <div>
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Transacciones de Hoy</span>
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Transacciones según filtros</span>
                 <div className="text-2xl sm:text-3xl font-black text-[#001538] mt-0.5">
-                  {stats.totalCount}
+                  {isLoading ? '…' : stats.totalCount}
                 </div>
-                <span className="text-[11px] text-slate-500 font-medium">Cobros recibidos y validados</span>
+                <span className="text-[11px] text-slate-500 font-medium">Cobros que coinciden con los filtros activos</span>
               </div>
               <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center text-[#0069ff] font-bold shadow-xs">
                 <CheckCircle2 className="w-6 h-6" />
@@ -1717,7 +1741,7 @@ export default function CobrosMercadoPagoPage() {
         {!isFleteroRole && (
           <div className="p-4 sm:p-5 rounded-3xl bg-white border border-slate-200/80 shadow-xs space-y-4">
             <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
-              
+
               {/* Search Input */}
               <div className="relative flex-1">
                 <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -1739,14 +1763,14 @@ export default function CobrosMercadoPagoPage() {
               </div>
 
               {/* Date Range Selector (Adapted to user role) */}
-              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0">
+              <div className="flex flex-wrap items-center gap-1.5 pb-1 md:pb-0">
                 {isAdminOrStaff && (
                   <>
                     <button
                       onClick={() => setSelectedDateRange('TODAY')}
                       className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
-                        selectedDateRange === 'TODAY' 
-                          ? 'bg-[#0069ff] text-white shadow-xs' 
+                        selectedDateRange === 'TODAY'
+                          ? 'bg-[#0069ff] text-white shadow-xs'
                           : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                       }`}
                     >
@@ -1755,8 +1779,8 @@ export default function CobrosMercadoPagoPage() {
                     <button
                       onClick={() => setSelectedDateRange('YESTERDAY')}
                       className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
-                        selectedDateRange === 'YESTERDAY' 
-                          ? 'bg-[#0069ff] text-white shadow-xs' 
+                        selectedDateRange === 'YESTERDAY'
+                          ? 'bg-[#0069ff] text-white shadow-xs'
                           : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                       }`}
                     >
@@ -1765,8 +1789,8 @@ export default function CobrosMercadoPagoPage() {
                     <button
                       onClick={() => setSelectedDateRange('LAST_3_DAYS')}
                       className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
-                        selectedDateRange === 'LAST_3_DAYS' 
-                          ? 'bg-[#0069ff] text-white shadow-xs' 
+                        selectedDateRange === 'LAST_3_DAYS'
+                          ? 'bg-[#0069ff] text-white shadow-xs'
                           : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                       }`}
                     >
@@ -1775,8 +1799,8 @@ export default function CobrosMercadoPagoPage() {
                     <button
                       onClick={() => setSelectedDateRange('LAST_7_DAYS')}
                       className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
-                        selectedDateRange === 'LAST_7_DAYS' 
-                          ? 'bg-[#0069ff] text-white shadow-xs' 
+                        selectedDateRange === 'LAST_7_DAYS'
+                          ? 'bg-[#0069ff] text-white shadow-xs'
                           : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                       }`}
                     >
@@ -1785,13 +1809,26 @@ export default function CobrosMercadoPagoPage() {
                     <button
                       onClick={() => setSelectedDateRange('ALL')}
                       className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
-                        selectedDateRange === 'ALL' 
-                          ? 'bg-[#0069ff] text-white shadow-xs' 
+                        selectedDateRange === 'ALL'
+                          ? 'bg-[#0069ff] text-white shadow-xs'
                           : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                       }`}
                     >
                       Histórico
                     </button>
+                    <label className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold border ${selectedDateRange === 'SPECIFIC_DATE' ? 'bg-blue-50 border-blue-300 text-blue-900' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
+                      Fecha:
+                      <input
+                        type="date"
+                        aria-label="Filtrar cobros por fecha específica"
+                        value={selectedDateRange === 'SPECIFIC_DATE' ? selectedDate : ''}
+                        onChange={(e) => {
+                          setSelectedDate(e.target.value);
+                          setSelectedDateRange(e.target.value ? 'SPECIFIC_DATE' : 'TODAY');
+                        }}
+                        className="min-w-0 bg-transparent font-semibold focus:outline-none focus:ring-2 focus:ring-[#0069ff]/20 rounded"
+                      />
+                    </label>
                   </>
                 )}
 
@@ -1800,8 +1837,8 @@ export default function CobrosMercadoPagoPage() {
                     <button
                       onClick={() => setSelectedDateRange('TODAY')}
                       className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
-                        selectedDateRange === 'TODAY' 
-                          ? 'bg-[#0069ff] text-white shadow-xs' 
+                        selectedDateRange === 'TODAY'
+                          ? 'bg-[#0069ff] text-white shadow-xs'
                           : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                       }`}
                     >
@@ -1810,8 +1847,8 @@ export default function CobrosMercadoPagoPage() {
                     <button
                       onClick={() => setSelectedDateRange('YESTERDAY')}
                       className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
-                        selectedDateRange === 'YESTERDAY' 
-                          ? 'bg-[#0069ff] text-white shadow-xs' 
+                        selectedDateRange === 'YESTERDAY'
+                          ? 'bg-[#0069ff] text-white shadow-xs'
                           : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                       }`}
                     >
@@ -1820,8 +1857,8 @@ export default function CobrosMercadoPagoPage() {
                     <button
                       onClick={() => setSelectedDateRange('LAST_3_DAYS')}
                       className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
-                        selectedDateRange === 'LAST_3_DAYS' 
-                          ? 'bg-[#0069ff] text-white shadow-xs' 
+                        selectedDateRange === 'LAST_3_DAYS'
+                          ? 'bg-[#0069ff] text-white shadow-xs'
                           : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                       }`}
                     >
@@ -1832,7 +1869,7 @@ export default function CobrosMercadoPagoPage() {
 
                 {isSellerRole && (
                   <span className="px-3 py-1.5 rounded-xl bg-blue-50 text-[#0069ff] border border-blue-200 text-xs font-bold">
-                    📅 Últimos 3 Días
+                    📅 Hoy · Hora Argentina
                   </span>
                 )}
 
@@ -1841,8 +1878,8 @@ export default function CobrosMercadoPagoPage() {
                     <button
                       onClick={() => setSelectedDateRange('LAST_15_MIN')}
                       className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
-                        selectedDateRange === 'LAST_15_MIN' 
-                          ? 'bg-[#0069ff] text-white shadow-xs' 
+                        selectedDateRange === 'LAST_15_MIN'
+                          ? 'bg-[#0069ff] text-white shadow-xs'
                           : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                       }`}
                     >
@@ -1851,8 +1888,8 @@ export default function CobrosMercadoPagoPage() {
                     <button
                       onClick={() => setSelectedDateRange('TODAY')}
                       className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
-                        selectedDateRange === 'TODAY' 
-                          ? 'bg-[#0069ff] text-white shadow-xs' 
+                        selectedDateRange === 'TODAY'
+                          ? 'bg-[#0069ff] text-white shadow-xs'
                           : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                       }`}
                     >
@@ -1917,7 +1954,7 @@ export default function CobrosMercadoPagoPage() {
                     value={selectedLinkedStatus}
                     onChange={(e) => setSelectedLinkedStatus(e.target.value as any)}
                     className={`border rounded-xl px-2.5 py-1 font-semibold focus:outline-none transition-all ${
-                      selectedLinkedStatus === 'UNLINKED' 
+                      selectedLinkedStatus === 'UNLINKED'
                         ? 'bg-amber-50 border-amber-300 text-amber-900 font-bold'
                         : selectedLinkedStatus === 'LINKED'
                         ? 'bg-emerald-50 border-emerald-300 text-emerald-900 font-bold'
@@ -1964,8 +2001,8 @@ export default function CobrosMercadoPagoPage() {
                   <button
                     onClick={() => setShowHidden(!showHidden)}
                     className={`flex items-center gap-1 px-2.5 py-1 rounded-xl font-bold border transition-all ${
-                      showHidden 
-                        ? 'bg-amber-100 text-amber-900 border-amber-300' 
+                      showHidden
+                        ? 'bg-amber-100 text-amber-900 border-amber-300'
                         : 'bg-slate-50 text-slate-500 border-slate-200 hover:text-slate-700'
                     }`}
                     title="Alternar entre transacciones normales y transacciones archivadas"
@@ -1980,8 +2017,8 @@ export default function CobrosMercadoPagoPage() {
                   <button
                     onClick={toggleHideInternal}
                     className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl font-bold border transition-all cursor-pointer ${
-                      hideInternal 
-                        ? 'bg-purple-100 text-purple-900 border-purple-300 shadow-2xs' 
+                      hideInternal
+                        ? 'bg-purple-100 text-purple-900 border-purple-300 shadow-2xs'
                         : 'bg-slate-50 text-slate-500 border-slate-200 hover:text-purple-700 hover:bg-purple-50/50'
                     }`}
                     title={hideInternal ? 'Movimientos propios ocultos. Clic para verlos.' : 'Clic para ocultar transferencias de cuentas propias'}
@@ -2046,8 +2083,8 @@ export default function CobrosMercadoPagoPage() {
                     ? `No hay cobros para la cuenta "${selectedAccountId}" en este período.`
                     : selectedFleteroFilter !== 'ALL'
                       ? `No hay cobros registrados con confirmación de ${selectedFleteroFilter === 'WITH_FLETERO' ? 'fleteros' : selectedFleteroFilter === 'WITHOUT_FLETERO' ? 'cobros sin fletero' : selectedFleteroFilter} para este período.`
-                      : showHidden 
-                        ? 'No hay transacciones marcadas como archivadas/ocultas.' 
+                      : showHidden
+                        ? 'No hay transacciones marcadas como archivadas/ocultas.'
                         : 'Cuando ingrese una transferencia o cobro de Mercado Pago, aparecerá aquí automáticamente en tiempo real.'}
                 </p>
               </div>
@@ -2058,8 +2095,8 @@ export default function CobrosMercadoPagoPage() {
                 {/* Date Header Separator */}
                 <div className="flex items-center gap-3 pt-2">
                   <div className={`flex items-center gap-2 px-3 py-1.5 rounded-2xl text-xs font-black tracking-wide border shadow-2xs ${
-                    group.isToday 
-                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200 ring-1 ring-emerald-300/30' 
+                    group.isToday
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200 ring-1 ring-emerald-300/30'
                       : group.isYesterday
                         ? 'bg-blue-50 text-[#0069ff] border-blue-200'
                         : 'bg-slate-100 text-slate-700 border-slate-200'
@@ -2072,8 +2109,8 @@ export default function CobrosMercadoPagoPage() {
                       </span>
                     )}
                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ml-1 ${
-                      group.isToday 
-                        ? 'bg-emerald-200/80 text-emerald-900' 
+                      group.isToday
+                        ? 'bg-emerald-200/80 text-emerald-900'
                         : group.isYesterday
                           ? 'bg-blue-200/80 text-blue-900'
                         : 'bg-slate-200 text-slate-800'
@@ -2133,14 +2170,14 @@ export default function CobrosMercadoPagoPage() {
                         className={`transition-colors cursor-pointer select-none ${paymentView === 'columns' ? 'flex items-center justify-between gap-2 rounded-xl border border-slate-200/80 px-2.5 py-2 shadow-xs' : 'flex items-center justify-between gap-2.5 sm:gap-3 px-3 py-2.5 sm:px-4 sm:py-3'} ${
                           isInternalItem
                             ? 'bg-purple-50/40 hover:bg-purple-50/80'
-                            : isHiddenItem 
-                              ? 'bg-amber-50/30 hover:bg-amber-50/60 opacity-75' 
+                            : isHiddenItem
+                              ? 'bg-amber-50/30 hover:bg-amber-50/60 opacity-75'
                               : 'hover:bg-slate-50/90'
                         }`}
                       >
                         {/* Left: Compact Circular Icon (MP Style) */}
                         <div className={`flex items-center min-w-0 flex-1 ${paymentView === 'columns' ? 'gap-2' : 'gap-2.5 sm:gap-3'}`}>
-                          <div 
+                          <div
                             className={`${paymentView === 'columns' ? 'w-8 h-8' : 'w-9 h-9 sm:w-10 sm:h-10'} rounded-full flex items-center justify-center font-bold shrink-0 shadow-2xs ${
                               isInternalItem ? 'bg-purple-100 text-purple-700 border border-purple-200' :
                               payment.payment_type === 'QR' ? 'bg-amber-50 text-amber-600 border border-amber-200' :
@@ -2182,7 +2219,7 @@ export default function CobrosMercadoPagoPage() {
                               {/* Order Linked Badge / Conflict Badge */}
                               {payment.order_code ? (
                                 payment.order_code.includes(' / ') ? (
-                                  <span 
+                                  <span
                                     className="px-1.5 py-0.5 rounded text-[9px] font-black bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-0.5 shrink-0 animate-pulse"
                                     title={`Conflicto de Pedidos: ${payment.order_code} (Revisar en Administración)`}
                                   >
@@ -2199,7 +2236,7 @@ export default function CobrosMercadoPagoPage() {
 
                               {/* Escueto Fletero Badge */}
                               {payment.confirmed_by_fletero_name && (
-                                <span 
+                                <span
                                   className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-50 text-amber-900 border border-amber-200/80 flex items-center gap-1 shrink-0"
                                   title={`OK Fletero: ${payment.confirmed_by_fletero_name} (${formatTimeOnly(payment.confirmed_by_fletero_at)})`}
                                 >
@@ -2258,7 +2295,7 @@ export default function CobrosMercadoPagoPage() {
                                     <span className="hidden group-hover:inline">Deshacer</span>
                                   </button>
                                 ) : (
-                                  <span 
+                                  <span
                                     className="px-2 py-1 bg-slate-100 text-slate-600 border border-slate-200 rounded-xl text-xs font-bold flex items-center gap-1"
                                     title={`Confirmado por ${payment.confirmed_by_fletero_name}`}
                                   >
@@ -2303,8 +2340,8 @@ export default function CobrosMercadoPagoPage() {
                               <button
                                 onClick={() => handleToggleInternalFromPayment(payment)}
                                 className={`p-1.5 rounded-lg transition-all ${
-                                  isInternalItem 
-                                    ? 'text-purple-700 hover:bg-purple-200 bg-purple-100' 
+                                  isInternalItem
+                                    ? 'text-purple-700 hover:bg-purple-200 bg-purple-100'
                                     : 'text-slate-400 hover:text-purple-600 hover:bg-purple-50'
                                 }`}
                                 title={isInternalItem ? 'Quitar de Usuarios Propios' : 'Marcar como Usuario Propio'}
@@ -2371,7 +2408,7 @@ export default function CobrosMercadoPagoPage() {
                       <span className="text-[11px] text-slate-500 font-medium">ID Interno: {acc.id}</span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span 
+                      <span
                         className="px-2.5 py-0.5 rounded-full text-[10px] font-black"
                         style={{ backgroundColor: acc.color || '#0069ff', color: getAliasTextColor(acc.color || '#0069ff') }}
                       >
@@ -2675,10 +2712,10 @@ export default function CobrosMercadoPagoPage() {
                   </div>
                 </div>
                 <span className={`px-2 py-0.5 rounded-full text-[10px] font-black border ${
-                  pushPermission === 'granted' 
-                    ? 'bg-emerald-50 text-emerald-700 border-emerald-300' 
-                    : pushPermission === 'denied' 
-                    ? 'bg-rose-50 text-rose-700 border-rose-300' 
+                  pushPermission === 'granted'
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                    : pushPermission === 'denied'
+                    ? 'bg-rose-50 text-rose-700 border-rose-300'
                     : 'bg-amber-50 text-amber-700 border-amber-300'
                 }`}>
                   {pushPermission === 'granted' ? 'Habilitadas ✓' : pushPermission === 'denied' ? 'Bloqueadas ✗' : 'Sin activar'}
@@ -2756,13 +2793,13 @@ export default function CobrosMercadoPagoPage() {
             </div>
 
             {/* Primary Action: Direct Code Input (Works whether the order exists in DB or not) */}
-            <form 
-              onSubmit={(e) => { 
-                e.preventDefault(); 
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
                 if (manualOrderCode.trim()) {
                   handleLinkOrder(undefined, manualOrderCode);
                 }
-              }} 
+              }}
               className="space-y-2 p-4 bg-slate-50 border border-slate-200 rounded-2xl"
             >
               <label className="text-xs font-black text-slate-800 uppercase tracking-wider block">
@@ -2821,7 +2858,7 @@ export default function CobrosMercadoPagoPage() {
                 </div>
               ) : orderSearchResults.length === 0 ? (
                 <div className="p-3 text-center text-xs text-slate-400 border border-dashed rounded-xl">
-                  {orderSearchQuery 
+                  {orderSearchQuery
                     ? `No se encontró el código "${orderSearchQuery}" en la base de datos (podés vincularlo igual con el botón de arriba).`
                     : 'Escribí el código arriba para vincular directamente.'}
                 </div>
@@ -2836,8 +2873,8 @@ export default function CobrosMercadoPagoPage() {
                         handleLinkOrder(order.id, order.order_code);
                       }}
                       className={`p-3 rounded-2xl border transition-all cursor-pointer flex items-center justify-between gap-3 ${
-                        isAmountMatch 
-                          ? 'border-emerald-200 bg-emerald-50/50 hover:bg-emerald-100/60 shadow-2xs' 
+                        isAmountMatch
+                          ? 'border-emerald-200 bg-emerald-50/50 hover:bg-emerald-100/60 shadow-2xs'
                           : 'border-slate-200 bg-white hover:bg-slate-50'
                       }`}
                     >
@@ -3111,7 +3148,7 @@ x-webhook-token: mpchecker_secret_key_123`}
 
             {/* Header / Payer Info */}
             <div className="flex items-center gap-3.5 pt-1">
-              <div 
+              <div
                 className={`w-12 h-12 rounded-2xl flex items-center justify-center font-bold shrink-0 shadow-xs ${
                   selectedPaymentDetail.is_internal ? 'bg-purple-100 text-purple-700 border border-purple-300' :
                   selectedPaymentDetail.payment_type === 'QR' ? 'bg-amber-50 text-amber-600 border border-amber-200' :
@@ -3128,7 +3165,7 @@ x-webhook-token: mpchecker_secret_key_123`}
               <div className="min-w-0 flex-1">
                 <h3 className="text-base font-black text-[#001538] truncate">{selectedPaymentDetail.payer_name}</h3>
                 <div className="flex items-center gap-1.5 mt-0.5">
-                  <span 
+                  <span
                     className="px-2 py-0.5 rounded text-[10px] font-black"
                     style={{ backgroundColor: getAccountDisplay(selectedPaymentDetail.account_name, selectedPaymentDetail.account_id).color, color: getAliasTextColor(getAccountDisplay(selectedPaymentDetail.account_name, selectedPaymentDetail.account_id).color) }}
                   >
@@ -3344,8 +3381,8 @@ x-webhook-token: mpchecker_secret_key_123`}
                     setSelectedPaymentDetail(null);
                   }}
                   className={`py-2.5 px-3 rounded-xl font-bold flex items-center justify-center gap-1.5 cursor-pointer ${
-                    selectedPaymentDetail.is_internal 
-                      ? 'bg-purple-100 hover:bg-purple-200 text-purple-900 border border-purple-300' 
+                    selectedPaymentDetail.is_internal
+                      ? 'bg-purple-100 hover:bg-purple-200 text-purple-900 border border-purple-300'
                       : 'bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200'
                   }`}
                 >

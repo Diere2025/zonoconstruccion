@@ -5,7 +5,7 @@ import Script from 'next/script';
 /** Private incident pages must not initialize storefront PageView tracking. */
 export function SupportAwarePixel() {
   const path = usePathname();
-  if (path === '/incidencias' || path.startsWith('/incidencias/')) return null;
+  if (path === '/incidencias' || path.startsWith('/incidencias/') || path === '/visitas' || path.startsWith('/visitas/')) return null;
   return <Script id="meta-pixel" strategy="afterInteractive">{`
     !function(f,b,e,v,n,t,s)
     {if(f.fbq)return;n=f.fbq=function(){n.callMethod?

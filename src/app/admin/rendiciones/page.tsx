@@ -482,6 +482,25 @@ function RendicionesContent() {
     setLifecycleAction(action);
   };
 
+  const reopenSettlement = async () => {
+    if (!detail || lifecycleBusy) return;
+    setLifecycleBusy(true);
+    setError("");
+    try {
+      await authenticatedFetch("/api/admin/rendiciones", {
+        method: "POST",
+        body: JSON.stringify({ action: "reopen", settlementId: detail.settlement.id }),
+      });
+      hydrateDetail(await authenticatedFetch(`/api/admin/rendiciones?action=detail&settlementId=${encodeURIComponent(detail.settlement.id)}`));
+      setNotice("Rendición reabierta. Podés corregir sus datos, guardar y volver a confirmar.");
+      await loadList();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "No se pudo reabrir la rendición.");
+    } finally {
+      setLifecycleBusy(false);
+    }
+  };
+
   const importMonth = async () => {
     setImporting(true);
     setError("");
@@ -625,7 +644,7 @@ function RendicionesContent() {
   };
 
   const ticketTotals = useMemo(() => settlementElectronicTicketTotals(electronicTickets, routeOrders), [electronicTickets, routeOrders]);
-  const effectiveElectronicTotal = detail?.settlement.status === "archived" ? electronicTotal : electronicTickets.length > 0 ? ticketTotals.included : electronicTotal;
+  const effectiveElectronicTotal = detail?.settlement.status !== "draft" ? electronicTotal : electronicTickets.length > 0 ? ticketTotals.included : electronicTotal;
 
   const detailedCashTotal = useMemo(() => CASH_DENOMINATIONS.reduce((sum, item) => {
     return sum + item.denomination * (cashQuantities[cashKey(item.kind, item.denomination)] || 0);
@@ -1018,6 +1037,7 @@ function RendicionesContent() {
               </div>
 
               <div className="flex items-center gap-2">
+                {detail.settlement.status === "confirmed" && <button type="button" disabled={lifecycleBusy} onClick={() => void reopenSettlement()} className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700 disabled:opacity-50"><RefreshCw className={`h-3.5 w-3.5 ${lifecycleBusy ? "animate-spin" : ""}`} /> Reabrir para editar</button>}
                 {!archived && <button type="button" disabled={Boolean(saving) || lifecycleBusy} onClick={() => openLifecycleAction(detail.settlement, "archive")} className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-800 disabled:opacity-50"><Archive className="h-3.5 w-3.5" /> Dar de baja</button>}
                 {archived && canImportMonth && <button type="button" disabled={lifecycleBusy} onClick={() => openLifecycleAction(detail.settlement, "delete-archived")} className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-700 disabled:opacity-50"><Trash2 className="h-3.5 w-3.5" /> Eliminar definitivamente</button>}
                 <button
@@ -1052,6 +1072,7 @@ function RendicionesContent() {
           </header>
 
           {(error || notice) && <Feedback error={error} notice={notice} />}
+          {!readOnly && existingMovements.length > 0 && <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">Esta rendición ya tiene movimientos en caja. Después de corregirla, revisalos en Movimientos o usá Generar en Caja → Reemplazar movimientos actuales para reflejar los cambios.</p>}
           {archived && <div className="rounded-xl border border-slate-300 bg-slate-100 p-3 text-xs text-slate-700"><p className="font-bold">Archivada el {displayDate(detail.settlement.archived_at)} · Motivo de baja</p><p className="mt-1 whitespace-pre-wrap">{detail.settlement.archive_reason}</p></div>}
 
           {lifecycleModal}

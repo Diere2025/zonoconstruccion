@@ -1,4 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js';
+import { isDiscountProduct } from './discounts';
 
 export interface CalculatedPrice {
   productId: string;
@@ -23,7 +24,7 @@ export async function calculateProductPrice(
   // 1. Obtener datos básicos del producto
   const { data: product, error: prodError } = await supabase
     .from('products')
-    .select('id, price, fixed_price, markup_percentage, markup_wholesale_percentage, sku')
+    .select('id, name, price, fixed_price, markup_percentage, markup_wholesale_percentage, sku, cost_price, unified_cost')
     .eq('id', productId)
     .single();
 
@@ -34,16 +35,16 @@ export async function calculateProductPrice(
   const fallbackPrice: CalculatedPrice = {
     productId,
     price: product.price || 0,
-    cost: 0,
+    cost: isDiscountProduct(product) ? 0 : Number(product.unified_cost) || Number(product.cost_price) || 0,
     fixed: true,
-    baseCost: 0,
+    baseCost: isDiscountProduct(product) ? 0 : Number(product.unified_cost) || Number(product.cost_price) || 0,
     markupUsed: 0,
     supplierDiscount: 0,
     sku: product.sku
   };
 
   // Si tiene precio fijo manual, no calculamos costos dinámicos
-  if (product.fixed_price) {
+  if (product.fixed_price || isDiscountProduct(product)) {
     return fallbackPrice;
   }
 
@@ -103,12 +104,12 @@ export async function calculateProductPrice(
     finalCostFromList = finalCostFromList * usdRate;
     baseCostFromList = baseCostFromList * usdRate;
   }
-  
+
   // Costo final aplicando el descuento de proveedor a nivel general
   const cost = finalCostFromList * (1 - baseDiscount / 100);
 
   // Elegir recargo comercial por rol
-  const markup = sellerType === 'mayorista' 
+  const markup = sellerType === 'mayorista'
     ? (Number(product.markup_wholesale_percentage) || 0)
     : (Number(product.markup_percentage) || 0);
 
@@ -117,7 +118,7 @@ export async function calculateProductPrice(
   return {
     productId,
     price: Math.round(price * 100) / 100, // Redondear a 2 decimales
-    cost: Math.round(cost * 100) / 100,
+    cost: Math.round((Number(product.unified_cost) || cost) * 100) / 100,
     fixed: false,
     baseCost: baseCostFromList,
     markupUsed: markup,
@@ -144,7 +145,7 @@ export async function calculateBulkPrices(
     // 1. Cargar productos
     const { data, error } = await supabase
       .from('products')
-      .select('id, price, fixed_price, markup_percentage, markup_wholesale_percentage, sku')
+      .select('id, name, price, fixed_price, markup_percentage, markup_wholesale_percentage, sku, cost_price, unified_cost')
       .in('id', productsOrIds);
 
     if (error || !data) {
@@ -153,6 +154,15 @@ export async function calculateBulkPrices(
     products = data;
   }
 
+  // Catalog callers often pass a projection without costs. Hydrate them before
+  // freezing the cost of a new sale, including products with a fixed sale price.
+  const missingCosts = products.filter(p => p.unified_cost === undefined && !isDiscountProduct(p)).map(p => p.id);
+  for (let offset = 0; offset < missingCosts.length; offset += 200) {
+    const loaded = await supabase.from('products').select('id,name,cost_price,unified_cost').in('id', missingCosts.slice(offset, offset + 200));
+    if (loaded.error) throw new Error('No se pudo verificar el costo actual de los productos.');
+    const byId = new Map((loaded.data || []).map(p => [p.id, p]));
+    products = products.map(p => ({ ...p, ...(byId.get(p.id) || {}) }));
+  }
   const results: Record<string, CalculatedPrice> = {};
   const dynamicProductIds: string[] = [];
   const productMap = new Map<string, any>();
@@ -160,13 +170,13 @@ export async function calculateBulkPrices(
   // Procesar fijos directamente
   for (const product of products) {
     productMap.set(product.id, product);
-    if (product.fixed_price || !product.sku) {
+    if (product.fixed_price || !product.sku || isDiscountProduct(product)) {
       results[product.id] = {
         productId: product.id,
         price: product.price || 0,
-        cost: 0,
+        cost: isDiscountProduct(product) ? 0 : Number(product.unified_cost) || Number(product.cost_price) || 0,
         fixed: true,
-        baseCost: 0,
+        baseCost: isDiscountProduct(product) ? 0 : Number(product.unified_cost) || Number(product.cost_price) || 0,
         markupUsed: 0,
         supplierDiscount: 0,
         sku: product.sku
@@ -192,9 +202,9 @@ export async function calculateBulkPrices(
       results[id] = {
         productId: id,
         price: p.price || 0,
-        cost: 0,
+        cost: Number(p.unified_cost) || Number(p.cost_price) || 0,
         fixed: true,
-        baseCost: 0,
+        baseCost: Number(p.unified_cost) || Number(p.cost_price) || 0,
         markupUsed: 0,
         supplierDiscount: 0,
         sku: p.sku
@@ -263,9 +273,9 @@ export async function calculateBulkPrices(
       results[id] = {
         productId: id,
         price: p.price || 0,
-        cost: 0,
+        cost: Number(p.unified_cost) || Number(p.cost_price) || 0,
         fixed: true,
-        baseCost: 0,
+        baseCost: Number(p.unified_cost) || Number(p.cost_price) || 0,
         markupUsed: 0,
         supplierDiscount: 0,
         sku: p.sku
@@ -294,7 +304,7 @@ export async function calculateBulkPrices(
     results[id] = {
       productId: id,
       price: Math.round(price * 100) / 100,
-      cost: Math.round(cost * 100) / 100,
+      cost: Math.round((Number(p.unified_cost) || cost) * 100) / 100,
       fixed: false,
       baseCost: baseCostFromList,
       markupUsed: markup,

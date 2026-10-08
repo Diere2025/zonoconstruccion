@@ -2,33 +2,33 @@
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
-import { 
-  Factory, 
-  Wrench, 
-  Calendar, 
-  User, 
-  CheckCircle2, 
-  AlertTriangle, 
-  Clock, 
-  RefreshCw, 
-  Download, 
-  ExternalLink, 
-  Search, 
-  Filter, 
-  X, 
-  TrendingUp, 
-  Loader2, 
-  Sparkles, 
-  Layers, 
-  Award, 
-  BarChart3, 
-  Flame, 
-  AlertCircle, 
-  Trophy, 
-  ChevronRight, 
-  Droplet, 
-  PieChart, 
-  SlidersHorizontal, 
+import {
+  Factory,
+  Wrench,
+  Calendar,
+  User,
+  CheckCircle2,
+  AlertTriangle,
+  Clock,
+  RefreshCw,
+  Download,
+  ExternalLink,
+  Search,
+  Filter,
+  X,
+  TrendingUp,
+  Loader2,
+  Sparkles,
+  Layers,
+  Award,
+  BarChart3,
+  Flame,
+  AlertCircle,
+  Trophy,
+  ChevronRight,
+  Droplet,
+  PieChart,
+  SlidersHorizontal,
   ChevronDown,
   Users
 } from "lucide-react";
@@ -197,6 +197,11 @@ export default function ProduccionPage() {
     if (!y || !m) return yearMonth;
     return `${MONTH_NAMES_ES[m - 1]} ${y}`;
   };
+
+  const now = new Date();
+  const previousMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const currentMonthLabel = formatMonthName(`${now.getFullYear()}-${now.getMonth() + 1}`);
+  const previousMonthLabel = formatMonthName(`${previousMonth.getFullYear()}-${previousMonth.getMonth() + 1}`);
 
   // Operator distinctive badges
   const getOperatorStyle = (name?: string | null) => {
@@ -1133,8 +1138,8 @@ export default function ProduccionPage() {
                 }}
                 className="bg-transparent text-xs font-black text-slate-800 outline-none cursor-pointer pr-1"
               >
-                <option value="thisMonth">📅 Mes Actual (Agosto 2026)</option>
-                <option value="lastMonth">📅 Mes Anterior (Julio 2026)</option>
+                <option value="thisMonth">📅 Mes Actual ({currentMonthLabel})</option>
+                <option value="lastMonth">📅 Mes Anterior ({previousMonthLabel})</option>
                 <optgroup label="Histórico por Mes Completo">
                   {availableMonths.map(ym => (
                     <option key={ym} value={ym}>
@@ -1423,22 +1428,22 @@ export default function ProduccionPage() {
                               </span>
 
                               {/* Stacked Bar */}
-                              <div 
+                              <div
                                 className={`w-full rounded-t-lg overflow-hidden flex flex-col justify-end transition-all duration-200 ${
                                   isHovered ? 'ring-2 ring-brand-500 scale-x-105 shadow-md' : 'opacity-90 group-hover:opacity-100'
                                 }`}
                                 style={{ height: `${heightPct}%` }}
                               >
                                 {day.ensamblado > 0 && (
-                                  <div 
-                                    className="w-full bg-purple-600 transition-all" 
+                                  <div
+                                    className="w-full bg-purple-600 transition-all"
                                     style={{ height: `${ensPct}%` }}
                                     title={`Ensamblaje: ${day.ensamblado} u.`}
                                   />
                                 )}
                                 {day.fabricado > 0 && (
-                                  <div 
-                                    className="w-full bg-blue-600 transition-all" 
+                                  <div
+                                    className="w-full bg-blue-600 transition-all"
                                     style={{ height: `${fabPct}%` }}
                                     title={`Fabricación: ${day.fabricado} u.`}
                                   />
@@ -1518,13 +1523,13 @@ export default function ProduccionPage() {
                 </div>
 
                 <div className="w-full h-4 rounded-xl bg-slate-100 overflow-hidden flex shadow-inner">
-                  <div 
+                  <div
                     className="h-full bg-blue-600 transition-all duration-500 flex items-center justify-center text-[9px] font-black text-white"
                     style={{ width: `${machineBreakdown.pctDoble}%` }}
                   >
                     {machineBreakdown.doble > 0 ? `${machineBreakdown.doble}u` : ''}
                   </div>
-                  <div 
+                  <div
                     className="h-full bg-amber-500 transition-all duration-500 flex items-center justify-center text-[9px] font-black text-white"
                     style={{ width: `${machineBreakdown.pctSimple}%` }}
                   >
@@ -1612,8 +1617,8 @@ export default function ProduccionPage() {
                     const opStyle = getOperatorStyle(op.name);
 
                     return (
-                      <tr 
-                        key={op.name} 
+                      <tr
+                        key={op.name}
                         onClick={() => setSelectedOperatorDetail(op.name)}
                         className="hover:bg-blue-50/30 transition-colors cursor-pointer group"
                       >
@@ -1661,8 +1666,8 @@ export default function ProduccionPage() {
                         <td className="px-3.5 py-2.5">
                           <div className="flex flex-wrap gap-1">
                             {Object.entries(op.litrajes).map(([lit, count]) => (
-                              <span 
-                                key={lit} 
+                              <span
+                                key={lit}
                                 className="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-100 text-[10px] font-extrabold text-slate-700"
                               >
                                 {lit}: <strong className="ml-1 text-slate-900">{count}</strong>
@@ -1871,19 +1876,19 @@ export default function ProduccionPage() {
                           </span>
 
                           {/* Stacked Bar */}
-                          <div 
+                          <div
                             className="w-full rounded-t-lg overflow-hidden flex flex-col justify-end transition-all duration-200 group-hover:ring-2 group-hover:ring-emerald-500 group-hover:scale-x-105 shadow-xs opacity-90 group-hover:opacity-100"
                             style={{ height: `${heightPct}%` }}
                           >
                             {m.ensamblado > 0 && (
-                              <div 
-                                className="w-full bg-purple-600 transition-all" 
+                              <div
+                                className="w-full bg-purple-600 transition-all"
                                 style={{ height: `${ensPct}%` }}
                               />
                             )}
                             {m.fabricado > 0 && (
-                              <div 
-                                className="w-full bg-blue-600 transition-all" 
+                              <div
+                                className="w-full bg-blue-600 transition-all"
                                 style={{ height: `${fabPct}%` }}
                               />
                             )}
@@ -1941,8 +1946,8 @@ export default function ProduccionPage() {
                     const isCurrentSelected = datePreset === m.monthKey || (datePreset === 'thisMonth' && m.monthKey === new Date().toISOString().substring(0, 7));
 
                     return (
-                      <tr 
-                        key={m.monthKey} 
+                      <tr
+                        key={m.monthKey}
                         className={`hover:bg-emerald-50/30 transition-colors ${isCurrentSelected ? 'bg-emerald-50/20 font-bold' : ''}`}
                       >
                         {/* Mes / Año */}
@@ -2159,8 +2164,8 @@ export default function ProduccionPage() {
                       {/* Máquina */}
                       <td className="px-3.5 py-2 text-center whitespace-nowrap">
                         <span className={`inline-block px-2 py-0.5 rounded-md text-[9px] font-black uppercase ${
-                          item.tipoMaquina.toUpperCase() === 'DOBLE' 
-                            ? 'bg-blue-50 text-blue-700 border border-blue-200/60' 
+                          item.tipoMaquina.toUpperCase() === 'DOBLE'
+                            ? 'bg-blue-50 text-blue-700 border border-blue-200/60'
                             : 'bg-amber-50 text-amber-700 border border-amber-200/60'
                         }`}>
                           {item.tipoMaquina || 'SIMPLE'}
@@ -2178,8 +2183,8 @@ export default function ProduccionPage() {
                       {/* Calidad */}
                       <td className="px-3.5 py-2 text-center whitespace-nowrap">
                         <span className={`inline-block px-2 py-0.5 rounded-full text-[8.5px] font-black uppercase ${
-                          isPrimera 
-                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
+                          isPrimera
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                             : isRoto
                             ? 'bg-rose-50 text-rose-700 border border-rose-200'
                             : 'bg-amber-50 text-amber-700 border border-amber-200'
@@ -2191,8 +2196,8 @@ export default function ProduccionPage() {
                       {/* Estado */}
                       <td className="px-3.5 py-2 text-center whitespace-nowrap">
                         <span className={`inline-block px-2 py-0.5 rounded-full text-[8.5px] font-black uppercase ${
-                          item.estado === 'Fabricado' 
-                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
+                          item.estado === 'Fabricado'
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                             : item.estado === 'Planificado'
                             ? 'bg-amber-50 text-amber-700 border border-amber-200 font-extrabold'
                             : 'bg-red-50 text-red-700 border border-red-200'
@@ -2288,8 +2293,8 @@ export default function ProduccionPage() {
                       {/* Estado */}
                       <td className="px-3.5 py-2 text-center whitespace-nowrap">
                         <span className={`inline-block px-2 py-0.5 rounded-full text-[8.5px] font-black uppercase ${
-                          item.estado === 'Ensamblado' 
-                            ? 'bg-purple-50 text-purple-700 border border-purple-200' 
+                          item.estado === 'Ensamblado'
+                            ? 'bg-purple-50 text-purple-700 border border-purple-200'
                             : item.estado === 'Planificado'
                             ? 'bg-amber-50 text-amber-700 border border-amber-200 font-extrabold'
                             : 'bg-red-50 text-red-700 border border-red-200'

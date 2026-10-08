@@ -2,30 +2,30 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { formatPrice } from "@/lib/utils";
-import { 
-  TrendingUp, 
-  Package, 
-  Users, 
-  ShoppingCart, 
-  Award, 
-  ArrowUpRight, 
-  Loader2, 
-  Clock, 
-  RefreshCw, 
-  ArrowUpDown, 
-  ChevronDown, 
-  Calendar, 
-  ChevronLeft, 
-  ChevronRight, 
-  ArrowUp, 
-  ArrowDown, 
-  Truck, 
-  MapPin, 
-  Search, 
-  DollarSign, 
-  Target, 
-  ShieldAlert, 
-  PlusCircle, 
+import {
+  TrendingUp,
+  Package,
+  Users,
+  ShoppingCart,
+  Award,
+  ArrowUpRight,
+  Loader2,
+  Clock,
+  RefreshCw,
+  ArrowUpDown,
+  ChevronDown,
+  Calendar,
+  ChevronLeft,
+  ChevronRight,
+  ArrowUp,
+  ArrowDown,
+  Truck,
+  MapPin,
+  Search,
+  DollarSign,
+  Target,
+  ShieldAlert,
+  PlusCircle,
   Wallet,
   CheckCircle2,
   Sparkles,
@@ -322,7 +322,7 @@ export default function AdminDashboard() {
   const renderCalendarMonth = (year: number, month: number) => {
     const daysInMonth = getDaysInMonth(year, month);
     const firstDayIndex = getFirstDayOfMonth(year, month);
-    
+
     const days = [];
     for (let i = 0; i < firstDayIndex; i++) {
       days.push(null);
@@ -518,7 +518,7 @@ export default function AdminDashboard() {
         .select("id, legacy_code, customer_name, total_amount, status, created_at, order_date, seller_id, channel")
         .order("created_at", { ascending: false })
         .limit(6);
-        
+
       let rangeQuery = supabase.from("orders")
         .select("id, legacy_code, customer_name, locality, total_amount, status, seller_id, channel, order_date, created_at")
         .gte("order_date", start)
@@ -542,8 +542,8 @@ export default function AdminDashboard() {
         .from("order_items")
         .select(`
           id, product_name,
-          quantity, 
-          unit_price, 
+          quantity,
+          unit_price,
           products(sku, category),
           orders!inner(id, legacy_code, channel, status, order_date, created_at, seller_id)
         `)
@@ -991,7 +991,7 @@ export default function AdminDashboard() {
         return order && includedOrderIds.has(order.id);
       });
       const productSales: Record<string, { name: string, sku: string, category: string, qty: number, total: number }> = {};
-      
+
       const getCategoryForProduct = (pNameRaw: string, dbCategoryRaw: string | undefined, orderPrimaryCategory?: string): string => {
         const pName = (pNameRaw || '').toLowerCase();
         let cat = dbCategoryRaw;
@@ -1002,6 +1002,8 @@ export default function AdminDashboard() {
           if (pName.includes('bomba')) return 'Bombas';
           return orderPrimaryCategory || 'Tanques de Agua';
         }
+
+        if (/membrana\s+techos?\b/.test(pName)) return 'MEPS';
 
         if (pName.includes('bomba') || cat === 'Bombas') {
           return 'Bombas';
@@ -1016,12 +1018,12 @@ export default function AdminDashboard() {
           cat === 'Tanques Cisterna' ||
           cat === 'Tanques Tricapa Beige' ||
           cat === 'Tanques Tricapa Oferta' ||
-          pName.includes('cuatr') || 
-          pName.includes('cuatricapa') || 
-          pName.includes('aquafort') || 
-          pName.includes('tanque') || 
-          pName.includes('cisterna') || 
-          pName.includes('tricapa') || 
+          pName.includes('cuatr') ||
+          pName.includes('cuatricapa') ||
+          pName.includes('aquafort') ||
+          pName.includes('tanque') ||
+          pName.includes('cisterna') ||
+          pName.includes('tricapa') ||
           pName.includes('bicapa') ||
           pName.includes('complemento') ||
           pName.includes('base') ||
@@ -1031,14 +1033,14 @@ export default function AdminDashboard() {
         ) {
           return 'Tanques de Agua';
         } else if (
-          pName.includes('biofort') || 
-          pName.includes('biodigestor') || 
+          pName.includes('biofort') ||
+          pName.includes('biodigestor') ||
           pName.includes('biolam') ||
           pName.includes('awaduct') ||
-          pName.includes('desengrasadora') || 
-          pName.includes('séptica') || 
-          pName.includes('septica') || 
-          pName.includes('cámara') || 
+          pName.includes('desengrasadora') ||
+          pName.includes('séptica') ||
+          pName.includes('septica') ||
+          pName.includes('cámara') ||
           pName.includes('camara') ||
           cat === 'Biodigestores' ||
           cat === 'Cámaras Sépticas' ||
@@ -1046,11 +1048,11 @@ export default function AdminDashboard() {
         ) {
           return 'Biodigestores';
         } else if (
-          pName.includes('pintura') || 
-          pName.includes('latex') || 
-          pName.includes('látex') || 
-          pName.includes('andina') || 
-          pName.includes('lavable') || 
+          pName.includes('pintura') ||
+          pName.includes('latex') ||
+          pName.includes('látex') ||
+          pName.includes('andina') ||
+          pName.includes('lavable') ||
           pName.includes('zono') ||
           pName.includes('pinceleta') ||
           pName.includes('pincel') ||
@@ -1069,12 +1071,12 @@ export default function AdminDashboard() {
         ) {
           return 'Pinturas';
         } else if (
-          pName.includes('venda') || 
+          pName.includes('venda') ||
           pName.includes('mep') ||
-          pName.includes('meps') || 
+          pName.includes('meps') ||
           (pName.includes('rodillo') && pName.includes('meps')) ||
           (pName.includes('guante') && pName.includes('meps')) ||
-          pName.includes('equilibrio') || 
+          pName.includes('equilibrio') ||
           cat === 'MEPS'
         ) {
           return 'MEPS';
@@ -1435,7 +1437,7 @@ export default function AdminDashboard() {
               {isPickerOpen && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setIsPickerOpen(false)} />
-                  
+
                   <div className="absolute right-0 top-full mt-2 z-50 bg-white border border-slate-200/80 rounded-2xl shadow-xl flex flex-col md:flex-row overflow-hidden w-full max-w-[95vw] md:max-w-none md:w-[650px] animate-in fade-in slide-in-from-top-2 duration-150">
                     {/* Left presets bar */}
                     <div className="w-full md:w-[160px] border-b md:border-b-0 md:border-r border-slate-100 p-3 flex flex-row md:flex-col overflow-x-auto md:overflow-x-visible gap-1 shrink-0 bg-slate-50/60">
@@ -1447,8 +1449,8 @@ export default function AdminDashboard() {
                             type="button"
                             onClick={() => handleTempPresetChange(p.id)}
                             className={`flex items-center gap-2 px-3 py-1.5 rounded-lg font-medium text-xs whitespace-nowrap text-left transition-all w-full ${
-                              active 
-                                ? "bg-brand-50 text-brand-700 font-semibold" 
+                              active
+                                ? "bg-brand-50 text-brand-700 font-semibold"
                                 : "text-slate-600 hover:bg-slate-100 hover:text-slate-800"
                             }`}
                           >
@@ -1547,8 +1549,8 @@ export default function AdminDashboard() {
                         <div className="flex items-center gap-2">
                           <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-xl px-2 py-1 relative">
                             <div className="relative w-20">
-                              <input 
-                                type="date" 
+                              <input
+                                type="date"
                                 className="opacity-0 absolute inset-0 w-full h-full cursor-pointer z-10"
                                 value={tempStartDate || ""}
                                 onChange={(e) => {
@@ -1560,12 +1562,12 @@ export default function AdminDashboard() {
                                 {tempStartDate ? formatInputDisplay(tempStartDate) : "Desde"}
                               </div>
                             </div>
-                            
+
                             <span className="text-slate-400 font-bold text-xs">-</span>
-                            
+
                             <div className="relative w-20">
-                              <input 
-                                type="date" 
+                              <input
+                                type="date"
                                 className="opacity-0 absolute inset-0 w-full h-full cursor-pointer z-10"
                                 value={tempEndDate || ""}
                                 onChange={(e) => {
@@ -1691,7 +1693,7 @@ export default function AdminDashboard() {
                 </span>
               </div>
               <p className="text-xs text-slate-600 mt-0.5">
-                {unimportedSellerData.todayOrdersCount > 0 
+                {unimportedSellerData.todayOrdersCount > 0
                   ? `Hoy ingresaron ${unimportedSellerData.todayOrdersCount} pedidos (${formatPrice(unimportedSellerData.todayAmount)}, ${unimportedSellerData.todayUnits} unidades). Se muestran aparte y no se suman a las ventas consolidadas de este dashboard.`
                   : 'Estos pedidos ya se tienen en cuenta en los cálculos de reservas y estadísticas sin necesidad de importar a cada momento.'}
               </p>
@@ -1770,7 +1772,7 @@ export default function AdminDashboard() {
             <h3 className="text-xl font-bold text-slate-900 leading-none tabular-nums">
               {formatPrice(presetRange === "mes" ? monthStats.sales : stats.monthlySales)}
             </h3>
-            
+
             {prevStats.salesVarPct !== null && (
               <div className="mt-1.5 flex items-center gap-1 text-[11px] font-semibold">
                 {prevStats.salesVarPct >= 0 ? (
@@ -1893,10 +1895,10 @@ export default function AdminDashboard() {
           </div>
           <div>
             <h3 className="text-xl font-bold text-slate-900 leading-none tabular-nums">{stats.fulfillmentRate.toFixed(1)}%</h3>
-            
+
             <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden mt-2">
-              <div 
-                className="bg-teal-500 h-full rounded-full transition-all duration-500" 
+              <div
+                className="bg-teal-500 h-full rounded-full transition-all duration-500"
                 style={{ width: `${Math.min(100, stats.fulfillmentRate)}%` }}
               />
             </div>
@@ -2460,7 +2462,7 @@ export default function AdminDashboard() {
                 <th className="py-2.5">Producto</th>
                 <th className="py-2.5">SKU</th>
                 <th className="py-2.5">Categoría</th>
-                <th 
+                <th
                   className={`py-2.5 text-center cursor-pointer select-none transition-colors hover:text-slate-800 ${
                     productSortKey === 'qty' ? 'text-brand-600 font-bold' : ''
                   }`}
@@ -2475,7 +2477,7 @@ export default function AdminDashboard() {
                     )}
                   </div>
                 </th>
-                <th 
+                <th
                   className={`py-2.5 text-right cursor-pointer select-none transition-colors hover:text-slate-800 ${
                     productSortKey === 'billing' ? 'text-brand-600 font-bold' : ''
                   }`}
@@ -2504,8 +2506,8 @@ export default function AdminDashboard() {
                   </td>
                   <td className="py-3 text-center">
                     <span className={`inline-block px-2.5 py-0.5 border font-bold rounded-lg transition-colors tabular-nums ${
-                      productSortKey === 'qty' 
-                        ? 'bg-brand-50 border-brand-200 text-brand-700' 
+                      productSortKey === 'qty'
+                        ? 'bg-brand-50 border-brand-200 text-brand-700'
                         : 'bg-slate-50 border-slate-200 text-slate-800'
                     }`}>
                       {prod.qty}

@@ -1,7 +1,7 @@
 import type { ComponentType } from 'react';
 import { AlertTriangle, BarChart3, BookOpen, Boxes, Calculator, CalendarDays, ClipboardCheck, ClipboardList, Clock, Coins, Database, Factory, FileSpreadsheet, FileText, Layers, Link2, Map, Package, PackageCheck, PlusCircle, Printer, RefreshCw, Settings, ShieldCheck, ShoppingBag, ShoppingCart, Target, TrendingUp, Truck, Upload, Users, Wallet } from 'lucide-react';
 
-export type UserRole = 'seller' | 'admin' | 'logistica' | 'fletero' | 'administracion' | 'compras';
+export type UserRole = 'seller' | 'admin' | 'logistica' | 'fletero' | 'administracion' | 'compras' | 'instalador';
 export interface ErpLink {
   id: string;
   name: string;
@@ -10,6 +10,8 @@ export interface ErpLink {
   adminOnly?: boolean;
   sellerOnly?: boolean;
   allowedRoles?: UserRole[];
+  ownerEmail?: string;
+  userOnly?: string;
 }
 export interface ErpModule {
   id: string;
@@ -22,14 +24,22 @@ export interface NavigationIdentity {
   roles: UserRole[];
   restrictedSeller: boolean;
   canUseWholesale: boolean;
+  email?: string;
+  userId?: string | null;
 }
 
 export const erpModules: ErpModule[] = [
+  { id: 'visitas', title: 'Seguimiento de visitas', description: 'Visitas técnicas, kits, presupuestos y resultado de venta.', icon: CalendarDays, links: [
+    { id: 'visitas-seguimiento', name: 'Visitas y seguimiento comercial', href: '/visitas', icon: CalendarDays, allowedRoles: ['admin', 'seller', 'instalador'] },
+  ] },
   { id: 'direccion', title: 'Dirección General', description: 'Seguimiento global, resultados y publicidad.', icon: BarChart3, links: [
     { id: "direccion-1", name: "Dashboard General", href: "/admin/dashboard", icon: BarChart3, adminOnly: true },
     { id: "direccion-2", name: "Meta Ads", href: "/admin/meta-ads", icon: Target, adminOnly: true },
+    { id: "direccion-prompts", name: "Prompts de campañas", href: "/admin/prompts-campanas", icon: FileText, ownerEmail: 'diego.boveda@gmail.com' },
     { id: "direccion-3", name: "Estado de Resultados (EERR)", href: "/admin/finanzas/eerr", icon: FileSpreadsheet, adminOnly: true },
     { id: "direccion-4", name: "Rentabilidad y Margen", href: "/admin/rentabilidad", icon: BarChart3, adminOnly: true },
+    { id: 'direccion-costos', name: 'Costos y rentabilidad de productos', href: '/admin/costos', icon: Calculator, adminOnly: true },
+    { id: 'direccion-margen-diario', name: 'Resultado diario de entregas', href: '/admin/rentabilidad-diaria', icon: BarChart3, adminOnly: true },
     { id: "direccion-5", name: "Capital Estancado", href: "/admin/capital-estancado", icon: AlertTriangle, adminOnly: true },
   ] },
   { id: 'minorista', title: 'Ventas Minoristas', description: 'Pedidos, presupuestos y clientes del canal minorista.', icon: ShoppingCart, links: [
@@ -49,7 +59,7 @@ export const erpModules: ErpModule[] = [
     { id: "mayorista-6", name: "Presupuestos Mayoristas", href: "/vendedores/cotizaciones?channel=mayorista", icon: ClipboardCheck },
   ] },
   { id: 'tesoreria', title: 'Tesorería y Finanzas', description: 'Pagos, rendiciones, cuentas y comprobantes.', icon: Wallet, links: [
-    { id: "tesoreria-1", name: "Chequeo de Pagos", href: "/admin/cobros-mp", icon: ShieldCheck, allowedRoles: ['admin', 'logistica', 'fletero', 'administracion'] },
+    { id: "tesoreria-1", name: "Chequeo de Pagos", href: "/admin/cobros-mp", icon: ShieldCheck, allowedRoles: ['admin', 'seller', 'logistica', 'fletero', 'administracion'] },
     { id: "tesoreria-2", name: "Rendiciones de Recorridos", href: "/admin/rendiciones", icon: ClipboardList, allowedRoles: ['admin', 'administracion'] },
     { id: "tesoreria-3", name: "Caja Diaria", href: "/admin/caja", icon: Wallet, adminOnly: true },
     { id: "tesoreria-4", name: "Movimientos", href: "/admin/finanzas", icon: Coins, allowedRoles: ['admin', 'administracion'] },
@@ -109,7 +119,8 @@ export const erpModules: ErpModule[] = [
     { id: "soporte-2", name: "Recursos y Preguntas Frecuentes", href: "/vendedores/recursos", icon: BookOpen },
     { id: "soporte-3", name: "Gestión de Usuarios", href: "/admin/vendedores", icon: Users, adminOnly: true },
     { id: "soporte-4", name: "Configuración General", href: "/admin/ajustes", icon: Settings, adminOnly: true },
-    { id: "soporte-5", name: "Sincronizar Planillas", href: "/admin/importar-pedidos", icon: Upload, adminOnly: true },
+    { id: "soporte-5", name: "Sincronizar Planillas", href: "/admin/importar-pedidos", icon: Upload, allowedRoles: ['admin', 'compras'] },
+    { id: 'desarrollos-futuros-1', name: 'Desarrollos futuros', href: '/desarrollos-futuros', icon: FileText, userOnly: '381df0d1-183f-4ccb-aaf2-8147c76159a9' },
   ] },
 ];
 
@@ -120,6 +131,10 @@ export function visibleErpModules(identity: NavigationIdentity): ErpModule[] {
   const specialized = !admin && !roles.includes('seller') && roles.some(role =>
     ['logistica', 'fletero', 'administracion', 'compras'].includes(role));
   return erpModules.map(module => ({ ...module, links: module.links.filter(link => {
+    if (roles.includes('instalador') && !roles.some(role => ['admin', 'seller', 'logistica', 'fletero', 'administracion', 'compras'].includes(role))) return link.href === '/visitas';
+    if (link.ownerEmail && identity.email?.trim().toLowerCase() !== link.ownerEmail) return false;
+    if (link.userOnly && identity.userId !== link.userOnly) return false;
+    if (link.href === '/desarrollos-futuros') return true;
     if (link.href === '/incidencias' || link.href === '/solicitudes-logistica') return true;
     if (specialized) return Boolean(link.allowedRoles?.some(role => roles.includes(role)));
     if (restrictedSeller && !admin) {
@@ -130,7 +145,7 @@ export function visibleErpModules(identity: NavigationIdentity): ErpModule[] {
         '/vendedores/cotizaciones?channel=mayorista'
       ].includes(link.href);
       return wholesale || [
-        '/vendedores', '/vendedores/presupuestos',
+        '/admin/cobros-mp', '/visitas', '/vendedores', '/vendedores/presupuestos',
         '/vendedores/pedidos?tab=form&client_type=minoristas',
         '/vendedores/pedidos?tab=list&client_type=minoristas'
       ].includes(link.href);

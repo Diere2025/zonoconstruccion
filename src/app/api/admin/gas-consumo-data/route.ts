@@ -1,6 +1,7 @@
 export const runtime = 'edge';
 import { NextResponse } from "next/server";
-import { fetchSpreadsheetCsv } from '@/lib/googleSheets';
+import { fetchSpreadsheetCsv, fetchSpreadsheetValues } from '@/lib/googleSheets';
+import { measuredGas } from '@/lib/costs/gasConsumption';
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -280,23 +281,23 @@ const canonicalOperatorMap: Record<string, { canonicalKey: string; displayName: 
   'RODRIGO RAMIREZ': { canonicalKey: 'RAMIREZ_RODRIGO', displayName: 'Rodrigo Ramirez', role: 'Rotomoldeo Principal', isMaintenance: false, isWarehouse: false, isEventual: false },
   'RODRIGO RAMIREX': { canonicalKey: 'RAMIREZ_RODRIGO', displayName: 'Rodrigo Ramirez', role: 'Rotomoldeo Principal', isMaintenance: false, isWarehouse: false, isEventual: false },
   'RAMIREZ, RODRIGO MAXIMILIANO': { canonicalKey: 'RAMIREZ_RODRIGO', displayName: 'Rodrigo Ramirez', role: 'Rotomoldeo Principal', isMaintenance: false, isWarehouse: false, isEventual: false },
-  
+
   'LEONARDO SANDOVAL': { canonicalKey: 'SANDOVAL_LEONARDO', displayName: 'Leonardo Sandoval', role: 'Rotomoldeo Principal', isMaintenance: false, isWarehouse: false, isEventual: false },
   'LEO SANDOVAL': { canonicalKey: 'SANDOVAL_LEONARDO', displayName: 'Leonardo Sandoval', role: 'Rotomoldeo Principal', isMaintenance: false, isWarehouse: false, isEventual: false },
   'SANDOVAL, LEONARDO JUAN CARLOS': { canonicalKey: 'SANDOVAL_LEONARDO', displayName: 'Leonardo Sandoval', role: 'Rotomoldeo Principal', isMaintenance: false, isWarehouse: false, isEventual: false },
-  
+
   'SAMUEL CONTRERAS': { canonicalKey: 'CONTRERAS_SAMUEL', displayName: 'Samuel Contreras', role: 'Operario Rotomoldeo (Eventual)', isMaintenance: false, isWarehouse: false, isEventual: true, notes: 'Operario eventual de rotomoldeo contratado según picos de demanda.' },
   'CONTRERAS, SAMUEL': { canonicalKey: 'CONTRERAS_SAMUEL', displayName: 'Samuel Contreras', role: 'Operario Rotomoldeo (Eventual)', isMaintenance: false, isWarehouse: false, isEventual: true, notes: 'Operario eventual de rotomoldeo contratado según picos de demanda.' },
 
   'JULIO VERÓN': { canonicalKey: 'VERON_JULIO', displayName: 'Julio VerÓN', role: 'Mantenimiento de Maquinaria & Planta', isMaintenance: true, isWarehouse: false, isEventual: false, notes: 'Mantenimiento preventivo/correctivo de maquinaria y soporte técnico de planta. Su costo se descuenta del valor de horneado y se amortiza entre toda la producción.' },
   'JULIO VERON': { canonicalKey: 'VERON_JULIO', displayName: 'Julio Verón', role: 'Mantenimiento de Maquinaria & Planta', isMaintenance: true, isWarehouse: false, isEventual: false, notes: 'Mantenimiento preventivo/correctivo de maquinaria y soporte técnico de planta. Su costo se descuenta del valor de horneado y se amortiza entre toda la producción.' },
   'VERON, JULIO CESAR': { canonicalKey: 'VERON_JULIO', displayName: 'Julio Verón', role: 'Mantenimiento de Maquinaria & Planta', isMaintenance: true, isWarehouse: false, isEventual: false, notes: 'Mantenimiento preventivo/correctivo de maquinaria y soporte técnico de planta. Su costo se descuenta del valor de horneado y se amortiza entre toda la producción.' },
-  
+
   'MATIAS OLIVERA': { canonicalKey: 'OLIVERA_MATIAS', displayName: 'Matías Olivera', role: 'Gestión de Depósito & Ensamblado', isMaintenance: false, isWarehouse: true, isEventual: false, notes: 'Gestión operativa de depósito, control de stock y armado/ensamblaje de Biodigestores y Cámaras.' },
   'MATÍAS OLIVERA': { canonicalKey: 'OLIVERA_MATIAS', displayName: 'Matías Olivera', role: 'Gestión de Depósito & Ensamblado', isMaintenance: false, isWarehouse: true, isEventual: false, notes: 'Gestión operativa de depósito, control de stock y armado/ensamblaje de Biodigestores y Cámaras.' },
   'MATI OLIVERA': { canonicalKey: 'OLIVERA_MATIAS', displayName: 'Matías Olivera', role: 'Gestión de Depósito & Ensamblado', isMaintenance: false, isWarehouse: true, isEventual: false, notes: 'Gestión operativa de depósito, control de stock y armado/ensamblaje de Biodigestores y Cámaras.' },
   'OLIVERA, MATIAS NAHUEL': { canonicalKey: 'OLIVERA_MATIAS', displayName: 'Matías Olivera', role: 'Gestión de Depósito & Ensamblado', isMaintenance: false, isWarehouse: true, isEventual: false, notes: 'Gestión operativa de depósito, control de stock y armado/ensamblaje de Biodigestores y Cámaras.' },
-  
+
   'GABRIEL MANSILLA': { canonicalKey: 'MANSILLA_ENZO', displayName: 'Enzo Mansilla', role: 'Ensamblaje (Enero)', isMaintenance: false, isWarehouse: true, isEventual: true },
   'ENZO MANSILLA': { canonicalKey: 'MANSILLA_ENZO', displayName: 'Enzo Mansilla', role: 'Ensamblaje (Enero)', isMaintenance: false, isWarehouse: true, isEventual: true },
   'MANSILLA, ENZO GABRIEL': { canonicalKey: 'MANSILLA_ENZO', displayName: 'Enzo Mansilla', role: 'Ensamblaje (Enero)', isMaintenance: false, isWarehouse: true, isEventual: true }
@@ -316,24 +317,22 @@ const getOperatorMeta = (rawName?: string) => {
 
 export async function GET() {
   try {
-    const gasCargaUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_GAS_ID}/gviz/tq?tqx=out:csv&sheet=Carga`;
     const gasTipoUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_GAS_ID}/gviz/tq?tqx=out:csv&sheet=Tipo`;
     const gasSueldosUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_GAS_ID}/gviz/tq?tqx=out:csv&sheet=Sueldos`;
     const gasEdenorUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_GAS_ID}/gviz/tq?tqx=out:csv&sheet=Edenor`;
     const gasGastosUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_GAS_ID}/gviz/tq?tqx=out:csv&sheet=GASTOS_OPERATIVOS`;
-    const prodFabUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_PRODUCTION_ID}/gviz/tq?tqx=out:csv&sheet=Fabricaci%C3%B3n`;
-    const prodEnsUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_PRODUCTION_ID}/gviz/tq?tqx=out:csv&sheet=Ensamblaje`;
     const pricesUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_PRICES_ID}/export?format=csv&gid=508601925`;
     const supabaseProductsUrl = `${SUPABASE_URL}/rest/v1/products?is_active=eq.true&select=id,name,sku,price&order=name.asc`;
 
-    const [gasCsv, tipoCsv, sueldosCsv, edenorCsv, gastosCsv, fabCsv, ensCsv, pricesCsv, dbProductsRes] = await Promise.all([
-      fetchSpreadsheetCsv(gasCargaUrl),
+    const [gasRows, tipoCsv, sueldosCsv, edenorCsv, gastosCsv, fabRows, ensRows, pricesCsv, dbProductsRes] = await Promise.all([
+      fetchSpreadsheetValues(SPREADSHEET_GAS_ID, "'Carga'!A:I"),
       fetchSpreadsheetCsv(gasTipoUrl).catch(() => ""),
       fetchSpreadsheetCsv(gasSueldosUrl).catch(() => ""),
       fetchSpreadsheetCsv(gasEdenorUrl).catch(() => ""),
       fetchSpreadsheetCsv(gasGastosUrl).catch(() => ""),
-      fetchSpreadsheetCsv(prodFabUrl).catch(() => ""),
-      fetchSpreadsheetCsv(prodEnsUrl).catch(() => ""),
+      // The values API includes hidden and filtered rows; the visualization CSV omits them.
+      fetchSpreadsheetValues(SPREADSHEET_PRODUCTION_ID, "'Fabricación'!A:I"),
+      fetchSpreadsheetValues(SPREADSHEET_PRODUCTION_ID, "'Ensamblaje'!A:I"),
       fetchSpreadsheetCsv(pricesUrl).catch(() => ""),
       fetch(supabaseProductsUrl, {
         headers: {
@@ -373,12 +372,10 @@ export async function GET() {
     }
 
     // 1. Parse Gas Events (Cargas y Lecturas)
-    const gasLines = gasCsv.split('\n').filter(l => l.trim().length > 0).slice(1);
     const gasEvents: GasEvent[] = [];
     let latestPrice = 1051.097625;
 
-    gasLines.forEach((line, idx) => {
-      const c = parseCsvLine(line);
+    gasRows.slice(1).forEach((c, idx) => {
       const parsedDate = parseDateToIso(c[0]);
       if (!parsedDate) return;
 
@@ -392,7 +389,7 @@ export async function GET() {
         id: `gas-ev-${idx}-${parsedDate.iso}`,
         fecha: parsedDate.iso,
         fechaFormatted: parsedDate.formatted,
-        timestamp: parsedDate.timestamp,
+        timestamp: parsedDate.timestamp + ((parseInt((c[1] || '').split(':')[0],10)||0)*60 + (parseInt((c[1] || '').split(':')[1],10)||0))*60000,
         hora: c[1] || '',
         tipo,
         porcentajeAntes: parseNum(c[3]),
@@ -416,10 +413,8 @@ export async function GET() {
     let totalSegunda2026 = 0;
     let totalRotos2026 = 0;
 
-    if (fabCsv) {
-      const fabLines = fabCsv.split('\n').filter(l => l.trim().length > 0).slice(1);
-      fabLines.forEach(line => {
-        const c = parseCsvLine(line);
+    if (fabRows.length) {
+      fabRows.slice(1).forEach(c => {
         const parsedDate = parseDateToIso(c[0]);
         const cant = parseInt(c[2]?.replace(/\D/g, '') || '0', 10) || 1;
         const op = c[5]?.trim();
@@ -468,10 +463,8 @@ export async function GET() {
 
     // 3. Parse Assembly (Ensamblaje)
     const ensByMonthAndOpKey: Record<string, Record<string, number>> = {};
-    if (ensCsv) {
-      const ensLines = ensCsv.split('\n').filter(l => l.trim().length > 0).slice(1);
-      ensLines.forEach(line => {
-        const c = parseCsvLine(line);
+    if (ensRows.length) {
+      ensRows.slice(1).forEach(c => {
         const parsedDate = parseDateToIso(c[0]);
         const cant = parseInt(c[2]?.replace(/\D/g, '') || '0', 10) || 1;
         const op = c[3]?.trim();
@@ -548,7 +541,7 @@ export async function GET() {
     allSalaryMonths.forEach(ym => {
       if (ym > lastLoadedMonth) {
         if (!salariesByMonthAndOpKey[ym]) salariesByMonthAndOpKey[ym] = {};
-        
+
         const isCurrentInCourse = ym === currentMonthKey;
         // If it's the current in-course month, use elapsed days proportion; if past unloaded month, use 100% of base month
         const proportion = isCurrentInCourse ? currentMonthProportion : 1.0;
@@ -571,8 +564,8 @@ export async function GET() {
     // Standard benchmark for Direct Rotomolding labor cost per standard tank based on last loaded month (July: $2.483.367 / 517u = $4.800)
     const lastLoadedRotoSalary = (salariesByMonthAndOpKey[lastLoadedMonth]?.['RAMIREZ_RODRIGO'] || 0) + (salariesByMonthAndOpKey[lastLoadedMonth]?.['SANDOVAL_LEONARDO'] || 0);
     const standardMonthlyRotomoldingTanks = 517;
-    const baseLaborCostPerTank = lastLoadedRotoSalary > 0 
-      ? Math.round(lastLoadedRotoSalary / standardMonthlyRotomoldingTanks) 
+    const baseLaborCostPerTank = lastLoadedRotoSalary > 0
+      ? Math.round(lastLoadedRotoSalary / standardMonthlyRotomoldingTanks)
       : 4800;
 
     trackedOps.forEach(op => {
@@ -607,7 +600,7 @@ export async function GET() {
         const tanksEns = ensByMonthAndOpKey[ym]?.[op.key] || 0;
         const tanksTotal = tanksFab + tanksEns;
         const plantTanksInMonth = tanksByMonth[ym]?.totalTanks || 0;
-        
+
         const costPerFabricatedTank = tanksFab > 0 && salary > 0 ? Math.round(salary / tanksFab) : 0;
         const costPerAssembledTank = tanksEns > 0 && salary > 0 ? Math.round(salary / tanksEns) : 0;
 
@@ -621,13 +614,13 @@ export async function GET() {
           maintenanceCostPerPlantTank = plantTanksInMonth > 0 ? Math.round(pureMaintenanceCost / plantTanksInMonth) : 0;
         }
 
-        summary.months[ym] = { 
-          monthKey: ym, 
-          monthName: formatMonthName(ym), 
-          salary, 
-          tanksFabricated: tanksFab, 
-          tanksAssembled: tanksEns, 
-          tanksTotal, 
+        summary.months[ym] = {
+          monthKey: ym,
+          monthName: formatMonthName(ym),
+          salary,
+          tanksFabricated: tanksFab,
+          tanksAssembled: tanksEns,
+          tanksTotal,
           costPerFabricatedTank,
           costPerAssembledTank,
           isAguinaldoMonth,
@@ -647,21 +640,21 @@ export async function GET() {
         sumPlantTanks += plantTanksInMonth;
       });
 
-      summary.avgCostPerFabricatedTank = summary.totalTanksFabricated > 0 && summary.totalSalary > 0 
-        ? Math.round(summary.totalSalary / summary.totalTanksFabricated) 
+      summary.avgCostPerFabricatedTank = summary.totalTanksFabricated > 0 && summary.totalSalary > 0
+        ? Math.round(summary.totalSalary / summary.totalTanksFabricated)
         : 0;
 
       const tanksFabWithoutSAC = summary.totalTanksFabricated - (summary.months['2026-06']?.tanksFabricated || 0);
-      summary.avgCostPerFabricatedTankWithoutAguinaldo = tanksFabWithoutSAC > 0 && summary.totalSalaryWithoutAguinaldo > 0 
-        ? Math.round(summary.totalSalaryWithoutAguinaldo / tanksFabWithoutSAC) 
+      summary.avgCostPerFabricatedTankWithoutAguinaldo = tanksFabWithoutSAC > 0 && summary.totalSalaryWithoutAguinaldo > 0
+        ? Math.round(summary.totalSalaryWithoutAguinaldo / tanksFabWithoutSAC)
         : summary.avgCostPerFabricatedTank;
 
-      summary.avgCostPerAssembledTank = summary.totalTanksAssembled > 0 && summary.totalSalary > 0 
-        ? Math.round(summary.totalSalary / summary.totalTanksAssembled) 
+      summary.avgCostPerAssembledTank = summary.totalTanksAssembled > 0 && summary.totalSalary > 0
+        ? Math.round(summary.totalSalary / summary.totalTanksAssembled)
         : 0;
 
-      summary.avgMaintenanceCostPerPlantTank = sumPlantTanks > 0 && summary.totalPureMaintenanceCost! > 0 
-        ? Math.round(summary.totalPureMaintenanceCost! / sumPlantTanks) 
+      summary.avgMaintenanceCostPerPlantTank = sumPlantTanks > 0 && summary.totalPureMaintenanceCost! > 0
+        ? Math.round(summary.totalPureMaintenanceCost! / sumPlantTanks)
         : 0;
 
       operatorsData.push(summary);
@@ -718,10 +711,10 @@ export async function GET() {
     if (!electricityByConsumedMonth['2026-08'] || electricityByConsumedMonth['2026-08'] === 0) {
       const recentLuzMonths = ['2026-05', '2026-06', '2026-07'];
       const recentLuzSums = recentLuzMonths.map(m => electricityByConsumedMonth[m] || 0).filter(v => v > 0);
-      const avgRecentLuz = recentLuzSums.length > 0 
-        ? recentLuzSums.reduce((a, b) => a + b, 0) / recentLuzSums.length 
+      const avgRecentLuz = recentLuzSums.length > 0
+        ? recentLuzSums.reduce((a, b) => a + b, 0) / recentLuzSums.length
         : 546730;
-      
+
       const estimatedAugLuz = Math.round(avgRecentLuz);
       electricityByConsumedMonth['2026-08'] = estimatedAugLuz;
       isAugustEdenorEstimated = true;
@@ -747,8 +740,8 @@ export async function GET() {
     const regularElectricityTanks = electricityRecords
       .filter(r => r.consumedMonthKey >= '2026-02' && r.consumedMonthKey <= '2026-07')
       .reduce((acc, r) => acc + r.tanksProducedInMonth, 0);
-    const baseElectricityCostPerTank = regularElectricityTanks > 0 
-      ? Math.round(regularElectricityAmount / regularElectricityTanks) 
+    const baseElectricityCostPerTank = regularElectricityTanks > 0
+      ? Math.round(regularElectricityAmount / regularElectricityTanks)
       : 815;
 
     // 6. Parse GASTOS_OPERATIVOS (Mantenimiento Maquinaria + Instalaciones + Insumos de Uso Diario)
@@ -863,13 +856,13 @@ export async function GET() {
       }
     });
 
-    const baseOpexCostPerTank = totalTanks2026 >= 1000 
-      ? Math.round(totalOpex2026 / totalTanks2026) 
+    const baseOpexCostPerTank = totalTanks2026 >= 1000
+      ? Math.round(totalOpex2026 / totalTanks2026)
       : 2494;
 
     // 7. Monthly Gas Consumption & Total Operating Cost Correlation
     const monthlyGasMap: Record<string, { gasLitros: number; inversion: number; tanques: number; litrosTransformados: number; }> = {};
-    
+
     allSalaryMonths.forEach(ym => {
       monthlyGasMap[ym] = {
         gasLitros: 0,
@@ -893,10 +886,41 @@ export async function GET() {
       monthlyGasMap[ym].inversion += r.costoTotal;
     });
 
+    // Operational Score Matrix based on real factory cycle times:
+    // 500L: 12 u/8hs (1.00) | 600L: 11 u/8hs (1.09) | 750L: 10 u/8hs (1.20) | 300L: 10 u/8hs (1.20)
+    // Cono: 0.40 | Cónico 700L: 7 u/8hs (1.71) | Bicapas: -10% tiempo de cocción
+    const getOperationalScore = (prodName: string, originalScore: number): number => {
+      const lower = prodName.toLowerCase();
+      const isBic = lower.includes('bic');
+      const isCono = lower.includes('cono') && !lower.includes('conico') && !lower.includes('cónico');
+      const isConico = lower.includes('conico') || lower.includes('cónico');
+
+      if (isCono) return 0.40;
+      if (isConico) return 1.71; // 7 tanques en 8hs (12 / 7 = 1.71)
+
+      if (lower.includes('750')) {
+        return isBic ? 1.08 : 1.20;
+      }
+      if (lower.includes('600')) {
+        return isBic ? 0.98 : 1.09;
+      }
+      if (lower.includes('500')) {
+        return isBic ? 0.90 : 1.00;
+      }
+      if (lower.includes('300')) {
+        return isBic ? 1.08 : 1.20;
+      }
+
+      return originalScore;
+    };
+
+    const configuredScores = new Map((tipoCsv || '').split('\n').slice(1).map(line=>{
+      const cells=parseCsvLine(line);return [cells[0]?.trim().toLowerCase(),parseNum(cells[2])||1] as const;
+    }));
     const monthlyBreakdown: MonthlyCostBreakdown[] = Object.entries(monthlyGasMap).map(([ym, data]) => {
       const isCurrentMonth = ym === currentMonthKey;
       const isUnloadedMonth = ym > lastLoadedMonth;
-      
+
       // For August, September or current month:
       // Calculate real gas consumption based on standard tank benchmark (7.57 L/u)
       let gasLitrosConsumidos = data.gasLitros;
@@ -910,7 +934,21 @@ export async function GET() {
         gasInversionConsumida = Math.round(gasLitrosConsumidos * latestPrice);
         gasCostPerTank = Math.round(gasPerTank * latestPrice);
       }
-      
+
+      // Reconcile levels and refills once; purchases alone are not consumption.
+      const measured = measuredGas(gasEvents.filter(e=>e.fecha.startsWith(ym)), TANK_CAPACITY_LITERS);
+      if(measured) {
+        const production=Object.entries(tanksByDate).filter(([date])=>date>=measured.first.fecha&&date<=measured.last.fecha);
+        const quantity=production.reduce((n,[,day])=>n+day.totalTanks,0);
+        const weightedUnits=production.reduce((n,[,day])=>n+Object.entries(day.products).reduce((sum,[name,q])=>sum+q*getOperationalScore(name,configuredScores.get(name.toLowerCase())||1),0),0);
+        if(weightedUnits>0) {
+          gasLitrosConsumidos=measured.liters;
+          gasInversionConsumida=measured.cost;
+          gasPerTank=quantity>0?measured.liters/quantity:0;
+          gasCostPerTank=measured.cost/weightedUnits;
+        }
+      }
+
       let directRotomoldingSalary = 0;
       let monthMdoSalary = 0;
       trackedOps.forEach(op => {
@@ -973,37 +1011,9 @@ export async function GET() {
       };
     }).sort((a, b) => b.monthKey.localeCompare(a.monthKey));
 
-    // Operational Score Matrix based on real factory cycle times:
-    // 500L: 12 u/8hs (1.00) | 600L: 11 u/8hs (1.09) | 750L: 10 u/8hs (1.20) | 300L: 10 u/8hs (1.20)
-    // Cono: 0.40 | Cónico 700L: 7 u/8hs (1.71) | Bicapas: -10% tiempo de cocción
-    const getOperationalScore = (prodName: string, originalScore: number): number => {
-      const lower = prodName.toLowerCase();
-      const isBic = lower.includes('bic');
-      const isCono = lower.includes('cono') && !lower.includes('conico') && !lower.includes('cónico');
-      const isConico = lower.includes('conico') || lower.includes('cónico');
-
-      if (isCono) return 0.40;
-      if (isConico) return 1.71; // 7 tanques en 8hs (12 / 7 = 1.71)
-
-      if (lower.includes('750')) {
-        return isBic ? 1.08 : 1.20;
-      }
-      if (lower.includes('600')) {
-        return isBic ? 0.98 : 1.09;
-      }
-      if (lower.includes('500')) {
-        return isBic ? 0.90 : 1.00;
-      }
-      if (lower.includes('300')) {
-        return isBic ? 1.08 : 1.20;
-      }
-
-      return originalScore;
-    };
-
     // 8. Parse Sheet 'Tipo' for Official Manufactured Models and Direct Column E (Costo Insumos)
     const baseGasLiters = 7.57; // Benchmark estándar 500L
-    
+
     const modelScores: CombinedModelCost[] = [];
     const fabricatedProducts: FabricatedProductCost[] = [];
 
@@ -1185,7 +1195,7 @@ export async function GET() {
       const start = readings[i];
       const end = readings[i + 1];
       const refillsBetween = gasEvents.filter(
-        e => e.tipo === "Recarga" && e.cargaLitros > 0 && e.timestamp >= start.timestamp && e.timestamp <= end.timestamp
+        e => e.tipo === "Recarga" && e.cargaLitros > 0 && e.timestamp >= start.timestamp && e.timestamp < end.timestamp
       );
       const refillLiters = refillsBetween.reduce((acc, r) => acc + r.cargaLitros, 0);
       const gasInitialLiters = (TANK_CAPACITY_LITERS * start.porcentajeAntes) / 100;
@@ -1221,7 +1231,7 @@ export async function GET() {
     const lastTimestamp = lastReading ? lastReading.timestamp : Date.now();
     const fourteenDaysAgoTimestamp = lastTimestamp - (14 * 86400000);
     const readingsLast14 = gasEvents.filter(e => (e.porcentajeAntes > 0 || e.tipo === 'Lectura') && e.timestamp >= fourteenDaysAgoTimestamp);
-    
+
     let gasConsumedLast14Days = 0;
     let tanksLast14Days = 0;
     let daysMeasured14 = 14;
@@ -1250,8 +1260,8 @@ export async function GET() {
       }
     }
 
-    const dailyGasConsumptionLast14 = daysMeasured14 > 0 && gasConsumedLast14Days > 0 
-      ? gasConsumedLast14Days / daysMeasured14 
+    const dailyGasConsumptionLast14 = daysMeasured14 > 0 && gasConsumedLast14Days > 0
+      ? gasConsumedLast14Days / daysMeasured14
       : (tanksLast14Days / 14) * avgGasPerTankLast14;
 
     const daysOfAutonomyRemaining = Math.max(1, Math.round(currentTankLiters / (dailyGasConsumptionLast14 || 100)));

@@ -91,14 +91,19 @@ export async function POST(request: NextRequest) {
     if (itemsError) throw itemsError;
 
     return NextResponse.json({ order: insertedOrder });
-  } catch (error: any) {
+  } catch (error: unknown) {
     if (insertedOrderId) {
       await supabaseAdmin.from('orders').delete().eq('id', insertedOrderId);
     }
     console.error('[create-assigned-order] Error:', error);
+    const message = error && typeof error === 'object' && 'message' in error
+      ? String(error.message)
+      : 'No se pudo crear el pedido asignado';
+    const duplicateVisit = message.includes('VISITS_ORDER_EXISTS') || message.includes('orders_source_visit_unique');
+    const staleQuote = message.includes('VISITS_QUOTE_ACCEPTED_REQUIRED');
     return NextResponse.json(
-      { error: error?.message || 'No se pudo crear el pedido asignado' },
-      { status: 500 },
+      { error: duplicateVisit ? 'Esta visita ya tiene un pedido asociado. Abrí el pedido existente.' : staleQuote ? 'El presupuesto vigente debe estar aceptado. Volvé a la visita y prepará el pedido nuevamente.' : message },
+      { status: duplicateVisit ? 409 : staleQuote ? 400 : 500 },
     );
   }
 }

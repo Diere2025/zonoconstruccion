@@ -3,20 +3,20 @@
 import React, { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { 
-  Calculator, 
-  Search, 
-  Plus, 
-  Trash2, 
-  Copy, 
-  Check, 
-  Download, 
-  Building2, 
-  Truck, 
-  CreditCard, 
-  FileText, 
-  ShieldCheck, 
-  Package, 
+import {
+  Calculator,
+  Search,
+  Plus,
+  Trash2,
+  Copy,
+  Check,
+  Download,
+  Building2,
+  Truck,
+  CreditCard,
+  FileText,
+  ShieldCheck,
+  Package,
   RefreshCw,
   Layers,
   Sliders
@@ -32,6 +32,7 @@ import VisualProductSelectorModal, { QuantityInput, VisualOrderItem } from "@/co
 import WholesaleClientModal from "@/components/vendedores/WholesaleClientModal";
 
 interface WholesaleProduct {
+  catalogSource?: 'mayorista' | 'minorista';
   id: string;
   name: string;
   category: string;
@@ -45,6 +46,9 @@ interface WholesaleProduct {
 }
 
 interface QuoteCartItem {
+  bundleParentId?: string;
+  isIncludedInKit?: boolean;
+  baseQuantity?: number;
   id: string; // unique cart row id
   productId: string;
   name: string;
@@ -150,6 +154,9 @@ export default function PresupuestosMayoristaPage() {
         variant: item.variant === 'ciego' ? 'ciego' : 'standard',
         allowsCiego: item.metadata?.catalogSource !== 'minorista' && getWholesaleCatalogKind({ name: item.product_name, category: item.metadata?.category || '' }) === 'tank',
         catalogSource: item.metadata?.catalogSource,
+        bundleParentId: item.metadata?.bundleParentId,
+        isIncludedInKit: item.metadata?.isIncludedInKit,
+        baseQuantity: item.metadata?.baseQuantity,
         quantity: Number(item.quantity),
         priceList: Number(item.list_unit_price),
         priceCorralon: Number(item.list_unit_price),
@@ -216,6 +223,7 @@ export default function PresupuestosMayoristaPage() {
                 family: p.family,
                 liters: p.liters,
                 isManufactured: p.isManufactured,
+                catalogSource: p.catalogSource,
                 priceList,
                 priceCorralon,
                 priceDistributor,
@@ -276,7 +284,9 @@ export default function PresupuestosMayoristaPage() {
   const calculatedItems = useMemo(() => {
     return cartItems.map(item => {
       let unitPrice = item.priceList;
-      if (item.customPrice !== undefined && item.customPrice > 0) {
+      if (item.isIncludedInKit) {
+        unitPrice = 0;
+      } else if (item.customPrice !== undefined && item.customPrice >= 0) {
         unitPrice = item.customPrice;
       } else if (item.discountValue && item.discountValue > 0) {
         if (item.discountType === 'percentage') {
@@ -385,6 +395,9 @@ export default function PresupuestosMayoristaPage() {
     basePrice: item.priceList,
     discountType: item.discountType,
     discountValue: item.discountValue,
+    bundleParentId: item.bundleParentId,
+    isIncludedInKit: item.isIncludedInKit,
+    baseQuantity: item.baseQuantity,
   })), [calculatedItems]);
 
   const handleUpdateItemDiscount = (cartItemId: string, discountType: 'percentage' | 'fixed', discountValue: number) => {
@@ -405,7 +418,7 @@ export default function PresupuestosMayoristaPage() {
     const effectiveVariant = allowsCiego ? variant : 'standard';
     setCartItems(prev => {
       const existingIdx = prev.findIndex(
-        i => i.productId === product.id && i.variant === effectiveVariant
+        i => i.productId === product.id && i.variant === effectiveVariant && !i.bundleParentId
       );
       if (existingIdx >= 0) {
         const copy = [...prev];
@@ -425,7 +438,8 @@ export default function PresupuestosMayoristaPage() {
           quantity: 1,
           priceList: product.priceList,
           priceCorralon: product.priceCorralon,
-          priceDistributor: product.priceDistributor
+          priceDistributor: product.priceDistributor,
+          catalogSource: product.catalogSource
         }
       ];
     });
@@ -436,7 +450,29 @@ export default function PresupuestosMayoristaPage() {
     const baseId = product.parent_id || product.id.replace(/::ciego$/, '');
     const wholesaleProduct = products.find(candidate => candidate.id === baseId);
     if (!wholesaleProduct) return;
-    handleAddToCart(wholesaleProduct, isCiego ? 'ciego' : 'standard');
+    const selected = product as Product & Partial<VisualOrderItem>;
+    if (selected.quantity !== undefined || selected.isIncludedInKit) {
+      setCartItems(previous => {
+        const existing = previous.find(item => item.productId === baseId && item.variant === 'standard'
+          && item.bundleParentId === selected.bundleParentId);
+        const quantity = selected.quantity || 1;
+        if (existing) return previous.map(item => item.id === existing.id
+          ? { ...item, quantity: item.quantity + quantity } : item);
+        return [...previous, {
+          id: `${baseId}-${selected.bundleParentId || 'standard'}-${Date.now()}`,
+          productId: baseId, name: wholesaleProduct.name, category: wholesaleProduct.category,
+          variant: 'standard', allowsCiego: false, quantity,
+          catalogSource: wholesaleProduct.catalogSource,
+          priceList: wholesaleProduct.priceList, priceCorralon: wholesaleProduct.priceCorralon,
+          priceDistributor: wholesaleProduct.priceDistributor,
+          customPrice: selected.customPrice,
+          bundleParentId: selected.bundleParentId, isIncludedInKit: selected.isIncludedInKit,
+          baseQuantity: selected.baseQuantity
+        }];
+      });
+    } else {
+      handleAddToCart(wholesaleProduct, isCiego ? 'ciego' : 'standard');
+    }
   };
 
   const handleAddVisualProducts = (selectedProducts: Product[]) => {
@@ -476,7 +512,14 @@ export default function PresupuestosMayoristaPage() {
       return;
     }
     setCartItems(prev =>
-      prev.map(item => (item.id === cartItemId ? { ...item, quantity: newQty } : item))
+      prev.map(item => {
+        const parent = prev.find(row => row.id === cartItemId);
+        if (item.id === cartItemId) return { ...item, quantity: newQty };
+        if (parent && item.bundleParentId === parent.productId) {
+          return { ...item, quantity: (item.baseQuantity || 1) * newQty };
+        }
+        return item;
+      })
     );
   };
 
@@ -491,7 +534,10 @@ export default function PresupuestosMayoristaPage() {
   };
 
   const handleRemoveItem = (cartItemId: string) => {
-    setCartItems(prev => prev.filter(item => item.id !== cartItemId));
+    setCartItems(prev => {
+      const parent = prev.find(item => item.id === cartItemId);
+      return prev.filter(item => item.id !== cartItemId && (!parent || item.bundleParentId !== parent.productId));
+    });
   };
 
   const handleClearCart = () => {
@@ -745,7 +791,8 @@ export default function PresupuestosMayoristaPage() {
         ? Math.round((1 - item.effectiveUnitPrice / item.priceList) * 10000) / 100
         : 0,
       subtotal: item.subtotal,
-      metadata: { category: item.category, liters: item.liters, discountType: item.discountType, discountValue: item.discountValue, catalogSource: item.catalogSource }
+      metadata: { category: item.category, liters: item.liters, discountType: item.discountType, discountValue: item.discountValue, catalogSource: item.catalogSource,
+        bundleParentId: item.bundleParentId, isIncludedInKit: item.isIncludedInKit, baseQuantity: item.baseQuantity }
     }))
   });
 

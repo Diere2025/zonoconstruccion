@@ -18,10 +18,10 @@ interface AdminLayoutProps {
   children: React.ReactNode;
 }
 
-type UserRole = 'seller' | 'admin' | 'logistica' | 'fletero' | 'administracion' | 'compras';
+type UserRole = 'seller' | 'admin' | 'logistica' | 'fletero' | 'administracion' | 'compras' | 'instalador';
 
 function isUserRole(value: string): value is UserRole {
-  return ['seller', 'admin', 'logistica', 'fletero', 'administracion', 'compras'].includes(value);
+  return ['seller', 'admin', 'logistica', 'fletero', 'administracion', 'compras', 'instalador'].includes(value);
 }
 
 function normalizeUserRoles(primaryRole?: string | null, roles?: unknown): UserRole[] {
@@ -303,9 +303,9 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
         const emailLower = email.toLowerCase();
 
         // Check if Admin by email
-        let isAdminUser = emailLower === 'diego.boveda@gmail.com' || 
-                          emailLower.includes('admin') || 
-                          emailLower.includes('diego') || 
+        let isAdminUser = emailLower === 'diego.boveda@gmail.com' ||
+                          emailLower.includes('admin') ||
+                          emailLower.includes('diego') ||
                           emailLower === 'caroibarra.93@gmail.com';
 
         const selectProfile = () => supabase.from('sellers')
@@ -396,13 +396,14 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
   const hasRole = useCallback((role: UserRole) => userRoles.includes(role), [userRoles]);
   const isAdminRole = hasRole('admin');
   const isSpecializedOperator = !isAdminRole && !hasRole('seller') && userRoles.some(role =>
-    ['logistica', 'fletero', 'administracion', 'compras'].includes(role)
+    ['logistica', 'fletero', 'administracion', 'compras', 'instalador'].includes(role)
   );
 
   const canAccessSpecializedRoute = useCallback((path: string, search: string) => {
     if (isAdminRole) return true;
 
     const allowedPaths = new Set<string>();
+    if (hasRole('instalador')) allowedPaths.add('/visitas');
     if (hasRole('logistica')) {
       ['/admin/cobros-mp', '/admin/fleteros', '/admin/control-planillas', '/admin/configuracion-impresion', '/vendedores/ruteo/comprobantes', '/vendedores/ruteo/remitos']
         .forEach(route => allowedPaths.add(route));
@@ -415,6 +416,7 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
     if (hasRole('compras')) {
       allowedPaths.add('/admin/stock');
       allowedPaths.add('/admin/compras');
+      allowedPaths.add('/admin/importar-pedidos');
     }
 
     const pathAllowed = Array.from(allowedPaths).some(route => {
@@ -435,6 +437,9 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
   // Route guards per role. Multi-role users receive the union of every assigned role.
   useEffect(() => {
     if (!isRoleLoaded) return;
+    const installerOnly = userRoles.includes('instalador') && !userRoles.some(role => ['admin', 'seller', 'logistica', 'fletero', 'administracion', 'compras'].includes(role));
+    if (installerOnly && pathname !== '/visitas' && pathname !== '/admin') { router.replace('/visitas'); return; }
+    if (pathname === '/visitas' && (hasRole('seller') || hasRole('instalador') || isAdminRole)) return;
     // Incidencias checks its independent capabilities in its own session/API.
     if (pathname === '/admin') return;
     if (pathname === '/incidencias' || pathname.startsWith('/incidencias/') || pathname === '/solicitudes-logistica' || pathname.startsWith('/solicitudes-logistica/')) return;
@@ -442,10 +447,9 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
     if (pathname === '/admin/finanzas/eerr' && !isAdminRole) {
       router.replace(hasRole('administracion') ? '/admin/finanzas' : '/vendedores');
     } else if (isSpecializedOperator && pathname && !canAccessSpecializedRoute(pathname, search)) {
-      const fallback = hasRole('compras') ? '/admin/compras?tab=purchase_orders' : '/admin/cobros-mp';
+      const fallback = hasRole('compras') ? '/admin/compras?tab=purchase_orders' : hasRole('instalador') ? '/visitas' : '/admin/cobros-mp';
       router.replace(fallback);
-    } else if (hasRole('seller') && !isAdminRole && pathname === '/admin/cobros-mp') {
-      router.replace('/vendedores');
+
     } else if (isRestrictedSeller && isWholesalePermissionLoaded && pathname) {
       const query = search;
       const isWholesaleRoute =
@@ -454,15 +458,16 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
         (pathname === '/vendedores/clientes' && query.includes('client_type=mayoristas')) ||
         (pathname.startsWith('/vendedores/pedidos') && query.includes('client_type=mayoristas'));
       const isRestrictedRouteAllowed =
+        pathname === '/admin/cobros-mp' ||
         pathname === '/vendedores' ||
         pathname === '/vendedores/presupuestos' ||
         (pathname.startsWith('/vendedores/pedidos') && !query.includes('client_type=mayoristas')) ||
         (canUseWholesale && isWholesaleRoute);
       if (!isRestrictedRouteAllowed) router.replace('/vendedores');
     } else if (
-      userRole === 'seller' && 
-      !isRestrictedSeller && 
-      pathname && 
+      userRole === 'seller' &&
+      !isRestrictedSeller &&
+      pathname &&
       pathname.startsWith('/admin/dashboard')
     ) {
       router.replace('/vendedores');
@@ -581,7 +586,7 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
     window.location.href = "/admin";
   };
 
-  const visibleModules = visibleErpModules({ roles: userRoles, restrictedSeller: isRestrictedSeller, canUseWholesale });
+  const visibleModules = visibleErpModules({ roles: userRoles, restrictedSeller: isRestrictedSeller, canUseWholesale, email: userEmail, userId: isRoleLoaded ? cachedIdentityUserId : null });
   const navigationTerm = normalizeNavigationSearch(navigationSearch.trim());
   const filteredModules = visibleModules.map(section => ({
     ...section,
@@ -618,6 +623,7 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
     compras: 'Compras',
     fletero: 'Transportista',
     administracion: 'Administración',
+    instalador: 'Instalador',
     seller: 'Vendedor'
   })[role]).join(' + ');
   const normalizedImpersonationSearch = impersonationSearch.trim().toLowerCase();
@@ -633,26 +639,26 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
     <div className="min-h-screen flex bg-slate-50 text-slate-900 font-sans antialiased">
       {/* Mobile Sidebar Overlay */}
       {isSidebarOpen && (
-        <div 
+        <div
           onClick={toggleSidebar}
           className="fixed inset-0 z-40 bg-slate-900/60 backdrop-blur-xs lg:hidden"
         />
       )}
 
       {/* Sidebar Navigation */}
-      <aside 
+      <aside
         id="erp-sidebar"
         inert={!isSidebarOpen}
         aria-hidden={!isSidebarOpen}
         className={`fixed inset-y-0 left-0 z-50 flex flex-col bg-slate-900 border-r border-slate-800 text-slate-200 transition-all duration-300 transform lg:translate-x-0 lg:static lg:h-screen ${
-          isSidebarOpen 
-            ? "translate-x-0 w-64 min-w-[16rem]" 
+          isSidebarOpen
+            ? "translate-x-0 w-64 min-w-[16rem]"
             : "-translate-x-full lg:w-0 lg:min-w-0 lg:overflow-hidden lg:border-r-0"
         }`}
       >
         {/* Sidebar Header / Brand */}
         <div className="h-16 flex items-center justify-between px-5 border-b border-slate-800/80 shrink-0 bg-slate-950/40">
-          <Link 
+          <Link
             href="/admin"
             onClick={closeSidebarOnMobile}
             className="flex items-center gap-3 group"
@@ -670,9 +676,9 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
             </div>
           </Link>
 
-          <button 
+          <button
             aria-label="Cerrar menú lateral"
-            onClick={toggleSidebar} 
+            onClick={toggleSidebar}
             className="lg:hidden p-1.5 rounded-lg hover:bg-slate-800 transition-colors text-slate-400 hover:text-white"
           >
             <X className="w-5 h-5" />
@@ -735,14 +741,14 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
                               }
                             }}
                             className={`group flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all duration-150 ${
-                              active 
-                                ? "bg-brand-600 text-white font-semibold shadow-xs" 
+                              active
+                                ? "bg-brand-600 text-white font-semibold shadow-xs"
                                 : "text-slate-300 hover:text-white hover:bg-slate-800/60"
                             }`}
                           >
                             <Icon className={`w-4 h-4 shrink-0 transition-colors ${
-                              active 
-                                ? "text-white" 
+                              active
+                                ? "text-white"
                                 : "text-slate-400 group-hover:text-slate-200"
                             }`} />
                             <span className="truncate">{link.name}</span>
@@ -809,7 +815,7 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
             </button>
           )}
 
-          <button 
+          <button
             onClick={handleLogout}
             className="w-full flex items-center justify-center gap-2 py-2 px-3 bg-slate-800/50 hover:bg-rose-950/40 text-slate-400 hover:text-rose-300 border border-slate-700/50 hover:border-rose-900/50 rounded-xl text-xs font-medium transition-all cursor-pointer"
           >
@@ -824,10 +830,10 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
         {/* Topbar with Breadcrumbs */}
         <header className="h-16 bg-white border-b border-slate-200/80 flex items-center justify-between px-6 shrink-0 z-10 shadow-2xs">
           <div className="flex items-center gap-4 min-w-0">
-            <button 
+            <button
               aria-controls="erp-sidebar"
               aria-expanded={isSidebarOpen}
-              onClick={toggleSidebar} 
+              onClick={toggleSidebar}
               className="p-2 hover:bg-slate-100 rounded-xl transition-colors text-slate-500 hover:text-slate-800 cursor-pointer"
               title={isSidebarOpen ? "Ocultar menú lateral" : "Mostrar menú lateral"}
             >
@@ -851,7 +857,7 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
           </div>
 
           <div className="flex items-center gap-3">
-            <SupportNotifications />
+            {!(userRoles.length === 1 && userRoles[0] === 'instalador') && <SupportNotifications />}
             {/* Live System Status Pill */}
             <div className="hidden sm:flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-medium">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
@@ -1010,7 +1016,7 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
                 </div>
                 <h3 className="font-bold text-sm text-slate-900">Cambiar Contraseña</h3>
               </div>
-              <button 
+              <button
                 onClick={() => setShowChangePasswordModal(false)}
                 className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
               >

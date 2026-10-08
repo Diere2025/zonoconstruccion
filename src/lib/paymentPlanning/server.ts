@@ -34,7 +34,7 @@ export async function planningContext(request: Request) {
 }
 
 type PagedQuery<T> = { range: (start: number, end: number) => PromiseLike<{ data: T[] | null; error: unknown }> };
-async function allRows<T>(query: PagedQuery<T>): Promise<T[]> {
+export async function allRows<T>(query: PagedQuery<T>): Promise<T[]> {
   const rows: T[] = [];
   for (let offset = 0; ; offset += 500) {
     const { data, error } = await query.range(offset, offset + 499);

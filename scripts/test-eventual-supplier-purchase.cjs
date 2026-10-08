@@ -1,0 +1,54 @@
+const {Client}=require('pg');
+const fs=require('node:fs'),assert=require('node:assert/strict');
+const {randomUUID}=require('node:crypto');
+process.loadEnvFile('.env.local');
+const activate=process.argv.includes('--activate-production-v143');
+(async()=>{
+ const db=new Client({connectionString:process.env.DATABASE_URL,connectionTimeoutMillis:10000});
+ await db.connect();
+ try {
+  await db.query('begin');
+  await db.query("set local statement_timeout='30s'; set local lock_timeout='3s'");
+  if(activate)await db.query('lock table cash_transactions,supplier_payments,suppliers in share row exclusive mode');
+  const totals=async()=> (await db.query("select financial_account_id,currency,count(*)::text n,sum(case when type='ingreso' then amount else -amount end)::text net from cash_transactions group by 1,2 order by 1,2")).rows;
+  const before=await totals();
+  const sql=fs.readFileSync('database/db_migration_v143_eventual_supplier_purchase.sql','utf8').replace(/^begin;/im,'').replace(/^commit;/im,'');
+  await db.query(sql);await db.query(sql);
+  assert.deepEqual(await totals(),before);
+  // Roll back every fixture while retaining the tested function for activation.
+  await db.query('savepoint fixtures');
+  const actor=(await db.query('select id from auth.users where can_manage_financial_operations(id) limit 1')).rows[0].id;
+  const account=(await db.query("select id from financial_accounts where is_active and currency='ARS' limit 1")).rows[0].id;
+  const method=(await db.query('select id from payment_methods limit 1')).rows[0].id;
+  const counts=async()=> (await db.query('select (select count(*) from suppliers)::text suppliers,(select count(*) from supplier_payments)::text payments')).rows[0];
+  const initial=await counts();
+  const payload={operation_type:'supplier_payment',effective_date:'2026-10-05',account_id:account,payment_method_id:method,direction:'egreso',amount:'12.34',category:'Proveedores',concept:'Prueba reversible: llave de paso',detail:{supplier_kind:'eventual',supplier_name:'Ferretería de prueba'},allocations:[],voucher_ids:[]};
+  const mutate=async(key,action,payload,target,reason)=> (await db.query('select mutate_financial_operation($1,$2,$3,$4,$5,$6) result',[actor,key,action,payload,target,reason])).rows[0].result;
+  const snapshot=async id=> (await db.query('select financial_operation_snapshot($1) result',[id])).rows[0].result;
+  const key=randomUUID(),result=await mutate(key,'save',payload,null,null);
+  assert.deepEqual(await mutate(key,'save',payload,null,null),result);
+  assert.deepEqual(await counts(),initial);
+  const id=result.transaction_ids[0];let snap=await snapshot(id);
+  assert.equal(snap.payload.detail.supplier_kind,'eventual');assert.equal(snap.payload.detail.supplier_name,'Ferretería de prueba');
+  assert.equal(snap.payload.supplier_id,null);
+  const target=()=>({transaction_id:id,operation_id:result.operation_id,expected_version:snap.operation.version});
+  await mutate(randomUUID(),'save',{...snap.payload,amount:'15.00',detail:{supplier_kind:'eventual'}},target(),null);
+  snap=await snapshot(id);assert.equal(Number(snap.payload.amount),15);
+  await mutate(randomUUID(),'cancel',null,target(),'Anulación de prueba reversible');
+  const net=(await db.query("select sum(case when type='ingreso' then amount else -amount end)::text net,count(*)::int n from cash_transactions where operation_id=$1",[result.operation_id])).rows[0];
+  assert.equal(Number(net.net),0);assert.equal(net.n,2);assert.deepEqual(await counts(),initial);
+  const rejected=async p=>{await db.query('savepoint rejected');await assert.rejects(mutate(randomUUID(),'save',p,null,null));await db.query('rollback to savepoint rejected');};
+  const supplier=(await db.query('select id from suppliers limit 1')).rows[0].id;
+  await rejected({...payload,supplier_id:supplier});
+  await rejected({...payload,allocations:[{purchase_id:randomUUID(),amount:'1.00'}]});
+  await rejected({...payload,detail:{supplier_kind:'invalid'}});
+  await rejected({...payload,operation_type:'operating_expense'});
+  await rejected({...payload,detail:{}});
+  const registered=await mutate(randomUUID(),'save',{...payload,supplier_id:supplier,detail:{}},null,null);
+  assert.equal((await db.query('select count(*)::int n from supplier_payments where cash_transaction_id=$1',[registered.transaction_ids[0]])).rows[0].n,1);
+  await db.query('rollback to savepoint fixtures');
+  assert.deepEqual(await totals(),before);assert.deepEqual(await counts(),initial);
+  await db.query(activate?'commit':'rollback');
+  console.log('PASS eventual purchase: save, retry, optional merchant, snapshot, edit, cancellation, invalid references rejected, registered supplier regression; all fixtures removed. '+(activate?'Production v143 activated; balances preserved.':'Rehearsal rolled back.'));
+ } catch(e){await db.query('rollback');throw e;}finally{await db.end();}
+})().catch(e=>{console.error(e.code,e.message);process.exitCode=1;});

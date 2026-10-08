@@ -2,14 +2,14 @@
 
 import React, { useEffect, useState } from "react";
 import { formatPrice } from "@/lib/utils";
-import { 
-  Wallet, 
-  ArrowUpRight, 
-  ArrowDownRight, 
-  PlusCircle, 
-  Calendar, 
-  Clock, 
-  User, 
+import {
+  Wallet,
+  ArrowUpRight,
+  ArrowDownRight,
+  PlusCircle,
+  Calendar,
+  Clock,
+  User,
   AlertCircle,
   FileText,
   Loader2,
@@ -30,7 +30,7 @@ export default function CajaDiariaPage() {
   const [activeRegister, setActiveRegister] = useState<CashRegister | null>(null);
   const [transactions, setTransactions] = useState<CashTransaction[]>([]);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
-  
+
   // Modales
   const [isOpeningModalOpen, setIsOpeningModalOpen] = useState(false);
   const [isClosingModalOpen, setIsClosingModalOpen] = useState(false);
@@ -92,7 +92,7 @@ export default function CajaDiariaPage() {
   async function loadData() {
     try {
       setLoading(true);
-      
+
       // Prefill datetime-local input
       const now = new Date();
       const tzOffset = now.getTimezoneOffset() * 60000;
@@ -163,14 +163,14 @@ export default function CajaDiariaPage() {
       if (registers && registers.length > 0) {
         const currentReg = registers[0];
         setActiveRegister(currentReg);
-        
+
         // Cargar transacciones de la caja
         const { data: txs } = await supabase
           .from('cash_transactions')
           .select('*, cost_centers(*), payment_methods(name)')
           .eq('register_id', currentReg.id)
           .order('created_at', { ascending: false });
-        
+
         if (txs && txs.length > 0) {
           const txIds = txs.map(t => t.id);
 
@@ -181,7 +181,7 @@ export default function CajaDiariaPage() {
 
           const { data: sp } = await supabase
             .from('supplier_payments')
-            .select('id, cash_transaction_id, supplier_id, purchase_id, suppliers(name), supplier_purchases(invoice_number, total_amount)')
+            .select('id, cash_transaction_id, supplier_id, purchase_id, suppliers(name), supplier_purchases!supplier_payments_purchase_id_fkey(invoice_number, total_amount)')
             .in('cash_transaction_id', txIds);
 
           const cpMap: Record<string, any> = {};
@@ -239,7 +239,7 @@ export default function CajaDiariaPage() {
         .single();
 
       if (error) throw error;
-      
+
       setIsOpeningModalOpen(false);
       setInitArs("0");
       setInitUsd("0");
@@ -255,7 +255,7 @@ export default function CajaDiariaPage() {
   async function handleRegisterTransaction(e: React.FormEvent) {
     e.preventDefault();
     if (!activeRegister || !userId || !txAmount || !txPaymentMethod) return;
-    
+
     // Validar centro de costo si es egreso
     if (txType === 'egreso' && !txCostCenterId) {
       alert("Debes seleccionar un Centro de Costo para registrar un Egreso.");
@@ -454,7 +454,7 @@ export default function CajaDiariaPage() {
 
         const { data: payData, error: payFetchError } = await supabase
           .from('supplier_payments')
-          .select('*, supplier_purchases(id, paid_amount, total_amount)')
+          .select('*, supplier_purchases!supplier_payments_purchase_id_fkey(id, paid_amount, total_amount)')
           .eq('id', reconciliation.id)
           .maybeSingle();
 
@@ -591,10 +591,10 @@ export default function CajaDiariaPage() {
       ) : (
         /* Dashboard de Caja Activa */
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          
+
           {/* Columna Izquierda: Tarjetas de Saldo y Cierre */}
           <div className="lg:col-span-1 space-y-4">
-            
+
             {/* Información General de la Caja */}
             <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm space-y-3">
               <div className="flex justify-between items-center pb-2.5 border-b border-slate-100">
@@ -603,7 +603,7 @@ export default function CajaDiariaPage() {
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> Abierta
                 </span>
               </div>
-              
+
               <div className="space-y-2 text-xs font-bold text-slate-700">
                 <div className="flex justify-between">
                   <span className="text-slate-400 flex items-center gap-1"><User className="w-3.5 h-3.5 text-slate-400" /> Operador:</span>
@@ -634,7 +634,7 @@ export default function CajaDiariaPage() {
               <div className="pb-2.5 border-b border-brand-500/30">
                 <span className="text-[10px] font-black uppercase tracking-wider text-brand-200">Saldos de Efectivo Esperados</span>
               </div>
-              
+
               <div className="space-y-4">
                 <div>
                   <span className="text-[9px] font-black uppercase text-brand-200 tracking-wider">Efectivo en Pesos (ARS)</span>
@@ -659,15 +659,15 @@ export default function CajaDiariaPage() {
               <h3 className="text-xs font-black text-slate-800 flex items-center gap-1 border-b border-slate-100 pb-2">
                 <PlusCircle className="w-4 h-4 text-brand-500" /> Carga Rápida de Caja (Gastos/Ingresos)
               </h3>
-              
+
               <form onSubmit={handleRegisterTransaction} className="space-y-3">
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
                     onClick={() => { setTxType('egreso'); setTxCategory('gasto_general'); }}
                     className={`py-1.5 text-[10px] font-black rounded-lg border uppercase tracking-wider transition-all ${
-                      txType === 'egreso' 
-                        ? 'bg-rose-50 border-rose-200 text-rose-700' 
+                      txType === 'egreso'
+                        ? 'bg-rose-50 border-rose-200 text-rose-700'
                         : 'border-slate-100 text-slate-400 hover:bg-slate-50'
                     }`}
                   >
@@ -677,8 +677,8 @@ export default function CajaDiariaPage() {
                     type="button"
                     onClick={() => { setTxType('ingreso'); setTxCategory('ingreso_capital'); }}
                     className={`py-1.5 text-[10px] font-black rounded-lg border uppercase tracking-wider transition-all ${
-                      txType === 'ingreso' 
-                        ? 'bg-emerald-50 border-emerald-200 text-emerald-700' 
+                      txType === 'ingreso'
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
                         : 'border-slate-100 text-slate-400 hover:bg-slate-50'
                     }`}
                   >
@@ -817,7 +817,7 @@ export default function CajaDiariaPage() {
 
           {/* Columna Derecha: Listado de Transacciones de Caja (2/3 columnas) */}
           <div className="lg:col-span-2 space-y-4">
-            
+
             {/* Libro Diario de Transacciones */}
             <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm space-y-4">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-3 border-b border-slate-100">
@@ -827,7 +827,7 @@ export default function CajaDiariaPage() {
                   </h2>
                   <p className="text-[10px] text-slate-400 font-semibold">Movimientos de la caja actual.</p>
                 </div>
-                
+
                 {/* Filtros rápidos */}
                 <div className="flex flex-wrap gap-2">
                   <select
@@ -901,8 +901,8 @@ export default function CajaDiariaPage() {
                             </td>
                             <td className="py-3 text-center">
                               <span className={`inline-flex items-center gap-0.5 px-2 py-0.5 rounded text-[9px] font-black uppercase ${
-                                isIngreso 
-                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' 
+                                isIngreso
+                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
                                   : 'bg-rose-50 text-rose-700 border border-rose-100'
                               }`}>
                                 {isIngreso ? <ArrowUpRight className="w-2.5 h-2.5 text-emerald-600" /> : <ArrowDownRight className="w-2.5 h-2.5 text-rose-600" />}
@@ -926,7 +926,7 @@ export default function CajaDiariaPage() {
                                 <div className="inline-flex items-center gap-1 bg-blue-50 border border-blue-100 text-blue-700 px-2 py-0.5 rounded text-[10px] font-bold">
                                   <UserCheck className="w-3.5 h-3.5 text-blue-500" />
                                   <span className="max-w-[120px] truncate" title={clientRec ? `Cliente: ${clientRec.clients?.business_name || 'Cliente'}` : `Proveedor: ${supplierRec.suppliers?.name}`}>
-                                    {clientRec 
+                                    {clientRec
                                       ? (clientRec.clients?.business_name || 'Cliente')
                                       : (supplierRec.suppliers?.name || 'Proveedor')}
                                   </span>
@@ -976,7 +976,7 @@ export default function CajaDiariaPage() {
             <h2 className="text-lg font-black text-slate-900 tracking-tight flex items-center gap-1.5 border-b border-slate-100 pb-3 mb-4">
               <Wallet className="w-5 h-5 text-brand-500" /> Apertura de Caja Diaria
             </h2>
-            
+
             <form onSubmit={handleOpenCaja} className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
@@ -993,7 +993,7 @@ export default function CajaDiariaPage() {
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs font-mono">$</span>
                   </div>
                 </div>
-                
+
                 <div className="space-y-1">
                   <label className="text-[9px] font-black uppercase text-slate-400">Fondo Inicial en Dólares (USD) *</label>
                   <div className="relative">
@@ -1047,7 +1047,7 @@ export default function CajaDiariaPage() {
             <h2 className="text-lg font-black text-slate-900 tracking-tight flex items-center gap-1.5 border-b border-slate-100 pb-3 mb-4">
               <CheckCircle2 className="w-5 h-5 text-emerald-500" /> Arqueo y Cierre de Caja
             </h2>
-            
+
             <form onSubmit={handleCloseCaja} className="space-y-4">
               <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-xs font-bold text-slate-700 space-y-2">
                 <div className="flex justify-between border-b border-slate-200/60 pb-1.5">
@@ -1073,7 +1073,7 @@ export default function CajaDiariaPage() {
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 font-bold text-sm outline-none focus:border-brand-500 focus:bg-white transition-all"
                   />
                 </div>
-                
+
                 <div className="space-y-1">
                   <label className="text-[9px] font-black uppercase text-slate-400">Monto Contado USD (US$) *</label>
                   <input
@@ -1092,7 +1092,7 @@ export default function CajaDiariaPage() {
               {(() => {
                 const diffArs = (Number(actualArs) || 0) - activeRegister.expected_balance_ars;
                 const diffUsd = (Number(actualUsd) || 0) - activeRegister.expected_balance_usd;
-                
+
                 return (
                   <div className="grid grid-cols-2 gap-3 p-3 rounded-xl border text-xs font-black">
                     <div className={`p-2 rounded-lg ${diffArs === 0 ? 'bg-slate-50 text-slate-700' : diffArs > 0 ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-rose-50 text-rose-700 border border-rose-100'}`}>

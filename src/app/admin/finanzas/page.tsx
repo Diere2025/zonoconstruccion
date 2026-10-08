@@ -1,22 +1,34 @@
 "use client";
+import {supplierVoucherPending} from '@/lib/financialOperations/voucherStatus';
 
-import React, { useState, useEffect, useMemo, Suspense } from "react";
+import AdaptiveSelect from "@/components/ui/AdaptiveSelect";
+
+import React, { useState, useEffect, useMemo, useRef, Suspense } from "react";
 import { treasuryDateTime, treasuryToday } from "@/lib/treasuryTransactionTime";
 import { supabase } from "@/lib/supabase";
-import { 
-  Wallet, 
-  ArrowUpRight, 
-  ArrowDownRight, 
-  PlusCircle, 
-  Loader2, 
-  RefreshCw, 
-  Search, 
-  Coins, 
-  ArrowRightLeft, 
-  ChevronLeft, 
-  ChevronRight, 
+import OperationEditor from '@/components/finanzas/operations/OperationEditor';
+import OperationChooser from '@/components/finanzas/operations/OperationChooser';
+import { createAuthenticatedRequester } from '@/lib/authenticatedRequest';
+import { inferOperationType, isInactiveFinancialMovement, operationLabels, type OperationType, type OperationSummary } from '@/lib/financialOperations/types';
+const financialRequest = createAuthenticatedRequester(supabase);
+const localOperationRead = (url:string,options?:RequestInit) => {
+  if(options && (options.method || 'GET')!=='GET')throw new Error('La revisión local solo permite consultar.');
+  return financialRequest(url==='/api/admin/financial-operations'?`${url}?preview=real`:url,options);
+};
+const financeFetch = async (url: string, fresh = false) => { const payload = await financialRequest(url, fresh ? {} : undefined); return {ok:true,json:async()=>payload}; };
+import {
+  Wallet,
+  ArrowUpRight,
+  ArrowDownRight,
+  PlusCircle,
+  Loader2,
+  Search,
+  Coins,
+  ArrowRightLeft,
+  ChevronLeft,
+  ChevronRight,
   ChevronDown,
-  Trash2, 
+  Trash2,
   X,
   Lock,
   Edit2,
@@ -34,6 +46,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import FinanceToolbar, { type QuickMovement, type OptionalFinanceColumn } from "@/components/finanzas/FinanceToolbar";
 import SupplierAccounts from "@/components/finanzas/SupplierAccounts";
 import FinancialConceptManager from "@/components/finanzas/FinancialConceptManager";
+import BankSheetImportModal from "@/components/finanzas/BankSheetImportModal";
 import SearchableSelect from "@/components/ui/SearchableSelect";
 import { financialAccountLabel } from "@/lib/financialAccountLabels";
 import type { FinancialConcept } from "@/lib/financialConcepts";
@@ -57,7 +70,7 @@ function defaultTransferAccounts(accounts: FinancialAccount[], sourceId?: string
 }
 
 const DEFAULT_FINANCIAL_CATEGORIES = [
-  "Gastos Operativos", "Recaudación", "Impuestos", "Insumo de Producto", "IIGG",
+  "Gastos Operativos", "Cobranza", "Recaudación", "Impuestos", "Insumo de Producto", "IIGG",
   "Deuda bancaria", "Publicidad", "Servicio de Flete", "Servicio de Limpieza",
   "Peajes", "Proveedores", "Sueldos", "Comisiones Bancarias", "Otro"
 ];
@@ -158,6 +171,8 @@ interface FinancialAccount {
   balance?: number;
   total_income?: number;
   total_expense?: number;
+  is_custody?: boolean;
+  custodian?: string;
 }
 
 interface CostCenter {
@@ -223,6 +238,10 @@ interface PendingOrder {
 }
 
 interface CashTransactionWithRelations {
+  treasury_settlement_id?:string|null;
+  financial_operations?:OperationSummary|null;
+  reversal_of_transaction_id?:string|null;
+  payment_planning_realizations?:Array<{id:string;item_id:string;reversed_at:string|null}>;
   id: string;
   register_id: string | null;
   type: 'ingreso' | 'egreso';
@@ -291,72 +310,6 @@ interface CashTransactionWithRelations {
   }>;
 }
 
-const finanzasSpreadsheetId = '18oydLaQldev9pY7fA_jvN9YQONfDRVjrMD-ps7F6izc';
-const movimientosSpreadsheetId = '18oydLaQldev9pY7fA_jvN9YQONfDRVjrMD-ps7F6izc';
-const bancosSpreadsheetId = '18oydLaQldev9pY7fA_jvN9YQONfDRVjrMD-ps7F6izc';
-
-function parseCSV(content: string): string[][] {
-  const rows: string[][] = [];
-  let currentRow: string[] = [];
-  let currentField = '';
-  let inQuotes = false;
-  
-  for (let i = 0; i < content.length; i++) {
-    const char = content[i];
-    if (inQuotes) {
-      if (char === '"') {
-        if (i + 1 < content.length && content[i + 1] === '"') {
-          currentField += '"';
-          i++;
-        } else {
-          inQuotes = false;
-        }
-      } else {
-        currentField += char;
-      }
-    } else {
-      if (char === '"') {
-        inQuotes = true;
-      } else if (char === ',') {
-        currentRow.push(currentField);
-        currentField = '';
-      } else if (char === '\n' || char === '\r') {
-        if (char === '\r' && i + 1 < content.length && content[i + 1] === '\n') {
-          i++;
-        }
-        currentRow.push(currentField);
-        rows.push(currentRow);
-        currentRow = [];
-        currentField = '';
-      } else {
-        currentField += char;
-      }
-    }
-  }
-  if (currentRow.length > 0 || currentField !== '') {
-    currentRow.push(currentField);
-    rows.push(currentRow);
-  }
-  return rows;
-}
-
-function parseSpanishFloat(val: string): number {
-  if (!val) return 0;
-  const cleaned = val.replace(/\./g, '').replace(',', '.');
-  const num = parseFloat(cleaned);
-  return isNaN(num) ? 0 : num;
-}
-
-function parseSpanishDate(dateStr: string): Date {
-  if (!dateStr) return new Date();
-  const parts = dateStr.split('/');
-  if (parts.length !== 3) return new Date();
-  const day = parseInt(parts[0], 10);
-  const month = parseInt(parts[1], 10);
-  const year = parseInt(parts[2], 10);
-  return new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
-}
-
 interface ClientBalanceItem {
   id: string;
   full_name: string;
@@ -383,23 +336,6 @@ export interface AccountReconciliation {
   totalExpense: number;
   appNet: number;
 }
-
-// Saldos iniciales consolidados al 01/01/2026
-const INITIAL_BALANCES_2026: Record<string, number> = {
-  'Caja Efectivo Pesos': 6917524,
-  'Cuenta MP1': 894163,
-  'Cuenta MP2': 673945,
-  'Cuenta Galicia': -3895172,
-  'Galicia.Mas': 1764,
-  'Cuenta Santander': -11260,
-  'Cuenta ICBC': 5000,
-  'Caja Efectivo Dólares': 0,
-  'Visa.Galicia': 0,
-  'Inversiones': 0,
-  'Cuenta MP3': 0,
-  'Cuenta MP4': 0,
-  'Cuenta MP5': 0
-};
 
 function DateInput({
   label,
@@ -433,7 +369,7 @@ function DateInput({
           {label}
         </label>
       )}
-      <div 
+      <div
         onClick={() => {
           if (inputRef.current) {
             try {
@@ -471,6 +407,14 @@ export default function AdminFinanzasPage() {
 }
 
 function FinanceWorkspace() {
+  const approvalAttempt = useRef<{signature:string;key:string}|null>(null);
+  const [operationEditor, setOperationEditor] = useState<{kind:OperationType;payrollKind?:string;transactionId?:string;sourceAccountId?:string;duplicate?:boolean}|null>(null);
+  const [choosingOperation,setChoosingOperation]=useState(false);
+  const operationSaved = async () => { await Promise.all([loadTransactions(false, true), initData(), ...(activeTab==='validations'?[loadValidationOrders()]:[])]); };
+  const transactionLoadVersion = useRef(0);
+  const cancellationInFlight = useRef(false);
+  const [cancellingTransactionId, setCancellingTransactionId] = useState<string | null>(null);
+  const [showCancelled, setShowCancelled] = useState(false);
   const searchParams = useSearchParams();
   const router = useRouter();
   const tab = searchParams.get("tab");
@@ -498,8 +442,7 @@ function FinanceWorkspace() {
   const columnCount = 8 + Object.values(optionalColumns).filter(Boolean).length;
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [syncProgress, setSyncProgress] = useState("");
+  const [isBankImportOpen, setIsBankImportOpen] = useState(false);
   const [transactionNotice, setTransactionNotice] = useState<string | null>(null);
 
   // Lists from DB
@@ -507,12 +450,14 @@ function FinanceWorkspace() {
   const [costCenters, setCostCenters] = useState<CostCenter[]>([]);
   const [transactions, setTransactions] = useState<CashTransactionWithRelations[]>([]);
   const [transactionsError, setTransactionsError] = useState("");
+  const [operationsAvailable,setOperationsAvailable]=useState<boolean|null>(null);
+  const localInspection=process.env.NODE_ENV==='development' && operationsAvailable===false;
   const [initDataError, setInitDataError] = useState("");
   const [financialConcepts, setFinancialConcepts] = useState<FinancialConcept[]>([]);
   const [conceptCatalogError, setConceptCatalogError] = useState("");
   const [isConceptManagerOpen, setIsConceptManagerOpen] = useState(false);
   const [clientsBalances, setClientsBalances] = useState<ClientBalanceItem[]>([]);
-  const [reconciliationReport, setReconciliationReport] = useState<AccountReconciliation[]>(() => {
+  const [reconciliationReport] = useState<AccountReconciliation[]>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('zono_finanzas_reconciliation');
       if (saved) {
@@ -636,7 +581,7 @@ function FinanceWorkspace() {
   const loadHelperLists = async () => {};
   const loadFinancialAccounts = async () => {
     try {
-      const res = await fetch("/api/admin/finanzas-data?action=accounts");
+      const res = await financeFetch("/api/admin/finanzas-data?action=accounts");
       if (!res.ok) return;
       const payload = await res.json();
       if (payload.financialAccounts) {
@@ -676,7 +621,7 @@ function FinanceWorkspace() {
 
   const loadValidationOrders = async () => {
     try {
-      const res = await fetch("/api/admin/finanzas-data?action=validations");
+      const res = await financeFetch("/api/admin/finanzas-data?action=validations");
       if (!res.ok) throw new Error("Error loading validation orders from API");
       const payload = await res.json();
       if (payload.validationOrders) setValidationOrders(payload.validationOrders);
@@ -687,11 +632,11 @@ function FinanceWorkspace() {
 
   const initData = async () => {
     try {
-      const res = await fetch("/api/admin/finanzas-data?action=init");
+      const res = await financeFetch("/api/admin/finanzas-data?action=init");
       if (!res.ok) throw new Error("No se pudo cargar la configuración de Finanzas.");
       const payload = await res.json();
       setInitDataError("");
-      
+
       if (payload.employees) setEmployees(payload.employees);
       if (payload.suppliers) setSuppliers(payload.suppliers);
       if (payload.pendingPurchases) setPendingPurchases(payload.pendingPurchases);
@@ -702,7 +647,7 @@ function FinanceWorkspace() {
         if (payload.costCenters.length > 0) setTxCostCenterId(payload.costCenters[0].id);
       }
       if (payload.validationOrders) setValidationOrders(payload.validationOrders);
-      
+
       if (payload.financialAccounts) {
         const accountsWithBalances = (payload.financialAccounts as unknown as FinancialAccount[]).map((acc) => ({
           ...acc,
@@ -712,7 +657,7 @@ function FinanceWorkspace() {
         }));
 
         setFinancialAccounts(accountsWithBalances);
-        
+
         if (accountsWithBalances.length > 0) {
           const defaultAcc = accountsWithBalances.find(a => a.name.toLowerCase().includes("efectivo pesos") || a.name.toLowerCase() === "caja efectivo pesos") || accountsWithBalances[0];
           setTxAccountId(defaultAcc.id);
@@ -732,7 +677,7 @@ function FinanceWorkspace() {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) setUserId(user.id);
       if (user) await loadFinancialConcepts();
-      
+
       const now = new Date();
       const tzOffset = now.getTimezoneOffset() * 60000;
       setTxCreatedAt(new Date(now.getTime() - tzOffset).toISOString().slice(0, 10));
@@ -797,7 +742,7 @@ function FinanceWorkspace() {
     if (item.movement_type === "Ingreso") setTxType("ingreso");
     if (item.movement_type === "Egreso") setTxType("egreso");
     setFinancialTypeNeedsReview(item.movement_type === "Mov. Financiero");
-    if (item.category !== "Recaudación") {
+    if (!["Recaudación", "Cobranza"].includes(item.category)) {
       setLinkToOrder(false);
       setSelectedOrderId("");
       setSelectedOrder(null);
@@ -819,7 +764,7 @@ function FinanceWorkspace() {
     const timer = setTimeout(async () => {
       setIsSearchingOrders(true);
       try {
-        const res = await fetch(`/api/admin/finanzas-data?action=search-pending-orders&q=${encodeURIComponent(q)}`);
+        const res = await financeFetch(`/api/admin/finanzas-data?action=search-pending-orders&q=${encodeURIComponent(q)}`);
         const data = await res.json();
         setOrderSearchResults((data.pendingOrders || []) as PendingOrder[]);
       } catch (err) {
@@ -844,7 +789,7 @@ function FinanceWorkspace() {
     const timer = setTimeout(async () => {
       setIsSearchingLinkOrders(true);
       try {
-        const res = await fetch(`/api/admin/finanzas-data?action=search-pending-orders&q=${encodeURIComponent(q)}`);
+        const res = await financeFetch(`/api/admin/finanzas-data?action=search-pending-orders&q=${encodeURIComponent(q)}`);
         const data = await res.json();
         setLinkOrderSearchResults((data.pendingOrders || []) as PendingOrder[]);
       } catch (err) {
@@ -857,30 +802,34 @@ function FinanceWorkspace() {
     return () => clearTimeout(timer);
   }, [linkOrderSearchQuery, isLinkModalOpen, reconcilingTx]);
 
-  const loadTransactions = async (showLoading = true) => {
+  const loadTransactions = async (showLoading = true, fresh = false) => {
+    const version = ++transactionLoadVersion.current;
     if (showLoading) setLoading(true);
     try {
-      const res = await fetch(`/api/admin/finanzas-data?action=transactions&startDate=${startDate}&endDate=${endDate}`);
+      const res = await financeFetch(`/api/admin/finanzas-data?action=transactions&startDate=${startDate}&endDate=${endDate}`, fresh);
       if (!res.ok) {
         throw new Error("No se pudieron cargar los movimientos. La base de datos no responde.");
       }
       const payload = await res.json();
+      if (version !== transactionLoadVersion.current) return;
       if (payload.transactions) {
         setTransactions(payload.transactions);
       }
+      setOperationsAvailable(payload.features?.financialOperations ?? true);
       setTransactionsError("");
     } catch (err) {
+      if (version !== transactionLoadVersion.current) return;
       setTransactions([]);
       setTransactionsError(err instanceof Error ? err.message : "No se pudieron cargar los movimientos.");
     } finally {
-      if (showLoading) setLoading(false);
+      if (version === transactionLoadVersion.current) setLoading(false);
     }
   };
 
   const loadCheckingAccounts = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/admin/finanzas-data?action=balances");
+      const res = await financeFetch("/api/admin/finanzas-data?action=balances");
       if (!res.ok) throw new Error("Error loading checking accounts balances");
       const payload = await res.json();
       if (payload.clientsBalances) setClientsBalances(payload.clientsBalances);
@@ -891,454 +840,7 @@ function FinanceWorkspace() {
     }
   };
 
-  interface SpreadsheetTransaction {
-    type: 'ingreso' | 'egreso';
-    category: string;
-    sub_category: string | null;
-    business_unit: string;
-    amount: number;
-    currency: 'ARS' | 'USD';
-    exchange_rate: number;
-    concept: string;
-    notes?: string | null;
-    created_at: string;
-    payment_method_id: string;
-    financial_account_id?: string;
-  }
-
-  const handleSyncFromSheets = async () => {
-    const confirmSync = window.confirm(
-      "¿Deseas sincronizar el flujo de caja con las planillas de Google Sheets?\n\n" +
-      "• Se eliminarán los movimientos importados previamente.\n" +
-      "• Se mantendrán intactos los movimientos que hayas cargado manualmente desde esta aplicación.\n" +
-      "• Se recalcularán los saldos iniciales automáticamente para coincidir con el saldo real de cada cuenta."
-    );
-    if (!confirmSync) return;
-
-    setIsSyncing(true);
-    setSyncProgress("Iniciando conexión con Google Sheets...");
-    
-    try {
-      // 1. Fetch payment methods and accounts from DB dynamically
-      const [pmsRes, faRes] = await Promise.all([
-        supabase.from('payment_methods').select('id, name'),
-        supabase.from('financial_accounts').select('id, name, currency')
-      ]);
-
-      if (pmsRes.error) throw pmsRes.error;
-      if (faRes.error) throw faRes.error;
-
-      const pms = pmsRes.data || [];
-      const dbAccs = faRes.data || [];
-
-      const pmEfectivoId = pms.find(p => /efectivo|^contado$/i.test(p.name || ""))?.id;
-      const pmTransferenciaId = pms.find(p => p.name.toLowerCase().includes("transferencia") || p.name.toLowerCase().includes("mercado"))?.id;
-
-      const adminUserId = '381df0d1-183f-4ccb-aaf2-8147c76159a9';
-
-      if (!pmEfectivoId || !pmTransferenciaId) {
-        throw new Error("No se encontraron los medios de pago ('Efectivo' o 'Transferencia') configurados en la base de datos.");
-      }
-
-      const dbAccountsMap: Record<string, { id: string; currency: string }> = {};
-      dbAccs.forEach(r => {
-        dbAccountsMap[r.name] = { id: r.id, currency: r.currency };
-      });
-
-      // Account name mappings from sheet values to DB values
-      const sheetToDbMapping: Record<string, { dbName: string; currency: string; isCash: boolean }> = {
-        'Caja.EfectivoPesos': { dbName: 'Caja Efectivo Pesos', currency: 'ARS', isCash: true },
-        'Cuenta.MP1': { dbName: 'Cuenta MP1', currency: 'ARS', isCash: false },
-        'Cuenta.MP2': { dbName: 'Cuenta MP2', currency: 'ARS', isCash: false },
-        'Cuenta.MP3': { dbName: 'Cuenta MP3', currency: 'ARS', isCash: false },
-        'Cuenta.MP4': { dbName: 'Cuenta MP4', currency: 'ARS', isCash: false },
-        'Cuenta.MP5': { dbName: 'Cuenta MP5', currency: 'ARS', isCash: false },
-        'Cuenta.MPCaro': { dbName: 'Cuenta MP3', currency: 'ARS', isCash: false },
-        'Cuenta.Galicia': { dbName: 'Cuenta Galicia', currency: 'ARS', isCash: false },
-        'Galicia.Mas': { dbName: 'Galicia.Mas', currency: 'ARS', isCash: false },
-        'Cuenta.GaliciaMas': { dbName: 'Galicia.Mas', currency: 'ARS', isCash: false },
-        'Visa.Galicia': { dbName: 'Visa.Galicia', currency: 'ARS', isCash: false },
-        'Cuenta.VisaGalicia': { dbName: 'Visa.Galicia', currency: 'ARS', isCash: false },
-        'Cuenta.Santander': { dbName: 'Cuenta Santander', currency: 'ARS', isCash: false },
-        'Cuenta.ICBC': { dbName: 'Cuenta ICBC', currency: 'ARS', isCash: false },
-        'Inversiones': { dbName: 'Inversiones', currency: 'ARS', isCash: false },
-        'Caja.USD': { dbName: 'Caja Efectivo Dólares', currency: 'USD', isCash: true }
-      };
-
-      const balanceTargets = [
-        { id: movimientosSpreadsheetId, sheet: 'Movimientos - Caja', name: 'Caja.EfectivoPesos', colName: 'Saldo' },
-        { id: movimientosSpreadsheetId, sheet: 'Movimientos - Caja USD', name: 'Caja.USD', colName: 'Saldo' },
-        { id: bancosSpreadsheetId, sheet: 'Bancos - MercadoPago1', name: 'Cuenta.MP1', colName: 'Saldo' },
-        { id: bancosSpreadsheetId, sheet: 'Bancos - MercadoPago2', name: 'Cuenta.MP2', colName: 'Saldo' },
-        { id: bancosSpreadsheetId, sheet: 'Bancos - MercadoPago3', name: 'Cuenta.MP3', colName: 'Saldo' },
-        { id: bancosSpreadsheetId, sheet: 'Bancos - MercadoPago4', name: 'Cuenta.MP4', colName: 'Saldo' },
-        { id: bancosSpreadsheetId, sheet: 'Bancos - Galicia', name: 'Cuenta.Galicia', colName: 'Saldo' },
-        { id: bancosSpreadsheetId, sheet: 'Bancos - Galicia.Mas', name: 'Cuenta.GaliciaMas', colName: 'Saldo' },
-        { id: bancosSpreadsheetId, sheet: 'Bancos - Visa.Galicia', name: 'Cuenta.VisaGalicia', colName: 'Saldo' },
-        { id: bancosSpreadsheetId, sheet: 'Bancos - Santander', name: 'Cuenta.Santander', colName: 'Saldo' },
-        { id: bancosSpreadsheetId, sheet: 'Bancos - ICBC', name: 'Cuenta.ICBC', colName: 'Saldo' },
-        { id: bancosSpreadsheetId, sheet: 'Bancos - Inversiones', name: 'Inversiones', colName: 'Saldo' }
-      ];
-
-      // Helper to fetch Google Sheets CSV via Next.js server-side proxy (bypasses browser CORS / network restrictions)
-      const fetchSheetCsv = async (url: string): Promise<string> => {
-        const proxyUrl = `/api/admin/finanzas-data?action=fetch-sheet&url=${encodeURIComponent(url)}`;
-        const res = await fetch(proxyUrl);
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.error || `Error al conectar con la planilla (${res.status})`);
-        }
-        const json = await res.json();
-        if (!json.success || typeof json.csv !== 'string') {
-          throw new Error(json.error || "No se recibieron datos de la planilla");
-        }
-        return json.csv;
-      };
-
-      // 2. Fetch expected balances
-      setSyncProgress("Obteniendo saldos finales esperados desde las cuentas...");
-      const expectedBalances: Record<string, number> = {};
-      
-      for (const t of balanceTargets) {
-        try {
-          const url = `https://docs.google.com/spreadsheets/d/${t.id}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(t.sheet)}`;
-          const csvText = await fetchSheetCsv(url);
-          const rows = parseCSV(csvText);
-          
-          let headerIdx = -1;
-          for (let i = 0; i < Math.min(10, rows.length); i++) {
-            if (rows[i].includes(t.colName)) {
-              headerIdx = i;
-              break;
-            }
-          }
-          if (headerIdx === -1) continue;
-          
-          const headers = rows[headerIdx];
-          const saldoIdx = headers.indexOf(t.colName);
-          const fechaIdx = headers.findIndex(h => h.toLowerCase().includes('fecha'));
-          const conceptoIdx = headers.findIndex(h => h.toLowerCase().includes('concepto') || h.toLowerCase().includes('detalle'));
-
-          let lastBalance = 0;
-          for (let i = rows.length - 1; i > headerIdx; i--) {
-            const row = rows[i];
-            const hasDate = fechaIdx !== -1 && row[fechaIdx] && row[fechaIdx].trim().length > 0;
-            const hasConcept = conceptoIdx !== -1 && row[conceptoIdx] && row[conceptoIdx].trim().length > 0;
-            const hasSaldo = saldoIdx !== -1 && row[saldoIdx] && row[saldoIdx].trim().length > 0;
-
-            if ((hasDate || hasConcept) && hasSaldo) {
-              lastBalance = parseSpanishFloat(row[saldoIdx]);
-              break;
-            }
-          }
-          expectedBalances[t.name] = lastBalance;
-        } catch (errBal: any) {
-          console.warn(`[Finanzas Sync] No se pudo leer saldo de [${t.sheet}]: ${errBal.message}`);
-        }
-      }
-
-      const expectedDbBalances: Record<string, number> = {
-        'Caja Efectivo Pesos': expectedBalances['Caja.EfectivoPesos'] || 0,
-        'Caja Efectivo Dólares': expectedBalances['Caja.USD'] || 0,
-        'Cuenta MP1': expectedBalances['Cuenta.MP1'] || 0,
-        'Cuenta MP2': expectedBalances['Cuenta.MP2'] || 0,
-        'Cuenta MP3': expectedBalances['Cuenta.MP3'] || 0,
-        'Cuenta MP4': expectedBalances['Cuenta.MP4'] || 0,
-        'Cuenta Galicia': expectedBalances['Cuenta.Galicia'] || 0,
-        'Galicia.Mas': expectedBalances['Cuenta.GaliciaMas'] || 0,
-        'Visa.Galicia': expectedBalances['Cuenta.VisaGalicia'] || 0,
-        'Cuenta Santander': expectedBalances['Cuenta.Santander'] || 0,
-        'Cuenta ICBC': expectedBalances['Cuenta.ICBC'] || 0,
-        'Inversiones': expectedBalances['Inversiones'] || 0
-      };
-
-      // 3. Clear previous imported transactions
-      setSyncProgress("Limpiando transacciones importadas anteriormente...");
-      const { error: deleteErr } = await supabase
-        .from('cash_transactions')
-        .delete()
-        .eq('is_imported', true);
-      if (deleteErr) throw deleteErr;
-
-      // 4. Query net sum of app-entered transactions (is_imported = false)
-      setSyncProgress("Analizando movimientos manuales cargados en la App...");
-      const { data: appTxs, error: appTxsErr } = await supabase
-        .from('cash_transactions')
-        .select('financial_account_id, type, amount')
-        .eq('is_imported', false);
-      if (appTxsErr) throw appTxsErr;
-
-      const appNets: Record<string, number> = {};
-      (appTxs || []).forEach(tx => {
-        const accId = tx.financial_account_id;
-        if (!accId) return;
-        if (!appNets[accId]) appNets[accId] = 0;
-        const amount = Number(tx.amount) || 0;
-        if (tx.type === 'ingreso') {
-          appNets[accId] += amount;
-        } else {
-          appNets[accId] -= amount;
-        }
-      });
-
-      // 5. Download and Parse Finanzas tab (ARS Transactions)
-      setSyncProgress("Descargando movimientos en Pesos (ARS)...");
-      const finanzasUrl = `https://docs.google.com/spreadsheets/d/${finanzasSpreadsheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent('Finanzas - Finanzas')}`;
-      const finanzasCSV = await fetchSheetCsv(finanzasUrl);
-      const finanzasRows = parseCSV(finanzasCSV);
-
-      // Group ARS transactions by DB Account Name
-      const arsTransactionsGrouped: Record<string, SpreadsheetTransaction[]> = {};
-      Object.keys(dbAccountsMap).forEach(name => {
-        arsTransactionsGrouped[name] = [];
-      });
-
-      for (let i = 1; i < finanzasRows.length; i++) {
-        const row = finanzasRows[i];
-        if (row.length < 8) continue;
-        
-        const subCat = row[0];
-        const dateStr = row[1];
-        const concept = row[2];
-        const cat = row[3];
-        const businessUnit = row[4] || 'ZONO';
-        const typeStr = row[5];
-        const amountStr = row[6];
-        const sheetAccount = row[7];
-
-        if (!sheetAccount) continue;
-        const mapping = sheetToDbMapping[sheetAccount];
-        if (!mapping) continue;
-
-        const dbAccName = mapping.dbName;
-        const amount = parseSpanishFloat(amountStr);
-        if (amount <= 0) continue;
-
-        arsTransactionsGrouped[dbAccName].push({
-          type: typeStr === 'Ingreso' ? 'ingreso' : 'egreso',
-          category: cat || 'Otro',
-          sub_category: subCat || null,
-          business_unit: businessUnit,
-          amount: amount,
-          currency: 'ARS',
-          exchange_rate: 1.0,
-          concept: concept || 'Movimiento sin concepto',
-          created_at: parseSpanishDate(dateStr).toISOString(),
-          payment_method_id: mapping.isCash ? pmEfectivoId : pmTransferenciaId
-        });
-      }
-
-      // 6. Calculate and insert Initial Balances for ARS Accounts
-      setSyncProgress("Calculando saldos iniciales de cada cuenta...");
-      const allInsertions: SpreadsheetTransaction[] = [];
-
-      for (const [dbAccName, accInfo] of Object.entries(dbAccountsMap)) {
-        if (accInfo.currency !== 'ARS') continue;
-
-        let txSum = 0;
-        arsTransactionsGrouped[dbAccName].forEach(tx => {
-          if (tx.type === 'ingreso') {
-            txSum += tx.amount;
-          } else {
-            txSum -= tx.amount;
-          }
-        });
-
-        const appNet = appNets[accInfo.id] || 0;
-        const expectedFinal = expectedDbBalances[dbAccName];
-        // MP5 is present in the central Finanzas sheet but has no separate balance tab.
-        // Its first movements are from September 2026, so do not manufacture an
-        // offsetting opening balance when the full sheet sync is run later.
-        const initialBalance = dbAccName === 'Cuenta MP5' ? 0 : expectedFinal - txSum - appNet;
-
-        if (Math.abs(initialBalance) > 0.01) {
-          const isCash = dbAccName === 'Caja Efectivo Pesos';
-          allInsertions.push({
-            financial_account_id: accInfo.id,
-            type: initialBalance >= 0 ? 'ingreso' : 'egreso',
-            category: 'ingreso_capital',
-            sub_category: 'Saldo Inicial',
-            business_unit: 'ZONO',
-            amount: Math.abs(initialBalance),
-            currency: 'ARS',
-            exchange_rate: 1.0,
-            concept: 'Saldo Inicial al 01/01/2026',
-            created_at: '2026-01-01T12:00:00.000Z',
-            payment_method_id: isCash ? pmEfectivoId : pmTransferenciaId
-          });
-        }
-
-        arsTransactionsGrouped[dbAccName].forEach(tx => {
-          allInsertions.push({
-            ...tx,
-            financial_account_id: accInfo.id
-          });
-        });
-      }
-
-      // 7. Download and Parse Caja USD
-      setSyncProgress("Descargando movimientos en Dólares (USD)...");
-      const usdUrl = `https://docs.google.com/spreadsheets/d/${movimientosSpreadsheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent('Movimientos - Caja USD')}`;
-      const usdCSV = await fetchSheetCsv(usdUrl);
-      const usdRows = parseCSV(usdCSV);
-
-      const usdAccountId = dbAccountsMap['Caja Efectivo Dólares']?.id;
-      if (usdAccountId) {
-        for (let i = 1; i < usdRows.length; i++) {
-          const row = usdRows[i];
-          if (row.length < 8) continue;
-
-          const concept = row[1];
-          const dateStr = row[2];
-          const detail = row[3];
-          const cat = row[4];
-          const subCat = row[5];
-          const typeStr = row[6];
-          const amountStr = row[7];
-          const obs = row[13];
-          const cotizacionStr = row[17];
-
-          const amount = parseSpanishFloat(amountStr);
-          if (amount <= 0) continue;
-
-          const exchangeRate = parseSpanishFloat(cotizacionStr) || 1.0;
-          const notes = [detail, obs].filter(Boolean).join(' - ');
-
-          allInsertions.push({
-            financial_account_id: usdAccountId,
-            type: typeStr === 'Ingreso' ? 'ingreso' : 'egreso',
-            category: cat || 'Otro',
-            sub_category: subCat || null,
-            business_unit: 'ZONO',
-            amount: amount,
-            currency: 'USD',
-            exchange_rate: exchangeRate,
-            concept: concept || 'Movimiento sin concepto',
-            notes: notes || null,
-            created_at: parseSpanishDate(dateStr).toISOString(),
-            payment_method_id: pmEfectivoId
-          });
-        }
-      }
-
-      // 8. Bulk Insert into DB in chunks of 500
-      const chunkSize = 500;
-      const totalChunks = Math.ceil(allInsertions.length / chunkSize);
-      for (let i = 0; i < allInsertions.length; i += chunkSize) {
-        const chunk = allInsertions.slice(i, i + chunkSize);
-        setSyncProgress(`Insertando movimientos en base de datos (Lote ${Math.floor(i / chunkSize) + 1} de ${totalChunks})...`);
-        
-        const preparedChunk = chunk.map(item => ({
-          ...item,
-          created_by: userId || adminUserId,
-          is_imported: true
-        }));
-
-        const { error: insertErr } = await supabase
-          .from('cash_transactions')
-          .insert(preparedChunk);
-
-        if (insertErr) throw insertErr;
-      }
-
-      // 9. Build Reconciliation & Audit Report
-      const rep: AccountReconciliation[] = [];
-      for (const [dbAccName, accInfo] of Object.entries(dbAccountsMap)) {
-        if (accInfo.currency === 'ARS') {
-          let incSum = 0;
-          let expSum = 0;
-          let txSum = 0;
-          (arsTransactionsGrouped[dbAccName] || []).forEach(tx => {
-            if (tx.type === 'ingreso') {
-              incSum += tx.amount;
-              txSum += tx.amount;
-            } else {
-              expSum += tx.amount;
-              txSum -= tx.amount;
-            }
-          });
-
-          const appNet = appNets[accInfo.id] || 0;
-          const sheetDeclared = dbAccName === 'Cuenta MP5'
-            ? (INITIAL_BALANCES_2026[dbAccName] ?? 0) + txSum + appNet
-            : expectedDbBalances[dbAccName] ?? 0;
-          const initialBal = INITIAL_BALANCES_2026[dbAccName] ?? 0;
-          const calculatedBalance = initialBal + txSum + appNet;
-          const diff = sheetDeclared - calculatedBalance;
-
-          rep.push({
-            id: accInfo.id,
-            accountName: dbAccName,
-            currency: 'ARS',
-            initialBalance: initialBal,
-            calculatedBalance: calculatedBalance,
-            sheetDeclaredBalance: sheetDeclared,
-            difference: diff,
-            isExact: Math.abs(diff) < 1,
-            txCount: (arsTransactionsGrouped[dbAccName] || []).length,
-            totalIncome: incSum,
-            totalExpense: expSum,
-            appNet: appNet
-          });
-        }
-      }
-
-      if (usdAccountId) {
-        let usdIncSum = 0;
-        let usdExpSum = 0;
-        let usdTxSum = 0;
-        for (let i = 1; i < usdRows.length; i++) {
-          const row = usdRows[i];
-          if (row.length < 8) continue;
-          const typeStr = row[6];
-          const amount = parseSpanishFloat(row[7]);
-          if (amount <= 0) continue;
-          if (typeStr === 'Ingreso') {
-            usdIncSum += amount;
-            usdTxSum += amount;
-          } else {
-            usdExpSum += amount;
-            usdTxSum -= amount;
-          }
-        }
-        const usdDeclared = expectedDbBalances['Caja Efectivo Dólares'] ?? 0;
-        rep.push({
-          id: usdAccountId,
-          accountName: 'Caja Efectivo Dólares',
-          currency: 'USD',
-          initialBalance: 0,
-          calculatedBalance: usdDeclared,
-          sheetDeclaredBalance: usdDeclared,
-          difference: usdDeclared - usdTxSum,
-          isExact: Math.abs(usdDeclared - usdTxSum) < 0.01,
-          txCount: usdRows.length - 1,
-          totalIncome: usdIncSum,
-          totalExpense: usdExpSum,
-          appNet: 0
-        });
-      }
-
-      setReconciliationReport(rep);
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('zono_finanzas_reconciliation', JSON.stringify(rep));
-      }
-
-      setSyncProgress("Refrescando paneles y vistas...");
-      await Promise.all([
-        loadTransactions(),
-        loadFinancialAccounts()
-      ]);
-
-      setIsReconciliationModalOpen(true);
-
-    } catch (err) {
-      console.error(err);
-      alert("Error al sincronizar con planillas: " + (err as Error).message);
-    } finally {
-      setIsSyncing(false);
-      setSyncProgress("");
-    }
-  };
+  const handleSyncFromSheets = () => setIsBankImportOpen(true);
 
   // =========================================================================
   // MANEJO DE ACCIONES Y ENVIOS
@@ -1383,71 +885,6 @@ function FinanceWorkspace() {
     setStartDate(start);
     setEndDate(end);
     setCurrentPage(1);
-  };
-
-  const reverseAndCleanLinks = async (txId: string) => {
-    try {
-      // 1. Fetch and reverse client payments
-      const { data: clientPays, error: cpErr } = await supabase
-        .from('client_payments')
-        .select('*, orders(*)')
-        .eq('cash_transaction_id', txId);
-      
-      if (cpErr) throw cpErr;
-      
-      if (clientPays && clientPays.length > 0) {
-        for (const cp of clientPays) {
-          const ord = cp.orders;
-          if (ord) {
-            const oldPending = Number(ord.totals?.pending_balance) || Number(ord.total_amount);
-            const newPending = oldPending + cp.amount;
-            const newTotals = {
-              ...(ord.totals || {}),
-              pending_balance: newPending
-            };
-            const newPayStatus = newPending >= Number(ord.total_amount) ? 'Pendiente' : 'Seniado';
-            
-            await supabase
-              .from('orders')
-              .update({
-                payment_status: newPayStatus,
-                totals: newTotals
-              })
-              .eq('id', ord.id);
-          }
-        }
-        await supabase.from('client_payments').delete().eq('cash_transaction_id', txId);
-      }
-
-      // 2. Fetch and reverse supplier payments
-      const { data: supplierPays, error: spErr } = await supabase
-        .from('supplier_payments')
-        .select('*, supplier_purchases(*)')
-        .eq('cash_transaction_id', txId);
-        
-      if (spErr) throw spErr;
-      
-      if (supplierPays && supplierPays.length > 0) {
-        for (const sp of supplierPays) {
-          const pur = sp.supplier_purchases;
-          if (pur) {
-            const newPaid = Math.max(0, Number(pur.paid_amount) - sp.amount);
-            const newStatus = newPaid <= 0 ? 'Pendiente' : newPaid >= Number(pur.total_amount) ? 'Pagado' : 'Parcial';
-            
-            await supabase
-              .from('supplier_purchases')
-              .update({
-                paid_amount: newPaid,
-                status: newStatus
-              })
-              .eq('id', pur.id);
-          }
-        }
-        await supabase.from('supplier_payments').delete().eq('cash_transaction_id', txId);
-      }
-    } catch (err) {
-      console.error("Error in reverseAndCleanLinks:", err);
-    }
   };
 
   const handleCreateAccount = async (e: React.FormEvent) => {
@@ -1501,559 +938,33 @@ function FinanceWorkspace() {
   };
 
   const handleDuplicateTx = (transaction: CashTransactionWithRelations) => {
-    setEditingTx(null);
-    setDuplicatingTx(true);
-    setConceptSearch("");
-    setSelectedConcept(null);
-    setTxFinancialConceptId(transaction.financial_concept_id || null);
-    setFinancialTypeNeedsReview(false);
-    setTxType(transaction.type);
-    setTxAccountId(transaction.financial_account_id || "");
-    setTxCategory(transaction.category);
-    setTxSubCategory(transaction.sub_category || "");
-    setTxEfeCategory(transaction.efe_category || "");
-    setTxAmount(transaction.amount.toString());
-    setTxConcept(transaction.concept || "");
-    setTxCostCenterId(transaction.cost_center_id || "");
-    setTxNotes(transaction.notes || "");
-    setTxCreatedAt(transaction.created_at ? treasuryToday(new Date(transaction.created_at)) : "");
-    setSelectedEmployeeId(transaction.employee_id || "");
-
-    // Las asociaciones externas no se duplican para evitar imputar dos veces
-    // una venta, compra u hoja de ruta. Se pueden elegir nuevamente en el modal.
-    setTxRouteSheetId("");
-    setSelectedSupplierId("");
-    setSelectedPurchaseId("");
-    setSelectedOrderId("");
-    setSelectedOrder(null);
-    setOrderSearchQuery("");
-    setOrderSearchResults([]);
-    setLinkToOrder(false);
-    setLinkToPurchase(false);
-    setIsTxModalOpen(true);
-  };
-
-  // Registrar Transacción Manual
-  const handleRegisterTx = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!userId || !txAccountId || !txAmount || !txConcept) {
-      alert("Por favor completá los campos obligatorios.");
-      return;
-    }
-    if (financialTypeNeedsReview) {
-      alert("Seleccioná si este movimiento financiero es un ingreso o un egreso.");
-      return;
-    }
-
-    const linkedConcept = financialConcepts.find(item => item.id === txFinancialConceptId);
-    const same = (a: string | null | undefined, b: string | null | undefined) =>
-      normalizeConceptSearch(a || '') === normalizeConceptSearch(b || '');
-    const financialConceptId = linkedConcept &&
-      same(linkedConcept.concept, txConcept) &&
-      same(linkedConcept.category, txCategory) &&
-      same(linkedConcept.sub_category, txSubCategory) &&
-      same(linkedConcept.efe_category, txEfeCategory) &&
-      (linkedConcept.movement_type === 'Mov. Financiero' ||
-        linkedConcept.movement_type.toLowerCase() === txType)
-      ? linkedConcept.id : null;
-
-    const amount = Number(txAmount);
-    if (isNaN(amount) || amount <= 0) {
-      alert("Monto inválido.");
-      return;
-    }
-
-    if (txCategory === 'Proveedores') {
-      if (!selectedSupplierId || txType !== 'egreso') {
-        alert('Elegí el proveedor y registrá el pago como egreso.');
-        return;
-      }
-      if (linkToPurchase) {
-        const purchase = pendingPurchases.find(p => p.id === selectedPurchaseId);
-        const account = financialAccounts.find(a => a.id === txAccountId);
-        if (!purchase || purchase.supplier_id !== selectedSupplierId || (purchase.currency || 'ARS') !== (account?.currency || 'ARS')
-          || amount > Number(purchase.total_amount) - Number(purchase.paid_amount)) {
-          alert('Elegí una compra del proveedor en la misma moneda y un importe que no supere su saldo. Para un anticipo, desmarcá la vinculación a compra.');
-          return;
-        }
-      }
-    }
-
-    // Obtener medio de pago por defecto
-    const { data: pms } = await supabase
-      .from('payment_methods')
-      .select('id, name');
-    
-    let defaultPmId = "";
-    if (pms && pms.length > 0) {
-      const selectedAcc = financialAccounts.find(a => a.id === txAccountId);
-      const accType = selectedAcc?.type || 'efectivo';
-      
-      let matchedPm = null;
-      if (accType === 'efectivo') {
-        matchedPm = pms.find(p => /efectivo|^contado$/i.test(p.name || ""));
-      } else {
-        matchedPm = pms.find(p => p.name.toLowerCase().includes("transferencia") || p.name.toLowerCase().includes("mercado"));
-      }
-      
-      defaultPmId = matchedPm?.id || pms[0].id;
-    }
-
-    if (!defaultPmId) {
-      alert("No se encontró un medio de pago configurado en el sistema.");
-      return;
-    }
-
-    setSubmittingTx(true);
-    try {
-      const selectedAcc = financialAccounts.find(a => a.id === txAccountId);
-      const currency = selectedAcc?.currency || 'ARS';
-
-      let targetTxId = "";
-      if (editingTx) {
-        // Clean and reverse old links
-        await reverseAndCleanLinks(editingTx.id);
-
-        const { error: updateError } = await supabase
-          .from('cash_transactions')
-          .update({
-            type: txType,
-            category: txCategory,
-            sub_category: txSubCategory.trim() || null,
-            efe_category: txEfeCategory.trim() || null,
-            financial_concept_id: financialConceptId,
-            business_unit: costCenters.find(c => c.id === txCostCenterId)?.code || 'ZONO',
-            amount,
-            currency,
-            financial_account_id: txAccountId,
-            concept: txConcept.trim(),
-            cost_center_id: txCostCenterId || null,
-            notes: txNotes.trim() || null,
-            created_at: txCreatedAt ? treasuryDateTime(txCreatedAt, editingTx ? new Date(editingTx.created_at) : new Date()) : new Date().toISOString(),
-            employee_id: txCategory === "Sueldos" && selectedEmployeeId ? selectedEmployeeId : null,
-            route_sheet_id: txRouteSheetId || null
-          })
-          .eq('id', editingTx.id);
-
-        if (updateError) throw updateError;
-        targetTxId = editingTx.id;
-      } else {
-        const { data: txData, error: txError } = await supabase
-          .from('cash_transactions')
-          .insert({
-            type: txType,
-            category: txCategory,
-            sub_category: txSubCategory.trim() || null,
-            efe_category: txEfeCategory.trim() || null,
-            financial_concept_id: financialConceptId,
-            business_unit: costCenters.find(c => c.id === txCostCenterId)?.code || 'ZONO',
-            amount,
-            currency,
-            payment_method_id: defaultPmId,
-            financial_account_id: txAccountId,
-            concept: txConcept.trim(),
-            cost_center_id: txCostCenterId || null,
-            notes: txNotes.trim() || null,
-            created_by: userId,
-            created_at: txCreatedAt ? treasuryDateTime(txCreatedAt) : new Date().toISOString(),
-            employee_id: txCategory === "Sueldos" && selectedEmployeeId ? selectedEmployeeId : null,
-            route_sheet_id: txRouteSheetId || null
-          })
-          .select('id')
-          .single();
-
-        if (txError) throw txError;
-        targetTxId = txData.id;
-      }
-
-      // Vincular Proveedores si corresponde
-      if (txCategory === "Proveedores" && selectedSupplierId) {
-        const { error: payErr } = await supabase
-          .from('supplier_payments')
-          .insert({
-            supplier_id: selectedSupplierId,
-            purchase_id: linkToPurchase ? selectedPurchaseId : null,
-            amount: amount,
-            currency: currency,
-            payment_method_id: defaultPmId,
-            cash_transaction_id: targetTxId,
-            financial_account_id: txAccountId,
-            notes: txConcept.trim(),
-            created_by: userId
-          });
-        if (payErr) throw payErr;
-
-        const pur = linkToPurchase ? pendingPurchases.find(p => p.id === selectedPurchaseId) : null;
-        if (pur) {
-          const newPaid = Number(pur.paid_amount) + amount;
-          const newStatus = newPaid >= Number(pur.total_amount) ? 'Pagado' : 'Parcial';
-          const { error: purErr } = await supabase
-            .from('supplier_purchases')
-            .update({
-              paid_amount: newPaid,
-              status: newStatus
-            })
-            .eq('id', selectedPurchaseId);
-          if (purErr) throw purErr;
-        }
-      }
-
-      // Vincular Cobro/Ventas si corresponde
-      if (txCategory === "Recaudación" && linkToOrder && selectedOrderId) {
-        const ord = selectedOrder || pendingOrders.find(o => o.id === selectedOrderId);
-        const { error: payErr } = await supabase
-          .from('client_payments')
-          .insert({
-            client_id: ord?.client_id || null,
-            order_id: selectedOrderId,
-            amount: amount,
-            currency: currency,
-            payment_method_id: defaultPmId,
-            cash_transaction_id: targetTxId,
-            financial_account_id: txAccountId,
-            status: 'Aprobado',
-            notes: txConcept.trim()
-          });
-        if (payErr) throw payErr;
-
-        if (ord) {
-          const oldPending = Number(ord.totals?.pending_balance) || Number(ord.total_amount);
-          const newPending = Math.max(0, oldPending - amount);
-          const newTotals = {
-            ...(ord.totals || {}),
-            pending_balance: newPending
-          };
-          const newPayStatus = newPending <= 0 ? 'Abonado' : 'Seniado';
-          const { error: ordErr } = await supabase
-            .from('orders')
-            .update({
-              payment_approved: true,
-              payment_status: newPayStatus,
-              totals: newTotals
-            })
-            .eq('id', selectedOrderId);
-          if (ordErr) throw ordErr;
-        }
-      }
-
-      setIsTxModalOpen(false);
-      setEditingTx(null);
-      setDuplicatingTx(false);
-      setTxAmount("");
-      setTxConcept("");
-      setConceptSearch("");
-      setSelectedConcept(null);
-      setTxFinancialConceptId(null);
-      setFinancialTypeNeedsReview(false);
-      setTxSubCategory("");
-      setTxEfeCategory("");
-      setTxNotes("");
-      setTxRouteSheetId("");
-      setSelectedEmployeeId("");
-      setSelectedSupplierId("");
-      setSelectedPurchaseId("");
-      setSelectedOrderId("");
-      setSelectedOrder(null);
-      setOrderSearchQuery("");
-      setOrderSearchResults([]);
-      setLinkToOrder(false);
-      setLinkToPurchase(false);
-
-      setTransactionNotice(editingTx ? "Movimiento actualizado correctamente." : "Movimiento registrado correctamente.");
-
-      // Refrescar en segundo plano sin ocultar la tabla ni bloquear la pantalla.
-      const refreshTasks: Promise<unknown>[] = [
-        loadTransactions(false),
-        loadFinancialAccounts()
-      ];
-      if (txCategory === 'Recaudación' && linkToOrder) {
-        refreshTasks.push(loadValidationOrders());
-      }
-      void Promise.all(refreshTasks).catch(refreshError => {
-        console.error("El movimiento se guardó, pero no se pudo refrescar la vista:", refreshError);
-      });
-    } catch (err) {
-      console.error(err);
-      alert("Error al guardar movimiento: " + (err as Error).message);
-    } finally {
-      setSubmittingTx(false);
-    }
-  };
-
-  // Registrar Transferencia Interna
-  const handleRegisterTransfer = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!userId || !tfSourceId || !tfDestId || !tfAmount || !tfConcept) {
-      alert("Por favor completá los campos obligatorios.");
-      return;
-    }
-
-    if (tfSourceId === tfDestId) {
-      alert("La cuenta de origen y destino no pueden ser la misma.");
-      return;
-    }
-
-    const amount = Number(tfAmount);
-    if (isNaN(amount) || amount <= 0) {
-      alert("Monto inválido.");
-      return;
-    }
-
-    const srcAcc = financialAccounts.find(a => a.id === tfSourceId);
-    const destAcc = financialAccounts.find(a => a.id === tfDestId);
-
-    if (!srcAcc || !destAcc) {
-      alert("Cuenta de origen o destino no encontrada.");
-      return;
-    }
-
-    if (srcAcc.currency !== destAcc.currency) {
-      alert("Por el momento sólo se permiten transferencias entre cuentas de la misma divisa.");
-      return;
-    }
-
-    // Obtener medio de pago para transferencias
-    const { data: pms } = await supabase
-      .from('payment_methods')
-      .select('id, name');
-    
-    const transferPm = pms?.find(p => p.name.toLowerCase().includes("transferencia")) || pms?.[0];
-    if (!transferPm) {
-      alert("No se encontró un medio de pago configurado en el sistema.");
-      return;
-    }
-
-    setSubmittingTransfer(true);
-    try {
-      const currency = srcAcc.currency;
-      const transferCreatedAt = treasuryDateTime(tfDate);
-      const transferGroupId = crypto.randomUUID(); // Unir ambos registros visualmente en notas
-
-      // 1. Registrar el Egreso (Salida) de la cuenta origen
-      const { error: transferError } = await supabase
-        .from('cash_transactions')
-        .insert([{
-          type: 'egreso',
-          category: 'retiro_caja', // Mapeado a transferencia
-          sub_category: 'Movimiento de cuentas',
-          business_unit: 'ZONO',
-          amount,
-          currency,
-          payment_method_id: transferPm.id,
-          financial_account_id: tfSourceId,
-          concept: `Transferencia: ${tfConcept.trim()} (Hacia ${destAcc.name})`,
-          notes: `TRF-GROUP: ${transferGroupId} | ${tfNotes.trim()}`.trim(),
-          created_by: userId,
-          created_at: transferCreatedAt
-        }, {
-          type: 'ingreso',
-          category: 'ingreso_capital', // Mapeado a transferencia
-          sub_category: 'Movimiento de cuentas',
-          business_unit: 'ZONO',
-          amount,
-          currency,
-          payment_method_id: transferPm.id,
-          financial_account_id: tfDestId,
-          concept: `Transferencia: ${tfConcept.trim()} (Desde ${srcAcc.name})`,
-          notes: `TRF-GROUP: ${transferGroupId} | ${tfNotes.trim()}`.trim(),
-          created_by: userId,
-          created_at: transferCreatedAt
-        }]);
-
-      if (transferError) throw transferError;
-
-      setIsTransferModalOpen(false);
-      setTfAmount("");
-      setTfConcept("");
-      setTfNotes("");
-      setTfDate(treasuryToday());
-
-      await Promise.all([
-        loadTransactions(),
-        loadFinancialAccounts()
-      ]);
-      alert("¡Transferencia registrada exitosamente!");
-    } catch (err) {
-      console.error(err);
-      alert("Error al realizar la transferencia: " + (err as Error).message);
-    } finally {
-      setSubmittingTransfer(false);
-    }
-  };
-
-  const handleSaveLink = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!reconcilingTx) return;
-    
-    const amount = linkAmount.trim() ? Number(linkAmount) : Number(reconcilingTx.amount);
-    if (!Number.isFinite(amount) || amount <= 0 || amount > Number(reconcilingTx.amount)) {
-      alert('Ingresá un importe positivo que no supere el movimiento.');
-      return;
-    }
-    if (reconcilingTx.type === 'egreso' && reconcilingTx.category === 'Proveedores') {
-      const purchase = pendingPurchases.find(p => p.id === linkPurchaseId);
-      const previousApplied = (reconcilingTx.supplier_payments || [])
-        .filter(payment => payment.purchase_id === linkPurchaseId)
-        .reduce((sum, payment) => sum + Number(payment.amount), 0);
-      if (!linkSupplierId || !purchase || purchase.supplier_id !== linkSupplierId ||
-        (purchase.currency || 'ARS') !== reconcilingTx.currency ||
-        amount > Number(purchase.total_amount) - Number(purchase.paid_amount) + previousApplied) {
-        alert('Elegí una compra pendiente del mismo proveedor y moneda, sin superar su saldo.');
-        return;
-      }
-    }
-    
-    setSubmittingLink(true);
-    try {
-      // Clean and reverse old links first
-      await reverseAndCleanLinks(reconcilingTx.id);
-
-      if (reconcilingTx.type === 'ingreso') {
-        if (!linkOrderId) {
-          alert("Por favor busque y seleccione una venta pendiente.");
-          return;
-        }
-        const ord = linkSelectedOrder || pendingOrders.find(o => o.id === linkOrderId);
-        
-        const { error: payErr } = await supabase
-          .from('client_payments')
-          .insert({
-            client_id: ord?.client_id || null,
-            order_id: linkOrderId,
-            amount: amount,
-            currency: reconcilingTx.currency,
-            payment_method_id: reconcilingTx.payment_method_id,
-            cash_transaction_id: reconcilingTx.id,
-            financial_account_id: reconcilingTx.financial_account_id,
-            status: 'Aprobado',
-            notes: reconcilingTx.concept
-          });
-        if (payErr) throw payErr;
-        
-        if (ord) {
-          const oldPending = Number(ord.totals?.pending_balance) || Number(ord.total_amount);
-          const newPending = Math.max(0, oldPending - amount);
-          const newTotals = {
-            ...(ord.totals || {}),
-            pending_balance: newPending
-          };
-          const newPayStatus = newPending <= 0 ? 'Abonado' : 'Seniado';
-          
-          await supabase
-            .from('orders')
-            .update({
-              payment_status: newPayStatus,
-              payment_approved: true,
-              totals: newTotals
-            })
-            .eq('id', linkOrderId);
-        }
-      } else {
-        if (reconcilingTx.category === 'Proveedores') {
-          if (!linkPurchaseId) {
-            alert("Por favor seleccione una compra.");
-            return;
-          }
-          const pur = pendingPurchases.find(p => p.id === linkPurchaseId);
-          
-          const { error: payErr } = await supabase
-            .from('supplier_payments')
-            .insert({
-              supplier_id: linkSupplierId,
-              purchase_id: linkPurchaseId,
-              amount: amount,
-              currency: reconcilingTx.currency,
-              payment_method_id: reconcilingTx.payment_method_id,
-              cash_transaction_id: reconcilingTx.id,
-              financial_account_id: reconcilingTx.financial_account_id,
-              notes: reconcilingTx.concept
-            });
-          if (payErr) throw payErr;
-          
-          if (pur) {
-            const newPaid = Number(pur.paid_amount) + amount;
-            const newStatus = newPaid >= Number(pur.total_amount) ? 'Pagado' : 'Parcial';
-            const { error: purchaseUpdateError } = await supabase
-              .from('supplier_purchases')
-              .update({
-                paid_amount: newPaid,
-                status: newStatus
-              })
-              .eq('id', linkPurchaseId);
-            if (purchaseUpdateError) throw purchaseUpdateError;
-          }
-        } else if (reconcilingTx.category === 'Sueldos') {
-          if (!linkEmployeeId) {
-            alert("Por favor seleccione un empleado.");
-            return;
-          }
-          
-          const { error: txErr } = await supabase
-            .from('cash_transactions')
-            .update({ employee_id: linkEmployeeId })
-            .eq('id', reconcilingTx.id);
-          if (txErr) throw txErr;
-        } else if (reconcilingTx.category === 'Peajes' || reconcilingTx.category === 'Servicio de Flete') {
-          if (!linkRouteSheetId) {
-            alert("Por favor seleccione una hoja de ruta.");
-            return;
-          }
-          const { error: txErr } = await supabase
-            .from('cash_transactions')
-            .update({ route_sheet_id: linkRouteSheetId })
-            .eq('id', reconcilingTx.id);
-          if (txErr) throw txErr;
-        }
-      }
-      
-      setIsLinkModalOpen(false);
-      setReconcilingTx(null);
-      setLinkSupplierId("");
-      setLinkPurchaseId("");
-      setLinkOrderId("");
-      setLinkSelectedOrder(null);
-      setLinkOrderSearchQuery("");
-      setLinkOrderSearchResults([]);
-      setLinkEmployeeId("");
-      setLinkRouteSheetId("");
-      setLinkAmount("");
-      await Promise.all([
-        loadTransactions(),
-        loadFinancialAccounts(),
-        loadHelperLists(),
-        loadValidationOrders()
-      ]);
-      alert("¡Vinculación realizada con éxito!");
-    } catch (err) {
-      console.error(err);
-      alert("Error al vincular movimiento: " + (err as Error).message);
-    } finally {
-      setSubmittingLink(false);
-    }
+    if(operationsAvailable===false)return;
+    setOperationEditor({kind:inferOperationType(transaction),transactionId:transaction.id,duplicate:true});
   };
 
   const handleApproveValidation = async (e: React.FormEvent) => {
     e.preventDefault();
+    if(operationsAvailable===false){alert('Falta activar la migración 136 para registrar operaciones reales. Los formularios se pueden revisar en la vista previa local.');return;}
     if (!selectedValidationOrder || !valAccountId || !valAmount) {
       alert("Por favor completá todos los campos.");
       return;
     }
-    
+
     const amount = Number(valAmount);
     if (isNaN(amount) || amount <= 0) {
       alert("Monto inválido.");
       return;
     }
-    
+
     setSubmittingValidation(true);
     try {
       const selectedAcc = financialAccounts.find(a => a.id === valAccountId);
       const currency = selectedAcc?.currency || 'ARS';
-      
+
       const { data: pms } = await supabase
         .from('payment_methods')
         .select('id, name');
-        
+
       let defaultPmId = selectedValidationOrder.payment_method_id;
       if (pms && pms.length > 0) {
         const accType = selectedAcc?.type || 'efectivo';
@@ -2065,70 +976,26 @@ function FinanceWorkspace() {
         }
         if (matchedPm) defaultPmId = matchedPm.id;
       }
-      
-      const { data: tx, error: txError } = await supabase
-        .from('cash_transactions')
-        .insert({
-          type: 'ingreso',
-          category: 'Recaudación',
-          sub_category: 'Cobro Venta Directa',
-          business_unit: 'ZONO',
-          amount: amount,
-          currency: currency,
-          payment_method_id: defaultPmId,
-          financial_account_id: valAccountId,
-          concept: valConcept.trim() || `Cobro Validado - Venta ${selectedValidationOrder.legacy_code || selectedValidationOrder.id.substring(0, 8)}`,
-          created_by: userId || '381df0d1-183f-4ccb-aaf2-8147c76159a9'
-        })
-        .select('id')
-        .single();
-        
-      if (txError) throw txError;
-      
-      const { error: clientPayErr } = await supabase
-        .from('client_payments')
-        .insert({
-          client_id: selectedValidationOrder.client_id || null,
-          order_id: selectedValidationOrder.id,
-          amount: amount,
-          currency: currency,
-          payment_method_id: defaultPmId,
-          cash_transaction_id: tx.id,
-          financial_account_id: valAccountId,
-          status: 'Aprobado',
-          notes: valConcept.trim()
-        });
-      if (clientPayErr) throw clientPayErr;
-      
-      const oldPending = Number(selectedValidationOrder.totals?.pending_balance) || Number(selectedValidationOrder.total_amount);
-      const newPending = Math.max(0, oldPending - amount);
-      const newTotals = {
-        ...(selectedValidationOrder.totals || {}),
-        pending_balance: newPending
-      };
-      const newPayStatus = newPending <= 0 ? 'Abonado' : 'Seniado';
-      
-      const { error: orderError } = await supabase
-        .from('orders')
-        .update({
-          payment_approved: true,
-          payment_status: newPayStatus,
-          totals: newTotals
-        })
-        .eq('id', selectedValidationOrder.id);
-        
-      if (orderError) throw orderError;
-      
+
+      const approvalPayload = {operation_type:'customer_collection',direction:'ingreso',
+        effective_date:treasuryToday(),account_id:valAccountId,amount:String(amount),payment_method_id:defaultPmId,
+        category:'Cobranza',sub_category:'Cobro Venta Directa',concept:valConcept.trim() || `Cobro validado ${selectedValidationOrder.legacy_code || selectedValidationOrder.id.slice(0,8)}`,
+        order_id:selectedValidationOrder.id,allocations:[],detail:{},voucher_ids:[]};
+      const signature=JSON.stringify(approvalPayload);
+      if(!approvalAttempt.current || approvalAttempt.current.signature!==signature)approvalAttempt.current={signature,key:crypto.randomUUID()};
+      await financialRequest('/api/admin/financial-operations', {method:'POST',body:JSON.stringify({action:'save',key:approvalAttempt.current.key,payload:approvalPayload})});
+      approvalAttempt.current=null;
+
       setIsValidationModalOpen(false);
       setSelectedValidationOrder(null);
-      
+
       await Promise.all([
         loadTransactions(),
         loadFinancialAccounts(),
         loadHelperLists(),
         loadValidationOrders()
       ]);
-      
+
       alert("¡Comprobante de pago validado y aprobado exitosamente!");
     } catch (err) {
       console.error(err);
@@ -2140,32 +1007,19 @@ function FinanceWorkspace() {
 
   // Eliminar Transacción (Solo Admin)
   const handleDeleteTx = async (txId: string, concept: string | null) => {
-    if (!confirm(`¿Estás seguro de que deseas eliminar el movimiento "${concept || 'Sin concepto'}"?`)) return;
-
-    // Actualización optimista: removemos el movimiento de la vista al instante
-    const previousTransactions = [...transactions];
-    setTransactions(prev => prev.filter(t => t.id !== txId));
-
+    if(operationsAvailable===false || cancellationInFlight.current || transactions.some(t => t.id === txId && isInactiveFinancialMovement(t)))return;
+    const reason = prompt(`Motivo de anulación de "${concept || 'Sin concepto'}". Se conservará el historial y se compensará el importe:`);
+    if (!reason?.trim()) return;
+    cancellationInFlight.current = true;
+    setCancellingTransactionId(txId);
     try {
-      // Revert and clean links first
-      await reverseAndCleanLinks(txId);
-
-      const { error } = await supabase
-        .from('cash_transactions')
-        .delete()
-        .eq('id', txId);
-
-      if (error) throw error;
-
-      // Actualizamos los saldos de las cajas en segundo plano sin recargar toda la pantalla
-      void loadFinancialAccounts();
-    } catch (err) {
-      console.error(err);
-      alert("Error al eliminar movimiento: " + (err as Error).message);
-      // Revertimos en caso de error
-      setTransactions(previousTransactions);
-      void loadTransactions();
-    }
+      const snapshot = await financialRequest(`/api/admin/financial-operations?transaction_id=${txId}`);
+      if (snapshot.operation?.status === 'cancelled' || snapshot.transaction.reversal_of_transaction_id) { await loadTransactions(false, true); return; }
+      await financialRequest('/api/admin/financial-operations',{method:'POST',body:JSON.stringify({action:'cancel',key:crypto.randomUUID(),reason:reason.trim(),
+        target:{transaction_id:snapshot.transaction.id,operation_id:snapshot.operation?.id,expected_version:snapshot.operation?.version,expected_transaction:snapshot.transaction}})});
+      await operationSaved();
+    } catch(error) { alert(error instanceof Error?error.message:'No se pudo anular.'); }
+    finally { cancellationInFlight.current = false; setCancellingTransactionId(null); }
   };
 
   // =========================================================================
@@ -2184,6 +1038,7 @@ function FinanceWorkspace() {
   // Transacciones Filtradas
   const filteredTransactions = useMemo(() => {
     return transactions.filter(t => {
+      if (!showCancelled && isInactiveFinancialMovement(t)) return false;
       // 0. Rango de Fechas (Filtro en cliente para Fecha Inicio)
       const txDate = treasuryToday(new Date(t.created_at));
       if (txDate < startDate) {
@@ -2194,7 +1049,7 @@ function FinanceWorkspace() {
       if (filterAccountId !== "all" && t.financial_account_id !== filterAccountId) {
         return false;
       }
-      
+
       // 2. Tipo
       if (filterType !== "all" && t.type !== filterType) {
         return false;
@@ -2220,10 +1075,10 @@ function FinanceWorkspace() {
         const note = t.notes?.toLowerCase() || "";
         const unit = t.business_unit?.toLowerCase() || "";
 
-        if (!acc.includes(search) && 
-            !cat.includes(search) && 
-            !sub.includes(search) && 
-            !concept.includes(search) && 
+        if (!acc.includes(search) &&
+            !cat.includes(search) &&
+            !sub.includes(search) &&
+            !concept.includes(search) &&
             !note.includes(search) &&
             !unit.includes(search)) {
           return false;
@@ -2232,7 +1087,7 @@ function FinanceWorkspace() {
 
       return true;
     });
-  }, [transactions, filterAccountId, filterType, filterCategory, filterCostCenterId, searchTerm, startDate]);
+  }, [transactions, showCancelled, filterAccountId, filterType, filterCategory, filterCostCenterId, searchTerm, startDate]);
 
   // KPIs Financieros Consolidados (Pesos y Dólares por separado)
   const financialKPIs = useMemo(() => {
@@ -2242,6 +1097,7 @@ function FinanceWorkspace() {
     let expenseUsd = 0;
 
     filteredTransactions.forEach(t => {
+      if (isInactiveFinancialMovement(t)) return;
       const amt = Number(t.amount) || 0;
       if (t.currency === 'USD') {
         if (t.type === 'ingreso') incomeUsd += amt;
@@ -2343,59 +1199,12 @@ function FinanceWorkspace() {
   };
 
   const openQuickMovement = (kind: QuickMovement) => {
-    setEditingTx(null);
-    setDuplicatingTx(false);
-    setTxType("egreso");
-    setTxAccountId(financialAccounts.find(a => a.is_active && a.currency === "ARS")?.id || financialAccounts.find(a => a.is_active)?.id || "");
-    setTxCostCenterId("");
-    setTxCreatedAt(treasuryToday());
-    setTxCategory("Gastos Operativos");
-    setTxSubCategory("");
-    setTxEfeCategory("");
-    setTxAmount("");
-    setTxConcept("");
-    setConceptSearch("");
-    setIsConceptSearchOpen(false);
-    setSelectedConcept(null);
-    setTxFinancialConceptId(null);
-    setFinancialTypeNeedsReview(false);
-    setTxNotes("");
-    setTxRouteSheetId("");
-    setSelectedEmployeeId("");
-    setSelectedSupplierId("");
-    setSelectedPurchaseId("");
-    setSelectedOrderId("");
-    setSelectedOrder(null);
-    setOrderSearchQuery("");
-    setOrderSearchResults([]);
-    setLinkToOrder(false);
-    setLinkToPurchase(kind === "proveedor");
-    const preset = kind === "eventuales" ? { category: "Sueldos", subcategory: "Sueldos Eventuales", concept: "Personal eventual" }
-      : kind === "adelanto" ? { category: "Sueldos", subcategory: "Adelanto de Sueldo", concept: "Adelanto de sueldo" }
-      : kind === "proveedor" ? { category: "Proveedores", subcategory: "Pago Factura", concept: "Pago a proveedor" }
-      : kind === "gasto" ? { category: "Gastos Operativos", subcategory: "", concept: "" } : null;
-    if (preset) {
-      // Only exact classification matches from the active catalog may supply accounting fields.
-      const candidates = financialConcepts.filter(item => item.is_active && item.movement_type === "Egreso"
-        && normalizeConceptSearch(item.category) === normalizeConceptSearch(preset.category)
-        && normalizeConceptSearch(item.sub_category) === normalizeConceptSearch(preset.subcategory));
-      const concept = candidates.find(item => normalizeConceptSearch(item.concept) === normalizeConceptSearch(preset.concept))
-        || (preset.subcategory && candidates.length === 1 ? candidates[0] : undefined);
-      if (concept) selectFinancialConcept(concept);
-      else {
-        setTxCategory(preset.category);
-        setTxSubCategory(preset.subcategory);
-        setTxConcept(preset.concept);
-      }
-    }
-    setIsTxModalOpen(true);
+    if(operationsAvailable===false && !localInspection)return;
+    if(kind==='general'){setChoosingOperation(true);return;}
+    const kinds:Record<QuickMovement,OperationType>={general:'general',eventuales:'payroll_payment',proveedor:'supplier_payment',gasto:'operating_expense',adelanto:'payroll_payment',cobro:'customer_collection',sueldo:'payroll_payment',impuesto:'tax_payment'};
+    setOperationEditor({kind:kinds[kind],payrollKind:kind==='eventuales'?'temporary':kind==='adelanto'?'advance':undefined});
   };
-  const openQuickTransfer = (sourceId?: string) => {
-    const defaults = defaultTransferAccounts(financialAccounts, sourceId);
-    setTfSourceId(defaults.sourceId); setTfDestId(defaults.destinationId);
-    setTfAmount(""); setTfConcept(""); setTfNotes("");
-    setTfDate(treasuryToday()); setIsTransferModalOpen(true);
-  };
+  const openQuickTransfer = (sourceId?: string) => {if(operationsAvailable!==false || localInspection)setOperationEditor({kind:'internal_transfer',sourceAccountId:sourceId});};
 
   return (
     <div className="space-y-3 w-full pb-6">
@@ -2416,13 +1225,14 @@ function FinanceWorkspace() {
           ========================================================================= */}
       {activeTab === 'flow' && (
         <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-200">
+          {operationsAvailable===false && <div role="status" className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">Los movimientos existentes están disponibles para consulta. Los nuevos formularios requieren activar la migración 136 para guardar cambios.{process.env.NODE_ENV==='development' && <a href="/vista-previa-movimientos" className="ml-2 font-semibold underline">Ver formularios con datos reales</a>}</div>}
           {(initDataError || transactionsError) && (
             <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-900">
               <span>{transactionsError ? `${transactionsError} Los importes no están disponibles hasta que se restablezca la conexión.` : `${initDataError} Algunas opciones pueden faltar hasta que se restablezca la conexión.`}</span>
               <button type="button" onClick={() => { void initData(); void loadTransactions(); }} className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 font-black hover:bg-amber-100">Reintentar</button>
             </div>
           )}
-          
+
           <FinanceToolbar
             search={searchTerm} onSearch={value => { setSearchTerm(value); setCurrentPage(1); }}
             period={presetRange} onPeriod={value => { if (value === "personalizado") setPresetRange(value); else handlePresetChange(value); setCurrentPage(1); }}
@@ -2432,10 +1242,11 @@ function FinanceWorkspace() {
             type={filterType} onType={value => { setFilterType(value); setCurrentPage(1); }}
             category={filterCategory} onCategory={value => { setFilterCategory(value); setCurrentPage(1); }} categories={categoriesList}
             unit={filterCostCenterId} onUnit={value => { setFilterCostCenterId(value); setCurrentPage(1); }} units={costCenters}
-            onClear={() => { setSearchTerm(""); setFilterAccountId("all"); setFilterType("all"); setFilterCategory("all"); setFilterCostCenterId("all"); handlePresetChange("30dias"); setCurrentPage(1); }}
+            showCancelled={showCancelled} onShowCancelled={value => { setShowCancelled(value); setCurrentPage(1); }}
+            onClear={() => { setShowCancelled(false); setSearchTerm(""); setFilterAccountId("all"); setFilterType("all"); setFilterCategory("all"); setFilterCostCenterId("all"); handlePresetChange("30dias"); setCurrentPage(1); }}
             onRefresh={() => { void loadTransactions(); }} onNew={openQuickMovement} onTransfer={() => openQuickTransfer()}
             onConcepts={() => setIsConceptManagerOpen(true)} onExport={handleExportCSV} onSync={handleSyncFromSheets}
-            syncing={isSyncing} disabled={Boolean(initDataError && financialAccounts.length === 0)}
+            syncing={false} disabled={(operationsAvailable===false && !localInspection) || Boolean(initDataError && financialAccounts.length === 0)}
             showSummary={showSummary} onSummary={toggleSummary} columns={optionalColumns} onColumn={toggleColumn}
           />
 
@@ -2534,6 +1345,7 @@ function FinanceWorkspace() {
                       let lastDate = "";
                       return paginatedTransactions.map(t => {
                         const isIngreso = t.type === 'ingreso';
+                        const inactive = isInactiveFinancialMovement(t);
                         const currentDate = formatDateDDMMYYYY(t.created_at);
                         const showDateDivider = currentDate !== lastDate;
                         lastDate = currentDate;
@@ -2541,7 +1353,7 @@ function FinanceWorkspace() {
                         return (
                           <React.Fragment key={t.id}>
                             {showDateDivider && (
-                              <tr 
+                              <tr
                                 onClick={() => toggleDateCollapse(currentDate)}
                                 className="bg-slate-100/90 hover:bg-slate-200/60 border-y border-slate-200/60 text-slate-800 font-extrabold text-[11px] uppercase tracking-wider cursor-pointer select-none transition-colors"
                               >
@@ -2580,6 +1392,7 @@ function FinanceWorkspace() {
                                     <div className="flex min-w-0 items-center gap-1.5">
                                       <button type="button" aria-label={`Ver detalle de ${t.concept || "movimiento"}`} aria-expanded={Boolean(expandedTransactions[t.id])} onClick={() => setExpandedTransactions(value => ({ ...value, [t.id]: !value[t.id] }))} className="shrink-0 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-brand-600"><ChevronRight className={`h-3 w-3 transition-transform ${expandedTransactions[t.id] ? "rotate-90" : ""}`} /></button>
                                       <span className="truncate font-bold" title={t.concept || ""}>{t.concept || "-"}</span>
+                                      {inactive && <span className="shrink-0 rounded bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold text-amber-800">{t.reversal_of_transaction_id ? 'Compensación' : 'Anulado'}</span>}
                                       {t.is_imported && (
                                         <span className="inline-flex items-center gap-0.5 text-blue-700 bg-blue-50 px-1 py-0.2 rounded text-[7px] font-black uppercase tracking-wider scale-90 select-none shrink-0" title="Importado desde planilla de cálculo">
                                           Planilla
@@ -2588,6 +1401,7 @@ function FinanceWorkspace() {
                                     </div>
 
                                   </div>
+                                      {supplierVoucherPending(t)&&<button type="button" className="ml-6 mt-1 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-semibold text-amber-800" title="Abrir el pago para cargar el comprobante" onClick={()=>setOperationEditor({kind:'supplier_payment',transactionId:t.id})}>Pendiente de comprobante</button>}
                                 </td>
                                 <td className="py-1.5 px-2">
                                   <span title={t.category} className="inline-block max-w-48 truncate align-middle bg-slate-100 border px-2 py-0.5 rounded text-[10px] text-slate-600 font-bold uppercase tracking-wide">
@@ -2611,67 +1425,8 @@ function FinanceWorkspace() {
                                 <td className="py-1.5 px-2 text-right">
                                   <div className="flex justify-end gap-1">
                                     <button
-                                      onClick={() => {
-                                        setEditingTx(t);
-                                        setDuplicatingTx(false);
-                                        setConceptSearch("");
-                                        setSelectedConcept(null);
-                                        setTxFinancialConceptId(t.financial_concept_id || null);
-                                        setFinancialTypeNeedsReview(false);
-                                        setTxType(t.type);
-                                        setTxAccountId(t.financial_account_id || "");
-                                        setTxCategory(t.category);
-                                        setTxSubCategory(t.sub_category || "");
-                                        setTxEfeCategory(t.efe_category || "");
-                                        setTxAmount(t.amount.toString());
-                                        setTxConcept(t.concept || "");
-                                        setTxCostCenterId(t.cost_center_id || "");
-                                        setTxNotes(t.notes || "");
-                                        if (t.created_at) {
-                                          setTxCreatedAt(treasuryToday(new Date(t.created_at)));
-                                        } else {
-                                          setTxCreatedAt("");
-                                        }
-                                        setTxRouteSheetId(t.route_sheet_id || "");
-                                        setSelectedEmployeeId(t.employee_id || "");
-
-                                        // Initialize link variables from existing client/supplier payments if editing
-                                        if (t.category === 'Recaudación' && t.client_payments && t.client_payments.length > 0) {
-                                          setLinkToOrder(true);
-                                          const cp = t.client_payments[0];
-                                          setSelectedOrderId(cp.order_id || "");
-                                          if (cp.orders) {
-                                            setSelectedOrder({
-                                              id: cp.orders.id,
-                                              legacy_code: cp.orders.legacy_code,
-                                              customer_name: cp.orders.customer_name,
-                                              total_amount: Number(cp.amount) || 0,
-                                              payment_status: 'Abonado',
-                                              payment_approved: true,
-                                              order_date: t.created_at || ''
-                                            });
-                                          } else {
-                                            setSelectedOrder(null);
-                                          }
-                                        } else {
-                                          setLinkToOrder(false);
-                                          setSelectedOrderId("");
-                                          setSelectedOrder(null);
-                                          setOrderSearchQuery("");
-                                          setOrderSearchResults([]);
-                                        }
-                                        if (t.category === 'Proveedores' && t.supplier_payments && t.supplier_payments.length > 0) {
-                                          setLinkToPurchase(true);
-                                          setSelectedSupplierId(t.supplier_payments[0].suppliers?.id || "");
-                                          setSelectedPurchaseId(t.supplier_payments[0].purchase_id || "");
-                                        } else {
-                                          setLinkToPurchase(false);
-                                          setSelectedSupplierId("");
-                                          setSelectedPurchaseId("");
-                                        }
-
-                                        setIsTxModalOpen(true);
-                                      }}
+                                      type="button" disabled={operationsAvailable===false || inactive || Boolean(cancellingTransactionId)}
+                                      onClick={() => setOperationEditor({kind:inferOperationType(t),transactionId:t.id})}
                                       className="p-1 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded transition-colors"
                                       title="Editar movimiento"
                                     >
@@ -2681,6 +1436,7 @@ function FinanceWorkspace() {
                                       <summary aria-label="Más acciones del movimiento" className="cursor-pointer list-none rounded p-1 text-slate-400 hover:bg-slate-100"><MoreHorizontal className="h-3.5 w-3.5" /></summary>
                                       <div className="absolute right-0 top-full z-20 min-w-32 rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
                                     <button
+                                      type="button" disabled={operationsAvailable===false || inactive || Boolean(cancellingTransactionId)}
                                       onClick={() => handleDuplicateTx(t)}
                                       className="flex w-full items-center gap-2 rounded px-2 py-2 text-xs text-slate-700 hover:bg-slate-50"
                                       title="Duplicar movimiento"
@@ -2688,11 +1444,12 @@ function FinanceWorkspace() {
                                       <Copy className="w-3.5 h-3.5" /> Duplicar
                                     </button>
                                     <button
+                                      type="button" disabled={operationsAvailable===false || inactive || Boolean(cancellingTransactionId)}
                                       onClick={() => handleDeleteTx(t.id, t.concept)}
                                       className="flex w-full items-center gap-2 rounded px-2 py-2 text-xs text-red-600 hover:bg-red-50"
-                                      title="Eliminar movimiento"
+                                      title="Anular movimiento"
                                     >
-                                      <Trash2 className="w-3.5 h-3.5" /> Eliminar
+                                      <Trash2 className="w-3.5 h-3.5" /> {cancellingTransactionId === t.id ? 'Anulando…' : 'Anular'}
                                     </button>
                                       </div>
                                     </details>
@@ -2705,6 +1462,10 @@ function FinanceWorkspace() {
                                   <span><b>EFE:</b> {t.efe_category || "—"}</span>
                                   <span className="whitespace-pre-wrap break-words"><b>Observaciones:</b> {t.notes || "—"}</span>
                                   <span><b>Concepto:</b> {t.concept || "—"}</span>
+                                  {t.financial_operations && <span><b>Operación:</b> {operationLabels[t.financial_operations.operation_type]} · {t.financial_operations.status==='cancelled'?'Anulada':'Registrada'} · versión {t.financial_operations.version}{t.financial_operations.detail.period?` · período ${t.financial_operations.detail.period}`:''}</span>}
+                                  {t.reversal_of_transaction_id && <span className="font-semibold text-amber-700">Compensación de anulación</span>}
+                                  {t.treasury_settlement_id && <a href="/admin/rendiciones" className="font-semibold text-brand-700 underline">Origen: Rendiciones</a>}
+                                  {t.payment_planning_realizations?.some(r=>!r.reversed_at) && <a href="/admin/finanzas/planificacion" className="font-semibold text-brand-700 underline">Origen: Planificación</a>}
                                 </div>
                                                                     <div className="flex flex-wrap gap-1 items-center">
                                       {t.category === 'Sueldos' && (
@@ -2718,8 +1479,9 @@ function FinanceWorkspace() {
                                               ⚠️ Empleado no asociado
                                             </span>
                                             <button
-                                              type="button"
+                                              type="button" disabled={inactive || Boolean(cancellingTransactionId)}
                                               onClick={() => {
+                                                if(operationsAvailable===false || inactive)return;
                                                 setReconcilingTx(t);
                                                 setLinkEmployeeId("");
                                                 setLinkAmount(t.amount.toString());
@@ -2746,8 +1508,9 @@ function FinanceWorkspace() {
                                               ⚠️ Compra no asociada
                                             </span>
                                             <button
-                                              type="button"
+                                              type="button" disabled={inactive || Boolean(cancellingTransactionId)}
                                               onClick={() => {
+                                                if(operationsAvailable===false || inactive)return;
                                                 setReconcilingTx(t);
                                                 setLinkSupplierId("");
                                                 setLinkPurchaseId("");
@@ -2762,7 +1525,7 @@ function FinanceWorkspace() {
                                         )
                                       )}
 
-                                      {t.category === 'Recaudación' && t.type === 'ingreso' && (
+                                      {['Recaudación','Cobranza'].includes(t.category) && t.type === 'ingreso' && (
                                         t.client_payments && t.client_payments.length > 0 ? (
                                           t.client_payments.map(p => (
                                             <span key={p.id} className="inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-black bg-purple-50 border border-purple-100 text-purple-700 uppercase">
@@ -2775,8 +1538,9 @@ function FinanceWorkspace() {
                                               ⚠️ Venta no asociada
                                             </span>
                                             <button
-                                              type="button"
+                                              type="button" disabled={inactive || Boolean(cancellingTransactionId)}
                                               onClick={() => {
+                                                if(operationsAvailable===false || inactive)return;
                                                 setReconcilingTx(t);
                                                 setLinkOrderId("");
                                                 setLinkSelectedOrder(null);
@@ -2804,8 +1568,9 @@ function FinanceWorkspace() {
                                               ⚠️ HR no asociada
                                             </span>
                                             <button
-                                              type="button"
+                                              type="button" disabled={inactive || Boolean(cancellingTransactionId)}
                                               onClick={() => {
+                                                if(operationsAvailable===false || inactive)return;
                                                 setReconcilingTx(t);
                                                 setLinkRouteSheetId("");
                                                 setIsLinkModalOpen(true);
@@ -2833,7 +1598,7 @@ function FinanceWorkspace() {
               {filteredTransactions.length > 0 && (
                 <div className="flex flex-wrap gap-2 justify-between items-center pt-2 border-t border-slate-100 text-xs font-semibold text-slate-500">
                   <div>
-                    <label className="mr-3 inline-flex items-center gap-1">Filas <select aria-label="Movimientos por página" value={itemsPerPage} onChange={e => { setItemsPerPage(Number(e.target.value)); setCurrentPage(1); }} className="rounded border border-slate-200 bg-white px-1 py-1"><option value={20}>20</option><option value={50}>50</option><option value={100}>100</option></select></label>
+                    <label className="mr-3 inline-flex items-center gap-1">Filas <AdaptiveSelect aria-label="Movimientos por página" value={itemsPerPage} onChange={e => { setItemsPerPage(Number(e.target.value)); setCurrentPage(1); }} className="rounded border border-slate-200 bg-white px-1 py-1"><option value={20}>20</option><option value={50}>50</option><option value={100}>100</option></AdaptiveSelect></label>
                     Mostrando {Math.min(filteredTransactions.length, (currentPage - 1) * itemsPerPage + 1)} a {Math.min(filteredTransactions.length, currentPage * itemsPerPage)} de {filteredTransactions.length} registros
                   </div>
                   <div className="flex gap-2">
@@ -2866,7 +1631,7 @@ function FinanceWorkspace() {
           ========================================================================= */}
       {activeTab === 'accounts' && (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-200">
-          
+
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
             <div>
               <h2 className="text-sm font-black text-slate-800 uppercase tracking-wider">Arqueo y Cajas</h2>
@@ -2896,9 +1661,10 @@ function FinanceWorkspace() {
 
           {/* Panel Superior: Arqueo Total del Sistema */}
           {(() => {
-            const totals = { ars: 0, usd: 0 };
+            const totals = { ars: 0, usd: 0, custodyArs:0, custodyUsd:0 };
             financialAccounts.forEach(acc => {
               const bal = acc.balance || 0;
+              if(acc.is_custody){if(acc.currency==='USD')totals.custodyUsd+=bal;else totals.custodyArs+=bal;return;}
               if (acc.currency === 'USD') {
                 totals.usd += bal;
               } else {
@@ -2912,7 +1678,7 @@ function FinanceWorkspace() {
                   <Wallet className="w-8 h-8" />
                 </div>
                 <div className="space-y-1">
-                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none block">Arqueo Total del Sistema</span>
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none block">Disponible en cuentas</span>
                   <div className="flex flex-col md:flex-row md:items-center gap-x-6 gap-y-1 mt-1">
                     <div className="text-2xl font-black text-emerald-600 font-mono tracking-tight">
                       {formatPrice(totals.ars)}
@@ -2921,6 +1687,7 @@ function FinanceWorkspace() {
                       US$ {totals.usd.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                     </div>
                   </div>
+                  {(totals.custodyArs!==0||totals.custodyUsd!==0)&&<p className="text-xs text-slate-500">Bajo custodia: {formatPrice(totals.custodyArs)} · US$ {totals.custodyUsd.toLocaleString('es-AR',{minimumFractionDigits:2})}</p>}
                 </div>
               </div>
             );
@@ -2957,19 +1724,19 @@ function FinanceWorkspace() {
                     const idx = financialAccounts.findIndex(account => account.id === acc.id);
                     const balance = acc.balance || 0;
                     const rec = reconciliationReport.find(r => r.id === acc.id || r.accountName === acc.name);
-                    const typeLabel = 
+                    const typeLabel =
                       acc.type === 'efectivo' ? 'Efectivo' :
                       acc.type === 'banco' ? 'Banco' :
                       acc.type === 'virtual' ? 'Virtual' : 'Tarjeta';
-                    
+
                     const colors = [
-                      'bg-emerald-500', 
-                      'bg-orange-500', 
-                      'bg-blue-500', 
-                      'bg-indigo-500', 
-                      'bg-rose-500', 
-                      'bg-purple-500', 
-                      'bg-teal-500', 
+                      'bg-emerald-500',
+                      'bg-orange-500',
+                      'bg-blue-500',
+                      'bg-indigo-500',
+                      'bg-rose-500',
+                      'bg-purple-500',
+                      'bg-teal-500',
                       'bg-amber-500'
                     ];
                     const dotColor = colors[idx % colors.length];
@@ -3004,8 +1771,8 @@ function FinanceWorkspace() {
                         </td>
                         <td className="py-3.5 px-3 text-right font-black font-mono text-slate-600 text-xs">
                           {rec ? (
-                            acc.currency === 'USD' 
-                              ? `US$ ${rec.sheetDeclaredBalance.toLocaleString('es-AR', { minimumFractionDigits: 2 })}` 
+                            acc.currency === 'USD'
+                              ? `US$ ${rec.sheetDeclaredBalance.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`
                               : formatPrice(rec.sheetDeclaredBalance)
                           ) : (
                             <span className="text-slate-300 font-normal">-</span>
@@ -3069,7 +1836,7 @@ function FinanceWorkspace() {
       {activeTab === 'cc' && (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-200">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            
+
             {/* Cuentas Corrientes Clientes */}
             <div className="bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm space-y-4">
               <div className="pb-2.5 border-b border-slate-100">
@@ -3159,7 +1926,7 @@ function FinanceWorkspace() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <label className="text-[9px] font-black uppercase text-slate-400">Tipo *</label>
-                  <select
+                  <AdaptiveSelect
                     value={accountType}
                     onChange={e => setAccountType(e.target.value as FinancialAccount['type'])}
                     required
@@ -3169,12 +1936,12 @@ function FinanceWorkspace() {
                     <option value="banco">Banco</option>
                     <option value="virtual">Virtual</option>
                     <option value="tarjeta">Tarjeta</option>
-                  </select>
+                  </AdaptiveSelect>
                 </div>
 
                 <div className="space-y-1">
                   <label className="text-[9px] font-black uppercase text-slate-400">Moneda *</label>
-                  <select
+                  <AdaptiveSelect
                     value={accountCurrency}
                     onChange={e => setAccountCurrency(e.target.value as FinancialAccount['currency'])}
                     required
@@ -3182,7 +1949,7 @@ function FinanceWorkspace() {
                   >
                     <option value="ARS">Pesos (ARS)</option>
                     <option value="USD">Dólares (USD)</option>
-                  </select>
+                  </AdaptiveSelect>
                 </div>
               </div>
 
@@ -3202,1005 +1969,10 @@ function FinanceWorkspace() {
       {/* =========================================================================
           MODAL 1: REGISTRAR MOVIMIENTO MANUAL
           ========================================================================= */}
-      {isTxModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-3 sm:p-6 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-150">
-          <div role="dialog" aria-modal="true" aria-labelledby="transaction-dialog-title" className="my-auto w-full max-w-4xl space-y-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl sm:p-6 animate-in zoom-in-95 duration-150">
-            <div className="flex justify-between items-center pb-2.5 border-b border-slate-100">
-              <h3 id="transaction-dialog-title" className="font-bold text-slate-900 text-base flex items-center gap-1.5">
-                {duplicatingTx ? <Copy className="w-4 h-4 text-indigo-600" /> : <PlusCircle className="w-4 h-4 text-brand-600" />}
-                {editingTx ? "Editar movimiento" : duplicatingTx ? "Duplicar movimiento" : txCategory === "Proveedores" ? "Pago a proveedor" : txCategory === "Sueldos" && txSubCategory === "Sueldos Eventuales" ? "Carga de eventuales" : "Nuevo movimiento"}
-              </h3>
-              <button type="button" aria-label="Cerrar carga de movimiento" onClick={() => { setIsTxModalOpen(false); setEditingTx(null); setDuplicatingTx(false); setSelectedOrder(null); setOrderSearchQuery(""); setOrderSearchResults([]); }} className="p-1 hover:bg-slate-100 rounded-lg text-slate-400">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+      {choosingOperation && <OperationChooser onClose={()=>setChoosingOperation(false)} onChoose={kind=>{setChoosingOperation(false);setOperationEditor({kind});}}/>}
+      {operationEditor && <OperationEditor {...operationEditor} readOnly={localInspection} requestOverride={localInspection?localOperationRead:undefined} onClose={()=>setOperationEditor(null)} onSaved={operationSaved}/>}
+      {isLinkModalOpen && reconcilingTx && <OperationEditor kind={inferOperationType(reconcilingTx)} transactionId={reconcilingTx.id} mode="link" onClose={()=>{setIsLinkModalOpen(false);setReconcilingTx(null);}} onSaved={operationSaved}/>}
 
-            {duplicatingTx && (
-              <div className="flex items-start gap-2 rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2 text-[10px] font-bold text-indigo-700">
-                <Copy className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                Se creará un movimiento nuevo. Revisá los datos y modificá lo necesario antes de guardar.
-              </div>
-            )}
-
-            <form onSubmit={handleRegisterTx} className="space-y-3">
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const linkedConcept = selectedConcept || financialConcepts.find(item => item.id === txFinancialConceptId);
-                    if (txFinancialConceptId && linkedConcept?.movement_type === 'Ingreso') {
-                      setTxFinancialConceptId(null);
-                      setSelectedConcept(null);
-                    }
-                    setTxType('egreso'); setFinancialTypeNeedsReview(false);
-                  }}
-                  className={`py-2 text-xs font-semibold rounded-lg border transition-all ${
-                    txType === 'egreso'
-                      ? 'bg-rose-50 border-rose-200 text-rose-700 shadow-sm'
-                      : 'border-slate-100 text-slate-400 hover:bg-slate-50'
-                  }`}
-                >
-                  Egreso (Salida)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const linkedConcept = selectedConcept || financialConcepts.find(item => item.id === txFinancialConceptId);
-                    if (txFinancialConceptId && linkedConcept?.movement_type === 'Egreso') {
-                      setTxFinancialConceptId(null);
-                      setSelectedConcept(null);
-                    }
-                    setTxType('ingreso'); setFinancialTypeNeedsReview(false);
-                  }}
-                  className={`py-2 text-xs font-semibold rounded-lg border transition-all ${
-                    txType === 'ingreso'
-                      ? 'bg-emerald-50 border-emerald-200 text-emerald-700 shadow-sm'
-                      : 'border-slate-100 text-slate-400 hover:bg-slate-50'
-                  }`}
-                >
-                  Ingreso (Entrada)
-                </button>
-              </div>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                <DateInput
-                label="Fecha del movimiento *"
-                required
-                value={txCreatedAt}
-                onChange={val => setTxCreatedAt(val)}
-                className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white font-medium text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10"
-              />
-                <div className="space-y-1">
-                <label htmlFor="tx-account" className="block text-xs font-semibold text-slate-500">Cuenta *</label>
-                <select
-                  id="tx-account"
-                  value={txAccountId}
-                  onChange={e => setTxAccountId(e.target.value)}
-                  required
-                  className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white font-medium text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10"
-                >
-                  {financialAccounts.map(a => (
-                    <option key={a.id} value={a.id}>{financialAccountLabel(a.name)} ({a.currency})</option>
-                  ))}
-                </select>
-              </div>
-                <div className="space-y-1">
-                  <label htmlFor="tx-amount" className="block text-xs font-semibold text-slate-500">Monto *</label>
-                  <input
-                    id="tx-amount"
-                    type="number"
-                    required
-                    min="0.01"
-                    step="any"
-                    placeholder="0.00"
-                    value={txAmount}
-                    onChange={e => setTxAmount(e.target.value)}
-                    className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white font-medium text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10"
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div className="relative space-y-1">
-                <label htmlFor="financial-concept-search" className="block text-xs font-semibold text-slate-500">Buscar concepto (opcional)</label>
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                  <input
-                    id="financial-concept-search"
-                    type="search"
-                    autoComplete="off"
-                    value={conceptSearch}
-                    onFocus={() => setIsConceptSearchOpen(true)}
-                    onBlur={() => window.setTimeout(() => setIsConceptSearchOpen(false), 150)}
-                    onChange={e => {
-                      setConceptSearch(e.target.value);
-                      setSelectedConcept(null);
-                      setTxFinancialConceptId(null);
-                      setFinancialTypeNeedsReview(false);
-                      setIsConceptSearchOpen(true);
-                    }}
-                    onKeyDown={e => {
-                      if (e.key === "Escape") setIsConceptSearchOpen(false);
-                      if (e.key === "Enter" && isConceptSearchOpen && matchingConcepts.length > 0) {
-                        e.preventDefault();
-                        selectFinancialConcept(matchingConcepts[0]);
-                      }
-                    }}
-                    placeholder="Buscar en conceptos guardados…"
-                    className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10"
-                  />
-                </div>
-                {isConceptSearchOpen && (
-                  <div className="absolute z-20 top-full left-0 right-0 mt-1 max-h-56 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl" role="listbox" aria-label="Conceptos precategorizados">
-                    {matchingConcepts.length ? matchingConcepts.map(item => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        role="option"
-                        aria-selected={false}
-                        onMouseDown={e => e.preventDefault()}
-                        onClick={() => selectFinancialConcept(item)}
-                        className="block w-full border-b border-slate-100 px-3 py-2 text-left last:border-0 hover:bg-brand-50 focus:bg-brand-50"
-                      >
-                        <span className="block text-xs font-bold text-slate-800">{item.concept}</span>
-                        <span className="block text-[10px] text-slate-500">{item.category} · {item.sub_category} · {item.movement_type}</span>
-                      </button>
-                    )) : <p className="px-3 py-3 text-xs text-slate-500">{conceptCatalogError || 'No se encontraron conceptos. Podés completar el movimiento manualmente.'}</p>}
-                  </div>
-                )}
-                {selectedConcept && (
-                  <p className="text-[10px] text-slate-500">
-                    {financialTypeNeedsReview && <>Elegí ingreso o egreso antes de guardar este movimiento financiero.</>}
-                  </p>
-                )}
-              </div>
-                <div className="space-y-1">
-                <label htmlFor="tx-concept" className="block text-xs font-semibold text-slate-500">Concepto / detalle *</label>
-                <input
-                  id="tx-concept"
-                  type="text"
-                  required
-                  placeholder="Ej. Pago de impuestos sobre débitos y créditos"
-                  value={txConcept}
-                  onChange={e => { setTxConcept(e.target.value); setSelectedConcept(null); setTxFinancialConceptId(null); setFinancialTypeNeedsReview(false); }}
-                  className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white font-medium text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10"
-                />
-              </div>
-              </div>
-              <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
-                <div className="space-y-1">
-                  <SearchableSelect
-                    id="tx-category" label="Categoría" clearOnSearch={false}
-                    options={financialCategories.map(category => ({ value: category, label: category }))}
-                    value={txCategory}
-                    onChange={value => {
-                      setTxCategory(value);
-                      setSelectedConcept(null);
-                      setTxFinancialConceptId(null);
-                      setFinancialTypeNeedsReview(false);
-                      if (value !== "Recaudación") {
-                        setLinkToOrder(false);
-                        setSelectedOrderId("");
-                        setSelectedOrder(null);
-                        setOrderSearchQuery("");
-                        setOrderSearchResults([]);
-                      }
-                    }}
-                    required
-                  />
-                </div>
-                {txCategory === "Proveedores" && (
-                <div className="space-y-3 animate-in fade-in duration-200">
-                  <SearchableSelect
-                  id="tx-supplier" label="Proveedor" value={selectedSupplierId}
-                  options={suppliers.map(supplier => ({ value: supplier.id, label: supplier.name }))}
-                  onChange={value => { setSelectedSupplierId(value); setSelectedPurchaseId(""); }}
-                  required placeholder="Seleccionar proveedor"
-                />
-                  {selectedSupplierId && (
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          id="linkToPurchase"
-                          checked={linkToPurchase}
-                          onChange={e => setLinkToPurchase(e.target.checked)}
-                          className="w-4 h-4 text-brand-600 rounded border-slate-300 focus:ring-brand-500/10 cursor-pointer"
-                        />
-                        <label htmlFor="linkToPurchase" className="text-xs font-semibold text-slate-600 cursor-pointer select-none">
-                          Vincular a Compra por Pagar
-                        </label>
-                      </div>
-                      {linkToPurchase && (
-                        <div className="space-y-1 animate-in slide-in-from-top-1 duration-150">
-                          <label htmlFor="tx-purchase" className="block text-xs font-semibold text-slate-500">Compra pendiente *</label>
-                          <select
-                            id="tx-purchase"
-                            value={selectedPurchaseId}
-                            onChange={e => {
-                              setSelectedPurchaseId(e.target.value);
-                              const pur = pendingPurchases.find(p => p.id === e.target.value);
-                              if (pur) {
-                                const pendingAmt = Number(pur.total_amount) - Number(pur.paid_amount);
-                                setTxAmount(pendingAmt.toString());
-                                setTxConcept(`Pago Compra Fac ${pur.invoice_number}`);
-                              }
-                            }}
-                            required={linkToPurchase}
-                            className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white font-medium text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10"
-                          >
-                            <option value="">-- Seleccionar Compra --</option>
-                            {pendingPurchases
-                              .filter(p => p.supplier_id === selectedSupplierId)
-                              .map(p => {
-                                const pendingAmt = Number(p.total_amount) - Number(p.paid_amount);
-                                return (
-                                  <option key={p.id} value={p.id}>
-                                    Factura {p.invoice_number} (Total: {formatPrice(p.total_amount)} - Resta: {formatPrice(pendingAmt)})
-                                  </option>
-                                );
-                              })}
-                          </select>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-                {txCategory === "Sueldos" && (
-                <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl space-y-1 animate-in fade-in duration-200">
-                  <label className="block text-xs font-semibold text-slate-500">Empleado (Opcional)</label>
-                  <select
-                    value={selectedEmployeeId}
-                    onChange={e => {
-                      setSelectedEmployeeId(e.target.value);
-                      const emp = employees.find(x => x.id === e.target.value);
-                      if (emp) {
-                        setTxAmount(emp.base_salary.toString());
-                        setTxConcept(`Liquidación de Sueldo - ${emp.full_name}`);
-                      }
-                    }}
-                    className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white font-medium text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10"
-                  >
-                    <option value="">-- Seleccionar Empleado --</option>
-                    {employees.map(e => (
-                      <option key={e.id} value={e.id}>{e.full_name} ({e.role || 'Sin Rol'})</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              </div>
-              {txCategory === "Recaudación" && txType === "ingreso" && (
-                <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl space-y-2.5 animate-in fade-in duration-200">
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="linkToOrder"
-                      checked={linkToOrder}
-                      onChange={e => {
-                        setLinkToOrder(e.target.checked);
-                        if (!e.target.checked) {
-                          setSelectedOrderId("");
-                          setSelectedOrder(null);
-                          setOrderSearchQuery("");
-                          setOrderSearchResults([]);
-                        }
-                      }}
-                      className="w-4 h-4 text-brand-600 rounded border-slate-300 focus:ring-brand-500/10 cursor-pointer"
-                    />
-                    <label htmlFor="linkToOrder" className="text-xs font-semibold text-slate-600 cursor-pointer select-none">
-                      Vincular a Venta por Cobrar
-                    </label>
-                  </div>
-                  {linkToOrder && (
-                    <div className="space-y-2 animate-in slide-in-from-top-1 duration-150">
-                      {selectedOrderId && selectedOrder ? (
-                        <div className="p-2.5 bg-emerald-50/80 border border-emerald-200 rounded-xl flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <div className="w-7 h-7 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
-                              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                            </div>
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <span className="font-black text-xs text-slate-900">
-                                  {selectedOrder.legacy_code || selectedOrder.id.substring(0, 8)}
-                                </span>
-                                <span className="text-[10px] text-slate-600 font-bold truncate">
-                                  • {selectedOrder.customer_name}
-                                </span>
-                              </div>
-                              <div className="text-[10px] text-emerald-800 font-bold">
-                                Saldo Restante: {formatPrice(Number(selectedOrder.totals?.pending_balance) || Number(selectedOrder.total_amount))}
-                                <span className="text-slate-400 font-normal ml-1">(Total: {formatPrice(selectedOrder.total_amount)})</span>
-                              </div>
-                            </div>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedOrderId("");
-                              setSelectedOrder(null);
-                              setOrderSearchQuery("");
-                              setOrderSearchResults([]);
-                            }}
-                            className="px-2.5 py-1 text-[10px] font-bold text-slate-600 hover:text-rose-600 bg-white hover:bg-rose-50 border border-slate-200 hover:border-rose-200 rounded-lg shrink-0 transition-colors"
-                          >
-                            Cambiar
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="space-y-1.5">
-                          <label className="block text-xs font-semibold text-slate-500 flex items-center justify-between">
-                            <span>Buscar Venta por Código *</span>
-                            <span className="text-[9px] text-slate-400 font-semibold lowercase">mínimo 3 caracteres</span>
-                          </label>
-                          <div className="relative">
-                            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                            <input
-                              type="text"
-                              value={orderSearchQuery}
-                              onChange={e => setOrderSearchQuery(e.target.value)}
-                              placeholder="Ingresá código (ej. JS23839) o nombre..."
-                              className="w-full pl-8 pr-8 py-2 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
-                              autoFocus
-                            />
-                            {orderSearchQuery && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setOrderSearchQuery("");
-                                  setOrderSearchResults([]);
-                                }}
-                                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 text-slate-400 hover:text-slate-600 rounded"
-                              >
-                                <X className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                          </div>
-
-                          {orderSearchQuery.trim().length > 0 && orderSearchQuery.trim().length < 3 && (
-                            <p className="text-[10px] text-amber-600 font-medium px-1">
-                              Escribí al menos 3 caracteres para iniciar la búsqueda...
-                            </p>
-                          )}
-
-                          {isSearchingOrders && (
-                            <div className="flex items-center gap-2 px-2 py-2 text-[10px] font-bold text-slate-500">
-                              <Loader2 className="w-3.5 h-3.5 animate-spin text-brand-600" />
-                              Buscando ventas pendientes...
-                            </div>
-                          )}
-
-                          {!isSearchingOrders && orderSearchQuery.trim().length >= 3 && orderSearchResults.length === 0 && (
-                            <div className="px-3 py-2 bg-amber-50/70 border border-amber-100 rounded-xl text-center">
-                              <p className="text-[11px] font-bold text-amber-800">
-                                No se encontraron ventas pendientes para "{orderSearchQuery}"
-                              </p>
-                              <p className="text-[9px] text-amber-600 mt-0.5">
-                                Asegurate de que el código sea correcto y que el pedido no esté ya saldado.
-                              </p>
-                            </div>
-                          )}
-
-                          {!isSearchingOrders && orderSearchResults.length > 0 && (
-                            <div className="max-h-48 overflow-y-auto rounded-xl border border-slate-200 bg-white divide-y divide-slate-100 shadow-sm">
-                              {orderSearchResults.map(ord => {
-                                const pendingAmt = Number(ord.totals?.pending_balance) || Number(ord.total_amount);
-                                return (
-                                  <button
-                                    key={ord.id}
-                                    type="button"
-                                    onClick={() => {
-                                      setSelectedOrderId(ord.id);
-                                      setSelectedOrder(ord);
-                                      setTxAmount(pendingAmt.toString());
-                                      setTxConcept(`Cobro Venta ${ord.legacy_code || ord.id.substring(0, 8)} - ${ord.customer_name}`);
-                                    }}
-                                    className="w-full text-left px-3 py-2 hover:bg-brand-50/60 transition-colors flex items-center justify-between gap-2 group"
-                                  >
-                                    <div className="min-w-0">
-                                      <div className="flex items-center gap-1.5">
-                                        <span className="font-black text-xs text-slate-900 group-hover:text-brand-600">
-                                          {ord.legacy_code || ord.id.substring(0, 8)}
-                                        </span>
-                                        <span className="text-[11px] text-slate-600 truncate font-semibold">
-                                          • {ord.customer_name}
-                                        </span>
-                                      </div>
-                                      <div className="text-[9px] text-slate-400">
-                                        Fecha: {formatDateDDMMYYYY(ord.order_date)}
-                                      </div>
-                                    </div>
-                                    <div className="text-right shrink-0">
-                                      <div className="text-xs font-black text-emerald-700">
-                                        Resta: {formatPrice(pendingAmt)}
-                                      </div>
-                                      <div className="text-[9px] text-slate-400">
-                                        Total: {formatPrice(ord.total_amount)}
-                                      </div>
-                                    </div>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-              <div className="space-y-1">
-                <label htmlFor="tx-notes" className="block text-xs font-semibold text-slate-500">Observaciones</label>
-                <textarea
-                  id="tx-notes"
-                  placeholder="Comentarios adicionales..."
-                  rows={2}
-                  value={txNotes}
-                  onChange={e => setTxNotes(e.target.value)}
-                  className="min-h-14 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10 resize-none"
-                />
-              </div>
-              <details className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
-                <summary className="cursor-pointer text-xs font-semibold text-slate-600">Clasificación y datos adicionales{[txSubCategory, txEfeCategory, txCostCenterId, txRouteSheetId].some(Boolean) && <span className="ml-2 text-slate-400">· {[txSubCategory, txEfeCategory, txCostCenterId, txRouteSheetId].filter(Boolean).length} {[txSubCategory, txEfeCategory, txCostCenterId, txRouteSheetId].filter(Boolean).length === 1 ? 'dato cargado' : 'datos cargados'}</span>}</summary>
-                <div className="mt-3 grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
-                  <div className="space-y-1">
-                  <label htmlFor="tx-subcategory" className="block text-xs font-semibold text-slate-500">Subcategoría (opcional)</label>
-                  <input
-                    id="tx-subcategory"
-                    type="text"
-                    list="available-tx-subcategories"
-                    value={txSubCategory}
-                    onChange={e => { setTxSubCategory(e.target.value); setSelectedConcept(null); setTxFinancialConceptId(null); setFinancialTypeNeedsReview(false); }}
-                    placeholder="Ej. Peajes, Combustible..."
-                    className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white font-medium text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10"
-                  />
-                  <datalist id="available-tx-subcategories">
-                    {availableSubCategories.map(sc => (
-                      <option key={sc} value={sc} />
-                    ))}
-                  </datalist>
-                </div>
-                  <div className="space-y-1">
-                <label htmlFor="tx-efe-category" className="block text-xs font-semibold text-slate-500">Clasificación de resultados (opcional)</label>
-                <input
-                  id="tx-efe-category"
-                  type="text"
-                  value={txEfeCategory}
-                  onChange={e => { setTxEfeCategory(e.target.value); setSelectedConcept(null); setTxFinancialConceptId(null); }}
-                  placeholder="Clasificación de estado de resultados"
-                  className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white font-medium text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10"
-                />
-              </div>
-                  <div className="space-y-1">
-                  <label htmlFor="tx-cost-center" className="block text-xs font-semibold text-slate-500">Área / centro de costo (opcional)</label>
-                  <select
-                    id="tx-cost-center"
-                    value={txCostCenterId}
-                    onChange={e => setTxCostCenterId(e.target.value)}
-                    className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white font-medium text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10"
-                  >
-                    <option value="">Sin asignar</option>
-                    {costCenters.map(cc => (
-                      <option key={cc.id} value={cc.id}>{cc.name}</option>
-                    ))}
-                  </select>
-                  <p className="mt-1 text-xs font-normal text-slate-400">Área a la que corresponde el ingreso o gasto.</p>
-                </div>
-                  <div className="space-y-1">
-                <label htmlFor="tx-route-sheet" className="block text-xs font-semibold text-slate-500">Hoja de ruta (opcional)</label>
-                <select
-                  id="tx-route-sheet"
-                  value={txRouteSheetId}
-                  onChange={e => {
-                    setTxRouteSheetId(e.target.value);
-                    const sheet = routeSheets.find(s => s.id === e.target.value);
-                    if (sheet) {
-                      const carrierName = sheet.carriers?.name || "Chofer";
-                      const dateStr = formatDateDDMMYYYY(sheet.delivery_date);
-                      if (!txConcept || txConcept === "Gastos Operativos" || txConcept === "Flete") {
-                        setTxConcept(`Flete HR ${sheet.code || sheet.run_number} - ${carrierName} (${dateStr})`);
-                      }
-                    }
-                  }}
-                  className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white font-medium text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/10"
-                >
-                  <option value="">-- Sin Hoja de Ruta --</option>
-                  {routeSheets.map(s => {
-                    const dateStr = formatDateDDMMYYYY(s.delivery_date);
-                    return (
-                      <option key={s.id} value={s.id}>
-                        {s.code || `HR #${s.run_number}`} - {s.carriers?.name || 'S/D'} ({dateStr})
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
-                </div>
-              </details>
-              <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-3">
-                <button type="button" disabled={submittingTx} onClick={() => { setIsTxModalOpen(false); setEditingTx(null); setDuplicatingTx(false); }} className="h-10 rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 hover:bg-slate-50">Cancelar</button>
-                <Button
-                type="submit"
-                disabled={submittingTx}
-                className="px-5 py-2.5 bg-brand-600 hover:bg-brand-700 text-white font-semibold text-sm rounded-lg shadow-sm flex items-center justify-center gap-1.5"
-              >
-                {submittingTx ? <Loader2 className="w-4 h-4 animate-spin" /> : (editingTx ? "Guardar Cambios" : duplicatingTx ? "Crear Duplicado" : "Registrar Movimiento")}
-              </Button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* =========================================================================
-          MODAL 2: TRANSFERENCIA ENTRE CUENTAS
-          ========================================================================= */}
-      {isTransferModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-150">
-          <div className="bg-white rounded-[2rem] border border-slate-100 p-6 shadow-2xl w-full max-w-xl space-y-4 animate-in zoom-in-95 duration-150">
-            <div className="flex justify-between items-center pb-2.5 border-b border-slate-100">
-              <h3 className="font-black text-slate-900 text-sm uppercase tracking-wider flex items-center gap-1.5">
-                <ArrowRightLeft className="w-4 h-4 text-brand-600" /> Registrar Transferencia Interna
-              </h3>
-              <button onClick={() => setIsTransferModalOpen(false)} className="p-1 hover:bg-slate-100 rounded-lg text-slate-400">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleRegisterTransfer} className="space-y-4">
-              <div>
-                <label className="text-[9px] font-black uppercase text-slate-400">Fecha de transferencia *</label>
-                <input type="date" required value={tfDate} onChange={e => setTfDate(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs" />
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-1">
-                  <label className="text-[9px] font-black uppercase text-slate-400">Cuenta de Origen (Sale) *</label>
-                  <select
-                    value={tfSourceId}
-                    onChange={e => {
-                      const sourceId = e.target.value;
-                      setTfSourceId(sourceId);
-                      const source = financialAccounts.find(account => account.id === sourceId);
-                      const destination = financialAccounts.find(account => account.id === tfDestId);
-                      if (!destination || destination.id === sourceId || destination.currency !== source?.currency) {
-                        setTfDestId(defaultTransferAccounts(financialAccounts, sourceId).destinationId);
-                      }
-                    }}
-                    required
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
-                  >
-                    <option value="" disabled>Seleccionar cuenta</option>
-                    {financialAccounts.filter(a => a.is_active).map(a => (
-                      <option key={a.id} value={a.id}>{financialAccountLabel(a.name)} ({a.currency})</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-[9px] font-black uppercase text-slate-400">Cuenta de Destino (Entra) *</label>
-                  <select
-                    value={tfDestId}
-                    onChange={e => setTfDestId(e.target.value)}
-                    required
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
-                  >
-                    <option value="" disabled>Seleccionar cuenta</option>
-                    {financialAccounts.filter(a => a.is_active && a.id !== tfSourceId
-                      && a.currency === financialAccounts.find(source => source.id === tfSourceId)?.currency).map(a => (
-                      <option key={a.id} value={a.id}>{financialAccountLabel(a.name)} ({a.currency})</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[9px] font-black uppercase text-slate-400">Monto a Transferir *</label>
-                <input
-                  type="number"
-                  required
-                  min="0.01"
-                  step="any"
-                  placeholder="0.00"
-                  value={tfAmount}
-                  onChange={e => setTfAmount(e.target.value)}
-                  className="w-full px-3 py-1.5 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[9px] font-black uppercase text-slate-400">Concepto de Transferencia *</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ej. Fondeo de cuenta de MercadoPago para publicidad"
-                  value={tfConcept}
-                  onChange={e => setTfConcept(e.target.value)}
-                  className="w-full px-3 py-1.5 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[9px] font-black uppercase text-slate-400">Observaciones</label>
-                <textarea
-                  placeholder="Comentarios adicionales..."
-                  rows={2}
-                  value={tfNotes}
-                  onChange={e => setTfNotes(e.target.value)}
-                  className="w-full px-3 py-1.5 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500 resize-none"
-                />
-              </div>
-
-              <Button
-                type="submit"
-                disabled={submittingTransfer}
-                className="w-full py-2.5 bg-brand-600 hover:bg-brand-700 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-md flex items-center justify-center gap-1.5"
-              >
-                {submittingTransfer ? <Loader2 className="w-4 h-4 animate-spin" /> : "Ejecutar Transferencia"}
-              </Button>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* =========================================================================
-          TAB 4: COMPROBANTES A VALIDAR
-          ========================================================================= */}
-      {activeTab === 'validations' && (
-        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-200">
-          <div className="bg-white rounded-[2rem] border border-slate-100 p-6 shadow-xl space-y-4">
-            <div>
-              <h3 className="text-base font-black text-slate-800 uppercase tracking-wider">
-                Comprobantes de Pago Pendientes de Validación
-              </h3>
-              <p className="text-[11px] text-slate-500 font-semibold mt-0.5">
-                Aquí se listan los pedidos que fueron cargados con comprobantes de transferencia o pago electrónico. Corrobore la acreditación de los fondos en sus cuentas y valide el cobro.
-              </p>
-            </div>
-
-            {validationOrders.length === 0 ? (
-              <div className="text-center py-12 border border-dashed rounded-3xl text-slate-400 text-xs font-black">
-                No hay comprobantes pendientes de validación ✓
-              </div>
-            ) : (
-              <div className="border border-slate-100 rounded-3xl overflow-hidden shadow-sm">
-                <table className="w-full text-left border-collapse text-xs">
-                  <thead>
-                    <tr className="bg-slate-50 border-b border-slate-100 text-[9px] font-black uppercase tracking-wider text-slate-400">
-                      <th className="py-3 px-4">Fecha</th>
-                      <th className="py-3 px-4">Pedido</th>
-                      <th className="py-3 px-4">Cliente</th>
-                      <th className="py-3 px-4">Medio de Pago</th>
-                      <th className="py-3 px-4 text-right">Total Pedido</th>
-                      <th className="py-3 px-4 text-right">Monto Declarado</th>
-                      <th className="py-3 px-4 text-center">Comprobante</th>
-                      <th className="py-3 px-4 text-right">Acción</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 font-bold text-slate-700">
-                    {validationOrders.map(o => {
-                      const depositAmount = o.totals?.deposit_amount || o.total_amount;
-                      const receiptUrl = o.totals?.deposit_receipt_url;
-                      return (
-                        <tr key={o.id} className="hover:bg-slate-50/50 transition-colors">
-                          <td className="py-3 px-4 text-slate-400">{formatDateDDMMYYYY(o.order_date)}</td>
-                          <td className="py-3 px-4 font-mono text-slate-900">{o.legacy_code || o.id.substring(0, 8)}</td>
-                          <td className="py-3 px-4 text-slate-900">{o.customer_name}</td>
-                          <td className="py-3 px-4">
-                            <span className="bg-slate-100 px-2 py-0.5 rounded text-[10px] text-slate-600 font-bold uppercase tracking-wide">
-                              {o.payment_methods?.name || 'S/D'}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4 text-right">{formatPrice(o.total_amount)}</td>
-                          <td className="py-3 px-4 text-right text-brand-600 font-extrabold">{formatPrice(depositAmount)}</td>
-                          <td className="py-3 px-4 text-center">
-                            {receiptUrl ? (
-                              <a
-                                href={receiptUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 px-2.5 py-1 bg-brand-50 border border-brand-100 text-brand-700 hover:bg-brand-100 rounded-lg text-[10px] font-black transition-colors"
-                              >
-                                <FileText className="w-3 h-3" /> Ver Adjunto
-                              </a>
-                            ) : (
-                              <span className="text-slate-400 font-medium text-[10px]">Sin archivo</span>
-                            )}
-                          </td>
-                          <td className="py-3 px-4 text-right">
-                            <Button
-                              onClick={() => {
-                                setSelectedValidationOrder(o);
-                                setValAmount(depositAmount.toString());
-                                setValConcept(`Validación Cobro - Pedido ${o.legacy_code || o.id.substring(0, 8)}`);
-                                if (financialAccounts.length > 0) {
-                                  const digitalAcc = financialAccounts.find(a => a.type !== 'efectivo' && a.currency === 'ARS') || financialAccounts[0];
-                                  setValAccountId(digitalAcc.id);
-                                }
-                                setIsValidationModalOpen(true);
-                              }}
-                              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[10px] uppercase tracking-wider rounded-xl shadow-sm"
-                            >
-                              Aprobar
-                            </Button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* =========================================================================
-          MODAL 3: VINCULAR TRANSACCIÓN (Cobro/Pago/Sueldo no asociado)
-          ========================================================================= */}
-      {isLinkModalOpen && reconcilingTx && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-150">
-          <div className="bg-white rounded-[2rem] border border-slate-100 p-6 shadow-2xl w-full max-w-md space-y-4 animate-in zoom-in-95 duration-150">
-            <div className="flex justify-between items-center pb-2.5 border-b border-slate-100">
-              <h3 className="font-black text-slate-900 text-sm uppercase tracking-wider flex items-center gap-1.5">
-                <Coins className="w-4 h-4 text-brand-600" /> Vincular Movimiento Financiero
-              </h3>
-              <button onClick={() => { setIsLinkModalOpen(false); setReconcilingTx(null); setLinkOrderId(""); setLinkSelectedOrder(null); setLinkOrderSearchQuery(""); setLinkOrderSearchResults([]); }} className="p-1 hover:bg-slate-100 rounded-lg text-slate-400">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="p-3 bg-slate-50 rounded-xl space-y-1.5 text-xs">
-              <div className="flex justify-between">
-                <span className="text-slate-400 font-bold uppercase text-[9px]">Concepto:</span>
-                <span className="font-black text-slate-800 truncate max-w-[200px]">{reconcilingTx.concept}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400 font-bold uppercase text-[9px]">Monto:</span>
-                <span className="font-black text-slate-800">
-                  {reconcilingTx.currency === 'USD' ? `US$ ${reconcilingTx.amount}` : formatPrice(reconcilingTx.amount)}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400 font-bold uppercase text-[9px]">Categoría:</span>
-                <span className="font-black text-slate-800">{reconcilingTx.category}</span>
-              </div>
-            </div>
-
-            <form onSubmit={handleSaveLink} className="space-y-4">
-              {reconcilingTx.type === 'ingreso' ? (
-                <div className="space-y-2">
-                  <label className="text-[9px] font-black uppercase text-slate-400">Venta Pendiente *</label>
-                  {linkOrderId && linkSelectedOrder ? (
-                    <div className="p-2.5 bg-emerald-50/80 border border-emerald-200 rounded-xl flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <div className="w-7 h-7 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
-                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                        </div>
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="font-black text-xs text-slate-900">
-                              {linkSelectedOrder.legacy_code || linkSelectedOrder.id.substring(0, 8)}
-                            </span>
-                            <span className="text-[10px] text-slate-600 font-bold truncate">
-                              • {linkSelectedOrder.customer_name}
-                            </span>
-                          </div>
-                          <div className="text-[10px] text-emerald-800 font-bold">
-                            Saldo: {formatPrice(Number(linkSelectedOrder.totals?.pending_balance) || Number(linkSelectedOrder.total_amount))}
-                            <span className="text-slate-400 font-normal ml-1">(Total: {formatPrice(linkSelectedOrder.total_amount)})</span>
-                          </div>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setLinkOrderId("");
-                          setLinkSelectedOrder(null);
-                          setLinkOrderSearchQuery("");
-                          setLinkOrderSearchResults([]);
-                        }}
-                        className="px-2.5 py-1 text-[10px] font-bold text-slate-600 hover:text-rose-600 bg-white hover:bg-rose-50 border border-slate-200 hover:border-rose-200 rounded-lg shrink-0 transition-colors"
-                      >
-                        Cambiar
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="space-y-1.5">
-                      <div className="relative">
-                        <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                        <input
-                          type="text"
-                          value={linkOrderSearchQuery}
-                          onChange={e => setLinkOrderSearchQuery(e.target.value)}
-                          placeholder="Buscar venta por código (ej. JS23839) o cliente..."
-                          className="w-full pl-8 pr-8 py-2 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
-                          autoFocus
-                        />
-                        {linkOrderSearchQuery && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setLinkOrderSearchQuery("");
-                              setLinkOrderSearchResults([]);
-                            }}
-                            className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 text-slate-400 hover:text-slate-600 rounded"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-
-                      {linkOrderSearchQuery.trim().length > 0 && linkOrderSearchQuery.trim().length < 3 && (
-                        <p className="text-[10px] text-amber-600 font-medium px-1">
-                          Escribí al menos 3 caracteres para buscar...
-                        </p>
-                      )}
-
-                      {isSearchingLinkOrders && (
-                        <div className="flex items-center gap-2 px-2 py-2 text-[10px] font-bold text-slate-500">
-                          <Loader2 className="w-3.5 h-3.5 animate-spin text-brand-600" />
-                          Buscando ventas pendientes...
-                        </div>
-                      )}
-
-                      {!isSearchingLinkOrders && linkOrderSearchQuery.trim().length >= 3 && linkOrderSearchResults.length === 0 && (
-                        <div className="px-3 py-2 bg-amber-50/70 border border-amber-100 rounded-xl text-center">
-                          <p className="text-[11px] font-bold text-amber-800">
-                            No se encontraron ventas pendientes para "{linkOrderSearchQuery}"
-                          </p>
-                        </div>
-                      )}
-
-                      {!isSearchingLinkOrders && linkOrderSearchResults.length > 0 && (
-                        <div className="max-h-48 overflow-y-auto rounded-xl border border-slate-200 bg-white divide-y divide-slate-100 shadow-sm">
-                          {linkOrderSearchResults.map(ord => {
-                            const pendingAmt = Number(ord.totals?.pending_balance) || Number(ord.total_amount);
-                            return (
-                              <button
-                                key={ord.id}
-                                type="button"
-                                onClick={() => {
-                                  setLinkOrderId(ord.id);
-                                  setLinkSelectedOrder(ord);
-                                  setLinkAmount(Math.min(pendingAmt, reconcilingTx.amount).toString());
-                                }}
-                                className="w-full text-left px-3 py-2 hover:bg-brand-50/60 transition-colors flex items-center justify-between gap-2 group"
-                              >
-                                <div className="min-w-0">
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="font-black text-xs text-slate-900 group-hover:text-brand-600">
-                                      {ord.legacy_code || ord.id.substring(0, 8)}
-                                    </span>
-                                    <span className="text-[11px] text-slate-600 truncate font-semibold">
-                                      • {ord.customer_name}
-                                    </span>
-                                  </div>
-                                  <div className="text-[9px] text-slate-400">
-                                    Fecha: {formatDateDDMMYYYY(ord.order_date)}
-                                  </div>
-                                </div>
-                                <div className="text-right shrink-0">
-                                  <div className="text-xs font-black text-emerald-700">
-                                    Resta: {formatPrice(pendingAmt)}
-                                  </div>
-                                  <div className="text-[9px] text-slate-400">
-                                    Total: {formatPrice(ord.total_amount)}
-                                  </div>
-                                </div>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ) : reconcilingTx.category === 'Proveedores' ? (
-                <div className="space-y-3">
-                  <SearchableSelect
-                    id="link-supplier" label="Proveedor" value={linkSupplierId}
-                    options={suppliers.map(supplier => ({ value: supplier.id, label: supplier.name }))}
-                    onChange={value => { setLinkSupplierId(value); setLinkPurchaseId(""); }}
-                    required placeholder="Seleccionar proveedor"
-                  />
-                  {linkSupplierId && (
-                    <div className="space-y-1 animate-in fade-in duration-200">
-                      <label className="text-[9px] font-black uppercase text-slate-400">Compra Pendiente *</label>
-                      <select
-                        value={linkPurchaseId}
-                        onChange={e => {
-                          setLinkPurchaseId(e.target.value);
-                          const pur = pendingPurchases.find(p => p.id === e.target.value);
-                          if (pur) {
-                            const pendingAmt = Number(pur.total_amount) - Number(pur.paid_amount);
-                            setLinkAmount(Math.min(pendingAmt, reconcilingTx.amount).toString());
-                          }
-                        }}
-                        required
-                        className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
-                      >
-                        <option value="">-- Seleccionar Compra --</option>
-                        {pendingPurchases
-                          .filter(p => p.supplier_id === linkSupplierId)
-                          .map(p => {
-                            const pendingAmt = Number(p.total_amount) - Number(p.paid_amount);
-                            return (
-                              <option key={p.id} value={p.id}>
-                                Factura {p.invoice_number} (Resta: {formatPrice(pendingAmt)})
-                              </option>
-                            );
-                          })}
-                      </select>
-                    </div>
-                  )}
-                </div>
-              ) : reconcilingTx.category === 'Sueldos' ? (
-                <div className="space-y-1">
-                  <label className="text-[9px] font-black uppercase text-slate-400">Empleado *</label>
-                  <select
-                    value={linkEmployeeId}
-                    onChange={e => setLinkEmployeeId(e.target.value)}
-                    required
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
-                  >
-                    <option value="">-- Seleccionar Empleado --</option>
-                    {employees.map(e => (
-                      <option key={e.id} value={e.id}>{e.full_name}</option>
-                    ))}
-                  </select>
-                </div>
-              ) : reconcilingTx.category === 'Peajes' || reconcilingTx.category === 'Servicio de Flete' ? (
-                <div className="space-y-1">
-                  <label className="text-[9px] font-black uppercase text-slate-400">Hoja de Ruta *</label>
-                  <select
-                    value={linkRouteSheetId}
-                    onChange={e => setLinkRouteSheetId(e.target.value)}
-                    required
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
-                  >
-                    <option value="">-- Seleccionar Hoja de Ruta --</option>
-                    {routeSheets.map(s => {
-                      const dateStr = formatDateDDMMYYYY(s.delivery_date);
-                      return (
-                        <option key={s.id} value={s.id}>
-                          {s.code || `HR #${s.run_number}`} - {s.carriers?.name || 'S/D'} ({dateStr})
-                        </option>
-                      );
-                    })}
-                  </select>
-                </div>
-              ) : null}
-
-              {(reconcilingTx.type === 'ingreso' || reconcilingTx.category === 'Proveedores') && (
-                <div className="space-y-1">
-                  <label className="text-[9px] font-black uppercase text-slate-400">Monto a Asignar *</label>
-                  <input
-                    type="number"
-                    required
-                    min="0.01"
-                    step="any"
-                    max={reconcilingTx.amount}
-                    value={linkAmount}
-                    onChange={e => setLinkAmount(e.target.value)}
-                    className="w-full px-3 py-1.5 rounded-xl border border-slate-200 bg-white font-bold text-xs outline-none focus:border-brand-500"
-                  />
-                </div>
-              )}
-
-              <Button
-                type="submit"
-                disabled={submittingLink}
-                className="w-full py-2.5 bg-brand-600 hover:bg-brand-700 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-md flex items-center justify-center gap-1.5"
-              >
-                {submittingLink ? <Loader2 className="w-4 h-4 animate-spin" /> : "Vincular Movimiento"}
-              </Button>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* =========================================================================
-          MODAL 4: APROBACIÓN DE COMPROBANTE (VALIDACIÓN)
-          ========================================================================= */}
       {isValidationModalOpen && selectedValidationOrder && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-150">
           <div className="bg-white rounded-[2rem] border border-slate-100 p-6 shadow-2xl w-full max-w-md space-y-4 animate-in zoom-in-95 duration-150">
@@ -4231,7 +2003,7 @@ function FinanceWorkspace() {
             <form onSubmit={handleApproveValidation} className="space-y-4">
               <div className="space-y-1">
                 <label className="text-[9px] font-black uppercase text-slate-400">Cuenta de Destino *</label>
-                <select
+                <AdaptiveSelect
                   value={valAccountId}
                   onChange={e => setValAccountId(e.target.value)}
                   required
@@ -4240,7 +2012,7 @@ function FinanceWorkspace() {
                   {financialAccounts.map(a => (
                     <option key={a.id} value={a.id}>{financialAccountLabel(a.name)} ({a.currency})</option>
                   ))}
-                </select>
+                </AdaptiveSelect>
               </div>
 
               <div className="space-y-1">
@@ -4278,25 +2050,8 @@ function FinanceWorkspace() {
           </div>
         </div>
       )}
-      
-      {isSyncing && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl flex flex-col items-center text-center space-y-4 border border-slate-100">
-            <div className="w-16 h-16 rounded-2xl bg-brand-50 flex items-center justify-center text-brand-600 animate-bounce">
-              <RefreshCw className="w-8 h-8 animate-spin" />
-            </div>
-            <h3 className="font-black text-lg text-slate-800 uppercase tracking-wide">Sincronizando</h3>
-            <p className="text-slate-500 text-xs font-semibold leading-relaxed">
-              Estamos conectando con las planillas de Google Sheets y actualizando la base de datos de forma segura.
-            </p>
-            <div className="bg-slate-50 border border-slate-100 rounded-2xl px-4 py-2.5 w-full">
-              <span className="text-brand-600 font-bold text-xs animate-pulse">
-                {syncProgress}
-              </span>
-            </div>
-          </div>
-        </div>
-      )}
+
+      {isBankImportOpen && <BankSheetImportModal onClose={() => setIsBankImportOpen(false)} onImported={async () => { await Promise.all([loadTransactions(), loadFinancialAccounts()]); }}/>}
 
       {/* Modal de Auditoría y Conciliación de Cajas y Bancos */}
       {isReconciliationModalOpen && (
@@ -4316,7 +2071,7 @@ function FinanceWorkspace() {
                   Comparación matemática entre los movimientos registrados en el ERP y los saldos declarados en las planillas.
                 </p>
               </div>
-              <button 
+              <button
                 onClick={() => setIsReconciliationModalOpen(false)}
                 className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition-colors"
               >

@@ -40,7 +40,7 @@ type ElectronicTicketPayload = {
   notes?: string | null;
 };
 type SavePayload = {
-  action?: "create" | "save" | "confirm" | "import-month" | "confirm-entregando" | "generate-movements" | "update-delivery-status" | "archive" | "delete-archived";
+  action?: "create" | "save" | "confirm" | "import-month" | "confirm-entregando" | "generate-movements" | "update-delivery-status" | "archive" | "delete-archived" | "reopen";
   archiveReason?: string;
   settlementId?: string;
   code?: string;
@@ -404,7 +404,7 @@ export async function GET(request: Request) {
             };
           });
 
-          if (mpPayments.length > 0 && settlement.status !== "archived") {
+          if (mpPayments.length > 0 && settlement.status === "draft") {
             const previouslyPaidOrderIds = new Set(routeOrders.filter(order => order.isPreviouslyPaid).map(order => order.orderId).filter(Boolean));
             const previouslyPaidCodes = routeOrders.filter(order => order.isPreviouslyPaid).map(order => String(order.orderCode).trim().toUpperCase()).filter(Boolean);
             const eligiblePayments = mpPayments.filter(mp =>
@@ -897,7 +897,7 @@ async function confirmEntregandoItems(actor: AuthorizedUser, items: any[]) {
           expected_cash: expectedCash,
           difference: difference,
           updated_at: new Date().toISOString(),
-        }).eq("id", existingSettlement.id);
+        }).eq("id", existingSettlement.id).eq("status", "draft");
         if (settlementUpdate.error) throw settlementUpdate.error;
         updatedCount++;
       }
@@ -1024,6 +1024,8 @@ async function importCurrentMonth(actor: AuthorizedUser) {
       skippedArchived += 1;
       continue;
     }
+    // Confirmation belongs to Treasury; a later sheet import must preserve it.
+    if (previouslyImported?.status === "confirmed") continue;
     if (countRow) countsAssociated += 1;
 
     const payload = {
@@ -1084,6 +1086,14 @@ export async function POST(request: Request) {
   const actor = authorization.actor;
   try {
     const body = await request.json() as SavePayload;
+    if (body.action === "reopen") {
+      if (!body.settlementId) return NextResponse.json({ error: "Falta la rendición." }, { status: 400 });
+      const result = await supabaseAdmin.rpc("reopen_treasury_settlement", {
+        p_actor_id: actor.id, p_settlement_id: body.settlementId,
+      });
+      if (result.error) return NextResponse.json({ error: readableError(result.error) }, { status: result.error.code === "42501" ? 403 : 409 });
+      return NextResponse.json({ success: true, settlement: result.data });
+    }
     if (body.action === "archive" || body.action === "delete-archived") {
       if (!body.settlementId) return NextResponse.json({ error: "Falta la rendición." }, { status: 400 });
       if (body.action === "delete-archived" && !actor.canImportMonth) {

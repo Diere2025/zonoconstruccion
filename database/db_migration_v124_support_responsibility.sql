@@ -38,7 +38,7 @@ begin
    if p_data->>'responsibility_kind'='area' and target is not null then raise exception 'SUPPORT_RESPONSIBLE_INVALID'; end if;
    if not public.support_area_has_responsibles(sector) then raise exception 'SUPPORT_AREA_EMPTY'; end if;$patch$;
  if strpos(source,old)=0 then raise exception 'Unexpected support create definition'; end if;
- source:=replace(source,old,replacement);
+ source:=overlay(source placing replacement from strpos(source,old) for length(old));
  old:='insert into public.support_tickets(created_by,sector_id,title,';
  if strpos(source,old)=0 then raise exception 'Unexpected support ticket insert'; end if;
  source:=replace(source,old,'insert into public.support_tickets(created_by,sector_id,assignee_id,title,');

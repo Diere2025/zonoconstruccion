@@ -1,34 +1,37 @@
 "use client";
 
 import React, { useEffect, useState, useMemo } from "react";
-import { 
-  Coins, 
-  Calendar, 
-  DollarSign, 
-  Users, 
-  TrendingUp, 
-  Settings, 
-  Download, 
-  RefreshCw, 
-  Loader2, 
-  Search, 
-  ChevronDown, 
-  ChevronUp, 
-  CheckCircle2, 
-  AlertTriangle, 
-  Info, 
-  FileSpreadsheet, 
-  Sliders, 
-  ShieldCheck, 
-  Plus, 
-  Trash2, 
-  Save, 
-  Package, 
+import {
+  Coins,
+  Calendar,
+  DollarSign,
+  Users,
+  TrendingUp,
+  Settings,
+  Download,
+  RefreshCw,
+  Loader2,
+  Search,
+  ChevronDown,
+  ChevronUp,
+  CheckCircle2,
+  AlertTriangle,
+  Info,
+  FileSpreadsheet,
+  Sliders,
+  ShieldCheck,
+  Plus,
+  Trash2,
+  Save,
+  Package,
   HelpCircle,
   Eye
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { formatPrice } from "@/lib/utils";
+import { commissionItemSubtotal, sellerCommissionBase } from "@/lib/sellerCommissionBase";
+import { normalizeCommissionCategory as normalizeToMacroCategory, resolveCommissionProductCategory } from "@/lib/sellerCommissionCategory";
+import { summarizeCommissionProducts, type CommissionProductLine, type CommissionProductSummary } from "@/lib/sellerCommissionProducts";
 
 // Commission Matrix Rules Interfaces
 export interface TierRate {
@@ -110,6 +113,7 @@ interface SellerCommissionSummary {
   effective_commission_pct: number;
   included_orders: any[];
   excluded_orders: any[];
+  product_breakdowns: CommissionProductSummary[];
 }
 
 export default function SellerCommissionsPage() {
@@ -133,7 +137,7 @@ export default function SellerCommissionsPage() {
   const [activeTab, setActiveTab] = useState<'settlement' | 'config'>('settlement');
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedSellerAudit, setSelectedSellerAudit] = useState<SellerCommissionSummary | null>(null);
-  
+
   // Matrix Config State
   const [config, setConfig] = useState<CommissionMatrixConfig>(DEFAULT_COMMISSION_CONFIG);
   const [savingConfig, setSavingConfig] = useState(false);
@@ -188,19 +192,7 @@ export default function SellerCommissionsPage() {
         setConfig(configData.rules);
       }
 
-      // 2. Compute date range for selected month
-      const startDateStr = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-01`;
-      const lastDay = new Date(selectedYear, selectedMonth, 0).getDate();
-      const endDateStr = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
-
-      // Query from 2 months prior up to the 15th of the next month to catch all postponed deliveries
-      const priorDate = new Date(selectedYear, selectedMonth - 3, 1);
-      const queryStartStr = `${priorDate.getFullYear()}-${String(priorDate.getMonth() + 1).padStart(2, '0')}-01`;
-      
-      const nextDate = new Date(selectedYear, selectedMonth, 15);
-      const queryEndStr = `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, '0')}-${String(nextDate.getDate()).padStart(2, '0')}T23:59:59`;
-
-      // 3. Paginated fetch of delivered orders created in candidate range
+      // Fetch all delivered orders; the effective delivery date determines the period below.
       let allDeliveredOrders: any[] = [];
       let from = 0;
       const step = 1000;
@@ -216,6 +208,7 @@ export default function SellerCommissionsPage() {
             initial_delivery_date,
             customer_name,
             total_amount,
+            totals,
             status,
             category,
             seller_id,
@@ -225,8 +218,7 @@ export default function SellerCommissionsPage() {
             deliveries ( delivery_date, real_delivery_date, status, route_sheets ( id, delivery_date, status ) )
           `)
           .eq("status", "Entregado")
-          .gte("order_date", queryStartStr)
-          .lte("order_date", queryEndStr)
+          .order("id")
           .range(from, from + step - 1);
 
         if (pageErr) throw pageErr;
@@ -239,10 +231,20 @@ export default function SellerCommissionsPage() {
         }
       }
 
+      const loadProducts = async () => {
+        const data: any[] = [];
+        for (let offset = 0; ; offset += step) {
+          const page = await supabase.from("products").select("id, category, name")
+            .order("id").range(offset, offset + step - 1);
+          if (page.error) throw page.error;
+          data.push(...(page.data || []));
+          if (!page.data || page.data.length < step) return { data };
+        }
+      };
       const [sellersRes, exchangesRes, productsRes] = await Promise.all([
         supabase.from("sellers").select("id, full_name, email"),
-        supabase.from("returns_exchanges").select("id, order_id, legacy_code, type, status"),
-        supabase.from("products").select("id, category, name")
+        supabase.from("returns_exchanges").select("id, order_id, type, status"),
+        loadProducts()
       ]);
 
       setOrders(allDeliveredOrders);
@@ -263,24 +265,6 @@ export default function SellerCommissionsPage() {
     loadAllData();
   }, [selectedYear, selectedMonth]);
 
-  // Helper to normalize raw database categories into clean Macro Categories
-  const normalizeToMacroCategory = (rawCat?: string): string => {
-    const c = (rawCat || "").trim();
-    const lower = c.toLowerCase();
-    if (lower.includes("instalaci") || lower.includes("colocaci")) return "Instalaciones";
-    if (lower.includes("tanque") || lower.includes("cisterna") || lower.includes("complementos para tanques")) return "Tanques de Agua";
-    if (lower.includes("biodigestor") || lower.includes("séptica") || lower.includes("septica") || lower.includes("desengrasadora")) return "Biodigestores";
-    if (lower.includes("membrana") || lower.includes("meps")) return "MEPS";
-    if (lower.includes("pintura")) return "Pinturas";
-    if (lower.includes("herramienta")) return "Herramientas";
-    if (lower.includes("termotanque")) return "Termotanques";
-    if (lower.includes("termofusión") || lower.includes("termofusion") || lower.includes("caño")) return "Caños Termofusión";
-    if (lower.includes("escalera")) return "Escaleras";
-    if (lower.includes("insumo")) return "Insumos";
-    if (c && c !== "otro" && c !== "Otros" && c !== "Interno") return c;
-    return "Otros";
-  };
-
   // Calculate all available clean macro product categories
   const allAvailableCategories = useMemo(() => {
     const defaults = [
@@ -300,18 +284,15 @@ export default function SellerCommissionsPage() {
 
   // Helper to map item category to clean macro category
   const getItemCategory = (item: any, orderCat?: string): string => {
-    const nameLower = ((item.product_name || item.name || "") as string).toLowerCase();
-    if (nameLower.includes("instalaci") || nameLower.includes("colocaci")) return "Instalaciones";
-    if (item.product_id) {
-      const prod = products.find(p => p.id === item.product_id);
-      if (prod?.category) return normalizeToMacroCategory(prod.category);
-    }
-    if (orderCat) return normalizeToMacroCategory(orderCat);
-    return "Otros";
+    const prod = item.product_id ? products.find(p => p.id === item.product_id) : undefined;
+    return resolveCommissionProductCategory(item.product_name || item.name || prod?.name || '', prod?.category, orderCat);
   };
 
   // Helper to determine which Category Group an item belongs to
   const getCategoryGroupForCategory = (catName: string): CategoryGroupConfig => {
+    if (catName === 'Adicionales sin comisión') return {
+      id: 'additional_no_commission', name: 'Adicionales sin comisión', categories: [catName], rates: [],
+    };
     for (const grp of config.category_groups) {
       if (grp.categories.some(c => c.toLowerCase() === catName.toLowerCase())) {
         return grp;
@@ -324,12 +305,10 @@ export default function SellerCommissionsPage() {
   // Calculate Seller Commission Summaries
   const sellerSummaries = useMemo<SellerCommissionSummary[]>(() => {
     const exchangeOrderIds = new Set<string>();
-    const exchangeLegacyCodes = new Set<string>();
 
     exchanges.forEach(ex => {
       if (ex.type === 'cambio' && ex.status !== 'Rechazado') {
         if (ex.order_id) exchangeOrderIds.add(ex.order_id);
-        if (ex.legacy_code) exchangeLegacyCodes.add(ex.legacy_code.trim().toLowerCase());
       }
     });
 
@@ -354,6 +333,7 @@ export default function SellerCommissionsPage() {
       included_orders: any[];
       excluded_orders: any[];
       group_sales: Map<string, number>;
+      product_lines: CommissionProductLine[];
     }>();
 
     const processedSellerCodes = new Map<string, Set<string>>();
@@ -367,7 +347,8 @@ export default function SellerCommissionsPage() {
         seller_email: s.email || '',
         included_orders: [],
         excluded_orders: [],
-        group_sales: new Map()
+        group_sales: new Map(),
+        product_lines: []
       });
     });
 
@@ -424,7 +405,7 @@ export default function SellerCommissionsPage() {
 
       // Exclusion Check 2: Orders linked to exchanges or starting with CAMB/DEV
       const hasExchangePrefix = legacyParts.some((p: string) => p.startsWith('camb') || p.startsWith('dev'));
-      const isExchange = exchangeOrderIds.has(order.id) || legacyParts.some((p: string) => p && exchangeLegacyCodes.has(p)) || hasExchangePrefix;
+      const isExchange = exchangeOrderIds.has(order.id) || hasExchangePrefix;
       if (isExchange) {
         sellerEntry.excluded_orders.push({ ...order, exclude_reason: 'Asociado a Cambio/Devolución o prefijo CAMB/DEV' });
         return;
@@ -449,31 +430,29 @@ export default function SellerCommissionsPage() {
         return;
       }
 
-      // Calculate raw sum of items
-      let rawItemsTotal = 0;
-      items.forEach((item: any) => {
-        rawItemsTotal += Number(item.subtotal || (item.unit_price * item.quantity) || 0);
-      });
-
-      const orderTotal = Number(order.total_amount || 0);
-      // Scale factor to proportionally distribute order total_amount across items so order sum matches orderTotal
-      let scaleFactor = 1;
-      if (rawItemsTotal > 0 && orderTotal > 0) {
-        scaleFactor = orderTotal / rawItemsTotal;
-      }
+      const { scaleFactor } = sellerCommissionBase(order);
 
       let orderNetProductAmount = 0;
 
       items.forEach((item: any) => {
         const itemCat = getItemCategory(item, order.category);
         const grp = getCategoryGroupForCategory(itemCat);
-        const rawSubtotal = Number(item.subtotal || (item.unit_price * item.quantity) || 0);
+        const rawSubtotal = commissionItemSubtotal(item);
         const normalizedSubtotal = rawSubtotal * scaleFactor;
 
         orderNetProductAmount += normalizedSubtotal;
 
         const currentGrpSales = sellerEntry.group_sales.get(grp.id) || 0;
         sellerEntry.group_sales.set(grp.id, currentGrpSales + normalizedSubtotal);
+        sellerEntry.product_lines.push({
+          product_id: item.product_id,
+          product_name: item.product_name || products.find(p => p.id === item.product_id)?.name || 'Producto sin nombre',
+          category: itemCat,
+          group_id: grp.id,
+          group_name: grp.name,
+          quantity: Number(item.quantity ?? 0),
+          net_sales: normalizedSubtotal,
+        });
       });
 
       sellerEntry.included_orders.push({
@@ -506,7 +485,7 @@ export default function SellerCommissionsPage() {
 
       const groupBreakdowns = config.category_groups.map(grp => {
         const groupSales = sellerData.group_sales.get(grp.id) || 0;
-        
+
         // Find rate for reached tier (if below lowest tier threshold, rate is 0%)
         const tierRate = grp.rates.find(r => r.tier_min_sales === reachedTierMinSales) || {
           tier_min_sales: reachedTierMinSales,
@@ -530,6 +509,13 @@ export default function SellerCommissionsPage() {
         };
       });
 
+      const additionalSales = sellerData.group_sales.get('additional_no_commission');
+      if (additionalSales !== undefined) groupBreakdowns.push({
+        group_id: 'additional_no_commission', group_name: 'Adicionales sin comisión',
+        net_sales: additionalSales, applied_rate_pct: 0, calculated_commission: 0,
+        final_commission: 0, was_capped: false,
+      });
+
       const effectivePct = totalNetSales > 0 ? (totalCommissionPayable / totalNetSales) * 100 : 0;
 
       let ordersCount = 0;
@@ -549,7 +535,8 @@ export default function SellerCommissionsPage() {
         total_commission_payable: totalCommissionPayable,
         effective_commission_pct: effectivePct,
         included_orders: sellerData.included_orders,
-        excluded_orders: sellerData.excluded_orders
+        excluded_orders: sellerData.excluded_orders,
+        product_breakdowns: summarizeCommissionProducts(sellerData.product_lines, groupBreakdowns)
       });
     });
 
@@ -560,7 +547,7 @@ export default function SellerCommissionsPage() {
   const filteredSummaries = useMemo(() => {
     if (!searchQuery.trim()) return sellerSummaries;
     const q = searchQuery.toLowerCase();
-    return sellerSummaries.filter(s => 
+    return sellerSummaries.filter(s =>
       s.seller_name.toLowerCase().includes(q) ||
       s.seller_email.toLowerCase().includes(q)
     );
@@ -732,7 +719,7 @@ export default function SellerCommissionsPage() {
             <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin text-brand-600" : ""}`} />
             Recalcular
           </button>
-          
+
           <button
             onClick={handleExportCSV}
             disabled={sellerSummaries.length === 0}
@@ -805,7 +792,7 @@ export default function SellerCommissionsPage() {
               <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Solo Pedidos "Entregados"
             </div>
             <div className="flex items-center gap-1.5 text-[11px]">
-              <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Sin Fletes ni Tarjetas
+              <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Productos netos de descuentos, sin flete ni recargos
             </div>
             <div className="flex items-center gap-1.5 text-[11px]">
               <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Excluye Pedidos de Cambio
@@ -858,7 +845,7 @@ export default function SellerCommissionsPage() {
                 className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
               />
             </div>
-            
+
             <div className="text-xs text-slate-500 font-bold">
               Mostrando {filteredSummaries.length} vendedores
             </div>
@@ -1254,14 +1241,14 @@ export default function SellerCommissionsPage() {
       {/* Seller Order Audit Modal */}
       {selectedSellerAudit && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-white w-full max-w-6xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
             <div className="p-5 bg-slate-950 text-white flex items-center justify-between shrink-0">
               <div>
                 <h3 className="font-black text-sm uppercase tracking-wider">
-                  Auditoría de Pedidos - {selectedSellerAudit.seller_name}
+                  Auditoría de Comisiones - {selectedSellerAudit.seller_name}
                 </h3>
                 <p className="text-xs text-slate-400">
-                  Desglose de pedidos incluidos y excluidos para el período {periodLabel}.
+                  Productos y pedidos del período {periodLabel}.
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -1305,7 +1292,7 @@ export default function SellerCommissionsPage() {
                   }}
                   className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer"
                 >
-                  <Download className="w-3.5 h-3.5" /> Exportar CSV
+                  <Download className="w-3.5 h-3.5" /> CSV Pedidos
                 </button>
                 <button
                   onClick={() => setSelectedSellerAudit(null)}
@@ -1334,6 +1321,61 @@ export default function SellerCommissionsPage() {
                 <div>
                   <span className="block text-[10px] text-slate-400 uppercase font-black">Pedidos Válidos</span>
                   <span className="font-bold text-slate-800">{selectedSellerAudit.total_orders_count} pedidos</span>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <h4 className="font-black text-slate-900 text-xs uppercase tracking-wider flex items-center gap-1.5">
+                    <Package className="w-4 h-4 text-brand-600" /> Productos sumarizados ({selectedSellerAudit.product_breakdowns.length})
+                  </h4>
+                  <button onClick={() => {
+                    const headers = ['Producto', 'Categoría', 'Grupo', 'Cantidad', 'Subtotal neto', 'Comisión (%)', 'Comisión ($)'];
+                    const rows = selectedSellerAudit.product_breakdowns.map(p => [p.product_name, p.category, p.group_name, p.quantity, p.net_sales, p.rate_pct, p.commission]);
+                    const csv = [headers, ...rows].map(row => row.map(value => `"${String(value).replace(/"/g, '""')}"`).join(',')).join('\n');
+                    const url = URL.createObjectURL(new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' }));
+                    const link = document.createElement('a'); link.href = url;
+                    link.download = `comisiones_productos_${selectedSellerAudit.seller_name.replace(/\s+/g, '_')}_${selectedYear}_${selectedMonth}.csv`;
+                    link.click(); URL.revokeObjectURL(url);
+                  }} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 cursor-pointer">
+                    <Download className="w-3.5 h-3.5" /> CSV Productos
+                  </button>
+                </div>
+                <p className="text-xs text-slate-500">De mayor a menor facturación. Subtotales netos de descuentos, sin flete ni recargos. El porcentaje corresponde al grupo y tramo del vendedor.</p>
+                <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-100 text-slate-700 font-black text-[10px] uppercase">
+                      <tr>
+                        <th className="py-2.5 px-3">Producto</th>
+                        <th className="py-2.5 px-3">Categoría / grupo</th>
+                        <th className="py-2.5 px-3 text-right">Cantidad</th>
+                        <th className="py-2.5 px-3 text-right">Subtotal neto</th>
+                        <th className="py-2.5 px-3 text-right">Comisión %</th>
+                        <th className="py-2.5 px-3 text-right">Comisión $</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {selectedSellerAudit.product_breakdowns.map(p => (
+                        <tr key={p.key} className="hover:bg-slate-50">
+                          <td className="py-2.5 px-3 font-semibold text-slate-900">{p.product_name}</td>
+                          <td className="py-2.5 px-3"><span className="block font-semibold">{p.category}</span><span className="text-[10px] text-slate-500">{p.group_name}</span></td>
+                          <td className="py-2.5 px-3 text-right tabular-nums">{p.quantity.toLocaleString('es-AR', { maximumFractionDigits: 3 })}</td>
+                          <td className="py-2.5 px-3 text-right whitespace-nowrap tabular-nums">{p.net_sales.toLocaleString('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 2 })}</td>
+                          <td className="py-2.5 px-3 text-right whitespace-nowrap">{p.rate_pct.toLocaleString('es-AR', { maximumFractionDigits: 2 })}%</td>
+                          <td className="py-2.5 px-3 text-right font-bold text-emerald-700 whitespace-nowrap tabular-nums">{p.commission.toLocaleString('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 2 })}</td>
+                        </tr>
+                      ))}
+                      {selectedSellerAudit.product_breakdowns.length === 0 && <tr><td colSpan={6} className="p-4 text-center text-slate-500">No hay productos incluidos en este período.</td></tr>}
+                    </tbody>
+                    <tfoot className="bg-slate-100 font-bold text-slate-900">
+                      <tr>
+                        <td colSpan={3} className="py-3 px-3">Total</td>
+                        <td className="py-3 px-3 text-right whitespace-nowrap">{selectedSellerAudit.total_net_sales.toLocaleString('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 2 })}</td>
+                        <td />
+                        <td className="py-3 px-3 text-right text-emerald-700 whitespace-nowrap">{selectedSellerAudit.total_commission_payable.toLocaleString('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 2 })}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
                 </div>
               </div>
 

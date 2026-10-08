@@ -47,6 +47,7 @@ function mount({ storedUser = laura, result = { data: administration, error: nul
     react: hooks, '@/lib/supabase': { supabase }, '@/lib/userRoleProfile': profileLib,
     '@/lib/authenticatedRequest': evaluate('src/lib/authenticatedRequest.ts', require, { fetch, Headers }),
     '@/lib/erpNavigation': navigation, '@/components/ui/ErpNavigationContext': navigationContext,
+    '@/components/support/SupportNotifications': { SupportNotifications: () => null },
     'next/navigation': { usePathname: () => '/admin/finanzas', useRouter: () => ({}), useSearchParams: () => new URLSearchParams() }
   };
   const layout = evaluate('src/components/ui/AdminLayout.tsx', name => modules[name] || require(name), {

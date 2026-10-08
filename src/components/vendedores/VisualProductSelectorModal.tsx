@@ -206,7 +206,14 @@ export default function VisualProductSelectorModal({
       setLoading(true);
       try {
         if (isWholesaleContext) {
-          setConfig(generateWholesaleVisualConfig(products));
+          const { data } = await supabase.from('site_settings').select('value')
+            .eq('id', 'visual_selector_tree').maybeSingle();
+          let retailConfig: VisualCatalogConfig | undefined;
+          try {
+            const parsed = data?.value ? JSON.parse(data.value) : undefined;
+            if (Array.isArray(parsed?.families)) retailConfig = includeInstallationKitCuplas(parsed, products);
+          } catch {}
+          setConfig(generateWholesaleVisualConfig(products, retailConfig));
           return;
         }
 
@@ -240,7 +247,7 @@ export default function VisualProductSelectorModal({
         const def = generateDefaultVisualConfig(products);
         setConfig(def);
       } catch (err) {
-        const def = generateDefaultVisualConfig(products);
+        const def = isWholesaleContext ? generateWholesaleVisualConfig(products) : generateDefaultVisualConfig(products);
         setConfig(def);
       } finally {
         setLoading(false);
@@ -472,6 +479,11 @@ export default function VisualProductSelectorModal({
 
   // Quick add from search result
   const handleAddSearchItem = (p: Product) => {
+    const option = findVisualProductOption(config, p.id)?.item;
+    if (option?.isCombo && option.comboItems?.length) {
+      handleQuickAdd(option);
+      return;
+    }
     onAddProduct(p);
     setAddedFeedback(`¡${p.name} agregado!`);
     setTimeout(() => setAddedFeedback(null), 1200);

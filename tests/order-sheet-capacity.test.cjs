@@ -125,17 +125,6 @@ test('seller split orders grow before format restoration and save every original
   assert.ok(f.calls.findIndex(c=>c.body?.requests)<f.calls.findIndex(c=>c.maintenance));
 });
 
-test('an expansion permission failure prevents order writes and blocks the downstream delivery load',async()=>{
-  const f=fixture({failExpansion:true});
-  vm.runInContext('getNextEmptyOperationalRows=async()=>[2700]',f.context);
-  const result=await f.exports.appendNewOrderToOperationalSheets(['JS1'],{clientName:'Cliente',items:[]});
-  assert.equal(result.central.success,false);
-  assert.match(result.central.message,/agregar filas.*403/);
-  assert.equal(result.deliveriesCurrent.success,false);
-  assert.ok(!f.calls.some(c=>c.body?.data));
-  assert.equal(f.calls.filter(c=>c.url.endsWith('?fields=sheets.properties')).length,1);
-});
-
 test('biodigestor overrides an old OTRO payload in every seller and operational row',async()=>{
   const f=fixture();
   vm.runInContext("getNextAvailableSheetSlots=async()=>[{code:'JS1',rowNumber:2700},{code:'JS2',rowNumber:2701}]; getNextEmptyOperationalRows=async()=>[2700,2701]",f.context);
@@ -150,4 +139,15 @@ test('biodigestor overrides an old OTRO payload in every seller and operational 
   const categories=f.calls.flatMap(c=>c.body?.data||[]).filter(d=>/![UT]\d+:[VW]\d+$/.test(d.range));
   assert.equal(categories.length,6);
   assert.ok(categories.every(d=>d.values[0][0]==='BIODIGESTOR'));
+});
+
+test('an expansion permission failure prevents order writes and blocks the downstream delivery load',async()=>{
+  const f=fixture({failExpansion:true});
+  vm.runInContext('getNextEmptyOperationalRows=async()=>[2700]',f.context);
+  const result=await f.exports.appendNewOrderToOperationalSheets(['JS1'],{clientName:'Cliente',items:[]});
+  assert.equal(result.central.success,false);
+  assert.match(result.central.message,/agregar filas.*403/);
+  assert.equal(result.deliveriesCurrent.success,false);
+  assert.ok(!f.calls.some(c=>c.body?.data));
+  assert.equal(f.calls.filter(c=>c.url.endsWith('?fields=sheets.properties')).length,1);
 });

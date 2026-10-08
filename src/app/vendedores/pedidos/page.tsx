@@ -1,27 +1,29 @@
 "use client";
-import { detectOrderCategory, hasBiodigestor, resolveOrderCategory } from "@/lib/orderCategory";
 
+import { AdvertisingSource, advertisingSourcesForChannel } from "@/lib/advertisingSources";
+import { isServiceProduct } from '@/lib/serviceProducts';
+import { sellerFirstName, cancellationReasonText } from "@/lib/orderNotificationText";
 import PaymentMethodSelector from "@/components/vendedores/PaymentMethodSelector";
 import { isCuotaSimplePaymentMethod, isRetiredPaymentMethod } from "@/lib/cuotaSimple";
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { 
-  Calendar, 
-  User, 
-  MapPin, 
-  CreditCard, 
-  Truck, 
+import {
+  Calendar,
+  User,
+  MapPin,
+  CreditCard,
+  Truck,
   Package,
-  Save, 
-  Loader2, 
-  Search, 
-  Plus, 
-  Trash2, 
-  X, 
-  Check, 
+  Save,
+  Loader2,
+  Search,
+  Plus,
+  Trash2,
+  X,
+  Check,
   ArrowLeft,
-  PlusCircle, 
-  UserPlus, 
+  PlusCircle,
+  UserPlus,
   AlertTriangle,
   Clock,
   UploadCloud,
@@ -72,6 +74,7 @@ import { calculateBulkPrices } from "@/lib/erp/prices";
 import { createBulkStockTransactions } from "@/lib/erp/stock";
 import { evaluateDiscountSuggestions, DiscountSuggestion } from "@/lib/discountRules";
 import { buildSheetOrderItems, normalizeProductNameForSheet } from "@/lib/googleSheets";
+import { detectOrderCategory, hasBiodigestor, resolveOrderCategory } from "@/lib/orderCategory";
 import { calculateCascadingDiscounts } from "@/lib/orderDiscounts";
 
 const requestFormData = createAuthenticatedRequester(supabase);
@@ -96,12 +99,6 @@ interface OrderItem extends Product {
   baseQuantity?: number;
 }
 
-interface AdvertisingSource {
-  id: string;
-  name: string;
-  is_active: boolean;
-}
-
 interface WholesaleCatalogItem {
   id?: string;
   name: string;
@@ -109,39 +106,6 @@ interface WholesaleCatalogItem {
   priceList?: number;
   price_list?: number;
 }
-
-const WHOLESALE_ADVERTISING_SOURCES = [
-  "Cliente",
-  "Página web",
-  "Reenviado de Minorista",
-  "Recomendado",
-  "Otro"
-];
-
-const RETAIL_ADVERTISING_SOURCES = [
-  "Meta - Escaleras",
-  "Mayorista",
-  "Meta - Tanques Aquafort",
-  "Meta - Termotanques Universal",
-  "Meta - Termotanques Cooper",
-  "Meta - Biodigestores Biofort",
-  "Meta - MEPS / Equilibrio",
-  "Orgánico / Cliente Habitual / Recomendado"
-];
-
-const ALLOWED_ADVERTISING_SOURCES = [
-  ...WHOLESALE_ADVERTISING_SOURCES,
-  ...RETAIL_ADVERTISING_SOURCES
-];
-
-const DEFAULT_ADVERTISING_SOURCES: AdvertisingSource[] = [
-  { id: "a4df04ca-29aa-4328-b2ec-a35a53a5caeb", name: "Meta - Tanques Aquafort", is_active: true },
-  { id: "afb44df7-4252-4a06-8581-6d2002fb67be", name: "Meta - Termotanques Universal", is_active: true },
-  { id: "6a07b438-0b85-48d8-ad80-a8e567683f66", name: "Meta - Termotanques Cooper", is_active: true },
-  { id: "2e43372c-ab9b-4fb9-904a-bb14f67f25f7", name: "Meta - Biodigestores Biofort", is_active: true },
-  { id: "f29edda0-a7d6-4731-b865-cd9b335f755b", name: "Meta - MEPS / Equilibrio", is_active: true },
-  { id: "71b1f7f7-0bc5-4ed4-9ebd-5b9383f00571", name: "Orgánico / Cliente Habitual / Recomendado", is_active: true }
-];
 
 const ALLOWED_ORDER_MEDIUMS = [
   "Whaticket",
@@ -386,14 +350,14 @@ interface DeliveryTime {
 }
 
 const calculateNextDeliveryDate = (
-  scheduleText: string | null | undefined, 
+  scheduleText: string | null | undefined,
   baseDateStr: string,
   deliveryDays?: number[] | null
 ): Date | null => {
   if (!baseDateStr) return null;
-  
+
   let daysFound: number[] = [];
-  
+
   if (deliveryDays && Array.isArray(deliveryDays) && deliveryDays.length > 0) {
     daysFound = deliveryDays;
   } else if (scheduleText) {
@@ -408,7 +372,7 @@ const calculateNextDeliveryDate = (
       sábado: 6,
       sabado: 6
     };
-    
+
     const lowercaseText = scheduleText.toLowerCase();
     for (const dayName in daysMap) {
       if (lowercaseText.includes(dayName) && !daysFound.includes(daysMap[dayName])) {
@@ -421,7 +385,7 @@ const calculateNextDeliveryDate = (
 
   const baseDate = new Date(baseDateStr + 'T12:00:00');
   if (isNaN(baseDate.getTime())) return null;
-  
+
   for (let i = 1; i <= 7; i++) {
     const checkDate = new Date(baseDate.getTime() + i * 24 * 60 * 60 * 1000);
     if (daysFound.includes(checkDate.getDay())) {
@@ -435,7 +399,7 @@ const calculateNthBusinessDay = (baseDateStr: string, n: number): Date | null =>
   if (!baseDateStr) return null;
   const date = new Date(baseDateStr + 'T12:00:00');
   if (isNaN(date.getTime())) return null;
-  
+
   let count = 0;
   while (count < n) {
     date.setDate(date.getDate() + 1);
@@ -620,6 +584,10 @@ export default function PedidosPage() {
   const [showProductDropdown, setShowProductDropdown] = useState(false);
   const [productSearchTerm, setProductSearchTerm] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [sourceVisitId,setSourceVisitId]=useState<string|null>(null);
+  const [sourceVisitQuoteId,setSourceVisitQuoteId]=useState<string|null>(null);
+  const visitDraftRef=useRef<any>(null);
+  const visitDraftLoaded=useRef(false);
   const [sourceQuoteId, setSourceQuoteId] = useState<string | null>(null);
   const submittingRef = useRef(false);
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
@@ -648,12 +616,12 @@ export default function PedidosPage() {
       if (p.is_active === false || p.category === 'Interno' || p.name?.startsWith('[Interno]')) return false;
       if (p.sku?.startsWith('AUTO-') && products.some(other => other.id !== p.id && other.is_active !== false && other.category !== 'Interno' && !other.sku?.startsWith('AUTO-') && (other.sku === p.name || normalizeText(other.name) === normalizeText(p.name)))) return false;
       if (!productSearchTerm) return true;
-      
+
       const searchWords = productSearchTerm.toLowerCase().split(/\s+/).filter(Boolean);
       if (searchWords.length === 0) return true;
-      
-      return searchWords.every(word => 
-        p.name.toLowerCase().includes(word) || 
+
+      return searchWords.every(word =>
+        p.name.toLowerCase().includes(word) ||
         (p.sku && p.sku.toLowerCase().includes(word))
       );
     })
@@ -746,10 +714,10 @@ export default function PedidosPage() {
     const isExplicitAdmin = currentSeller?.role === 'admin' || (Array.isArray(currentSeller?.roles) && currentSeller.roles.includes('admin'));
     if (isExplicitAdmin) return false;
     return (
-      emailLower.includes("jazmin") || 
-      emailLower.includes("jazmín") || 
-      nameLower.includes("jazmin") || 
-      nameLower.includes("jazmín") || 
+      emailLower.includes("jazmin") ||
+      emailLower.includes("jazmín") ||
+      nameLower.includes("jazmin") ||
+      nameLower.includes("jazmín") ||
       emailLower.includes("ludmila") ||
       emailLower.includes("ludmilakrenz") ||
       nameLower.includes("ludmila")
@@ -914,8 +882,8 @@ export default function PedidosPage() {
     }
 
     const newQueryString = params.toString();
-    const newPath = newQueryString 
-      ? `${window.location.pathname}?${newQueryString}` 
+    const newPath = newQueryString
+      ? `${window.location.pathname}?${newQueryString}`
       : window.location.pathname;
 
     window.history.replaceState(null, "", newPath);
@@ -1108,7 +1076,7 @@ export default function PedidosPage() {
     const isDefaultDate = (dateFrom === firstDay && dateTo === today);
     return !isDefaultStatus ||
            !isDefaultChannel ||
-           selectedProducts.length > 0 || 
+           selectedProducts.length > 0 ||
            orderSearchQuery.trim() !== '' ||
            listType !== 'mis_pedidos' ||
            !isDefaultDate;
@@ -1307,27 +1275,21 @@ export default function PedidosPage() {
         const cached = localStorage.getItem("cached_pedidos_adv") || sessionStorage.getItem("cached_pedidos_adv");
         if (cached) {
           const parsed = JSON.parse(cached);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            const clean = parsed.filter((a: any) => a && a.is_active !== false && ALLOWED_ADVERTISING_SOURCES.includes(a.name));
-            if (clean.length > 0) return clean;
+          if (Array.isArray(parsed)) {
+            const clean = parsed.filter((a: any) => a && a.is_active !== false);
+            return clean;
           }
         }
       } catch (e) {}
     }
-    return DEFAULT_ADVERTISING_SOURCES;
+    return [];
   });
   const isFacundoSelectedSeller = FACUNDO_SELLER_IDS.includes(selectedSellerId || currentUserId);
   const filteredAdvertisingSources = useMemo(() => {
-    const contextSources = isWholesaleContext
-      ? WHOLESALE_ADVERTISING_SOURCES
-      : (isFacundoSelectedSeller ? [FACUNDO_RETAIL_SOURCE] : RETAIL_ADVERTISING_SOURCES);
-    return advertisingSources
-      .filter(a => a && a.is_active !== false && contextSources.includes(a.name))
-      .sort((a, b) => {
-        const idxA = contextSources.indexOf(a.name);
-        const idxB = contextSources.indexOf(b.name);
-        return (idxA !== -1 ? idxA : 999) - (idxB !== -1 ? idxB : 999);
-      });
+    const sources = advertisingSourcesForChannel(advertisingSources, isWholesaleContext ? 'mayorista' : 'minorista');
+    return !isWholesaleContext && isFacundoSelectedSeller
+      ? sources.filter(source => source.name === FACUNDO_RETAIL_SOURCE)
+      : sources;
   }, [advertisingSources, isWholesaleContext, isFacundoSelectedSeller]);
   const [orderMediums, setOrderMediums] = useState<OrderMedium[]>([
     { id: "e9654dad-9352-4f31-8f01-b12c57289993", name: "Whaticket", requires_phone_line: false, is_active: true },
@@ -1352,7 +1314,7 @@ export default function PedidosPage() {
   const [topOrderMediums, setTopOrderMediums] = useState<OrderMedium[]>([]);
   const [topPhoneLines, setTopPhoneLines] = useState<PhoneLine[]>([]);
   const [isOrganic, setIsOrganic] = useState(false);
-  
+
   const [legacyCode, setLegacyCode] = useState("");
   const [selectedAdvertisingSourceId, setSelectedAdvertisingSourceId] = useState("");
   const [advertisingSourceDetail, setAdvertisingSourceDetail] = useState("");
@@ -1546,12 +1508,12 @@ export default function PedidosPage() {
   const [orderStatus, setOrderStatus] = useState<string>("Pendiente");
   const [holdReason, setHoldReason] = useState<string>("Falta Stock");
   const [holdProductId, setHoldProductId] = useState<string>("");
-  
+
   // Modals / Dropdown Search States
   const [showLineManagerModal, setShowLineManagerModal] = useState(false);
   const [advertisingSearchQuery, setAdvertisingSearchQuery] = useState("");
   const [showAdvertisingDropdown, setShowAdvertisingDropdown] = useState(false);
-  
+
   // Form Line Creation States
   const [newLineName, setNewLineName] = useState("");
   const [newLineNumber, setNewLineNumber] = useState("");
@@ -1589,7 +1551,7 @@ export default function PedidosPage() {
   const [direccion, setDireccion] = useState("");
   const [aclaraciones, setAclaraciones] = useState("");
   const [linkMaps, setLinkMaps] = useState("");
-  
+
   const [flete, setFlete] = useState("");
   const isPickup = selectedAddressId === PICKUP_ADDRESS_ID;
 
@@ -1679,6 +1641,7 @@ export default function PedidosPage() {
     lastAutoLocalityIdRef.current = localidadId;
     const deliveryTime = selectedLocality.zones?.delivery_times;
     if (!isPickup) setFlete(deliveryTime?.name || "");
+    if(sourceVisitId)return; // A visit's agreed date, or pending date, takes precedence over locality defaults.
     const isRegular = deliveryTimes.find(dt => dt.name === deliveryTime?.name)?.category === 'Regular'
       || deliveryTime?.name === 'Regular';
     const deliveryDays = isRegular ? [1, 2, 3, 4, 5, 6] : deliveryTime?.delivery_days;
@@ -1859,10 +1822,10 @@ export default function PedidosPage() {
     const primaryPmId = paymentsList[0]?.payment_method_id || selectedPaymentMethodId;
     const matched = dbPaymentMethods.find(pm => pm.id === primaryPmId);
     if (matched) {
-      const isCard = matched.id !== "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3" && 
-                     ((matched.surcharge_percentage || 0) > 0 || 
+      const isCard = matched.id !== "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3" &&
+                     ((matched.surcharge_percentage || 0) > 0 ||
                       (matched.name && (matched.name.toLowerCase().includes("tarjeta") || matched.name.toLowerCase().includes("cuota") || matched.name.toLowerCase().includes("link") || matched.name.toLowerCase().includes("payway"))));
-      const surcharge = isCard 
+      const surcharge = isCard
         ? (paymentsList[0]?.card_surcharge !== undefined ? paymentsList[0].card_surcharge : (matched.surcharge_percentage || 0))
         : 0;
       const installments = isCard
@@ -1907,10 +1870,10 @@ export default function PedidosPage() {
             setOrderDiscounts(data.orderDiscounts);
             setOrderDiscountValue(0);
           }
-          
+
           sessionStorage.removeItem("preloaded_budget");
           setActiveTab('form');
-          
+
           alert(`${data.quoteNumber ? `Presupuesto ${data.quoteNumber}` : 'Presupuesto'} precargado con éxito. Completá entrega, procedencia y pago; Logística se activa recién al guardar el pedido.`);
         } catch (e) {
           console.error("Error parsing preloaded budget", e);
@@ -1918,6 +1881,18 @@ export default function PedidosPage() {
       }
     }
   }, []);
+
+  // Preserve the draft before the normal catalogue cache refresh clears sessionStorage.
+  useEffect(()=>{
+    if(!visitDraftRef.current){try{const raw=sessionStorage.getItem('visit_order_draft');if(raw)visitDraftRef.current=JSON.parse(raw);}catch{}}
+    const data=visitDraftRef.current;if(!data||visitDraftLoaded.current||!currentUserId||!products.length||!localities.length)return;
+    if(data.preparedFor!==currentUserId){visitDraftLoaded.current=true;sessionStorage.removeItem('visit_order_draft');return;}
+    visitDraftLoaded.current=true;sessionStorage.removeItem('visit_order_draft');
+    setSourceVisitId(data.sourceVisitId);setSourceVisitQuoteId(data.sourceVisitQuoteId);setSelectedClientId('');setNewClientName(data.customerName);setCliente(data.customerName);setNewClientPhone(data.customerPhone);setDireccion(data.address||'');setLinkMaps(data.mapsUrl||'');setWhaticketLink(data.whaticketLink||'');setAclaraciones(data.notes||'');setSelectedSellerId(data.sellerId||currentUserId);setOrderItems(data.items||[]);setPaymentTiming('contra_entrega');setActiveTab('form');
+    const locality=localities.find(l=>l.id===data.localityId)||localities.find(l=>l.name.trim().toLowerCase()===String(data.locality).trim().toLowerCase());
+    setEntregaInicial(data.installationDate||'');setEntregaMaxima(data.installationDate||'');
+    if(locality){setLocalidadId(locality.id);setLocalitySearch(locality.name);}else{setLocalitySearch(data.locality||'');setInitialLocalityModalName(data.locality||'');setIsAddLocalityModalOpen(true);}
+  },[currentUserId,products,localities]);
 
   const [orderSaveNotice, setOrderSaveNotice] = useState('');
   const [showSummaryModal, setShowSummaryModal] = useState(false);
@@ -2143,11 +2118,39 @@ export default function PedidosPage() {
     };
   }): string => {
     const lines: string[] = [];
-    const sellerTag = params.sellerName ? ` (${params.sellerName})` : '';
-    lines.push(`📝 **PEDIDO MODIFICADO: ${params.legacyCode}${sellerTag}**`);
+    const firstName = sellerFirstName(params.sellerName);
+    const sellerTag = firstName ? ` (${firstName})` : '';
+    lines.push(`📝 **MODIFICADO: ${params.legacyCode}${sellerTag}**`);
     lines.push(``);
     lines.push(`🔄 **CAMBIOS REALIZADOS:**`);
-    params.changes.forEach(c => lines.push(`• ${c}`));
+    params.changes.forEach(change => {
+      let compact = change;
+      if (change.startsWith('➕ Producto agregado: ')) {
+        compact = change.replace('➕ Producto agregado: ', '➕ Agrega ').replace(/ \([^)]*\)$/, '');
+      } else if (change.startsWith('➖ Producto quitado: ')) {
+        compact = change.replace('➖ Producto quitado: ', '➖ Saca ');
+      } else if (change.startsWith('💰 Monto Total: ')) {
+        compact = change.replace('💰 Monto Total: ', '💰 Total ');
+      } else {
+        const shortChanges: Record<string, string> = {
+          '📅 Fecha de Entrega:': '📅 Cambia fecha de entrega',
+          '📦 Cantidad cambiada:': '📦 Cambia cantidad',
+          '💲 Precio cambiado:': '💲 Cambia precio',
+          '👤 Cliente:': '👤 Cambia cliente',
+          '📍 Localidad:': '📍 Cambia localidad',
+          '🏠 Dirección:': '🏠 Cambia dirección',
+          '🚚 Flete:': '🚚 Cambia flete',
+          '💳 Estado de Pago:': '💳 Cambia estado de pago',
+          '📝 Detalle Entrega:': '📝 Cambia detalle de entrega',
+          'Se modificaron los datos del pedido.': 'Cambia datos del pedido',
+          'ℹ️ Actualización general de información del pedido.': 'ℹ️ Cambia datos del pedido',
+        };
+        const prefix = Object.keys(shortChanges).find(key => change.startsWith(key));
+        if (prefix) compact = shortChanges[prefix];
+      }
+      const line = `• ${compact}`;
+      if (!lines.includes(line)) lines.push(line);
+    });
     if (params.logisticsObservation && params.logisticsObservation.trim()) {
       lines.push(``);
       lines.push(`💬 **Observación para Logística:** ${params.logisticsObservation.trim()}`);
@@ -2157,13 +2160,12 @@ export default function PedidosPage() {
       const central = params.operationalSync.central;
       const deliveries = params.operationalSync.deliveriesCurrent;
       lines.push(``);
-      lines.push(`📊 **SINCRONIZACIÓN DE PLANILLAS:**`);
       lines.push(central?.success
-        ? `✅ Cambio en Central${central.sheetName ? ` (${central.sheetName})` : ''}`
-        : `❌ Cambio en Central: ${central?.message || 'No se pudo sincronizar'}`);
+        ? `✅ Central`
+        : `❌ Central: ${central?.message || 'No se pudo sincronizar'}`);
       lines.push(deliveries?.success
-        ? `✅ Cambio en Entregas Actual (${deliveries.sheetName || 'Hoja no informada'})`
-        : `❌ Cambio en Entregas Actual: ${deliveries?.message || 'No se pudo sincronizar'}`);
+        ? `✅ Entregas Actual`
+        : `❌ Entregas Actual: ${deliveries?.message || 'No se pudo sincronizar'}`);
     }
 
     return lines.join('\n');
@@ -2175,9 +2177,10 @@ export default function PedidosPage() {
     reason: string;
   }): string => {
     const lines: string[] = [];
-    const sellerTag = params.sellerName ? ` (${params.sellerName})` : '';
-    lines.push(`🚨 **PEDIDO ANULADO: ${params.legacyCode}${sellerTag}**`);
-    lines.push(`❌ **Motivo de Anulación:** ${params.reason.trim()}`);
+    const firstName = sellerFirstName(params.sellerName);
+    const sellerTag = firstName ? ` (${firstName})` : '';
+    lines.push(`🚨 **ANULADO: ${params.legacyCode}${sellerTag}**`);
+    lines.push(`❌ **Motivo:** ${cancellationReasonText(params.reason)}`);
 
     return lines.join('\n');
   };
@@ -2528,13 +2531,13 @@ export default function PedidosPage() {
           try {
             const parsedAdv = JSON.parse(cachedAdv);
             const cleanAdv = Array.isArray(parsedAdv)
-              ? parsedAdv.filter((a: any) => a && a.is_active !== false && ALLOWED_ADVERTISING_SOURCES.includes(a.name))
+              ? parsedAdv.filter((a: any) => a && a.is_active !== false)
               : [];
-            if (cleanAdv.length > 0) {
+            if (Array.isArray(parsedAdv)) {
               setAdvertisingSources(cleanAdv);
             }
           } catch (e) {
-            // Mantener DEFAULT_ADVERTISING_SOURCES
+            // Esperar la consulta de las procedencias configuradas.
           }
           try {
             const parsedMed = JSON.parse(cachedMediums);
@@ -2576,8 +2579,8 @@ export default function PedidosPage() {
               supabase.from('order_mediums').select('*').eq('is_active', true).order('name'),
               supabase.from('payment_methods').select('*').eq('is_active', true).order('name')
             ]);
-            const freshAdv = (freshAdvRes.data || []).filter((a: any) => ALLOWED_ADVERTISING_SOURCES.includes(a.name));
-            if (!freshAdvRes.error && freshAdv.length > 0) {
+            const freshAdv = (freshAdvRes.data || []).filter((a: any) => a && a.is_active !== false);
+            if (!freshAdvRes.error) {
               setAdvertisingSources(freshAdv);
               sessionStorage.setItem("cached_pedidos_adv", JSON.stringify(freshAdv));
               try { localStorage.setItem("cached_pedidos_adv", JSON.stringify(freshAdv)); } catch (e) {}
@@ -2652,7 +2655,7 @@ export default function PedidosPage() {
 
         // Cargar desde la API en el backend
         const payload = await requestFormData(`/api/vendedores/pedidos-init?userId=${encodeURIComponent(userId)}`);
-        
+
         if (payload.sellers) {
           setSellersList(payload.sellers);
           sessionStorage.setItem("cached_pedidos_sellers", JSON.stringify(payload.sellers));
@@ -2661,10 +2664,10 @@ export default function PedidosPage() {
           setCurrentSeller(payload.currentSeller);
           sessionStorage.setItem("cached_pedidos_current_seller", JSON.stringify(payload.currentSeller));
         }
-        
+
         setSellerType(payload.sellerType);
         sessionStorage.setItem("cached_pedidos_seller_type", payload.sellerType);
-        
+
         setIsOrganic(payload.isOrganic);
         sessionStorage.setItem("cached_pedidos_organic", String(payload.isOrganic));
 
@@ -2673,8 +2676,8 @@ export default function PedidosPage() {
         setListType(payload.role === 'admin' ? 'todos' : 'mis_pedidos');
 
         if (payload.advertisingSources) {
-          const cleanAdv = (payload.advertisingSources || []).filter((a: any) => a && a.is_active !== false && ALLOWED_ADVERTISING_SOURCES.includes(a.name));
-          if (cleanAdv.length > 0) {
+          const cleanAdv = (payload.advertisingSources || []).filter((a: any) => a && a.is_active !== false);
+          if (Array.isArray(payload.advertisingSources)) {
             setAdvertisingSources(cleanAdv);
             sessionStorage.setItem("cached_pedidos_adv", JSON.stringify(cleanAdv));
             try {
@@ -2848,8 +2851,8 @@ export default function PedidosPage() {
   useEffect(() => {
     if (isEditingRef.current || editingOrderIdRef.current) return;
     if (dbPaymentMethods.length > 0 && !editingOrderId) {
-      const defaultPm = dbPaymentMethods.find(pm => 
-        pm.id === "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3" || 
+      const defaultPm = dbPaymentMethods.find(pm =>
+        pm.id === "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3" ||
         (pm.name && /efectivo|^contado$/i.test(pm.name || ""))
       ) || dbPaymentMethods.find(pm => pm.is_default) || dbPaymentMethods[0];
 
@@ -2942,7 +2945,7 @@ export default function PedidosPage() {
           .eq("client_id", selectedClientId)
           .order("is_default", { ascending: false })
           .order("created_at", { ascending: false });
-        if (data) {
+        if (data && !cancelled) {
           setClientAddresses(data);
         }
         return;
@@ -3005,7 +3008,7 @@ export default function PedidosPage() {
         .eq("client_id", selectedClientId)
         .order("is_default", { ascending: false })
         .order("created_at", { ascending: false });
-      
+
       if (data) {
         if (cancelled) return;
         setClientAddresses(data);
@@ -3105,22 +3108,22 @@ export default function PedidosPage() {
   // Match products selected in filter
   const expandedSelectedProductIds = React.useMemo(() => {
     if (selectedProducts.length === 0) return new Set<string>();
-    
+
     const matchedIds = new Set<string>();
-    
+
     selectedProducts.forEach(selectedId => {
       matchedIds.add(selectedId);
-      
+
       const activeProduct = products.find(p => p.id === selectedId);
       if (!activeProduct) return;
-      
+
       const pId = activeProduct.id;
       const pParentId = activeProduct.parent_id;
       const pVariant = activeProduct.variant_type || '';
-      
+
       products.forEach(x => {
         if (x.id === pId) return;
-        
+
         // Case 1: Selected product is a parent (pParentId is null)
         if (!pParentId) {
           if (x.parent_id === pId && (x.variant_type || '').toLowerCase() === 'ciego') {
@@ -3139,7 +3142,7 @@ export default function PedidosPage() {
         }
       });
     });
-    
+
     return matchedIds;
   }, [selectedProducts, products]);
 
@@ -3157,7 +3160,7 @@ export default function PedidosPage() {
             currentUid = userData?.user?.id || '';
           }
           if (!currentUid || isCancelled) return;
-          
+
           let query = supabase
             .from('orders')
             .select(
@@ -3167,7 +3170,7 @@ export default function PedidosPage() {
             )
             .order('order_date', { ascending: false })
             .order('created_at', { ascending: false });
-            
+
           const facundoIds = ['3820a0fe-bb0a-4a84-ad85-79e49868cad7', '54b9ce55-7354-4b39-9886-314aa79f6aa6'];
           const ludmilaIds = ['54b2d319-8f6f-47ff-b794-b7731978410a', '8207801b-b6cb-48cc-af0f-d2f9f2c98032'];
           const effectiveUserSellerIds = facundoIds.includes(currentUid)
@@ -3195,7 +3198,7 @@ export default function PedidosPage() {
           } else if (hasMinoristas && !hasMayoristas) {
             query = query.neq('channel', 'mayorista');
           }
-          
+
           // Apply status filter
           const hasPending = selectedStatuses.includes('Pendientes');
           const hasReview = selectedStatuses.includes('En Revisión');
@@ -3216,18 +3219,18 @@ export default function PedidosPage() {
               query = query.in('status', targetStatuses);
             }
           }
-          
+
           if (debouncedOrderSearch.trim()) {
             const q = debouncedOrderSearch.trim();
             query = query.or(`customer_name.ilike.%${q}%,status.ilike.%${q}%,locality.ilike.%${q}%,freight_type.ilike.%${q}%,legacy_code.ilike.%${q}%`);
           }
-          
+
           // Filter by product if active using inner join and OR filter on foreign table
           if (selectedProducts.length > 0) {
             const idsToQuery = Array.from(expandedSelectedProductIds);
             if (idsToQuery.length > 0) {
               const conditions = [`product_id.in.(${idsToQuery.join(',')})`];
-              
+
               selectedProducts.forEach(id => {
                 const prod = products.find(p => p.id === id);
                 if (prod) {
@@ -3243,7 +3246,7 @@ export default function PedidosPage() {
                   }
                 }
               });
-              
+
               query = query.or(conditions.join(','), { foreignTable: 'order_items' });
             }
           }
@@ -3255,7 +3258,7 @@ export default function PedidosPage() {
           if (dateTo) {
             query = query.lte('order_date', dateTo);
           }
-          
+
           // Limit to 500 for active states and wholesale history to display comprehensive history
           const isExtendedLimit = hasPending || hasReview || hasMayoristas || statusCount === 0 || statusCount === 4;
           if (isExtendedLimit) {
@@ -3263,7 +3266,7 @@ export default function PedidosPage() {
           } else {
             query = query.limit(100);
           }
-          
+
           // Code lookup uses the authenticated client's RLS permissions only.
           // View filters (including "Mis pedidos" and the seller dropdown) must
           // not hide an otherwise accessible order.
@@ -3367,15 +3370,15 @@ export default function PedidosPage() {
     manualAddressClientIdRef.current = order.client_id || '';
     try {
       setSubmitting(true);
-      
+
       // 1. Fetch order items
       const { data: itemsData, error: itemsError } = await supabase
         .from('order_items')
         .select('*')
         .eq('order_id', order.id);
-        
+
       if (itemsError) throw itemsError;
-      
+
       // 2. Map order items to OrderItem state
       const orderHasKit = (itemsData || []).some(it => {
         const n = (it.product_name || "").toLowerCase();
@@ -3405,9 +3408,9 @@ export default function PedidosPage() {
           isIncludedInKit: isIncludedZero ? true : undefined
         } as OrderItem;
       });
-      
+
       setOrderItems(mappedItems);
-      
+
       // 3. Set client states
       if (order.client_id) {
         setSelectedClientId(order.client_id);
@@ -3465,7 +3468,7 @@ export default function PedidosPage() {
         setShowTaxIdField(false);
         setNewClientPhones(["", ""]);
       }
-      
+
       // 4. Set address and shipping details
       if (order.locality === 'Depósito' && order.freight_type === PICKUP_LABEL) {
         setSelectedAddressId(PICKUP_ADDRESS_ID);
@@ -3474,20 +3477,20 @@ export default function PedidosPage() {
       } else {
         setSelectedAddressId("nueva_direccion");
       }
-      
+
       setDireccion(order.address || "");
       setLinkMaps(order.google_maps_link || "");
       setAclaraciones(cleanDeliveryNotes(order.delivery_notes));
-      
+
       let locId = "";
       if (order.shipping_address_snapshot && order.shipping_address_snapshot.locality_id) {
         locId = order.shipping_address_snapshot.locality_id;
       }
-      
+
       if (!locId && order.locality) {
         // 1. Coincidencia exacta insensible a mayúsculas
         let foundLoc = localities.find(l => l.name.toLowerCase() === order.locality.toLowerCase());
-        
+
         // 2. Coincidencia normalizada (sin paréntesis ni tildes, ej: "Caballito" matchea con "Caballito (CABA)")
         if (!foundLoc) {
           const norm = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s*\(.*?\)/g, "").trim();
@@ -3499,7 +3502,7 @@ export default function PedidosPage() {
       if (!locId && order.locality === 'Depósito' && order.freight_type === PICKUP_LABEL) {
         locId = PICKUP_ADDRESS_ID;
       }
-      
+
       if (locId) {
         lastAutoLocalityIdRef.current = locId;
         setLocalidadId(locId);
@@ -3512,13 +3515,13 @@ export default function PedidosPage() {
         setLocalidadId("");
         setLocalitySearch("");
       }
-      
+
       setFlete(order.freight_type || "");
       const initDelDateStr = order.initial_delivery_date ? order.initial_delivery_date.split('T')[0] : "";
       setEntregaInicial(initDelDateStr);
       setOriginalDeliveryDate(initDelDateStr);
       setEntregaMaxima(order.max_delivery_date ? order.max_delivery_date.split('T')[0] : "");
-      
+
       if (isClone) {
         const today = new Date();
         const yyyy = today.getFullYear();
@@ -3529,13 +3532,13 @@ export default function PedidosPage() {
         setFechaPedido(order.order_date ? order.order_date.split('T')[0] : (order.created_at ? order.created_at.split('T')[0] : ''));
       }
       setWhaticketLink(order.whaticket_link || "");
-      
+
       // 5. Set payment details
       const totalsObj = order.totals || {};
       const orderPmId = order.payment_method_id;
       const pm = dbPaymentMethods.find(p => p.id === orderPmId);
       const hasSurchargeInTotals = (totalsObj.payment_surcharges > 0 || totalsObj.payment_surcharges_percentage > 0);
-      const isCardOrSurcharge = pm 
+      const isCardOrSurcharge = pm
         ? (pm.id !== "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3" && (pm.surcharge_percentage > 0 || pm.name.toLowerCase().includes("tarjeta") || pm.name.toLowerCase().includes("cuota") || pm.name.toLowerCase().includes("link")))
         : hasSurchargeInTotals;
 
@@ -3543,8 +3546,8 @@ export default function PedidosPage() {
         setPaymentType('tarjeta');
         setSelectedPaymentMethodId(orderPmId || "e885c35b-1175-4702-8692-75d1f8f3c7b3");
         const installments = totalsObj.installments !== undefined ? totalsObj.installments : (pm?.installments || 1);
-        const surchargeVal = totalsObj.payment_surcharges_percentage !== undefined 
-          ? totalsObj.payment_surcharges_percentage 
+        const surchargeVal = totalsObj.payment_surcharges_percentage !== undefined
+          ? totalsObj.payment_surcharges_percentage
           : (totalsObj.payment_surcharges !== undefined && order.total_amount ? Math.round((totalsObj.payment_surcharges / (order.total_amount - totalsObj.payment_surcharges)) * 100) : (pm?.surcharge_percentage || 0));
         setCardInstallments(installments);
         setCardSurcharge(surchargeVal);
@@ -3552,13 +3555,13 @@ export default function PedidosPage() {
         setPaymentType('efectivo');
         setSelectedPaymentMethodId(orderPmId || "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3");
       }
-      
+
       const hasFreightCost = totalsObj.freight > 0;
       setIsFreeShipping(!hasFreightCost);
       setShippingCost(totalsObj.freight || 0);
       const hasPartialIvaInPayments = totalsObj.payments_breakdown?.some((p: any) => Boolean(p.has_iva));
       setIncludeIVA(totalsObj.tax > 0 && !hasPartialIvaInPayments);
-      
+
       if (totalsObj.order_discount_type) {
         setOrderDiscountType(totalsObj.order_discount_type);
       } else {
@@ -3577,7 +3580,7 @@ export default function PedidosPage() {
       } else {
         setOrderDiscounts([]);
       }
-      
+
       const payStatus = order.payment_status;
       if (payStatus === 'Abonado') {
         setPaymentTiming('paid');
@@ -3595,7 +3598,7 @@ export default function PedidosPage() {
         setCustomDepositAmount(0);
         setDepositAmountInput(0);
       }
-      
+
       setDepositReceiptUrl(totalsObj.deposit_receipt_url || "");
 
       // Load payments breakdown if available, else load fallback
@@ -3633,7 +3636,7 @@ export default function PedidosPage() {
           }
         ]);
       }
-      
+
       // 6. Origen y Recepción
       if (isClone) {
         editingOrderIdRef.current = null;
@@ -3681,7 +3684,7 @@ export default function PedidosPage() {
           totals: order.totals
         });
       }
-      
+
       setSelectedAdvertisingSourceId(order.advertising_source_id || "");
       setAdvertisingSourceDetail(order.advertising_source_detail || "");
       setSelectedOrderMediumId(order.order_medium_id || "");
@@ -3696,7 +3699,7 @@ export default function PedidosPage() {
         }
       }
       setDeliveryDetail(cleanDeliveryNotes(order.delivery_detail));
-      
+
       setOrderStatus(order.status || "Pendiente");
       setHoldReason(order.hold_reason || "");
       setHoldProductId(order.hold_product_id || "");
@@ -3706,10 +3709,10 @@ export default function PedidosPage() {
           ? order.commercial_brand
           : (order.channel === 'mayorista' ? 'aquafort' : 'zono')
       );
-      
+
       setActiveTab('form');
       setShowLoadFromDbModal(false);
-      
+
       if (isClone) {
         alert("¡Datos del pedido cargados en el formulario! Podés revisar o modificar los datos y confirmar para crearlo como un nuevo pedido.");
       }
@@ -3730,6 +3733,7 @@ export default function PedidosPage() {
     lastAutoLocalityIdRef.current = "";
     setEditingOrderId(null);
     setSourceQuoteId(null);
+    setSourceVisitId(null);setSourceVisitQuoteId(null);
     setOriginalDeliveryDate("");
     setHasDeclaredPostponementReason(false);
     setPostponementMotive("");
@@ -3743,8 +3747,8 @@ export default function PedidosPage() {
     setAclaraciones("");
     setLinkMaps("");
     setFlete("");
-    const defaultPm = dbPaymentMethods.find(pm => 
-      pm.id === "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3" || 
+    const defaultPm = dbPaymentMethods.find(pm =>
+      pm.id === "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3" ||
       (pm.name && /efectivo|^contado$/i.test(pm.name || ""))
     ) || dbPaymentMethods.find(pm => pm.is_default) || dbPaymentMethods[0];
     setPaymentType('efectivo');
@@ -3891,8 +3895,8 @@ export default function PedidosPage() {
     const pmName = pm?.name || "Contado";
     const totalsObj = rawOrder.totals || {};
 
-    const zoneName = rawOrder.zones 
-      ? (Array.isArray(rawOrder.zones) ? rawOrder.zones[0]?.name : rawOrder.zones.name) 
+    const zoneName = rawOrder.zones
+      ? (Array.isArray(rawOrder.zones) ? rawOrder.zones[0]?.name : rawOrder.zones.name)
       : undefined;
 
     const advName = advertisingSources.find(a => a.id === rawOrder.advertising_source_id)?.name;
@@ -4132,7 +4136,7 @@ export default function PedidosPage() {
         whaticketLink: order.whaticket_link || '',
         source: sheetSource,
         deliveryNotes: [
-          order.delivery_notes, 
+          order.delivery_notes,
           order.delivery_detail
         ].filter(Boolean).map((s: string) => s.trim()).join(' / '),
         medium: mediumName,
@@ -4260,7 +4264,7 @@ export default function PedidosPage() {
     if (p.parent_id) return false; // Hide child variants from main search results
     if (EXCLUDED_IDS.includes(p.id)) return false; // Hide dynamic variants from main results
     if (searchTerms.length === 0) return false;
-    
+
     let extraSearchable = "";
     if (p.id === "be0f3766-cf7e-4b57-a474-b06ba9316de2") {
       extraSearchable = " 3/4 eco egeo 1/2 3/4 flotante plastico eco";
@@ -4285,15 +4289,15 @@ export default function PedidosPage() {
       for (const product of productsToAdd) {
         const qtyToAdd = (product as any).quantity || 1;
         const targetCustomPrice = (product as any).customPrice !== undefined ? (product as any).customPrice : product.price;
-        const isDiscontinued = (product as any).is_discontinued || false;
+        const isDiscontinued = !isServiceProduct(product) && ((product as any).is_discontinued || false);
         const currentStock = (product as any).stock_current !== undefined ? (product as any).stock_current : 999;
         const bundleParentId = (product as any).bundleParentId;
         const isIncludedInKit = (product as any).isIncludedInKit;
         const baseQuantity = (product as any).baseQuantity;
 
-        const existingIndex = current.findIndex(i => 
-          i.id === product.id && 
-          i.bundleParentId === bundleParentId && 
+        const existingIndex = current.findIndex(i =>
+          i.id === product.id &&
+          i.bundleParentId === bundleParentId &&
           Boolean(i.isIncludedInKit) === Boolean(isIncludedInKit)
         );
         const currentQtyInCart = existingIndex >= 0 ? current[existingIndex].quantity : 0;
@@ -4303,16 +4307,16 @@ export default function PedidosPage() {
           continue;
         }
 
-        const effectiveBase = (product as any).basePrice !== undefined 
-          ? (product as any).basePrice 
+        const effectiveBase = (product as any).basePrice !== undefined
+          ? (product as any).basePrice
           : product.price;
-        const discountType = (product as any).discountType !== undefined 
-          ? (product as any).discountType 
+        const discountType = (product as any).discountType !== undefined
+          ? (product as any).discountType
           : (targetCustomPrice < effectiveBase ? 'percentage' : undefined);
-        const discountValue = (product as any).discountValue !== undefined 
-          ? (product as any).discountValue 
-          : (discountType === 'percentage' && effectiveBase > 0 
-              ? Math.round(((effectiveBase - targetCustomPrice) / effectiveBase) * 100) 
+        const discountValue = (product as any).discountValue !== undefined
+          ? (product as any).discountValue
+          : (discountType === 'percentage' && effectiveBase > 0
+              ? Math.round(((effectiveBase - targetCustomPrice) / effectiveBase) * 100)
               : undefined);
 
         if (existingIndex >= 0) {
@@ -4328,9 +4332,9 @@ export default function PedidosPage() {
             baseQuantity: baseQuantity || current[existingIndex].baseQuantity
           };
         } else {
-          current.push({ 
-            ...product, 
-            quantity: qtyToAdd, 
+          current.push({
+            ...product,
+            quantity: qtyToAdd,
             customPrice: targetCustomPrice,
             basePrice: effectiveBase,
             discountType: discountType,
@@ -4407,10 +4411,10 @@ export default function PedidosPage() {
     kit.items.forEach(kitItem => {
       const existingIdx = newItems.findIndex(i => i.id === kitItem.id);
       const currentQtyInCart = existingIdx > -1 ? newItems[existingIdx].quantity : 0;
-      
-      const isDiscontinued = (kitItem as any).is_discontinued || false;
+
+      const isDiscontinued = !isServiceProduct(kitItem) && ((kitItem as any).is_discontinued || false);
       const currentStock = (kitItem as any).stock_current !== undefined ? (kitItem as any).stock_current : 999;
-      
+
       let qtyToAdd = kitItem.quantity;
       if (isDiscontinued) {
         const maxAllowed = Math.max(0, currentStock - currentQtyInCart);
@@ -4482,7 +4486,7 @@ export default function PedidosPage() {
 
   const handleEditKitName = async () => {
     if (!editKitNameValue.trim() || !editKitId) return;
-    
+
     const { error } = await supabase.from('kits').update({ name: editKitNameValue }).eq('id', editKitId);
     if (!error) {
       setKits(kits.map(k => k.id === editKitId ? { ...k, name: editKitNameValue } : k));
@@ -4499,7 +4503,7 @@ export default function PedidosPage() {
     const item = orderItems.find(i => i.id === id);
     if (!item) return;
 
-    const isDiscontinued = (item as any).is_discontinued || false;
+    const isDiscontinued = !isServiceProduct(item) && ((item as any).is_discontinued || false);
     const currentStock = (item as any).stock_current !== undefined ? (item as any).stock_current : 999;
 
     if (isDiscontinued && qty > currentStock) {
@@ -4715,16 +4719,16 @@ export default function PedidosPage() {
   // Calculate surcharges and totals dynamically per payment item (Proportional Surcharges)
   const paymentsWithSurcharges = paymentsList.map(p => {
     const pm = dbPaymentMethods.find(m => m.id === p.payment_method_id) || { id: "", name: "", surcharge_percentage: 0, installments: 1 };
-    
+
     // If it's a card method (excluding the default cash/transfer ID and checking for card-like names or surcharge)
-    const isCard = pm.id && pm.id !== "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3" && 
-                   ((pm.surcharge_percentage || 0) > 0 || 
+    const isCard = pm.id && pm.id !== "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3" &&
+                   ((pm.surcharge_percentage || 0) > 0 ||
                     (pm.name && (pm.name.toLowerCase().includes("tarjeta") || pm.name.toLowerCase().includes("cuota") || pm.name.toLowerCase().includes("link") || pm.name.toLowerCase().includes("payway"))));
-    
-    const surchargePct = isCard 
-      ? (p.card_surcharge !== undefined ? p.card_surcharge : pm.surcharge_percentage) 
+
+    const surchargePct = isCard
+      ? (p.card_surcharge !== undefined ? p.card_surcharge : pm.surcharge_percentage)
       : 0;
-    
+
     const installments = isCard
       ? (p.card_installments !== undefined ? p.card_installments : (pm.installments || 1))
       : 1;
@@ -4743,7 +4747,7 @@ export default function PedidosPage() {
 
     const surchargeVal = baseAmount * (surchargePct / 100);
     const totalAmount = baseAmount + surchargeVal;
-    
+
     // IVA específico por pago (Facturación parcial con IVA)
     const hasIva = Boolean(p.has_iva);
     const ivaMode = p.iva_mode || 'included';
@@ -4882,14 +4886,14 @@ export default function PedidosPage() {
       if (hasCancelled && isCancelled) match = true;
       if (!match) return false;
     }
-    
+
     if (selectedProducts.length > 0) {
       const items = p.order_items || [];
       const hasAnyProduct = items.some((item: any) => {
         if (item.product_id && expandedSelectedProductIds.has(item.product_id)) {
           return true;
         }
-        
+
         // Fallback for null/unlinked product_ids using smart text-matching
         const itemNormName = normalizeText(item.product_name || "");
         if (!itemNormName) return false;
@@ -4897,17 +4901,17 @@ export default function PedidosPage() {
         return Array.from(expandedSelectedProductIds).some(id => {
           const prod = products.find(p => p.id === id);
           if (!prod) return false;
-          
+
           const prodNormName = normalizeText(prod.name || "");
           const prodNormSku = normalizeText(prod.sku || "");
-          
+
           if (prodNormSku && (itemNormName === prodNormSku || itemNormName.includes(prodNormSku) || prodNormSku.includes(itemNormName))) {
             return true;
           }
           if (prodNormName && (itemNormName === prodNormName || itemNormName.includes(prodNormName) || prodNormName.includes(itemNormName))) {
             return true;
           }
-          
+
           const cleanString = (str: string) => {
             return str
               .replace(/para tanque/g, "")
@@ -4917,24 +4921,24 @@ export default function PedidosPage() {
               .replace(/\s+/g, " ")
               .trim();
           };
-          
+
           const cleanItem = cleanString(itemNormName);
           const cleanSku = cleanString(prodNormSku);
           const cleanName = cleanString(prodNormName);
-          
+
           if (cleanItem && cleanSku && (cleanItem === cleanSku || cleanItem.includes(cleanSku) || cleanSku.includes(cleanItem))) {
             return true;
           }
           if (cleanItem && cleanName && (cleanItem === cleanName || cleanItem.includes(cleanName) || cleanName.includes(cleanItem))) {
             return true;
           }
-          
+
           return false;
         });
       });
       if (!hasAnyProduct) return false;
     }
-    
+
     return true;
   });
 
@@ -4947,9 +4951,9 @@ export default function PedidosPage() {
         } else if (targetClean.startsWith('54') && targetClean.length >= 9) {
           targetCleanNoPrefix = targetClean.substring(2);
         }
-        
+
         if (!targetCleanNoPrefix || targetCleanNoPrefix.length < 8) return false;
-        
+
         const numbers = [
           ...(c.phone_primary ? c.phone_primary.split(/[,;]+/) : []),
           ...(c.phone_secondary ? c.phone_secondary.split(/[,;]+/) : []),
@@ -4964,7 +4968,7 @@ export default function PedidosPage() {
           }
           return cleanNum;
         }).filter(Boolean);
-        
+
         if (isWholesaleContext && !c.is_wholesale) return false;
         if (isAnabelSeller && !isWholesaleContext && c.is_wholesale) return false;
         return numbers.some(num => {
@@ -5402,7 +5406,7 @@ export default function PedidosPage() {
             whaticketLink: whaticketLink || '',
             source: sheetSource,
             deliveryNotes: [
-              aclaraciones, 
+              aclaraciones,
               deliveryDetail,
               (!includeIVA && partialIvaAmount > 0)
                 ? `[Factura con IVA: ${paymentsWithSurcharges.filter(p => p.has_iva).map(p => `${dbPaymentMethods.find(m => m.id === p.payment_method_id)?.name || 'Pago'} $${p.amount.toLocaleString('es-AR')} (IVA $${(p.ivaValue || 0).toLocaleString('es-AR')})`).join(', ')}]`
@@ -5455,6 +5459,8 @@ export default function PedidosPage() {
           seller_id,
           created_by_id: loggedInUserId,
           quote_id: sourceQuoteId,
+          source_visit_id:sourceVisitId,
+          source_visit_quote_id:sourceVisitQuoteId,
           client_id: finalClientId || null,
           shipping_address_id: finalAddressId || null,
           shipping_address_snapshot: addressSnapshot,
@@ -5532,7 +5538,7 @@ export default function PedidosPage() {
           category: resolveOrderCategory(orderItems, orderCategory)
         };
 
-        if (seller_id !== loggedInUserId) {
+        if (seller_id !== loggedInUserId || sourceVisitId) {
           const { data: sessionData } = await supabase.auth.getSession();
           const accessToken = sessionData.session?.access_token;
           if (!accessToken) throw new Error('La sesión venció. Volvé a ingresar antes de cargar el pedido.');
@@ -5566,7 +5572,7 @@ export default function PedidosPage() {
             .insert(newOrderPayload)
             .select()
             .single();
-          if (orderError) throw orderError;
+          if (orderError) { if(orderError.message.includes('VISITS_ORDER_EXISTS') || (sourceVisitId && orderError.code==='23505')) throw new Error('Esta visita ya tiene un pedido. Volvé a la visita y abrí el pedido asociado.'); if(orderError.message.includes('VISITS_QUOTE_ACCEPTED_REQUIRED'))throw new Error('El presupuesto cambió o todavía no está aceptado. Volvé a la visita para revisar.'); throw orderError; }
           orderData = newOrder;
         }
       }
@@ -5589,14 +5595,14 @@ export default function PedidosPage() {
 
       // 4. Registrar Reservas en el Inventario para descontar Stock Disponible (stock_current)
       try {
-        const stockTxs = orderItems.map(item => ({
+        const stockTxs = orderItems.filter(item => !isServiceProduct(item)).map(item => ({
           productId: item.id,
           quantity: item.quantity,
           type: 'Reserva Pedido' as const,
           referenceId: orderData.id,
           userId: seller_id
         }));
-        
+
         await createBulkStockTransactions(supabase, stockTxs);
       } catch (stockErr) {
         console.error("Error registrando transacciones de stock:", stockErr);
@@ -5703,7 +5709,7 @@ export default function PedidosPage() {
             whaticketLink: whaticketLink || '',
             source: sheetSource,
             deliveryNotes: [
-              aclaraciones, 
+              aclaraciones,
               deliveryDetail,
               (!includeIVA && partialIvaAmount > 0)
                 ? `[Factura con IVA: ${paymentsWithSurcharges.filter(p => p.has_iva).map(p => `${dbPaymentMethods.find(m => m.id === p.payment_method_id)?.name || 'Pago'} ${p.amount.toLocaleString('es-AR')} (IVA ${(p.ivaValue || 0).toLocaleString('es-AR')})`).join(', ')}]`
@@ -5889,7 +5895,7 @@ export default function PedidosPage() {
       } catch (receiptErr) {
         console.warn('[handleSaveOrder] Error procesando comprobantes de Telegram:', receiptErr);
       }
-      
+
       // Reset form
       setOriginalDeliveryDate("");
       setHasDeclaredPostponementReason(false);
@@ -5905,8 +5911,8 @@ export default function PedidosPage() {
       setLinkMaps("");
       setFlete("");
       setPaymentType('efectivo');
-      const defaultPm = dbPaymentMethods.find(pm => 
-        pm.id === "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3" || 
+      const defaultPm = dbPaymentMethods.find(pm =>
+        pm.id === "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3" ||
         (pm.name && /efectivo|^contado$/i.test(pm.name || ""))
       ) || dbPaymentMethods.find(pm => pm.is_default) || dbPaymentMethods[0];
       if (defaultPm) {
@@ -5941,6 +5947,7 @@ export default function PedidosPage() {
       ]);
       setSelectedClientId("");
       setSourceQuoteId(null);
+      setSourceVisitId(null);setSourceVisitQuoteId(null);
       setSelectedAddressId("");
       setClientSearchQuery("");
       setNewClientName("");
@@ -5956,7 +5963,7 @@ export default function PedidosPage() {
       setOrderDiscounts([]);
       setOrderCategory("auto");
       setCommercialBrand(isWholesaleContext || FACUNDO_SELLER_IDS.includes(seller_id) ? 'aquafort' : 'zono');
-      
+
       editingOrderIdRef.current = null;
       generateNextLegacyCode(seller_id);
       setSelectedAdvertisingSourceId("");
@@ -5971,7 +5978,7 @@ export default function PedidosPage() {
       setOrderStatus("Pendiente");
       setHoldReason("");
       setHoldProductId("");
-      
+
       setActiveTab('list');
     } catch (error: any) {
       console.error(error);
@@ -6018,7 +6025,7 @@ export default function PedidosPage() {
                 )}
               </div>
               <p className="text-[11px] text-slate-400 font-medium">
-                {editingOrderId 
+                {editingOrderId
                   ? "Modificá los datos del pedido y actualizá la reserva de stock."
                   : isWholesaleContext
                     ? "Pedido comercial de AquaFort: usá la lista mayorista o agregá productos del minorista desde el selector."
@@ -6050,7 +6057,7 @@ export default function PedidosPage() {
               {isWholesaleContext && <span className="ml-2 bg-emerald-100 text-emerald-800 text-[10px] px-2 py-0.5 rounded-full font-bold">Modo Mayorista</span>}
             </p>
           </div>
-          
+
           <div className="flex items-center gap-2 flex-wrap">
             <button
               type="button"
@@ -6063,14 +6070,14 @@ export default function PedidosPage() {
             </button>
 
             <div className="flex bg-slate-200/50 p-0.5 rounded-xl">
-              <button 
+              <button
                 onClick={() => setListType('mis_pedidos')}
                 className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${listType === 'mis_pedidos' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
               >
                 Mis Pedidos
               </button>
               {role === 'admin' && (
-                <button 
+                <button
                   onClick={() => setListType('todos')}
                   className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all ${listType === 'todos' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                 >
@@ -6084,7 +6091,7 @@ export default function PedidosPage() {
 
       {activeTab === 'form' ? (
         <form onSubmit={handleInitialSubmit} className="bg-white p-5 rounded-xl border border-slate-200/60 shadow-sm relative">
-          
+
           {editingOrderId && (
             <div className="mb-5 bg-amber-50 border border-amber-200/60 rounded-xl p-3 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 text-xs text-amber-800 animate-in fade-in slide-in-from-top-1">
               <div className="flex items-center gap-2">
@@ -6115,13 +6122,13 @@ export default function PedidosPage() {
           )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            
+
             {/* Origen y Canal de Venta (Mostrado en primer lugar) */}
             <div className="space-y-4 md:col-span-2 lg:col-span-3 bg-slate-50/90 p-4 rounded-xl border border-slate-200/95">
               <h3 className="flex items-center gap-1.5 font-black text-slate-800 border-b border-slate-200/60 pb-1.5 mb-3 text-xs uppercase tracking-wider">
                 <Target className="w-4 h-4 text-brand-500" /> Origen y Canal de Venta
               </h3>
-              
+
               {/* Fila Superior: Códigos y Datos Generales */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-start pb-3 border-b border-slate-200/70">
                 {/* Código de Pedido Legacy */}
@@ -6298,24 +6305,24 @@ export default function PedidosPage() {
                   <div className="pt-2 border-t border-slate-200/60">
                     {(() => {
                       const selectedMedium = filteredOrderMediums.find(m => m.id === selectedOrderMediumId) || orderMediums.find(m => m.id === selectedOrderMediumId);
-                      
+
                       if (!selectedMedium) {
                         return (
                           <div className="space-y-1">
                             <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Detalle de Recepción</label>
-                            <input 
+                            <input
                               key="medium-unselected"
-                              type="text" 
-                              disabled 
+                              type="text"
+                              disabled
                               value=""
                               readOnly
-                              placeholder="Seleccione medio de recepción..." 
-                              className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-400 font-bold text-xs outline-none cursor-not-allowed h-[34px]" 
+                              placeholder="Seleccione medio de recepción..."
+                              className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-400 font-bold text-xs outline-none cursor-not-allowed h-[34px]"
                             />
                           </div>
                         );
                       }
-                      
+
                       if (selectedMedium.name.toLowerCase() === 'whaticket') {
                         return (
                           <div className="space-y-1 animate-in fade-in duration-150">
@@ -6323,13 +6330,13 @@ export default function PedidosPage() {
                               <span>🔗 Link de Whaticket</span>
                               <span className="text-[9px] text-slate-400 font-normal">Pegar link de la conversación</span>
                             </label>
-                            <input 
+                            <input
                               key="medium-whaticket"
-                              type="url" 
-                              value={whaticketLink || ""} 
-                              onChange={e => setWhaticketLink(e.target.value)} 
-                              placeholder="https://whaticket... o pegar enlace de conversación" 
-                              className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 transition-all text-slate-800 h-[36px]" 
+                              type="url"
+                              value={whaticketLink || ""}
+                              onChange={e => setWhaticketLink(e.target.value)}
+                              placeholder="https://whaticket... o pegar enlace de conversación"
+                              className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 transition-all text-slate-800 h-[36px]"
                             />
                           </div>
                         );
@@ -6415,13 +6422,13 @@ export default function PedidosPage() {
                           <label className="text-[9.5px] font-black uppercase tracking-wider text-slate-500">
                             📝 Detalle de Recepción (Opcional)
                           </label>
-                          <input 
+                          <input
                             key="medium-otro-detail"
-                            type="text" 
-                            value={deliveryDetail || ""} 
-                            onChange={e => setDeliveryDetail(e.target.value)} 
-                            placeholder="Detalle adicional sobre cómo ingresó el contacto..." 
-                            className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 transition-all text-slate-800 h-[36px]" 
+                            type="text"
+                            value={deliveryDetail || ""}
+                            onChange={e => setDeliveryDetail(e.target.value)}
+                            placeholder="Detalle adicional sobre cómo ingresó el contacto..."
+                            className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 transition-all text-slate-800 h-[36px]"
                           />
                         </div>
                       );
@@ -6533,24 +6540,24 @@ export default function PedidosPage() {
                 ) : (
                 <div className="space-y-3 border-t border-slate-100 pt-3 animate-in fade-in duration-200">
                   <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-1 gap-3">
-                    
+
                     {/* Teléfono Celular - Primero */}
                     <div className="space-y-1">
                       <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Teléfono Celular *</label>
                       <div className="space-y-1.5">
                         {newClientPhones.map((phone, index) => (
                           <div key={index} className="flex gap-1.5 items-center">
-                            <input 
-                              type="text" 
-                              required={index === 0} 
-                              value={phone} 
+                            <input
+                              type="text"
+                              required={index === 0}
+                              value={phone}
                               onChange={e => {
                                 const updated = [...newClientPhones];
                                 updated[index] = e.target.value;
                                 setNewClientPhones(updated);
-                              }} 
-                              placeholder={index === 0 ? "Ej. 1155443322 (Principal)" : `Ej. 1155443322 (Celular ${index + 1})`} 
-                              className="flex-1 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10" 
+                              }}
+                              placeholder={index === 0 ? "Ej. 1155443322 (Principal)" : `Ej. 1155443322 (Celular ${index + 1})`}
+                              className="flex-1 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10"
                             />
                             {index > 1 && (
                               <button
@@ -6586,7 +6593,7 @@ export default function PedidosPage() {
                           )}
                         </div>
                       </div>
-                      
+
                       {matchingExistingClient && (
                         <div className="mt-1.5 p-2 bg-amber-50 border border-amber-200 rounded-lg flex flex-col gap-1.5 animate-in fade-in slide-in-from-top-1 text-[10px]">
                           <div className="flex items-center gap-1.5 text-amber-800 font-medium">
@@ -6614,13 +6621,13 @@ export default function PedidosPage() {
                     {/* Nombre / Razón Social - Segundo */}
                     <div className="space-y-1">
                       <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Nombre / Razón Social *</label>
-                      <input 
-                        type="text" 
-                        required={isNewClient} 
-                        value={newClientName} 
-                        onChange={e => setNewClientName(e.target.value)} 
-                        placeholder="Ej. Juan Pérez" 
-                        className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10" 
+                      <input
+                        type="text"
+                        required={isNewClient}
+                        value={newClientName}
+                        onChange={e => setNewClientName(e.target.value)}
+                        placeholder="Ej. Juan Pérez"
+                        className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10"
                       />
                     </div>
 
@@ -6642,12 +6649,12 @@ export default function PedidosPage() {
                             Quitar DNI
                           </button>
                         </div>
-                        <input 
-                          type="text" 
-                          value={newClientTaxId} 
-                          onChange={e => setNewClientTaxId(e.target.value)} 
-                          placeholder="Ej. 30712345678" 
-                          className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10" 
+                        <input
+                          type="text"
+                          value={newClientTaxId}
+                          onChange={e => setNewClientTaxId(e.target.value)}
+                          placeholder="Ej. 30712345678"
+                          className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10"
                         />
                       </div>
                     )}
@@ -6738,11 +6745,11 @@ export default function PedidosPage() {
                           required={!localidadId}
                         />
                         <Search className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
-                        
+
                         {isLocalityDropdownOpen && (
                           <div className="absolute left-0 right-0 mt-1 max-h-56 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg z-50 py-1">
                             {(() => {
-                              const filtered = localities.filter(l => 
+                              const filtered = localities.filter(l =>
                                 l.name.toLowerCase().includes(localitySearch.toLowerCase())
                               );
                               if (filtered.length === 0) {
@@ -6776,8 +6783,8 @@ export default function PedidosPage() {
                                         setIsLocalityDropdownOpen(false);
                                       }}
                                       className={`w-full px-2.5 py-1.5 text-left text-[10px] font-bold transition-all flex items-center justify-between ${
-                                        localidadId === l.id 
-                                          ? 'bg-brand-50 text-brand-700 font-black' 
+                                        localidadId === l.id
+                                          ? 'bg-brand-50 text-brand-700 font-black'
                                           : 'text-slate-700 hover:bg-slate-50'
                                       }`}
                                     >
@@ -6829,8 +6836,8 @@ export default function PedidosPage() {
                               Zona: <span className="text-brand-900 font-black">{selectedLocality.zones.name}</span>
                               {(() => {
                                 const deliveryTime = selectedLocality.zones.delivery_times;
-                                const schedule = deliveryTime 
-                                  ? `${deliveryTime.name} (${deliveryTime.description})` 
+                                const schedule = deliveryTime
+                                  ? `${deliveryTime.name} (${deliveryTime.description})`
                                   : selectedLocality.zones.delivery_schedule;
                                 if (!schedule) return null;
                                 return (
@@ -6849,25 +6856,25 @@ export default function PedidosPage() {
                   </div>
                   <div className="space-y-1">
                     <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Dirección Exacta *</label>
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       required
-                      value={direccion} 
-                      onChange={e => setDireccion(e.target.value)} 
-                      placeholder="Ej. Mitre 540" 
-                      className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 transition-all" 
+                      value={direccion}
+                      onChange={e => setDireccion(e.target.value)}
+                      placeholder="Ej. Mitre 540"
+                      className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 transition-all"
                     />
                   </div>
 
                   <div className="space-y-1 md:col-span-2">
                     <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Enlace de Ubicación (Google Maps)</label>
                     <div className="flex gap-1.5">
-                      <input 
-                        type="url" 
-                        value={linkMaps} 
-                        onChange={e => setLinkMaps(e.target.value)} 
-                        placeholder="" 
-                        className="flex-1 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 transition-all" 
+                      <input
+                        type="url"
+                        value={linkMaps}
+                        onChange={e => setLinkMaps(e.target.value)}
+                        placeholder=""
+                        className="flex-1 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 transition-all"
                       />
                       <button
                         type="button"
@@ -6893,22 +6900,22 @@ export default function PedidosPage() {
 
                   <div className="space-y-1 md:col-span-2">
                     <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Aclaraciones de Dirección (Opcional)</label>
-                    <input 
-                      type="text" 
-                      value={aclaraciones} 
-                      onChange={e => setAclaraciones(e.target.value)} 
-                      placeholder="Ej. Rejas verdes, casa pintada verde, portón negro, timbre roto" 
-                      className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 transition-all" 
+                    <input
+                      type="text"
+                      value={aclaraciones}
+                      onChange={e => setAclaraciones(e.target.value)}
+                      placeholder="Ej. Rejas verdes, casa pintada verde, portón negro, timbre roto"
+                      className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 transition-all"
                     />
                   </div>
 
                   <div className="space-y-1 md:col-span-2">
                     <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Detalle de Entrega para Fletero (Opcional)</label>
-                    <textarea 
-                      value={deliveryDetail} 
-                      onChange={e => setDeliveryDetail(e.target.value)} 
-                      placeholder="Ej. Entregar después de las 14hs, llamar 30 min antes de llegar, dejar en obra de al lado" 
-                      className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 transition-all resize-y h-16" 
+                    <textarea
+                      value={deliveryDetail}
+                      onChange={e => setDeliveryDetail(e.target.value)}
+                      placeholder="Ej. Entregar después de las 14hs, llamar 30 min antes de llegar, dejar en obra de al lado"
+                      className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500 transition-all resize-y h-16"
                     />
                   </div>
                 </div>
@@ -6923,19 +6930,19 @@ export default function PedidosPage() {
                   <Calendar className="w-4 h-4 text-brand-500" /> Fechas y Plazos
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <DateInput 
+                  <DateInput
                     label="Fecha del Pedido *"
                     value={fechaPedido}
                     onChange={setFechaPedido}
                     required
                   />
-                  <DateInput 
+                  <DateInput
                     label="Entrega Inicial *"
                     value={entregaInicial}
                     onChange={setEntregaInicial}
                     required
                   />
-                  <DateInput 
+                  <DateInput
                     label="Entrega Máxima *"
                     value={entregaMaxima}
                     onChange={setEntregaMaxima}
@@ -7184,10 +7191,10 @@ export default function PedidosPage() {
 
             {/* Sección Inferior de Dos Columnas Invertidas (Izquierda: Ítems y Flete | Derecha: Pagos y Totales) */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:col-span-2 lg:col-span-3 pt-4 border-t border-slate-200/60">
-              
+
               {/* Columna Izquierda: Detalle de Ítems, Flete e IVA */}
               <div className="space-y-4 bg-slate-50/90 p-4 rounded-xl border border-slate-200/95 h-fit">
-                
+
                 {/* TARJETA: DETALLE DE LO SOLICITADO */}
                 <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs space-y-3">
                   <div className="flex items-center justify-between border-b border-slate-100 pb-2">
@@ -7233,7 +7240,7 @@ export default function PedidosPage() {
                             {isOrderSummaryExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                           </button>
 
-                          <button 
+                          <button
                             type="button"
                             onClick={() => {
                               if (confirm("¿Vaciar todos los artículos del pedido?")) {
@@ -7252,7 +7259,7 @@ export default function PedidosPage() {
 
                   {/* Estado vacío con botón para abrir modal */}
                   {orderItems.length === 0 ? (
-                    <div 
+                    <div
                       onClick={() => setIsVisualModalOpen(true)}
                       className="p-6 border-2 border-dashed border-slate-300 hover:border-brand-500 bg-slate-50/50 hover:bg-brand-50/20 rounded-xl text-center cursor-pointer transition-all space-y-2.5 group"
                     >
@@ -7264,15 +7271,15 @@ export default function PedidosPage() {
                         <p className="text-[11px] text-slate-400 mt-0.5">Abrí el selector para armar el pedido con kits o pegá un presupuesto de WhatsApp</p>
                       </div>
                       <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
-                        <button 
-                          type="button" 
+                        <button
+                          type="button"
                           onClick={(e) => { e.stopPropagation(); setIsVisualModalOpen(true); }}
                           className="inline-flex items-center gap-1.5 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-black transition-all shadow-sm cursor-pointer"
                         >
                           <Plus className="w-3.5 h-3.5" /> Seleccionar Productos y Kits
                         </button>
-                        <button 
-                          type="button" 
+                        <button
+                          type="button"
                           onClick={(e) => { e.stopPropagation(); setIsImportWhatsAppOpen(true); }}
                           className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black transition-all shadow-sm cursor-pointer"
                         >
@@ -7287,8 +7294,8 @@ export default function PedidosPage() {
                       {discountSuggestions.length > 0 && (
                         <div className="space-y-1.5 mb-1">
                           {discountSuggestions.map((sug) => (
-                            <div 
-                              key={sug.ruleId} 
+                            <div
+                              key={sug.ruleId}
                               className="bg-gradient-to-r from-amber-500/10 via-amber-100 to-amber-50 border border-amber-300 rounded-xl p-2.5 flex items-center justify-between gap-2 shadow-xs animate-in slide-in-from-top duration-200"
                             >
                               <div className="flex items-center gap-2 min-w-0">
@@ -7336,12 +7343,12 @@ export default function PedidosPage() {
 
                         return (
                           <React.Fragment key={`${item.id}-${idx}`}>
-                            <div 
+                            <div
                               className={`rounded-lg py-1.5 px-2.5 border transition-all flex items-center justify-between gap-2 ${
-                                isKitService 
-                                  ? 'bg-emerald-50/50 border-emerald-300' 
-                                  : isIncludedZero 
-                                    ? 'bg-slate-50/70 border-slate-200' 
+                                isKitService
+                                  ? 'bg-emerald-50/50 border-emerald-300'
+                                  : isIncludedZero
+                                    ? 'bg-slate-50/70 border-slate-200'
                                     : 'bg-white border-slate-200 hover:border-slate-300'
                               }`}
                             >
@@ -7376,18 +7383,18 @@ export default function PedidosPage() {
                               <div className="flex items-center gap-1.5 shrink-0">
                                 {/* Stepper compacto */}
                                 <div className="flex items-center bg-slate-100 border border-slate-200 rounded-md overflow-hidden h-6.5">
-                                  <button 
-                                    type="button" 
-                                    onClick={() => updateQuantity(item.id, item.quantity - 1)} 
+                                  <button
+                                    type="button"
+                                    onClick={() => updateQuantity(item.id, item.quantity - 1)}
                                     className="px-1.5 font-black text-slate-500 hover:bg-slate-200 text-xs h-full cursor-pointer transition-colors"
                                     title="Restar 1 unidad"
                                   >
                                     -
                                   </button>
                                   <QuantityInput value={item.quantity} onChange={quantity => updateQuantity(item.id, quantity)} />
-                                  <button 
-                                    type="button" 
-                                    onClick={() => updateQuantity(item.id, item.quantity + 1)} 
+                                  <button
+                                    type="button"
+                                    onClick={() => updateQuantity(item.id, item.quantity + 1)}
                                     className="px-1.5 font-black text-slate-500 hover:bg-slate-200 text-xs h-full cursor-pointer transition-colors"
                                     title="Sumar 1 unidad"
                                   >
@@ -7398,8 +7405,8 @@ export default function PedidosPage() {
                                 {/* Precio unitario editable compacto */}
                                 <div className="flex items-center bg-slate-50 border border-slate-200 rounded-md px-1.5 h-6.5">
                                   <span className="text-[9.5px] font-bold text-slate-400 mr-0.5">$</span>
-                                  <input 
-                                    type="number" 
+                                  <input
+                                    type="number"
                                     value={item.customPrice}
                                     onChange={(e) => updateCustomPrice(item.id, Number(e.target.value))}
                                     className="w-16 text-xs font-bold text-right outline-none bg-transparent text-slate-800"
@@ -7425,7 +7432,7 @@ export default function PedidosPage() {
                                 </button>
 
                                 {/* Botón para SACAR producto */}
-                                <button 
+                                <button
                                   type="button"
                                   onClick={() => removeItem(item.id)}
                                   className="text-slate-300 hover:text-red-500 p-1 rounded hover:bg-red-50 transition-colors cursor-pointer"
@@ -7491,8 +7498,8 @@ export default function PedidosPage() {
 
                       {/* 3. DESCUENTOS Y BONIFICACIONES COMPACTO */}
                       {discountItems.map((item, idx) => (
-                        <div 
-                          key={`${item.id}-${idx}`} 
+                        <div
+                          key={`${item.id}-${idx}`}
                           className="bg-amber-50/60 border border-amber-200 rounded-lg py-1.5 px-2.5 flex items-center justify-between gap-2"
                         >
                           <div className="flex items-center gap-1.5 min-w-0 flex-1">
@@ -7505,18 +7512,18 @@ export default function PedidosPage() {
                           <div className="flex items-center gap-1.5 shrink-0">
                             {/* Selector de cantidad compacto para bonificaciones */}
                             <div className="flex items-center bg-white border border-amber-200 rounded-md overflow-hidden h-6.5">
-                              <button 
-                                type="button" 
-                                onClick={() => updateQuantity(item.id, item.quantity - 1)} 
+                              <button
+                                type="button"
+                                onClick={() => updateQuantity(item.id, item.quantity - 1)}
                                 className="px-1.5 font-black text-slate-500 hover:bg-amber-100 text-xs h-full cursor-pointer transition-colors"
                                 title="Restar 1 unidad"
                               >
                                 -
                               </button>
                               <QuantityInput value={item.quantity} onChange={quantity => updateQuantity(item.id, quantity)} />
-                              <button 
-                                type="button" 
-                                onClick={() => updateQuantity(item.id, item.quantity + 1)} 
+                              <button
+                                type="button"
+                                onClick={() => updateQuantity(item.id, item.quantity + 1)}
                                 className="px-1.5 font-black text-slate-500 hover:bg-amber-100 text-xs h-full cursor-pointer transition-colors"
                                 title="Sumar 1 unidad"
                               >
@@ -7527,8 +7534,8 @@ export default function PedidosPage() {
                             {/* Precio editable con -$ */}
                             <div className="flex items-center bg-white border border-amber-300 rounded-md px-1.5 h-6.5">
                               <span className="text-[9.5px] font-bold text-amber-700 mr-0.5">-$</span>
-                              <input 
-                                type="number" 
+                              <input
+                                type="number"
                                 value={Math.abs(item.customPrice) || ""}
                                 placeholder="0"
                                 onChange={(e) => updateCustomPrice(item.id, -Math.abs(Number(e.target.value)))}
@@ -7541,7 +7548,7 @@ export default function PedidosPage() {
                               -{formatPrice(Math.abs(item.customPrice * item.quantity))}
                             </span>
 
-                            <button 
+                            <button
                               type="button"
                               onClick={() => removeItem(item.id)}
                               className="text-slate-400 hover:text-red-500 p-1 rounded hover:bg-red-50 transition-colors cursor-pointer"
@@ -7555,7 +7562,7 @@ export default function PedidosPage() {
                     </div>
                   ) : (
                     /* Vista colapsada cuando isOrderSummaryExpanded es falso */
-                    <div 
+                    <div
                       onClick={() => setIsOrderSummaryExpanded(true)}
                       className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between cursor-pointer hover:bg-slate-100 transition-colors"
                     >
@@ -7598,7 +7605,7 @@ export default function PedidosPage() {
 
                 {/* Descuento al Total del Pedido, Flete e IVA */}
                 <div className="space-y-2.5 pt-3 border-t border-slate-200/60">
-                  
+
                   {/* Bloque Descuento al Total del Pedido */}
                   {isWholesaleContext ? (
                   <div className="flex flex-col gap-2 p-2.5 bg-white rounded-xl border border-slate-200">
@@ -7713,15 +7720,15 @@ export default function PedidosPage() {
                     </p>
                   </div>
                   )}
-                  
+
                   {/* Costo de Envío / Flete */}
                   {!isPickup && <div className="flex flex-col gap-1.5 p-2.5 bg-white rounded-xl border border-slate-200">
                     <div className="flex items-center justify-between">
                       <span className="text-[9px] font-black text-slate-600 uppercase tracking-wide">Costo de Flete</span>
                       <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                        <input 
-                          type="checkbox" 
-                          checked={isFreeShipping} 
+                        <input
+                          type="checkbox"
+                          checked={isFreeShipping}
                           onChange={(e) => {
                             setIsFreeShipping(e.target.checked);
                             if (e.target.checked) setShippingCost(0);
@@ -7734,10 +7741,10 @@ export default function PedidosPage() {
                     {!isFreeShipping && (
                       <div className="relative animate-in fade-in duration-200">
                         <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">$</span>
-                        <input 
-                          type="number" 
-                          value={shippingCost === 0 ? "" : shippingCost} 
-                          onChange={(e) => setShippingCost(Math.max(0, Number(e.target.value)))} 
+                        <input
+                          type="number"
+                          value={shippingCost === 0 ? "" : shippingCost}
+                          onChange={(e) => setShippingCost(Math.max(0, Number(e.target.value)))}
                           placeholder="Ingrese el costo de flete..."
                           className="w-full pl-5 pr-2.5 py-1.5 border border-slate-200 rounded-lg text-xs font-bold outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500"
                         />
@@ -8388,9 +8395,9 @@ export default function PedidosPage() {
 
                 {/* Botón de Confirmación y Resumen */}
                 <div className="mt-4 pt-3 border-t border-slate-200/60 space-y-2">
-                  <Button 
-                    type="submit" 
-                    disabled={submitting || orderItems.length === 0} 
+                  <Button
+                    type="submit"
+                    disabled={submitting || orderItems.length === 0}
                     className="w-full py-2.5 rounded-xl text-xs font-black flex items-center justify-center gap-1.5"
                   >
                     <Save className="w-4 h-4" /> Ver Resumen y Reservar Stock
@@ -8672,8 +8679,8 @@ export default function PedidosPage() {
                   }`}
                 >
                   <span className="truncate flex items-center gap-1">
-                    📦 {selectedProducts.length === 0 
-                      ? "Filtrar por Producto" 
+                    📦 {selectedProducts.length === 0
+                      ? "Filtrar por Producto"
                       : `Productos (${selectedProducts.length})`
                     }
                   </span>
@@ -8683,14 +8690,14 @@ export default function PedidosPage() {
                 {showProductDropdown && (
                   <>
                     {/* Backdrop to close when clicking outside */}
-                    <div 
-                      className="fixed inset-0 z-40" 
+                    <div
+                      className="fixed inset-0 z-40"
                       onClick={() => {
                         setShowProductDropdown(false);
                         setProductSearchTerm("");
-                      }} 
+                      }}
                     />
-                    
+
                     {/* Popover */}
                     <div className="absolute left-0 mt-1 w-72 bg-white rounded-xl border border-slate-200 shadow-lg z-50 overflow-hidden flex flex-col max-h-[300px]">
                       {/* Search Bar inside popover */}
@@ -8744,7 +8751,7 @@ export default function PedidosPage() {
                             </label>
                           );
                         })}
-                        
+
                         {filteredDropdownProducts.length === 0 && (
                           <div className="p-3 text-center text-slate-400 text-xs font-medium">
                             No se encontraron productos
@@ -8791,9 +8798,9 @@ export default function PedidosPage() {
 
                 {showCustomViewsDropdown && (
                   <>
-                    <div 
-                      className="fixed inset-0 z-40" 
-                      onClick={() => setShowCustomViewsDropdown(false)} 
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => setShowCustomViewsDropdown(false)}
                     />
                     <div className="absolute right-0 sm:left-0 mt-1 w-64 bg-white rounded-xl border border-slate-200 shadow-lg z-50 overflow-hidden flex flex-col">
                       <div className="p-2 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
@@ -8895,9 +8902,9 @@ export default function PedidosPage() {
 
                 {showDateDropdown && (
                   <>
-                    <div 
-                      className="fixed inset-0 z-40" 
-                      onClick={() => setShowDateDropdown(false)} 
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => setShowDateDropdown(false)}
                     />
                     <div className="absolute right-0 sm:left-0 mt-1 w-64 bg-white rounded-xl border border-slate-200 shadow-lg z-50 p-3 flex flex-col gap-2.5">
                       <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
@@ -9006,7 +9013,7 @@ export default function PedidosPage() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-slate-50/80 border-b border-slate-200/80">
-                  <th 
+                  <th
                     onClick={() => handleSort('order_date')}
                     className="px-3.5 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400 cursor-pointer hover:bg-slate-100 select-none transition-colors whitespace-nowrap w-24"
                   >
@@ -9018,7 +9025,7 @@ export default function PedidosPage() {
                     </div>
                   </th>
                   <th className="px-3.5 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400 min-w-[200px]">Cliente</th>
-                  <th 
+                  <th
                     onClick={() => handleSort('seller')}
                     className="px-3.5 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400 cursor-pointer hover:bg-slate-100 select-none transition-colors whitespace-nowrap w-36"
                   >
@@ -9074,7 +9081,7 @@ export default function PedidosPage() {
                           </span>
                         )}
                         {p.whaticket_link && (
-                          <a 
+                          <a
                             href={p.whaticket_link}
                             target="_blank"
                             rel="noopener noreferrer"
@@ -9129,11 +9136,11 @@ export default function PedidosPage() {
                     {/* Estado */}
                     <td className="px-3.5 py-2 text-center whitespace-nowrap">
                       <span className={`inline-block px-2.5 py-0.5 rounded-full text-[8.5px] font-black uppercase tracking-wider shadow-2xs ${
-                        p.status === 'Entregado' ? 'text-emerald-700 bg-emerald-50 border border-emerald-200' : 
+                        p.status === 'Entregado' ? 'text-emerald-700 bg-emerald-50 border border-emerald-200' :
                         p.status === 'Entregando' ? 'text-amber-700 bg-amber-50 border border-amber-200' :
-                        p.status === 'Pendiente' ? 'text-orange-700 bg-orange-50 border border-orange-200' : 
+                        p.status === 'Pendiente' ? 'text-orange-700 bg-orange-50 border border-orange-200' :
                         p.status === 'Cancelado' ? 'text-rose-700 bg-rose-50 border border-rose-300 font-black' :
-                        p.status === 'En Espera' ? 'text-amber-700 bg-amber-50 border border-amber-200 font-extrabold animate-pulse' : 
+                        p.status === 'En Espera' ? 'text-amber-700 bg-amber-50 border border-amber-200 font-extrabold animate-pulse' :
                         p.status === 'En Revisión' ? 'text-rose-700 bg-rose-50 border border-rose-200 font-black animate-pulse' :
                         'text-blue-700 bg-blue-50 border border-blue-200'
                       }`}>
@@ -9421,7 +9428,7 @@ export default function PedidosPage() {
                 <X className="w-5 h-5" />
               </button>
             </div>
-            
+
             <div className="p-6 overflow-y-auto space-y-6 flex-1">
                {/* Resumen Cliente y Envío */}
                <div className="grid grid-cols-2 gap-4 text-sm">
@@ -9451,7 +9458,7 @@ export default function PedidosPage() {
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Cobro</p>
                     <p className="font-bold text-slate-900">{selectedPaymentMethod?.name}</p>
                   </div>
-                  
+
                   {/* Origen y Recepción en Resumen */}
                   {(legacyCode || selectedAdvertisingSourceId || selectedOrderMediumId || deliveryDetail) && (
                     <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 col-span-2">
@@ -9576,7 +9583,7 @@ export default function PedidosPage() {
             </div>
 
             <div className="p-6 border-t border-slate-100 bg-white rounded-b-3xl flex justify-end gap-3">
-               <button 
+               <button
                  onClick={() => setShowSummaryModal(false)}
                  className="px-6 py-3 rounded-xl font-bold text-slate-600 hover:bg-slate-100 transition-colors"
                >
@@ -9615,8 +9622,8 @@ export default function PedidosPage() {
                   </p>
                 </div>
               </div>
-              <button 
-                type="button" 
+              <button
+                type="button"
                 onClick={() => setShowEditConfirmModal(false)}
                 className="p-1.5 hover:bg-slate-200 rounded-full transition-colors text-slate-400 hover:text-slate-600 cursor-pointer"
               >
@@ -9730,8 +9737,8 @@ export default function PedidosPage() {
                   </p>
                 </div>
               </div>
-              <button 
-                type="button" 
+              <button
+                type="button"
                 onClick={() => {
                   setShowModificationSuccessModal(false);
                   editingOrderIdRef.current = null;
@@ -9813,8 +9820,8 @@ export default function PedidosPage() {
                   </p>
                 </div>
               </div>
-              <button 
-                type="button" 
+              <button
+                type="button"
                 onClick={() => setShowOrderHistoryModal(false)}
                 className="p-1.5 hover:bg-slate-200 rounded-full transition-colors text-slate-400 hover:text-slate-600 cursor-pointer"
               >
@@ -9933,8 +9940,8 @@ export default function PedidosPage() {
                   </p>
                 </div>
               </div>
-              <button 
-                type="button" 
+              <button
+                type="button"
                 onClick={() => {
                   if (!isSubmittingCancel) {
                     setShowCancelOrderModal(false);
@@ -10063,8 +10070,8 @@ export default function PedidosPage() {
                   </p>
                 </div>
               </div>
-              <button 
-                type="button" 
+              <button
+                type="button"
                 onClick={() => {
                   setShowCancelSuccessModal(false);
                   setCancelingOrder(null);
@@ -10142,17 +10149,17 @@ export default function PedidosPage() {
                 <h2 className="text-sm font-black text-slate-900 uppercase tracking-wider">Reprogramación de Entrega</h2>
                 <p className="text-[10px] font-bold text-slate-500 mt-0.5">Por favor, registra el motivo por el cual se pospone la fecha.</p>
               </div>
-              <button 
+              <button
                 onClick={() => {
                   setShowPostponementModal(false);
                   setHasDeclaredPostponementReason(false);
-                }} 
+                }}
                 className="p-1.5 hover:bg-slate-200 rounded-full transition-colors text-slate-500"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
-            
+
             <div className="p-6 space-y-4">
               <div>
                 <span className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">Clasificación del Retraso</span>
@@ -10238,8 +10245,8 @@ export default function PedidosPage() {
                 <Phone className="w-5 h-5 text-brand-500" />
                 Mis Líneas de Recepción
               </h3>
-              <button 
-                type="button" 
+              <button
+                type="button"
                 onClick={() => {
                   setShowLineManagerModal(false);
                   setNewLineName("");
@@ -10295,7 +10302,7 @@ export default function PedidosPage() {
             {/* Add new line form */}
             <div className="border-t border-slate-100 pt-4 space-y-3">
               <p className="text-[9px] font-black uppercase tracking-wider text-slate-400">Agregar Nueva Línea</p>
-              
+
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1">
                   <label className="text-[8px] font-black uppercase tracking-wider text-slate-400">Etiqueta/Nombre</label>
@@ -10338,7 +10345,7 @@ export default function PedidosPage() {
                       .select()
                       .single();
                     if (error) throw error;
-                    
+
                     setNewLineName("");
                     setNewLineNumber("");
                     await fetchPhoneLines();
@@ -10383,8 +10390,8 @@ export default function PedidosPage() {
             <div className="p-4 space-y-3">
               <div className="space-y-1">
                 <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Nuevo Nombre</label>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   value={editKitNameValue}
                   onChange={(e) => setEditKitNameValue(e.target.value)}
                   className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 focus:ring-2 focus:ring-brand-500/10 bg-slate-50 font-bold text-xs outline-none"
@@ -10393,7 +10400,7 @@ export default function PedidosPage() {
               </div>
             </div>
             <div className="p-4 border-t border-slate-100 bg-slate-50 rounded-b-xl flex justify-end gap-2">
-               <button 
+               <button
                  onClick={() => {
                    setShowEditNameModal(false);
                    setEditKitId("");
@@ -10610,8 +10617,8 @@ export default function PedidosPage() {
                             disabled={syncingOrderId === order.id}
                             onClick={() => handleSyncExistingOrderToSheet(order)}
                             className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
-                              order.legacy_code 
-                                ? 'bg-slate-50 hover:bg-emerald-50 text-slate-600 hover:text-emerald-700 border-slate-200 hover:border-emerald-300' 
+                              order.legacy_code
+                                ? 'bg-slate-50 hover:bg-emerald-50 text-slate-600 hover:text-emerald-700 border-slate-200 hover:border-emerald-300'
                                 : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-300'
                             }`}
                             title="Sincronizar directamente a la planilla de Google"

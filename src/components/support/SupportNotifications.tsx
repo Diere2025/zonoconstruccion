@@ -5,12 +5,12 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Bell, Loader2, X } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import { errorMessage, supportRequest } from '@/lib/support/client';
+import { commandBody, errorMessage, supportRequest } from '@/lib/support/client';
 import { eventLabels } from '@/lib/support/eventLabels';
 import { administrativeEvents } from '@/lib/support/eventContext';
 import { code, dateLabel, type SupportNotification } from '@/lib/support/types';
 
-interface Notifications { items: SupportNotification[]; unread_count: number }
+interface Notifications { items: SupportNotification[]; unread_count: number; impersonating?: boolean }
 
 export function SupportNotifications() {
     const [userId, setUserId] = useState<string | null>(null);
@@ -38,6 +38,8 @@ function NotificationBell() {
     const alive = useRef(false);
     const running = useRef(false);
     const pending = useRef(false);
+    const reading = useRef(new Set<string>());
+    const [markingAll, setMarkingAll] = useState(false);
     const pathname = usePathname();
     const open = openedPath === pathname;
     const setOpen = (value: boolean) => setOpenedPath(value ? pathname : null);
@@ -57,6 +59,46 @@ function NotificationBell() {
         running.current = false;
         if (alive.current) setLoading(false);
     }, []);
+    const markRead = useCallback(async (ids: string[], before?: string) => {
+        const fresh = ids.filter(id => !reading.current.has(id));
+        if (!before && !fresh.length) return;
+        fresh.forEach(id => reading.current.add(id));
+        try {
+            const result = await supportRequest<{ updated: number }>('notifications', { method: 'PATCH', body: commandBody(before ? { before } : { ids: fresh }) });
+            if (alive.current) {
+                setData(current => current ? { ...current, unread_count: Math.max(0, current.unread_count - result.updated), items: current.items.map(item => fresh.includes(item.id) || (before && item.created_at <= before) ? { ...item, read_at: new Date().toISOString() } : item) } : current);
+                await refresh();
+            }
+        } catch (e) {
+            if (alive.current) setError(errorMessage(e));
+        } finally {
+            fresh.forEach(id => reading.current.delete(id));
+        }
+    }, [refresh]);
+    useEffect(() => {
+        if (!open || !data || data.impersonating) return;
+        const list = container.current?.querySelector('[data-notification-list]');
+        if (!list) return;
+        const timers = new Map<string, ReturnType<typeof setTimeout>>();
+        const visible = new Set<string>();
+        const observer = new IntersectionObserver(entries => {
+            for (const entry of entries) {
+                const id = (entry.target as HTMLElement).dataset.noticeId!;
+                if (entry.isIntersecting && entry.intersectionRatio >= 0.6) visible.add(id);
+                else visible.delete(id);
+                if (timers.has(id)) clearTimeout(timers.get(id));
+                timers.delete(id);
+                if (visible.has(id)) timers.set(id, setTimeout(() => {
+                    if (document.visibilityState !== 'visible') return;
+                    const ids = [...visible];
+                    ids.forEach(visibleId => { clearTimeout(timers.get(visibleId)); timers.delete(visibleId); visible.delete(visibleId); });
+                    void markRead(ids);
+                }, 700));
+            }
+        }, { root: list, threshold: 0.6 });
+        list.querySelectorAll('[data-unread="true"]').forEach(card => observer.observe(card));
+        return () => { observer.disconnect(); timers.forEach(clearTimeout); };
+    }, [open, data, markRead]);
     useEffect(() => {
         alive.current = true;
         const visibleRefresh = () => { if (document.visibilityState === 'visible') void refresh(); };
@@ -108,10 +150,11 @@ function NotificationBell() {
                 <button type="button" aria-label="Cerrar notificaciones" onClick={() => setOpen(false)} className="rounded-md p-2 text-slate-500 hover:bg-slate-100"><X className="size-4" /></button>
             </div>
             {error && <div role="alert" className="m-3 rounded-md bg-amber-50 p-3 text-xs text-amber-800">{error}<button type="button" disabled={loading} onClick={() => void refresh()} className="ml-2 font-semibold underline">Reintentar</button></div>}
-            <div className="max-h-[min(24rem,60vh)] overflow-y-auto p-2">
+            {unread > 0 && !data?.impersonating && <button type="button" disabled={markingAll} onClick={async () => { setMarkingAll(true); await markRead([], new Date().toISOString()); setMarkingAll(false); }} className="w-full border-b border-slate-100 px-3 py-2 text-left text-xs font-semibold text-indigo-600 disabled:opacity-50">{markingAll ? 'Marcando…' : 'Marcar todos como leídos'}</button>}
+            <div data-notification-list className="max-h-[min(24rem,60vh)] overflow-y-auto p-2">
                 {!data && loading && <p className="flex items-center gap-2 p-3 text-sm text-slate-500"><Loader2 className="size-4 animate-spin" />Cargando avisos…</p>}
                 {data?.items.length === 0 && <p className="p-3 text-sm text-slate-500">No hay avisos por ahora.</p>}
-                {data?.items.map(notice => <Link key={notice.id} onClick={() => setOpen(false)} href={`${notice.workflow === 'shipping' ? '/solicitudes-logistica' : '/incidencias'}/${notice.ticket_id}`}
+                {data?.items.map(notice => <Link key={notice.id} data-notice-id={notice.id} data-unread={!notice.read_at} onClick={() => { if (!notice.read_at && !data.impersonating) void markRead([notice.id]); setOpen(false); }} href={`${notice.workflow === 'shipping' ? '/solicitudes-logistica' : '/incidencias'}/${notice.ticket_id}`}
                     className={`mb-1 block rounded-lg p-3 text-sm hover:bg-slate-100 ${notice.read_at ? 'text-slate-500' : 'bg-indigo-50 text-indigo-950'}`}>
                     <div className="flex items-center gap-2"><span className="flex-1 font-semibold">{eventLabels[notice.kind] || 'Nueva actividad'}</span>{!notice.read_at && <span className="rounded-full bg-indigo-600 px-2 py-0.5 text-[10px] font-semibold text-white">Sin leer</span>}</div>
                     {notice.title && <p className="mt-1 truncate">{notice.number ? `${code(notice.number)} · ` : ''}{notice.title}</p>}

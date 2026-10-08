@@ -44,7 +44,7 @@ async function ticket(id) { return (await db.query('select * from public.support
   await db.query('insert into public.support_sector_members(sector_id,user_id) values($1,$2),($3,$4)', [ti, ids.ti, log, ids.log]);
   await actor(ids.a);
   const createKey = randomUUID();
-  const data = { title: 'No puedo eliminar una rendición', description: 'La opción de eliminar no aparece en la pantalla.', type: 'error', sector_id: ti };
+  const data = { title: 'No puedo eliminar una rendición', description: 'La opción de eliminar no aparece en la pantalla.', type: 'error', sector_id: ti, responsibility_kind: 'area' };
   const created = await command('create', null, data, null, createKey);
   assert.deepEqual(await command('create', null, data, null, createKey), created); checks++;
   await deny(() => command('create', null, { ...data, title: 'Otro título diferente' }, null, createKey), 'SUPPORT_CONFLICT');

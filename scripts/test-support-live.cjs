@@ -82,7 +82,8 @@ async function cleanup() {
  await page.goto(`${base}/incidencias/nueva`);await page.getByRole('heading',{name:'Nueva incidencia'}).waitFor({timeout:60000});
  await page.getByRole('textbox',{name:'Título',exact:true}).fill('No puedo eliminar una rendición de prueba');
  await page.getByRole('textbox',{name:'Descripción',exact:true}).fill('Al entrar a la rendición no encuentro la opción de eliminar. Adjunto una captura para mostrar la pantalla.');
- await page.getByRole('combobox',{name:'Sector responsable'}).selectOption(sector);
+ await page.getByRole('combobox',{name:'Área responsable',exact:true}).selectOption(sector);
+ await page.getByRole('combobox',{name:'Responsable',exact:true}).selectOption('area');
  // Exercise image paste, independent of the operating system clipboard.
  await page.locator('textarea[name="description"]').evaluate((element,base64)=>{
    const data=new DataTransfer();const raw=atob(base64);const bytes=Uint8Array.from(raw,c=>c.charCodeAt(0));data.items.add(new File([bytes],'captura-pegada.png',{type:'image/png'}));
@@ -146,7 +147,7 @@ async function cleanup() {
  const adminContext=await browser.newContext({viewport:{width:1440,height:900}});
  await adminContext.addInitScript(({key,session})=>localStorage.setItem(key,JSON.stringify(session)),{key:storageKey,session:tokens.admin});
  const adminPage=await adminContext.newPage();adminPage.on('pageerror',e=>errors.push(e.message));
- const closeCase=await request('a','tickets',{method:'POST',body:payload({sector_id:sector,title:'Ensayo de revisión y cierre directo',description:'Caso ficticio para verificar las acciones compactas.',type:'error'})});assert.equal(closeCase.status,201);checks++;
+ const closeCase=await request('a','tickets',{method:'POST',body:payload({sector_id:sector,responsibility_kind:'area',title:'Ensayo de revisión y cierre directo',description:'Caso ficticio para verificar las acciones compactas.',type:'error'})});assert.equal(closeCase.status,201);checks++;
  await adminPage.goto(`${base}/incidencias/${closeCase.data.id}`);
  await adminPage.getByRole('button',{name:'Enviar a revisión',exact:true}).waitFor({timeout:60000});
  await adminPage.getByRole('button',{name:'Enviar a revisión',exact:true}).click();

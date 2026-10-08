@@ -94,6 +94,7 @@ const deduceCategoryFromTitle = (title: string, brand?: string): string => {
   if (lower.includes('cisterna')) return 'Tanques Cisterna';
   if (lower.includes('biodigestor') || lower.includes('sépti') || lower.includes('septi')) return 'Biodigestores';
   if (lower.includes('desengrasadora')) return 'Cámaras Desengrasadoras';
+  if (/membrana\s+techos?\b/.test(lower)) return 'MEPS';
   if (lower.includes('membrana') || lower.includes('latex') || lower.includes('látex') || lower.includes('pintura')) return 'Pinturas';
   if (lower.includes('bomba') || lower.includes('compresor') || lower.includes('cargador')) return 'Herramientas';
   if (brand && (brand.toLowerCase() === 'cooper' || brand.toLowerCase() === 'sirena')) return 'Hogar';
@@ -172,7 +173,7 @@ export async function POST() {
     const { data: currentSuppliers, error: suppFetchErr } = await supabaseAdmin
       .from('suppliers')
       .select('id, name, business_unit, is_active');
-    
+
     if (suppFetchErr) throw suppFetchErr;
 
     const dbSuppliersMap = new Map<string, any>();
@@ -214,7 +215,7 @@ export async function POST() {
     }
 
     // Ensure generic fallback suppliers exist
-    let genericSupplier = Array.from(dbSuppliersMap.values()).find(s => 
+    let genericSupplier = Array.from(dbSuppliersMap.values()).find(s =>
       ['varios', 'zono', 'generico', 'fábrica propia'].includes(s.name.toLowerCase())
     ) || currentSuppliers?.[0];
 
@@ -222,7 +223,7 @@ export async function POST() {
     const { data: currentRelations, error: relFetchErr } = await supabaseAdmin
       .from('product_supplier_relations')
       .select('id, product_id, supplier_id, is_primary');
-    
+
     if (relFetchErr) throw relFetchErr;
 
     const relationsByProduct = new Map<string, any[]>();
@@ -265,7 +266,7 @@ export async function POST() {
 
     for (const [normKey, sheetInfo] of activePricesMap.entries()) {
       const matchedProduct = dbByNameMap.get(normKey) || dbBySkuMap.get(normKey);
-      
+
       if (matchedProduct) {
         activeDbProductIds.add(matchedProduct.id);
 

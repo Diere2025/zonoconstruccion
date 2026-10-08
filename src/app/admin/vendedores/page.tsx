@@ -1,21 +1,21 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import { 
-  Users, 
-  KeyRound, 
-  Plus, 
-  Search, 
-  CheckCircle2, 
-  AlertCircle, 
-  Loader2, 
-  RefreshCw, 
-  Eye, 
-  EyeOff, 
-  Copy, 
-  Check, 
-  Shield, 
-  UserCheck, 
+import {
+  Users,
+  KeyRound,
+  Plus,
+  Search,
+  CheckCircle2,
+  AlertCircle,
+  Loader2,
+  RefreshCw,
+  Eye,
+  EyeOff,
+  Copy,
+  Check,
+  Shield,
+  UserCheck,
   UserX,
   X,
   Phone,
@@ -65,6 +65,7 @@ const AVAILABLE_ROLES = [
   { id: "compras", label: "Compras", badgeColor: "bg-blue-50 text-blue-700 border-blue-200" },
   { id: "fletero", label: "Fletero", badgeColor: "bg-amber-50 text-amber-700 border-amber-200" },
   { id: "administracion", label: "Administración", badgeColor: "bg-indigo-50 text-indigo-700 border-indigo-200" },
+  { id: "instalador", label: "Instalador", badgeColor: "bg-teal-50 text-teal-700 border-teal-200" },
 ];
 
 export default function VendedoresManagementPage() {
@@ -339,7 +340,7 @@ export default function VendedoresManagementPage() {
     const confirmMsg = nextStatus
       ? `¿Habilitar acceso al sistema para ${seller.full_name}?`
       : `¿Pausar acceso para ${seller.full_name}? No podrá iniciar sesión hasta que sea reactivado.`;
-    
+
     if (!confirm(confirmMsg)) return;
 
     try {
@@ -368,15 +369,15 @@ export default function VendedoresManagementPage() {
 
   // Filtered Sellers
   const filteredSellers = sellers.filter(s => {
-    const searchMatch = 
+    const searchMatch =
       (s.full_name || "").toLowerCase().includes(search.toLowerCase()) ||
       (s.email || "").toLowerCase().includes(search.toLowerCase());
 
-    const roleMatch = filterRole === "todos" 
-      || s.role === filterRole 
+    const roleMatch = filterRole === "todos"
+      || s.role === filterRole
       || (Array.isArray(s.roles) && s.roles.includes(filterRole));
     const typeMatch = filterType === "todos" || s.seller_type === filterType;
-    const statusMatch = 
+    const statusMatch =
       filterStatus === "todos" ||
       (filterStatus === "activos" && s.is_active) ||
       (filterStatus === "inactivos" && !s.is_active);
@@ -512,6 +513,7 @@ export default function VendedoresManagementPage() {
             <option value="compras">Compras</option>
             <option value="fletero">Fletero</option>
             <option value="administracion">Administración</option>
+            <option value="instalador">Instalador</option>
           </select>
 
           {/* Type Filter */}
@@ -572,18 +574,18 @@ export default function VendedoresManagementPage() {
                   const phoneLine = seller.phone_lines && seller.phone_lines.length > 0 ? seller.phone_lines[0] : null;
 
                   return (
-                    <tr 
-                      key={seller.id} 
+                    <tr
+                      key={seller.id}
                       className={`hover:bg-slate-50/60 transition-colors ${!seller.is_active ? "bg-slate-50/30 opacity-70" : ""}`}
                     >
                       {/* Name & Email */}
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-3">
                           <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-black text-xs ${
-                            seller.role === 'admin' 
-                              ? 'bg-purple-100 text-purple-700' 
-                              : seller.is_organic 
-                              ? 'bg-emerald-100 text-emerald-700' 
+                            seller.role === 'admin'
+                              ? 'bg-purple-100 text-purple-700'
+                              : seller.is_organic
+                              ? 'bg-emerald-100 text-emerald-700'
                               : 'bg-blue-100 text-blue-700'
                           }`}>
                             {seller.full_name ? seller.full_name.substring(0, 2).toUpperCase() : "VE"}
@@ -599,7 +601,7 @@ export default function VendedoresManagementPage() {
                             </div>
                             <div className="flex items-center gap-1.5 text-[11px] text-slate-400 font-mono mt-0.5">
                               <span>{seller.email}</span>
-                              <button 
+                              <button
                                 onClick={() => copyToClipboard(seller.email, `email-${seller.id}`)}
                                 className="text-slate-400 hover:text-slate-600 transition-colors"
                                 title="Copiar correo"

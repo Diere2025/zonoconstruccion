@@ -6,6 +6,7 @@ import { getArgentinaDaysAgoString } from '@/lib/utils';
 import { fetchSpreadsheetCsv } from '@/lib/googleSheets';
 import { getUnimportedSellerOrders } from '@/lib/unimportedOrders';
 import { deduplicateReservationItems } from '@/lib/stockReservationItems';
+import { isServiceProduct } from '@/lib/serviceProducts';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.dummy';
@@ -95,13 +96,13 @@ function parseCSV(text: string): any[] {
   const lines = text.split('\n');
   const results: any[] = [];
   if (lines.length === 0) return results;
-  
+
   const headers = lines[0].split(',').map(normalizeRowKey);
-  
+
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i].trim();
     if (!line) continue;
-    
+
     const cells: string[] = [];
     let current = '';
     let inQuotes = false;
@@ -117,7 +118,7 @@ function parseCSV(text: string): any[] {
       }
     }
     cells.push(current.trim());
-    
+
     const obj: any = {};
     headers.forEach((h, idx) => {
       obj[h] = cells[idx] ? cells[idx].replace(/^"|"$/g, '').trim() : '';
@@ -186,6 +187,7 @@ function addCalculatedReserve(
 ) {
   let targetId = productId || null;
   const product = targetId ? productsById.get(targetId) : null;
+  if (isServiceProduct(product || { name: productName })) return;
   if (product?.is_generic && product.mapped_real_product_id) {
     targetId = product.mapped_real_product_id;
   }
@@ -283,6 +285,7 @@ export async function GET() {
 
       const dbProd = findBestProductMatch(productLookup, normProdName, normCleanProdName);
 
+      if (dbProd && isServiceProduct(dbProd)) return;
       if (dbProd) {
         matchedProductIds.add(dbProd.id);
         const sheetPhysical = parseFloat((row['Stock Actual'] || '0').replace(',', '.')) || 0;
@@ -293,7 +296,7 @@ export async function GET() {
         const dbReserved = parseFloat(dbProd.stock_reserved || '0') || 0;
         // Prefer the consolidated name total: historical and current product IDs
         // can represent the same physical SKU (for example, Flotante Eco).
-        const dbCalculatedReserved = 
+        const dbCalculatedReserved =
           dbCalculatedReservesMap.get(`norm_${normCleanProdName}`) ||
           dbCalculatedReservesMap.get(`norm_${normProdName}`) ||
           dbCalculatedReservesMap.get(`norm_${normalizeText(dbProd.name)}`) ||
@@ -328,6 +331,7 @@ export async function GET() {
     // Check database products only
     const onlyInDb: any[] = [];
     dbProducts.forEach((p: any) => {
+      if (isServiceProduct(p)) return;
       if (!matchedProductIds.has(p.id)) {
         onlyInDb.push({
           id: p.id,
@@ -424,11 +428,12 @@ export async function POST() {
 
       const dbProd = findBestProductMatch(productLookup, normProdName, normCleanProdName);
 
+      if (dbProd && isServiceProduct(dbProd)) continue;
       if (dbProd) {
         const sheetPhysical = parseFloat((row['Stock Actual'] || '0').replace(',', '.')) || 0;
         const sheetReserved = parseFloat((row['Reservado'] || '0').replace(',', '.')) || 0;
         // Prefer the consolidated name total so product aliases are not omitted.
-        const dbCalculatedReserved = 
+        const dbCalculatedReserved =
           dbCalculatedReservesMap.get(`norm_${normCleanProdName}`) ||
           dbCalculatedReservesMap.get(`norm_${normProdName}`) ||
           dbCalculatedReservesMap.get(`norm_${normalizeText(dbProd.name)}`) ||
@@ -452,6 +457,7 @@ export async function POST() {
     // Reset stock_reserved and stock_current for products not in the sheet but in the DB
     // to match database order items (preventing reservations drift)
     for (const p of dbProducts) {
+      if (isServiceProduct(p)) continue;
       const normName = normalizeText(p.name);
       const cleanName = normalizeText(p.name.replace(/^\[interno\]\s*/i, "").trim());
       const isAlreadyInUpdate = updatesToUpsertMap.has(p.id);

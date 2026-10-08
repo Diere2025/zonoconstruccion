@@ -2,20 +2,22 @@
 
 import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/Button";
-import { 
-  Plus, 
-  Trash2, 
-  X, 
-  Loader2, 
-  Menu, 
-  Globe, 
-  CreditCard, 
-  Database, 
-  Phone, 
-  Link as LinkIcon, 
-  Megaphone, 
-  Users, 
-  Check, 
+import {
+  Plus,
+  ArrowUp,
+  ArrowDown,
+  Trash2,
+  X,
+  Loader2,
+  Menu,
+  Globe,
+  CreditCard,
+  Database,
+  Phone,
+  Link as LinkIcon,
+  Megaphone,
+  Users,
+  Check,
   AlertCircle,
   ToggleLeft,
   ToggleRight,
@@ -24,6 +26,7 @@ import {
   Sparkles
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { AdvertisingSource, AdvertisingSourceChannel, advertisingSourceChannel, sortAdvertisingSources } from "@/lib/advertisingSources";
 import { optimizeImageUpload } from "@/lib/optimizeImageUpload";
 import { Product } from "@/types";
 import VisualSelectorSettings from "@/components/admin/VisualSelectorSettings";
@@ -51,12 +54,6 @@ interface OrderMedium {
   is_active: boolean;
 }
 
-interface AdvertisingSource {
-  id: string;
-  name: string;
-  is_active: boolean;
-}
-
 export default function AjustesPage() {
   const [mainTab, setMainTab] = useState<"general" | "payments" | "reception" | "selector_visual" | "maintenance">("general");
   const [receptionSubTab, setReceptionSubTab] = useState<"lines" | "mediums" | "sources">("lines");
@@ -64,7 +61,7 @@ export default function AjustesPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingSettings, setSavingSettings] = useState(false);
-  
+
   // General & Landings Settings State
   const [aboutImageUrl, setAboutImageUrl] = useState('');
   const [settingsFile, setSettingsFile] = useState<File | null>(null);
@@ -95,6 +92,9 @@ export default function AjustesPage() {
 
   const [newSourceName, setNewSourceName] = useState("");
   const [savingSource, setSavingSource] = useState(false);
+  const [newSourceChannel, setNewSourceChannel] = useState<AdvertisingSourceChannel>('minorista');
+  const [savingSourceOrder, setSavingSourceOrder] = useState(false);
+  const [savingSourceChannelId, setSavingSourceChannelId] = useState<string | null>(null);
 
   // Edit states for Reception
   const [editingLineId, setEditingLineId] = useState<string | null>(null);
@@ -153,7 +153,7 @@ export default function AjustesPage() {
         if (sellersRes.data) setSellers(sellersRes.data);
         if (linesRes.data) setPhoneLines(linesRes.data);
         if (mediumsRes.data) setOrderMediums(mediumsRes.data);
-        if (sourcesRes.data) setAdvertisingSources(sourcesRes.data);
+        if (sourcesRes.data) setAdvertisingSources(sortAdvertisingSources(sourcesRes.data));
 
         // Fetch site settings
         const { data: settingsData } = await supabase
@@ -212,7 +212,7 @@ export default function AjustesPage() {
   const handleAddPaymentMethod = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newPmName.trim()) return;
-    
+
     const { data, error } = await supabase
       .from('payment_methods')
       .insert({
@@ -224,7 +224,7 @@ export default function AjustesPage() {
       })
       .select()
       .single();
-      
+
     if (error) {
       alert("Error al agregar medio de pago: " + error.message);
     } else if (data) {
@@ -247,7 +247,7 @@ export default function AjustesPage() {
         const fileExt = optimizedFile.name.split('.').pop();
         const filePath = `settings/about-${Math.random()}.${fileExt}`;
         const { error: uploadError } = await supabase.storage.from('product-images').upload(filePath, optimizedFile, { contentType: optimizedFile.type });
-        
+
         if (uploadError) {
           console.error("Error al subir imagen de fábrica:", uploadError);
           alert("Error al subir la imagen: " + uploadError.message);
@@ -265,13 +265,13 @@ export default function AjustesPage() {
         { id: 'landing_categories', value: landingCategories.join(',') },
         { id: 'tanques_categories', value: tanquesCategories.join(',') },
       ]);
-      
+
       if (error) {
         console.error("Error en upsert de site_settings:", error);
         alert("🚨 Error de Base de Datos:\n" + error.message);
       } else {
-        setAboutImageUrl(finalUrl); 
-        setSettingsFile(null); 
+        setAboutImageUrl(finalUrl);
+        setSettingsFile(null);
         alert("✅ ¡Configuración guardada con éxito!");
       }
     } catch (err) {
@@ -285,7 +285,7 @@ export default function AjustesPage() {
   // --- DB Maintenance Helpers ---
   const handleCleanDuplicates = async () => {
     if (!confirm("Esto agrupará todos los productos por SKU y eliminará los duplicados manteniendo el que tenga mejor información. ¿Estás seguro?")) return;
-    
+
     setCleaningDuplicates(true);
     setCleanupResult(null);
     try {
@@ -323,7 +323,7 @@ export default function AjustesPage() {
           });
 
           const toDelete = scoredGroup.slice(1);
-          
+
           for (const item of toDelete) {
             await supabase.from('products').delete().eq('id', item.product.id);
             deletedCount++;
@@ -352,7 +352,7 @@ export default function AjustesPage() {
 
   const refreshSources = async () => {
     const { data } = await supabase.from("advertising_sources").select("*").order("name");
-    if (data) setAdvertisingSources(data);
+    if (data) setAdvertisingSources(sortAdvertisingSources(data));
   };
 
   const handleAddPhoneLine = async (e: React.FormEvent) => {
@@ -537,7 +537,9 @@ export default function AjustesPage() {
     try {
       const { error } = await supabase.from("advertising_sources").insert({
         name: newSourceName.trim(),
-        is_active: true
+        is_active: true,
+        channel: newSourceChannel,
+        sort_order: Math.max(0, ...advertisingSources.map(source => source.sort_order ?? 0)) + 1
       });
 
       if (error) throw error;
@@ -548,6 +550,37 @@ export default function AjustesPage() {
       alert("Error al agregar procedencia: " + err.message);
     } finally {
       setSavingSource(false);
+    }
+  };
+
+  const handleMoveSource = async (index: number, direction: -1 | 1) => {
+    const target = index + direction;
+    if (savingSourceOrder || target < 0 || target >= advertisingSources.length) return;
+    setSavingSourceOrder(true);
+    const reordered = [...advertisingSources];
+    [reordered[index], reordered[target]] = [reordered[target], reordered[index]];
+    try {
+      const { error } = await supabase.rpc('reorder_advertising_sources', { p_ids: reordered.map(source => source.id) });
+      if (error) throw error;
+      setAdvertisingSources(reordered.map((source, position) => ({ ...source, sort_order: position + 1 })));
+    } catch (err: any) {
+      alert('Error al ordenar procedencias: ' + err.message);
+      await refreshSources();
+    } finally {
+      setSavingSourceOrder(false);
+    }
+  };
+
+  const handleSourceChannelChange = async (id: string, channel: AdvertisingSourceChannel) => {
+    setSavingSourceChannelId(id);
+    try {
+      const { error } = await supabase.from('advertising_sources').update({ channel }).eq('id', id).select('id').single();
+      if (error) throw error;
+      setAdvertisingSources(previous => previous.map(source => source.id === id ? { ...source, channel } : source));
+    } catch (err: any) {
+      alert('Error al cambiar el canal: ' + err.message);
+    } finally {
+      setSavingSourceChannelId(null);
     }
   };
 
@@ -687,7 +720,7 @@ export default function AjustesPage() {
         <div className="animate-in fade-in duration-200 space-y-6 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
           <h2 className="text-xl font-black text-slate-900 tracking-tight">Ajustes de Landings y Contenido</h2>
             <form onSubmit={handleSettingsSubmit} className="space-y-12">
-              
+
               {/* Sección Landing Principal */}
               <div className="space-y-6 bg-slate-50/50 p-6 rounded-3xl border border-slate-100">
                 <div className="border-b border-slate-200 pb-4 mb-6">
@@ -734,7 +767,7 @@ export default function AjustesPage() {
                       </div>
                     )}
                   </div>
-                  
+
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">Categorías Ocultas (Agregar al inicio)</label>
                   <div className="flex flex-wrap gap-2">
                     {Array.from(new Set(products.map(p => p.category)))
@@ -816,7 +849,7 @@ export default function AjustesPage() {
                       </div>
                     )}
                   </div>
-                  
+
                   <label className="block text-[10px] font-black text-blue-400 uppercase tracking-[0.2em] mb-4">Agregar Categorías a Landing Tanques</label>
                   <div className="flex flex-wrap gap-2">
                     {Array.from(new Set(products.map(p => p.category)))
@@ -847,7 +880,7 @@ export default function AjustesPage() {
         {mainTab === "payments" && (
           <div className="animate-in fade-in duration-200 space-y-6">
             <h2 className="text-3xl font-black text-slate-900 mb-6 tracking-tighter">Medios de Pago y Recargos</h2>
-            
+
             <div className="space-y-6 bg-slate-50/50 p-6 rounded-3xl border border-slate-100">
               <div className="border-b border-slate-200 pb-4 mb-6">
                 <h3 className="text-xl font-black text-slate-800">Planes y Medios de Pago</h3>
@@ -937,8 +970,8 @@ export default function AjustesPage() {
                               type="button"
                               onClick={() => handleSetPaymentMethodDefault(pm.id)}
                               className={`px-2 py-1 rounded-md text-[8px] font-black uppercase tracking-wider transition-all border cursor-pointer ${
-                                pm.is_default 
-                                  ? 'bg-emerald-50 border-emerald-300 text-emerald-700 font-extrabold shadow-sm' 
+                                pm.is_default
+                                  ? 'bg-emerald-50 border-emerald-300 text-emerald-700 font-extrabold shadow-sm'
                                   : 'bg-white border-slate-200 text-slate-400 hover:border-slate-300'
                               }`}
                             >
@@ -1046,11 +1079,11 @@ export default function AjustesPage() {
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {phoneLines.map((line) => {
-                          const associatedSellers = (line.seller_phone_lines || []).map(spl => 
+                          const associatedSellers = (line.seller_phone_lines || []).map(spl =>
                             sellers.find(s => s.id === spl.seller_id)
                           ).filter(Boolean) as Seller[];
 
-                          const nonAssociatedSellers = sellers.filter(s => 
+                          const nonAssociatedSellers = sellers.filter(s =>
                             s.is_active && !(line.seller_phone_lines || []).some(spl => spl.seller_id === s.id)
                           );
 
@@ -1100,8 +1133,8 @@ export default function AjustesPage() {
                                 {/* Seller Badges */}
                                 <div className="flex flex-wrap gap-1.5 animate-none">
                                   {associatedSellers.map(seller => (
-                                    <span 
-                                      key={seller.id} 
+                                    <span
+                                      key={seller.id}
                                       className="inline-flex items-center gap-1 px-2.5 py-1 bg-brand-50 border border-brand-100 text-brand-700 rounded-lg text-[10px] font-extrabold"
                                     >
                                       {seller.full_name}
@@ -1394,7 +1427,7 @@ export default function AjustesPage() {
         {mainTab === "maintenance" && (
           <div className="animate-in fade-in duration-200 space-y-6">
             <h2 className="text-3xl font-black text-slate-900 mb-6 tracking-tighter">Mantenimiento de Base de Datos</h2>
-            
+
             <div className="bg-red-50/50 p-8 rounded-[2rem] border border-red-100">
               <div className="mb-6">
                 <h3 className="text-2xl font-black text-red-900 flex items-center gap-2">
@@ -1402,20 +1435,20 @@ export default function AjustesPage() {
                 </h3>
                 <p className="text-red-700/80 font-medium mt-2">Acciones destructivas para limpiar o reparar el catálogo general.</p>
               </div>
-              
+
               <div className="bg-white p-6 rounded-3xl border border-red-100 shadow-sm flex flex-col gap-4">
                 <div>
                   <h4 className="font-bold text-slate-900 mb-1">Limpiar Productos Duplicados</h4>
                   <p className="text-sm text-slate-500 font-medium">Agrupa productos con el mismo SKU y elimina los que tengan menor información (sin fotos, internos o sin descripción). Mantiene intacto el mejor producto de cada grupo.</p>
                 </div>
-                
+
                 {cleanupResult && (
                   <div className={`p-4 rounded-xl text-sm font-bold ${cleanupResult.isError ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
                     {cleanupResult.message}
                   </div>
                 )}
 
-                <button 
+                <button
                   onClick={handleCleanDuplicates}
                   disabled={cleaningDuplicates}
                   className="w-full sm:w-auto self-start px-6 py-4 bg-red-100 text-red-700 hover:bg-red-600 hover:text-white rounded-2xl font-black uppercase tracking-widest text-[9px] transition-all flex items-center gap-2 disabled:opacity-50 cursor-pointer"
@@ -1436,6 +1469,7 @@ export default function AjustesPage() {
                 <p className="text-slate-500 font-medium mt-1 text-sm">
                   Parámetros de procedencia publicitaria y comercial obligatorios para los vendedores al cargar un pedido.
                 </p>
+                <p className="text-slate-500 mt-2 text-sm">Elegí el canal y usá las flechas para guardar el orden en que aparecen al cargar pedidos.</p>
               </div>
 
               <div className="space-y-8">
@@ -1454,10 +1488,18 @@ export default function AjustesPage() {
                         className="px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-4 focus:ring-brand-500/10 text-xs font-bold bg-white text-slate-700"
                       />
                     </div>
+                    <label className="flex flex-col gap-1.5 text-xs font-bold text-slate-600">
+                      Canal
+                      <select value={newSourceChannel} onChange={e => setNewSourceChannel(e.target.value as AdvertisingSourceChannel)} className="px-4 py-3 rounded-xl border border-slate-200 bg-white">
+                        <option value="minorista">Minoristas</option>
+                        <option value="mayorista">Mayoristas</option>
+                        <option value="ambos">Ambos canales</option>
+                      </select>
+                    </label>
                   </div>
                   <button
                     type="submit"
-                    disabled={savingSource}
+                    disabled={savingSource || savingSourceOrder}
                     className="px-5 py-3 bg-brand-600 hover:bg-brand-700 text-white rounded-xl font-black uppercase tracking-widest text-[9px] transition-all flex items-center gap-1.5 shadow-md shadow-brand-600/10 self-start cursor-pointer"
                   >
                     {savingSource ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
@@ -1471,13 +1513,15 @@ export default function AjustesPage() {
                     <table className="w-full text-left">
                       <thead>
                         <tr className="bg-slate-50 border-b border-slate-100">
-                          <th className="px-5 py-4 text-[9px] font-black uppercase tracking-wider text-slate-400 w-3/4">Procedencia</th>
+                          <th className="px-5 py-4 text-[9px] font-black uppercase tracking-wider text-slate-400">Procedencia</th>
+                          <th className="px-5 py-4 text-[9px] font-black uppercase tracking-wider text-slate-400 text-center">Canal</th>
+                          <th className="px-5 py-4 text-[9px] font-black uppercase tracking-wider text-slate-400 text-center w-28">Orden</th>
                           <th className="px-5 py-4 text-[9px] font-black uppercase tracking-wider text-slate-400 text-center w-28">Vigente</th>
                           <th className="px-5 py-4 text-[9px] font-black uppercase tracking-wider text-slate-400 text-center w-28">Acción</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {advertisingSources.map((source) => {
+                        {advertisingSources.map((source, sourceIndex) => {
                           const isEditing = source.id === editingSourceId;
                           return (
                             <tr key={source.id} className="hover:bg-slate-50/50 transition-colors">
@@ -1494,10 +1538,23 @@ export default function AjustesPage() {
                                 )}
                               </td>
                               <td className="px-5 py-4 text-center">
+                                <select aria-label={`Canal de ${source.name}`} value={advertisingSourceChannel(source)} disabled={savingSourceChannelId !== null || savingSourceOrder || isEditing} onChange={e => handleSourceChannelChange(source.id, e.target.value as AdvertisingSourceChannel)} className="px-2 py-2 rounded-lg border border-slate-200 bg-white text-xs disabled:opacity-50">
+                                  <option value="minorista">Minoristas</option>
+                                  <option value="mayorista">Mayoristas</option>
+                                  <option value="ambos">Ambos canales</option>
+                                </select>
+                              </td>
+                              <td className="px-5 py-4 text-center">
+                                <div className="flex items-center justify-center gap-1">
+                                  <button type="button" title={`Subir ${source.name}`} aria-label={`Subir ${source.name}`} disabled={sourceIndex === 0 || savingSourceOrder || savingSource || editingSourceId !== null} onClick={() => handleMoveSource(sourceIndex, -1)} className="p-2 rounded-lg hover:bg-slate-100 disabled:opacity-30"><ArrowUp className="w-4 h-4" /></button>
+                                  <button type="button" title={`Bajar ${source.name}`} aria-label={`Bajar ${source.name}`} disabled={sourceIndex === advertisingSources.length - 1 || savingSourceOrder || savingSource || editingSourceId !== null} onClick={() => handleMoveSource(sourceIndex, 1)} className="p-2 rounded-lg hover:bg-slate-100 disabled:opacity-30"><ArrowDown className="w-4 h-4" /></button>
+                                </div>
+                              </td>
+                              <td className="px-5 py-4 text-center">
                                 <button
                                   type="button"
-                                  disabled={isEditing}
                                   onClick={() => handleToggleSourceActive(source.id, source.is_active)}
+                                  disabled={isEditing || savingSourceOrder}
                                   className="focus:outline-none transition-transform active:scale-95 inline-block cursor-pointer disabled:opacity-50"
                                 >
                                   {source.is_active ? (
@@ -1534,6 +1591,7 @@ export default function AjustesPage() {
                                       <button
                                         type="button"
                                         onClick={() => handleStartEditSource(source)}
+                                        disabled={savingSourceOrder}
                                         className="p-2 bg-slate-50 hover:bg-brand-600 text-slate-500 hover:text-white border border-slate-100 hover:border-brand-600 rounded-xl transition-all cursor-pointer"
                                         title="Editar procedencia"
                                       >
@@ -1542,6 +1600,7 @@ export default function AjustesPage() {
                                       <button
                                         type="button"
                                         onClick={() => handleDeleteSource(source.id, source.name)}
+                                        disabled={savingSourceOrder}
                                         className="p-2 bg-red-50 hover:bg-red-600 text-red-600 hover:text-white border border-red-100 hover:border-red-600 rounded-xl transition-all cursor-pointer"
                                         title="Eliminar procedencia"
                                       >
@@ -1556,7 +1615,7 @@ export default function AjustesPage() {
                         })}
                         {advertisingSources.length === 0 && (
                           <tr>
-                            <td colSpan={3} className="text-center py-10 font-bold text-slate-400 text-xs">
+                            <td colSpan={5} className="text-center py-10 font-bold text-slate-400 text-xs">
                               No hay procedencias registradas en el sistema.
                             </td>
                           </tr>

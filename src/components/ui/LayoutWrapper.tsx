@@ -11,11 +11,13 @@ interface LayoutWrapperProps {
 
 export function LayoutWrapper({ children }: LayoutWrapperProps) {
   const pathname = usePathname();
-  
+
   // Detect if we are inside administrative or seller portals, or dedicated cotizador
-  const isPortal = 
-    pathname.startsWith("/admin") || 
-    pathname.startsWith("/vendedores") || 
+  const isPortal =
+    pathname === '/visitas' || pathname.startsWith('/visitas/') ||
+    pathname === '/vista-previa-movimientos' ||
+    pathname.startsWith("/admin") ||
+    pathname.startsWith("/vendedores") ||
     pathname === '/solicitudes-logistica' || pathname.startsWith('/solicitudes-logistica/') ||
     pathname === "/incidencias" || pathname.startsWith("/incidencias/") ||
     pathname.startsWith("/reset-password") ||
@@ -39,7 +41,7 @@ export function LayoutWrapper({ children }: LayoutWrapperProps) {
         {children}
       </main>
       <CartDrawer />
-      
+
       <footer id="site-footer" className="bg-slate-950 text-white py-12 border-t border-slate-900 mt-auto">
         <div className="container mx-auto px-6 flex flex-col md:flex-row justify-between items-center gap-8">
           <div className="text-gray-400 text-sm">

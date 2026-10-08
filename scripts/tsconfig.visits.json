@@ -1,0 +1,6 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": { "incremental": false },
+  "include": ["../next-env.d.ts", "../src/app/visitas/**/*.tsx", "../src/app/api/visits/**/*.ts", "../src/components/visits/**/*.tsx", "../src/lib/visits/**/*.ts", "../src/lib/erpNavigation.ts", "../src/components/ui/AdminLayout.tsx", "../src/app/admin/vendedores/page.tsx"],
+  "exclude": ["../node_modules", "../output", "../scratch", "../tmp"]
+}

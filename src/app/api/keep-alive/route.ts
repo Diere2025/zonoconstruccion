@@ -28,10 +28,18 @@ export async function GET() {
     }
 
     const duration = Date.now() - start;
+    let costsUpdate = null;
+    try {
+      const { refreshCostsIfDue } = await import('@/lib/costs/server');
+      costsUpdate = await refreshCostsIfDue();
+    } catch (costError) {
+      costsUpdate = { error: costError instanceof Error ? costError.message : 'No se pudieron actualizar costos' };
+    }
     return NextResponse.json({
       status: 'success',
       message: 'Database is awake and active',
       monitor_check: monitorAlertResult,
+      costs_update: costsUpdate,
       duration: `${duration}ms`,
       timestamp: new Date().toISOString()
     });

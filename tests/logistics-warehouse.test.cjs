@@ -12,7 +12,7 @@ function load(name, dependencies = {}) {
   return exports;
 }
 const print = load('logisticsPrintOrders');
-const notes = load('logisticsOrderNotes', { './logisticsPrintOrders': print });
+const notes = load('logisticsOrderNotes', { './logisticsPrintOrders': print, './cuotaSimple': load('cuotaSimple') });
 const categoryConfig = load('warehouseCategoryConfig');
 const warehouse = load('logisticsWarehouse', { './logisticsOrderNotes': notes, './warehouseCategoryConfig': categoryConfig });
 

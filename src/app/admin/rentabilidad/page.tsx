@@ -2,9 +2,9 @@
 
 import React, { useEffect, useState } from "react";
 import { formatPrice } from "@/lib/utils";
-import { 
-  TrendingUp, 
-  Loader2, 
+import {
+  TrendingUp,
+  Loader2,
   AlertCircle,
   ArrowUpDown,
   ChevronDown,
@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+import { isDiscountProduct } from '@/lib/erp/discounts';
 
 interface Seller {
   id: string;
@@ -221,7 +222,7 @@ export default function RentabilidadDashboard() {
   const renderCalendarMonth = (year: number, month: number) => {
     const daysInMonth = getDaysInMonth(year, month);
     const firstDayIndex = getFirstDayOfMonth(year, month);
-    
+
     const days = [];
     for (let i = 0; i < firstDayIndex; i++) {
       days.push(null);
@@ -381,9 +382,9 @@ export default function RentabilidadDashboard() {
   const [missingCatalogProductsList, setMissingCatalogProductsList] = useState<MissingCatalogProduct[]>([]);
 
   const loadData = async (
-    start: string, 
-    end: string, 
-    sellerId: string = selectedSellerId, 
+    start: string,
+    end: string,
+    sellerId: string = selectedSellerId,
     channel: string = selectedChannel
   ) => {
     try {
@@ -392,7 +393,7 @@ export default function RentabilidadDashboard() {
       // 1. Fetch reference lists (sellers, products, relations, and price list costs)
       const [sellersRes, allProductsRes, relationsRes, activeCostItemsRes] = await Promise.all([
         supabase.from("sellers").select("id, full_name"),
-        supabase.from("products").select("id, sku, name, price, is_active").eq("is_active", true),
+        supabase.from("products").select("id, sku, name, price, is_active, cost_price, unified_cost").eq("is_active", true),
         supabase.from("product_supplier_relations").select("product_id, supplier_id, is_primary"),
         supabase.from("price_list_items").select("sku, final_cost, list_cost")
       ]);
@@ -494,6 +495,10 @@ export default function RentabilidadDashboard() {
 
       // Fallback helper to resolve current catalog cost for a product
       const getCatalogCost = (pId: string | null, sku: string): number => {
+        const current = pId ? activeCatalogProducts.find(p => p.id === pId) : null;
+        if (isDiscountProduct({name:current?.name,sku})) return 0;
+        const unified = Number(current?.unified_cost) || Number(current?.cost_price) || 0;
+        if (unified > 0) return unified;
         if (!sku) return 0;
         const cleanSku = sku.trim().toLowerCase();
         const costBySupplier = priceListCostMap.get(cleanSku);
@@ -551,10 +556,11 @@ export default function RentabilidadDashboard() {
           resolvedUnitCost = getCatalogCost(item.product_id, resolvedSku);
         }
 
-        const itemCost = qty * resolvedUnitCost;
-        const isDiscount = priceSold < 0 || 
-                           (item.product_name || "").toLowerCase().includes("descuento") || 
+        const isDiscount = priceSold < 0 ||
+                           (item.product_name || "").toLowerCase().includes("descuento") ||
                            (item.products?.sku || "").toLowerCase().includes("descuento");
+        if (isDiscount) resolvedUnitCost = 0;
+        const itemCost = qty * resolvedUnitCost;
         const isCostMissing = resolvedUnitCost <= 0 && !isDiscount;
 
         totalRevenue += itemRevenue;
@@ -600,7 +606,7 @@ export default function RentabilidadDashboard() {
       // Calculate missing active catalog products
       const missingCatalogTemp: MissingCatalogProduct[] = [];
       (activeCatalogProducts as unknown as DbCatalogProduct[]).forEach((p) => {
-        const isDiscount = (p.sku || "").toLowerCase().includes("descuento") || 
+        const isDiscount = (p.sku || "").toLowerCase().includes("descuento") ||
                            (p.name || "").toLowerCase().includes("descuento") ||
                            (Number(p.price) || 0) < 0;
         if (isDiscount) return;
@@ -863,8 +869,8 @@ export default function RentabilidadDashboard() {
                           type="button"
                           onClick={() => handleTempPresetChange(p.id)}
                           className={`flex items-center gap-2 px-3 py-1.5 rounded-lg font-bold text-xs whitespace-nowrap text-left transition-all w-full ${
-                            active 
-                              ? "bg-brand-50 text-brand-700" 
+                            active
+                              ? "bg-brand-50 text-brand-700"
                               : "text-slate-600 hover:bg-slate-100 hover:text-slate-800"
                           }`}
                         >
@@ -1044,7 +1050,7 @@ export default function RentabilidadDashboard() {
           </div>
           <div className="mt-2">
             <div className="w-full bg-slate-100 rounded-full h-1.5">
-              <div 
+              <div
                 className={`h-1.5 rounded-full transition-all duration-300 ${
                   metrics.totalMarginPct > 35 ? "bg-emerald-500" : metrics.totalMarginPct > 15 ? "bg-brand-500" : "bg-amber-500"
                 }`}
@@ -1065,7 +1071,7 @@ export default function RentabilidadDashboard() {
               Hay **{metrics.missingCostOrdersCount} pedidos** ({metrics.missingCostItemsCount} productos vendidos) dentro de este rango que contienen productos sin costo asignado. El margen calculado anteriormente los evalúa con costo $0, por lo que la rentabilidad mostrada puede ser artificialmente alta.
             </p>
             <div className="pt-2">
-              <button 
+              <button
                 onClick={() => setActiveTab('missing-orders')}
                 className="text-[10px] font-black uppercase tracking-wider text-amber-700 hover:text-amber-900 bg-amber-100/60 hover:bg-amber-100 px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
               >
@@ -1081,8 +1087,8 @@ export default function RentabilidadDashboard() {
         <button
           onClick={() => setActiveTab('products')}
           className={`flex-1 py-3 px-4 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
-            activeTab === 'products' 
-              ? "bg-slate-900 text-white shadow-sm" 
+            activeTab === 'products'
+              ? "bg-slate-900 text-white shadow-sm"
               : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
           }`}
         >
@@ -1091,8 +1097,8 @@ export default function RentabilidadDashboard() {
         <button
           onClick={() => setActiveTab('missing-orders')}
           className={`flex-1 py-3 px-4 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer relative ${
-            activeTab === 'missing-orders' 
-              ? "bg-slate-900 text-white shadow-sm" 
+            activeTab === 'missing-orders'
+              ? "bg-slate-900 text-white shadow-sm"
               : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
           }`}
         >
@@ -1104,8 +1110,8 @@ export default function RentabilidadDashboard() {
         <button
           onClick={() => setActiveTab('missing-catalog')}
           className={`flex-1 py-3 px-4 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
-            activeTab === 'missing-catalog' 
-              ? "bg-slate-900 text-white shadow-sm" 
+            activeTab === 'missing-catalog'
+              ? "bg-slate-900 text-white shadow-sm"
               : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
           }`}
         >
@@ -1115,7 +1121,7 @@ export default function RentabilidadDashboard() {
 
       {/* Tab Contents */}
       <div className="bg-white rounded-3xl border border-slate-200/60 shadow-sm overflow-hidden">
-        
+
         {/* TAB 1: Product margins contribution list */}
         {activeTab === 'products' && (
           <div className="p-6 space-y-4">
@@ -1123,7 +1129,7 @@ export default function RentabilidadDashboard() {
               <h3 className="text-md font-black text-slate-800 uppercase tracking-wider">Contribución de Ventas por Producto</h3>
               <span className="text-xs text-slate-400 font-bold">Total productos vendidos: {productsMarginList.length}</span>
             </div>
-            
+
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead>
@@ -1163,12 +1169,12 @@ export default function RentabilidadDashboard() {
                       </td>
                       <td className="py-4 px-4 text-right">
                         <span className={`inline-block px-2.5 py-0.5 rounded-full font-black text-[10px] uppercase tracking-wider ${
-                          p.marginPct > 35 
-                            ? "bg-emerald-50 text-emerald-600" 
-                            : p.marginPct > 15 
-                              ? "bg-brand-50 text-brand-600" 
-                              : p.marginPct >= 0 
-                                ? "bg-amber-50 text-amber-600" 
+                          p.marginPct > 35
+                            ? "bg-emerald-50 text-emerald-600"
+                            : p.marginPct > 15
+                              ? "bg-brand-50 text-brand-600"
+                              : p.marginPct >= 0
+                                ? "bg-amber-50 text-amber-600"
                                 : "bg-red-50 text-red-600"
                         }`}>
                           {formatPctValue(p.marginPct)}
@@ -1253,7 +1259,7 @@ export default function RentabilidadDashboard() {
                       <td className="py-4 px-4 text-center text-slate-900 font-bold">{item.qty}</td>
                       <td className="py-4 px-4 text-right text-slate-900 font-bold">{formatPrice(item.unitPrice)}</td>
                       <td className="py-4 px-4 text-right whitespace-nowrap">
-                        <Link 
+                        <Link
                           href="/admin/compras?tab=new_purchase"
                           className="inline-flex text-[10px] font-black text-brand-600 hover:text-brand-800 uppercase tracking-widest border-b border-brand-200 cursor-pointer"
                         >
@@ -1328,7 +1334,7 @@ export default function RentabilidadDashboard() {
                         </span>
                       </td>
                       <td className="py-4 px-4 text-right whitespace-nowrap">
-                        <Link 
+                        <Link
                           href="/admin/compras?tab=new_purchase"
                           className="inline-flex text-[10px] font-black text-brand-600 hover:text-brand-800 uppercase tracking-widest border-b border-brand-200 cursor-pointer"
                         >

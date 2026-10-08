@@ -125,7 +125,7 @@ test('new orders still calculate delivery dates when choosing a locality', () =>
   const changes = {};
   runEffect('const nextDate = calculateNextDeliveryDate(', {
     isEditingRef: { current: false }, editingOrderIdRef: { current: null },
-    localidadId: 'city', lastAutoLocalityIdRef: { current: '' }, isPickup: false,
+    localidadId: 'city', lastAutoLocalityIdRef: { current: '' }, isPickup: false, sourceVisitId: null,
     localities: [{ id: 'city', zones: { delivery_times: { name: 'Regular' } } }],
     deliveryTimes: [], fechaPedido: '2026-10-01',
     calculateNextDeliveryDate: () => '2026-10-02',
