@@ -3536,6 +3536,15 @@ export default function ComprasAdminPage() {
     finally { setLoadingPayments(false); }
   };
 
+  const openedPurchaseReference=useRef('');
+  useEffect(()=>{
+    const id=searchParams.get('purchase');
+    if(!isPurchaseAdmin||!id||openedPurchaseReference.current===id||!/^[0-9a-f-]{36}$/i.test(id))return;
+    openedPurchaseReference.current=id;
+    let active=true;
+    supabase.from('supplier_purchases').select('*,suppliers(name)').eq('id',id).single().then(({data,error})=>{if(!active)return;if(error){setPurchasePaymentsError(error.message);openedPurchaseReference.current='';return;}void handleViewPurchaseDetails(data as SupplierPurchase);});
+    return()=>{active=false;openedPurchaseReference.current='';};
+  },[searchParams,isPurchaseAdmin]);
   const handleViewPurchaseDetails = async (purchase: SupplierPurchase) => {
     setSelectedPurchase(purchase);
     setLoadingDetail(true);
@@ -7927,7 +7936,7 @@ export default function ComprasAdminPage() {
                       <table className="w-full text-left text-xs">
                         <thead>
                           <tr className="bg-slate-50 border-b border-slate-100 font-bold text-slate-400">
-                            <th className="px-3 py-1.5">Fecha</th>
+                            <th className="px-3 py-1.5">Fecha</th><th className="px-3 py-1.5">Código del pago</th>
                             <th className="px-3 py-1.5">Monto</th>
                             <th className="px-3 py-1.5">Medio</th>
                             <th className="px-3 py-1.5">Detalles</th>
@@ -7938,7 +7947,7 @@ export default function ComprasAdminPage() {
                             <tr key={pay.id} className="hover:bg-slate-50/30">
                               <td className="px-3 py-2 text-slate-500">
                                 {formatDateDDMMYYYY(pay.created_at)}
-                              </td>
+                              </td><td className="px-3 py-2 font-mono text-xs">{pay.href?<a href={pay.href} className="text-brand-700 underline">{pay.code}</a>:pay.code}</td>
                               <td className="px-3 py-2 font-black text-slate-850">
                                 <span className={pay.reversed_at?'line-through text-slate-400':''}>{formatPrice(pay.amount)} {pay.currency}</span>
                                 {pay.reversed_at && <span className="ml-1 text-xs text-red-600">Anulado</span>}

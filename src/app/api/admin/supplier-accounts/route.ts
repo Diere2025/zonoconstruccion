@@ -1,3 +1,5 @@
+import {movementCode} from '@/lib/financialOperations/references';
+import {supplierReferenceData} from '@/lib/financialOperations/referenceServer';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { requireFinanceAdmin } from '@/lib/financeAdminAccess';
@@ -51,6 +53,14 @@ export async function GET(request: Request) {
       allRows(db.from('supplier_account_history').select('*').eq('supplier_id', supplierId).order('source').order('source_id'))
     ]);
     if (config.error) throw config.error;
+    const references=await supplierReferenceData(db,supplierId);
+    for(const entry of entries as AccountEntry[]){
+      entry.applications=(entry.source==='purchase'?references.byPurchase:references.byPayment).get(entry.source_id)||[];
+      if(entry.source==='payment'){
+        const movement=references.movements.find(t=>t.id===entry.cash_transaction_id);
+        entry.reference=movement?movementCode(movement):`PAG-${entry.source_id.toUpperCase()}`;
+      }
+    }
     const start = config.data as AccountStart | null;
     return NextResponse.json({ start, ...supplierLedger(start, entries as AccountEntry[], history as HistoryChoice[]) });
   } catch (error) { return failure(error); }

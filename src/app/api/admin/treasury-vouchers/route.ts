@@ -1,3 +1,4 @@
+import {voucherMovementReferences} from '@/lib/financialOperations/referenceServer';
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
@@ -65,11 +66,12 @@ export async function GET(request: NextRequest) {
   if (id) {
     const { data: voucher, error } = await db.from('treasury_vouchers').select('*,treasury_voucher_orders(order_id)').eq('id', id).maybeSingle();
     if (error || !voucher) return jsonError('No se encontró el comprobante.', 404);
+    const applications=(await voucherMovementReferences(db,[id])).get(id)||[];
     const files = await Promise.all((Array.isArray(voucher.files) ? voucher.files : []).map(async (file: { path: string; name: string }) => {
       const { data } = await db.storage.from(BUCKET).createSignedUrl(file.path, 300);
       return { ...file, url: data?.signedUrl || null };
     }));
-    return NextResponse.json({ success: true, voucher: { ...voucher, files, order_ids: (voucher.treasury_voucher_orders || []).map((link: { order_id: string }) => link.order_id) } });
+    return NextResponse.json({ success: true, voucher: { ...voucher, applications, files, order_ids: (voucher.treasury_voucher_orders || []).map((link: { order_id: string }) => link.order_id) } });
   }
 
   const [vouchers, accounts, suppliers, orders, clients] = await Promise.all([
@@ -81,6 +83,7 @@ export async function GET(request: NextRequest) {
   ]);
   const error = vouchers.error || accounts.error || suppliers.error || orders.error || clients.error;
   if (error) return jsonError(error.message, 500);
+  const applications=await voucherMovementReferences(db,(vouchers.data||[]).map(v=>v.id));
   const visibleFiles = (vouchers.data || []).map(voucher => {
     const files = Array.isArray(voucher.files) ? voucher.files : [];
     return files.find((file: { mime?: string }) => file.mime?.startsWith('image/')) || files[0];
@@ -96,6 +99,7 @@ export async function GET(request: NextRequest) {
     success: true,
     vouchers: (vouchers.data || []).map((voucher, index) => ({
       ...voucher,
+      applications:applications.get(voucher.id)||[],
       files: (Array.isArray(voucher.files) ? voucher.files : []).map((file: { path: string }) => ({ ...file, url: file.path === visibleFiles[index]?.path ? signedUrls.get(file.path) || null : null })),
       order_ids: (voucher.treasury_voucher_orders || []).map((link: { order_id: string }) => link.order_id)
     })),

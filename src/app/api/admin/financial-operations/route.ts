@@ -1,3 +1,5 @@
+import {movementCode,movementHref} from '@/lib/financialOperations/references';
+import {movementApplications} from '@/lib/financialOperations/referenceServer';
 import {requireSupplierVoucherConfirmation} from '@/lib/financialOperations/voucherStatus';
 import { NextResponse } from 'next/server';
 import { financialContext,financialMutationContext } from '@/lib/financialOperations/server';
@@ -19,16 +21,27 @@ export async function GET(request: Request) {
   try {
     const {db} = await financialContext(request);
     const url = new URL(request.url), id = url.searchParams.get('transaction_id');
+    const orderId=url.searchParams.get('order_id');
+    if(orderId){
+      if(!isUuid(orderId))throw new OperationError('Pedido inválido.');
+      const order=await db.from('orders').select('id,legacy_code,customer_name,total_amount').eq('id',orderId).single();if(order.error)throw order.error;
+      const payments=[];
+      for(let offset=0;;offset+=500){const page=await db.from('client_payments').select('*').eq('order_id',orderId).order('id').range(offset,offset+499);if(page.error)throw page.error;payments.push(...(page.data||[]));if(!page.data||page.data.length<500)break;}
+      const ids=[...new Set(payments.map(p=>p.cash_transaction_id).filter(Boolean))];
+      const movements:Array<{id:string;type:string;movement_code?:string|null}>=[];
+      for(let i=0;i<ids.length;i+=100){const page=await db.from('cash_transactions').select('*').in('id',ids.slice(i,i+100));if(page.error)throw page.error;movements.push(...(page.data||[]));}
+      return NextResponse.json({order:order.data,applications:payments.filter(p=>!p.reversed_at&&p.status==='Aprobado').map(p=>{const tx=movements.find(t=>t.id===p.cash_transaction_id);return {id:p.id,code:tx?movementCode(tx):`REC-${p.id.toUpperCase()}`,kind:tx?'Cobro':'Recibo',href:tx?movementHref(tx.id):'',amount:Number(p.amount)};})},{headers:{'Cache-Control':'no-store'}});
+    }
     const purchaseId=url.searchParams.get('purchase_id');
     if(purchaseId){
       if(!isUuid(purchaseId))throw new OperationError('Compra inválida.');
       const payments=[];
       for(let offset=0;;offset+=500){
-        const result=await db.from('supplier_payment_allocations').select('amount,payment:supplier_payments(id,amount,currency,created_at,notes,reversed_at,payment_methods(name))').eq('purchase_id',purchaseId).order('payment_id').range(offset,offset+499);
+        const result=await db.from('supplier_payment_allocations').select('amount,payment:supplier_payments(id,cash_transaction_id,amount,currency,created_at,notes,reversed_at,payment_methods(name))').eq('purchase_id',purchaseId).order('payment_id').range(offset,offset+499);
         if(result.error && offset===0 && ['42P01','PGRST205'].includes(result.error.code) && /supplier_payment_allocations/.test(result.error.message)){
-          const legacy=await db.from('supplier_payments').select('id,amount,currency,created_at,notes,payment_methods(name)').eq('purchase_id',purchaseId).order('created_at');
+          const legacy=await db.from('supplier_payments').select('id,cash_transaction_id,amount,currency,created_at,notes,payment_methods(name)').eq('purchase_id',purchaseId).order('created_at');
           if(legacy.error)throw legacy.error;
-          return NextResponse.json({payments:legacy.data || []},{headers:{'Cache-Control':'no-store'}});
+          payments.push(...(legacy.data||[]));break;
         }
         if(result.error)throw result.error;
         for(const row of result.data || []){
@@ -37,6 +50,10 @@ export async function GET(request: Request) {
         }
         if(!result.data || result.data.length<500)break;
       }
+      const ids=[...new Set(payments.map(p=>p.cash_transaction_id).filter(Boolean))];
+      const movements=[];
+      for(let i=0;i<ids.length;i+=100){const result=await db.from('cash_transactions').select('*').in('id',ids.slice(i,i+100));if(result.error)throw result.error;movements.push(...(result.data||[]));}
+      for(const p of payments){const tx=movements.find(t=>t.id===p.cash_transaction_id);Object.assign(p,{code:tx?movementCode(tx):`PAG-${p.id.toUpperCase()}`,href:tx?movementHref(tx.id):''});}
       payments.sort((a,b)=>String(a.created_at).localeCompare(String(b.created_at)));
       return NextResponse.json({payments},{headers:{'Cache-Control':'no-store'}});
     }
@@ -45,6 +62,8 @@ export async function GET(request: Request) {
       const result = await db.rpc('financial_operation_snapshot',{p_transaction_id:id});
       if (result.error) throw result.error;
       const snapshot = result.data;
+      snapshot.applications=(await movementApplications(db,[snapshot.transaction])).get(id)||[];
+      snapshot.code=movementCode(snapshot.transaction);
       snapshot.payload.person_id=snapshot.operation?.person_id || undefined;
       const receipt=snapshot.payload.operation_type==='customer_collection'?await db.from('client_payments').select('client_id,order_id,id').eq('cash_transaction_id',id).is('reversed_at',null).order('order_id',{nullsFirst:false}).limit(1).maybeSingle():{data:null,error:null};
       if(receipt.error)throw receipt.error;

@@ -69,7 +69,7 @@ export default function SupplierAccounts() {
   const selected = suppliers.find(s => s.id === supplierId);
   const filtered = detail?.rows.filter(row => row.currency === currency &&
     (mode === 'current' ? row.included : !row.included || row.historical || row.reconciled)
-    && `${row.reference} ${row.kind} ${row.notes || ''}`.toLowerCase().includes(entryQuery.toLowerCase())) || [];
+    && `${row.reference} ${row.kind} ${row.notes || ''} ${(row.applications||[]).map(a=>a.code).join(' ')}`.toLowerCase().includes(entryQuery.toLowerCase())) || [];
   const visible = filtered.slice(page * 50, (page + 1) * 50);
 
   return <section className="bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm space-y-4 lg:col-span-2">
@@ -133,21 +133,22 @@ export default function SupplierAccounts() {
             <div className="flex gap-3"><button disabled={busy} className="text-sm font-semibold">{busy ? 'Guardando…' : 'Confirmar conciliación'}</button><button type="button" disabled={busy} onClick={() => setChoice(null)} className="text-sm underline">Cancelar</button></div>
           </form>}
           <div className="overflow-auto border rounded-xl"><table className="w-full text-xs text-left">
-            <thead className="bg-slate-50"><tr>{['Fecha','Documento / movimiento','Cargo','Crédito','Saldo','Conciliación'].map(h => <th key={h} className="p-3">{h}</th>)}</tr></thead>
+            <thead className="bg-slate-50"><tr>{['Fecha','Documento / movimiento','Cargo','Crédito','Saldo','Aplicaciones','Conciliación'].map(h => <th key={h} className="p-3">{h}</th>)}</tr></thead>
             <tbody className="divide-y">
-              {mode === 'current' && detail.start && page === 0 && !entryQuery && <tr className="bg-slate-50"><td className="p-3">{detail.start.start_date.split('-').reverse().join('/')}</td><td className="p-3">Saldo inicial</td><td className="p-3" colSpan={3}>{money(currency === 'ARS' ? detail.start.opening_ars : detail.start.opening_usd, currency)}</td><td /></tr>}
+              {mode === 'current' && detail.start && page === 0 && !entryQuery && <tr className="bg-slate-50"><td className="p-3">{detail.start.start_date.split('-').reverse().join('/')}</td><td className="p-3">Saldo inicial</td><td className="p-3" colSpan={3}>{money(currency === 'ARS' ? detail.start.opening_ars : detail.start.opening_usd, currency)}</td><td /><td /></tr>}
               {visible.map(row => <tr key={`${row.source}:${row.source_id}`} className={row.included ? '' : 'text-slate-400'}>
                 <td className="p-3 whitespace-nowrap">{row.entry_date.split('-').reverse().join('/')}{row.historical && <span className="block text-amber-700">Anterior al inicio</span>}</td>
                 <td className="p-3"><span className="block font-semibold">{row.kind} · {row.reference}</span>
                   <span className="block">{row.notes}</span>{row.reconciliation_note && <span className="block italic">{row.reconciliation_note}</span>}
                   {row.purchase_reception_id && <Link className="underline text-brand-600" href={`/admin/compras?tab=receptions&reception=${row.purchase_reception_id}`}>Ver recepción</Link>}
-                  {row.cash_transaction_id && <Link className="underline text-brand-600" href={`/admin/finanzas?tab=flow`}>Ver movimientos</Link>}
+                  {row.cash_transaction_id && <Link className="underline text-brand-600" href={`/admin/finanzas?tab=flow&transaction=${row.cash_transaction_id}`}>Ver movimientos</Link>}
                 </td><td className="p-3 whitespace-nowrap">{row.amount > 0 ? money(row.amount, currency) : '—'}</td>
                 <td className="p-3 whitespace-nowrap">{row.amount < 0 ? money(-row.amount, currency) : '—'}</td>
                 <td className="p-3 whitespace-nowrap">{row.balance === null ? 'Fuera del saldo' : money(row.balance, currency)}</td>
+                <td className="p-3">{row.applications?.length?row.applications.map((a,i)=><span key={a.id+'-'+i} className="block whitespace-nowrap">{a.href?<Link href={a.href} className="text-brand-700 underline">{a.kind} · {a.code}</Link>:<span>{a.kind} · {a.code}</span>}{a.amount!==undefined&&<span className="block text-slate-500">{money(a.amount,row.currency)}</span>}</span>):'—'}</td>
                 <td className="p-3">{row.voided ? 'Anulado' : <button disabled={busy || !detail.start} onClick={() => { setChoice(row); setChoiceNotes(''); }} className="underline whitespace-nowrap">{row.included ? 'Excluir del saldo' : 'Incorporar al saldo'}</button>}</td>
               </tr>)}
-              {!visible.length && <tr><td colSpan={6} className="p-6 text-center text-slate-500">No hay movimientos para esta selección.</td></tr>}
+              {!visible.length && <tr><td colSpan={7} className="p-6 text-center text-slate-500">No hay movimientos para esta selección.</td></tr>}
             </tbody>
           </table></div>
           <div className="flex items-center justify-between text-xs"><span>{filtered.length} registros</span><div className="flex gap-3">

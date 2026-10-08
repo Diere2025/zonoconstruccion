@@ -15,6 +15,8 @@ function load(denied, database) {
       if (name === '@supabase/supabase-js') return { createClient: () => { if (!database) throw new Error('Unauthorized database access'); return database; } };
       if (name === '@/lib/financeAdminAccess') return { requireFinanceAdmin: async () => denied };
       if (name === '@/lib/supplierAccount') return helpers;
+      if (name === '@/lib/financialOperations/references') return {};
+      if (name === '@/lib/financialOperations/referenceServer') return {};
       throw new Error(name);
     }
   });

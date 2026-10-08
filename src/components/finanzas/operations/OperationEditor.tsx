@@ -1,4 +1,5 @@
 "use client";
+import type {ApplicationReference} from '@/lib/financialOperations/references';
 import AdaptiveSelect from "@/components/ui/AdaptiveSelect";
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
@@ -41,6 +42,7 @@ export default function OperationEditor(props:Props){
 }
 function CoreEditor({kind,payrollKind,transactionId,sourceAccountId,duplicate=false,mode='save',onClose,onSaved,requestOverride,preview=false,realDataPreview=false,readOnly=false}:Props) {
  const api=requestOverride || request;
+ const [reference,setReference]=useState<{code:string;applications:ApplicationReference[]}|null>(null);
  const [value,setValue]=useState<OperationInput>(()=>defaults(kind,payrollKind));
  const [helpers,setHelpers]=useState<Helpers|null>(null),[options,setOptions]=useState<Options|null>(null);
  const [target,setTarget]=useState<OperationTarget|undefined>(),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[error,setError]=useState('');
@@ -78,6 +80,7 @@ function CoreEditor({kind,payrollKind,transactionId,sourceAccountId,duplicate=fa
     setHelpers(h);setOptions(o);
     if(s){
       const snapshot=s as Snapshot;
+      if(!duplicate)setReference({code:s.code,applications:s.applications||[]});
       if(snapshot.transaction.treasury_settlement_id)setBlocked('Este movimiento se corrige desde Rendiciones.');
       else if(snapshot.planning)setBlocked('Desconciliá este movimiento desde Planificación antes de corregirlo.');
       else if(snapshot.operation?.status==='cancelled' || snapshot.transaction.reversal_of_transaction_id)setBlocked('Esta operación está anulada y conserva su compensación.');
@@ -130,6 +133,8 @@ function CoreEditor({kind,payrollKind,transactionId,sourceAccountId,duplicate=fa
  return <div ref={dialog} tabIndex={-1} className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-3" role="dialog" aria-modal="true" aria-label={mode==='link'?'Vincular movimiento':operationLabels[value.operation_type]}>
   <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-5 shadow-xl">
    <div className="mb-4 flex items-center justify-between gap-3"><h2 className="text-lg font-semibold">{mode==='link'?'Vincular movimiento':operationLabels[value.operation_type]}</h2><button type="button" disabled={busy} onClick={onClose} className="rounded-lg px-3 py-2 text-sm">Cerrar</button></div>
+   {reference && <div className="mb-4 rounded-lg bg-slate-50 p-3 text-xs"><p className="font-semibold">Código: {reference.code}</p><p className="mt-2 font-semibold">Aplicaciones</p>{reference.applications.length?reference.applications.map((a,i)=><a key={a.id+'-'+i} href={a.href} className="mt-1 block text-brand-700 underline">{a.kind} · {a.code}</a>):<p>Sin comprobantes vinculados.</p>}</div>}
+   {!transactionId && <p className="mb-3 text-xs text-slate-500">El código se genera automáticamente al guardar.</p>}
    {preview && <p className="mb-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Vista local · {realDataPreview?'datos reales en consulta':'datos de ejemplo'}. Guardar solo registra una simulación en esta pantalla.</p>}
    {readOnly && <p className="mb-3 rounded-lg bg-blue-50 p-3 text-sm text-blue-900">Formulario integrado con datos reales. Podés revisar y completar los campos; guardar requiere activar la migración pendiente.</p>}
    {error && <p role="alert" className="mb-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}

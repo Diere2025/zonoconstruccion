@@ -107,7 +107,9 @@ test('daily supplier save uses one mutation RPC, with no catalog or FIFO preflig
   '@/lib/financialOperations/server':{financialMutationContext:async()=>({db,actor:id(9)}),financialContext:async()=>{throw new Error('Unexpected permission preflight');}},
   '@/lib/financialOperations/validation':validation,'@/lib/financialOperations/formDefaults':formDefaults,
   '@/lib/financialOperations/voucherStatus':load('src/lib/financialOperations/voucherStatus.ts',{'./validation':validation}),
-  '@/lib/financialOperations/specialized':{specialTypes:[]}
+  '@/lib/financialOperations/specialized':{specialTypes:[]},
+  '@/lib/financialOperations/references':load('src/lib/financialOperations/references.ts'),
+  '@/lib/financialOperations/referenceServer':{movementApplications:async()=>{throw new Error('Unexpected read during mutation');}}
  },{Response});
  const payload={...base,operation_type:'supplier_payment',supplier_id:id(3),detail:{supplier_allocation_mode:'oldest_first'},confirm_without_voucher:true};
  const request=()=>new Request('https://example.test',{method:'POST',body:JSON.stringify({action:'save',key:id(10),payload})});

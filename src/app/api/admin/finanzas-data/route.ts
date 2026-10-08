@@ -1,3 +1,4 @@
+import {movementApplications} from '@/lib/financialOperations/referenceServer';
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 import { compareTreasuryTransactions } from '@/lib/treasuryTransactionTime';
@@ -222,6 +223,7 @@ export async function GET(request: Request) {
         if (page.length < pageSize) break;
       }
 
+      const applications=operationsAvailable?await movementApplications(supabaseAdmin,allData):new Map();
       // 3. Compute running balance
       const txsWithRunningBalance = allData.sort(compareTreasuryTransactions).map(t => {
         const accId = t.financial_account_id || 'cash_register';
@@ -236,6 +238,7 @@ export async function GET(request: Request) {
 
         return {
           ...t,
+          applications:applications.get(t.id)||[],
           client_payments: Array.isArray(t.client_payments) ? t.client_payments.filter((p: {reversed_at?:string|null})=>!p.reversed_at) : [],
           supplier_payments: Array.isArray(t.supplier_payments) ? t.supplier_payments.filter((p: {reversed_at?:string|null})=>!p.reversed_at) : [],
           running_balance: accountBalances[accId]

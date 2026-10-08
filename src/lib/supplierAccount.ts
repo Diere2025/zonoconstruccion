@@ -1,5 +1,7 @@
+import type {ApplicationReference} from './financialOperations/references';
 export type AccountStart = { supplier_id: string; start_date: string; opening_ars: number; opening_usd: number; notes: string };
 export type AccountEntry = {
+  applications?:ApplicationReference[];
   supplier_id: string; source: 'purchase' | 'payment'; source_id: string; entry_date: string;
   currency: 'ARS' | 'USD'; reference: string; kind: string; amount: number; voided: boolean;
   notes: string | null; purchase_order_id: string | null; purchase_reception_id: string | null; cash_transaction_id: string | null;

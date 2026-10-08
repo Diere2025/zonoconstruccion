@@ -1,4 +1,5 @@
 "use client";
+import {movementCode,type ApplicationReference} from '@/lib/financialOperations/references';
 import {supplierVoucherPending} from '@/lib/financialOperations/voucherStatus';
 
 import AdaptiveSelect from "@/components/ui/AdaptiveSelect";
@@ -6,6 +7,7 @@ import AdaptiveSelect from "@/components/ui/AdaptiveSelect";
 import React, { useState, useEffect, useMemo, useRef, Suspense } from "react";
 import { treasuryDateTime, treasuryToday } from "@/lib/treasuryTransactionTime";
 import { supabase } from "@/lib/supabase";
+import OrderApplications from '@/components/finanzas/operations/OrderApplications';
 import OperationEditor from '@/components/finanzas/operations/OperationEditor';
 import OperationChooser from '@/components/finanzas/operations/OperationChooser';
 import { createAuthenticatedRequester } from '@/lib/authenticatedRequest';
@@ -238,6 +240,8 @@ interface PendingOrder {
 }
 
 interface CashTransactionWithRelations {
+  movement_code?:string|null;
+  applications?:ApplicationReference[];
   treasury_settlement_id?:string|null;
   financial_operations?:OperationSummary|null;
   reversal_of_transaction_id?:string|null;
@@ -417,7 +421,16 @@ function FinanceWorkspace() {
   const [showCancelled, setShowCancelled] = useState(false);
   const searchParams = useSearchParams();
   const router = useRouter();
+  const [orderReference,setOrderReference]=useState<string|null>(null);
+  useEffect(()=>{const id=searchParams.get('order');if(id&&/^[0-9a-f-]{36}$/i.test(id))setOrderReference(id);},[searchParams]);
   const tab = searchParams.get("tab");
+  useEffect(()=>{
+    const id=searchParams.get('transaction');
+    if(!id || !/^[0-9a-f-]{36}$/i.test(id))return;
+    let active=true;
+    financialRequest(`/api/admin/financial-operations?transaction_id=${id}`).then(s=>{if(active)setOperationEditor({kind:s.payload.operation_type,transactionId:id});}).catch(e=>{if(active)setTransactionNotice(e.message);});
+    return()=>{active=false;};
+  },[searchParams]);
   const activeTab = tab === "accounts" || tab === "cc" || tab === "validations" ? tab : "flow";
   useEffect(() => { if (tab === "eerr") router.replace("/admin/finanzas/eerr"); }, [tab, router]);
   const [showSummary, setShowSummary] = useState(false);
@@ -439,7 +452,7 @@ function FinanceWorkspace() {
     try { localStorage.setItem("zono_finanzas_columns", JSON.stringify(next)); } catch {}
     return next;
   });
-  const columnCount = 8 + Object.values(optionalColumns).filter(Boolean).length;
+  const columnCount = 10 + Object.values(optionalColumns).filter(Boolean).length;
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
   const [isBankImportOpen, setIsBankImportOpen] = useState(false);
@@ -1075,7 +1088,9 @@ function FinanceWorkspace() {
         const note = t.notes?.toLowerCase() || "";
         const unit = t.business_unit?.toLowerCase() || "";
 
-        if (!acc.includes(search) &&
+        if (!movementCode(t).toLowerCase().includes(search) &&
+            !(t.applications||[]).some(a=>a.code.toLowerCase().includes(search)) &&
+            !acc.includes(search) &&
             !cat.includes(search) &&
             !sub.includes(search) &&
             !concept.includes(search) &&
@@ -1327,7 +1342,7 @@ function FinanceWorkspace() {
                 <table className="w-full text-left border-collapse text-xs">
                   <thead className="sticky top-0 z-10 bg-white shadow-sm">
                     <tr className="border-b border-slate-200 text-slate-400 font-black uppercase tracking-wider text-[9px]">
-                      <th className="py-2 px-2">Fecha</th>
+                      <th className="py-2 px-2">Fecha</th><th className="py-2 px-2">Código</th><th className="py-2 px-2">Aplicaciones</th>
                       <th className="py-2 px-2 text-center">Tipo</th>
                       <th className="py-2 px-2">Concepto</th>
                       <th className="py-2 px-2">Categoría</th>
@@ -1376,6 +1391,8 @@ function FinanceWorkspace() {
                               <React.Fragment>
                               <tr className="hover:bg-slate-50/70 transition-colors font-semibold text-slate-700">
                                 <td className="py-1.5 px-2 text-slate-400">{currentDate}</td>
+                                <td className="py-1.5 px-2 font-mono text-xs"><button type="button" className="text-brand-700 underline" onClick={()=>setOperationEditor({kind:inferOperationType(t),transactionId:t.id})}>{movementCode(t)}</button></td>
+                                <td className="py-1.5 px-2 text-xs">{t.applications?.length?t.applications.map((a,i)=><a key={a.id+'-'+i} href={a.href} className="block text-brand-700 underline" title={a.amount!==undefined?`Importe aplicado: ${a.amount.toLocaleString('es-AR')}`:undefined}>{a.kind} · {a.code}</a>):'—'}</td>
                                 <td className="py-1.5 px-2 text-center">
                                   {isIngreso ? (
                                     <span className="inline-flex items-center gap-0.5 text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded text-[9px] font-black uppercase">
@@ -1970,6 +1987,7 @@ function FinanceWorkspace() {
           MODAL 1: REGISTRAR MOVIMIENTO MANUAL
           ========================================================================= */}
       {choosingOperation && <OperationChooser onClose={()=>setChoosingOperation(false)} onChoose={kind=>{setChoosingOperation(false);setOperationEditor({kind});}}/>}
+      {orderReference && <OrderApplications id={orderReference} onClose={()=>setOrderReference(null)}/>}
       {operationEditor && <OperationEditor {...operationEditor} readOnly={localInspection} requestOverride={localInspection?localOperationRead:undefined} onClose={()=>setOperationEditor(null)} onSaved={operationSaved}/>}
       {isLinkModalOpen && reconcilingTx && <OperationEditor kind={inferOperationType(reconcilingTx)} transactionId={reconcilingTx.id} mode="link" onClose={()=>{setIsLinkModalOpen(false);setReconcilingTx(null);}} onSaved={operationSaved}/>}
 

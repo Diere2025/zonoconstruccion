@@ -2,12 +2,14 @@
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import type {ApplicationReference} from '@/lib/financialOperations/references';
 import { supabase } from '@/lib/supabase';
 import { optimizeImageUpload } from '@/lib/optimizeImageUpload';
 
 type Option = { id: string; label: string };
 type Category = 'collection' | 'third_party_collection' | 'ads' | 'owner_withdrawal' | 'owner_bill' | 'supplier' | 'order' | 'other';
 type Voucher = {
+  reference?:string|null; applications?:ApplicationReference[];
   id: string; voucher_date: string; category: Category; movement_direction: 'income' | 'outflow';
   amount: number | null; currency: string; financial_account_id: string | null; supplier_id: string | null;
   client_id: string | null; order_ids: string[]; destination_account: string | null; counterparty: string | null;
@@ -137,6 +139,7 @@ export default function TreasuryVouchersPage() {
     finally { setLoading(false); }
   }, [requestApi]);
   useEffect(() => { void load(); }, [load]);
+  useEffect(()=>{const id=new URLSearchParams(window.location.search).get('voucher');if(!id||!/^[0-9a-f-]{36}$/i.test(id))return;let active=true;requestApi(`?id=${id}`).then(data=>{if(active)setPreview(data.voucher);}).catch(e=>{if(active)setError(e.message);});return()=>{active=false;};},[requestApi]);
   const update = (patch: Partial<Form>) => setForm(current => ({ ...current, ...patch }));
   const openNew = () => { setForm(blank()); setEditingId(null); setFiles([]); setExistingFiles([]); setError(''); setShowForm(true); };
   const edit = (voucher: Voucher) => {
@@ -232,7 +235,8 @@ export default function TreasuryVouchersPage() {
         return <article key={v.id} className="flex flex-col gap-4 rounded-2xl border border-slate-200 p-4 sm:flex-row">
           {thumbnail && <FileThumbnail file={thumbnail} onClick={() => inspect(v)} />}
           <div className="min-w-0 flex-1 space-y-2 text-sm">
-            <div className="flex flex-wrap items-start justify-between gap-2"><div><p className="text-xs text-slate-500">{displayDate(v.voucher_date)} · {v.movement_direction === 'income' ? 'Cobranza' : 'Pago / extracción'}</p><h3 className="font-bold">{labels[v.category]}</h3></div><strong className="text-lg text-slate-900">{money(v.amount, v.currency)}</strong></div>
+            <div className="flex flex-wrap items-start justify-between gap-2"><div><p className="text-xs text-slate-500">{displayDate(v.voucher_date)} · {v.movement_direction === 'income' ? 'Cobranza' : 'Pago / extracción'}</p><h3 className="font-bold">{labels[v.category]} · {v.reference||v.id}</h3></div><strong className="text-lg text-slate-900">{money(v.amount, v.currency)}</strong></div>
+            <div className="text-xs"><span className="font-semibold">Aplicaciones: </span>{v.applications?.length?v.applications.map(a=><Link key={a.id} href={a.href} className="mr-3 text-brand-700 underline">{a.kind} · {a.code}</Link>):'Sin movimientos vinculados'}</div>
             <p className="text-slate-600">{accounts.find(x => x.id === v.financial_account_id)?.label || v.destination_account || 'Sin cuenta vinculada'}</p>
             {(v.client_id || v.supplier_id || v.order_ids?.length > 0) && <p className="text-xs text-slate-500">{v.client_id ? clients.find(x => x.id === v.client_id)?.label || 'Cliente vinculado' : ''}{v.order_ids?.length ? ` · ${v.order_ids.length} pedido${v.order_ids.length === 1 ? '' : 's'}` : ''}{v.supplier_id ? ` · ${suppliers.find(x => x.id === v.supplier_id)?.label || 'Proveedor'}` : ''}</p>}
             <p className="text-xs text-slate-500">{v.status === 'reviewed' ? 'Revisado' : v.status === 'needs_info' ? 'Pedir datos' : 'Pendiente'} · {v.files.length} archivo{v.files.length === 1 ? '' : 's'}</p>
@@ -241,6 +245,6 @@ export default function TreasuryVouchersPage() {
         </article>;
       })}</div>}
     </section>
-    {preview && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" onClick={() => setPreview(null)}><div className="max-h-[95vh] w-full max-w-3xl overflow-auto rounded-2xl bg-white p-5 shadow-xl" onClick={event => event.stopPropagation()}><div className="mb-4 flex justify-between"><h2 className="font-bold">{labels[preview.category]} · {displayDate(preview.voucher_date)}</h2><button onClick={() => setPreview(null)}>✕</button></div><p className="mb-3 text-sm">{money(preview.amount, preview.currency)} · {preview.movement_direction === 'income' ? 'Cobranza' : 'Pago / extracción'}</p>{preview.notes && <p className="mb-3 text-sm text-slate-600">{preview.notes}</p>}<div className="space-y-4">{preview.files.map((file, index) => <div key={index} className="space-y-2"><FileThumbnail file={file} large />{file.url && <a href={file.url} target="_blank" rel="noreferrer" className="text-sm font-semibold text-blue-700">Abrir archivo completo: {file.name} ↗</a>}</div>)}</div><div className="mt-5 flex flex-wrap gap-2"><button onClick={() => { edit(preview); setPreview(null); }} className="rounded-xl border px-3 py-2 text-sm">Editar</button><button onClick={() => changeStatus(preview.id, 'reviewed')} className="rounded-xl bg-emerald-600 px-3 py-2 text-sm text-white">Marcar revisado</button><button onClick={() => changeStatus(preview.id, 'needs_info')} className="rounded-xl border px-3 py-2 text-sm">Pedir datos</button></div></div></div>}
+    {preview && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" onClick={() => setPreview(null)}><div className="max-h-[95vh] w-full max-w-3xl overflow-auto rounded-2xl bg-white p-5 shadow-xl" onClick={event => event.stopPropagation()}><div className="mb-4 flex justify-between"><h2 className="font-bold">{labels[preview.category]} · {displayDate(preview.voucher_date)}</h2><button onClick={() => setPreview(null)}>✕</button></div><p className="mb-3 text-sm">{money(preview.amount, preview.currency)} · {preview.movement_direction === 'income' ? 'Cobranza' : 'Pago / extracción'}</p><div className="mb-3 text-xs"><p className="font-semibold">Código: {preview.reference||preview.id} · Aplicaciones</p>{preview.applications?.map(a=><Link key={a.id} href={a.href} className="mr-3 text-brand-700 underline">{a.kind} · {a.code}</Link>)}</div>{preview.notes && <p className="mb-3 text-sm text-slate-600">{preview.notes}</p>}<div className="space-y-4">{preview.files.map((file, index) => <div key={index} className="space-y-2"><FileThumbnail file={file} large />{file.url && <a href={file.url} target="_blank" rel="noreferrer" className="text-sm font-semibold text-blue-700">Abrir archivo completo: {file.name} ↗</a>}</div>)}</div><div className="mt-5 flex flex-wrap gap-2"><button onClick={() => { edit(preview); setPreview(null); }} className="rounded-xl border px-3 py-2 text-sm">Editar</button><button onClick={() => changeStatus(preview.id, 'reviewed')} className="rounded-xl bg-emerald-600 px-3 py-2 text-sm text-white">Marcar revisado</button><button onClick={() => changeStatus(preview.id, 'needs_info')} className="rounded-xl border px-3 py-2 text-sm">Pedir datos</button></div></div></div>}
   </main>;
 }
