@@ -1655,6 +1655,15 @@ export default function ComprasAdminPage() {
     }
   };
 
+  const handleCloseReception = () => {
+    if (receiptSaving.current) return;
+    setShowNewReceptionModal(false);
+    if (receptionRecorded) {
+      setPoItemsMap({});
+      void loadAllData(true);
+    }
+  };
+
   const handleSaveReception = async (e: React.FormEvent) => {
     e.preventDefault();
     if (receiptSaving.current) return;
@@ -5441,7 +5450,7 @@ export default function ComprasAdminPage() {
           {/* Modal Reception Detail */}
           {selectedReception && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm overflow-y-auto">
-              <div className="bg-white rounded-3xl w-full max-w-3xl shadow-2xl p-6 space-y-6 my-8 animate-in fade-in duration-200">
+              <div className="bg-white rounded-3xl w-full max-w-3xl max-h-[calc(100dvh-2rem)] overflow-y-auto shadow-2xl p-5 space-y-4 animate-in fade-in duration-200">
                 <div className="flex justify-between items-center border-b pb-4">
                   <div>
                     <h3 className="text-lg font-black text-slate-900">Documento de Recepción / Remito</h3>
@@ -5463,7 +5472,7 @@ export default function ComprasAdminPage() {
                       {selectedReception.notes && <p className="col-span-2 font-normal">Notas: {selectedReception.notes}</p>}
                     </div>
 
-                    <SupplierReceiptFiles id={selectedReception.id} />
+                    <SupplierReceiptFiles key={selectedReception.id} id={selectedReception.id} />
                     <div className="border border-slate-200 rounded-2xl overflow-x-auto shadow-sm">
                       <table className="w-full text-left text-xs min-w-[500px]">
                         <thead>
@@ -5637,7 +5646,7 @@ export default function ComprasAdminPage() {
                 <h3 id="receipt-form-title" className="text-lg font-black text-slate-900">Registrar Recepción de Mercadería</h3>
                 <p className="text-xs text-slate-400">Registrá lo recibido y su deuda. Podés adjuntar el remito del proveedor.</p>
               </div>
-              <button type="button" disabled={savingReception} onClick={() => setShowNewReceptionModal(false)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-colors">
+              <button type="button" disabled={savingReception} onClick={handleCloseReception} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-colors">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -6037,7 +6046,7 @@ export default function ComprasAdminPage() {
             </section>
             </div>
             <div className="flex shrink-0 justify-end gap-3 border-t px-5 py-3">
-              <Button type="button" disabled={savingReception} onClick={() => setShowNewReceptionModal(false)} className="bg-slate-100 text-slate-600 hover:bg-slate-200 py-2.5 px-4 rounded-xl">
+              <Button type="button" disabled={savingReception} onClick={handleCloseReception} className="bg-slate-100 text-slate-600 hover:bg-slate-200 py-2.5 px-4 rounded-xl">
                 {receptionRecorded ? "Cerrar" : "Cancelar"}
               </Button>
               <Button type="submit" disabled={savingReception} className="bg-brand-600 hover:bg-brand-700 py-2.5 px-6 rounded-xl text-white">
