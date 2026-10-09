@@ -1,6 +1,6 @@
 /** Codes are identities, never substring matches (DB1 must not match DB10). */
 export function isLogisticsOrderCode(value: string): boolean {
-  return /^(?:[A-Z]+\d+|AQ-\d+)$/.test(value.trim().toUpperCase());
+  return /^(?:[A-Z]+\d+|AQ-(?:[A-Z]+)?\d+)$/.test(value.trim().toUpperCase());
 }
 
 export function splitOrderCodes(value: string | null | undefined): string[] {

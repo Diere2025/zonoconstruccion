@@ -50,10 +50,10 @@ test('cancelled and partial runs never report success', () => {
 });
 
 test('logistics accepts wholesale AQ codes with hyphen and retains existing codes', () => {
-  for (const code of ['AQ-123', ' aq-001 ', 'AQU123', 'POW123', 'DB0066', 'CAMB12']) {
+  for (const code of ['AQ-123', ' aq-001 ', 'AQ-FP00031', ' aq-fp00030 ', 'AQ-DB0011', 'AQU123', 'POW123', 'DB0066', 'CAMB12']) {
     assert.equal(lib.isLogisticsOrderCode(code), true, code);
   }
-  for (const code of ['', 'AQ-', 'AQ--123', 'ORIG-AQ-123', 'AQ-FP123', 'Pedido', 'AQ-123 / DB12']) {
+  for (const code of ['', 'AQ-', 'AQ--123', 'ORIG-AQ-123', 'AQ-FP', 'AQ-FP-123', 'AQ-FP00031 extra', 'Pedido', 'AQ-123 / DB12']) {
     assert.equal(lib.isLogisticsOrderCode(code), false, code);
   }
 });
