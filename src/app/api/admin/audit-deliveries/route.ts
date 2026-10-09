@@ -8,7 +8,7 @@ import { isLogisticsOrderCode, mapWithConcurrency, splitOrderCodes } from '@/lib
 import { loadLogisticsBatchItems } from '@/lib/logisticsBatchItems';
 import { createRunReadCache } from '@/lib/runReadCache';
 
-const logisticsSourceCache = createRunReadCache<[string, string[][], any[], any[], any]>();
+const logisticsSourceCache = createRunReadCache<[string, string[][], any[], any[]]>();
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.dummy';
@@ -613,10 +613,11 @@ export async function POST(request: Request) {
       fetchSpreadsheetCsv(LOGISTICS_SHEET_URL),
       fetchSpreadsheetValues(LOGISTICS_SPREADSHEET_ID, LOGISTICS_CANCELLED_CODES_RANGE),
       fetchOrdersAll(),
-      fetchProductsAll(),
-      supabaseAdmin.from('payment_methods').select('id, name')
+      fetchProductsAll()
     ]));
-    const [csvText, cancelledCodeRows, dbOrdersList, products, payMethodsRes] = sourceRead.value;
+    const [csvText, cancelledCodeRows, dbOrdersList, products] = sourceRead.value;
+    // New methods can be created by earlier batches; refresh this small lookup.
+    const payMethodsRes = await supabaseAdmin.from('payment_methods').select('id, name');
     let loadMs = Date.now() - loadStartedAt;
     const rows = parseCSV(csvText);
     const cancellationReasons = logisticsCancellationReasons(cancelledCodeRows);
