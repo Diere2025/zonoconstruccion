@@ -104,6 +104,37 @@ const read = name => fs.readFileSync(name, 'utf8');
       await db.exec(`insert into public.supplier_purchases(supplier_id,invoice_number,purchase_date,total_amount,currency,status,document_type,created_by)
         values('${id(2)}','OLD-RECONCILE','2026-09-28',15,'ARS','Pendiente','Factura','${id(1)}')`);
     } finally { await db.exec('reset role'); }
+    await db.exec(read('database/db_migration_v168_multi_order_receipts.sql'));
+    await db.exec(`
+      insert into purchase_orders(id,oc_code,supplier_id) values ('${id(40)}','OC-MULTI-A','${id(2)}'),('${id(42)}','OC-MULTI-B','${id(2)}'),('${id(44)}','OC-OTHER','${id(3)}'),('${id(46)}','OC-CLOSE-A','${id(2)}'),('${id(48)}','OC-CLOSE-B','${id(2)}');
+      insert into purchase_order_items(id,purchase_order_id,product_id,raw_product_name,quantity_ordered,unit_cost,subtotal) values
+        ('${id(41)}','${id(40)}','${id(4)}','SKU-COMPARTIDO',4,12,48),('${id(43)}','${id(42)}','${id(4)}','SKU-COMPARTIDO',6,12,72),
+        ('${id(45)}','${id(44)}','${id(4)}','SKU-COMPARTIDO',4,12,48),('${id(47)}','${id(46)}','${id(4)}','SKU-COMPARTIDO',4,12,48),('${id(49)}','${id(48)}','${id(4)}','SKU-COMPARTIDO',4,12,48);
+    `);
+    const multi = (number, pos, items, stock=false, close=false) => db.query('select register_supplier_receipt_multi($1,$2,$3::uuid[],$4,$5,$6,$7,$8,$9,$10::jsonb,$11)',
+      [id(number),id(2),pos.map(id),'MULTI-'+number,'2026-10-09','ARS',stock,close,'Un envío',JSON.stringify(items.map(([line,quantity])=>({poItemId:id(line),productId:id(4),productName:'SKU-COMPARTIDO',quantity,unitCost:12}))),id(1)]);
+    const beforeStock = Number((await row(`select stock_physical from products where id='${id(4)}'`)).stock_physical);
+    await multi(50,[40,42],[[41,2],[43,6]]);
+    assert.equal((await row(`select count(*)::int n from supplier_purchases where purchase_reception_id='${id(50)}'`)).n,1,'Two orders produce one payable');
+    assert.equal(Number((await row(`select total_amount from supplier_purchases where purchase_reception_id='${id(50)}'`)).total_amount),96);
+    assert.equal((await row(`select purchase_order_id from purchase_receptions where id='${id(50)}'`)).purchase_order_id,null);
+    assert.equal((await row(`select count(*)::int n from purchase_reception_orders where purchase_reception_id='${id(50)}'`)).n,2);
+    assert.equal((await row(`select status from purchase_orders where id='${id(40)}'`)).status,'Parcial');
+    assert.equal((await row(`select status from purchase_orders where id='${id(42)}'`)).status,'Cumplido');
+    assert.equal(Number((await row(`select stock_physical from products where id='${id(4)}'`)).stock_physical),beforeStock);
+    await multi(50,[42,40],[[41,2],[43,6]]);
+    assert.equal((await row(`select count(*)::int n from purchase_reception_items where purchase_reception_id='${id(50)}'`)).n,2,'Retry keeps exactly two source lines');
+    await assert.rejects(multi(51,[40,44],[[41,1],[45,1]]),/otro proveedor/);
+    await assert.rejects(multi(52,[40],[[43,1]]),/Artículo ajeno/);
+    await assert.rejects(multi(53,[40],[[41,3]]),/supera la cantidad pendiente/);
+    assert.equal((await row(`select count(*)::int n from purchase_receptions where id in ('${id(51)}','${id(52)}','${id(53)}')`)).n,0,'Rejected multi-order receipts leave no header/debt');
+    await multi(54,[46,48],[[47,2],[49,3]],true,true);
+    assert.equal(Number((await row(`select stock_physical from products where id='${id(4)}'`)).stock_physical),beforeStock+5,'Shared SKU sums stock only once');
+    assert.equal((await row(`select count(*)::int n from inventory_transactions where reference_id='${id(54)}'`)).n,1);
+    assert.equal((await row(`select count(*)::int n from purchase_orders where id in ('${id(46)}','${id(48)}') and status='Cumplido'`)).n,2);
+    assert.equal((await row(`select shortfall_closed from purchase_order_items where id='${id(41)}'`)).shortfall_closed,false,'Closing affects selected orders only');
+    assert.equal((await row(`select has_function_privilege('authenticated','register_supplier_receipt_multi(uuid,uuid,uuid[],text,date,text,boolean,boolean,text,jsonb,uuid)','execute') allowed`)).allowed,false);
+    console.log('Multi-order receipts: one debt, per-order quantities, same SKU, safe retries, supplier boundaries, rollback, stock and selected closures: OK');
     console.log('PostgreSQL migrations, atomic debt/receipt, mixed stock, legacy quantities, closure, cutover, reconciliation, audit and permissions: OK');
   } finally { await db.close(); }
 })().catch(e => { console.error(e); process.exitCode = 1; });

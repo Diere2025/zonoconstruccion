@@ -72,7 +72,7 @@ export async function GET(request: Request) {
       if(client.error)throw client.error;
       const purchaseIds = (snapshot.payload.allocations || []).map((row:{purchase_id:string})=>row.purchase_id);
       const [purchases,order] = await Promise.all([
-        purchaseIds.length ? db.from('supplier_purchases').select('id,supplier_id,invoice_number,total_amount,paid_amount,currency,created_at,purchase_date,document_type,purchase_order_id,purchase_reception_id,purchase_orders(oc_code),purchase_receptions(delivery_slip_number,reception_date,purchase_orders(oc_code))').in('id',purchaseIds) : Promise.resolve({data:[],error:null}),
+        purchaseIds.length ? db.from('supplier_purchases').select('id,supplier_id,invoice_number,total_amount,paid_amount,currency,created_at,purchase_date,document_type,purchase_order_id,purchase_reception_id,purchase_orders(oc_code),purchase_receptions(delivery_slip_number,reception_date,purchase_orders(oc_code),purchase_reception_orders(purchase_orders(oc_code)))').in('id',purchaseIds) : Promise.resolve({data:[],error:null}),
         snapshot.payload.order_id ? db.from('orders').select('id,legacy_code,customer_name,total_amount,client_payments(id,amount,currency,status,cash_transaction_id,reversed_at)').eq('id',snapshot.payload.order_id).single() : Promise.resolve({data:null,error:null})
       ]);
       if (purchases.error || order.error) throw purchases.error || order.error;

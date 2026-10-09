@@ -1,7 +1,7 @@
 "use client";
 import {useState} from 'react';
 import SelectionModal from './SelectionModal';
-import {fieldClass,purchaseLabel,type PurchaseOption} from './OperationFields';
+import {fieldClass,purchaseLabel,purchaseOrderCodes,type PurchaseOption} from './OperationFields';
 import type {OperationInput} from '@/lib/financialOperations/types';
 import {oldestSupplierAllocations,supplierDocumentPending,payableSupplierDocuments} from '@/lib/financialOperations/supplierAllocation';
 import {moneyValue} from '@/lib/financialOperations/validation';
@@ -11,7 +11,7 @@ const money=(amount:number,currency:string)=>`${currency} ${amount.toLocaleStrin
 const pending=supplierDocumentPending;
 function DocumentIdentity({purchase:p}:{purchase:PurchaseOption}) {
  const receipt=p.purchase_receptions;
- const order=p.purchase_orders?.oc_code||receipt?.purchase_orders?.oc_code;
+ const order=purchaseOrderCodes(p);
  const number=receipt?.delivery_slip_number;
  return <div className="min-w-0"><p className="font-semibold text-slate-800">{receipt?'Documento de recepción':p.document_type||'Documento de compra'}{number?` · Remito ${number}`:!receipt&&p.invoice_number?` · ${p.invoice_number}`:''}</p><dl className="mt-1 flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-500">{receipt&&<div><dt className="inline">Comprobante: </dt><dd className="inline font-medium text-slate-700">{p.invoice_number||'Sin número cargado'}</dd></div>}{order&&<div><dt className="inline">Orden de compra: </dt><dd className="inline font-medium text-slate-700">{order}</dd></div>}{(receipt?.reception_date||p.purchase_date)&&<div><dt className="inline">Fecha: </dt><dd className="inline">{(receipt?.reception_date||p.purchase_date||'').slice(0,10).split('-').reverse().join('/')}</dd></div>}</dl>{receipt&&!number&&<p className="mt-1 text-xs text-slate-500">Recepción sin número de remito cargado.</p>}</div>;
 }

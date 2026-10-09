@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { requireFinanceAdmin } from '@/lib/financeAdminAccess';
+import { requirePurchaseOperator } from '@/lib/purchaseAccess';
 import { isUuid } from '@/lib/supplierAccount';
 
 export const runtime = 'edge';
@@ -11,7 +11,7 @@ const TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'applicatio
 const fail = (error: unknown, status = 500) => NextResponse.json({ error: (error as {message?: string})?.message || 'No se pudo guardar el adjunto.' }, {status});
 
 async function access(request: Request, id: string | null, authorized = false) {
-  const denied = authorized ? null : await requireFinanceAdmin(request);
+  const denied = authorized ? null : await requirePurchaseOperator(request);
   if (denied) return {response: NextResponse.json({error: denied.error}, {status: denied.status})};
   if (!id || !isUuid(id)) return {response: fail(new Error('Recepción inválida.'), 400)};
   const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {auth: {persistSession: false, autoRefreshToken: false}});
@@ -45,7 +45,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     // Authorize before accepting the multipart body.
-    const denied = await requireFinanceAdmin(request);
+    const denied = await requirePurchaseOperator(request);
     if (denied) return NextResponse.json({error: denied.error}, {status: denied.status});
     const form = await request.formData();
     const context = await access(request, String(form.get('id') || ''), true);

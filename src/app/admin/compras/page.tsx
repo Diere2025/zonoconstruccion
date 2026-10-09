@@ -179,6 +179,9 @@ interface PaymentMethod {
 function receptionOrderCodes(reception: any): string {
   const codes = new Set<string>();
   if (reception.purchase_orders?.oc_code) codes.add(reception.purchase_orders.oc_code);
+  for (const link of reception.purchase_reception_orders || []) {
+    if (link.purchase_orders?.oc_code) codes.add(link.purchase_orders.oc_code);
+  }
   for (const item of reception.purchase_reception_items || []) {
     const code = item.purchase_order_items?.purchase_orders?.oc_code;
     if (code) codes.add(code);
@@ -427,7 +430,9 @@ export default function ComprasAdminPage() {
   // New Reception Form states
   const [receptionSupplierId, setReceptionSupplierId] = useState("");
   const [receptionSlipNumber, setReceptionSlipNumber] = useState("");
-  const [receptionPOId, setReceptionPOId] = useState("");
+  const [receptionPOIds, setReceptionPOIds] = useState<string[]>([]);
+  const [receptionOrdersLoading, setReceptionOrdersLoading] = useState(false);
+  const receptionOrderLoading = useRef(false);
   const [receptionNotes, setReceptionNotes] = useState("");
   const [receptionItems, setReceptionItems] = useState<any[]>([]); // { poItemId, productId, productName, quantityOrdered, quantityReceivedPrior, quantityReceivedNew, unitCost }
   const [receptionUpdateStock, setReceptionUpdateStock] = useState(false);
@@ -732,21 +737,24 @@ export default function ComprasAdminPage() {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user || !mounted) return;
         const email = (user.email || '').toLowerCase();
-        const metadataRoles = Array.isArray(user.user_metadata?.roles) ? user.user_metadata.roles : [];
-        const { data: seller } = await supabase
-          .from('sellers')
-          .select('role, roles')
-          .or(`id.eq.${user.id},email.ilike.${email}`)
-          .maybeSingle();
+        const metadataRoles = Array.isArray(user.app_metadata?.roles) ? user.app_metadata.roles : [];
+        const byId = await supabase.from('sellers').select('role,roles,is_active').eq('id', user.id).maybeSingle();
+        if (byId.error) throw byId.error;
+        const profile = byId.data || !email ? byId : await supabase.from('sellers').select('role,roles,is_active').ilike('email', email.replace(/[%_]/g, '\\$&')).maybeSingle();
+        if (profile.error) throw profile.error;
+        const seller = profile.data;
         const roles = Array.from(new Set([
-          user.user_metadata?.role,
+          user.app_metadata?.role,
           ...metadataRoles,
           seller?.role,
           ...(Array.isArray(seller?.roles) ? seller.roles : [])
-        ].map(role => String(role || '').toLowerCase()).filter(Boolean)));
-        const admin = roles.includes('admin') || email === 'diego.boveda@gmail.com' || email === 'caroibarra.93@gmail.com';
+        ].map(role => String(role || '').trim().toLowerCase()).filter(Boolean)));
+        const active = seller?.is_active !== false;
+        const admin = active && (roles.includes('admin') || email === 'diego.boveda@gmail.com' || email === 'caroibarra.93@gmail.com');
         setIsPurchaseAdmin(admin);
-        setIsPurchaseOperator(admin || roles.includes('compras'));
+        setIsPurchaseOperator(active && (admin || roles.includes('compras')));
+      } catch (error) {
+        console.error('No se pudieron verificar los permisos de Compras:', error);
       } finally {
         if (mounted) setPurchaseAccessLoaded(true);
       }
@@ -880,7 +888,7 @@ export default function ComprasAdminPage() {
       // Fetch Purchase Receptions
       const { data: recs } = await supabase
         .from("purchase_receptions")
-        .select("*, supplier:suppliers(name), purchase_orders(oc_code), purchase_reception_items(purchase_order_items(purchase_orders(oc_code)))")
+        .select("*, supplier:suppliers(name), purchase_orders(oc_code), purchase_reception_items(purchase_order_items(purchase_orders(oc_code))), purchase_reception_orders(purchase_orders(oc_code))")
         .order("reception_date", { ascending: false });
       if (recs) setReceptions(recs);
 
@@ -1526,48 +1534,47 @@ export default function ComprasAdminPage() {
     setIsModalSupplierDropdownOpen(false);
     
     // Clear OC selection
-    setReceptionPOId("");
+    setReceptionPOIds([]);
     setModalOCSearchText("");
     setReceptionItems([]);
   };
 
   const handleSelectOCInModal = async (poId: string, ocCode: string) => {
-    setReceptionPOId(poId);
-    setModalOCSearchText(ocCode);
-    setIsModalOCDropdownOpen(false);
-
+    if (receptionOrderLoading.current) return;
     if (!poId) {
-      setReceptionItems([]);
+      setReceptionPOIds([]);
+      setReceptionItems(current => current.filter(item => !item.poItemId));
+      setModalOCSearchText("");
+      setIsModalOCDropdownOpen(false);
       return;
     }
-
-    // Fetch items of the selected PO
-    const { data, error } = await supabase
-      .from('purchase_order_items')
-      .select(`
-        *,
-        product:products(id, name, sku)
-      `)
-      .eq('purchase_order_id', poId);
-    
-    if (error) {
-      alert("Error al cargar ítems de la OC: " + error.message);
-    } else if (data) {
-      const items = data.filter(item => item.status !== 'Cancelado' && !item.shortfall_closed).map(item => {
-        const pending = Math.max(0, Number(item.quantity_ordered) - Number(item.quantity_received));
-        return {
-          poItemId: item.id,
-          productId: item.product_id,
-          productName: item.raw_product_name,
-          sku: item.product?.sku,
-          quantityOrdered: Number(item.quantity_ordered),
-          quantityReceivedPrior: Number(item.quantity_received),
-          quantityReceivedNew: pending,
-          unitCost: Number(item.unit_cost)
-        };
-      });
-      setReceptionItems(items);
+    if (receptionPOIds.includes(poId)) {
+      setReceptionPOIds(current => current.filter(id => id !== poId));
+      setReceptionItems(current => current.filter(item => item.poId !== poId));
+      setModalOCSearchText("");
+      return;
     }
+    if (receptionPOIds.length >= 20) { alert('Podés seleccionar hasta 20 OCs por recepción.'); return; }
+    const po = purchaseOrders.find(order => order.id === poId);
+    if (!po || po.supplier_id !== receptionSupplierId) { alert('La OC debe pertenecer al proveedor seleccionado.'); return; }
+    receptionOrderLoading.current = true;
+    setReceptionOrdersLoading(true);
+    try {
+      const {data, error} = await supabase.from('purchase_order_items')
+        .select('*, product:products(id, name, sku)').eq('purchase_order_id', poId);
+      if (error) throw error;
+      const items = (data || []).filter(item => item.status !== 'Cancelado' && !item.shortfall_closed && Number(item.quantity_ordered) > Number(item.quantity_received)).map(item => ({
+        poItemId: item.id, poId, ocCode, productId: item.product_id, productName: item.raw_product_name,
+        sku: item.product?.sku, quantityOrdered: Number(item.quantity_ordered), quantityReceivedPrior: Number(item.quantity_received),
+        quantityReceivedNew: Math.max(0, Number(item.quantity_ordered) - Number(item.quantity_received)), unitCost: Number(item.unit_cost)
+      }));
+      if (!items.length) { alert('La OC no tiene cantidades pendientes de recepción.'); return; }
+      setReceptionPOIds(current => [...current, poId]);
+      setReceptionItems(current => [...current, ...items]);
+      setModalOCSearchText("");
+      setIsModalOCDropdownOpen(false);
+    } catch (error: any) { alert('Error al cargar la OC: ' + error.message); }
+    finally { receptionOrderLoading.current = false; setReceptionOrdersLoading(false); }
   };
 
   const handleOpenReceptionForPO = async (po: any) => {
@@ -1575,8 +1582,8 @@ export default function ComprasAdminPage() {
     setModalSupplierSearchText(po.supplier?.name || "");
     setReceptionSlipNumber("");
     setReceptionNotes(`Recepción de ${po.oc_code}`);
-    setReceptionPOId(po.id);
-    setModalOCSearchText(po.oc_code);
+    setReceptionPOIds([po.id]);
+    setModalOCSearchText("");
     setReceptionAlignPO(false);
     
     const { data, error } = await supabase
@@ -1594,6 +1601,8 @@ export default function ComprasAdminPage() {
         const pending = Math.max(0, Number(item.quantity_ordered) - Number(item.quantity_received));
         return {
           poItemId: item.id,
+          poId: po.id,
+          ocCode: po.oc_code,
           productId: item.product_id,
           productName: item.raw_product_name,
           sku: item.product?.sku,
@@ -1656,7 +1665,7 @@ export default function ComprasAdminPage() {
   };
 
   const handleCloseReception = () => {
-    if (receiptSaving.current) return;
+    if (receiptSaving.current || receptionOrderLoading.current) return;
     setShowNewReceptionModal(false);
     if (receptionRecorded) {
       setPoItemsMap({});
@@ -1682,7 +1691,7 @@ export default function ComprasAdminPage() {
     try {
       if (!receptionRecorded) await receiptApi.current('/api/admin/supplier-accounts', { method: 'POST', body: JSON.stringify({
         action: 'receipt', id: receiptRequestId.current, supplierId: receptionSupplierId,
-        poId: receptionPOId || null, slip: receptionSlipNumber, date: receptionDate, currency: receptionCurrency,
+        poIds: receptionPOIds, slip: receptionSlipNumber, date: receptionDate, currency: receptionCurrency,
         stock: receptionUpdateStock, close: receptionAlignPO, notes: receptionNotes,
         items: activeItems.map(i => ({ poItemId: i.poItemId || null, productId: i.productId || null,
           productName: i.productName, quantity: i.quantityReceivedNew, unitCost: i.unitCost }))
@@ -1696,7 +1705,7 @@ export default function ComprasAdminPage() {
       }
       alert("Recepción y deuda registradas." + (receptionUpdateStock ? " Se incrementó el stock físico." : " Sin modificar stock físico."));
       setShowNewReceptionModal(false);
-      setReceptionSupplierId(""); setReceptionSlipNumber(""); setReceptionPOId("");
+      setReceptionSupplierId(""); setReceptionSlipNumber(""); setReceptionPOIds([]);
       setReceptionNotes(""); setReceptionItems([]); setModalSupplierSearchText(""); setModalOCSearchText("");
       setPoItemsMap({});
       await loadAllData(true);
@@ -5388,7 +5397,7 @@ export default function ComprasAdminPage() {
             <Button onClick={() => {
               setReceptionSupplierId("");
               setReceptionSlipNumber("");
-              setReceptionPOId("");
+              setReceptionPOIds([]);
               setReceptionNotes("");
               setReceptionItems([]);
               setReceptionUpdateStock(false);
@@ -5644,7 +5653,7 @@ export default function ComprasAdminPage() {
             <div className="flex shrink-0 justify-between items-center gap-3 border-b px-5 py-4">
               <div>
                 <h3 id="receipt-form-title" className="text-lg font-black text-slate-900">Registrar Recepción de Mercadería</h3>
-                <p className="text-xs text-slate-400">Registrá lo recibido y su deuda. Podés adjuntar el remito del proveedor.</p>
+                <p className="text-xs text-slate-400">Un envío, un remito y una deuda. Podés incluir varias OCs del mismo proveedor.</p>
               </div>
               <button type="button" disabled={savingReception} onClick={handleCloseReception} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-colors">
                 <X className="w-5 h-5" />
@@ -5652,7 +5661,7 @@ export default function ComprasAdminPage() {
             </div>
 
             <div className="min-h-0 overflow-y-auto px-5 py-4 space-y-4">
-            <fieldset disabled={savingReception || receptionRecorded} className="min-w-0 space-y-4">
+            <fieldset disabled={savingReception || receptionRecorded || receptionOrdersLoading} className="min-w-0 space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <label className="text-xs font-bold text-slate-500">Fecha de recepción
                 <input type="date" required value={receptionDate} onChange={e => setReceptionDate(e.target.value)} className="w-full border rounded-lg p-2 mt-1" />
@@ -5676,7 +5685,7 @@ export default function ComprasAdminPage() {
                       setIsModalSupplierDropdownOpen(true);
                       if (e.target.value === "") {
                         setReceptionSupplierId("");
-                        setReceptionPOId("");
+                        setReceptionPOIds([]);
                         setModalOCSearchText("");
                         setReceptionItems([]);
                       }
@@ -5689,7 +5698,7 @@ export default function ComprasAdminPage() {
                       onClick={() => {
                         setModalSupplierSearchText("");
                         setReceptionSupplierId("");
-                        setReceptionPOId("");
+                        setReceptionPOIds([]);
                         setModalOCSearchText("");
                         setReceptionItems([]);
                         setIsModalSupplierDropdownOpen(false);
@@ -5742,11 +5751,11 @@ export default function ComprasAdminPage() {
               </div>
 
               <div className="space-y-1 relative">
-                <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Vincular a Orden de Compra (OC)</label>
+                <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Órdenes de compra del envío</label>
                 <div className="relative">
                   <input
                     type="text"
-                    placeholder={receptionSupplierId ? "Buscar OC..." : "Seleccioná un proveedor..."}
+                    placeholder={receptionSupplierId ? "Agregar OC al envío..." : "Seleccioná un proveedor..."}
                     disabled={!receptionSupplierId}
                     value={modalOCSearchText}
                     onFocus={() => setIsModalOCDropdownOpen(true)}
@@ -5770,6 +5779,17 @@ export default function ComprasAdminPage() {
                   )}
                 </div>
 
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {receptionPOIds.map(id => {
+                    const po = purchaseOrders.find(order => order.id === id);
+                    return <span key={id} className="inline-flex items-center gap-1 rounded-lg border border-brand-200 bg-brand-50 px-2 py-1 text-[11px] font-bold text-brand-700">
+                      {po?.oc_code || id}
+                      <button type="button" aria-label={'Quitar OC ' + po?.oc_code} onClick={() => void handleSelectOCInModal(id, po?.oc_code || '')}><X className="w-3.5 h-3.5" /></button>
+                    </span>;
+                  })}
+                </div>
+                {receptionOrdersLoading && <p className="text-xs text-slate-500">Cargando artículos…</p>}
+
                 {isModalOCDropdownOpen && receptionSupplierId && (
                   <>
                     <div 
@@ -5783,7 +5803,7 @@ export default function ComprasAdminPage() {
                         onClick={() => handleSelectOCInModal("", "")}
                         className="w-full text-left px-3 py-2 text-xs font-black text-brand-600 hover:bg-slate-50 transition-colors"
                       >
-                        -- Sin OC de origen (Ingreso In-Situ) --
+                        Quitar todas las OCs (recepción sin OC)
                       </button>
                       {(() => {
                         const filteredOCs = purchaseOrders
@@ -5800,9 +5820,10 @@ export default function ComprasAdminPage() {
                                 key={po.id}
                                 type="button"
                                 onClick={() => handleSelectOCInModal(po.id, po.oc_code)}
+                                aria-pressed={receptionPOIds.includes(po.id)}
                                 className="w-full text-left px-3 py-2 text-xs font-semibold hover:bg-slate-50 text-slate-700 hover:text-brand-600 transition-colors"
                               >
-                                {po.oc_code} (Monto: {formatPrice(po.total_amount)})
+                                {receptionPOIds.includes(po.id) ? "✓ " : "+ "}{po.oc_code} (Monto: {formatPrice(po.total_amount)})
                               </button>
                             ))}
                             {filteredOCs.length === 0 && (
@@ -5857,7 +5878,7 @@ export default function ComprasAdminPage() {
             </div>
 
             {/* Switch / Checkbox de Alinear OC con lo recibido */}
-            {receptionPOId && (
+            {receptionPOIds.length > 0 && (
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-3.5 bg-amber-50/60 border border-amber-200/80 rounded-2xl gap-3">
                 <div className="flex items-start sm:items-center gap-3">
                   <input
@@ -5868,9 +5889,9 @@ export default function ComprasAdminPage() {
                     className="w-4 h-4 mt-0.5 sm:mt-0 rounded text-amber-600 focus:ring-amber-500 border-amber-300 cursor-pointer"
                   />
                   <label htmlFor="alignPOCheck" className="text-xs font-bold text-amber-950 cursor-pointer select-none">
-                    Cerrar el saldo pendiente de la OC
+                    Cerrar los saldos pendientes de las OCs seleccionadas
                     <span className="block text-[11px] text-amber-800 font-normal mt-0.5">
-                      Usar si el proveedor no enviará el resto.
+                      Usar si el proveedor no enviará el resto de ninguna de las OCs seleccionadas.
                     </span>
                   </label>
                 </div>
@@ -5957,6 +5978,7 @@ export default function ComprasAdminPage() {
                   <thead>
                     <tr className="bg-slate-50 border-b text-slate-400 font-bold uppercase tracking-wider">
                       <th className="px-3 py-2 whitespace-nowrap">SKU</th>
+                      <th className="px-3 py-2 whitespace-nowrap">OC de origen</th>
                       <th className="px-3 py-2 text-right whitespace-nowrap" style={{ width: '80px' }}>Pedido</th>
                       <th className="px-3 py-2 text-right whitespace-nowrap" style={{ width: '90px' }}>Recibido</th>
                       <th className="px-3 py-2 text-right whitespace-nowrap" style={{ width: '130px' }}>Recibir</th>
@@ -5976,6 +5998,7 @@ export default function ComprasAdminPage() {
                       receptionItems.map((item, idx) => (
                         <tr key={idx} className="hover:bg-slate-50/50">
                           <td className="px-3 py-2 text-slate-900 break-words" title={item.productName}>{item.sku || "Sin SKU"}</td>
+                          <td className="px-3 py-2 text-brand-600 text-[11px] whitespace-nowrap">{item.ocCode || "Sin OC"}</td>
                           <td className="px-3 py-2 text-right text-slate-400">{item.quantityOrdered}</td>
                           <td className="px-3 py-2 text-right text-slate-400">{item.quantityReceivedPrior}</td>
                           <td className="px-3 py-2 text-right">
@@ -6052,7 +6075,7 @@ export default function ComprasAdminPage() {
               <Button type="button" disabled={savingReception} onClick={handleCloseReception} className="bg-slate-100 text-slate-600 hover:bg-slate-200 py-2.5 px-4 rounded-xl">
                 {receptionRecorded ? "Cerrar" : "Cancelar"}
               </Button>
-              <Button type="submit" disabled={savingReception} className="bg-brand-600 hover:bg-brand-700 py-2.5 px-6 rounded-xl text-white">
+              <Button type="submit" disabled={savingReception || receptionOrdersLoading} className="bg-brand-600 hover:bg-brand-700 py-2.5 px-6 rounded-xl text-white">
                 <Check className="w-4 h-4 mr-1.5" /> {savingReception ? "Guardando…" : receptionRecorded ? "Reintentar adjuntos" : "Confirmar recepción y deuda"}
               </Button>
             </div>

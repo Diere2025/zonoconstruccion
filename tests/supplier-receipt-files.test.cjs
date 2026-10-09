@@ -19,7 +19,7 @@ function api(denied=null,exists=true) {
     exports, URL, File, FormData, crypto:globalThis.crypto, process:{env:{}},
     require: name => {
       if(name==='next/server') return {NextResponse:{json:(body,options)=>({body,status:options?.status||200})}};
-      if(name==='@/lib/financeAdminAccess') return {requireFinanceAdmin:async()=>denied};
+      if(name==='@/lib/purchaseAccess') return {requirePurchaseOperator:async()=>denied};
       if(name==='@/lib/supplierAccount') return {isUuid:value=>value===id};
       if(name==='@supabase/supabase-js') return {createClient:()=>({storage,from:()=>({select(){return this;},eq(){return this;},maybeSingle:async()=>({data:exists?{id}:null})})})};
       throw Error(name);
