@@ -68,7 +68,7 @@ export default function VisitForm({ action, me, visit: v, appointment: ap, quote
       if (e.key === 'Tab') { const items = dialog.current?.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),a[href]'); if (!items?.length) return; const first = items[0], last = items[items.length - 1]; if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); } else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); } }
     }}>
       <header className="sticky top-0 z-10 flex items-center justify-between border-b bg-white px-5 py-3"><h2 id="visit-form-title" className="font-bold">{titles[action]}</h2><button type="button" aria-label="Cerrar formulario" onClick={cancel} disabled={busy} className={buttonStyle}><X size={18} /></button></header>
-      <form onSubmit={submit} className="space-y-4 p-5">
+      <form data-shortcut-submit onSubmit={submit} className="space-y-4 p-5">
         {v && <p className="text-sm text-slate-600">{v.customer_name} · {v.locality}</p>}
         {values.kit_id === 'other' && <div>{field('Describir otro kit *', 'custom_kit', 'text', true)}</div>}
         <div className="grid gap-4 sm:grid-cols-2">

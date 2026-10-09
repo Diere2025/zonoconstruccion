@@ -383,7 +383,7 @@ export function ProductFormModal({ product, isOpen, onClose, onSuccess, allProdu
           </button>
         </div>
         
-        <form onSubmit={handleSubmit} className="p-10 grid grid-cols-1 md:grid-cols-2 gap-8">
+        <form data-shortcut-submit onSubmit={handleSubmit} className="p-10 grid grid-cols-1 md:grid-cols-2 gap-8">
           <div className="md:col-span-2 space-y-4">
             <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block">Imágenes</label>
             

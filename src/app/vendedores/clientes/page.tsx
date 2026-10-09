@@ -1216,7 +1216,7 @@ export default function ClientesPage() {
             </div>
 
             {/* Form */}
-            <form onSubmit={handleSaveClient} className="p-6 space-y-4">
+            <form data-shortcut-submit onSubmit={handleSaveClient} className="p-6 space-y-4">
               <div className="space-y-1.5">
                 <label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Razón Social / Nombre Completo *</label>
                 <input 
@@ -1369,7 +1369,7 @@ export default function ClientesPage() {
                   {editingAddress ? "Editar Dirección de Entrega" : "Nueva Dirección de Entrega"}
                 </h4>
 
-                <form onSubmit={handleSaveAddress} className="space-y-4">
+                <form data-shortcut-submit onSubmit={handleSaveAddress} className="space-y-4">
                   <div className="space-y-1.5">
                     <label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Alias de Ubicación *</label>
                     <input 
@@ -1686,7 +1686,7 @@ export default function ClientesPage() {
                       </div>
                     )}
 
-                    <form onSubmit={handleSavePayment} className="space-y-4">
+                    <form data-shortcut-submit onSubmit={handleSavePayment} className="space-y-4">
                       <div className="grid grid-cols-3 gap-2">
                         <div className="col-span-2 space-y-1.5">
                           <label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Monto *</label>
@@ -1776,7 +1776,7 @@ export default function ClientesPage() {
                     </form>
                   </>
                 ) : (
-                  <form onSubmit={handleImputeExistingCash} className="space-y-4">
+                  <form data-shortcut-submit onSubmit={handleImputeExistingCash} className="space-y-4">
                     <div className="space-y-1.5">
                       <label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Movimiento de Caja Libre *</label>
                       {loadingIngresos ? (

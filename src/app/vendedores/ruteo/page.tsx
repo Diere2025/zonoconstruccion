@@ -7076,7 +7076,7 @@ export default function RuteoPage() {
               {selectedCarrierId ? "Editar Transportista" : "Agregar Nuevo Transportista"}
             </h3>
 
-            <form onSubmit={handleSaveCarrier} className="space-y-3">
+            <form data-shortcut-submit onSubmit={handleSaveCarrier} className="space-y-3">
               <div className="space-y-1">
                 <label className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Nombre del Chofer *</label>
                 <input 
@@ -7584,7 +7584,7 @@ export default function RuteoPage() {
               {selectedVehicleId ? "Editar Vehículo" : "Agregar Nuevo Vehículo"}
             </h3>
 
-            <form onSubmit={handleSaveVehicle} className="space-y-3">
+            <form data-shortcut-submit onSubmit={handleSaveVehicle} className="space-y-3">
               <div className="space-y-1">
                 <label className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Tipo de Vehículo *</label>
                 <input 
@@ -7684,7 +7684,7 @@ export default function RuteoPage() {
               {selectedRateId ? "Editar Tarifa de Flete" : "Agregar Nueva Tarifa de Flete"}
             </h3>
 
-            <form onSubmit={handleSaveRate} className="space-y-4 text-xs font-semibold">
+            <form data-shortcut-submit onSubmit={handleSaveRate} className="space-y-4 text-xs font-semibold">
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <label className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Nombre de la Tarifa *</label>
@@ -7963,7 +7963,7 @@ export default function RuteoPage() {
               </p>
             </div>
 
-            <form onSubmit={handleConfirmSettlement} className="space-y-4 text-xs font-semibold">
+            <form data-shortcut-submit onSubmit={handleConfirmSettlement} className="space-y-4 text-xs font-semibold">
               <div className="space-y-1">
                 <label className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Tarifa Aplicable</label>
                 <select

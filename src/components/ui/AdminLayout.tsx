@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { LogOut, Users, Menu, X, ChevronRight, Shield, KeyRound, Eye, EyeOff, CheckCircle2, AlertCircle, Loader2, Boxes, Search } from "lucide-react";
 import { visibleErpModules, activeErpLink } from "@/lib/erpNavigation";
+import { KeyboardShortcuts } from "@/components/ui/KeyboardShortcuts";
 import { ErpNavigationContext } from "@/components/ui/ErpNavigationContext";
 import { supabase } from "@/lib/supabase";
 import { loadUserRoleProfile, type UserRoleProfile } from "@/lib/userRoleProfile";
@@ -902,6 +903,7 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
           <div className="w-full min-w-0 space-y-6">
             <ErpNavigationContext.Provider value={{ modules: visibleModules, ready: isRoleLoaded && isWholesalePermissionLoaded, error: navigationError }}>
               {children}
+              <KeyboardShortcuts userId={isRoleLoaded ? cachedIdentityUserId : null} />
             </ErpNavigationContext.Provider>
           </div>
         </main>

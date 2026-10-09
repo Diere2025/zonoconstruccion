@@ -31,7 +31,7 @@ export function ShippingForm() {
             router.push(`/solicitudes-logistica/${result.id}`);
         } catch (e) { setError(errorMessage(e)); } finally { setBusy(false); setProgress(''); }
     };
-    return <form onSubmit={submit} onChange={() => setDirty(true)} onPaste={event => { if (!busy) try { pastedImages(event, images.images, images.setImages); } catch (e) { setError(errorMessage(e)); } }} className="mx-auto max-w-3xl space-y-4 rounded-lg border bg-white p-4 sm:p-6">
+    return <form data-shortcut-submit onSubmit={submit} onChange={() => setDirty(true)} onPaste={event => { if (!busy) try { pastedImages(event, images.images, images.setImages); } catch (e) { setError(errorMessage(e)); } }} className="mx-auto max-w-3xl space-y-4 rounded-lg border bg-white p-4 sm:p-6">
         <div><h2 className="text-lg font-semibold">Cotizar un envío fuera de cobertura</h2><p className="mt-1 text-sm text-slate-500">Logística recibe estos datos y compara transportes. Indicá las cantidades y las condiciones para evitar consultas adicionales.</p></div>
         {me.impersonating && <p id="shipping-preview-notice" role="status" className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">Estás usando «Ver como usuario». Podés completar los campos para probar el formulario. Para enviar una solicitud, volvé a tu cuenta con «Volver a administrador». Este borrador no se guarda al cambiar de cuenta.</p>}
         {error && <Alert>{error}</Alert>}

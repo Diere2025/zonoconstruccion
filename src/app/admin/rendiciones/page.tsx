@@ -1052,7 +1052,7 @@ function RendicionesContent() {
                 {!readOnly && <>
                   <button
                     type="button"
-                    onClick={() => void saveSettlement("save")}
+                    data-shortcut-submit onClick={() => void saveSettlement("save")}
                     disabled={Boolean(saving)}
                     className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-2xs hover:bg-slate-50 disabled:opacity-50"
                   >
@@ -1401,7 +1401,7 @@ function RendicionesContent() {
                 <button
                   type="button"
                   disabled={!!saving || !!updatingOrderStatus}
-                    onClick={async () => { if (readOnly || await saveSettlement("save")) setCashModalOpen(false); }}
+                    data-shortcut-submit onClick={async () => { if (readOnly || await saveSettlement("save")) setCashModalOpen(false); }}
                   className="rounded-lg p-1 text-slate-400 hover:bg-slate-100"
                 >
                   <X className="h-4 w-4" />
@@ -1524,7 +1524,7 @@ function RendicionesContent() {
                   <button
                     type="button"
                     disabled={!!saving || !!updatingOrderStatus}
-                    onClick={async () => { if (readOnly || await saveSettlement("save")) setCashModalOpen(false); }}
+                    data-shortcut-submit onClick={async () => { if (readOnly || await saveSettlement("save")) setCashModalOpen(false); }}
                     className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-1.5 text-xs font-bold text-white shadow-2xs hover:bg-emerald-700 transition-colors"
                   >
                     {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} {saving ? "Guardando..." : "Listo"}
@@ -1558,7 +1558,7 @@ function RendicionesContent() {
                 <button
                   type="button"
                   disabled={!!saving || !!updatingOrderStatus}
-                    onClick={async () => { if (readOnly || await saveSettlement("save")) setExpensesModalOpen(false); }}
+                    data-shortcut-submit onClick={async () => { if (readOnly || await saveSettlement("save")) setExpensesModalOpen(false); }}
                   className="rounded-lg p-1 text-slate-400 hover:bg-slate-100"
                 >
                   <X className="h-4 w-4" />
@@ -1603,7 +1603,7 @@ function RendicionesContent() {
                 <button
                   type="button"
                   disabled={!!saving || !!updatingOrderStatus}
-                    onClick={async () => { if (readOnly || await saveSettlement("save")) setExpensesModalOpen(false); }}
+                    data-shortcut-submit onClick={async () => { if (readOnly || await saveSettlement("save")) setExpensesModalOpen(false); }}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-1.5 text-xs font-bold text-white shadow-2xs hover:bg-emerald-700"
                 >
                   {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} {saving ? "Guardando..." : "Listo"}
@@ -1657,7 +1657,7 @@ function RendicionesContent() {
                 <button
                   type="button"
                   disabled={!!saving || !!updatingOrderStatus}
-                    onClick={async () => { if (readOnly || await saveSettlement("save")) setTicketsModalOpen(false); }}
+                    data-shortcut-submit onClick={async () => { if (readOnly || await saveSettlement("save")) setTicketsModalOpen(false); }}
                   className="rounded-lg p-1 text-slate-400 hover:bg-slate-100"
                 >
                   <X className="h-4 w-4" />
@@ -1706,7 +1706,7 @@ function RendicionesContent() {
                 <button
                   type="button"
                   disabled={!!saving || !!updatingOrderStatus}
-                    onClick={async () => { if (readOnly || await saveSettlement("save")) setTicketsModalOpen(false); }}
+                    data-shortcut-submit onClick={async () => { if (readOnly || await saveSettlement("save")) setTicketsModalOpen(false); }}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-1.5 text-xs font-bold text-white shadow-2xs hover:bg-emerald-700"
                 >
                   {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} {saving ? "Guardando..." : "Listo"}
@@ -1745,7 +1745,7 @@ function RendicionesContent() {
                 </button>
               </div>
 
-              <form onSubmit={handleConfirmAssignTicket} className="p-4 space-y-3.5">
+              <form data-shortcut-submit onSubmit={handleConfirmAssignTicket} className="p-4 space-y-3.5">
                 <div className="rounded-xl bg-slate-50 border border-slate-200/80 p-3 space-y-1.5 text-xs">
                   <div className="flex justify-between text-slate-500">
                     <span>Total del pedido:</span>
@@ -1885,7 +1885,7 @@ function RendicionesContent() {
                 </button>
               </div>
 
-              <form onSubmit={handleConfirmGenerateMovements} className="p-4 space-y-3.5 max-h-[80vh] overflow-y-auto">
+              <form data-shortcut-submit onSubmit={handleConfirmGenerateMovements} className="p-4 space-y-3.5 max-h-[80vh] overflow-y-auto">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-[11px] font-bold text-slate-700 mb-1">

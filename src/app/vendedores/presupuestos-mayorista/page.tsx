@@ -1136,7 +1136,7 @@ export default function PresupuestosMayoristaPage() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <button
-                  onClick={handleSaveWholesaleQuote}
+                  data-shortcut-submit onClick={handleSaveWholesaleQuote}
                   disabled={isCreatingOrder || cartItems.length === 0 || !hasLeadIdentity}
                   className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-2xl text-xs font-black transition-all flex items-center justify-center gap-2 shadow-md shadow-emerald-600/20 cursor-pointer"
                 >

@@ -1886,7 +1886,7 @@ export default function PresupuestosPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <button
                   type="button"
-                  onClick={() => handleSaveQuote('sent')}
+                  data-shortcut-submit onClick={() => handleSaveQuote('sent')}
                   disabled={savingQuote}
                   className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all shadow-sm"
                 >
