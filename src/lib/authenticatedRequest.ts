@@ -6,7 +6,8 @@ export function createAuthenticatedRequester(client: any, fetcher: typeof fetch 
   async function request(url: string, options?: RequestInit) {
     const send = (token: string) => {
       const headers = new Headers(options?.headers);
-      headers.set('Content-Type', 'application/json');
+      if (typeof FormData !== 'undefined' && options?.body instanceof FormData) headers.delete('Content-Type');
+      else headers.set('Content-Type', 'application/json');
       headers.set('Authorization', `Bearer ${token}`);
       return fetcher(url, { ...options, cache: 'no-store', headers });
     };

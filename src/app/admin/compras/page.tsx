@@ -4,17 +4,17 @@ import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { createAuthenticatedRequester } from "@/lib/authenticatedRequest";
 import { treasuryToday } from "@/lib/treasuryTransactionTime";
-import {
-  Truck,
-  Plus,
-  Trash2,
-  Save,
-  X,
-  FileText,
-  ListPlus,
-  Settings,
-  Loader2,
-  CheckCircle2,
+import { 
+  Truck, 
+  Plus, 
+  Trash2, 
+  Save, 
+  X, 
+  FileText, 
+  ListPlus, 
+  Settings, 
+  Loader2, 
+  CheckCircle2, 
   HelpCircle,
   Link2,
   ChevronLeft,
@@ -49,6 +49,7 @@ import {
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
+import SupplierReceiptFiles from "@/components/admin/SupplierReceiptFiles";
 import SupplierPurchaseOrderImageModal from "@/components/admin/SupplierPurchaseOrderImageModal";
 import { formatPrice, formatDateDDMMYYYY } from "@/lib/utils";
 
@@ -280,14 +281,14 @@ export default function ComprasAdminPage() {
   const [loadingComparison, setLoadingComparison] = useState(false);
   const [makeVsBuySubTab, setMakeVsBuySubTab] = useState<'make_vs_buy_kpis' | 'supplier_comparison'>('make_vs_buy_kpis');
   const [allBoms, setAllBoms] = useState<any[]>([]);
-
+  
   // Órdenes de Producción States
   const [prodProductId, setProdProductId] = useState("");
   const [prodQuantity, setProdQuantity] = useState("1");
   const [prodNotes, setProdNotes] = useState("");
   const [prodComponents, setProdComponents] = useState<any[]>([]);
   const [isRegisteringProduction, setIsRegisteringProduction] = useState(false);
-
+  
   // Insumos States
   const [insumosSearchQuery, setInsumosSearchQuery] = useState("");
   const [selectedInsumoToAdjust, setSelectedInsumoToAdjust] = useState<any | null>(null);
@@ -418,6 +419,8 @@ export default function ComprasAdminPage() {
   const receiptRequestId = useRef<string | null>(null);
   const receiptSaving = useRef(false);
   const [savingReception, setSavingReception] = useState(false);
+  const [receptionFiles, setReceptionFiles] = useState<File[]>([]);
+  const [receptionRecorded, setReceptionRecorded] = useState(false);
   const [receptionDate, setReceptionDate] = useState(treasuryToday());
   const [receptionCurrency, setReceptionCurrency] = useState<'ARS' | 'USD'>('ARS');
 
@@ -511,7 +514,7 @@ export default function ComprasAdminPage() {
   const uniqueAlerts = React.useMemo(() => {
     // 1. Group by product_id first to get only the most recent alert for each product
     const groupedMap = new Map<string, any>();
-
+    
     // Since alerts from DB are sorted by created_at DESC, the first one we see is the latest
     for (const alt of alerts) {
       if (!alt.product_id) continue;
@@ -519,18 +522,18 @@ export default function ComprasAdminPage() {
         groupedMap.set(alt.product_id, alt);
       }
     }
-
+    
     let list = Array.from(groupedMap.values());
 
     // 2. Apply Filters
     if (alertFilterSupplierId) {
       list = list.filter(alt => alt.purchase?.supplier?.id === alertFilterSupplierId);
     }
-
+    
     if (alertSearchQuery) {
       const q = alertSearchQuery.toLowerCase();
-      list = list.filter(alt =>
-        alt.product?.name?.toLowerCase().includes(q) ||
+      list = list.filter(alt => 
+        alt.product?.name?.toLowerCase().includes(q) || 
         alt.product?.sku?.toLowerCase().includes(q)
       );
     }
@@ -618,7 +621,7 @@ export default function ComprasAdminPage() {
   const [searchRelationTerm, setSearchRelationTerm] = useState("");
 
   // --- NEW PURCHASE FORM STATE ---
-
+  
   // Selected product to add to current purchase
 
   // States for searchable product combobox
@@ -632,6 +635,8 @@ export default function ComprasAdminPage() {
   useEffect(() => {
     if (showNewReceptionModal) {
       receiptRequestId.current = crypto.randomUUID();
+      setReceptionFiles([]);
+      setReceptionRecorded(false);
       setReceptionDate(treasuryToday());
       setReceptionCurrency("ARS");
     }
@@ -690,10 +695,10 @@ export default function ComprasAdminPage() {
 
   const handleAddClaimExchangeItem = (prod: any) => {
     if (claimExchangeItems.some(item => item.product_id === prod.id)) return;
-
+    
     const initialPrice = prod.price || 0;
     const newItem = {
-      id: Math.random().toString(),
+      id: Math.random().toString(), 
       product_id: prod.id,
       quantity: 1,
       unit_price: initialPrice,
@@ -842,8 +847,8 @@ export default function ComprasAdminPage() {
         .select(`
           *,
           orders(
-            id, customer_name, client_id, locality, address, google_maps_link,
-            shipping_address_id, shipping_address_snapshot, legacy_code,
+            id, customer_name, client_id, locality, address, google_maps_link, 
+            shipping_address_id, shipping_address_snapshot, legacy_code, 
             initial_delivery_date, max_delivery_date, seller_id,
             clients(phone_primary, phone_secondary, tax_id, billing_address),
             sellers(full_name)
@@ -918,7 +923,7 @@ export default function ComprasAdminPage() {
           product:products(id, name, sku)
         `)
         .eq('purchase_order_id', poId);
-
+      
       if (error) throw error;
       setPoItemsDetail(data || []);
     } catch (err: any) {
@@ -932,9 +937,9 @@ export default function ComprasAdminPage() {
   const handleCancelPOLine = async (itemId: string, poId: string) => {
     const confirm = window.confirm("¿Estás seguro de que deseas cancelar esta línea de pedido?");
     if (!confirm) return;
-
+    
     const note = window.prompt("Aclaración/Motivo de la cancelación (opcional):") || "";
-
+    
     try {
       const { error } = await supabase
         .from('purchase_order_items')
@@ -947,7 +952,7 @@ export default function ComprasAdminPage() {
       setPoItemsMap(prev => {
         const updated = { ...prev };
         if (updated[poId]) {
-          updated[poId] = updated[poId].map(item =>
+          updated[poId] = updated[poId].map(item => 
             item.id === itemId ? { ...item, status: 'Cancelado', notes: note.trim() || null } : item
           );
         }
@@ -1004,7 +1009,7 @@ export default function ComprasAdminPage() {
     }
 
     const selectedPOs = purchaseOrders.filter(p => selectedPoIdsForMerge.includes(p.id));
-
+    
     // Validate same supplier
     const firstSupplierId = selectedPOs[0]?.supplier_id;
     const differentSupplier = selectedPOs.some((p: any) => p.supplier_id !== firstSupplierId);
@@ -1494,7 +1499,7 @@ export default function ComprasAdminPage() {
           purchase_order_items(purchase_orders(oc_code))
         `)
         .eq('purchase_reception_id', recId);
-
+      
       if (error) throw error;
       setReceptionItemsDetail(data || []);
     } catch (err: any) {
@@ -1519,7 +1524,7 @@ export default function ComprasAdminPage() {
     setReceptionSupplierId(supId);
     setModalSupplierSearchText(name);
     setIsModalSupplierDropdownOpen(false);
-
+    
     // Clear OC selection
     setReceptionPOId("");
     setModalOCSearchText("");
@@ -1544,7 +1549,7 @@ export default function ComprasAdminPage() {
         product:products(id, name, sku)
       `)
       .eq('purchase_order_id', poId);
-
+    
     if (error) {
       alert("Error al cargar ítems de la OC: " + error.message);
     } else if (data) {
@@ -1573,7 +1578,7 @@ export default function ComprasAdminPage() {
     setReceptionPOId(po.id);
     setModalOCSearchText(po.oc_code);
     setReceptionAlignPO(false);
-
+    
     const { data, error } = await supabase
       .from('purchase_order_items')
       .select(`
@@ -1581,7 +1586,7 @@ export default function ComprasAdminPage() {
         product:products(id, name, sku)
       `)
       .eq('purchase_order_id', po.id);
-
+    
     if (error) {
       alert("Error al cargar ítems de la OC: " + error.message);
     } else if (data) {
@@ -1600,7 +1605,7 @@ export default function ComprasAdminPage() {
       });
       setReceptionItems(items);
     }
-
+    
     setShowNewReceptionModal(true);
   };
 
@@ -1659,17 +1664,27 @@ export default function ComprasAdminPage() {
     }
     const activeItems = receptionItems.filter(i => i.quantityReceivedNew > 0);
     if (!activeItems.length) { alert("Ingresá cantidad recibida para al menos un artículo."); return; }
+    if (receptionFiles.length > 5 || receptionFiles.some(file => !file.size || file.size > 10 * 1024 * 1024 || !['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'].includes(file.type))) {
+      alert('Adjuntá hasta 5 imágenes, PDF o Word de hasta 10 MB cada uno.'); return;
+    }
     receiptSaving.current = true;
     setSavingReception(true);
     receiptRequestId.current ||= crypto.randomUUID();
     try {
-      await receiptApi.current('/api/admin/supplier-accounts', { method: 'POST', body: JSON.stringify({
+      if (!receptionRecorded) await receiptApi.current('/api/admin/supplier-accounts', { method: 'POST', body: JSON.stringify({
         action: 'receipt', id: receiptRequestId.current, supplierId: receptionSupplierId,
         poId: receptionPOId || null, slip: receptionSlipNumber, date: receptionDate, currency: receptionCurrency,
         stock: receptionUpdateStock, close: receptionAlignPO, notes: receptionNotes,
         items: activeItems.map(i => ({ poItemId: i.poItemId || null, productId: i.productId || null,
           productName: i.productName, quantity: i.quantityReceivedNew, unitCost: i.unitCost }))
       }) });
+      setReceptionRecorded(true);
+      if (receptionFiles.length) {
+        const form = new FormData(); form.set('id', receiptRequestId.current!);
+        receptionFiles.forEach(file => form.append('files', file));
+        try { await receiptApi.current('/api/admin/supplier-receipt-files', {method: 'POST', body: form}); }
+        catch (error: any) { throw new Error('La recepción y la deuda ya están guardadas. No se pudieron adjuntar los archivos: ' + error.message + ' Podés reintentar sin duplicar la recepción.'); }
+      }
       alert("Recepción y deuda registradas." + (receptionUpdateStock ? " Se incrementó el stock físico." : " Sin modificar stock físico."));
       setShowNewReceptionModal(false);
       setReceptionSupplierId(""); setReceptionSlipNumber(""); setReceptionPOId("");
@@ -1808,7 +1823,7 @@ export default function ComprasAdminPage() {
         if (unRes.ok) {
           const unimportedData = await unRes.json();
           if (unimportedData && unimportedData.unimportedOrders) {
-            const cutoffDateStr = calcHistoryType === 'days'
+            const cutoffDateStr = calcHistoryType === 'days' 
               ? (() => { const d = new Date(); d.setDate(d.getDate() - days); return d.toISOString().split('T')[0]; })()
               : (calcStartDate || '1970-01-01');
             const endCutoffStr = calcHistoryType === 'days' ? '9999-12-31' : (calcEndDate || '9999-12-31');
@@ -1866,7 +1881,7 @@ export default function ComprasAdminPage() {
         .select('id, name, sku, stock_physical, stock_reserved, stock_current, price, cost_price, category, is_active, is_discontinued')
         .eq('is_active', true)
         .eq('is_discontinued', false);
-
+      
       if (prodErr) throw prodErr;
 
       // 3. Filter relations
@@ -2282,7 +2297,7 @@ export default function ComprasAdminPage() {
         for (let step = 0; step < deliveries; step++) {
           const nextNum = purchaseOrders.length + 1 + step;
           const ocCode = `OP-ESC-${String(nextNum).padStart(4, '0')}-${step + 1}/${deliveries}`;
-
+          
           const stepItems = items.map(item => {
             const qty = item.quantitySuggested;
             const baseQty = Math.floor(qty / deliveries);
@@ -2357,7 +2372,7 @@ export default function ComprasAdminPage() {
         .from('product_boms')
         .select('*')
         .eq('parent_product_id', productId);
-
+      
       if (error) {
         console.error("Error loading BOM from database:", error);
         alert("Error al cargar componentes de receta: " + error.message);
@@ -2373,7 +2388,7 @@ export default function ComprasAdminPage() {
         });
         setBomComponents(mappedData);
       }
-
+      
       const prod = products.find(p => p.id === productId);
       if (prod) {
         setBomLaborCost(prod.labor_cost?.toString() || "0");
@@ -2401,7 +2416,7 @@ export default function ComprasAdminPage() {
         })
         .eq('id', selectedBomProductId);
       if (error) throw error;
-
+      
       alert("Costos de producción actualizados correctamente.");
       await loadAllData(true);
       await fetchBom(selectedBomProductId);
@@ -2481,7 +2496,7 @@ export default function ComprasAdminPage() {
           waste_percentage
         `)
         .eq('parent_product_id', productId);
-
+        
       if (!boms || boms.length === 0) {
         setProdComponents([]);
         return;
@@ -2490,18 +2505,18 @@ export default function ComprasAdminPage() {
       const items = boms.map(bom => {
         const compProduct = products.find(p => p.id === bom.component_product_id);
         const isGeneric = compProduct?.is_generic || false;
-        const targetProduct = (isGeneric && compProduct?.mapped_real_product_id)
-          ? products.find(p => p.id === compProduct.mapped_real_product_id)
+        const targetProduct = (isGeneric && compProduct?.mapped_real_product_id) 
+          ? products.find(p => p.id === compProduct.mapped_real_product_id) 
           : compProduct;
 
         const defaultSku = compProduct?.sku || "";
         const defaultName = compProduct?.name || "";
         const stockPhysical = targetProduct?.stock_physical || 0;
-
+        
         // Buscar variantes del producto real
         const compParentId = targetProduct?.parent_id || targetProduct?.id;
         const relatedVariants = targetProduct ? products.filter(p => p.id === compParentId || p.parent_id === compParentId) : [];
-
+        
         return {
           bom_id: bom.id,
           product_id: bom.component_product_id,
@@ -2515,7 +2530,7 @@ export default function ComprasAdminPage() {
           variants: relatedVariants.length > 0 ? relatedVariants : [targetProduct].filter(Boolean)
         };
       });
-
+      
       setProdComponents(items);
     } catch (err) {
       console.error("Error loading production BOM:", err);
@@ -2555,7 +2570,7 @@ export default function ComprasAdminPage() {
         })
         .select()
         .single();
-
+      
       if (logError) throw logError;
 
       // 3. Registrar consumos y transacciones de inventario
@@ -2727,14 +2742,14 @@ export default function ComprasAdminPage() {
         if (currency === 'USD') {
           listCost = listCost * usdExchangeRate;
         }
-
+        
         let netCost = listCost;
         if (item.discount_type === 'percentage') {
           netCost = listCost * (1 - discount / 100);
         } else if (item.discount_type === 'fixed') {
           netCost = listCost - discount;
         }
-
+        
         const totalCost = netCost * (1 + taxes / 100);
 
         return {
@@ -2792,7 +2807,7 @@ export default function ComprasAdminPage() {
         }, { onConflict: 'product_id,supplier_id' });
 
       if (error) throw error;
-
+      
       alert("Proveedor principal actualizado correctamente.");
       await loadAllData(true);
       if (compareProductId) {
@@ -2842,20 +2857,20 @@ export default function ComprasAdminPage() {
 
   const handleApproveClaim = async (claim: any) => {
     if (!claim) return;
-
+    
     if (!resolutionMessage.trim()) {
       alert("Debe ingresar un mensaje de resolución / respuesta al cliente para continuar.");
       return;
     }
-
+    
     // Dynamic recalculation of exchange and difference amounts
     const finalExchangeAmount = claimExchangeItems.reduce((sum, item) => sum + (item.unit_price * item.quantity), 0);
     const finalDifferenceAmount = finalExchangeAmount - claim.refund_amount;
-
+    
     // Check cash register if using cash settlement
     const isCashPayment = evalPaymentMethodId && /efectivo|^contado$/i.test(paymentMethods.find(p => p.id === evalPaymentMethodId)?.name || "");
     const needsCashRegister = (finalDifferenceAmount !== 0) && (evalSettlementMethod === 'caja') && (isCashPayment || finalDifferenceAmount < 0);
-
+    
     if (needsCashRegister && !openRegister) {
       alert("No hay una caja diaria abierta. Debe abrir caja primero para registrar movimientos de efectivo.");
       return;
@@ -2886,7 +2901,7 @@ export default function ComprasAdminPage() {
       // 1b. Update returns_exchanges status, exchange_amount, difference_amount to 'Resuelto'
       const { error: updateError } = await supabase
         .from("returns_exchanges")
-        .update({
+        .update({ 
           status: "Resuelto",
           exchange_amount: finalExchangeAmount,
           difference_amount: finalDifferenceAmount,
@@ -3053,7 +3068,7 @@ export default function ComprasAdminPage() {
     try {
       const { error } = await supabase
         .from("returns_exchanges")
-        .update({
+        .update({ 
           status: "Rechazado",
           rejection_reason: resolutionMessage.trim(),
           resolution_message: resolutionMessage.trim()
@@ -3083,7 +3098,7 @@ export default function ComprasAdminPage() {
     setNewSupplierAccount(sup.bank_details?.account_number || "");
     setNewSupplierCbu(sup.bank_details?.cbu || "");
     setNewSupplierAlias(sup.bank_details?.alias || "");
-
+    
     setNewSupplierBusinessUnit(sup.business_unit || "Zono");
     setNewSupplierContacts(sup.contacts || "");
     setNewSupplierPhone(sup.phone || "");
@@ -3113,7 +3128,7 @@ export default function ComprasAdminPage() {
     setNewSupplierAccount("");
     setNewSupplierCbu("");
     setNewSupplierAlias("");
-
+    
     setNewSupplierBusinessUnit("Zono");
     setNewSupplierContacts("");
     setNewSupplierPhone("");
@@ -3322,7 +3337,7 @@ export default function ComprasAdminPage() {
       await supabase.from("price_lists").update({ is_active: false }).eq("supplier_id", supplierId);
       const { error } = await supabase.from("price_lists").update({ is_active: true }).eq("id", listId);
       if (error) throw error;
-
+      
       alert("Lista de precios activada.");
       loadAllData();
     } catch (err) {
@@ -3384,7 +3399,7 @@ export default function ComprasAdminPage() {
         .from("products")
         .update({ fixed_price: fixedPrice })
         .eq("id", productId);
-
+      
       if (error) throw error;
       setProducts(prev => prev.map(p => p.id === productId ? { ...p, fixed_price: fixedPrice } : p));
     } catch (err) {
@@ -3424,7 +3439,7 @@ export default function ComprasAdminPage() {
         // Find primary relation supplier
         const rel = relations.find(r => r.product_id === alertItem.product_id && r.is_primary) || relations.find(r => r.product_id === alertItem.product_id);
         let supplierId = rel?.supplier_id;
-
+        
         if (!supplierId) {
           // Fallback to purchase supplier
           supplierId = alertItem.purchase?.supplier?.id;
@@ -3560,7 +3575,7 @@ export default function ComprasAdminPage() {
 
       if (error) throw error;
       setPurchaseItemsDetail(items || []);
-
+      
       await loadPurchasePayments(purchase.id);
     } catch (err: any) {
       alert("Error al cargar detalles de la compra: " + err.message);
@@ -3660,14 +3675,14 @@ export default function ComprasAdminPage() {
 
   const currentBomProduct = products.find(p => p.id === selectedBomProductId);
   const isBomProductComprado = currentBomProduct?.production_type === 'comprado';
-  const bomComponentsCost = bomComponents.reduce((sum, item) =>
+  const bomComponentsCost = bomComponents.reduce((sum, item) => 
     sum + ((item.component?.cost_price || 0) * item.quantity * (1 + (item.waste_percentage || 0) / 100))
   , 0);
   const bomLabor = parseFloat(bomLaborCost) || 0;
   const bomOverhead = parseFloat(bomOverheadCost) || 0;
   const bomSimulatedCost = bomComponentsCost + bomLabor + bomOverhead;
   const filteredPurchaseOrders = purchaseOrders.filter(po => {
-    const matchStatus =
+    const matchStatus = 
       filterPoStatus === "all" ? true :
       filterPoStatus === "activas" ? (po.status === "Pendiente" || po.status === "Parcial") :
       po.status === filterPoStatus;
@@ -3894,9 +3909,9 @@ export default function ComprasAdminPage() {
                   className="px-3 py-1.5 rounded-lg border bg-slate-50 font-bold text-xs flex items-center justify-between gap-2 min-w-[160px] text-left hover:bg-slate-100 transition-colors"
                 >
                   <span className="truncate max-w-[140px]">
-                    {filterPoSupplierIds.length === 0
-                      ? "Todos los proveedores"
-                      : filterPoSupplierIds.length === 1
+                    {filterPoSupplierIds.length === 0 
+                      ? "Todos los proveedores" 
+                      : filterPoSupplierIds.length === 1 
                       ? suppliers.find(s => s.id === filterPoSupplierIds[0])?.name || "1 seleccionado"
                       : `${filterPoSupplierIds.length} seleccionados`}
                   </span>
@@ -3905,14 +3920,14 @@ export default function ComprasAdminPage() {
 
                 {showSupplierDropdown && (
                   <>
-                    <div
-                      className="fixed inset-0 z-20"
+                    <div 
+                      className="fixed inset-0 z-20" 
                       onClick={() => {
                         setShowSupplierDropdown(false);
                         setSupplierSearchQuery("");
                       }}
                     />
-
+                    
                     <div className="absolute left-0 mt-1.5 w-64 bg-white border border-slate-200/80 rounded-2xl shadow-xl p-3 space-y-2 z-30 animate-in fade-in slide-in-from-top-2 duration-150">
                       <div className="relative">
                         <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -3928,16 +3943,16 @@ export default function ComprasAdminPage() {
                       </div>
 
                       <div className="flex justify-between items-center text-[9px] font-black uppercase text-brand-600 px-1">
-                        <button
-                          type="button"
-                          onClick={() => setFilterPoSupplierIds([])}
+                        <button 
+                          type="button" 
+                          onClick={() => setFilterPoSupplierIds([])} 
                           className="hover:underline"
                         >
                           Limpiar Todos
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => setFilterPoSupplierIds(suppliers.map(s => s.id))}
+                        <button 
+                          type="button" 
+                          onClick={() => setFilterPoSupplierIds(suppliers.map(s => s.id))} 
                           className="hover:underline"
                         >
                           Seleccionar Todos
@@ -3958,9 +3973,9 @@ export default function ComprasAdminPage() {
                                   type="checkbox"
                                   checked={isSelected}
                                   onChange={() => {
-                                    setFilterPoSupplierIds(prev =>
-                                      prev.includes(s.id)
-                                        ? prev.filter(id => id !== s.id)
+                                    setFilterPoSupplierIds(prev => 
+                                      prev.includes(s.id) 
+                                        ? prev.filter(id => id !== s.id) 
                                         : [...prev, s.id]
                                     );
                                   }}
@@ -4456,8 +4471,8 @@ export default function ComprasAdminPage() {
                       </p>
                     </div>
                   </div>
-                  <button
-                    type="button"
+                  <button 
+                    type="button" 
                     onClick={() => setShowMergePOModal(false)}
                     className="p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-colors"
                   >
@@ -4582,9 +4597,9 @@ export default function ComprasAdminPage() {
 
                     {isPoSupplierDropdownOpen && (
                       <>
-                        <div
-                          className="fixed inset-0 z-20"
-                          onClick={() => setIsPoSupplierDropdownOpen(false)}
+                        <div 
+                          className="fixed inset-0 z-20" 
+                          onClick={() => setIsPoSupplierDropdownOpen(false)} 
                         />
                         <div className="absolute left-0 right-0 mt-1 max-h-56 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-xl z-30 py-1 divide-y divide-slate-50">
                           {suppliers
@@ -4666,7 +4681,7 @@ export default function ComprasAdminPage() {
 
                 <div className="border-t pt-4 space-y-4">
                   <h4 className="text-xs font-black text-slate-800">Cargar Artículos</h4>
-
+                  
                   {/* Row to add item to PO */}
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-100">
                     <div className="md:col-span-2 space-y-1 relative">
@@ -4700,16 +4715,16 @@ export default function ComprasAdminPage() {
 
                       {isPoProductDropdownOpen && poSupplierId && (
                         <>
-                          <div
-                            className="fixed inset-0 z-10"
-                            onClick={() => setIsPoProductDropdownOpen(false)}
+                          <div 
+                            className="fixed inset-0 z-10" 
+                            onClick={() => setIsPoProductDropdownOpen(false)} 
                           />
                           <div className="absolute left-0 right-0 mt-1 max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg z-20 py-1 divide-y divide-slate-50">
                             {(() => {
                               const supplierProductIds = relations
                                 .filter(r => r.supplier_id === poSupplierId)
                                 .map(r => r.product_id);
-
+                              
                               const filtered = products
                                 .filter(p => {
                                   const pName = p.name || '';
@@ -4767,7 +4782,7 @@ export default function ComprasAdminPage() {
                           </div>
                         </>
                       )}
-
+                      
                       <div className="pt-2 flex gap-2">
                         <input
                           id="manualProductName"
@@ -4936,9 +4951,9 @@ export default function ComprasAdminPage() {
 
                     {isEditPoSupplierDropdownOpen && (
                       <>
-                        <div
-                          className="fixed inset-0 z-20"
-                          onClick={() => setIsEditPoSupplierDropdownOpen(false)}
+                        <div 
+                          className="fixed inset-0 z-20" 
+                          onClick={() => setIsEditPoSupplierDropdownOpen(false)} 
                         />
                         <div className="absolute left-0 right-0 mt-1 max-h-56 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-xl z-30 py-1 divide-y divide-slate-50">
                           {suppliers
@@ -5085,16 +5100,16 @@ export default function ComprasAdminPage() {
 
                       {isEditPoProductDropdownOpen && editPoSupplierId && (
                         <>
-                          <div
-                            className="fixed inset-0 z-10"
-                            onClick={() => setIsEditPoProductDropdownOpen(false)}
+                          <div 
+                            className="fixed inset-0 z-10" 
+                            onClick={() => setIsEditPoProductDropdownOpen(false)} 
                           />
                           <div className="absolute left-0 right-0 mt-1 max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg z-20 py-1 divide-y divide-slate-50">
                             {(() => {
                               const supplierProductIds = relations
                                 .filter(r => r.supplier_id === editPoSupplierId)
                                 .map(r => r.product_id);
-
+                              
                               const filtered = products
                                 .filter(p => {
                                   const pName = p.name || '';
@@ -5448,6 +5463,7 @@ export default function ComprasAdminPage() {
                       {selectedReception.notes && <p className="col-span-2 font-normal">Notas: {selectedReception.notes}</p>}
                     </div>
 
+                    <SupplierReceiptFiles id={selectedReception.id} />
                     <div className="border border-slate-200 rounded-2xl overflow-x-auto shadow-sm">
                       <table className="w-full text-left text-xs min-w-[500px]">
                         <thead>
@@ -5615,17 +5631,19 @@ export default function ComprasAdminPage() {
       {/* Modal New Goods Reception */}
       {showNewReceptionModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm overflow-y-auto">
-          <form data-shortcut-submit onSubmit={handleSaveReception} className="bg-white rounded-3xl w-full max-w-4xl shadow-2xl p-6 space-y-6 my-8 animate-in zoom-in-95 duration-150">
-            <div className="flex justify-between items-center border-b pb-4">
+          <form role="dialog" aria-modal="true" aria-labelledby="receipt-form-title" data-shortcut-submit onSubmit={handleSaveReception} className="bg-white rounded-3xl w-full max-w-6xl max-h-[calc(100dvh-2rem)] flex flex-col overflow-hidden shadow-2xl animate-in zoom-in-95 duration-150">
+            <div className="flex shrink-0 justify-between items-center gap-3 border-b px-5 py-4">
               <div>
-                <h3 className="text-lg font-black text-slate-900">Registrar Recepción de Mercadería</h3>
-                <p className="text-xs text-slate-400">Ingresá el remito del proveedor, vinculado a una OC o sin OC. La recepción genera la deuda por el importe recibido.</p>
+                <h3 id="receipt-form-title" className="text-lg font-black text-slate-900">Registrar Recepción de Mercadería</h3>
+                <p className="text-xs text-slate-400">Registrá lo recibido y su deuda. Podés adjuntar el remito del proveedor.</p>
               </div>
               <button type="button" disabled={savingReception} onClick={() => setShowNewReceptionModal(false)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-colors">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
+            <div className="min-h-0 overflow-y-auto px-5 py-4 space-y-4">
+            <fieldset disabled={savingReception || receptionRecorded} className="min-w-0 space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <label className="text-xs font-bold text-slate-500">Fecha de recepción
                 <input type="date" required value={receptionDate} onChange={e => setReceptionDate(e.target.value)} className="w-full border rounded-lg p-2 mt-1" />
@@ -5676,9 +5694,9 @@ export default function ComprasAdminPage() {
 
                 {isModalSupplierDropdownOpen && (
                   <>
-                    <div
-                      className="fixed inset-0 z-10"
-                      onClick={() => setIsModalSupplierDropdownOpen(false)}
+                    <div 
+                      className="fixed inset-0 z-10" 
+                      onClick={() => setIsModalSupplierDropdownOpen(false)} 
                     />
                     <div className="absolute left-0 right-0 mt-1 max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg z-20 py-1 divide-y divide-slate-50">
                       {suppliers
@@ -5745,9 +5763,9 @@ export default function ComprasAdminPage() {
 
                 {isModalOCDropdownOpen && receptionSupplierId && (
                   <>
-                    <div
-                      className="fixed inset-0 z-10"
-                      onClick={() => setIsModalOCDropdownOpen(false)}
+                    <div 
+                      className="fixed inset-0 z-10" 
+                      onClick={() => setIsModalOCDropdownOpen(false)} 
                     />
                     <div className="absolute left-0 right-0 mt-1 max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg z-20 py-1 divide-y divide-slate-50">
                       {/* Option for Sin OC */}
@@ -5814,11 +5832,11 @@ export default function ComprasAdminPage() {
                   className="w-4 h-4 mt-0.5 sm:mt-0 rounded text-brand-600 focus:ring-brand-500 border-slate-300 cursor-pointer"
                 />
                 <label htmlFor="updateStockCheck" className="text-xs font-bold text-slate-800 cursor-pointer select-none">
-                  Impactar incremento en Stock Físico del Depósito
+                  Sumar al stock físico
                   <span className="block text-[11px] text-slate-500 font-normal mt-0.5">
-                    {receptionUpdateStock
-                      ? "✅ Se sumará la cantidad recibida al stock físico de cada producto."
-                      : "⚠️ Desmarcado: La mercadería ya fue impactada en planillas o externamente. No se sumará al stock físico para evitar duplicaciones."}
+                    {receptionUpdateStock 
+                      ? "✅ Se sumará la cantidad recibida al stock físico de cada producto." 
+                      : "No modifica el stock físico."}
                   </span>
                 </label>
               </div>
@@ -5841,9 +5859,9 @@ export default function ComprasAdminPage() {
                     className="w-4 h-4 mt-0.5 sm:mt-0 rounded text-amber-600 focus:ring-amber-500 border-amber-300 cursor-pointer"
                   />
                   <label htmlFor="alignPOCheck" className="text-xs font-bold text-amber-950 cursor-pointer select-none">
-                    Cerrar faltantes de la OC si el proveedor no enviará el resto
+                    Cerrar el saldo pendiente de la OC
                     <span className="block text-[11px] text-amber-800 font-normal mt-0.5">
-                      Conserva las cantidades originalmente pedidas y cierra el saldo pendiente de recepción.
+                      Usar si el proveedor no enviará el resto.
                     </span>
                   </label>
                 </div>
@@ -5870,20 +5888,20 @@ export default function ComprasAdminPage() {
 
                       const container = document.createElement("div");
                       container.className = "fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm";
-
+                      
                       const inner = document.createElement("div");
                       inner.className = "bg-white p-6 rounded-2xl w-full max-w-md space-y-4 shadow-xl";
                       inner.innerHTML = `<h3 className="font-black text-sm text-slate-900">Agregar Ítem No Pedido (In-Situ)</h3>`;
                       inner.appendChild(prodSelect);
-
+                      
                       const actions = document.createElement("div");
                       actions.className = "flex justify-end gap-2 border-t pt-3";
-
+                      
                       const btnCancel = document.createElement("button");
                       btnCancel.className = "px-3 py-1.5 border rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-100";
                       btnCancel.textContent = "Cancelar";
                       btnCancel.onclick = () => document.body.removeChild(container);
-
+                      
                       const btnAdd = document.createElement("button");
                       btnAdd.className = "px-4 py-1.5 bg-brand-600 text-white rounded-lg text-xs font-bold hover:bg-brand-700";
                       btnAdd.textContent = "Agregar";
@@ -5925,17 +5943,17 @@ export default function ComprasAdminPage() {
                 )}
               </div>
 
-              <div className="border border-slate-200 rounded-2xl overflow-x-auto bg-white max-h-60 overflow-y-auto">
+              <div className="border border-slate-200 rounded-2xl overflow-x-auto bg-white">
                 <table className="w-full text-left text-xs min-w-[620px] border-collapse">
                   <thead>
                     <tr className="bg-slate-50 border-b text-slate-400 font-bold uppercase tracking-wider">
-                      <th className="p-3 whitespace-nowrap">Artículo / Detalle</th>
-                      <th className="p-3 text-right whitespace-nowrap" style={{ width: '80px' }}>Pedido</th>
-                      <th className="p-3 text-right whitespace-nowrap" style={{ width: '90px' }}>Recibido Prev.</th>
-                      <th className="p-3 text-right whitespace-nowrap" style={{ width: '130px' }}>Cant. Nueva Recibida</th>
-                      <th className="p-3 text-right whitespace-nowrap" style={{ width: '120px' }}>Costo Unitario ($)</th>
-                      <th className="p-3 text-right whitespace-nowrap">Subtotal</th>
-                      <th className="p-3 text-center whitespace-nowrap" style={{ width: '60px' }}>Acción</th>
+                      <th className="px-3 py-2 whitespace-nowrap">SKU</th>
+                      <th className="px-3 py-2 text-right whitespace-nowrap" style={{ width: '80px' }}>Pedido</th>
+                      <th className="px-3 py-2 text-right whitespace-nowrap" style={{ width: '90px' }}>Recibido</th>
+                      <th className="px-3 py-2 text-right whitespace-nowrap" style={{ width: '130px' }}>Recibir</th>
+                      <th className="px-3 py-2 text-right whitespace-nowrap" style={{ width: '120px' }}>Costo unit.</th>
+                      <th className="px-3 py-2 text-right whitespace-nowrap">Subtotal</th>
+                      <th className="px-3 py-2 text-center whitespace-nowrap" style={{ width: '60px' }}><span className="sr-only">Acción</span></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 font-bold text-slate-700">
@@ -5948,10 +5966,10 @@ export default function ComprasAdminPage() {
                     ) : (
                       receptionItems.map((item, idx) => (
                         <tr key={idx} className="hover:bg-slate-50/50">
-                          <td className="p-3 text-slate-900">{item.productName} {item.sku ? `(${item.sku})` : ''}</td>
-                          <td className="p-3 text-right text-slate-400">{item.quantityOrdered}</td>
-                          <td className="p-3 text-right text-slate-400">{item.quantityReceivedPrior}</td>
-                          <td className="p-3 text-right">
+                          <td className="px-3 py-2 text-slate-900 break-words" title={item.productName}>{item.sku || "Sin SKU"}</td>
+                          <td className="px-3 py-2 text-right text-slate-400">{item.quantityOrdered}</td>
+                          <td className="px-3 py-2 text-right text-slate-400">{item.quantityReceivedPrior}</td>
+                          <td className="px-3 py-2 text-right">
                             <input
                               type="number"
                               min="0"
@@ -5966,7 +5984,7 @@ export default function ComprasAdminPage() {
                               className="w-20 px-2 py-1 border rounded-lg text-right text-xs font-black text-green-600 focus:border-green-500"
                             />
                           </td>
-                          <td className="p-3 text-right">
+                          <td className="px-3 py-2 text-right">
                             <input
                               type="number"
                               min="0"
@@ -5981,8 +5999,8 @@ export default function ComprasAdminPage() {
                               className="w-24 px-2 py-1 border rounded-lg text-right text-xs"
                             />
                           </td>
-                          <td className="p-3 text-right text-slate-900">{formatPrice(item.quantityReceivedNew * item.unitCost)}</td>
-                          <td className="p-3 text-center">
+                          <td className="px-3 py-2 text-right text-slate-900">{formatPrice(item.quantityReceivedNew * item.unitCost)}</td>
+                          <td className="px-3 py-2 text-center">
                             <button
                               type="button"
                               onClick={() => setReceptionItems(receptionItems.filter((_, i) => i !== idx))}
@@ -6006,12 +6024,24 @@ export default function ComprasAdminPage() {
               </div>
             </div>
 
-            <div className="flex justify-end gap-3 border-t pt-4">
+            </fieldset>
+            <section className="space-y-2 rounded-xl border p-3 text-xs">
+              <label className="block font-bold" htmlFor="receiptFiles">Comprobante / remito del proveedor</label>
+              <input id="receiptFiles" type="file" multiple disabled={savingReception} accept="image/jpeg,image/png,image/webp,image/gif,.pdf,.doc,.docx" className="block w-full text-xs" onChange={e => {setReceptionFiles(Array.from(e.target.files || [])); e.target.value = '';}} />
+              <p className="text-slate-500">Imágenes, PDF o Word; hasta 5 archivos de 10 MB.</p>
+              {receptionFiles.map((file, index) => <div key={index} className="flex items-center justify-between gap-2">
+                <span className="truncate">{file.name}</span>
+                <button type="button" disabled={savingReception} aria-label={'Quitar ' + file.name} onClick={() => setReceptionFiles(receptionFiles.filter((_, i) => i !== index))} className="text-red-600"><X className="w-4 h-4" /></button>
+              </div>)}
+              {receptionRecorded && <p role="status" className="text-amber-700">Recepción y deuda guardadas. Reintentá los adjuntos o cerrá el formulario.</p>}
+            </section>
+            </div>
+            <div className="flex shrink-0 justify-end gap-3 border-t px-5 py-3">
               <Button type="button" disabled={savingReception} onClick={() => setShowNewReceptionModal(false)} className="bg-slate-100 text-slate-600 hover:bg-slate-200 py-2.5 px-4 rounded-xl">
-                Cancelar
+                {receptionRecorded ? "Cerrar" : "Cancelar"}
               </Button>
               <Button type="submit" disabled={savingReception} className="bg-brand-600 hover:bg-brand-700 py-2.5 px-6 rounded-xl text-white">
-                <Check className="w-4 h-4 mr-1.5" /> {savingReception ? "Guardando…" : "Confirmar recepción y deuda"}
+                <Check className="w-4 h-4 mr-1.5" /> {savingReception ? "Guardando…" : receptionRecorded ? "Reintentar adjuntos" : "Confirmar recepción y deuda"}
               </Button>
             </div>
           </form>
@@ -6065,9 +6095,9 @@ export default function ComprasAdminPage() {
 
                 {isCalcSupplierDropdownOpen && (
                   <>
-                    <div
-                      className="fixed inset-0 z-20"
-                      onClick={() => setIsCalcSupplierDropdownOpen(false)}
+                    <div 
+                      className="fixed inset-0 z-20" 
+                      onClick={() => setIsCalcSupplierDropdownOpen(false)} 
                     />
                     <div className="absolute left-0 right-0 mt-1 max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-xl z-30 py-1 divide-y divide-slate-50">
                       {("todos los proveedores".includes(calcSupplierSearchText.toLowerCase()) || calcSupplierSearchText === "") && (
@@ -6704,8 +6734,8 @@ export default function ComprasAdminPage() {
                     {/* Unidad */}
                     <td className="py-3 px-4">
                       <span className={`inline-block text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${
-                        sup.business_unit === 'Aquafort'
-                          ? 'bg-blue-50 text-blue-600 border border-blue-100'
+                        sup.business_unit === 'Aquafort' 
+                          ? 'bg-blue-50 text-blue-600 border border-blue-100' 
                           : 'bg-emerald-50 text-emerald-600 border border-emerald-100'
                       }`}>
                         {sup.business_unit || 'Zono'}
@@ -6727,10 +6757,10 @@ export default function ComprasAdminPage() {
                       {sup.address && <div className="text-slate-800">{sup.address}</div>}
                       {sup.locality && <div className="text-slate-400 font-bold text-[10px]">{sup.locality}</div>}
                       {sup.gps_location && (
-                        <a
-                          href={sup.gps_location}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                        <a 
+                          href={sup.gps_location} 
+                          target="_blank" 
+                          rel="noopener noreferrer" 
                           className="inline-flex items-center gap-0.5 text-[10px] text-brand-600 hover:underline"
                         >
                           📍 Ver GPS
@@ -6777,16 +6807,16 @@ export default function ComprasAdminPage() {
                     {/* Acciones */}
                     <td className="py-3 px-4">
                       <div className="flex items-center justify-center gap-1.5">
-                        <button
-                          onClick={() => startEditSupplier(sup)}
+                        <button 
+                          onClick={() => startEditSupplier(sup)} 
                           className="p-1.5 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors cursor-pointer"
                           title="Editar Proveedor"
                           type="button"
                         >
                           <Settings className="w-4 h-4" />
                         </button>
-                        <button
-                          onClick={() => handleDeleteSupplier(sup.id)}
+                        <button 
+                          onClick={() => handleDeleteSupplier(sup.id)} 
                           className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
                           title="Eliminar Proveedor"
                           type="button"
@@ -6816,7 +6846,7 @@ export default function ComprasAdminPage() {
                 <FileText className="w-3.5 h-3.5" /> Importar Lista
               </Button>
             </div>
-
+            
             {/* USD Exchange Rate Setting Card */}
             <div className="bg-white p-4 rounded-xl border border-slate-200/60 shadow-sm flex flex-col justify-between">
               <div className="flex justify-between items-center">
@@ -6828,10 +6858,10 @@ export default function ComprasAdminPage() {
                   $ {usdExchangeRate}
                 </span>
               </div>
-
+              
               <div className="mt-2.5 flex gap-2">
-                <input
-                  type="number"
+                <input 
+                  type="number" 
                   value={tempUsdRate}
                   onChange={e => setTempUsdRate(e.target.value)}
                   placeholder="Cotización"
@@ -6925,8 +6955,8 @@ export default function ComprasAdminPage() {
                 <div className="flex items-center gap-2 p-3 bg-blue-50 text-blue-800 text-xs rounded-xl font-medium border border-blue-100">
                   <HelpCircle className="w-4 h-4 text-blue-600 shrink-0" />
                   <p>
-                    Copiá columnas de tu Excel y pegalas abajo. El formato esperado es:
-                    <span className="font-bold font-mono bg-blue-100 px-1 py-0.5 rounded mx-1">SKU , COSTO_LISTA , DTO(opcional) , TIPO_DTO(percentage/fixed) , IVA_PCT(opcional)</span>.
+                    Copiá columnas de tu Excel y pegalas abajo. El formato esperado es: 
+                    <span className="font-bold font-mono bg-blue-100 px-1 py-0.5 rounded mx-1">SKU , COSTO_LISTA , DTO(opcional) , TIPO_DTO(percentage/fixed) , IVA_PCT(opcional)</span>. 
                     El primer renglón se ignora si contiene títulos de columna.
                   </p>
                 </div>
@@ -7043,7 +7073,7 @@ export default function ComprasAdminPage() {
               <h3 className="font-black text-slate-900 text-sm">Márgenes y Fórmulas</h3>
               <p className="text-xs text-slate-400">Configurá si un producto tiene precio manual o dinámico (Costo + Margen).</p>
             </div>
-
+            
             <div className="relative w-full sm:w-64">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-3.5 h-3.5" />
               <input
@@ -7071,16 +7101,16 @@ export default function ComprasAdminPage() {
                 {filteredProducts.map(p => {
                   const rel = relations.find(r => r.product_id === p.id && r.is_primary) || relations.find(r => r.product_id === p.id);
                   const hasAlert = alerts.some(a => a.product_id === p.id);
-
+                  
                   return (
                     <tr key={p.id} className="hover:bg-slate-50/40 transition-colors">
                       <td className="px-4 py-1.5">
                         <div className="font-bold text-slate-800 text-xs leading-snug flex items-center">
                           {p.name}
                           {hasAlert && (
-                            <span
+                            <span 
                               onClick={() => navigateSubTab('alerts')}
-                              className="inline-flex items-center text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider gap-0.5 border border-amber-200 animate-pulse ml-2 cursor-pointer hover:bg-amber-100"
+                              className="inline-flex items-center text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider gap-0.5 border border-amber-200 animate-pulse ml-2 cursor-pointer hover:bg-amber-100" 
                               title="Discrepancia de costo pendiente de resolución en Compras"
                             >
                               ⚠️ Alerta Costo
@@ -7185,9 +7215,9 @@ export default function ComprasAdminPage() {
 
               {isSupplierDropdownOpen && (
                 <>
-                  <div
-                    className="fixed inset-0 z-10"
-                    onClick={() => setIsSupplierDropdownOpen(false)}
+                  <div 
+                    className="fixed inset-0 z-10" 
+                    onClick={() => setIsSupplierDropdownOpen(false)} 
                   />
                   <div className="absolute left-0 right-0 mt-1 max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg z-20 py-1 divide-y divide-slate-50">
                     {suppliers
@@ -7216,7 +7246,7 @@ export default function ComprasAdminPage() {
                 </>
               )}
             </div>
-
+            
             <div className="space-y-1">
               <label className="text-[10px] font-black uppercase text-slate-400">Tipo de Documento</label>
               <select
@@ -7404,7 +7434,7 @@ export default function ComprasAdminPage() {
             <div>
               <h4 className="font-black text-sm">Discrepancias de Costos Detectadas</h4>
               <p className="text-xs text-amber-800/90 font-semibold mt-1">
-                El sistema detectó compras con costos unitarios diferentes a los registrados en las listas de catálogo activas.
+                El sistema detectó compras con costos unitarios diferentes a los registrados en las listas de catálogo activas. 
                 Podés actualizar el precio de costo del catálogo en un clic o ignorar la alerta si es un cambio temporal.
               </p>
             </div>
@@ -7447,9 +7477,9 @@ export default function ComprasAdminPage() {
 
               {isAlertSupplierDropdownOpen && (
                 <>
-                  <div
-                    className="fixed inset-0 z-10"
-                    onClick={() => setIsAlertSupplierDropdownOpen(false)}
+                  <div 
+                    className="fixed inset-0 z-10" 
+                    onClick={() => setIsAlertSupplierDropdownOpen(false)} 
                   />
                   <div className="absolute left-0 right-0 mt-1 max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg z-20 py-1 divide-y divide-slate-50">
                     {suppliers
@@ -7535,10 +7565,10 @@ export default function ComprasAdminPage() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {uniqueAlerts.map(alt => {
-                  const diffPct = alt.catalog_cost > 0
-                    ? ((alt.purchase_cost - alt.catalog_cost) / alt.catalog_cost) * 100
+                  const diffPct = alt.catalog_cost > 0 
+                    ? ((alt.purchase_cost - alt.catalog_cost) / alt.catalog_cost) * 100 
                     : 100;
-
+                  
                   return (
                     <tr key={alt.id} className="hover:bg-slate-50/40 transition-colors">
                       <td className="px-4 py-3">
@@ -7572,7 +7602,7 @@ export default function ComprasAdminPage() {
                           if (price <= 0) return null;
                           const profit = price - cost;
                           const marginPct = (profit / price) * 100;
-
+                          
                           if (profit < 0) {
                             return (
                               <span className="inline-block mt-1 px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 text-[9px] font-black uppercase tracking-wider animate-pulse">
@@ -7634,7 +7664,7 @@ export default function ComprasAdminPage() {
             <div>
               <h4 className="font-black text-sm">Pedidos en Espera de Stock</h4>
               <p className="text-xs text-amber-800/90 font-semibold mt-1">
-                A continuación se listan los pedidos que fueron cargados con estado "En Espera" debido a falta de stock de algún producto.
+                A continuación se listan los pedidos que fueron cargados con estado "En Espera" debido a falta de stock de algún producto. 
                 Utilizá este reporte para priorizar las compras de los productos que están bloqueando entregas a clientes.
               </p>
             </div>
@@ -7748,13 +7778,13 @@ export default function ComprasAdminPage() {
                       </td>
                       <td className="px-4 py-3">
                         <span className={`inline-block px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase ${
-                          claim.type === 'devolucion' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
-                          claim.type === 'cambio' ? 'bg-blue-50 text-blue-700 border border-blue-200' :
+                          claim.type === 'devolucion' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 
+                          claim.type === 'cambio' ? 'bg-blue-50 text-blue-700 border border-blue-200' : 
                           claim.type === 'despacho' ? 'bg-purple-50 text-purple-700 border border-purple-200' :
                           'bg-amber-50 text-amber-700 border border-amber-200'
                         }`}>
-                          {claim.type === 'devolucion' ? 'Devolución' :
-                           claim.type === 'cambio' ? 'Cambio' :
+                          {claim.type === 'devolucion' ? 'Devolución' : 
+                           claim.type === 'cambio' ? 'Cambio' : 
                            claim.type === 'despacho' ? 'Error Despacho' : 'Garantía'}
                         </span>
                       </td>
@@ -7764,20 +7794,20 @@ export default function ComprasAdminPage() {
                           claim.status === 'Resuelto' || claim.status === 'Completado' || claim.status === 'Aprobado' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
                           'bg-red-50 text-red-700 border border-red-200'
                         }`}>
-                          {claim.status === 'Pendiente' ? 'Abierto' :
-                           claim.status === 'Completado' || claim.status === 'Aprobado' ? 'Resuelto' :
+                          {claim.status === 'Pendiente' ? 'Abierto' : 
+                           claim.status === 'Completado' || claim.status === 'Aprobado' ? 'Resuelto' : 
                            claim.status || 'Abierto'}
                         </span>
                       </td>
                       <td className={`px-4 py-3 text-right font-black ${
-                        claim.difference_amount === 0 ? 'text-slate-800' :
+                        claim.difference_amount === 0 ? 'text-slate-800' : 
                         claim.difference_amount > 0 ? 'text-amber-600' : 'text-emerald-600'
                       }`}>
                         {formatPrice(claim.difference_amount)}
                       </td>
                       <td className="px-4 py-3 text-center whitespace-nowrap">
-                        <Button
-                          onClick={() => handleViewClaimDetail(claim)}
+                        <Button 
+                          onClick={() => handleViewClaimDetail(claim)} 
                           variant="secondary"
                           size="sm"
                           className="rounded-lg font-black uppercase tracking-wider text-[10px]"
@@ -7814,9 +7844,9 @@ export default function ComprasAdminPage() {
                   Proveedor: {selectedPurchase.supplier?.name} | Fecha: {formatDateDDMMYYYY(selectedPurchase.purchase_date)}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => setSelectedPurchase(null)}
+              <button 
+                type="button" 
+                onClick={() => setSelectedPurchase(null)} 
                 className="p-1 hover:bg-slate-100 rounded-full"
               >
                 <X className="w-5 h-5 text-slate-500" />
@@ -7825,21 +7855,21 @@ export default function ComprasAdminPage() {
 
             {/* Pestañas dentro del detalle */}
             <div className="flex gap-2 border-b pb-1 border-slate-100">
-              <button
+              <button 
                 onClick={() => setDetailTab('items')}
                 className={`px-4 py-2 text-xs font-black uppercase tracking-wider border-b-2 transition-all ${
-                  detailTab === 'items'
-                    ? 'border-brand-600 text-brand-600'
+                  detailTab === 'items' 
+                    ? 'border-brand-600 text-brand-600' 
                     : 'border-transparent text-slate-400 hover:text-slate-600'
                 }`}
               >
                 Artículos Recibidos
               </button>
-              <button
+              <button 
                 onClick={() => setDetailTab('payments')}
                 className={`px-4 py-2 text-xs font-black uppercase tracking-wider border-b-2 transition-all ${
-                  detailTab === 'payments'
-                    ? 'border-brand-600 text-brand-600'
+                  detailTab === 'payments' 
+                    ? 'border-brand-600 text-brand-600' 
                     : 'border-transparent text-slate-400 hover:text-slate-600'
                 }`}
               >
@@ -7971,9 +8001,9 @@ export default function ComprasAdminPage() {
             )}
 
             <div className="border-t pt-4 flex justify-end">
-              <button
-                type="button"
-                onClick={() => setSelectedPurchase(null)}
+              <button 
+                type="button" 
+                onClick={() => setSelectedPurchase(null)} 
                 className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-black uppercase tracking-widest rounded-xl transition-all shadow-sm"
               >
                 Cerrar
@@ -7998,9 +8028,9 @@ export default function ComprasAdminPage() {
                   Cliente: {selectedClaim.orders?.customer_name} | Pedido Original: {selectedClaim.orders?.legacy_code || selectedClaim.order_id?.substring(0,8)}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => setSelectedClaim(null)}
+              <button 
+                type="button" 
+                onClick={() => setSelectedClaim(null)} 
                 className="p-1 hover:bg-slate-100 rounded-full"
               >
                 <X className="w-5 h-5 text-slate-500" />
@@ -8038,9 +8068,9 @@ export default function ComprasAdminPage() {
                   {selectedClaim.whaticket_link && (
                     <div className="border-t border-slate-200/60 pt-2">
                       <span className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Conversación / Whaticket</span>
-                      <a
-                        href={selectedClaim.whaticket_link}
-                        target="_blank"
+                      <a 
+                        href={selectedClaim.whaticket_link} 
+                        target="_blank" 
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800 transition-colors font-bold text-[10px] uppercase tracking-wider border border-emerald-200/50"
                       >
@@ -8056,11 +8086,11 @@ export default function ComprasAdminPage() {
                         {selectedClaim.attachments.map((url: string, i: number) => {
                           const isImg = url.match(/\.(jpeg|jpg|gif|png|webp)/i);
                           return (
-                            <a
-                              key={i}
-                              href={url}
-                              target="_blank"
-                              rel="noopener noreferrer"
+                            <a 
+                              key={i} 
+                              href={url} 
+                              target="_blank" 
+                              rel="noopener noreferrer" 
                               className="relative group rounded-lg overflow-hidden border border-slate-200 bg-white h-12 flex items-center justify-center hover:shadow-sm transition-all"
                             >
                               {isImg ? (
@@ -8088,16 +8118,16 @@ export default function ComprasAdminPage() {
                       </span>
                     )}
                   </div>
-
+                  
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-slate-700">
                     <div>
                       <span className="block text-[9px] font-black text-slate-400 uppercase tracking-widest">Teléfono Principal</span>
                       {selectedClaim.orders?.clients?.phone_primary ? (
                         <div className="flex items-center gap-1.5 mt-0.5">
                           <span className="font-extrabold text-slate-900">{selectedClaim.orders.clients.phone_primary}</span>
-                          <a
+                          <a 
                             href={`https://wa.me/${selectedClaim.orders.clients.phone_primary.replace(/[^0-9]/g, "")}`}
-                            target="_blank"
+                            target="_blank" 
                             rel="noopener noreferrer"
                             className="text-emerald-600 hover:text-emerald-700 transition-colors font-bold text-[10px] uppercase underline flex items-center gap-0.5"
                           >
@@ -8135,7 +8165,7 @@ export default function ComprasAdminPage() {
                   <span className="block text-[10px] font-black text-slate-500 uppercase tracking-wider">
                     Mensaje de Resolución / Respuesta al Cliente
                   </span>
-
+                  
                   {selectedClaim.status === 'Abierto' || selectedClaim.status === 'Pendiente' ? (
                     <div className="space-y-2">
                       <textarea
@@ -8189,7 +8219,7 @@ export default function ComprasAdminPage() {
                               SKU: {item.products?.sku || 'N/A'} • Cantidad: {item.quantity} un.
                             </span>
                           </div>
-
+                          
                           <div className="flex items-center gap-2">
                             <span className="text-[9px] font-black text-slate-400 uppercase">Destino Físico:</span>
                             <select
@@ -8246,13 +8276,13 @@ export default function ComprasAdminPage() {
 
                       {showProductDropdown && (
                         <>
-                          <div
-                            className="fixed inset-0 z-0 cursor-default"
-                            onClick={() => setShowProductDropdown(false)}
+                          <div 
+                            className="fixed inset-0 z-0 cursor-default" 
+                            onClick={() => setShowProductDropdown(false)} 
                           />
                           <div className="absolute z-20 w-full mt-1.5 bg-white border border-slate-200 rounded-2xl shadow-xl max-h-48 overflow-y-auto divide-y divide-slate-100 animate-in fade-in slide-in-from-top-1 duration-150">
                             {products
-                              .filter(p =>
+                              .filter(p => 
                                 !exchangeSearchQuery ||
                                 p.name.toLowerCase().includes(exchangeSearchQuery.toLowerCase()) ||
                                 (p.sku && p.sku.toLowerCase().includes(exchangeSearchQuery.toLowerCase()))
@@ -8280,7 +8310,7 @@ export default function ComprasAdminPage() {
                                   </span>
                                 </button>
                               ))}
-                            {products.filter(p =>
+                            {products.filter(p => 
                               !exchangeSearchQuery ||
                               p.name.toLowerCase().includes(exchangeSearchQuery.toLowerCase()) ||
                               (p.sku && p.sku.toLowerCase().includes(exchangeSearchQuery.toLowerCase()))
@@ -8311,7 +8341,7 @@ export default function ComprasAdminPage() {
                                 SKU: {item.products?.sku || 'N/A'}
                               </span>
                             </div>
-
+                            
                             {isPending ? (
                               <div className="flex items-center gap-4">
                                 <div className="flex items-center gap-1">
@@ -8370,8 +8400,8 @@ export default function ComprasAdminPage() {
                         calculatedDifferenceAmount === 0 ? 'text-slate-800' :
                         calculatedDifferenceAmount > 0 ? 'text-amber-600' : 'text-emerald-600'
                       }`}>
-                        {calculatedDifferenceAmount === 0 ? '$0,00' :
-                         calculatedDifferenceAmount > 0 ? `Cliente paga diferencia de: ${formatPrice(calculatedDifferenceAmount)}` :
+                        {calculatedDifferenceAmount === 0 ? '$0,00' : 
+                         calculatedDifferenceAmount > 0 ? `Cliente paga diferencia de: ${formatPrice(calculatedDifferenceAmount)}` : 
                          `Reembolso a favor de cliente: ${formatPrice(Math.abs(calculatedDifferenceAmount))}`}
                       </span>
                     </div>
@@ -8425,29 +8455,29 @@ export default function ComprasAdminPage() {
 
                 {/* Actions */}
                 <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t justify-end">
-                  <Button
+                  <Button 
                     type="button"
-                    onClick={() => setSelectedClaim(null)}
+                    onClick={() => setSelectedClaim(null)} 
                     variant="outline"
                     className="rounded-xl px-5 py-2.5 font-bold text-xs uppercase"
                   >
                     Cerrar
                   </Button>
-
+                  
                   {(selectedClaim.status === 'Abierto' || selectedClaim.status === 'Pendiente') && (
                     <>
-                      <Button
+                      <Button 
                         type="button"
-                        onClick={() => handleRejectClaim(selectedClaim.id)}
+                        onClick={() => handleRejectClaim(selectedClaim.id)} 
                         variant="secondary"
                         disabled={evaluatingClaimId !== null}
                         className="rounded-xl px-5 py-2.5 font-bold text-xs uppercase text-red-600 bg-red-50 hover:bg-red-100 hover:text-red-700"
                       >
                         {evaluatingClaimId === selectedClaim.id ? <Loader2 className="animate-spin w-4 h-4" /> : "Rechazar Reclamo"}
                       </Button>
-                      <Button
+                      <Button 
                         type="button"
-                        onClick={() => handleApproveClaim(selectedClaim)}
+                        onClick={() => handleApproveClaim(selectedClaim)} 
                         disabled={evaluatingClaimId !== null}
                         className="rounded-xl px-6 py-2.5 font-black text-xs uppercase tracking-widest gap-1.5"
                       >
@@ -8474,7 +8504,7 @@ export default function ComprasAdminPage() {
             <div className="flex justify-between items-center mb-1">
               <h3 className="font-black text-slate-900 text-sm">Productos</h3>
             </div>
-
+            
             {/* Filter buttons */}
             <div className="flex bg-slate-100 p-0.5 rounded-xl border border-slate-200/40">
               <button
@@ -8505,7 +8535,7 @@ export default function ComprasAdminPage() {
                 Todos
               </button>
             </div>
-
+            
             <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
               {products
                 .filter(p => {
@@ -8522,8 +8552,8 @@ export default function ComprasAdminPage() {
                       fetchBom(p.id);
                     }}
                     className={`w-full text-left p-3.5 rounded-xl border transition-all flex items-center justify-between ${
-                      selectedBomProductId === p.id
-                        ? 'border-brand-500 bg-brand-50/40 shadow-sm'
+                      selectedBomProductId === p.id 
+                        ? 'border-brand-500 bg-brand-50/40 shadow-sm' 
                         : 'border-slate-100 hover:bg-slate-50'
                     }`}
                   >
@@ -8569,7 +8599,7 @@ export default function ComprasAdminPage() {
                       </h2>
                       <span className="text-xs font-bold text-slate-400">SKU: {products.find(p => p.id === selectedBomProductId)?.sku || '-'}</span>
                     </div>
-
+                    
                     <div className="text-right">
                       <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Precio de Venta</span>
                       <span className="text-base font-black text-slate-900">
@@ -8583,7 +8613,7 @@ export default function ComprasAdminPage() {
                       <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block">Costo Componentes</span>
                       <span className="text-sm font-bold text-slate-700 block font-mono">
                         {formatPrice(
-                          bomComponents.reduce((sum, item) =>
+                          bomComponents.reduce((sum, item) => 
                             sum + ((item.component?.cost_price || 0) * item.quantity * (1 + (item.waste_percentage || 0) / 100))
                           , 0)
                         )}
@@ -8696,7 +8726,7 @@ export default function ComprasAdminPage() {
                 {/* Recipe Editor Card */}
                 <div className="bg-white p-6 rounded-2xl border border-slate-200/60 shadow-sm space-y-6">
                   <h3 className="font-black text-slate-900 text-sm">Componentes de la Receta (BOM)</h3>
-
+                  
                   {/* Form to add component */}
                   <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100">
                     <div className="sm:col-span-2 space-y-1 relative" onClick={e => e.stopPropagation()}>
@@ -8894,7 +8924,7 @@ export default function ComprasAdminPage() {
           {/* Form and stock check panel */}
           <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-200/60 shadow-sm space-y-6">
             <h3 className="font-black text-slate-900 text-sm">Registrar Nueva Producción / Armado</h3>
-
+            
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="sm:col-span-2 space-y-1">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Producto a Fabricar / Ensamblar</label>
@@ -9076,7 +9106,7 @@ export default function ComprasAdminPage() {
                 Control y visualización de stock físico, costos de fábrica y uso exclusivo de insumos.
               </p>
             </div>
-
+            
             <div className="flex gap-2 w-full sm:w-auto">
               <div className="relative flex-1 sm:flex-initial">
                 <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -9108,8 +9138,8 @@ export default function ComprasAdminPage() {
                 <tbody className="divide-y divide-slate-100">
                   {products
                     .filter(p => p.is_insumo || p.category === 'Insumos' || p.category === 'Materia Prima')
-                    .filter(p =>
-                      p.name.toLowerCase().includes(insumosSearchQuery.toLowerCase()) ||
+                    .filter(p => 
+                      p.name.toLowerCase().includes(insumosSearchQuery.toLowerCase()) || 
                       (p.sku && p.sku.toLowerCase().includes(insumosSearchQuery.toLowerCase()))
                     )
                     .map(p => (
@@ -9134,8 +9164,8 @@ export default function ComprasAdminPage() {
                         <td className="py-4 px-6 text-slate-500 font-semibold">{p.category}</td>
                         <td className="py-4 px-6">
                           <span className="inline-block bg-slate-100 text-slate-600 text-[9px] font-black uppercase px-2 py-0.5 rounded">
-                            {p.insumo_use === 'fabricacion' ? 'Sólo Fabricación' :
-                             p.insumo_use === 'ensamblado' ? 'Sólo Ensamblado' :
+                            {p.insumo_use === 'fabricacion' ? 'Sólo Fabricación' : 
+                             p.insumo_use === 'ensamblado' ? 'Sólo Ensamblado' : 
                              p.insumo_use === 'ensamblado_venta' ? 'Ensamblado y Venta' : 'Cualquiera'}
                           </span>
                         </td>
@@ -9385,7 +9415,7 @@ export default function ComprasAdminPage() {
 
                           return filtered.map(item => {
                             const comp = products.find(p => p.sku === item.sku);
-
+                            
                             // Format helper to preserve original list currency
                             const formatLocalPrice = (val: number) => {
                               if ((inspectingPriceList as any).currency === 'USD') {
@@ -9441,7 +9471,7 @@ export default function ComprasAdminPage() {
                 Tablero estratégico para decidir si conviene fabricar o comprar (Make vs. Buy) y comparar precios de proveedores vigentes.
               </p>
             </div>
-
+            
             <div className="flex bg-slate-100 p-0.5 rounded-xl border border-slate-200/40 shrink-0">
               <button
                 type="button"
@@ -9477,12 +9507,12 @@ export default function ComprasAdminPage() {
           {makeVsBuySubTab === 'make_vs_buy_kpis' && (() => {
             // Filter products that are comprado and have a BOM
             const boughtWithBOM = products.filter(p => p.production_type === 'comprado' && allBoms.some(b => b.parent_product_id === p.id));
-
+            
             const convenientesFabricar = boughtWithBOM.filter(p => {
               const simCost = getSimulatedBomCost(p.id);
               return simCost < (p.cost_price || 0);
             });
-
+            
             const convenientesComprar = boughtWithBOM.filter(p => {
               const simCost = getSimulatedBomCost(p.id);
               return simCost >= (p.cost_price || 0);
@@ -9615,7 +9645,7 @@ export default function ComprasAdminPage() {
                         {boughtWithBOM.length === 0 && (
                           <tr>
                             <td colSpan={6} className="py-12 px-6 text-center text-slate-400 text-xs font-semibold">
-                              No hay productos comprados con recetas (BOM) configuradas para simulación.
+                              No hay productos comprados con recetas (BOM) configuradas para simulación. 
                               Crea recetas en la pestaña de Recetas (BOM) filtrando por "Comprados".
                             </td>
                           </tr>
@@ -9745,7 +9775,7 @@ export default function ComprasAdminPage() {
                         {supplierComparisonItems.length === 0 && (
                           <tr>
                             <td colSpan={8} className="py-12 px-6 text-center text-slate-400 text-xs font-semibold">
-                              No se encontraron registros de este SKU en las listas de precios vigentes de ningún proveedor.
+                              No se encontraron registros de este SKU en las listas de precios vigentes de ningún proveedor. 
                               Asegúrate de que el SKU coincida y que las listas estén marcadas como activas.
                             </td>
                           </tr>
@@ -9786,7 +9816,7 @@ export default function ComprasAdminPage() {
         };
 
         const activeProductBoms = activeExplorerProduct ? allBoms.filter(b => b.parent_product_id === activeExplorerProduct.id) : [];
-
+        
         const groups: Record<string, any[]> = {
           'Resinas': [],
           'Accesorios y Conexiones': [],
@@ -9846,7 +9876,7 @@ export default function ComprasAdminPage() {
                   Visualiza de forma clara la estructura de costos de tus productos, compara recetas y audita dónde se consumen las materias primas.
                 </p>
               </div>
-
+              
               <div className="flex bg-slate-100 p-0.5 rounded-xl border border-slate-200/40 shrink-0">
                 <button
                   type="button"
@@ -9992,7 +10022,7 @@ export default function ComprasAdminPage() {
                                     {groupItems.length} {groupItems.length === 1 ? 'ítem' : 'ítems'}
                                   </span>
                                 </div>
-
+                                
                                 <div className="flex items-center gap-4">
                                   <div className="text-right">
                                     <span className="font-mono font-bold text-xs text-slate-700 block">{formatPrice(groupCost)}</span>
@@ -10029,7 +10059,7 @@ export default function ComprasAdminPage() {
                                             <span className="font-bold text-slate-700 block">Cant: {qty.toFixed(2)}</span>
                                             {waste > 0 && <span className="text-[9px] text-amber-500 font-semibold block">Merma: +{waste}% ({effectiveQty.toFixed(2)})</span>}
                                           </div>
-
+                                          
                                           <div className="text-right w-24">
                                             <span className="font-mono font-bold text-slate-800 block">{formatPrice(totalItemCost)}</span>
                                             <span className="text-[9px] text-slate-400 font-semibold block">{itemPercentage.toFixed(1)}%</span>
@@ -10192,7 +10222,7 @@ export default function ComprasAdminPage() {
                           </span>
                         </div>
                         <p className="text-[9px] text-slate-350 leading-relaxed font-semibold">
-                          {simCostB - simCostA > 0
+                          {simCostB - simCostA > 0 
                             ? "El Producto B es más caro de fabricar que el Producto A debido a mayor composición."
                             : "El Producto B representa una alternativa más económica en insumos o mano de obra."
                           }
@@ -10282,7 +10312,7 @@ export default function ComprasAdminPage() {
                                       SKU: {comp?.sku || '-'} | Costo Unitario: {formatPrice(unitCost)}
                                     </span>
                                   </td>
-
+                                  
                                   <td className="py-3.5 px-4 text-right font-semibold text-slate-600">
                                     {hasA ? (
                                       <span>
