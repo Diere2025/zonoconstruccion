@@ -6036,7 +6036,10 @@ export default function ComprasAdminPage() {
             </fieldset>
             <section className="space-y-2 rounded-xl border p-3 text-xs">
               <label className="block font-bold" htmlFor="receiptFiles">Comprobante / remito del proveedor</label>
-              <input id="receiptFiles" type="file" multiple disabled={savingReception} accept="image/jpeg,image/png,image/webp,image/gif,.pdf,.doc,.docx" className="block w-full text-xs" onChange={e => {setReceptionFiles(Array.from(e.target.files || [])); e.target.value = '';}} />
+              <button type="button" disabled={savingReception} onClick={() => document.getElementById("receiptFiles")?.click()} className={`inline-flex items-center gap-2 rounded-xl border border-brand-200 bg-brand-50 px-4 py-2.5 font-bold text-brand-700 hover:bg-brand-100 cursor-pointer ${savingReception ? 'opacity-50 pointer-events-none' : ''}`}>
+                <Plus className="w-4 h-4" /> Adjuntar comprobante / remito
+              </button>
+              <input id="receiptFiles" aria-label="Adjuntar comprobante / remito" type="file" multiple disabled={savingReception} accept="image/jpeg,image/png,image/webp,image/gif,.pdf,.doc,.docx" className="hidden" onChange={e => {setReceptionFiles(Array.from(e.target.files || [])); e.target.value = '';}} />
               <p className="text-slate-500">Imágenes, PDF o Word; hasta 5 archivos de 10 MB.</p>
               {receptionFiles.map((file, index) => <div key={index} className="flex items-center justify-between gap-2">
                 <span className="truncate">{file.name}</span>
