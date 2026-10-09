@@ -5609,411 +5609,412 @@ export default function ComprasAdminPage() {
             </div>
           )}
 
-          {/* Modal New Goods Reception */}
-          {showNewReceptionModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm overflow-y-auto">
-              <form data-shortcut-submit onSubmit={handleSaveReception} className="bg-white rounded-3xl w-full max-w-4xl shadow-2xl p-6 space-y-6 my-8 animate-in zoom-in-95 duration-150">
-                <div className="flex justify-between items-center border-b pb-4">
-                  <div>
-                    <h3 className="text-lg font-black text-slate-900">Registrar Recepción de Mercadería</h3>
-                    <p className="text-xs text-slate-400">Ingresá el remito del proveedor, vinculado a una OC o sin OC. La recepción genera la deuda por el importe recibido.</p>
-                  </div>
-                  <button type="button" disabled={savingReception} onClick={() => setShowNewReceptionModal(false)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-colors">
-                    <X className="w-5 h-5" />
-                  </button>
+        </div>
+      )}
+
+      {/* Modal New Goods Reception */}
+      {showNewReceptionModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm overflow-y-auto">
+          <form data-shortcut-submit onSubmit={handleSaveReception} className="bg-white rounded-3xl w-full max-w-4xl shadow-2xl p-6 space-y-6 my-8 animate-in zoom-in-95 duration-150">
+            <div className="flex justify-between items-center border-b pb-4">
+              <div>
+                <h3 className="text-lg font-black text-slate-900">Registrar Recepción de Mercadería</h3>
+                <p className="text-xs text-slate-400">Ingresá el remito del proveedor, vinculado a una OC o sin OC. La recepción genera la deuda por el importe recibido.</p>
+              </div>
+              <button type="button" disabled={savingReception} onClick={() => setShowNewReceptionModal(false)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <label className="text-xs font-bold text-slate-500">Fecha de recepción
+                <input type="date" required value={receptionDate} onChange={e => setReceptionDate(e.target.value)} className="w-full border rounded-lg p-2 mt-1" />
+              </label>
+              <label className="text-xs font-bold text-slate-500">Moneda de la deuda
+                <select value={receptionCurrency} onChange={e => setReceptionCurrency(e.target.value as 'ARS' | 'USD')} className="w-full border rounded-lg p-2 mt-1"><option value="ARS">Pesos (ARS)</option><option value="USD">Dólares (USD)</option></select>
+              </label>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="space-y-1 relative">
+                <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Proveedor *</label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Buscar proveedor..."
+                    required={!receptionSupplierId}
+                    value={modalSupplierSearchText}
+                    onFocus={() => setIsModalSupplierDropdownOpen(true)}
+                    onChange={e => {
+                      setModalSupplierSearchText(e.target.value);
+                      setIsModalSupplierDropdownOpen(true);
+                      if (e.target.value === "") {
+                        setReceptionSupplierId("");
+                        setReceptionPOId("");
+                        setModalOCSearchText("");
+                        setReceptionItems([]);
+                      }
+                    }}
+                    className="w-full px-4 py-2.5 rounded-xl border bg-slate-50 font-bold text-xs outline-none focus:border-brand-500"
+                  />
+                  {modalSupplierSearchText && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setModalSupplierSearchText("");
+                        setReceptionSupplierId("");
+                        setReceptionPOId("");
+                        setModalOCSearchText("");
+                        setReceptionItems([]);
+                        setIsModalSupplierDropdownOpen(false);
+                      }}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <label className="text-xs font-bold text-slate-500">Fecha de recepción
-                    <input type="date" required value={receptionDate} onChange={e => setReceptionDate(e.target.value)} className="w-full border rounded-lg p-2 mt-1" />
-                  </label>
-                  <label className="text-xs font-bold text-slate-500">Moneda de la deuda
-                    <select value={receptionCurrency} onChange={e => setReceptionCurrency(e.target.value as 'ARS' | 'USD')} className="w-full border rounded-lg p-2 mt-1"><option value="ARS">Pesos (ARS)</option><option value="USD">Dólares (USD)</option></select>
-                  </label>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="space-y-1 relative">
-                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Proveedor *</label>
-                    <div className="relative">
-                      <input
-                        type="text"
-                        placeholder="Buscar proveedor..."
-                        required={!receptionSupplierId}
-                        value={modalSupplierSearchText}
-                        onFocus={() => setIsModalSupplierDropdownOpen(true)}
-                        onChange={e => {
-                          setModalSupplierSearchText(e.target.value);
-                          setIsModalSupplierDropdownOpen(true);
-                          if (e.target.value === "") {
-                            setReceptionSupplierId("");
-                            setReceptionPOId("");
-                            setModalOCSearchText("");
-                            setReceptionItems([]);
-                          }
-                        }}
-                        className="w-full px-4 py-2.5 rounded-xl border bg-slate-50 font-bold text-xs outline-none focus:border-brand-500"
-                      />
-                      {modalSupplierSearchText && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setModalSupplierSearchText("");
-                            setReceptionSupplierId("");
-                            setReceptionPOId("");
-                            setModalOCSearchText("");
-                            setReceptionItems([]);
-                            setIsModalSupplierDropdownOpen(false);
-                          }}
-                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
+                {isModalSupplierDropdownOpen && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-10"
+                      onClick={() => setIsModalSupplierDropdownOpen(false)}
+                    />
+                    <div className="absolute left-0 right-0 mt-1 max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg z-20 py-1 divide-y divide-slate-50">
+                      {suppliers
+                        .filter(s => s.name.toLowerCase().includes(modalSupplierSearchText.toLowerCase()))
+                        .map(s => (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onClick={() => handleSelectSupplierInModal(s.id, s.name)}
+                            className="w-full text-left px-3 py-2 text-xs font-semibold hover:bg-slate-50 text-slate-700 hover:text-brand-600 transition-colors"
+                          >
+                            {s.name}
+                          </button>
+                        ))}
+                      {suppliers.filter(s => s.name.toLowerCase().includes(modalSupplierSearchText.toLowerCase())).length === 0 && (
+                        <div className="px-3 py-2 text-xs text-slate-400 italic">
+                          No se encontraron proveedores
+                        </div>
                       )}
                     </div>
+                  </>
+                )}
+              </div>
 
-                    {isModalSupplierDropdownOpen && (
-                      <>
-                        <div
-                          className="fixed inset-0 z-10"
-                          onClick={() => setIsModalSupplierDropdownOpen(false)}
-                        />
-                        <div className="absolute left-0 right-0 mt-1 max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg z-20 py-1 divide-y divide-slate-50">
-                          {suppliers
-                            .filter(s => s.name.toLowerCase().includes(modalSupplierSearchText.toLowerCase()))
-                            .map(s => (
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Nro de Remito del Proveedor</label>
+                <input
+                  type="text"
+                  placeholder="Ej. RT-0001-00004567"
+                  value={receptionSlipNumber}
+                  onChange={e => setReceptionSlipNumber(e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-xl border bg-slate-50 font-bold text-xs"
+                />
+              </div>
+
+              <div className="space-y-1 relative">
+                <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Vincular a Orden de Compra (OC)</label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder={receptionSupplierId ? "Buscar OC..." : "Seleccioná un proveedor..."}
+                    disabled={!receptionSupplierId}
+                    value={modalOCSearchText}
+                    onFocus={() => setIsModalOCDropdownOpen(true)}
+                    onChange={e => {
+                      setModalOCSearchText(e.target.value);
+                      setIsModalOCDropdownOpen(true);
+                    }}
+                    className="w-full px-4 py-2.5 rounded-xl border bg-slate-50 font-bold text-xs outline-none focus:border-brand-500 disabled:opacity-50"
+                  />
+                  {modalOCSearchText && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleSelectOCInModal("", "");
+                        setIsModalOCDropdownOpen(false);
+                      }}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {isModalOCDropdownOpen && receptionSupplierId && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-10"
+                      onClick={() => setIsModalOCDropdownOpen(false)}
+                    />
+                    <div className="absolute left-0 right-0 mt-1 max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg z-20 py-1 divide-y divide-slate-50">
+                      {/* Option for Sin OC */}
+                      <button
+                        type="button"
+                        onClick={() => handleSelectOCInModal("", "")}
+                        className="w-full text-left px-3 py-2 text-xs font-black text-brand-600 hover:bg-slate-50 transition-colors"
+                      >
+                        -- Sin OC de origen (Ingreso In-Situ) --
+                      </button>
+                      {(() => {
+                        const filteredOCs = purchaseOrders
+                          .filter(po => po.supplier_id === receptionSupplierId && po.status !== 'Cumplido' && po.status !== 'Cancelado')
+                          .filter(po => {
+                            if (!modalOCSearchText) return true;
+                            return po.oc_code.toLowerCase().includes(modalOCSearchText.toLowerCase());
+                          });
+
+                        return (
+                          <>
+                            {filteredOCs.map(po => (
                               <button
-                                key={s.id}
+                                key={po.id}
                                 type="button"
-                                onClick={() => handleSelectSupplierInModal(s.id, s.name)}
+                                onClick={() => handleSelectOCInModal(po.id, po.oc_code)}
                                 className="w-full text-left px-3 py-2 text-xs font-semibold hover:bg-slate-50 text-slate-700 hover:text-brand-600 transition-colors"
                               >
-                                {s.name}
+                                {po.oc_code} (Monto: {formatPrice(po.total_amount)})
                               </button>
                             ))}
-                          {suppliers.filter(s => s.name.toLowerCase().includes(modalSupplierSearchText.toLowerCase())).length === 0 && (
-                            <div className="px-3 py-2 text-xs text-slate-400 italic">
-                              No se encontraron proveedores
-                            </div>
-                          )}
-                        </div>
-                      </>
-                    )}
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Nro de Remito del Proveedor</label>
-                    <input
-                      type="text"
-                      placeholder="Ej. RT-0001-00004567"
-                      value={receptionSlipNumber}
-                      onChange={e => setReceptionSlipNumber(e.target.value)}
-                      className="w-full px-4 py-2.5 rounded-xl border bg-slate-50 font-bold text-xs"
-                    />
-                  </div>
-
-                  <div className="space-y-1 relative">
-                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Vincular a Orden de Compra (OC)</label>
-                    <div className="relative">
-                      <input
-                        type="text"
-                        placeholder={receptionSupplierId ? "Buscar OC..." : "Seleccioná un proveedor..."}
-                        disabled={!receptionSupplierId}
-                        value={modalOCSearchText}
-                        onFocus={() => setIsModalOCDropdownOpen(true)}
-                        onChange={e => {
-                          setModalOCSearchText(e.target.value);
-                          setIsModalOCDropdownOpen(true);
-                        }}
-                        className="w-full px-4 py-2.5 rounded-xl border bg-slate-50 font-bold text-xs outline-none focus:border-brand-500 disabled:opacity-50"
-                      />
-                      {modalOCSearchText && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            handleSelectOCInModal("", "");
-                            setIsModalOCDropdownOpen(false);
-                          }}
-                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      )}
+                            {filteredOCs.length === 0 && (
+                              <div className="px-3 py-2 text-xs text-slate-400 italic">
+                                No se encontraron OCs pendientes para este proveedor
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
-
-                    {isModalOCDropdownOpen && receptionSupplierId && (
-                      <>
-                        <div
-                          className="fixed inset-0 z-10"
-                          onClick={() => setIsModalOCDropdownOpen(false)}
-                        />
-                        <div className="absolute left-0 right-0 mt-1 max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg z-20 py-1 divide-y divide-slate-50">
-                          {/* Option for Sin OC */}
-                          <button
-                            type="button"
-                            onClick={() => handleSelectOCInModal("", "")}
-                            className="w-full text-left px-3 py-2 text-xs font-black text-brand-600 hover:bg-slate-50 transition-colors"
-                          >
-                            -- Sin OC de origen (Ingreso In-Situ) --
-                          </button>
-                          {(() => {
-                            const filteredOCs = purchaseOrders
-                              .filter(po => po.supplier_id === receptionSupplierId && po.status !== 'Cumplido' && po.status !== 'Cancelado')
-                              .filter(po => {
-                                if (!modalOCSearchText) return true;
-                                return po.oc_code.toLowerCase().includes(modalOCSearchText.toLowerCase());
-                              });
-
-                            return (
-                              <>
-                                {filteredOCs.map(po => (
-                                  <button
-                                    key={po.id}
-                                    type="button"
-                                    onClick={() => handleSelectOCInModal(po.id, po.oc_code)}
-                                    className="w-full text-left px-3 py-2 text-xs font-semibold hover:bg-slate-50 text-slate-700 hover:text-brand-600 transition-colors"
-                                  >
-                                    {po.oc_code} (Monto: {formatPrice(po.total_amount)})
-                                  </button>
-                                ))}
-                                {filteredOCs.length === 0 && (
-                                  <div className="px-3 py-2 text-xs text-slate-400 italic">
-                                    No se encontraron OCs pendientes para este proveedor
-                                  </div>
-                                )}
-                              </>
-                            );
-                          })()}
-                        </div>
-                      </>
-                    )}
-                  </div>
-
-                  <div className="md:col-span-3 space-y-1">
-                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Observaciones</label>
-                    <input
-                      type="text"
-                      placeholder="Ej. Ingreso de materiales especiales de fábrica..."
-                      value={receptionNotes}
-                      onChange={e => setReceptionNotes(e.target.value)}
-                      className="w-full px-4 py-2.5 rounded-xl border bg-slate-50 font-bold text-xs"
-                    />
-                  </div>
-                </div>
-
-                {/* Switch / Checkbox de Impacto en Stock */}
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-3.5 bg-slate-50 border border-slate-200/80 rounded-2xl gap-3">
-                  <div className="flex items-start sm:items-center gap-3">
-                    <input
-                      type="checkbox"
-                      id="updateStockCheck"
-                      checked={receptionUpdateStock}
-                      onChange={(e) => setReceptionUpdateStock(e.target.checked)}
-                      className="w-4 h-4 mt-0.5 sm:mt-0 rounded text-brand-600 focus:ring-brand-500 border-slate-300 cursor-pointer"
-                    />
-                    <label htmlFor="updateStockCheck" className="text-xs font-bold text-slate-800 cursor-pointer select-none">
-                      Impactar incremento en Stock Físico del Depósito
-                      <span className="block text-[11px] text-slate-500 font-normal mt-0.5">
-                        {receptionUpdateStock
-                          ? "✅ Se sumará la cantidad recibida al stock físico de cada producto."
-                          : "⚠️ Desmarcado: La mercadería ya fue impactada en planillas o externamente. No se sumará al stock físico para evitar duplicaciones."}
-                      </span>
-                    </label>
-                  </div>
-                  <span className={`text-[10px] font-black px-2.5 py-1 rounded-full border shrink-0 ${
-                    receptionUpdateStock ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'
-                  }`}>
-                    {receptionUpdateStock ? 'Afecta Stock' : 'Sin Tocar Stock'}
-                  </span>
-                </div>
-
-                {/* Switch / Checkbox de Alinear OC con lo recibido */}
-                {receptionPOId && (
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-3.5 bg-amber-50/60 border border-amber-200/80 rounded-2xl gap-3">
-                    <div className="flex items-start sm:items-center gap-3">
-                      <input
-                        type="checkbox"
-                        id="alignPOCheck"
-                        checked={receptionAlignPO}
-                        onChange={(e) => setReceptionAlignPO(e.target.checked)}
-                        className="w-4 h-4 mt-0.5 sm:mt-0 rounded text-amber-600 focus:ring-amber-500 border-amber-300 cursor-pointer"
-                      />
-                      <label htmlFor="alignPOCheck" className="text-xs font-bold text-amber-950 cursor-pointer select-none">
-                        Cerrar faltantes de la OC si el proveedor no enviará el resto
-                        <span className="block text-[11px] text-amber-800 font-normal mt-0.5">
-                          Conserva las cantidades originalmente pedidas y cierra el saldo pendiente de recepción.
-                        </span>
-                      </label>
-                    </div>
-                    <span className={`text-[10px] font-black px-2.5 py-1 rounded-full border shrink-0 ${
-                      receptionAlignPO ? 'bg-amber-100 text-amber-900 border-amber-300' : 'bg-slate-100 text-slate-500 border-slate-200'
-                    }`}>
-                      {receptionAlignPO ? 'Alinea y Cierra OC' : 'Mantiene Saldo Pendiente'}
-                    </span>
-                  </div>
+                  </>
                 )}
+              </div>
 
-                <div className="border-t pt-4 space-y-4">
-                  <div className="flex justify-between items-center">
-                    <h4 className="text-xs font-black text-slate-800">Artículos Recibidos</h4>
-                    {receptionSupplierId && (
-                      <Button
-                        type="button"
-                        onClick={() => {
-                          // Allow adding custom item in-situ
-                          const prodSelect = document.createElement("select");
-                          prodSelect.className = "w-full p-2 border text-xs my-2 rounded-xl bg-white font-bold";
-                          prodSelect.innerHTML = `<option value="">-- Seleccionar Producto del Catálogo --</option>` +
-                            products.map(p => `<option value="${p.id}">${p.name} (${p.sku || ''})</option>`).join('');
-
-                          const container = document.createElement("div");
-                          container.className = "fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm";
-
-                          const inner = document.createElement("div");
-                          inner.className = "bg-white p-6 rounded-2xl w-full max-w-md space-y-4 shadow-xl";
-                          inner.innerHTML = `<h3 className="font-black text-sm text-slate-900">Agregar Ítem No Pedido (In-Situ)</h3>`;
-                          inner.appendChild(prodSelect);
-
-                          const actions = document.createElement("div");
-                          actions.className = "flex justify-end gap-2 border-t pt-3";
-
-                          const btnCancel = document.createElement("button");
-                          btnCancel.className = "px-3 py-1.5 border rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-100";
-                          btnCancel.textContent = "Cancelar";
-                          btnCancel.onclick = () => document.body.removeChild(container);
-
-                          const btnAdd = document.createElement("button");
-                          btnAdd.className = "px-4 py-1.5 bg-brand-600 text-white rounded-lg text-xs font-bold hover:bg-brand-700";
-                          btnAdd.textContent = "Agregar";
-                          btnAdd.onclick = () => {
-                            const val = prodSelect.value;
-                            if (val) {
-                              const p = products.find(prod => prod.id === val);
-                              if (p) {
-                                const exists = receptionItems.some(i => i.productId === p.id);
-                                if (exists) {
-                                  alert("El producto ya se encuentra en la recepción.");
-                                  return;
-                                }
-                                setReceptionItems([...receptionItems, {
-                                  poItemId: null,
-                                  productId: p.id,
-                                  productName: p.name,
-                                  sku: p.sku,
-                                  quantityOrdered: 0,
-                                  quantityReceivedPrior: 0,
-                                  quantityReceivedNew: 1,
-                                  unitCost: Number(p.price) || 0
-                                }]);
-                                document.body.removeChild(container);
-                              }
-                            }
-                          };
-
-                          actions.appendChild(btnCancel);
-                          actions.appendChild(btnAdd);
-                          inner.appendChild(actions);
-                          container.appendChild(inner);
-                          document.body.appendChild(container);
-                        }}
-                        className="py-1 px-2.5 rounded-lg text-[10px] font-black bg-slate-100 hover:bg-slate-200 text-slate-700 border"
-                      >
-                        <Plus className="w-3 h-3 mr-1" /> Agregar Ítem No Pedido (In-Situ)
-                      </Button>
-                    )}
-                  </div>
-
-                  <div className="border border-slate-200 rounded-2xl overflow-x-auto bg-white max-h-60 overflow-y-auto">
-                    <table className="w-full text-left text-xs min-w-[620px] border-collapse">
-                      <thead>
-                        <tr className="bg-slate-50 border-b text-slate-400 font-bold uppercase tracking-wider">
-                          <th className="p-3 whitespace-nowrap">Artículo / Detalle</th>
-                          <th className="p-3 text-right whitespace-nowrap" style={{ width: '80px' }}>Pedido</th>
-                          <th className="p-3 text-right whitespace-nowrap" style={{ width: '90px' }}>Recibido Prev.</th>
-                          <th className="p-3 text-right whitespace-nowrap" style={{ width: '130px' }}>Cant. Nueva Recibida</th>
-                          <th className="p-3 text-right whitespace-nowrap" style={{ width: '120px' }}>Costo Unitario ($)</th>
-                          <th className="p-3 text-right whitespace-nowrap">Subtotal</th>
-                          <th className="p-3 text-center whitespace-nowrap" style={{ width: '60px' }}>Acción</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 font-bold text-slate-700">
-                        {receptionItems.length === 0 ? (
-                          <tr>
-                            <td colSpan={8} className="p-6 text-center text-slate-400 font-normal">
-                              {!receptionSupplierId ? "Seleccioná un proveedor arriba." : "No hay ítems cargados. Podés vincular una OC o agregar un ítem no pedido."}
-                            </td>
-                          </tr>
-                        ) : (
-                          receptionItems.map((item, idx) => (
-                            <tr key={idx} className="hover:bg-slate-50/50">
-                              <td className="p-3 text-slate-900">{item.productName} {item.sku ? `(${item.sku})` : ''}</td>
-                              <td className="p-3 text-right text-slate-400">{item.quantityOrdered}</td>
-                              <td className="p-3 text-right text-slate-400">{item.quantityReceivedPrior}</td>
-                              <td className="p-3 text-right">
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="any"
-                                  required
-                                  value={item.quantityReceivedNew}
-                                  onChange={e => {
-                                    const updated = [...receptionItems];
-                                    updated[idx].quantityReceivedNew = parseFloat(e.target.value) || 0;
-                                    setReceptionItems(updated);
-                                  }}
-                                  className="w-20 px-2 py-1 border rounded-lg text-right text-xs font-black text-green-600 focus:border-green-500"
-                                />
-                              </td>
-                              <td className="p-3 text-right">
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="any"
-                                  required
-                                  value={item.unitCost}
-                                  onChange={e => {
-                                    const updated = [...receptionItems];
-                                    updated[idx].unitCost = parseFloat(e.target.value) || 0;
-                                    setReceptionItems(updated);
-                                  }}
-                                  className="w-24 px-2 py-1 border rounded-lg text-right text-xs"
-                                />
-                              </td>
-                              <td className="p-3 text-right text-slate-900">{formatPrice(item.quantityReceivedNew * item.unitCost)}</td>
-                              <td className="p-3 text-center">
-                                <button
-                                  type="button"
-                                  onClick={() => setReceptionItems(receptionItems.filter((_, i) => i !== idx))}
-                                  className="text-red-500 hover:text-red-700 p-1 rounded-lg"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  <div className="flex justify-between items-center bg-slate-50 p-4 rounded-2xl border border-slate-100 font-black">
-                    <span className="text-slate-600 text-xs">Monto Total de Remito:</span>
-                    <span className="text-slate-900 text-sm">
-                      {formatPrice(receptionItems.reduce((acc, i) => acc + (i.quantityReceivedNew * i.unitCost), 0))}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex justify-end gap-3 border-t pt-4">
-                  <Button type="button" disabled={savingReception} onClick={() => setShowNewReceptionModal(false)} className="bg-slate-100 text-slate-600 hover:bg-slate-200 py-2.5 px-4 rounded-xl">
-                    Cancelar
-                  </Button>
-                  <Button type="submit" disabled={savingReception} className="bg-brand-600 hover:bg-brand-700 py-2.5 px-6 rounded-xl text-white">
-                    <Check className="w-4 h-4 mr-1.5" /> {savingReception ? "Guardando…" : "Confirmar recepción y deuda"}
-                  </Button>
-                </div>
-              </form>
+              <div className="md:col-span-3 space-y-1">
+                <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Observaciones</label>
+                <input
+                  type="text"
+                  placeholder="Ej. Ingreso de materiales especiales de fábrica..."
+                  value={receptionNotes}
+                  onChange={e => setReceptionNotes(e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-xl border bg-slate-50 font-bold text-xs"
+                />
+              </div>
             </div>
-          )}
+
+            {/* Switch / Checkbox de Impacto en Stock */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-3.5 bg-slate-50 border border-slate-200/80 rounded-2xl gap-3">
+              <div className="flex items-start sm:items-center gap-3">
+                <input
+                  type="checkbox"
+                  id="updateStockCheck"
+                  checked={receptionUpdateStock}
+                  onChange={(e) => setReceptionUpdateStock(e.target.checked)}
+                  className="w-4 h-4 mt-0.5 sm:mt-0 rounded text-brand-600 focus:ring-brand-500 border-slate-300 cursor-pointer"
+                />
+                <label htmlFor="updateStockCheck" className="text-xs font-bold text-slate-800 cursor-pointer select-none">
+                  Impactar incremento en Stock Físico del Depósito
+                  <span className="block text-[11px] text-slate-500 font-normal mt-0.5">
+                    {receptionUpdateStock
+                      ? "✅ Se sumará la cantidad recibida al stock físico de cada producto."
+                      : "⚠️ Desmarcado: La mercadería ya fue impactada en planillas o externamente. No se sumará al stock físico para evitar duplicaciones."}
+                  </span>
+                </label>
+              </div>
+              <span className={`text-[10px] font-black px-2.5 py-1 rounded-full border shrink-0 ${
+                receptionUpdateStock ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'
+              }`}>
+                {receptionUpdateStock ? 'Afecta Stock' : 'Sin Tocar Stock'}
+              </span>
+            </div>
+
+            {/* Switch / Checkbox de Alinear OC con lo recibido */}
+            {receptionPOId && (
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-3.5 bg-amber-50/60 border border-amber-200/80 rounded-2xl gap-3">
+                <div className="flex items-start sm:items-center gap-3">
+                  <input
+                    type="checkbox"
+                    id="alignPOCheck"
+                    checked={receptionAlignPO}
+                    onChange={(e) => setReceptionAlignPO(e.target.checked)}
+                    className="w-4 h-4 mt-0.5 sm:mt-0 rounded text-amber-600 focus:ring-amber-500 border-amber-300 cursor-pointer"
+                  />
+                  <label htmlFor="alignPOCheck" className="text-xs font-bold text-amber-950 cursor-pointer select-none">
+                    Cerrar faltantes de la OC si el proveedor no enviará el resto
+                    <span className="block text-[11px] text-amber-800 font-normal mt-0.5">
+                      Conserva las cantidades originalmente pedidas y cierra el saldo pendiente de recepción.
+                    </span>
+                  </label>
+                </div>
+                <span className={`text-[10px] font-black px-2.5 py-1 rounded-full border shrink-0 ${
+                  receptionAlignPO ? 'bg-amber-100 text-amber-900 border-amber-300' : 'bg-slate-100 text-slate-500 border-slate-200'
+                }`}>
+                  {receptionAlignPO ? 'Alinea y Cierra OC' : 'Mantiene Saldo Pendiente'}
+                </span>
+              </div>
+            )}
+
+            <div className="border-t pt-4 space-y-4">
+              <div className="flex justify-between items-center">
+                <h4 className="text-xs font-black text-slate-800">Artículos Recibidos</h4>
+                {receptionSupplierId && (
+                  <Button
+                    type="button"
+                    onClick={() => {
+                      // Allow adding custom item in-situ
+                      const prodSelect = document.createElement("select");
+                      prodSelect.className = "w-full p-2 border text-xs my-2 rounded-xl bg-white font-bold";
+                      prodSelect.innerHTML = `<option value="">-- Seleccionar Producto del Catálogo --</option>` +
+                        products.map(p => `<option value="${p.id}">${p.name} (${p.sku || ''})</option>`).join('');
+
+                      const container = document.createElement("div");
+                      container.className = "fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm";
+
+                      const inner = document.createElement("div");
+                      inner.className = "bg-white p-6 rounded-2xl w-full max-w-md space-y-4 shadow-xl";
+                      inner.innerHTML = `<h3 className="font-black text-sm text-slate-900">Agregar Ítem No Pedido (In-Situ)</h3>`;
+                      inner.appendChild(prodSelect);
+
+                      const actions = document.createElement("div");
+                      actions.className = "flex justify-end gap-2 border-t pt-3";
+
+                      const btnCancel = document.createElement("button");
+                      btnCancel.className = "px-3 py-1.5 border rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-100";
+                      btnCancel.textContent = "Cancelar";
+                      btnCancel.onclick = () => document.body.removeChild(container);
+
+                      const btnAdd = document.createElement("button");
+                      btnAdd.className = "px-4 py-1.5 bg-brand-600 text-white rounded-lg text-xs font-bold hover:bg-brand-700";
+                      btnAdd.textContent = "Agregar";
+                      btnAdd.onclick = () => {
+                        const val = prodSelect.value;
+                        if (val) {
+                          const p = products.find(prod => prod.id === val);
+                          if (p) {
+                            const exists = receptionItems.some(i => i.productId === p.id);
+                            if (exists) {
+                              alert("El producto ya se encuentra en la recepción.");
+                              return;
+                            }
+                            setReceptionItems([...receptionItems, {
+                              poItemId: null,
+                              productId: p.id,
+                              productName: p.name,
+                              sku: p.sku,
+                              quantityOrdered: 0,
+                              quantityReceivedPrior: 0,
+                              quantityReceivedNew: 1,
+                              unitCost: Number(p.price) || 0
+                            }]);
+                            document.body.removeChild(container);
+                          }
+                        }
+                      };
+
+                      actions.appendChild(btnCancel);
+                      actions.appendChild(btnAdd);
+                      inner.appendChild(actions);
+                      container.appendChild(inner);
+                      document.body.appendChild(container);
+                    }}
+                    className="py-1 px-2.5 rounded-lg text-[10px] font-black bg-slate-100 hover:bg-slate-200 text-slate-700 border"
+                  >
+                    <Plus className="w-3 h-3 mr-1" /> Agregar Ítem No Pedido (In-Situ)
+                  </Button>
+                )}
+              </div>
+
+              <div className="border border-slate-200 rounded-2xl overflow-x-auto bg-white max-h-60 overflow-y-auto">
+                <table className="w-full text-left text-xs min-w-[620px] border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50 border-b text-slate-400 font-bold uppercase tracking-wider">
+                      <th className="p-3 whitespace-nowrap">Artículo / Detalle</th>
+                      <th className="p-3 text-right whitespace-nowrap" style={{ width: '80px' }}>Pedido</th>
+                      <th className="p-3 text-right whitespace-nowrap" style={{ width: '90px' }}>Recibido Prev.</th>
+                      <th className="p-3 text-right whitespace-nowrap" style={{ width: '130px' }}>Cant. Nueva Recibida</th>
+                      <th className="p-3 text-right whitespace-nowrap" style={{ width: '120px' }}>Costo Unitario ($)</th>
+                      <th className="p-3 text-right whitespace-nowrap">Subtotal</th>
+                      <th className="p-3 text-center whitespace-nowrap" style={{ width: '60px' }}>Acción</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 font-bold text-slate-700">
+                    {receptionItems.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="p-6 text-center text-slate-400 font-normal">
+                          {!receptionSupplierId ? "Seleccioná un proveedor arriba." : "No hay ítems cargados. Podés vincular una OC o agregar un ítem no pedido."}
+                        </td>
+                      </tr>
+                    ) : (
+                      receptionItems.map((item, idx) => (
+                        <tr key={idx} className="hover:bg-slate-50/50">
+                          <td className="p-3 text-slate-900">{item.productName} {item.sku ? `(${item.sku})` : ''}</td>
+                          <td className="p-3 text-right text-slate-400">{item.quantityOrdered}</td>
+                          <td className="p-3 text-right text-slate-400">{item.quantityReceivedPrior}</td>
+                          <td className="p-3 text-right">
+                            <input
+                              type="number"
+                              min="0"
+                              step="any"
+                              required
+                              value={item.quantityReceivedNew}
+                              onChange={e => {
+                                const updated = [...receptionItems];
+                                updated[idx].quantityReceivedNew = parseFloat(e.target.value) || 0;
+                                setReceptionItems(updated);
+                              }}
+                              className="w-20 px-2 py-1 border rounded-lg text-right text-xs font-black text-green-600 focus:border-green-500"
+                            />
+                          </td>
+                          <td className="p-3 text-right">
+                            <input
+                              type="number"
+                              min="0"
+                              step="any"
+                              required
+                              value={item.unitCost}
+                              onChange={e => {
+                                const updated = [...receptionItems];
+                                updated[idx].unitCost = parseFloat(e.target.value) || 0;
+                                setReceptionItems(updated);
+                              }}
+                              className="w-24 px-2 py-1 border rounded-lg text-right text-xs"
+                            />
+                          </td>
+                          <td className="p-3 text-right text-slate-900">{formatPrice(item.quantityReceivedNew * item.unitCost)}</td>
+                          <td className="p-3 text-center">
+                            <button
+                              type="button"
+                              onClick={() => setReceptionItems(receptionItems.filter((_, i) => i !== idx))}
+                              className="text-red-500 hover:text-red-700 p-1 rounded-lg"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="flex justify-between items-center bg-slate-50 p-4 rounded-2xl border border-slate-100 font-black">
+                <span className="text-slate-600 text-xs">Monto Total de Remito:</span>
+                <span className="text-slate-900 text-sm">
+                  {formatPrice(receptionItems.reduce((acc, i) => acc + (i.quantityReceivedNew * i.unitCost), 0))}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 border-t pt-4">
+              <Button type="button" disabled={savingReception} onClick={() => setShowNewReceptionModal(false)} className="bg-slate-100 text-slate-600 hover:bg-slate-200 py-2.5 px-4 rounded-xl">
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={savingReception} className="bg-brand-600 hover:bg-brand-700 py-2.5 px-6 rounded-xl text-white">
+                <Check className="w-4 h-4 mr-1.5" /> {savingReception ? "Guardando…" : "Confirmar recepción y deuda"}
+              </Button>
+            </div>
+          </form>
         </div>
       )}
 
