@@ -883,6 +883,7 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
     try {
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://zono-erp.pages.dev';
       const logisticsRunId = crypto.randomUUID();
+      let reviewOptions: any = {};
       let cursor = 0;
       let done = false;
       let totalSynced = 0;
@@ -896,9 +897,10 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
         const logiRes = await fetch(`${appUrl}/api/admin/audit-deliveries`, {
           method: "POST",
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ cursor, batchSize: 250, syncRunId: logisticsRunId })
+          body: JSON.stringify({ cursor, batchSize: 250, syncRunId: logisticsRunId, ...reviewOptions })
         });
         const logiData = await logiRes.json();
+        if (cursor === 0 && logiData.review) reviewOptions = { reviewMode: logiData.review.mode === 'full' ? 'full' : 'resolved-recent', reviewSince: logiData.review.since, reviewOrderCodes: logiData.reviewOrderCodes };
         if (!logiRes.ok || logiData.success === false) {
           throw new Error(logiData.error || `HTTP ${logiRes.status}`);
         }

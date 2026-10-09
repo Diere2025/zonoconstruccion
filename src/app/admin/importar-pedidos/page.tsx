@@ -1,6 +1,8 @@
 "use client";
 import { cuotaSimpleInstallments, isRetiredPaymentMethod } from "@/lib/cuotaSimple";
 
+import { createAdaptiveImportBatch } from "@/lib/adaptiveImportBatch";
+
 import React, { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/Button";
 import { 
@@ -20,7 +22,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
-import { activeOrderCodes, hasActiveOrder, oncePerKey, syncOutcome } from "@/lib/orderSync";
+import { activeOrderCodes, hasActiveOrder, mapWithConcurrency, oncePerKey, syncOutcome } from "@/lib/orderSync";
 
 export default function ImportarPedidosPage() {
   // Import Orders Selection State
@@ -35,6 +37,8 @@ export default function ImportarPedidosPage() {
   const [syncPaymentMethods, setSyncPaymentMethods] = useState(false);
   const [syncLogistics, setSyncLogistics] = useState(true);
   const [syncStock, setSyncStock] = useState(true);
+  const [logisticsPeriod, setLogisticsPeriod] = useState('3');
+  const [logisticsSince, setLogisticsSince] = useState('');
   const [summaryStatus, setSummaryStatus] = useState<'success' | 'partial' | 'cancelled' | 'error'>('success');
   const [showRules, setShowRules] = useState(false);
   
@@ -427,6 +431,19 @@ export default function ImportarPedidosPage() {
       }
 
       setStats(prev => ({ ...prev, totalSheets: sheets.length }));
+      setCurrentStepText("Descargando planillas...");
+      addLog(`📥 Descargando ${sheets.length} planilla(s), hasta 3 al mismo tiempo...`);
+      const downloadStartedAt = Date.now();
+      // Read concurrently; apply orders sequentially to preserve seller/Central precedence.
+      const downloadedSheets = await mapWithConcurrency(sheets, 3, async sheet => {
+        if (cancelImportRef.current) return [];
+        return readSheet(sheet.url);
+      });
+      if (cancelImportRef.current) {
+        addLog("⏹️ Descarga detenida. No se iniciarán nuevos lotes.");
+      } else {
+        addLog(`📥 Planillas descargadas en ${((Date.now() - downloadStartedAt) / 1000).toFixed(1)}s.`);
+      }
 
       let totalImported = 0;
       let totalUpdated = 0;
@@ -441,8 +458,7 @@ export default function ImportarPedidosPage() {
         setProgressPercent(stepBase);
         setCurrentStepText(`Planilla ${sIdx + 1}/${sheets.length}: ${sheet.name}...`);
 
-        addLog(`📄 Descargando planilla de ${sheet.name}...`);
-        const rows = await readSheet(sheet.url);
+        const rows = downloadedSheets[sIdx];
         if (cancelImportRef.current) break;
 
         const targetRows = rows.filter((row, idx) => {
@@ -470,25 +486,29 @@ export default function ImportarPedidosPage() {
         });
 
         if (targetRows.length > 0) {
-          const CHUNK_SIZE = 5;
-          const totalChunks = Math.ceil(targetRows.length / CHUNK_SIZE);
-          addLog(`📄 ${sheet.name}: Procesando ${targetRows.length} pedidos en ${totalChunks} lote(s) optimizados...`);
+          const batching = createAdaptiveImportBatch();
+          let processedRows = 0;
+          let chunkIdx = 0;
+          addLog(`📄 ${sheet.name}: Procesando ${targetRows.length} pedidos en lotes adaptables de 5 a 20...`);
 
-          for (let chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++) {
+          while (processedRows < targetRows.length) {
             if (cancelImportRef.current) break;
 
-            const chunkRows = targetRows.slice(chunkIdx * CHUNK_SIZE, (chunkIdx + 1) * CHUNK_SIZE);
+            const chunkRows = targetRows.slice(processedRows, processedRows + batching.size);
+            const previousSize = batching.size;
+            let batchRetried = false;
             const startProc = Date.now();
 
             let importRes: any = null;
             for (let retry = 1; retry <= 4; retry++) {
               if (cancelImportRef.current) break;
+              if (retry > 1) batchRetried = true;
               try {
                 importRes = await fetch("/api/admin/import-sheet", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({
-                    sheetName: `${sheet.name} (Lote ${chunkIdx + 1}/${totalChunks})`,
+                    sheetName: `${sheet.name} (Lote ${chunkIdx + 1}, ${chunkRows.length} pedidos)`,
                     rows: chunkRows,
                     skipENC,
                     skipCAMB,
@@ -571,7 +591,11 @@ export default function ImportarPedidosPage() {
                 sheetsCompleted: sheetsDone,
                 totalSheets: sheets.length
               });
-              setProgressPercent(stepBase + Math.round(((chunkIdx + 1) / totalChunks) * (60 / sheets.length)));
+              processedRows += chunkRows.length;
+              chunkIdx++;
+              const nextSize = batching.observe(Date.now() - startProc, true, chunkRows.length);
+              if (nextSize !== previousSize) addLog(`  ↳ Próximo lote: ${nextSize} pedidos, por incidencias en el anterior.`);
+              setProgressPercent(stepBase + Math.round((processedRows / targetRows.length) * (60 / sheets.length)));
               continue;
             }
 
@@ -587,11 +611,11 @@ export default function ImportarPedidosPage() {
 
             const duration = ((Date.now() - startProc) / 1000).toFixed(1);
             if (importData.metrics) addLog(`  ↳ Carga ${((importData.metrics.loadMs || 0) / 1000).toFixed(1)}s; procesamiento ${((importData.metrics.processMs || 0) / 1000).toFixed(1)}s.`);
-            if (totalChunks > 1) {
-              addLog(`  ↳ Lote ${chunkIdx + 1}/${totalChunks}: ${importData.totalImported || 0} nuevos, ${importData.totalUpdated || 0} actualizados (${duration}s).`);
-            } else {
-              addLog(`✅ ${sheet.name}: ${importData.totalImported || 0} nuevos creados, ${importData.totalUpdated || 0} actualizados (${duration}s).`);
-            }
+            processedRows += chunkRows.length;
+            chunkIdx++;
+            addLog(`  ↳ Lote ${chunkIdx}: ${chunkRows.length} pedidos; ${importData.totalImported || 0} nuevos, ${importData.totalUpdated || 0} actualizados (${duration}s). Avance: ${processedRows}/${targetRows.length}.`);
+            const nextSize = batching.observe(Date.now() - startProc, batchRetried || (importData.warnings || []).length > 0, chunkRows.length);
+            if (nextSize !== previousSize) addLog(`  ↳ Próximo lote: ${nextSize} pedidos, según el tiempo y resultado del anterior.`);
 
             setStats({
               imported: totalImported,
@@ -600,7 +624,7 @@ export default function ImportarPedidosPage() {
               sheetsCompleted: sheetsDone,
               totalSheets: sheets.length
             });
-            setProgressPercent(stepBase + Math.round(((chunkIdx + 1) / totalChunks) * (60 / sheets.length)));
+            setProgressPercent(stepBase + Math.round((processedRows / targetRows.length) * (60 / sheets.length)));
           }
         } else {
           addLog(`ℹ️ ${sheet.name}: Sin pedidos nuevos para procesar.`);
@@ -625,6 +649,9 @@ export default function ImportarPedidosPage() {
         
         try {
           const logisticsRunId = crypto.randomUUID();
+          if (logisticsPeriod === 'custom' && !logisticsSince) throw new Error('Seleccioná una fecha desde para revisar Logística.');
+          let reviewOptions: any = { reviewMode: logisticsPeriod === 'full' ? 'full' : 'recent', reviewDays: logisticsPeriod === '7' ? 7 : 3,
+            ...(logisticsPeriod === 'custom' ? { reviewSince: logisticsSince } : {}) };
           let cursor = 0;
           let done = false;
           let totalSynced = 0;
@@ -638,10 +665,17 @@ export default function ImportarPedidosPage() {
             const logiRes = await fetch("/api/admin/audit-deliveries", {
               method: "POST",
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ cursor, batchSize: 250, syncRunId: logisticsRunId })
+              body: JSON.stringify({ cursor, batchSize: 250, syncRunId: logisticsRunId, ...reviewOptions })
             });
             const logiData = await logiRes.json();
             if (!logiRes.ok || logiData.success === false) throw new Error(logiData.error || `HTTP ${logiRes.status}`);
+            if (cursor === 0 && logiData.review) {
+              reviewOptions = { reviewMode: logiData.review.mode === 'full' ? 'full' : 'resolved-recent', reviewSince: logiData.review.since, reviewOrderCodes: logiData.reviewOrderCodes };
+              addLog(logiData.review.mode === 'full'
+                ? `📅 Revisión completa${logiData.review.weeklyDue && logisticsPeriod !== 'full' ? ' por control semanal pendiente' : ''}: ${logiData.totalOrders} pedidos.`
+                : `📅 Revisión desde ${logiData.review.since}: ${logiData.totalOrders} pedidos; ${logiData.excludedHistoricalOrdersCount || 0} entregados históricos excluidos. Incluye pendientes de estado o fecha.`);
+            }
+            if (logiData.fullReviewRecorded) addLog('📅 Revisión completa registrada correctamente para el control semanal.');
 
             totalSynced += logiData.syncedOrdersCount || 0;
             totalDeliveryDatesSynced += logiData.syncedDeliveryDatesCount || 0;
@@ -860,6 +894,17 @@ export default function ImportarPedidosPage() {
             <input type="checkbox" checked={syncLogistics} disabled={importingOrders} onChange={e => setSyncLogistics(e.target.checked)} />
             Sincronizar entregas e importes finales de Logística
           </label>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+            <label htmlFor="logistics-period">Revisar entregados</label>
+            <select id="logistics-period" value={logisticsPeriod} disabled={importingOrders || !syncLogistics} onChange={e => setLogisticsPeriod(e.target.value)} className="rounded border border-slate-300 bg-white px-2 py-1">
+              <option value="3">Últimos 3 días</option>
+              <option value="7">Últimos 7 días</option>
+              <option value="custom">Desde una fecha</option>
+              <option value="full">Todo el historial</option>
+            </select>
+            {logisticsPeriod === 'custom' && <input type="date" aria-label="Revisar entregados desde" value={logisticsSince} disabled={importingOrders || !syncLogistics} onChange={e => setLogisticsSince(e.target.value)} className="rounded border border-slate-300 px-2 py-1" />}
+          </div>
+          <p className="text-[11px] text-slate-500">Siempre se revisan los pedidos en reparto, cancelaciones pendientes y entregados sin estado o fecha conciliados. Cada 7 días, la siguiente sincronización hace una revisión completa automáticamente.</p>
           <label className="flex items-center gap-2 text-xs text-slate-600">
             <input type="checkbox" checked={syncStock && syncLogistics} disabled={importingOrders || !syncLogistics} onChange={e => setSyncStock(e.target.checked)} />
             Actualizar stock físico desde Planillas y recalcular reservas
@@ -872,7 +917,7 @@ export default function ImportarPedidosPage() {
           <div className="flex flex-col sm:flex-row gap-3">
             <Button
               onClick={handleImportOrders}
-              disabled={importingOrders}
+              disabled={importingOrders || (syncLogistics && logisticsPeriod === 'custom' && !logisticsSince)}
               className="flex-1 py-6 text-base font-black rounded-2xl shadow-xl shadow-brand-600/10 bg-brand-600 hover:bg-brand-700 text-white flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
             >
               {importingOrders ? (

@@ -7,8 +7,9 @@ import { logisticsCancellationReasons, logisticsCancellationReason } from '@/lib
 import { isLogisticsOrderCode, mapWithConcurrency, splitOrderCodes } from '@/lib/orderSync';
 import { loadLogisticsBatchItems } from '@/lib/logisticsBatchItems';
 import { createRunReadCache } from '@/lib/runReadCache';
+import { LOGISTICS_REVIEW_SETTING, logisticsReviewPolicy, shouldReviewLogisticsOrder, type LogisticsReview } from '@/lib/logisticsReview';
 
-const logisticsSourceCache = createRunReadCache<[string, string[][], any[], any[]]>();
+const logisticsSourceCache = createRunReadCache<[string, string[][], any[], any[], LogisticsReview]>();
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.dummy';
@@ -17,6 +18,15 @@ const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 const LOGISTICS_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1TYeIyGbDleed1bTJyhuaxcM97KMbNbL--1OswOppROg/gviz/tq?tqx=out:csv&gid=1438488516';
 const LOGISTICS_SPREADSHEET_ID = '1TYeIyGbDleed1bTJyhuaxcM97KMbNbL--1OswOppROg';
 const LOGISTICS_CANCELLED_CODES_RANGE = "'Cancelados'!B2:D";
+
+async function readFullReviewState() {
+  const { data, error } = await supabaseAdmin.from('site_settings').select('value').eq('id', LOGISTICS_REVIEW_SETTING).maybeSingle();
+  if (error) throw error;
+  if (!data?.value) return { completedAt: null as string | null, runId: '', nextCursor: 0 };
+  const state = typeof data.value === 'string' ? JSON.parse(data.value) : data.value;
+  return { completedAt: state.completedAt || null, runId: state.runId || '', nextCursor: state.nextCursor || 0 };
+}
+
 
 function parseCSV(text: string): string[][] {
   const results: string[][] = [];
@@ -134,6 +144,14 @@ const summarizeItems = (items: any[]) => {
 };
 
 export async function GET(request: Request) {
+  if (new URL(request.url).searchParams.get('review-policy') === '1') {
+    try {
+      const state = await readFullReviewState();
+      return NextResponse.json({ ...logisticsReviewPolicy({}, state.completedAt), completedAt: state.completedAt });
+    } catch (error: any) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+  }
   if (new URL(request.url).searchParams.get('capabilities') === '1') {
     return NextResponse.json({ dryRun: true, perRunSourceReuse: true });
   }
@@ -194,6 +212,7 @@ export async function GET(request: Request) {
         total_amount: o.total_amount,
         payment_method_name: o.payment_methods ? (o.payment_methods as any).name : 'Sin especificar',
         customer_name: o.customer_name,
+        hasRealDeliveryDate: Array.isArray(o.deliveries) && o.deliveries.length > 0 && o.deliveries.every((delivery: any) => !!delivery.real_delivery_date),
         items: []
       };
       codes.forEach((c: string) => {
@@ -583,7 +602,7 @@ export async function POST(request: Request) {
       for (let page = 0; ; page++) {
         const { data, error } = await supabaseAdmin
           .from('orders')
-          .select('id, legacy_code, status, total_amount, payment_method_id, customer_name')
+          .select('id, legacy_code, status, total_amount, payment_method_id, customer_name, deliveries(real_delivery_date)')
           .not('legacy_code', 'is', null)
           .range(page * pageSize, (page + 1) * pageSize - 1);
         if (error) throw error;
@@ -613,9 +632,10 @@ export async function POST(request: Request) {
       fetchSpreadsheetCsv(LOGISTICS_SHEET_URL),
       fetchSpreadsheetValues(LOGISTICS_SPREADSHEET_ID, LOGISTICS_CANCELLED_CODES_RANGE),
       fetchOrdersAll(),
-      fetchProductsAll()
+      fetchProductsAll(),
+      readFullReviewState().then(state => logisticsReviewPolicy(options, state.completedAt))
     ]));
-    const [csvText, cancelledCodeRows, dbOrdersList, products] = sourceRead.value;
+    const [csvText, cancelledCodeRows, dbOrdersList, products, review] = sourceRead.value;
     // New methods can be created by earlier batches; refresh this small lookup.
     const payMethodsRes = await supabaseAdmin.from('payment_methods').select('id, name');
     let loadMs = Date.now() - loadStartedAt;
@@ -649,6 +669,7 @@ export async function POST(request: Request) {
     const dbOrdersMap = new Map<string, any>();
     const dbOrdersById = new Map<string, any>();
     dbOrdersList.forEach(o => {
+      const deliveries = Array.isArray(o.deliveries) ? o.deliveries : o.deliveries ? [o.deliveries] : [];
       const codes = o.legacy_code.split(/[\/,]/).map((c: string) => c.trim().toUpperCase());
       const orderObj = {
         id: o.id,
@@ -657,6 +678,7 @@ export async function POST(request: Request) {
         total_amount: o.total_amount,
         payment_method_id: o.payment_method_id,
         customer_name: o.customer_name,
+        hasRealDeliveryDate: deliveries.length > 0 && deliveries.every((delivery: any) => !!delivery.real_delivery_date),
         items: []
       };
       codes.forEach((c: string) => {
@@ -838,10 +860,24 @@ export async function POST(request: Request) {
     let syncedOrdersCount = 0;
     let skippedOrdersCount = 0;
 
-    const allSheetOrders = Array.from(aggregatedSheetOrders.values());
-    const batchOrders = allSheetOrders.slice(cursor, cursor + batchSize);
-    const nextCursor = Math.min(cursor + batchOrders.length, allSheetOrders.length);
-    const done = nextCursor >= allSheetOrders.length;
+    const aggregatedOrders = Array.from(aggregatedSheetOrders.values());
+    const allSheetOrders = aggregatedOrders.filter(order => {
+      const firstCode = splitOrderCodes(order.code)[0];
+      return shouldReviewLogisticsOrder(order, dbOrdersMap.get(firstCode), review);
+    });
+    const selectedCodes: string[] = Array.isArray(options.reviewOrderCodes)
+      ? options.reviewOrderCodes.filter((code: unknown): code is string => typeof code === 'string')
+      : allSheetOrders.map(order => order.code);
+    const selectedOrders = new Map(aggregatedOrders.map(order => [order.code, order]));
+    const excludedHistoricalOrdersCount = Math.max(0, aggregatedOrders.length - selectedCodes.length);
+    // Keep the original identities across workers: repairing an old delivery must not shift later cursors.
+    const batchOrders = selectedCodes.slice(cursor, cursor + batchSize).flatMap(code => {
+      const order = selectedOrders.get(code);
+      return order ? [order] : [];
+    });
+    const nextCursor = Math.min(cursor + batchSize, selectedCodes.length);
+    const done = nextCursor >= selectedCodes.length;
+    const reviewOrderCodes = cursor === 0 ? selectedCodes : undefined;
 
     // Grouping and cursor selection need order identities, but item comparisons
     // need only this batch. Cancelled orders preserve their commercial data.
@@ -976,7 +1012,7 @@ export async function POST(request: Request) {
     if (options.dryRun === true) {
       if (done) logisticsSourceCache.release(options.syncRunId);
       return NextResponse.json({ success: true, dryRun: true, done, cursor, nextCursor,
-        totalOrders: allSheetOrders.length, plannedUpdatesCount: plannedUpdates.length, skippedOrdersCount,
+        review, reviewOrderCodes, excludedHistoricalOrdersCount, totalOrders: selectedCodes.length, plannedUpdatesCount: plannedUpdates.length, skippedOrdersCount,
         metrics: { loadMs, planMs: Date.now() - planStartedAt, applyMs: 0, totalMs: Date.now() - startedAt, reusedSources: sourceRead.reused }
       });
     }
@@ -1085,14 +1121,28 @@ export async function POST(request: Request) {
     console.log(`POST: Checked ${checkedLogiRows} logistics rows; synced ${syncedOrdersCount} orders and ${syncedDeliveryDatesCount} actual delivery dates; ${conflictingDeliveryDatesCount} date conflicts in ${totalMs}ms.`);
 
     console.log(`POST: Batch completed successfully. Synced ${syncedOrdersCount} orders.`);
+    let fullReviewRecorded = false;
+    if (review.mode === 'full' && typeof options.syncRunId === 'string' && /^[a-zA-Z0-9_-]{1,80}$/.test(options.syncRunId)) {
+      const state = await readFullReviewState();
+      // Advance only a contiguous successful run; a failed or cancelled run cannot mark the week complete.
+      if (cursor === 0 || (state.runId === options.syncRunId && state.nextCursor === cursor)) {
+        const { error } = await supabaseAdmin.from('site_settings').upsert({ id: LOGISTICS_REVIEW_SETTING, value: JSON.stringify({
+          completedAt: done ? new Date().toISOString() : state.completedAt,
+          runId: options.syncRunId, nextCursor
+        }) });
+        if (error) throw error;
+        fullReviewRecorded = done;
+      }
+    }
     if (done) logisticsSourceCache.release(options.syncRunId);
     return NextResponse.json({
       success: true,
+      review, reviewOrderCodes, excludedHistoricalOrdersCount, fullReviewRecorded,
       done,
       cursor,
       nextCursor,
       batchSize: batchOrders.length,
-      totalOrders: allSheetOrders.length,
+      totalOrders: selectedCodes.length,
       cancelledCodesCount: cancelledCodes.size,
       syncedOrdersCount,
       syncedDeliveryDatesCount,

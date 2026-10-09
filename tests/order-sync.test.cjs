@@ -63,14 +63,14 @@ test('logistics reconciliation uses paid-worker batches, bounded concurrency and
   const page = fs.readFileSync('src/app/admin/importar-pedidos/page.tsx', 'utf8');
 
   assert.match(route, /Math\.min\(500, Math\.max\(1, requestedBatchSize\)\)/);
-  assert.match(route, /allSheetOrders\.slice\(cursor, cursor \+ batchSize\)/);
+  assert.match(route, /selectedCodes\.slice\(cursor, cursor \+ batchSize\)/);
   assert.match(route, /done,\s*cursor,\s*nextCursor/);
   assert.match(route, /mapWithConcurrency\(plannedUpdates, 5/);
   assert.match(route, /mapWithConcurrency\(itemReplacements, 5/);
   assert.match(route, /\.delete\(\)\s*\.eq\('order_id', update\.dbOrder\.id\)/);
   assert.match(route, /metrics: \{ loadMs, planMs, applyMs, totalMs, reusedSources: sourceRead\.reused \}/);
   assert.match(page, /while \(!done && !cancelImportRef\.current\)/);
-  assert.match(page, /JSON\.stringify\(\{ cursor, batchSize: 250, syncRunId: logisticsRunId \}\)/);
+  assert.match(page, /JSON\.stringify\(\{ cursor, batchSize: 250, syncRunId: logisticsRunId, \.\.\.reviewOptions \}\)/);
   assert.match(page, /fetch\("\/api\/admin\/sync-stock", \{ method: "POST" \}\)/);
 });
 

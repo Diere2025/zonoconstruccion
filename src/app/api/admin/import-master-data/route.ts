@@ -57,7 +57,7 @@ export async function GET(request: Request) {
     }
 
     // Helper function to fetch ALL orders (ALL statuses) with pagination to prevent duplicates
-    async function fetchOrdersAll() {
+    async function fetchOrdersAll(columns = 'id, legacy_code, status, delivery_detail, whaticket_link, order_medium_id') {
       let allOrders: any[] = [];
       let page = 0;
       const pageSize = 1000;
@@ -66,7 +66,7 @@ export async function GET(request: Request) {
         const data = await withRetry(async () => {
           const { data, error } = await supabaseAdmin
             .from('orders')
-            .select('id, legacy_code, status, delivery_detail, whaticket_link, order_medium_id')
+            .select(columns)
             .range(page * pageSize, (page + 1) * pageSize - 1);
           if (error) throw error;
           return data;
@@ -89,7 +89,7 @@ export async function GET(request: Request) {
     // La sincronización sólo necesita el índice de pedidos para filtrar filas.
     // Mantener la respuesta completa para otros consumidores del endpoint.
     if (new URL(request.url).searchParams.get('scope') === 'orders') {
-      const orders = await fetchOrdersAll();
+      const orders = await fetchOrdersAll('legacy_code, status');
       return NextResponse.json({ orders });
     }
 
