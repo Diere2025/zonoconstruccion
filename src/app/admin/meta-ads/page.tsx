@@ -328,9 +328,11 @@ export default function MetaAdsPage() {
     return () => clearInterval(interval);
   }, []);
 
+  const formatLivePrice = (value: number) => liveSummary?.totalSpendArs == null ? 'No disponible' : formatPrice(value);
+
   // Real-time Pacing & Forecasting Engine
   const livePacingMetrics = useMemo(() => {
-    if (!liveSummary) return null;
+    if (!liveSummary || liveSummary.totalSpendArs == null) return null;
 
     const totalMessages = liveSummary.totalMessages || 0;
     const totalSpendArs = liveSummary.totalSpendArs || 0;
@@ -1310,6 +1312,15 @@ export default function MetaAdsPage() {
           {activeTab === 'live' && (
             <div className="space-y-6">
               <MetaReview campaigns={liveCampaigns} data={liveData} targets={targets} setTarget={setTarget} fresh={liveFresh} detailsOpen={reviewDetailsOpen} onDetailsOpenChange={setReviewDetailsOpen} />
+              <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm space-y-1" aria-live="polite">
+                {liveData?.fx?.effectiveRate != null ? <>
+                  <p><strong>Dólar publicitario: {liveData.fx.effectiveRate.toLocaleString('es-AR', {style:'currency', currency:'ARS', minimumFractionDigits:2, maximumFractionDigits:2})}</strong> · Binance P2P compra USDT: {liveData.fx.baseRate.toLocaleString('es-AR', {style:'currency', currency:'ARS', minimumFractionDigits:2, maximumFractionDigits:2})} + agencia 5,5%.</p>
+                  <p className="text-slate-500">ARS estimados a cotización actual, incluida la comisión en gasto, presupuesto y costo por mensaje. Referencia: compra de {formatPrice(liveData.fx.referenceArs)}, mediana de hasta 5 ofertas de comerciantes; el precio final depende del medio de pago.</p>
+                  <p className="text-slate-500">Cotización: {new Date(liveData.fx.quotedAt).toLocaleString('es-AR', {timeZone:'America/Argentina/Buenos_Aires'})} · Se consulta al cargar o actualizar, con caché de 10 minutos.</p>
+                  {liveData.fx.status === 'stale' && <p className="font-semibold text-amber-700">Binance no respondió: se usa la última cotización válida, por un máximo de una hora.</p>}
+                </> : <p className="font-semibold text-amber-700">{liveData?.source === 'sheet' ? 'Respaldo de planilla: importes originales, sin recotización Binance.' : 'Cotización Binance no disponible. Se conservan los datos USD; los importes ARS y las simulaciones quedan pendientes.'}</p>}
+                <p className="text-slate-500">El histórico conserva el dólar y la comisión registrados en cada fecha.</p>
+              </div>
               {/* Executive Summary Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 {/* 1. Leads Hoy */}
@@ -1365,7 +1376,7 @@ export default function MetaAdsPage() {
                       </div>
                     </div>
                     <div className="text-2xl font-black text-slate-900 tracking-tight">
-                      {formatPrice(liveSummary?.totalSpendArs || 0)}
+                      {formatLivePrice(liveSummary?.totalSpendArs || 0)}
                     </div>
                     <p className="text-[11px] text-slate-500 font-semibold font-mono">
                       US$ {(liveSummary?.totalSpendUsd || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
@@ -1379,7 +1390,7 @@ export default function MetaAdsPage() {
                           <span className="text-indigo-600 font-black">⏱️</span> Proy. Gasto Fin de Día:
                         </span>
                         <span className="font-black text-indigo-700 font-mono bg-indigo-50 px-2 py-0.5 rounded-lg border border-indigo-200/70">
-                          {formatPrice(livePacingMetrics.projectedSpendByPace)}
+                          {formatLivePrice(livePacingMetrics.projectedSpendByPace)}
                         </span>
                       </div>
                       <div className="flex items-center justify-between">
@@ -1387,7 +1398,7 @@ export default function MetaAdsPage() {
                           <span>🎯</span> Budget Asignado:
                         </span>
                         <span className="font-bold text-slate-700 font-mono">
-                          {formatPrice(livePacingMetrics.activeBudgetArs)}
+                          {formatLivePrice(livePacingMetrics.activeBudgetArs)}
                         </span>
                       </div>
                     </div>
@@ -1406,7 +1417,7 @@ export default function MetaAdsPage() {
                       </div>
                     </div>
                     <div className="text-2xl font-black text-slate-900 tracking-tight">
-                      {formatPrice(liveSummary?.avgCprArs || 0)} <span className="text-xs font-bold text-slate-400">/ lead</span>
+                      {formatLivePrice(liveSummary?.avgCprArs || 0)} <span className="text-xs font-bold text-slate-400">/ lead</span>
                     </div>
                     <p className="text-[11px] text-slate-500 font-semibold">
                       Costo promedio ponderado por mensaje
@@ -1486,7 +1497,7 @@ export default function MetaAdsPage() {
                           Budget ideal a las {livePacingMetrics.timeFormatted}:
                         </span>
                         <span className="font-bold text-slate-700 font-mono">
-                          {formatPrice(livePacingMetrics.expectedSpendToNow)}
+                          {formatLivePrice(livePacingMetrics.expectedSpendToNow)}
                         </span>
                       </div>
                     </div>
@@ -1593,7 +1604,7 @@ export default function MetaAdsPage() {
                         <div className="bg-white p-3.5 rounded-xl border border-slate-100 shadow-2xs">
                           <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Gasto Proyectado Cierre</span>
                           <div className="text-lg font-black text-slate-900 mt-1 font-mono">
-                            {formatPrice(livePacingMetrics.projectedSpendByPace)}
+                            {formatLivePrice(livePacingMetrics.projectedSpendByPace)}
                           </div>
                           <p className="text-[10px] text-slate-400 mt-0.5 font-medium">
                             Consumirá {Math.round(livePacingMetrics.projectedSpendByPace / (livePacingMetrics.activeBudgetArs || 1) * 100)}% del budget
@@ -1612,7 +1623,7 @@ export default function MetaAdsPage() {
                       </div>
 
                       <p className="text-[11px] text-slate-500 leading-relaxed font-medium">
-                        A las <strong className="text-slate-800">{livePacingMetrics.timeFormatted}</strong> ({livePacingMetrics.elapsedDayPercent}% del día transcurrido), el budget ideal esperado era <strong className="text-slate-800">{formatPrice(livePacingMetrics.expectedSpendToNow)}</strong>. Al ir gastando <strong className="text-slate-800">{formatPrice(liveSummary?.totalSpendArs || 0)}</strong>, la velocidad de consumo es <strong className={livePacingMetrics.speedBadge.color}>{livePacingMetrics.pacingSpeed.toFixed(2)}x</strong> ({livePacingMetrics.speedBadge.label.toLowerCase()}).
+                        A las <strong className="text-slate-800">{livePacingMetrics.timeFormatted}</strong> ({livePacingMetrics.elapsedDayPercent}% del día transcurrido), el budget ideal esperado era <strong className="text-slate-800">{formatLivePrice(livePacingMetrics.expectedSpendToNow)}</strong>. Al ir gastando <strong className="text-slate-800">{formatLivePrice(liveSummary?.totalSpendArs || 0)}</strong>, la velocidad de consumo es <strong className={livePacingMetrics.speedBadge.color}>{livePacingMetrics.pacingSpeed.toFixed(2)}x</strong> ({livePacingMetrics.speedBadge.label.toLowerCase()}).
                       </p>
                     </div>
 
@@ -1637,10 +1648,10 @@ export default function MetaAdsPage() {
                         <div className="bg-white p-3.5 rounded-xl border border-slate-100 shadow-2xs">
                           <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Presupuesto Objetivo</span>
                           <div className="text-lg font-black text-slate-900 mt-1 font-mono">
-                            {formatPrice(livePacingMetrics.activeBudgetArs)}
+                            {formatLivePrice(livePacingMetrics.activeBudgetArs)}
                           </div>
                           <p className="text-[10px] text-slate-400 mt-0.5 font-medium">
-                            Faltan ejecutar {formatPrice(Math.max(0, livePacingMetrics.activeBudgetArs - (liveSummary?.totalSpendArs || 0)))}
+                            Faltan ejecutar {formatLivePrice(Math.max(0, livePacingMetrics.activeBudgetArs - (liveSummary?.totalSpendArs || 0)))}
                           </p>
                         </div>
 
@@ -1650,13 +1661,13 @@ export default function MetaAdsPage() {
                             ~{livePacingMetrics.projectedMessagesByBudget} <span className="text-xs font-bold text-slate-400">msgs</span>
                           </div>
                           <p className="text-[10px] text-slate-400 mt-0.5 font-medium">
-                            Al CPR actual de {formatPrice(liveSummary?.avgCprArs || 0)}/lead
+                            Al CPR actual de {formatLivePrice(liveSummary?.avgCprArs || 0)}/lead
                           </p>
                         </div>
                       </div>
 
                       <p className="text-[11px] text-slate-500 leading-relaxed font-medium">
-                        Si Meta consume el 100% del presupuesto asignado para hoy ({formatPrice(livePacingMetrics.activeBudgetArs)}), generaría aproximadamente <strong className="text-indigo-700">~{livePacingMetrics.projectedMessagesByBudget} mensajes</strong> manteniendo el CPR promedio actual.
+                        Si Meta consume el 100% del presupuesto asignado para hoy ({formatLivePrice(livePacingMetrics.activeBudgetArs)}), generaría aproximadamente <strong className="text-indigo-700">~{livePacingMetrics.projectedMessagesByBudget} mensajes</strong> manteniendo el CPR promedio actual.
                       </p>
                     </div>
                   </div>
@@ -2111,7 +2122,7 @@ export default function MetaAdsPage() {
                                   US$ {c.spendUsd.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                                 </td>
                                 <td className="p-4 text-right font-mono text-slate-900 font-bold">
-                                  {formatPrice(c.spendArs)}
+                                  {formatLivePrice(c.spendArs)}
                                 </td>
                                 <td className="p-4 text-right">
                                   <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-mono font-black ${
@@ -2119,11 +2130,11 @@ export default function MetaAdsPage() {
                                     isHighCpr ? 'bg-rose-50 text-rose-700 border border-rose-200' :
                                     'bg-amber-50 text-amber-700 border border-amber-200'
                                   }`}>
-                                    {formatPrice(c.cprArs)}
+                                    {formatLivePrice(c.cprArs)}
                                   </span>
                                 </td>
                                 <td className="p-4 text-right font-mono text-slate-600">
-                                  {formatPrice(c.budgetArs)}
+                                  {formatLivePrice(c.budgetArs)}
                                 </td>
                                 <td className="p-4 text-center">
                                   <div className="flex flex-col items-center gap-1">
@@ -2305,7 +2316,7 @@ export default function MetaAdsPage() {
                                                     US$ {ad.spendUsd.toFixed(2)}
                                                   </td>
                                                   <td className="py-2.5 px-3 text-right font-mono text-slate-900">
-                                                    {formatPrice(ad.spendArs)}
+                                                    {formatLivePrice(ad.spendArs)}
                                                   </td>
                                                   <td className="py-2.5 px-3 text-right">
                                                     {ad.messages > 0 ? (
@@ -2693,7 +2704,7 @@ export default function MetaAdsPage() {
                 <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-100">
                   <span className="text-[10px] font-bold text-slate-400 block">Gasto Hoy</span>
                   <strong className="text-slate-900 text-sm font-mono font-bold">US$ {previewAd.spendUsd.toFixed(2)}</strong>
-                  <span className="text-[9.5px] text-slate-400 block font-mono">{formatPrice(previewAd.spendArs)}</span>
+                  <span className="text-[9.5px] text-slate-400 block font-mono">{formatLivePrice(previewAd.spendArs)}</span>
                 </div>
                 <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-100">
                   <span className="text-[10px] font-bold text-slate-400 block">CPR Hoy</span>
@@ -2701,7 +2712,7 @@ export default function MetaAdsPage() {
                     {previewAd.messages > 0 ? `US$ ${previewAd.costPerActionUsd.toFixed(2)}` : '-'}
                   </strong>
                   <span className="text-[9.5px] text-slate-400 block font-mono">
-                    {previewAd.messages > 0 ? formatPrice(previewAd.cprArs) : '-'}
+                    {previewAd.messages > 0 ? formatLivePrice(previewAd.cprArs) : '-'}
                   </span>
                 </div>
               </div>
