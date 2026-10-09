@@ -49,6 +49,8 @@ import {
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
+import PlanningDateInput from '@/components/finanzas/planning/PlanningDateInput';
+import SupplierReceiptItems from '@/components/admin/SupplierReceiptItems';
 import SupplierReceiptFiles from "@/components/admin/SupplierReceiptFiles";
 import SupplierPurchaseOrderImageModal from "@/components/admin/SupplierPurchaseOrderImageModal";
 import { formatPrice, formatDateDDMMYYYY } from "@/lib/utils";
@@ -430,6 +432,7 @@ export default function ComprasAdminPage() {
   // New Reception Form states
   const [receptionSupplierId, setReceptionSupplierId] = useState("");
   const [receptionSlipNumber, setReceptionSlipNumber] = useState("");
+  const [selectedReceiptPOIds, setSelectedReceiptPOIds] = useState<string[]>([]);
   const [receptionPOIds, setReceptionPOIds] = useState<string[]>([]);
   const [receptionOrdersLoading, setReceptionOrdersLoading] = useState(false);
   const receptionOrderLoading = useRef(false);
@@ -1577,46 +1580,38 @@ export default function ComprasAdminPage() {
     finally { receptionOrderLoading.current = false; setReceptionOrdersLoading(false); }
   };
 
-  const handleOpenReceptionForPO = async (po: any) => {
-    setReceptionSupplierId(po.supplier_id);
-    setModalSupplierSearchText(po.supplier?.name || "");
-    setReceptionSlipNumber("");
-    setReceptionNotes(`Recepción de ${po.oc_code}`);
-    setReceptionPOIds([po.id]);
-    setModalOCSearchText("");
-    setReceptionAlignPO(false);
-    
-    const { data, error } = await supabase
-      .from('purchase_order_items')
-      .select(`
-        *,
-        product:products(id, name, sku)
-      `)
-      .eq('purchase_order_id', po.id);
-    
-    if (error) {
-      alert("Error al cargar ítems de la OC: " + error.message);
-    } else if (data) {
-      const items = data.filter(item => item.status !== 'Cancelado' && !item.shortfall_closed).map(item => {
-        const pending = Math.max(0, Number(item.quantity_ordered) - Number(item.quantity_received));
-        return {
-          poItemId: item.id,
-          poId: po.id,
-          ocCode: po.oc_code,
-          productId: item.product_id,
-          productName: item.raw_product_name,
-          sku: item.product?.sku,
-          quantityOrdered: Number(item.quantity_ordered),
-          quantityReceivedPrior: Number(item.quantity_received),
-          quantityReceivedNew: pending,
-          unitCost: Number(item.unit_cost)
-        };
-      });
-      setReceptionItems(items);
-    }
-    
-    setShowNewReceptionModal(true);
+
+  const toggleReceiptPO = (po: any) => {
+    if (selectedReceiptPOIds.includes(po.id)) { setSelectedReceiptPOIds(ids => ids.filter(id => id !== po.id)); return; }
+    const first = purchaseOrders.find(order => selectedReceiptPOIds.includes(order.id));
+    if (first && first.supplier_id !== po.supplier_id) { alert('Seleccioná OCs del mismo proveedor.'); return; }
+    if (selectedReceiptPOIds.length >= 20) { alert('Podés seleccionar hasta 20 OCs.'); return; }
+    setSelectedReceiptPOIds(ids => [...ids, po.id]);
   };
+
+  const handleOpenReceptionForOrders = async (orders: any[]) => {
+    if (receptionOrderLoading.current || !orders.length) return;
+    if (orders.length > 20 || orders.some(po => po.supplier_id !== orders[0].supplier_id || ['Cumplido', 'Cancelado'].includes(po.status))) {
+      alert('Seleccioná hasta 20 OCs pendientes del mismo proveedor.'); return;
+    }
+    receptionOrderLoading.current = true; setReceptionOrdersLoading(true);
+    try {
+      const { data, error } = await supabase.from('purchase_order_items').select('*, product:products(id, name, sku)').in('purchase_order_id', orders.map(po => po.id));
+      if (error) throw error;
+      const items = orders.flatMap(po => (data || []).filter(item => item.purchase_order_id === po.id && item.status !== 'Cancelado' && !item.shortfall_closed && Number(item.quantity_ordered) > Number(item.quantity_received)).map(item => ({
+        poItemId: item.id, poId: po.id, ocCode: po.oc_code, productId: item.product_id, productName: item.raw_product_name, sku: item.product?.sku,
+        quantityOrdered: Number(item.quantity_ordered), quantityReceivedPrior: Number(item.quantity_received),
+        quantityReceivedNew: Math.max(0, Number(item.quantity_ordered) - Number(item.quantity_received)), unitCost: Number(item.unit_cost)
+      })));
+      if (orders.some(po => !items.some(item => item.poId === po.id))) { alert('Alguna OC ya no tiene cantidades pendientes. Actualizá el listado.'); return; }
+      setReceptionSupplierId(orders[0].supplier_id); setModalSupplierSearchText(orders[0].supplier?.name || '');
+      setReceptionSlipNumber(''); setReceptionNotes('Recepción de ' + orders.map(po => po.oc_code).join(', '));
+      setReceptionPOIds(orders.map(po => po.id)); setModalOCSearchText(''); setReceptionAlignPO(false); setReceptionItems(items);
+      setShowNewReceptionModal(true);
+    } catch (error: any) { alert('Error al cargar las OCs: ' + error.message); }
+    finally { receptionOrderLoading.current = false; setReceptionOrdersLoading(false); }
+  };
+  const handleOpenReceptionForPO = (po: any) => handleOpenReceptionForOrders([po]);
 
   const handleFulfillPOWithoutStock = async (poId: string, ocCode: string) => {
     const po = purchaseOrders.find(order => order.id === poId);
@@ -1705,6 +1700,7 @@ export default function ComprasAdminPage() {
       }
       alert("Recepción y deuda registradas." + (receptionUpdateStock ? " Se incrementó el stock físico." : " Sin modificar stock físico."));
       setShowNewReceptionModal(false);
+      setSelectedReceiptPOIds([]);
       setReceptionSupplierId(""); setReceptionSlipNumber(""); setReceptionPOIds([]);
       setReceptionNotes(""); setReceptionItems([]); setModalSupplierSearchText(""); setModalOCSearchText("");
       setPoItemsMap({});
@@ -4019,11 +4015,20 @@ export default function ComprasAdminPage() {
             </div>
           </div>
 
+          {selectedReceiptPOIds.length > 0 && (
+            <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-brand-200 bg-brand-50 p-3">
+              <span className="text-xs font-bold">{selectedReceiptPOIds.length} OC seleccionadas · {purchaseOrders.find(po => po.id === selectedReceiptPOIds[0])?.supplier?.name}</span>
+              <Button type="button" disabled={selectedReceiptPOIds.length < 2 || receptionOrdersLoading} onClick={() => void handleOpenReceptionForOrders(selectedReceiptPOIds.map(id => purchaseOrders.find(po => po.id === id)).filter(Boolean))}><Truck className="mr-2 h-4 w-4" />{receptionOrdersLoading ? 'Cargando...' : 'Recibir en conjunto'}</Button>
+              <button type="button" onClick={() => setSelectedReceiptPOIds([])} className="text-xs text-slate-500">Limpiar selección</button>
+            </div>
+          )}
+
           <div className="bg-white border rounded-3xl overflow-hidden shadow-sm">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="bg-slate-50 border-b text-slate-400 font-bold uppercase tracking-wider">
+                    <th className="p-4"><span className="sr-only">Seleccionar OC para recibir en conjunto</span></th>
                     <th className="p-4">Código OC</th>
                     <th className="p-4">Fecha</th>
                     <th className="p-4">Proveedor</th>
@@ -4045,6 +4050,9 @@ export default function ComprasAdminPage() {
                           onClick={() => togglePoExpand(po.id)}
                           className="hover:bg-slate-50/50 transition-colors cursor-pointer select-none"
                         >
+                          <td className="p-4" onClick={e => e.stopPropagation()}>
+                            {po.status !== 'Cumplido' && po.status !== 'Cancelado' && <input type="checkbox" aria-label={'Seleccionar ' + po.oc_code} checked={selectedReceiptPOIds.includes(po.id)} disabled={receptionOrdersLoading || (!selectedReceiptPOIds.includes(po.id) && selectedReceiptPOIds.length > 0 && purchaseOrders.find(order => order.id === selectedReceiptPOIds[0])?.supplier_id !== po.supplier_id)} onChange={() => toggleReceiptPO(po)} className="h-4 w-4 rounded border-slate-300" />}
+                          </td>
                           <td className="p-4 text-brand-600 font-black flex items-center gap-1.5">
                             <span className="text-[9px] text-slate-400 font-normal">
                               {expandedPoIds[po.id] ? '▼' : '▶'}
@@ -5664,7 +5672,7 @@ export default function ComprasAdminPage() {
             <fieldset disabled={savingReception || receptionRecorded || receptionOrdersLoading} className="min-w-0 space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <label className="text-xs font-bold text-slate-500">Fecha de recepción
-                <input type="date" required value={receptionDate} onChange={e => setReceptionDate(e.target.value)} className="w-full border rounded-lg p-2 mt-1" />
+                <PlanningDateInput key={receptionDate} label="Fecha de recepción" required value={receptionDate} onChange={setReceptionDate} className="w-full" />
               </label>
               <label className="text-xs font-bold text-slate-500">Moneda de la deuda
                 <select value={receptionCurrency} onChange={e => setReceptionCurrency(e.target.value as 'ARS' | 'USD')} className="w-full border rounded-lg p-2 mt-1"><option value="ARS">Pesos (ARS)</option><option value="USD">Dólares (USD)</option></select>
@@ -5973,80 +5981,7 @@ export default function ComprasAdminPage() {
                 )}
               </div>
 
-              <div className="border border-slate-200 rounded-2xl overflow-x-auto bg-white">
-                <table className="w-full text-left text-xs min-w-[620px] border-collapse">
-                  <thead>
-                    <tr className="bg-slate-50 border-b text-slate-400 font-bold uppercase tracking-wider">
-                      <th className="px-3 py-2 whitespace-nowrap">SKU</th>
-                      <th className="px-3 py-2 whitespace-nowrap">OC de origen</th>
-                      <th className="px-3 py-2 text-right whitespace-nowrap" style={{ width: '80px' }}>Pedido</th>
-                      <th className="px-3 py-2 text-right whitespace-nowrap" style={{ width: '90px' }}>Recibido</th>
-                      <th className="px-3 py-2 text-right whitespace-nowrap" style={{ width: '130px' }}>Recibir</th>
-                      <th className="px-3 py-2 text-right whitespace-nowrap" style={{ width: '120px' }}>Costo unit.</th>
-                      <th className="px-3 py-2 text-right whitespace-nowrap">Subtotal</th>
-                      <th className="px-3 py-2 text-center whitespace-nowrap" style={{ width: '60px' }}><span className="sr-only">Acción</span></th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 font-bold text-slate-700">
-                    {receptionItems.length === 0 ? (
-                      <tr>
-                        <td colSpan={8} className="p-6 text-center text-slate-400 font-normal">
-                          {!receptionSupplierId ? "Seleccioná un proveedor arriba." : "No hay ítems cargados. Podés vincular una OC o agregar un ítem no pedido."}
-                        </td>
-                      </tr>
-                    ) : (
-                      receptionItems.map((item, idx) => (
-                        <tr key={idx} className="hover:bg-slate-50/50">
-                          <td className="px-3 py-2 text-slate-900 break-words" title={item.productName}>{item.sku || "Sin SKU"}</td>
-                          <td className="px-3 py-2 text-brand-600 text-[11px] whitespace-nowrap">{item.ocCode || "Sin OC"}</td>
-                          <td className="px-3 py-2 text-right text-slate-400">{item.quantityOrdered}</td>
-                          <td className="px-3 py-2 text-right text-slate-400">{item.quantityReceivedPrior}</td>
-                          <td className="px-3 py-2 text-right">
-                            <input
-                              type="number"
-                              min="0"
-                              step="any"
-                              required
-                              value={item.quantityReceivedNew}
-                              onChange={e => {
-                                const updated = [...receptionItems];
-                                updated[idx].quantityReceivedNew = parseFloat(e.target.value) || 0;
-                                setReceptionItems(updated);
-                              }}
-                              className="w-20 px-2 py-1 border rounded-lg text-right text-xs font-black text-green-600 focus:border-green-500"
-                            />
-                          </td>
-                          <td className="px-3 py-2 text-right">
-                            <input
-                              type="number"
-                              min="0"
-                              step="any"
-                              required
-                              value={item.unitCost}
-                              onChange={e => {
-                                const updated = [...receptionItems];
-                                updated[idx].unitCost = parseFloat(e.target.value) || 0;
-                                setReceptionItems(updated);
-                              }}
-                              className="w-24 px-2 py-1 border rounded-lg text-right text-xs"
-                            />
-                          </td>
-                          <td className="px-3 py-2 text-right text-slate-900">{formatPrice(item.quantityReceivedNew * item.unitCost)}</td>
-                          <td className="px-3 py-2 text-center">
-                            <button
-                              type="button"
-                              onClick={() => setReceptionItems(receptionItems.filter((_, i) => i !== idx))}
-                              className="text-red-500 hover:text-red-700 p-1 rounded-lg"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
+              <SupplierReceiptItems items={receptionItems} onChange={setReceptionItems} formatPrice={formatPrice} />
 
               <div className="flex justify-between items-center bg-slate-50 p-4 rounded-2xl border border-slate-100 font-black">
                 <span className="text-slate-600 text-xs">Monto Total de Remito:</span>
