@@ -98,7 +98,7 @@ function AuthenticatedShell({ children }: {
     return <AdminLayout><div className="mx-auto w-full p-3 text-slate-900 sm:p-4">
     <header className="mb-3 flex flex-wrap items-center justify-between gap-4">
       <h1 className="text-lg font-semibold tracking-tight">{shipping?'Solicitudes a Logística':'Incidencias'}</h1>
-      <Link href={`${root}/nueva`} className={primaryClass}><Plus className="size-4"/>{shipping?'Solicitar cotización':'Nuevo ticket'}</Link>
+      <div className="flex flex-wrap gap-2">{!shipping && <Link href="/incidencias/nueva?propia=1" className={secondaryClass}><Plus className="size-4"/>Crear una incidencia propia</Link>}<Link href={`${root}/nueva`} className={primaryClass}><Plus className="size-4"/>{shipping?'Solicitar cotización':'Nuevo ticket'}</Link></div>
     </header>
     {error && <div className="mb-4"><Alert>{error}</Alert><button onClick={() => void refresh()} className={`${secondaryClass} mt-2`}>Reintentar</button></div>}
     {me && <SupportContext.Provider value={{ me, refresh }}><nav aria-label="Incidencias" className="mb-3 flex flex-wrap gap-2 border-b border-slate-200 pb-2">

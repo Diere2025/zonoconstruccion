@@ -828,7 +828,7 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
         {/* Topbar with Breadcrumbs */}
-        <header className="h-16 bg-white border-b border-slate-200/80 flex items-center justify-between px-6 shrink-0 z-10 shadow-2xs">
+        <header className="h-16 bg-white border-b border-slate-200/80 flex items-center justify-between px-6 shrink-0 relative z-30 shadow-2xs">
           <div className="flex items-center gap-4 min-w-0">
             <button
               aria-controls="erp-sidebar"

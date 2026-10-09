@@ -76,30 +76,6 @@ function NotificationBell() {
         }
     }, [refresh]);
     useEffect(() => {
-        if (!open || !data || data.impersonating) return;
-        const list = container.current?.querySelector('[data-notification-list]');
-        if (!list) return;
-        const timers = new Map<string, ReturnType<typeof setTimeout>>();
-        const visible = new Set<string>();
-        const observer = new IntersectionObserver(entries => {
-            for (const entry of entries) {
-                const id = (entry.target as HTMLElement).dataset.noticeId!;
-                if (entry.isIntersecting && entry.intersectionRatio >= 0.6) visible.add(id);
-                else visible.delete(id);
-                if (timers.has(id)) clearTimeout(timers.get(id));
-                timers.delete(id);
-                if (visible.has(id)) timers.set(id, setTimeout(() => {
-                    if (document.visibilityState !== 'visible') return;
-                    const ids = [...visible];
-                    ids.forEach(visibleId => { clearTimeout(timers.get(visibleId)); timers.delete(visibleId); visible.delete(visibleId); });
-                    void markRead(ids);
-                }, 700));
-            }
-        }, { root: list, threshold: 0.6 });
-        list.querySelectorAll('[data-unread="true"]').forEach(card => observer.observe(card));
-        return () => { observer.disconnect(); timers.forEach(clearTimeout); };
-    }, [open, data, markRead]);
-    useEffect(() => {
         alive.current = true;
         const visibleRefresh = () => { if (document.visibilityState === 'visible') void refresh(); };
         const timer = setInterval(visibleRefresh, 30000);
@@ -163,6 +139,7 @@ function NotificationBell() {
                     <span className="mt-2 block text-xs font-semibold text-indigo-600">Abrir {notice.workflow === 'shipping' ? 'solicitud' : 'incidencia'} →</span>
                 </Link>)}
             </div>
+            <Link href="/incidencias/nueva?propia=1" onClick={() => setOpen(false)} className="block border-t border-slate-100 px-4 py-3 text-center text-sm font-semibold text-indigo-600 hover:bg-indigo-50">Crear una incidencia propia</Link>
             <Link href="/incidencias" onClick={() => setOpen(false)} className="block border-t border-slate-100 px-4 py-3 text-center text-sm font-semibold text-indigo-600 hover:bg-indigo-50">Ver todas las incidencias</Link>
         </section>}
     </div>;

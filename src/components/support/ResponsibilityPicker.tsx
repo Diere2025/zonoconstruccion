@@ -4,12 +4,13 @@ import { errorMessage, supportRequest } from '@/lib/support/client';
 import type { ResponsibilityOptions } from '@/lib/support/types';
 import { fieldClass } from './SupportShell';
 
-export function ResponsibilityPicker({ sector, assignee, onChange, fixedSector = false, onReady }: {
+export function ResponsibilityPicker({ sector, assignee, onChange, fixedSector = false, onReady, onLoaded }: {
     sector: string;
     assignee: string;
     onChange: (sector: string, assignee: string) => void;
     fixedSector?: boolean;
     onReady?: (ready: boolean) => void;
+    onLoaded?: (options: ResponsibilityOptions) => void;
 }) {
     const [options, setOptions] = useState<ResponsibilityOptions | null>(null);
     const [error, setError] = useState('');
@@ -18,10 +19,10 @@ export function ResponsibilityPicker({ sector, assignee, onChange, fixedSector =
     useEffect(() => {
         let alive = true;
         void supportRequest<ResponsibilityOptions>('responsibles').then(result => {
-            if (alive) { setOptions(result); setError(''); onReady?.(true); }
+            if (alive) { setOptions(result); onLoaded?.(result); setError(''); onReady?.(true); }
         }).catch(e => { if (alive) { setError(errorMessage(e)); onReady?.(false); } }).finally(() => { if (alive) setLoading(false); });
         return () => { alive = false; };
-    }, [revision, onReady]);
+    }, [revision, onReady, onLoaded]);
     const area = options?.sectors.find(s => s.id === sector);
     const people = options?.people.filter(p => p.active && p.sector_ids.includes(sector)) || [];
     return <div className="space-y-2">

@@ -1,14 +1,14 @@
 'use client';
-import { useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Send } from 'lucide-react';
 import { commandBody, errorMessage, supportRequest } from '@/lib/support/client';
-import { priorities, ticketTypes } from '@/lib/support/types';
+import { priorities, ticketTypes, type ResponsibilityOptions } from '@/lib/support/types';
 import { Alert, fieldClass, primaryClass, secondaryClass, useSupport } from './SupportShell';
 import { AttachmentEditor, pastedImages, usePendingImages } from './AttachmentEditor';
 import { useUnsavedChanges } from './useUnsavedChanges';
 import { ResponsibilityPicker } from './ResponsibilityPicker';
-export function TicketForm() {
+export function TicketForm({ own = false }: { own?: boolean }) {
     const { me } = useSupport();
     const router = useRouter();
     const uploads = usePendingImages();
@@ -16,6 +16,19 @@ export function TicketForm() {
     const [priority, setPriority] = useState('medium');
     const [sector, setSector] = useState('');
     const [responsible, setResponsible] = useState('');
+    const presetApplied = useRef(false);
+    const applyOwnResponsibility = useCallback((options: ResponsibilityOptions) => {
+        if (!own || presetApplied.current) return;
+        presetApplied.current = true;
+        const ti = options.sectors.find(area => area.active && /^TI(?:\s*\/.*)?$/i.test(area.name.trim()));
+        const person = options.people.find(person => person.id === me.user_id && person.active);
+        if (!ti || !person?.sector_ids.includes(ti.id)) {
+            setError('No se pudo precargar TI y tu usuario. Revisá tu asignación al área o elegí un responsable.');
+            return;
+        }
+        setSector(ti.id);
+        setResponsible(person.id);
+    }, [own, me.user_id]);
     const [busy, setBusy] = useState(false);
     const [progress, setProgress] = useState('');
     const [error, setError] = useState('');
@@ -62,11 +75,11 @@ export function TicketForm() {
     catch (error) {
         setError(errorMessage(error));
     } }} className="mx-auto max-w-3xl space-y-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
-    <div><h2 className="text-xl font-bold">Nueva incidencia</h2><p className="mt-1 text-sm text-slate-500">Contanos qué sucede y qué necesitás. Podés agregar capturas.</p></div>
+    <div><h2 className="text-xl font-bold">{own ? 'Crear una incidencia propia' : 'Nueva incidencia'}</h2><p className="mt-1 text-sm text-slate-500">Contanos qué sucede y qué necesitás. Podés agregar capturas.</p></div>
     {error && <Alert>{error}</Alert>}
     <fieldset disabled={busy || me.impersonating} className="space-y-5">
       <label className="block text-sm font-semibold">Título<input autoFocus name="title" required minLength={5} maxLength={160} className={`${fieldClass} mt-2`} placeholder="Ej.: No puedo eliminar una rendición"/></label>
-      <ResponsibilityPicker sector={sector} assignee={responsible} onChange={(area, person) => { setSector(area); setResponsible(person); }}/>
+      <ResponsibilityPicker onLoaded={applyOwnResponsibility} sector={sector} assignee={responsible} onChange={(area, person) => { setSector(area); setResponsible(person); }}/>
       <label className="block text-sm font-semibold">Tipo<select className={`${fieldClass} mt-2`} value={type} onChange={e => setType(e.target.value)}>{Object.entries(ticketTypes).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
       <label className="block text-sm font-semibold">Descripción<textarea name="description" required minLength={10} maxLength={10000} rows={5} className={`${fieldClass} mt-2`} placeholder="Explicá qué pasó y cómo afecta tu trabajo. Pegá una captura con Ctrl+V si ayuda."/></label>
       <div className="grid gap-4 sm:grid-cols-2"><label className="text-sm font-semibold">Área o módulo afectado <span className="font-normal text-slate-400">(opcional)</span><input name="module" maxLength={160} className={`${fieldClass} mt-2`} placeholder="Ej.: Ventas, Tesorería o carga de pedidos"/></label><label className="text-sm font-semibold">Prioridad sugerida<select className={`${fieldClass} mt-2`} value={priority} onChange={e => setPriority(e.target.value)}>{Object.entries(priorities).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label></div>
