@@ -94,7 +94,7 @@ export default function RealizePlanningModal({ item, sourceFund, funds, initialA
   };
 
   return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-3" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
-    <form onSubmit={submit} className="max-h-[94vh] w-full max-w-md space-y-3 overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl">
+    <form data-shortcut-submit onSubmit={submit} className="max-h-[94vh] w-full max-w-md space-y-3 overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl">
       <div className="flex items-center justify-between"><h2 className="text-lg font-semibold">{heading || 'Registrar realización'}</h2><button type="button" aria-label="Cerrar" onClick={onClose}><X size={19}/></button></div>
       <p className="text-xs text-slate-500">{item.title} · {item.kind === 'expense' ? 'Pago' : 'Ingreso'}</p>
       {(localError || error) && <p role="alert" className="rounded-lg bg-red-50 p-2 text-sm text-red-700">{localError || error}</p>}

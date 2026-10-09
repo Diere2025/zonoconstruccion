@@ -4539,7 +4539,7 @@ export default function ComprasAdminPage() {
           {/* Modal New PO */}
           {showNewPOModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm overflow-y-auto">
-              <form onSubmit={handleSavePO} className="bg-white rounded-3xl w-full max-w-4xl shadow-2xl p-6 space-y-6 my-8 animate-in zoom-in-95 duration-150">
+              <form data-shortcut-submit onSubmit={handleSavePO} className="bg-white rounded-3xl w-full max-w-4xl shadow-2xl p-6 space-y-6 my-8 animate-in zoom-in-95 duration-150">
                 <div className="flex justify-between items-center border-b pb-4">
                   <div>
                     <h3 className="text-lg font-black text-slate-900">Registrar Nueva Orden de Compra</h3>
@@ -4887,7 +4887,7 @@ export default function ComprasAdminPage() {
           {/* Modal Edit PO */}
           {showEditPOModal && editingPO && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm overflow-y-auto">
-              <form onSubmit={handleSaveEditPO} className="bg-white rounded-3xl w-full max-w-4xl shadow-2xl p-6 space-y-6 my-8 animate-in zoom-in-95 duration-150">
+              <form data-shortcut-submit onSubmit={handleSaveEditPO} className="bg-white rounded-3xl w-full max-w-4xl shadow-2xl p-6 space-y-6 my-8 animate-in zoom-in-95 duration-150">
                 <div className="flex justify-between items-center border-b pb-4">
                   <div className="flex items-center gap-3">
                     <div className="p-2.5 bg-amber-100 text-amber-800 rounded-2xl">
@@ -5481,7 +5481,7 @@ export default function ComprasAdminPage() {
           {/* Modal Edit Purchase Invoice */}
           {showEditPurchaseModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm overflow-y-auto">
-              <form onSubmit={handleSaveEditPurchase} className="bg-white rounded-3xl w-full max-w-xl shadow-2xl p-6 space-y-6 my-8 animate-in zoom-in-95 duration-150">
+              <form data-shortcut-submit onSubmit={handleSaveEditPurchase} className="bg-white rounded-3xl w-full max-w-xl shadow-2xl p-6 space-y-6 my-8 animate-in zoom-in-95 duration-150">
                 <div className="flex justify-between items-center border-b pb-4">
                   <div>
                     <h3 className="text-lg font-black text-slate-900">Editar Comprobante de Compra</h3>
@@ -5612,7 +5612,7 @@ export default function ComprasAdminPage() {
           {/* Modal New Goods Reception */}
           {showNewReceptionModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm overflow-y-auto">
-              <form onSubmit={handleSaveReception} className="bg-white rounded-3xl w-full max-w-4xl shadow-2xl p-6 space-y-6 my-8 animate-in zoom-in-95 duration-150">
+              <form data-shortcut-submit onSubmit={handleSaveReception} className="bg-white rounded-3xl w-full max-w-4xl shadow-2xl p-6 space-y-6 my-8 animate-in zoom-in-95 duration-150">
                 <div className="flex justify-between items-center border-b pb-4">
                   <div>
                     <h3 className="text-lg font-black text-slate-900">Registrar Recepción de Mercadería</h3>
@@ -6536,7 +6536,7 @@ export default function ComprasAdminPage() {
 
           {isSupplierFormOpen && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-150 overflow-y-auto">
-              <form onSubmit={handleSaveSupplier} className="bg-white rounded-3xl w-full max-w-4xl shadow-2xl p-6 my-8 space-y-6">
+              <form data-shortcut-submit onSubmit={handleSaveSupplier} className="bg-white rounded-3xl w-full max-w-4xl shadow-2xl p-6 my-8 space-y-6">
                 <div className="flex justify-between items-center border-b pb-4">
                   <div>
                     <h3 className="text-xl font-black text-slate-900">
@@ -6870,7 +6870,7 @@ export default function ComprasAdminPage() {
 
           {isPricelistFormOpen && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-150 max-h-[95vh] overflow-y-auto">
-              <form onSubmit={handleImportPriceList} className="bg-white rounded-3xl w-full max-w-2xl shadow-2xl p-6 space-y-6">
+              <form data-shortcut-submit onSubmit={handleImportPriceList} className="bg-white rounded-3xl w-full max-w-2xl shadow-2xl p-6 space-y-6">
                 <div className="flex justify-between items-center border-b pb-4">
                   <div>
                     <h3 className="text-xl font-black text-slate-900">Importar Lista de Costos</h3>
@@ -9018,7 +9018,7 @@ export default function ComprasAdminPage() {
                 <div className="flex justify-end gap-3 pt-6 border-t border-slate-100">
                   <Button
                     type="button"
-                    onClick={handleRegisterProduction}
+                    data-shortcut-submit onClick={handleRegisterProduction}
                     disabled={isRegisteringProduction || prodComponents.some(comp => {
                       const variantProduct = products.find(p => p.id === comp.selected_variant_id);
                       return (variantProduct?.stock_physical || 0) < (comp.quantity_to_consume * (parseFloat(prodQuantity) || 0));

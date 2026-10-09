@@ -6090,7 +6090,7 @@ export default function PedidosPage() {
       )}
 
       {activeTab === 'form' ? (
-        <form onSubmit={handleInitialSubmit} className="bg-white p-5 rounded-xl border border-slate-200/60 shadow-sm relative">
+        <form data-shortcut-submit onSubmit={handleInitialSubmit} className="bg-white p-5 rounded-xl border border-slate-200/60 shadow-sm relative">
 
           {editingOrderId && (
             <div className="mb-5 bg-amber-50 border border-amber-200/60 rounded-xl p-3 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 text-xs text-amber-800 animate-in fade-in slide-in-from-top-1">
@@ -9589,7 +9589,7 @@ export default function PedidosPage() {
                >
                  Volver
                </button>
-               <Button onClick={confirmAndSubmit} disabled={submitting} className="px-8 py-3 rounded-xl font-black flex items-center gap-2">
+               <Button data-shortcut-submit onClick={confirmAndSubmit} disabled={submitting} className="px-8 py-3 rounded-xl font-black flex items-center gap-2">
                  {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Check className="w-5 h-5" />}
                  {submitting ? "Confirmando y Reservando..." : "Enviar a Preparación"}
                </Button>
@@ -9705,7 +9705,7 @@ export default function PedidosPage() {
               </button>
               <Button
                 type="button"
-                onClick={confirmAndSubmit}
+                data-shortcut-submit onClick={confirmAndSubmit}
                 disabled={submitting}
                 className="px-6 py-2 bg-purple-600 hover:bg-purple-700 text-white font-black text-xs rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer"
               >

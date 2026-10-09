@@ -205,7 +205,7 @@ export default function TreasuryVouchersPage() {
       <div className="flex gap-2"><Link href="/admin/finanzas" className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold">Ver finanzas</Link><button onClick={openNew} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white">+ Subir comprobante</button></div>
     </header>
     {error && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
-    {showForm && <form onSubmit={save} className="space-y-4 rounded-2xl border border-blue-200 bg-white p-5 shadow-sm">
+    {showForm && <form data-shortcut-submit onSubmit={save} className="space-y-4 rounded-2xl border border-blue-200 bg-white p-5 shadow-sm">
       <div className="flex justify-between"><h2 className="font-bold">{editingId ? 'Editar comprobante' : 'Nuevo comprobante'}</h2><button type="button" onClick={() => setShowForm(false)} className="text-slate-500">✕</button></div>
       <div className="grid gap-3 md:grid-cols-4">
         <label className="text-xs font-semibold text-slate-600">Tipo de movimiento<select value={form.category} onChange={event => update({ category: event.target.value as Category, accountId: '', supplierId: '', clientId: '', orderIds: [], destinationAccount: '', counterparty: '' })} className={`mt-1 ${input}`}>{[...categories, ...(categories.includes(form.category) ? [] : [form.category])].map(type => <option key={type} value={type}>{labels[type]}</option>)}</select></label>

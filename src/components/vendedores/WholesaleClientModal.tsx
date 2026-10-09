@@ -189,7 +189,7 @@ export default function WholesaleClientModal({ open, selectedClientId, onClose, 
             </div>
           </div>
         ) : (
-          <form onSubmit={createClient} className="overflow-y-auto p-5">
+          <form data-shortcut-submit onSubmit={createClient} className="overflow-y-auto p-5">
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div><label className={labelClass}>Código interno</label><input value={form.internalCode} onChange={e => setForm({ ...form, internalCode: e.target.value })} placeholder="Ej. MAY-001" className={inputClass} /></div>
               <div><label className={labelClass}>Razón social *</label><input required value={form.businessName} onChange={e => setForm({ ...form, businessName: e.target.value })} placeholder="Corralón / Distribuidor" className={inputClass} /></div>

@@ -34,7 +34,7 @@ export function TicketDataEditor({ ticket, me, onDone }: { ticket: Ticket; me: S
         } catch (e) { setError(errorMessage(e)); }
         finally { setBusy(false); }
     };
-    return <form onSubmit={save} onChange={() => setError('')} className="space-y-4 rounded-lg border border-slate-200 bg-white p-4">
+    return <form data-shortcut-submit onSubmit={save} onChange={() => setError('')} className="space-y-4 rounded-lg border border-slate-200 bg-white p-4">
         <div><h3 className="text-sm font-semibold">Editar datos del ticket</h3><p className="mt-1 text-xs text-slate-500">Responsable actual: <strong className="font-medium text-slate-700">{current}</strong></p></div>
         {error && <Alert>{error}</Alert>}
         <fieldset disabled={busy || me.impersonating} className="space-y-4">

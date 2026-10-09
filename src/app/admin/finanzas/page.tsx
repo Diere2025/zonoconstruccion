@@ -1219,6 +1219,14 @@ function FinanceWorkspace() {
     const kinds:Record<QuickMovement,OperationType>={general:'general',eventuales:'payroll_payment',proveedor:'supplier_payment',gasto:'operating_expense',adelanto:'payroll_payment',cobro:'customer_collection',sueldo:'payroll_payment',impuesto:'tax_payment'};
     setOperationEditor({kind:kinds[kind],payrollKind:kind==='eventuales'?'temporary':kind==='adelanto'?'advance':undefined});
   };
+  useEffect(() => {
+    if (searchParams.get('shortcut') !== 'new-movement' || operationsAvailable !== true) return;
+    setChoosingOperation(true);
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete('shortcut'); next.delete('request');
+    router.replace('/admin/finanzas' + (next.size ? '?' + next.toString() : ''));
+  }, [searchParams, operationsAvailable, router]);
+
   const openQuickTransfer = (sourceId?: string) => {if(operationsAvailable!==false || localInspection)setOperationEditor({kind:'internal_transfer',sourceAccountId:sourceId});};
 
   return (
@@ -1925,7 +1933,7 @@ function FinanceWorkspace() {
               </button>
             </div>
 
-            <form onSubmit={handleCreateAccount} className="space-y-4">
+            <form data-shortcut-submit onSubmit={handleCreateAccount} className="space-y-4">
               <div className="space-y-1">
                 <label className="text-[9px] font-black uppercase text-slate-400">Nombre *</label>
                 <input
@@ -2018,7 +2026,7 @@ function FinanceWorkspace() {
               </div>
             </div>
 
-            <form onSubmit={handleApproveValidation} className="space-y-4">
+            <form data-shortcut-submit onSubmit={handleApproveValidation} className="space-y-4">
               <div className="space-y-1">
                 <label className="text-[9px] font-black uppercase text-slate-400">Cuenta de Destino *</label>
                 <AdaptiveSelect

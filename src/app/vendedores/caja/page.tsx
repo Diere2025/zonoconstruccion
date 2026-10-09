@@ -660,7 +660,7 @@ export default function CajaDiariaPage() {
                 <PlusCircle className="w-4 h-4 text-brand-500" /> Carga Rápida de Caja (Gastos/Ingresos)
               </h3>
 
-              <form onSubmit={handleRegisterTransaction} className="space-y-3">
+              <form data-shortcut-submit onSubmit={handleRegisterTransaction} className="space-y-3">
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
@@ -977,7 +977,7 @@ export default function CajaDiariaPage() {
               <Wallet className="w-5 h-5 text-brand-500" /> Apertura de Caja Diaria
             </h2>
 
-            <form onSubmit={handleOpenCaja} className="space-y-4">
+            <form data-shortcut-submit onSubmit={handleOpenCaja} className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <label className="text-[9px] font-black uppercase text-slate-400">Fondo Inicial en Pesos (ARS) *</label>
@@ -1048,7 +1048,7 @@ export default function CajaDiariaPage() {
               <CheckCircle2 className="w-5 h-5 text-emerald-500" /> Arqueo y Cierre de Caja
             </h2>
 
-            <form onSubmit={handleCloseCaja} className="space-y-4">
+            <form data-shortcut-submit onSubmit={handleCloseCaja} className="space-y-4">
               <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-xs font-bold text-slate-700 space-y-2">
                 <div className="flex justify-between border-b border-slate-200/60 pb-1.5">
                   <span className="text-slate-400">Total Esperado ARS:</span>
@@ -1167,7 +1167,7 @@ export default function CajaDiariaPage() {
               </div>
             </div>
 
-            <form onSubmit={handleReconcile} className="space-y-4">
+            <form data-shortcut-submit onSubmit={handleReconcile} className="space-y-4">
               {selectedTxForReconciliation.type === 'ingreso' ? (
                 <>
                   <div className="space-y-1">
