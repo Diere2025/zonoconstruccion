@@ -32,7 +32,6 @@ export default function ImportarPedidosPage() {
   const [importLudmila, setImportLudmila] = useState(false);
   const [importFacundo, setImportFacundo] = useState(false);
   const [importCentral, setImportCentral] = useState(true);
-  const [importAquafort, setImportAquafort] = useState(true);
   const [syncPaymentMethods, setSyncPaymentMethods] = useState(false);
   const [syncLogistics, setSyncLogistics] = useState(true);
   const [syncStock, setSyncStock] = useState(true);
@@ -245,7 +244,7 @@ export default function ImportarPedidosPage() {
 
   // Main Import Process with Live Progress
   const handleImportOrders = async () => {
-    if (![importJazmin, importDiego, importLudmila, importFacundo, importCentral, importAquafort].some(Boolean)) {
+    if (![importJazmin, importDiego, importLudmila, importFacundo, importCentral].some(Boolean)) {
       setSummaryStatus('error');
       setImportOrdersSummary('Seleccioná al menos una planilla para sincronizar.');
       return;
@@ -416,15 +415,6 @@ export default function ImportarPedidosPage() {
           isCentralSheet: true,
           isAquafortSheet: false,
           enabled: importCentral
-        },
-        {
-          name: "Pedidos Mayoristas (AQU/POW/AQ-)",
-          url: "https://docs.google.com/spreadsheets/d/1nz545_xNUgdI2LMAGIDCjh6Qs8-vUDHdynzj7jU2wm0/gviz/tq?tqx=out:csv&gid=786380854",
-          defaultSellerId: defaultDiegoSellerId,
-          defaultChannel: "mayorista",
-          isCentralSheet: true,
-          isAquafortSheet: true,
-          enabled: importAquafort
         }
       ].filter(s => s.enabled);
 
@@ -463,9 +453,6 @@ export default function ImportarPedidosPage() {
           if (skipCAMB && orderCode.toUpperCase().startsWith('CAMB')) return false;
 
           if (sheet.isCentralSheet) {
-            const isWholesaleCode = orderCode.toUpperCase().startsWith("AQU") || orderCode.toUpperCase().startsWith("POW") || orderCode.toUpperCase().startsWith("AQ-");
-            let matchesWholesale = sheet.isAquafortSheet ? isWholesaleCode : !isWholesaleCode;
-            if (!matchesWholesale) return false;
 
             const status = (row[0] || "").trim().toLowerCase();
             const isCompleted = status === "entregado" || status === "cancelado" || status === "anulado" || status === "pasado";
@@ -563,6 +550,7 @@ export default function ImportarPedidosPage() {
                     }
                     totalImported += singleData.totalImported || 0;
                     totalUpdated += singleData.totalUpdated || 0;
+                    for (const update of singleData.updatedOrders || []) addLog(`  ↳ ${update.code}: ${update.changes.join(', ')}.`);
                     totalItemsImported += singleData.totalItemsImported || 0;
                     addLog(`  ↳ ✅ Pedido ${singleCode}: procesado con éxito en modo unitario.`);
                   } else {
@@ -594,9 +582,11 @@ export default function ImportarPedidosPage() {
             }
             totalImported += importData.totalImported || 0;
             totalUpdated += importData.totalUpdated || 0;
+            for (const update of importData.updatedOrders || []) addLog(`  ↳ ${update.code}: ${update.changes.join(', ')}.`);
             totalItemsImported += importData.totalItemsImported || 0;
 
             const duration = ((Date.now() - startProc) / 1000).toFixed(1);
+            if (importData.metrics) addLog(`  ↳ Carga ${((importData.metrics.loadMs || 0) / 1000).toFixed(1)}s; procesamiento ${((importData.metrics.processMs || 0) / 1000).toFixed(1)}s.`);
             if (totalChunks > 1) {
               addLog(`  ↳ Lote ${chunkIdx + 1}/${totalChunks}: ${importData.totalImported || 0} nuevos, ${importData.totalUpdated || 0} actualizados (${duration}s).`);
             } else {
@@ -634,33 +624,40 @@ export default function ImportarPedidosPage() {
         addLog("🚚 Comparando estados, importes, medios de pago y artículos con Logística (Entregando/Entregado)...");
         
         try {
+          const logisticsRunId = crypto.randomUUID();
           let cursor = 0;
           let done = false;
           let totalSynced = 0;
           let totalSkipped = 0;
           let logisticsBatches = 0;
           let logisticsServerMs = 0;
+          let reusedSourceBatches = 0;
+          let totalDeliveryDatesSynced = 0;
 
           while (!done && !cancelImportRef.current) {
             const logiRes = await fetch("/api/admin/audit-deliveries", {
               method: "POST",
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ cursor, batchSize: 250 })
+              body: JSON.stringify({ cursor, batchSize: 250, syncRunId: logisticsRunId })
             });
             const logiData = await logiRes.json();
             if (!logiRes.ok || logiData.success === false) throw new Error(logiData.error || `HTTP ${logiRes.status}`);
 
             totalSynced += logiData.syncedOrdersCount || 0;
+            totalDeliveryDatesSynced += logiData.syncedDeliveryDatesCount || 0;
+            if (logiData.metrics?.reusedSources) reusedSourceBatches++;
             totalSkipped += logiData.skippedOrdersCount || 0;
             logisticsBatches++;
             logisticsServerMs += logiData.metrics?.totalMs || 0;
             done = logiData.done !== false;
             cursor = logiData.nextCursor ?? cursor;
+            addLog(`  ↳ Logística: carga ${((logiData.metrics?.loadMs || 0) / 1000).toFixed(1)}s, comparación ${((logiData.metrics?.planMs || 0) / 1000).toFixed(1)}s, escritura ${((logiData.metrics?.applyMs || 0) / 1000).toFixed(1)}s${logiData.metrics?.reusedSources ? "; lecturas reutilizadas" : ""}.`);
           }
 
           if (!cancelImportRef.current) {
-            addLog(`✅ Logística: ${totalSynced} pedidos actualizados y ${totalSkipped} sin cambios (${(logisticsServerMs / 1000).toFixed(1)}s en ${logisticsBatches} lote${logisticsBatches === 1 ? '' : 's'}).`);
+            addLog(`✅ Logística: ${totalSynced} pedidos actualizados, ${totalDeliveryDatesSynced} fechas reales y ${totalSkipped} sin cambios (${(logisticsServerMs / 1000).toFixed(1)}s en ${logisticsBatches} lote${logisticsBatches === 1 ? '' : 's'}).`);
 
+            addLog(`  ↳ Lecturas reutilizadas en ${reusedSourceBatches}/${logisticsBatches} lotes de logística.`);
             if (syncStock) {
               const stockRes = await fetch("/api/admin/sync-stock", { method: "POST" });
               const stockData = await stockRes.json();
@@ -767,22 +764,7 @@ export default function ImportarPedidosPage() {
                 />
                 <div>
                   <span className="text-xs font-bold text-slate-900 block">Planilla Central / Ruteo</span>
-                  <span className="text-[10px] text-slate-500 font-semibold">Pedidos minoristas y entregas</span>
-                </div>
-              </div>
-            </label>
-
-            <label className={cn("flex items-center justify-between p-3.5 rounded-xl border bg-white cursor-pointer transition-all shadow-sm", importAquafort ? "border-brand-300 ring-2 ring-brand-500/10" : "border-slate-200 opacity-60")}>
-              <div className="flex items-center gap-2.5">
-                <input
-                  type="checkbox"
-                  checked={importAquafort}
-                  onChange={(e) => setImportAquafort(e.target.checked)}
-                  className="w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500/10 cursor-pointer accent-brand-600"
-                />
-                <div>
-                  <span className="text-xs font-bold text-slate-900 block">Pedidos Mayoristas</span>
-                  <span className="text-[10px] text-slate-500 font-semibold">Prefijos AQU / POW / AQ-</span>
+                  <span className="text-[10px] text-slate-500 font-semibold">Pedidos y entregas</span>
                 </div>
               </div>
             </label>

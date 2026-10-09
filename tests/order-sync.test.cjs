@@ -68,9 +68,9 @@ test('logistics reconciliation uses paid-worker batches, bounded concurrency and
   assert.match(route, /mapWithConcurrency\(plannedUpdates, 5/);
   assert.match(route, /mapWithConcurrency\(itemReplacements, 5/);
   assert.match(route, /\.delete\(\)\s*\.eq\('order_id', update\.dbOrder\.id\)/);
-  assert.match(route, /metrics: \{ loadMs, planMs, applyMs, totalMs \}/);
+  assert.match(route, /metrics: \{ loadMs, planMs, applyMs, totalMs, reusedSources: sourceRead\.reused \}/);
   assert.match(page, /while \(!done && !cancelImportRef\.current\)/);
-  assert.match(page, /JSON\.stringify\(\{ cursor, batchSize: 250 \}\)/);
+  assert.match(page, /JSON\.stringify\(\{ cursor, batchSize: 250, syncRunId: logisticsRunId \}\)/);
   assert.match(page, /fetch\("\/api\/admin\/sync-stock", \{ method: "POST" \}\)/);
 });
 

@@ -6,6 +6,7 @@ import { createClient } from '@supabase/supabase-js';
 import { fetchSpreadsheetCsv, setOrderStatusInSellerSheetByCode, createLogisticsCancellationReasonLookup, normalizePaymentMethodForSheet } from '@/lib/googleSheets';
 import { splitOrderCodes } from '@/lib/orderSync';
 import { findImportOrders } from '@/lib/importOrderLookup';
+import { changedImportFields, describeImportChanges } from '@/lib/importChanges';
 import { centralDeliveryOutcome } from '@/lib/deliveryAttemptSync';
 import { isDiscountProductLine, resolveImportedOrderChannel, sheetDiscountAmount } from '@/lib/wholesaleOrders';
 import {
@@ -115,6 +116,7 @@ const parseSpanishNumber = (val: any): number => {
 };
 
 export async function POST(request: Request) {
+  const startedAt = Date.now();
   const getCancellationReason = createLogisticsCancellationReasonLookup();
   try {
     const body = await request.json();
@@ -223,7 +225,7 @@ export async function POST(request: Request) {
     let dbOrders: any[] = [];
     if (targetCodes.length > 0) {
       dbOrders = await findImportOrders(supabaseAdmin, targetCodes,
-        'id, legacy_code, status, delivery_detail, whaticket_link, order_medium_id, client_id, channel, advertising_source_id, totals');
+        'id, legacy_code, status, delivery_detail, whaticket_link, order_medium_id, client_id, channel, advertising_source_id, payment_method_id, total_amount, order_discount_type, order_discount_value, order_discount_amount, totals');
     }
 
     // 2.5 Batch-preload Clients and Addresses for all phones in this chunk (saves ~30+ subrequests)
@@ -301,6 +303,8 @@ export async function POST(request: Request) {
       preloadedOrderItems = itemsData || [];
     }
 
+    const loadMs = Date.now() - startedAt;
+    const processStartedAt = Date.now();
     // 3. Build Maps
     const sellersMap = new Map();
     dbSellers.forEach(r => sellersMap.set(normalizeText(r.full_name), { id: r.id, is_organic: r.is_organic, full_name: r.full_name }));
@@ -336,6 +340,11 @@ export async function POST(request: Request) {
               client_id: o.client_id || null,
               channel: o.channel || "",
               advertising_source_id: o.advertising_source_id || null,
+              payment_method_id: o.payment_method_id || null,
+              total_amount: o.total_amount,
+              order_discount_type: o.order_discount_type,
+              order_discount_value: o.order_discount_value,
+              order_discount_amount: o.order_discount_amount,
               totals: o.totals || null
             });
           }
@@ -433,6 +442,15 @@ export async function POST(request: Request) {
     let totalImported = 0;
     let totalItemsImported = 0;
     let totalUpdated = 0;
+    const updatedOrders = new Map<string, { code: string; changes: Set<string> }>();
+    const recordUpdated = (order: any, code: string, patch: Record<string, unknown>, extra: string[] = []) => {
+      const previous = updatedOrders.get(order.id);
+      const entry = previous || { code, changes: new Set<string>() };
+      for (const change of [...describeImportChanges(order, patch), ...extra]) entry.changes.add(change);
+      updatedOrders.set(order.id, entry);
+      if (!previous) totalUpdated++;
+      Object.assign(order, patch);
+    };
 
     // 3. Process rows
     for (const row of rows) {
@@ -751,7 +769,7 @@ export async function POST(request: Request) {
       const orderMediumId = orderMediumsMap.get(normalizeText(resolvedMediumName)) || null;
 
       if (dbOrder) {
-        const classificationUpdate: Record<string, unknown> = {};
+        let classificationUpdate: Record<string, unknown> = {};
         if (dbOrder.channel !== channel) classificationUpdate.channel = channel;
         if (advSourceId && dbOrder.advertising_source_id !== advSourceId) classificationUpdate.advertising_source_id = advSourceId;
         if (!dbOrder.client_id && clientId) classificationUpdate.client_id = clientId;
@@ -761,9 +779,11 @@ export async function POST(request: Request) {
           classificationUpdate.order_discount_amount = importedDiscountAmount;
           classificationUpdate.totals = { ...(dbOrder.totals || {}), ...totalsJson };
         }
+        classificationUpdate = changedImportFields(dbOrder, classificationUpdate);
         if (Object.keys(classificationUpdate).length > 0) {
           const { error: classificationError } = await supabaseAdmin.from('orders').update(classificationUpdate).eq('id', dbOrder.id);
           if (classificationError) throw classificationError;
+          recordUpdated(dbOrder, orderCode, classificationUpdate);
         }
 
         const activeStatuses = ['Pendiente', 'Confirmado', 'Entregando'];
@@ -786,12 +806,10 @@ export async function POST(request: Request) {
           if (rawWhaticketLink && rawWhaticketLink !== dbWhaticket) {
             updatePayload.whaticket_link = rawWhaticketLink;
             needsMetadataUpdate = true;
-            dbOrder.whaticket_link = rawWhaticketLink;
           }
           if (orderMediumId && orderMediumId !== dbMediumId) {
             updatePayload.order_medium_id = orderMediumId;
             needsMetadataUpdate = true;
-            dbOrder.order_medium_id = orderMediumId;
           }
           
           if (newStatus !== dbOrder.status || needsMetadataUpdate) {
@@ -850,28 +868,25 @@ export async function POST(request: Request) {
                 }
               }
               addLog(`✅ Pedido ${orderCode} actualizado a '${newStatus}'; se conserva el resultado de los recorridos salvo entrega/cancelación explícita.`);
-              totalUpdated++;
-              dbOrder.status = newStatus;
+              recordUpdated(dbOrder, orderCode, fieldsToUpdate);
             }
           }
         }
 
         if (syncPaymentMethods && paymentMethodObj && paymentMethodObj.surcharge_percentage > 0) {
-          addLog(`💳 Sincronizando medio de pago con recargo para pedido ${orderCode}: ${rawPayMethod}...`);
-          const { error: errUpdatePay } = await supabaseAdmin
-            .from('orders')
-            .update({
-              payment_method_id: paymentMethodId,
-              total_amount: calculatedTotal,
-              totals: totalsJson
-            })
-            .eq('id', dbOrder.id);
-
-          if (errUpdatePay) {
-            addLog(`❌ Error al actualizar recargo/medio de pago del pedido ${orderCode}: ${errUpdatePay.message}`);
-          } else {
-            addLog(`✅ Surtotal/Recargo de pedido ${orderCode} actualizado a ${calculatedTotal} (${rawPayMethod}).`);
-            totalUpdated++;
+          const paymentUpdate = changedImportFields(dbOrder, {
+            payment_method_id: paymentMethodId,
+            total_amount: calculatedTotal,
+            totals: { ...(dbOrder.totals || {}), ...totalsJson }
+          });
+          if (Object.keys(paymentUpdate).length > 0) {
+            const { error: errUpdatePay } = await supabaseAdmin.from('orders').update(paymentUpdate).eq('id', dbOrder.id);
+            if (errUpdatePay) {
+              addLog(`❌ Error al actualizar recargo/medio de pago del pedido ${orderCode}: ${errUpdatePay.message}`);
+            } else {
+              recordUpdated(dbOrder, orderCode, paymentUpdate);
+              addLog(`✅ Medio de pago/importes modificados del pedido ${orderCode} actualizados.`);
+            }
           }
         }
 
@@ -885,7 +900,7 @@ export async function POST(request: Request) {
           if (errDetail) {
             addLog(`  ❌ Error al actualizar detalle de entrega: ${errDetail.message}`);
           } else {
-            dbOrder.delivery_detail = rawDeliveryDetail;
+            recordUpdated(dbOrder, orderCode, { delivery_detail: rawDeliveryDetail });
             addLog(`  ✅ Detalle de entrega actualizado.`);
           }
         }
@@ -1084,7 +1099,7 @@ export async function POST(request: Request) {
               } else {
                 addLog(`  ✅ Artículos re-sincronizados con éxito (${sheetItems.length} items).`);
                 totalItemsImported += sheetItems.length;
-                totalUpdated++;
+                recordUpdated(dbOrder, orderCode, { totals: totalsJson, total_amount: calculatedTotal, category: deducedCategory }, ['artículos']);
                 preloadedOrderItems = [
                   ...preloadedOrderItems.filter(item => item.order_id !== dbOrder.id),
                   ...sheetItems
@@ -1366,7 +1381,9 @@ export async function POST(request: Request) {
       warnings,
       totalImported,
       totalUpdated,
-      totalItemsImported
+      updatedOrders: [...updatedOrders.values()].map(entry => ({ code: entry.code, changes: [...entry.changes] })),
+      totalItemsImported,
+      metrics: { loadMs, processMs: Date.now() - processStartedAt, totalMs: Date.now() - startedAt }
     });
 
   } catch (error: any) {

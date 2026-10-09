@@ -558,12 +558,6 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
         if (skipENC && orderCode.toUpperCase().startsWith("ENC")) return false;
         if (skipCAMB && orderCode.toUpperCase().startsWith("CAMB")) return false;
 
-        if (sheet.isCentralSheet) {
-          const isWholesaleCode = orderCode.toUpperCase().startsWith("AQU") || orderCode.toUpperCase().startsWith("POW") || orderCode.toUpperCase().startsWith("AQ-");
-          let matchesWholesale = sheet.isAquafortSheet ? isWholesaleCode : !isWholesaleCode;
-          if (!matchesWholesale) return false;
-        }
-
         return true;
       });
 
@@ -888,6 +882,7 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
 
     try {
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://zono-erp.pages.dev';
+      const logisticsRunId = crypto.randomUUID();
       let cursor = 0;
       let done = false;
       let totalSynced = 0;
@@ -901,7 +896,7 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
         const logiRes = await fetch(`${appUrl}/api/admin/audit-deliveries`, {
           method: "POST",
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ cursor, batchSize: 250 })
+          body: JSON.stringify({ cursor, batchSize: 250, syncRunId: logisticsRunId })
         });
         const logiData = await logiRes.json();
         if (!logiRes.ok || logiData.success === false) {
@@ -1055,7 +1050,7 @@ export async function POST(req: Request) {
     const defaultLudmilaSellerId = "54b2d319-8f6f-47ff-b794-b7731978410a";
     const defaultFacundoSellerId = "3820a0fe-bb0a-4a84-ad85-79e49868cad7";
 
-    const targetSheets = (sheets && sheets.length > 0) ? sheets : [
+    const targetSheets = ((sheets && sheets.length > 0) ? sheets : [
       {
         name: "Jazmín Sánchez",
         url: "https://docs.google.com/spreadsheets/d/16DPcJEdrTMYvNSaUKQo9ODKClqe1VHLlKOX6O_sELRw/gviz/tq?tqx=out:csv&gid=1414092286",
@@ -1100,17 +1095,8 @@ export async function POST(req: Request) {
         isCentralSheet: true,
         isAquafortSheet: false,
         enabled: true
-      },
-      {
-        name: "Pedidos Mayoristas (AQU/POW/AQ-)",
-        url: "https://docs.google.com/spreadsheets/d/1nz545_xNUgdI2LMAGIDCjh6Qs8-vUDHdynzj7jU2wm0/gviz/tq?tqx=out:csv&gid=786380854",
-        defaultSellerId: defaultDiegoSellerId,
-        defaultChannel: "mayorista",
-        isCentralSheet: true,
-        isAquafortSheet: true,
-        enabled: true
       }
-    ].filter((s: any) => s.enabled);
+    ]).filter((s: any) => s.enabled && !s.isAquafortSheet);
 
     const { data: newJob, error: errCreate } = await supabaseAdmin.from('import_jobs').insert({
       status: 'running',

@@ -6,6 +6,9 @@ import { fetchSpreadsheetCsv, fetchSpreadsheetValues } from '@/lib/googleSheets'
 import { logisticsCancellationReasons, logisticsCancellationReason } from '@/lib/cancelledOrderSheet';
 import { isLogisticsOrderCode, mapWithConcurrency, splitOrderCodes } from '@/lib/orderSync';
 import { loadLogisticsBatchItems } from '@/lib/logisticsBatchItems';
+import { createRunReadCache } from '@/lib/runReadCache';
+
+const logisticsSourceCache = createRunReadCache<[string, string[][], any[], any[], any]>();
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.dummy';
@@ -130,7 +133,10 @@ const summarizeItems = (items: any[]) => {
   return summarized;
 };
 
-export async function GET() {
+export async function GET(request: Request) {
+  if (new URL(request.url).searchParams.get('capabilities') === '1') {
+    return NextResponse.json({ dryRun: true, perRunSourceReuse: true });
+  }
   try {
     // 1. Fetch Logistics CSV from Google Sheets
     const csvText = await fetchSpreadsheetCsv(LOGISTICS_SHEET_URL);
@@ -603,13 +609,14 @@ export async function POST(request: Request) {
     // These sources are independent. Loading them concurrently removes several
     // full network round trips from every synchronization.
     const loadStartedAt = Date.now();
-    const [csvText, cancelledCodeRows, dbOrdersList, products, payMethodsRes] = await Promise.all([
+    const sourceRead = await logisticsSourceCache.read(options.syncRunId, () => Promise.all([
       fetchSpreadsheetCsv(LOGISTICS_SHEET_URL),
       fetchSpreadsheetValues(LOGISTICS_SPREADSHEET_ID, LOGISTICS_CANCELLED_CODES_RANGE),
       fetchOrdersAll(),
       fetchProductsAll(),
       supabaseAdmin.from('payment_methods').select('id, name')
-    ]);
+    ]));
+    const [csvText, cancelledCodeRows, dbOrdersList, products, payMethodsRes] = sourceRead.value;
     let loadMs = Date.now() - loadStartedAt;
     const rows = parseCSV(csvText);
     const cancellationReasons = logisticsCancellationReasons(cancelledCodeRows);
@@ -624,7 +631,7 @@ export async function POST(request: Request) {
     if (payMethodsRes.error) throw payMethodsRes.error;
 
     const dbProducts = products || [];
-    const payMethods = payMethodsRes.data || [];
+    const payMethods: any[] = payMethodsRes.data || [];
     console.log(`POST: Loaded ${dbProducts.length} products and ${payMethods.length} payment methods.`);
 
     // Pre-calculate cleaned product names and SKUs for O(1) Map lookups (prevents CPU bottleneck)
@@ -844,6 +851,17 @@ export async function POST(request: Request) {
       const dbOrder = dbOrdersMap.get(firstCode);
       return dbOrder ? [dbOrder.id as string] : [];
     });
+    // Identity/source reads are reusable; compare this batch against current ERP data.
+    const currentOrderIds = batchOrders.flatMap(sheetOrder => {
+      const order = dbOrdersMap.get(sheetOrder.code.split(/[\/,]/)[0].trim().toUpperCase());
+      return order ? [order.id as string] : [];
+    });
+    if (currentOrderIds.length) {
+      const { data: currentOrders, error: currentOrdersError } = await supabaseAdmin.from('orders')
+        .select('id, legacy_code, status, total_amount, payment_method_id, customer_name').in('id', currentOrderIds);
+      if (currentOrdersError) throw currentOrdersError;
+      for (const order of currentOrders || []) Object.assign(dbOrdersById.get(order.id) || {}, order);
+    }
     const dbItemsList = await loadLogisticsBatchItems(supabaseAdmin, batchOrderIds);
     dbItemsList.forEach(item => dbOrdersById.get(item.order_id)?.items.push(item));
     loadMs += Date.now() - itemLoadStartedAt;
@@ -953,6 +971,15 @@ export async function POST(request: Request) {
       }
     }
 
+    // Measure reads/comparison against production without writing any records.
+    if (options.dryRun === true) {
+      if (done) logisticsSourceCache.release(options.syncRunId);
+      return NextResponse.json({ success: true, dryRun: true, done, cursor, nextCursor,
+        totalOrders: allSheetOrders.length, plannedUpdatesCount: plannedUpdates.length, skippedOrdersCount,
+        metrics: { loadMs, planMs: Date.now() - planStartedAt, applyMs: 0, totalMs: Date.now() - startedAt, reusedSources: sourceRead.reused }
+      });
+    }
+
     // Resolve the small number of genuinely new payment methods once, before
     // parallel order writes, to avoid duplicate inserts and race conditions.
     const missingPaymentMethods = new Set(
@@ -1057,6 +1084,7 @@ export async function POST(request: Request) {
     console.log(`POST: Checked ${checkedLogiRows} logistics rows; synced ${syncedOrdersCount} orders and ${syncedDeliveryDatesCount} actual delivery dates; ${conflictingDeliveryDatesCount} date conflicts in ${totalMs}ms.`);
 
     console.log(`POST: Batch completed successfully. Synced ${syncedOrdersCount} orders.`);
+    if (done) logisticsSourceCache.release(options.syncRunId);
     return NextResponse.json({
       success: true,
       done,
@@ -1070,7 +1098,7 @@ export async function POST(request: Request) {
       conflictingDeliveryDatesCount,
       skippedOrdersCount,
       stock: stockResult,
-      metrics: { loadMs, planMs, applyMs, totalMs },
+      metrics: { loadMs, planMs, applyMs, totalMs, reusedSources: sourceRead.reused },
       message: done
         ? `Conciliación con Logística completada: ${syncedOrdersCount} pedidos actualizados y ${skippedOrdersCount} sin cambios en el último lote (incluye Cancelados).`
         : `Lote de Logística procesado (${nextCursor}/${allSheetOrders.length}).`

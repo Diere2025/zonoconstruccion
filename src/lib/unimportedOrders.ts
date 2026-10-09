@@ -90,12 +90,6 @@ export const SELLER_SHEETS = [
     url: "https://docs.google.com/spreadsheets/d/1nz545_xNUgdI2LMAGIDCjh6Qs8-vUDHdynzj7jU2wm0/gviz/tq?tqx=out:csv&gid=786380854",
     isCentralSheet: true,
     isAquafortSheet: false
-  },
-  {
-    name: "Pedidos Mayoristas (AQU/POW/AQ-)",
-    url: "https://docs.google.com/spreadsheets/d/1nz545_xNUgdI2LMAGIDCjh6Qs8-vUDHdynzj7jU2wm0/gviz/tq?tqx=out:csv&gid=786380854",
-    isCentralSheet: true,
-    isAquafortSheet: true
   }
 ];
 
@@ -398,13 +392,6 @@ export async function getUnimportedSellerOrders(options: { forceRefresh?: boolea
       // Skip header repetitions or invalid codes
       if (rawCode === "N° PEDIDO" || rawCode === "NRO" || rawCode === "PEDIDO" || rawCode === "CODIGO") continue;
       if (rawCode.startsWith("ENC")) continue;
-
-      // Wholesale filter on central sheet
-      if (sheet.isCentralSheet) {
-        const isWholesaleCode = rawCode.startsWith("AQU") || rawCode.startsWith("POW") || rawCode.startsWith("AQ-");
-        const matchesWholesale = sheet.isAquafortSheet ? isWholesaleCode : !isWholesaleCode;
-        if (!matchesWholesale) continue;
-      }
 
       // Logical detection: check if order code or any sub-part exists in DB
       const codeParts = rawCode.split(/[\/,]/).map(p => p.trim()).filter(Boolean);
