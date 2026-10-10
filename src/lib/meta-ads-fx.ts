@@ -4,6 +4,7 @@ const TTL = 10 * 60_000;
 const MAX_AGE = 60 * 60_000;
 type Offer = { adv?: { price?: string; minSingleTransAmount?: string; maxSingleTransAmount?: string; surplusAmount?: string } };
 export type MetaFx = {
+    transport?: 'direct' | 'criptoya'; referenceUsdt?: number;
     source: 'binance_p2p'; baseRate: number | null; effectiveRate: number | null;
     agencyFeeRate: number; referenceArs: number; quotedAt: string | null;
     status: 'fresh' | 'stale' | 'unavailable'; error?: string;
@@ -36,19 +37,35 @@ export function createMetaFxProvider(fetcher: typeof fetch = fetch, now: () => n
         if (pending) return pending;
         pending = (async () => {
             try {
-                const response = await fetcher('https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store',
-                    signal: AbortSignal.timeout(8000),
-                    body: JSON.stringify({ fiat: 'ARS', asset: 'USDT', tradeType: 'BUY', page: 1, rows: 20,
-                        transAmount: String(REFERENCE_ARS), publisherType: 'merchant', payTypes: [], countries: [],
-                        proMerchantAds: false, shieldMerchantAds: false, filterType: 'all' }),
-                });
-                const body = await response.json();
-                if (!response.ok || body.code !== '000000' || !Array.isArray(body.data)) throw new Error('Invalid quote');
-                const baseRate = selectBinanceRate(body.data);
-                last = { source: 'binance_p2p', baseRate, effectiveRate: baseRate * (1 + AGENCY_FEE_RATE),
-                    agencyFeeRate: AGENCY_FEE_RATE, referenceArs: REFERENCE_ARS,
-                    quotedAt: new Date(now()).toISOString(), status: 'fresh' };
+                let quote: {baseRate: number; quotedAt: string; transport: 'direct' | 'criptoya'; referenceUsdt?: number} | null = null;
+                for (const host of ['https://p2p.binance.com', 'https://www.binance.com']) {
+                    try {
+                        const response = await fetcher(host + '/bapi/c2c/v2/friendly/c2c/adv/search', {
+                            method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, cache: 'no-store',
+                            signal: AbortSignal.timeout(5000),
+                            body: JSON.stringify({ fiat: 'ARS', asset: 'USDT', tradeType: 'BUY', page: 1, rows: 20,
+                                transAmount: String(REFERENCE_ARS), publisherType: 'merchant', payTypes: [], countries: [],
+                                proMerchantAds: false, shieldMerchantAds: false, filterType: 'all' }),
+                        });
+                        const body = await response.json();
+                        if (!response.ok || body.code !== '000000' || !Array.isArray(body.data)) throw new Error('Invalid quote');
+                        quote = {baseRate: selectBinanceRate(body.data), quotedAt: new Date(now()).toISOString(), transport: 'direct'};
+                        break;
+                    } catch { /* Try the alternate public host, then the documented aggregator. */ }
+                }
+                if (!quote) {
+                    // Binance P2P purchase quote via CriptoYa. Use the source's original timestamp.
+                    const response = await fetcher('https://criptoya.com/api/binancep2p/usdt/ars/500', {
+                        cache: 'no-store', signal: AbortSignal.timeout(5000),
+                    });
+                    const body = await response.json();
+                    const baseRate = Number(body.ask), timestamp = Number(body.time) * 1000;
+                    if (!response.ok || !Number.isFinite(baseRate) || baseRate <= 0 || !Number.isFinite(timestamp) ||
+                        now() - timestamp > TTL || timestamp > now() + 60_000) throw new Error('Invalid aggregator quote');
+                    quote = {baseRate, quotedAt: new Date(timestamp).toISOString(), transport: 'criptoya', referenceUsdt: 500};
+                }
+                last = { source: 'binance_p2p', ...quote, effectiveRate: quote.baseRate * (1 + AGENCY_FEE_RATE),
+                    agencyFeeRate: AGENCY_FEE_RATE, referenceArs: REFERENCE_ARS, status: 'fresh' };
                 return last;
             } catch {
                 retryAfter = now() + 60_000;

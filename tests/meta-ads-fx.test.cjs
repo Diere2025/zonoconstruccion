@@ -8,11 +8,25 @@ test('fee is applied once, cache coalesces and expiry never fabricates ARS',asyn
  const get=lib.createMetaFxProvider(async()=>{calls++;if(fail)throw Error('network');return {ok:true,json:async()=>({code:'000000',data:good})}},()=>now);
  const [a,b]=await Promise.all([get(),get()]);assert.equal(calls,1);assert.equal(a.effectiveRate,1602*1.055);assert.equal(a.quotedAt,b.quotedAt);
  now+=600001;fail=true;const stale=await get();assert.equal(stale.status,'stale');assert.equal(stale.quotedAt,a.quotedAt);
- await get();assert.equal(calls,2);
+ await get();assert.equal(calls,4);
  now+=3600000;const expired=await get();assert.equal(expired.status,'unavailable');assert.equal(expired.effectiveRate,null);
 });
 test('cold start provider failure keeps ARS unavailable',async()=>{const fx=await lib.createMetaFxProvider(async()=>{throw Error('blocked')})();assert.equal(fx.status,'unavailable');assert.equal(fx.baseRate,null);});
 test('conversion preserves Meta USD, is idempotent and nulls missing quote',()=>{
  const data={campaigns:[{status:'ACTIVE',spendUsd:100,costPerActionUsd:5,dailyBudgetUsd:200,ads:[{spendUsd:100,costPerActionUsd:5}]}],summary:{totalSpendUsd:100,avgCprUsd:5}};
  const fx={effectiveRate:1600*1.055};const a=lib.applyMetaFx(data,fx);assert.equal(a.summary.totalSpendArs,168800);assert.equal(a.campaigns[0].budgetArs,337600);assert.equal(a.campaigns[0].ads[0].cprArs,8440);assert.equal(a.summary.totalSpendUsd,100);assert.equal(lib.applyMetaFx(a,fx).summary.totalSpendArs,168800);assert.equal(lib.applyMetaFx(data,{effectiveRate:null}).summary.totalSpendArs,null);
+});
+
+test('alternate Binance host succeeds when primary is blocked',async()=>{
+ const urls=[];const get=lib.createMetaFxProvider(async url=>{urls.push(url);if(url.includes('p2p.binance.com'))return {ok:false,json:async()=>({})};return {ok:true,json:async()=>({code:'000000',data:good})}});
+ const fx=await get();assert.equal(fx.status,'fresh');assert.equal(fx.transport,'direct');assert.equal(urls.length,2);assert.ok(urls[1].startsWith('https://www.binance.com/'));
+});
+test('aggregator fallback keeps Binance purchase side and original time',async()=>{
+ const now=1800000000000;const get=lib.createMetaFxProvider(async url=>{if(url.includes('binance.com'))throw Error('blocked');return {ok:true,json:async()=>({ask:1605,bid:1590,time:(now-60000)/1000})}},()=>now);
+ const fx=await get();assert.equal(fx.transport,'criptoya');assert.equal(fx.baseRate,1605);assert.equal(fx.effectiveRate,1605*1.055);assert.equal(fx.quotedAt,new Date(now-60000).toISOString());
+});
+test('aggregator rejects outdated and malformed quotes',async()=>{
+ const now=1800000000000;for(const body of [{ask:1605,time:(now-601000)/1000},{ask:0,time:now/1000},{ask:1605,time:(now+120000)/1000}]){
+ const get=lib.createMetaFxProvider(async url=>{if(url.includes('binance.com'))throw Error('blocked');return {ok:true,json:async()=>body}},()=>now);assert.equal((await get()).effectiveRate,null);
+ }
 });
