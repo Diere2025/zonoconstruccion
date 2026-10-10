@@ -1,0 +1,25 @@
+name: Refresh public Meta FX quotation
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '3-59/5 * * * *'
+permissions:
+  contents: write
+concurrency:
+  group: meta-fx-quotation
+  cancel-in-progress: false
+jobs:
+  quote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node scripts/collect-meta-fx-snapshot.cjs --publish
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
