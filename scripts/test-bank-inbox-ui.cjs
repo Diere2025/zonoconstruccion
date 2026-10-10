@@ -19,7 +19,7 @@ const host=new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).hostname,user={id:ids[3
 const writes=[],errors=[];let failCommit=true,lastCommit=null,checks=0,deleted=false;
 async function mock(context){
  await context.addInitScript(({key,session})=>localStorage.setItem(key,JSON.stringify(session)),{key:`sb-${host.split('.')[0]}-auth-token`,session});
- await context.route('**/*',async route=>{const url=new URL(route.request().url());if(['127.0.0.1','localhost'].includes(url.hostname))return route.continue();let data=[];if(url.hostname===host){if(url.pathname.includes('/auth/v1/user'))data=user;else if(url.pathname.includes('/rest/v1/sellers'))data={id:user.id,full_name:'Administrador de prueba',role:'admin',roles:['admin'],seller_type:'ambos',can_sell_wholesale:true};}await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(data)});});
+ await context.route('**/*',async route=>{const url=new URL(route.request().url());if(['127.0.0.1','localhost',new URL(process.env.BANK_STATEMENT_UI_URL||'http://127.0.0.1:3140').hostname].includes(url.hostname))return route.continue();let data=[];if(url.hostname===host){if(url.pathname.includes('/auth/v1/user'))data=user;else if(url.pathname.includes('/rest/v1/sellers'))data={id:user.id,full_name:'Administrador de prueba',role:'admin',roles:['admin'],seller_type:'ambos',can_sell_wholesale:true};}await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(data)});});
  await context.route('**/api/**',async route=>{const request=route.request(),url=new URL(request.url());let value={active:false,notifications:[],unread:0};if(url.pathname==='/api/mp-bank-refresh'){const data=request.postDataJSON();const channel=data?.channel||'activity';value={success:true,data:[{id:channel==='activity'?ids[37]:ids[38],status:'completed',account_name:'MP3',message:'Referencias actualizadas'}]};}if(url.pathname==='/api/admin/bank-statements'){
   if(request.method()==='GET')value=url.searchParams.get('action')==='inbox'?{rows:[{id:ids[39],operation_id:'183353041388',occurred_at:'2026-10-09T19:05:00-03:00',amount:'120000.00',description:'Movimiento desconocido',counterparty_name:'Reserva Diego',activity_type:'Dinero retirado',operation_kind:'reserve_transfer',statement_entry_id:null,prepared_entry_id:entries[0].id,prepared_batch_id:batch.id,mp_payments:null}],mp:'diegozono_mp',activities:[{id:ids[37],operation_id:null,occurred_at:'2026-10-09T13:00:00Z',amount:'-24199.00',name:'Telecentro SA',description:'Compra',is_reserve:false}],scan:{scanned_at:'2026-10-09T22:06:00Z',row_count:2}}:url.searchParams.get('action')==='orders'?{orders:url.searchParams.has('q')?[historicalOrder]:[pendingOrder]}:(url.searchParams.has('batch')||url.searchParams.get('action')==='inbox-open')?snapshot():{accounts,batches:deleted?[]:[batch],fileAccounts,deletionAvailable:true,orderLinking};
   else if(request.method()==='DELETE'){const data=request.postDataJSON();assert.equal(data.batch,batch.id);assert.equal(data.version,batch.version);writes.push(data);deleted=true;value={deleted:true};}
@@ -32,7 +32,7 @@ async function mock(context){
 }
 (async()=>{fs.mkdirSync('output/bank-statements-tests',{recursive:true});const browser=await chromium.launch({headless:true,channel:'chrome'});try{
  const context=await browser.newContext({locale:'en-US',viewport:{width:1440,height:1000},timezoneId:'America/Argentina/Buenos_Aires'});await mock(context);const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
- await page.goto((process.env.BANK_STATEMENT_UI_URL||'http://127.0.0.1:3139')+'/admin/finanzas/extractos');await page.getByRole('heading',{name:'Extractos bancarios',exact:true}).waitFor({timeout:60000});await page.getByRole('button',{name:/^fixture\.xlsx/}).click();await page.getByText('23 filas · 16 referencias',{exact:false}).waitFor();checks++;
+ await page.goto((process.env.BANK_STATEMENT_UI_URL||'http://127.0.0.1:3139')+'/admin/finanzas/extractos');await page.getByRole('heading',{name:'Extractos bancarios',exact:true}).waitFor({timeout:60000});await page.getByText('Actividad: MP3: Referencias actualizadas',{exact:true}).waitFor();assert.equal(await page.getByLabel('Cuenta del extracto').inputValue(),account.id);assert.ok(writes.some(w=>w.action==='inbox-sync'&&w.account===account.id));checks++;await page.getByRole('button',{name:/^fixture\.xlsx/}).click();await page.getByText('23 filas · 16 referencias',{exact:false}).waitFor();checks++;
  await page.getByText('Actividad: Telecentro SA · Compra',{exact:true}).waitFor();checks++;assert.equal(await page.getByLabel('Seleccionar movimiento 1000000000000',{exact:true}).count(),1);assert.equal(await page.getByRole('columnheader',{name:'Mov.',exact:true}).count(),1);assert.equal(await page.getByRole('columnheader',{name:'Op.',exact:true}).count(),1);assert.ok((await page.getByRole('combobox',{name:'Concepto del movimiento 1000000000000'}).inputValue()).includes('MP - Intereses Ganados'));assert.ok((await page.getByRole('combobox',{name:'Concepto del movimiento 1000000000002'}).inputValue()).includes('Cobro'));checks++;await page.screenshot({path:'output/bank-statements-tests/movimientos-desktop.png',fullPage:true});checks++;
  await page.getByRole('button',{name:'Operaciones',exact:true}).click();assert.equal(await page.getByRole('button',{name:/Operación \d+.*componentes/}).count(),16);await page.getByRole('button',{name:/Operación 5\b.*4 componentes/}).click();await page.getByText('Neto $ 45.945,09',{exact:false}).waitFor();await page.screenshot({path:'output/bank-statements-tests/operacion-desktop.png',fullPage:true});checks+=2;
  await page.getByRole('button',{name:'Movimientos',exact:true}).click();await page.getByRole('button',{name:'Cobro',exact:true}).first().click();const panel=page.getByRole('dialog',{name:'Detalle del movimiento bancario'});await panel.getByText('Coincidencias para revisar',{exact:true}).waitFor();await panel.getByLabel(/Cobro ya existente/).check();await panel.getByRole('button',{name:'Guardar clasificación',exact:true}).click();await panel.waitFor({state:'hidden'});checks++;
@@ -55,3 +55,18 @@ async function mock(context){
  await page.getByLabel('Cuenta del extracto').selectOption(account.id);const captures=page.locator('section').filter({has:page.getByRole('heading',{name:'Bandeja de extractos bancarios',exact:true})});await page.getByRole('button',{name:'Consultar bandeja',exact:true}).click();await page.getByRole('button',{name:/01\/10\/2026 - 31\/10\/2026/}).waitFor();assert.equal(await captures.locator('input[type=date]').count(),0);checks++;await page.getByRole('button',{name:'Clasificar / vincular',exact:true}).click();await page.getByRole('status').filter({hasText:'Extracto provisional preparado'}).waitFor();assert.ok(writes.some(w=>w.action==='inbox-sync'));checks++;
  assert.deepEqual(errors,[]);console.log(JSON.stringify({checks,api:'synthetic',productionWrites:0,screenshots:path.resolve('output/bank-statements-tests')}));
  }finally{await browser.close();}})().catch(e=>{console.error(e.stack||e.message);process.exitCode=1;});
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
