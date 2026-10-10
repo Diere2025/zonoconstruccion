@@ -8,7 +8,7 @@ test('fee is applied once, cache coalesces and expiry never fabricates ARS',asyn
  const get=lib.createMetaFxProvider(async()=>{calls++;if(fail)throw Error('network');return {ok:true,json:async()=>({code:'000000',data:good})}},()=>now);
  const [a,b]=await Promise.all([get(),get()]);assert.equal(calls,1);assert.equal(a.effectiveRate,1602*1.055);assert.equal(a.quotedAt,b.quotedAt);
  now+=600001;fail=true;const stale=await get();assert.equal(stale.status,'stale');assert.equal(stale.quotedAt,a.quotedAt);
- await get();assert.equal(calls,4);
+ await get();assert.equal(calls,5);
  now+=3600000;const expired=await get();assert.equal(expired.status,'unavailable');assert.equal(expired.effectiveRate,null);
 });
 test('cold start provider failure keeps ARS unavailable',async()=>{const fx=await lib.createMetaFxProvider(async()=>{throw Error('blocked')})();assert.equal(fx.status,'unavailable');assert.equal(fx.baseRate,null);});
@@ -35,4 +35,9 @@ test('default provider calls fetch with the runtime global receiver',async()=>{
  const isolated={};const nativeFetch=async function(){'use strict';assert.notEqual(this,undefined);return {ok:true,json:async()=>({code:'000000',data:good})}};
  vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/lib/meta-ads-fx.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:isolated,fetch:nativeFetch,AbortSignal,Date,Number,Math,Promise});
  assert.equal((await isolated.getMetaFx()).status,'fresh');
+});
+
+test('official C2C host is tried before the aggregator',async()=>{
+ const get=lib.createMetaFxProvider(async url=>{if(!url.startsWith('https://c2c.binance.com/'))throw Error('unavailable');return {ok:true,json:async()=>({code:'000000',data:good})}});
+ const fx=await get();assert.equal(fx.transport,'direct');assert.equal(fx.baseRate,1602);
 });

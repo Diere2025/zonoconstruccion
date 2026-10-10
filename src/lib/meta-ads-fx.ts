@@ -40,7 +40,7 @@ export function createMetaFxProvider(fetcher: typeof fetch = (input, init) => gl
             try {
                 diagnostics = [];
                 let quote: {baseRate: number; quotedAt: string; transport: 'direct' | 'criptoya'; referenceUsdt?: number} | null = null;
-                for (const host of ['https://p2p.binance.com', 'https://www.binance.com']) {
+                for (const host of ['https://p2p.binance.com', 'https://www.binance.com', 'https://c2c.binance.com']) {
                     try {
                         const response = await fetcher(host + '/bapi/c2c/v2/friendly/c2c/adv/search', {
                             method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'User-Agent': 'ZonoERP/1.0' }, cache: 'no-store',
@@ -49,8 +49,8 @@ export function createMetaFxProvider(fetcher: typeof fetch = (input, init) => gl
                                 transAmount: String(REFERENCE_ARS), publisherType: 'merchant', payTypes: [], countries: [],
                                 proMerchantAds: false, shieldMerchantAds: false, filterType: 'all' }),
                         });
-                        const body = await response.json();
                         if (!response.ok) { diagnostics.push('Binance HTTP ' + response.status); throw new Error('Invalid quote'); }
+                        const body = await response.json();
                         if (body.code !== '000000' || !Array.isArray(body.data)) { diagnostics.push('Binance: respuesta inválida'); throw new Error('Invalid quote'); }
                         quote = {baseRate: selectBinanceRate(body.data), quotedAt: new Date(now()).toISOString(), transport: 'direct'};
                         break;
