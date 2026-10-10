@@ -30,3 +30,9 @@ test('aggregator rejects outdated and malformed quotes',async()=>{
  const get=lib.createMetaFxProvider(async url=>{if(url.includes('binance.com'))throw Error('blocked');return {ok:true,json:async()=>body}},()=>now);assert.equal((await get()).effectiveRate,null);
  }
 });
+
+test('default provider calls fetch with the runtime global receiver',async()=>{
+ const isolated={};const nativeFetch=async function(){'use strict';assert.notEqual(this,undefined);return {ok:true,json:async()=>({code:'000000',data:good})}};
+ vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/lib/meta-ads-fx.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:isolated,fetch:nativeFetch,AbortSignal,Date,Number,Math,Promise});
+ assert.equal((await isolated.getMetaFx()).status,'fresh');
+});

@@ -20,7 +20,7 @@ export function selectBinanceRate(offers: Offer[]): number {
     const middle = Math.floor(prices.length / 2);
     return prices.length % 2 ? prices[middle] : (prices[middle - 1] + prices[middle]) / 2;
 }
-export function createMetaFxProvider(fetcher: typeof fetch = fetch, now: () => number = Date.now) {
+export function createMetaFxProvider(fetcher: typeof fetch = (input, init) => globalThis.fetch(input, init), now: () => number = Date.now) {
     let last: MetaFx | null = null;
     let pending: Promise<MetaFx> | null = null;
     let retryAfter = 0;
