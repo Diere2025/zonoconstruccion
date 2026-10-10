@@ -1,3 +1,4 @@
+import {initializeStatementInboxes} from '@/lib/bankStatements/initializeInboxes';
 import {statementInbox} from '@/lib/bankStatements/inbox';
 import { resolveStatementFileAccount } from '@/lib/bankStatements/fileAccounts';
 import { NextResponse } from 'next/server';
@@ -21,6 +22,10 @@ export async function GET(request: Request) {
   try {
     const { db, actor } = await financialContext(request);
     const params = new URL(request.url).searchParams, batch = params.get('batch');
+    if(params.get('action')==='inbox-accounts'){
+      const [mappings,settings]=await Promise.all([db.from('bank_statement_mp_accounts').select('financial_account_id,mp_account_id'),db.from('mp_bank_inbox_settings').select('mp_account_id')]);if(mappings.error)throw mappings.error;if(settings.error)throw settings.error;
+      return response({ready:(mappings.data||[]).filter(m=>(settings.data||[]).some(s=>s.mp_account_id===m.mp_account_id)).map(m=>m.financial_account_id)});
+    }
     if(params.get('action')==='inbox'){
       const account=uuid(params.get('account')),from=params.get('from')||'2026-10-01',to=params.get('to')||'2026-10-31';
       if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to)||from<'2026-09-30'||to<from)throw new OperationError('Período inválido');
@@ -101,6 +106,7 @@ export async function POST(request: Request) {
     if(body.action==='inbox-classify'){
       const r=await db.rpc('classify_bank_inbox_capture',{p_actor:actor,p_capture:uuid(body.capture),p_concept:body.concept==null?null:uuid(body.concept),p_version:version(body.version)});if(r.error)throw r.error;return response({saved:true});
     }
+    if(body.action==='inbox-initialize')return response(await initializeStatementInboxes(db,actor,body.accounts));
     if(body.action==='inbox-sync'){
       const mapping=await db.from('bank_statement_mp_accounts').select('mp_account_id').eq('financial_account_id',uuid(body.account)).single();if(mapping.error)throw mapping.error;
       const r=await db.rpc('sync_mp_bank_inbox',{p_mp:mapping.data.mp_account_id,p_actor:actor});if(r.error)throw r.error;return response(r.data);
