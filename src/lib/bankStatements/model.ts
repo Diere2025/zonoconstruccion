@@ -97,6 +97,8 @@ const knownConcepts: Record<string, string> = {
   'costo por intereses absorbidos': 'Costo por intereses absorbidos',
   'retencion impuesto ingresos brutos no inscripto buenos aires': 'Retenciones - IIBB',
   'rendimiento positivo de la inversion': 'MP - Intereses Ganados',
+  'rendimiento bruto': 'MP - Intereses Ganados',
+  'movimiento de cuentas': 'Movimiento de cuentas',
   'cobro': 'Cobro',
   'ingreso de dinero': 'Cobro',
   'dinero recibido': 'Cobro',
@@ -110,8 +112,12 @@ export function suggestStatementConcept(entry: Pick<StatementEntry, 'description
   const unique = [...new Set(selected.map(rule => rule.financial_concept_id))];
   if (unique.length) return unique.length === 1 && concepts.some(concept => concept.id === unique[0] && concept.is_active) ? unique[0] : null;
   const target = knownConcepts[description];
-  if (!target || (direction === 'ingreso' && !['cobro', 'ingreso de dinero', 'dinero recibido', 'rendimiento positivo de la inversion'].includes(description)) || (direction === 'egreso' && ['cobro', 'ingreso de dinero', 'dinero recibido', 'rendimiento positivo de la inversion'].includes(description))) return null;
+  if (!target || (direction === 'ingreso' && !['cobro', 'ingreso de dinero', 'dinero recibido', 'rendimiento positivo de la inversion', 'rendimiento bruto', 'movimiento de cuentas'].includes(description)) || (direction === 'egreso' && ['cobro', 'ingreso de dinero', 'dinero recibido', 'rendimiento positivo de la inversion', 'rendimiento bruto'].includes(description))) return null;
   const matches = concepts.filter(concept => concept.is_active && normalizedStatementText(concept.concept) === normalizedStatementText(target) && (target !== 'Cobro' || normalizedStatementText(concept.category) === 'recaudacion') && (target !== 'MP - Intereses Ganados' || normalizedStatementText(concept.category) === 'inversiones'));
   return matches.length === 1 ? matches[0].id : null;
 }
 export const isMercadoPagoAccount = (account: { name: string; currency: string; type: string; is_active: boolean }) => account.is_active && account.currency === 'ARS' && ['banco', 'virtual'].includes(account.type) && /^Cuenta[. ]MP(?:\d+|Caro)$/i.test(account.name);
+
+
+
+

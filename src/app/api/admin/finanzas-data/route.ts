@@ -69,7 +69,7 @@ export async function GET(request: Request) {
       ] = await Promise.all([
         completeList(supabaseAdmin.from('employees').select('id,full_name,cuit,role,base_salary,is_active').eq('is_active', true).order('full_name').order('id')),
         completeList(supabaseAdmin.from('suppliers').select('id,name').order('name').order('id')),
-        completeList(supabaseAdmin.from('supplier_purchases').select('id,supplier_id,invoice_number,total_amount,paid_amount,status,currency,supplier:suppliers(name),created_at,purchase_date,document_type,purchase_order_id,purchase_reception_id,purchase_orders(oc_code),purchase_receptions(delivery_slip_number,reception_date,purchase_orders(oc_code),purchase_reception_orders(purchase_orders(oc_code)))').neq('status', 'Pagado').neq('status', 'Anulado').order('purchase_date', { ascending: false }).order('id')),
+        completeList(supabaseAdmin.from('supplier_purchases').select('id,supplier_id,invoice_number,total_amount,paid_amount,status,currency,supplier:suppliers(name),created_at,purchase_date,document_type,purchase_order_id,purchase_reception_id,purchase_orders(oc_code),purchase_receptions!supplier_purchases_purchase_reception_id_fkey(delivery_slip_number,reception_date,purchase_orders!purchase_receptions_purchase_order_id_fkey(oc_code),purchase_reception_orders(purchase_orders(oc_code)))').neq('status', 'Pagado').neq('status', 'Anulado').order('purchase_date', { ascending: false }).order('id')),
         supabaseAdmin.from('route_sheets').select('*, carriers(name)').order('delivery_date', { ascending: false }).limit(200),
         supabaseAdmin.rpc('get_financial_accounts_balances'),
         supabaseAdmin.from('cost_centers').select('id,name,code,is_active').eq('is_active', true).order('name'),

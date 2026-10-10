@@ -114,3 +114,7 @@ Al ingresar a la pantalla o pulsar Actualizar Mercado Pago se solicita lectura a
 Actualizar requiere recargar la extensión y las pestañas de Actividad y Movimientos de cada perfil. Usar el mismo destino productivo https://zono-erp.pages.dev/api/mp-webhook y el alias correcto. Las frecuencias bancarias se mantienen configurables (30 minutos en oficina, 2 horas fuera de horario por defecto).
 
 Cuando Logística vincula un pago a un pedido, la referencia del extracto se actualiza sin generar otro cobro. Un fallo de enriquecimiento se deja para reintentar sin deshacer el vínculo del pedido. Verificar pagos ahora dispone de tiempos máximos de consulta y estado por cuenta: un problema de conexión ya no deja el botón verificando indefinidamente.
+
+## Corrección de centavos — versión 1.6.1
+
+Lee importes cuyos centavos aparecen separados en el listado bancario. Antes de recargar esta versión contra producción, aplicar db_migration_v179_bank_capture_decimal_repair.sql: repara capturas y borradores, conserva el original y las clasificaciones manuales, y no modifica movimientos registrados. El relevamiento histórico usa Relevar período completo en la bandeja; requiere ambas pestañas monitor activas con el alias de la cuenta y el destino del ERP correcto.

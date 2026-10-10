@@ -23,3 +23,6 @@ test('MP yields and received funds use the requested active categories, only for
  }
  assert.equal(model.suggestStatementConcept({description:'Rendimiento positivo de la inversión',signed_amount:'1.00'},concepts.filter(c=>c.id!=='yield'),[],'mp3'),null);
 });
+test('web gross yield has the same concept as official investment yield and keeps sign guard',()=>{const concepts=[{id:'interest',concept:'MP - Intereses Ganados',category:'Inversiones',is_active:true}];assert.equal(model.suggestStatementConcept({description:'Rendimiento bruto',signed_amount:'142.80'},concepts,[],'mp3'),'interest');assert.equal(model.suggestStatementConcept({description:'Rendimiento bruto',signed_amount:'-142.80'},concepts,[],'mp3'),null);});
+
+test('identified reserve transfers suggest an internal movement on both signed components',()=>{const concepts=[{id:'reserve',concept:'Movimiento de cuentas',category:'Movimiento de cuentas',is_active:true}];for(const amount of ['120000.00','-120000.00'])assert.equal(model.suggestStatementConcept({description:'Movimiento de cuentas',signed_amount:amount},concepts,[],'mp3'),'reserve');assert.equal(model.suggestStatementConcept({description:'Movimiento desconocido',signed_amount:'120000.00'},concepts,[],'mp3'),null);});

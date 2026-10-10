@@ -1,12 +1,12 @@
 (function(root){
  const normalize=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
  function parseText(text){
-  if((String(text).match(/\b\d{2}\/\d{2}\/\d{4}\b/g)||[]).length!==1||(String(text).match(/\b(?:[01]\d|2[0-3]):[0-5]\d\b/g)||[]).length!==1||(String(text).match(/#\s*\d{6,80}\b/g)||[]).length!==1||(String(text).match(/\$\s*[\d.]+(?:,\d{1,2})?/g)||[]).length!==1)return null;
-  const date=String(text).match(/\b(\d{2})\/(\d{2})\/(\d{4})\b/),time=String(text).match(/\b([01]\d|2[0-3]):([0-5]\d)\b/),op=String(text).match(/#\s*(\d{6,80})\b/),amount=String(text).match(/([-−–]?\s*)\$\s*([\d.]+(?:,\d{1,2})?)/);
+  if((String(text).match(/\b\d{2}\/\d{2}\/\d{4}\b/g)||[]).length!==1||(String(text).match(/\b(?:[01]\d|2[0-3]):[0-5]\d\b/g)||[]).length!==1||(String(text).match(/#\s*\d{6,80}\b/g)||[]).length!==1||(String(text).match(/\$\s*[\d.]+(?:\s*,\s*\d{1,2})?/g)||[]).length!==1)return null;
+  const date=String(text).match(/\b(\d{2})\/(\d{2})\/(\d{4})\b/),time=String(text).match(/\b([01]\d|2[0-3]):([0-5]\d)\b/),op=String(text).match(/#\s*(\d{6,80})\b/),amount=String(text).match(/([-−–]?\s*)\$\s*([\d.]+(?:\s*,\s*\d{1,2})?)/);
   if(!date||!time||!op||!amount)return null;
   const day=`${date[3]}-${date[2]}-${date[1]}`,clock=`${day}T${time[1]}:${time[2]}:00-03:00`;
   if(!Number.isFinite(Date.parse(clock))||day<'2026-10-01')return null;
-  const value=amount[2].replace(/\./g,'').replace(',','.');if(!/^\d+(?:\.\d{1,2})?$/.test(value)||!Number(value))return null;
+  const value=amount[2].replace(/\s/g,'').replace(/\./g,'').replace(',','.');if(!/^\d+(?:\.\d{1,2})?$/.test(value)||!Number(value))return null;
   const description=String(text).replace(date[0],'').replace(time[0],'').replace(op[0],'').replace(amount[0],'').replace(/\s+/g,' ').trim();
   return {operationId:op[1],occurredAt:clock,amount:(/[-−–]/.test(amount[1])?'-':'')+Number(value).toFixed(2),description:description.slice(0,1000),occurrence:1};
  }
@@ -19,7 +19,7 @@
  function scanActivities(doc,dateResolver){
  const candidates=[...doc.querySelectorAll('a,li,tr,[role="row"],[role="listitem"],div,article')].filter(el=>!el.closest("[id^='zono-'],nav,header,aside,[hidden],[aria-hidden='true']")&&el.getClientRects().length);
  const rows=candidates.map(el=>{
-  const text=el.innerText||'',times=text.match(/\b(?:[01]\d|2[0-3]):[0-5]\d\b/g)||[],amounts=text.match(/(?:[-−–+]\s*)?\$\s*[\d.]+(?:,\d{1,2})?/g)||[];
+  const text=el.innerText||'',times=text.match(/\b(?:[01]\d|2[0-3]):[0-5]\d\b/g)||[],amounts=text.match(/(?:[-−–+]\s*)?\$\s*[\d.]+(?:\s*,\s*\d{1,2})?/g)||[];
   if(times.length!==1||amounts.length!==1)return null;
   const date=dateResolver(el)?.dateStr;if(!date||date<'2026-10-01')return null;
   const lines=text.split('\n').map(x=>x.trim()).filter(Boolean);
@@ -35,3 +35,4 @@
  }
  root.ZonoMpBanking={parseText,scan,scanActivities,normalize};
 })(typeof globalThis!=='undefined'?globalThis:this);
+
