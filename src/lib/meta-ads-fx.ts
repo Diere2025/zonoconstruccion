@@ -7,7 +7,7 @@ export type MetaFx = {
     transport?: 'direct' | 'criptoya'; referenceUsdt?: number;
     source: 'binance_p2p'; baseRate: number | null; effectiveRate: number | null;
     agencyFeeRate: number; referenceArs: number; quotedAt: string | null;
-    status: 'fresh' | 'stale' | 'unavailable'; error?: string;
+    status: 'fresh' | 'stale' | 'unavailable'; error?: string; diagnostics?: string[];
 };
 export function selectBinanceRate(offers: Offer[]): number {
     const prices = offers.flatMap(({ adv }) => {
@@ -24,12 +24,13 @@ export function createMetaFxProvider(fetcher: typeof fetch = fetch, now: () => n
     let last: MetaFx | null = null;
     let pending: Promise<MetaFx> | null = null;
     let retryAfter = 0;
+    let diagnostics: string[] = [];
     const fallback = (): MetaFx => ({
         source: 'binance_p2p', agencyFeeRate: AGENCY_FEE_RATE, referenceArs: REFERENCE_ARS,
         baseRate: null, effectiveRate: null, quotedAt: last?.quotedAt ?? null,
         ...(last && now() - Date.parse(last.quotedAt!) <= MAX_AGE ? last : {}),
         status: last && now() - Date.parse(last.quotedAt!) <= MAX_AGE ? 'stale' : 'unavailable',
-        error: 'No se pudo actualizar Binance P2P. Los importes ARS requieren una cotización vigente.',
+        error: 'No se pudo actualizar Binance P2P. Los importes ARS requieren una cotización vigente.', diagnostics,
     });
     return async (): Promise<MetaFx> => {
         if (last && now() - Date.parse(last.quotedAt!) < TTL) return last;
@@ -37,37 +38,41 @@ export function createMetaFxProvider(fetcher: typeof fetch = fetch, now: () => n
         if (pending) return pending;
         pending = (async () => {
             try {
+                diagnostics = [];
                 let quote: {baseRate: number; quotedAt: string; transport: 'direct' | 'criptoya'; referenceUsdt?: number} | null = null;
                 for (const host of ['https://p2p.binance.com', 'https://www.binance.com']) {
                     try {
                         const response = await fetcher(host + '/bapi/c2c/v2/friendly/c2c/adv/search', {
-                            method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, cache: 'no-store',
-                            signal: AbortSignal.timeout(5000),
+                            method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'User-Agent': 'ZonoERP/1.0' }, cache: 'no-store',
+                            signal: AbortSignal.timeout(8000),
                             body: JSON.stringify({ fiat: 'ARS', asset: 'USDT', tradeType: 'BUY', page: 1, rows: 20,
                                 transAmount: String(REFERENCE_ARS), publisherType: 'merchant', payTypes: [], countries: [],
                                 proMerchantAds: false, shieldMerchantAds: false, filterType: 'all' }),
                         });
                         const body = await response.json();
-                        if (!response.ok || body.code !== '000000' || !Array.isArray(body.data)) throw new Error('Invalid quote');
+                        if (!response.ok) { diagnostics.push('Binance HTTP ' + response.status); throw new Error('Invalid quote'); }
+                        if (body.code !== '000000' || !Array.isArray(body.data)) { diagnostics.push('Binance: respuesta inválida'); throw new Error('Invalid quote'); }
                         quote = {baseRate: selectBinanceRate(body.data), quotedAt: new Date(now()).toISOString(), transport: 'direct'};
                         break;
-                    } catch { /* Try the alternate public host, then the documented aggregator. */ }
+                    } catch { diagnostics.push('Consulta directa Binance no disponible'); }
                 }
                 if (!quote) {
                     // Binance P2P purchase quote via CriptoYa. Use the source's original timestamp.
-                    const response = await fetcher('https://criptoya.com/api/binancep2p/usdt/ars/500', {
-                        cache: 'no-store', signal: AbortSignal.timeout(5000),
+                    const response = await fetcher('https://criptoya.com/api/binancep2p/usdt/ars/500?t=' + now(), {
+                        cache: 'no-store', headers: {Accept: 'application/json', 'User-Agent': 'ZonoERP/1.0'}, signal: AbortSignal.timeout(8000),
                     });
+                    diagnostics.push('CriptoYa HTTP ' + response.status);
                     const body = await response.json();
                     const baseRate = Number(body.ask), timestamp = Number(body.time) * 1000;
                     if (!response.ok || !Number.isFinite(baseRate) || baseRate <= 0 || !Number.isFinite(timestamp) ||
-                        now() - timestamp > TTL || timestamp > now() + 60_000) throw new Error('Invalid aggregator quote');
+                        now() - timestamp > TTL || timestamp > now() + 60_000) { diagnostics.push('CriptoYa: precio o fecha inválidos'); throw new Error('Invalid aggregator quote'); }
                     quote = {baseRate, quotedAt: new Date(timestamp).toISOString(), transport: 'criptoya', referenceUsdt: 500};
                 }
                 last = { source: 'binance_p2p', ...quote, effectiveRate: quote.baseRate * (1 + AGENCY_FEE_RATE),
                     agencyFeeRate: AGENCY_FEE_RATE, referenceArs: REFERENCE_ARS, status: 'fresh' };
                 return last;
             } catch {
+                diagnostics.push('No se completó la cotización');
                 retryAfter = now() + 60_000;
                 return fallback();
             } finally { pending = null; }
