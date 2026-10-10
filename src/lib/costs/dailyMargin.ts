@@ -1,6 +1,6 @@
 import { isDiscountProduct } from '@/lib/erp/discounts';
 import { sellerCommissionBase } from '@/lib/sellerCommissionBase';
-import { Result, catalogIdentity } from './model';
+import { Result, catalogIdentity, resolveDailyCostProduct } from './model';
 
 export interface MarginItem {product_id:string|null;product_name:string;quantity:number;unit_price:number;subtotal:number|null;historical_unit_cost:number|null}
 export interface MarginOrder {id:string;legacy_code:string|null;status?:string;total_amount:number;totals:{items_subtotal?:number;subtotal?:number;freight?:number;payment_surcharges?:number}|null;order_items:MarginItem[]}
@@ -20,7 +20,7 @@ export function orderMargin(order:MarginOrder,day:string,current:Result[],mode:'
   const lines=order.order_items.map(item=>{
     const byId=item.product_id?current.filter(p=>p.id===item.product_id||p.equivalentIds?.includes(item.product_id!)):[];
     const matches=byId.length?byId:current.filter(p=>catalogIdentity(p.name)===catalogIdentity(item.product_name));
-    const product=matches.length===1?matches[0]:undefined;
+    const product=resolveDailyCostProduct(current,item.product_id,item.product_name);
     const service=installationCosts.find(s=>item.product_id?s.id===item.product_id:catalogIdentity(s.name)===catalogIdentity(item.product_name));
     const discount=isDiscountProduct({name:item.product_name});
     const saved=Number(item.historical_unit_cost)>0?Number(item.historical_unit_cost):null;

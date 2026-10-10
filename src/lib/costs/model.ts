@@ -61,3 +61,10 @@ export function validateSetting(input: unknown): Setting {
   for (const k of keys) if (s[k] !== undefined) { if (typeof s[k] !== 'number' || !Number.isFinite(s[k]) || s[k]! < 0 || s[k]! > (k === 'margin' ? 95 : 1e9)) throw new Error(`Valor inválido: ${k}`); result[k] = s[k]; }
   return result;
 }
+
+/** Same unambiguous catalog matching for daily deliveries and purchase alerts. */
+export function resolveDailyCostProduct<T extends Pick<Result,'id'|'equivalentIds'|'name'>>(current:T[],id:string|null,name:string):T|undefined {
+  const byId=id?current.filter(p=>p.id===id||p.equivalentIds?.includes(id)):[];
+  const matches=byId.length?byId:current.filter(p=>catalogIdentity(p.name)===catalogIdentity(name));
+  return matches.length===1?matches[0]:undefined;
+}

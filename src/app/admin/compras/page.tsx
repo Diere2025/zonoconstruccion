@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { createAuthenticatedRequester } from "@/lib/authenticatedRequest";
+import { resolveDailyCostProduct } from '@/lib/costs/model';
 import { treasuryToday } from "@/lib/treasuryTransactionTime";
 import { 
   Truck, 
@@ -122,7 +123,7 @@ interface ProductCostAlert {
   id: string;
   product_id: string;
   purchase_id: string;
-  catalog_cost: number;
+  catalog_cost: number | null;
   purchase_cost: number;
   status: 'Pendiente' | 'Ignorada' | 'Actualizada';
   created_at: string;
@@ -329,6 +330,7 @@ export default function ComprasAdminPage() {
   const [pricelists, setPricelists] = useState<PriceList[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [relations, setRelations] = useState<any[]>([]);
+  const [costAlertsError, setCostAlertsError] = useState('');
   const [alerts, setAlerts] = useState<ProductCostAlert[]>([]);
   const [holdOrders, setHoldOrders] = useState<any[]>([]);
   const [purchases, setPurchases] = useState<SupplierPurchase[]>([]);
@@ -521,7 +523,7 @@ export default function ComprasAdminPage() {
 
   const uniqueAlerts = React.useMemo(() => {
     // 1. Group by product_id first to get only the most recent alert for each product
-    const groupedMap = new Map<string, any>();
+    const groupedMap = new Map<string, ProductCostAlert>();
     
     // Since alerts from DB are sorted by created_at DESC, the first one we see is the latest
     for (const alt of alerts) {
@@ -548,6 +550,7 @@ export default function ComprasAdminPage() {
 
     if (alertVariationFilter !== "all") {
       list = list.filter(alt => {
+        if (alt.catalog_cost == null) return false;
         const diff = alt.purchase_cost - alt.catalog_cost;
         if (alertVariationFilter === "increase") return diff > 0;
         if (alertVariationFilter === "decrease") return diff < 0;
@@ -560,9 +563,12 @@ export default function ComprasAdminPage() {
       if (alertSortBy === "margin_loss") {
         const priceA = a.product?.price || 0;
         const priceB = b.product?.price || 0;
-        const costA = a.purchase_cost;
-        const costB = b.purchase_cost;
+        const costA = a.catalog_cost;
+        const costB = b.catalog_cost;
 
+        if (costA == null && costB == null) return 0;
+        if (costA == null) return 1;
+        if (costB == null) return -1;
         if (priceA <= 0 && priceB <= 0) return 0;
         if (priceA <= 0) return 1;
         if (priceB <= 0) return -1;
@@ -573,6 +579,9 @@ export default function ComprasAdminPage() {
         return marginPctA - marginPctB; // Lowest/most negative margin first (worst losses first)
       }
 
+      if (a.catalog_cost == null && b.catalog_cost == null) return 0;
+      if (a.catalog_cost == null) return 1;
+      if (b.catalog_cost == null) return -1;
       const diffPctA = a.catalog_cost > 0 ? ((a.purchase_cost - a.catalog_cost) / a.catalog_cost) * 100 : 100;
       const diffPctB = b.catalog_cost > 0 ? ((b.purchase_cost - b.catalog_cost) / b.catalog_cost) * 100 : 100;
 
@@ -839,7 +848,15 @@ export default function ComprasAdminPage() {
         `)
         .eq("status", "Pendiente")
         .order("created_at", { ascending: false });
-      if (alts) setAlerts(alts as any);
+      if (alts) {
+        // Clear the obsolete catalog snapshot even if calculated-cost loading fails.
+        setAlerts(alts.map(alt=>({...alt,catalog_cost:null})) as ProductCostAlert[]);
+        setCostAlertsError('');
+        try {
+          const costs=await receiptApi.current('/api/admin/purchase-calculated-costs');
+          setAlerts(alts.map(alt=>({...alt,catalog_cost:resolveDailyCostProduct<{id:string|null;equivalentIds?:string[];name:string;material:number|null}>(costs.current,alt.product_id,alt.product?.name||'')?.material??null})) as ProductCostAlert[]);
+        } catch(error) { setCostAlertsError(error instanceof Error?error.message:'No se pudieron cargar los costos calculados.'); }
+      }
 
       // Fetch orders on hold
       const { data: holds } = await supabase
@@ -7404,11 +7421,13 @@ export default function ComprasAdminPage() {
             <div>
               <h4 className="font-black text-sm">Discrepancias de Costos Detectadas</h4>
               <p className="text-xs text-amber-800/90 font-semibold mt-1">
-                El sistema detectó compras con costos unitarios diferentes a los registrados en las listas de catálogo activas. 
-                Podés actualizar el precio de costo del catálogo en un clic o ignorar la alerta si es un cambio temporal.
+                Las compras se comparan con los costos calculados de materiales / compra usados en Resultado diario de entregas.
+                El margen usa ese mismo costo calculado, sin gastos de fabricación. Revisá el cálculo o ignorá la alerta si es un cambio temporal.
               </p>
             </div>
           </div>
+
+          {costAlertsError && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{costAlertsError} Los costos y márgenes quedan pendientes hasta poder leer el cálculo.</p>}
 
           {/* COST ALERTS FILTERS PANEL */}
           <div className="bg-slate-50 p-4 rounded-xl border border-slate-200/60 grid grid-cols-1 md:grid-cols-4 gap-3">
@@ -7526,7 +7545,7 @@ export default function ComprasAdminPage() {
                 <tr className="bg-slate-50 border-b border-slate-100">
                   <th className="px-4 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400">Producto</th>
                   <th className="px-4 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400">Origen Alerta</th>
-                  <th className="px-4 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400 text-right">Costo Catálogo</th>
+                  <th className="px-4 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400 text-right">Costo Calculado</th>
                   <th className="px-4 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400 text-right">Costo Factura</th>
                   <th className="px-4 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400 text-center">Variación</th>
                   <th className="px-4 py-2.5 text-[9px] font-black uppercase tracking-wider text-slate-400 text-right">Precio Venta</th>
@@ -7535,7 +7554,7 @@ export default function ComprasAdminPage() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {uniqueAlerts.map(alt => {
-                  const diffPct = alt.catalog_cost > 0 
+                  const diffPct = alt.catalog_cost == null ? null : alt.catalog_cost > 0
                     ? ((alt.purchase_cost - alt.catalog_cost) / alt.catalog_cost) * 100 
                     : 100;
                   
@@ -7550,16 +7569,16 @@ export default function ComprasAdminPage() {
                         <div className="text-[10px] text-slate-400 font-semibold">{alt.purchase?.supplier?.name}</div>
                       </td>
                       <td className="px-4 py-3 font-bold text-xs text-slate-500 text-right">
-                        {formatPrice(alt.catalog_cost)}
+                        {alt.catalog_cost == null ? "Sin costo calculado" : formatPrice(alt.catalog_cost)}
                       </td>
                       <td className="px-4 py-3 font-black text-xs text-slate-900 text-right">
                         {formatPrice(alt.purchase_cost)}
                       </td>
                       <td className="px-4 py-3 text-center">
                         <span className={`px-2 py-0.5 rounded text-[9px] font-black ${
-                          diffPct > 0 ? 'text-rose-700 bg-rose-50' : 'text-emerald-700 bg-emerald-50'
+                          diffPct != null && diffPct > 0 ? 'text-rose-700 bg-rose-50' : 'text-emerald-700 bg-emerald-50'
                         }`}>
-                          {diffPct > 0 ? '+' : ''}{diffPct.toFixed(1)}%
+                          {diffPct == null ? 'S/D' : `${diffPct > 0 ? '+' : ''}${diffPct.toFixed(1)}%`}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-right whitespace-nowrap">
@@ -7568,8 +7587,8 @@ export default function ComprasAdminPage() {
                         </div>
                         {(() => {
                           const price = alt.product?.price || 0;
-                          const cost = alt.purchase_cost;
-                          if (price <= 0) return null;
+                          const cost = alt.catalog_cost;
+                          if (price <= 0 || cost == null) return null;
                           const profit = price - cost;
                           const marginPct = (profit / price) * 100;
                           
@@ -7596,12 +7615,12 @@ export default function ComprasAdminPage() {
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-2">
-                          <button
-                            onClick={() => handleResolveAlert(alt, 'Actualizada')}
+                          <Link
+                            href="/admin/costos"
                             className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-black uppercase tracking-wider transition-all inline-flex items-center gap-1 shadow-sm"
                           >
-                            <Check className="w-3 h-3" /> Actualizar Catálogo
-                          </button>
+                            <Eye className="w-3 h-3" /> Ver cálculo
+                          </Link>
                           <button
                             onClick={() => handleResolveAlert(alt, 'Ignorada')}
                             className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all inline-flex items-center gap-1"
@@ -7616,7 +7635,7 @@ export default function ComprasAdminPage() {
                 {uniqueAlerts.length === 0 && (
                   <tr>
                     <td colSpan={8} className="px-6 py-8 text-center text-slate-500 font-medium">
-                      No hay discrepancias de costos pendientes. ¡Catálogo al día!
+                      No hay alertas de compras pendientes.
                     </td>
                   </tr>
                 )}
