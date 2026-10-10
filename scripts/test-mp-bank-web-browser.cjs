@@ -7,7 +7,7 @@ const {chromium}=require('C:/Users/diego/.cache/codex-runtimes/codex-primary-run
  config.bankingWorkInterval=300; config.bankingOffInterval=1800;
  history.replaceState({},'', '/activities');
  const activity=getActiveInterval();
- history.replaceState({},'', '/banking/movements');
+ history.replaceState({},'', '/banking/movements/2?beginDate=2026-09-30');
  const bankOffice=getActiveInterval();
  isWorkHours=()=>false;
  const bankOff=getActiveInterval();

@@ -2,7 +2,7 @@
 (function(){
  const pending=new Map(),lastAttempt=new Map();let polling=false;
  const path=()=>location.pathname.replace(/\/$/,'');
- const channel=()=>path()==='/activities'?'activity':path()==='/banking/movements'?'banking':null;
+ const channel=()=>path()==='/activities'?'activity':/^(?:\/banking\/movements(?:\/[1-9]\d*)?|\/balance\/reports\/movements)\/?$/.test(path())?'banking':null;
  function send(route,payload){return new Promise(resolve=>{let done=false;const timer=setTimeout(()=>finish(null),20000);function finish(result){if(done)return;done=true;clearTimeout(timer);resolve(result);}chrome.runtime.sendMessage({action:'REPORT_PAYMENT',url:new URL(route,config.webhookUrl).toString(),token:config.secretToken,payload:{...payload,account:config.accountName,url:location.href}},result=>finish(chrome.runtime.lastError?null:result));});}
  async function captureLoaded(lane,manual=false,period){
   if(!isMonitorTab||channel()!==lane)return {captured:0,failed:true};

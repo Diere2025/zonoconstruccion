@@ -1,6 +1,8 @@
 // content.js - DOM Processor for Mercado Pago Web
 console.log("[Zono MP Monitor] Content script initialized on", window.location.href);
 
+function isBankingPage(){return /^(?:\/banking\/movements(?:\/[1-9]\d*)?|\/balance\/reports\/movements)\/?$/.test(window.location.pathname);}
+
 // Config defaults
 let config = {
   webhookUrl: "https://zono-erp.pages.dev/api/mp-webhook",
@@ -125,7 +127,7 @@ function getBankingInterval() {
 }
 
 function getActiveInterval() {
-  if (['/banking/movements', '/balance/reports/movements'].includes(window.location.pathname)) return getBankingInterval();
+  if (isBankingPage()) return getBankingInterval();
   return isWorkHours()
     ? Math.max(8, Number(config.workInterval) || 60)
     : Math.max(30, Number(config.offInterval) || 600);
@@ -269,7 +271,7 @@ let lastActivityCaptureError='',lastRemoteRefreshError='';
 function updateReadingStatus() {
   const el = document.getElementById("zono-reading-status");
   if (!el) return;
-  if(['/banking/movements','/balance/reports/movements'].includes(window.location.pathname)){el.textContent='Lectura: '+lastReadingCount+' movimientos cargados'+(lastBankCaptureError?' · sin confirmar':'');el.style.color=lastBankCaptureError?'#fca5a5':'#cbd5e1';el.title=lastBankCaptureError;return;}
+  if(isBankingPage()){el.textContent='Lectura: '+lastReadingCount+' movimientos cargados'+(lastBankCaptureError?' · sin confirmar':'');el.style.color=lastBankCaptureError?'#fca5a5':'#cbd5e1';el.title=lastBankCaptureError;return;}
   const failures = [...failedPayments.entries()].filter(([key]) => key.startsWith(`${config.accountName}:`));
   el.textContent = `Lectura: ${lastReadingCount} cobros de hoy${failures.length ? ` · ${failures.length} sin confirmar (reintentando)` : ""}`;
   el.style.color = failures.length ? "#fca5a5" : "#cbd5e1";
@@ -692,7 +694,7 @@ function getVisibleRows() {
 }
 
 function scanDOMActivities() {
-  if(["/banking/movements","/balance/reports/movements"].includes(window.location.pathname)){if(isMonitorTab)reportBankingRows(false);return;}
+  if(isBankingPage()){if(isMonitorTab)reportBankingRows(false);return;}
   if (!isMonitorTab) return;
   if (!isActivitiesPage()) return;
   const err = detectMercadoPagoError();
@@ -708,7 +710,7 @@ function scanDOMActivities() {
 
 // Manual Action: user clicks "Sincronizar visibles"
 async function manualSyncVisibleActivities() {
-  if(["/banking/movements","/balance/reports/movements"].includes(window.location.pathname)){if(isMonitorTab)await reportBankingRows(true);else showToast("Activá el monitoreo en esta pestaña","error");return;}
+  if(isBankingPage()){if(isMonitorTab)await reportBankingRows(true);else showToast("Activá el monitoreo en esta pestaña","error");return;}
   if (!isMonitorTab) {
     showToast("Activá el monitoreo en esta pestaña para sincronizar", "error");
     return;
@@ -778,7 +780,7 @@ function playAlertBeep() {
 // 1. Check if the tab is on the principal activities page
 function isActivitiesPage() {
   const path = window.location.pathname.toLowerCase();
-  return path.startsWith("/activities") || path.startsWith("/movement") || ["/banking/movements","/balance/reports/movements"].includes(path);
+  return path.startsWith("/activities") || path.startsWith("/movement") || isBankingPage();
 }
 
 // 2. Check if Mercado Pago crashed or is displaying an error screen (ultra-fast selector check)
@@ -1004,7 +1006,7 @@ function setConnectionStatus(isOnline) {
 }
 
 function sendHeartbeat() {
-  if(['/banking/movements','/balance/reports/movements'].includes(window.location.pathname))return;
+  if(isBankingPage())return;
   if (!isMonitorTab) return;
   // 1. DO NOT send heartbeat if not on activities page!
   if (!isActivitiesPage()) {

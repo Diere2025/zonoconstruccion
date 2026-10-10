@@ -19,7 +19,7 @@ function isActivitiesTab(tab) {
   }
 }
 
-function isBankingTab(tab){try{const url=new URL(tab?.url||'');return (url.hostname==='mercadopago.com.ar'||url.hostname.endsWith('.mercadopago.com.ar'))&&['/banking/movements','/balance/reports/movements'].includes(url.pathname);}catch{return false;}}
+function isBankingTab(tab){try{const url=new URL(tab?.url||'');return (url.hostname==='mercadopago.com.ar'||url.hostname.endsWith('.mercadopago.com.ar'))&&/^(?:\/banking\/movements(?:\/[1-9]\d*)?|\/balance\/reports\/movements)\/?$/.test(url.pathname);}catch{return false;}}
 function saveBankingTab(next,previous,respond){chrome.storage.local.set({bankingTabId:next},()=>{if(previous&&previous!==next)chrome.tabs.sendMessage(previous,{action:'MONITOR_STATE',active:false}).catch(()=>{});chrome.tabs.sendMessage(next,{action:'MONITOR_STATE',active:true}).catch(()=>{});respond?.({ok:true,active:true});});}
 
 const WRONG_PAGE_ALARM = "WRONG_PAGE_CHECK";

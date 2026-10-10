@@ -7,7 +7,7 @@ const validId=(value:unknown)=>typeof value==='string'&&/^[0-9a-f-]{36}$/i.test(
 function monitor(request:Request,body:any){
  if(request.headers.get('x-webhook-token')!==(process.env.MP_WEBHOOK_SECRET||'mpchecker_secret_key_123'))return null;
  const u=new URL(body.url);if(u.protocol!=='https:'||!['www.mercadopago.com.ar','mercadopago.com.ar'].includes(u.hostname))throw Error('Origen inválido');
- const channel=u.pathname.replace(/\/$/,'')==='/activities'?'activity':u.pathname.replace(/\/$/,'')==='/banking/movements'?'banking':null;if(!channel)throw Error('Canal inválido');
+ const channel=u.pathname.replace(/\/$/,'')==='/activities'?'activity':/^(?:\/banking\/movements(?:\/[1-9]\d*)?|\/balance\/reports\/movements)\/?$/.test(u.pathname)?'banking':null;if(!channel)throw Error('Canal inválido');
  if(body.channel!==channel)throw Error('La pestaña no corresponde al canal');
  const url=process.env.NEXT_PUBLIC_SUPABASE_URL,key=process.env.SUPABASE_SERVICE_ROLE_KEY;if(!url||!key)throw Error('Monitor no configurado');
  return {channel,db:createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false}})};

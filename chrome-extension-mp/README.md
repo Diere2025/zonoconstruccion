@@ -124,3 +124,6 @@ La captura de Actividad y Movimientos bancarios incluye el 30/09/2026 en todas l
 
 ### 1.6.3 — Confirmación de sincronización manual
 Sincronizar visibles muestra progreso, confirmación de referencias, lista vacía o error del ERP en ambos canales. El contador de referencias de Actividad se presenta separado de los cobros de Chequeo de Pagos. Las capturas automáticas no agregan avisos.
+
+### 1.6.4 — Paginación bancaria
+Las rutas /banking/movements/2 y demás páginas numeradas mantienen el canal de Movimientos y la pestaña monitor. Las rutas de captura del ERP también aceptan esas páginas.
