@@ -121,3 +121,6 @@ Lee importes cuyos centavos aparecen separados en el listado bancario. Antes de 
 
 ### 1.6.2 — Referencias desde el 30/09/2026
 La captura de Actividad y Movimientos bancarios incluye el 30/09/2026 en todas las cuentas. Se mantienen los límites de octubre para generar nuevos movimientos financieros. Recargar la extensión y las pestañas de Mercado Pago para aplicar el nuevo lector.
+
+### 1.6.3 — Confirmación de sincronización manual
+Sincronizar visibles muestra progreso, confirmación de referencias, lista vacía o error del ERP en ambos canales. El contador de referencias de Actividad se presenta separado de los cobros de Chequeo de Pagos. Las capturas automáticas no agregan avisos.

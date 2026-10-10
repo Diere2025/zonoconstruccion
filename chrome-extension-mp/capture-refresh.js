@@ -47,7 +47,18 @@
  }catch(error){console.warn('[Zono] Refresco de referencias:',error.message);}finally{polling=false;}}
  globalThis.ZonoCaptureRefresh={captureLoaded,readHistory,poll,waitForListing};
  // Preserve independent frequencies and the existing collections monitor.
- reportBankingRows=manual=>captureLoaded('banking',manual);
- reportActivityBankRows=manual=>captureLoaded('activity',manual);
+ async function reportCapture(lane,manual){
+  const label=lane==='banking'?'movimientos bancarios':'referencias de Actividad';
+  if(manual)showToast('Leyendo '+label+'…','success');
+  let result;try{result=await captureLoaded(lane,manual);}catch(error){result={captured:0,failed:true,message:error.message||'No se pudo completar la captura'};}
+  if(manual){
+   if(result.failed)showToast(result.message||'No se pudo capturar. Verificá que esta sea la pestaña monitor y que corresponda a '+label+'.','error');
+   else if(result.empty)showToast('No se detectaron filas compatibles para capturar. Cargá el listado desde el 30/09/2026 y volvé a sincronizar.','error');
+   else showToast(result.captured+' '+label+' confirmados en el ERP · sólo filas cargadas · sin generar movimientos financieros','success');
+  }
+  return result;
+ }
+ reportBankingRows=manual=>reportCapture('banking',manual);
+ reportActivityBankRows=manual=>reportCapture('activity',manual);
  setTimeout(poll,4000);setInterval(poll,10000);
 })();
