@@ -1,5 +1,5 @@
 import type {FinancialConcept} from '@/lib/financialConcepts';
-import {distinctActivities,activityConcept} from './activityInbox';
+import {distinctActivities,activityConcept,matchInboxActivity} from './activityInbox';
 import type {StatementRule} from './model';
 import type {SupabaseClient} from '@supabase/supabase-js';
 import {allRows} from '@/lib/paymentPlanning/server';
@@ -7,11 +7,8 @@ import {statementOrderLinks} from './orderServer';
 import {operationOrders} from './inboxGroups';
 export type InboxCapture={id:string;operation_id:string;occurred_at:string;amount:string;description:string;counterparty_name:string|null;activity_type:string|null;operation_kind:string|null;statement_entry_id:string|null;prepared_entry_id:string|null;prepared_batch_id:string|null;mp_payments:{payer_name:string;order_code:string|null}|null;cash_transaction_id?:string|null;movement_code?:string|null;financial_concept_id?:string|null;concept_label?:string|null;review_version?:number;proposed_concept_id?:string|null;order_code?:string|null;order_from_operation?:boolean;order_ambiguous?:boolean};
 type RawInboxCapture=Omit<InboxCapture,'mp_payments'>&{mp_payments:InboxCapture['mp_payments']|NonNullable<InboxCapture['mp_payments']>[]};
-export type InboxActivity={mp_account_id?:string;id:string;operation_id:string|null;occurred_at:string;amount:string;name:string;description:string;is_reserve:boolean;capture_key:string;linked_capture_id?:string|null;cash_transaction_id?:string|null;link_version?:number;proposed_concept_id?:string|null;review_version?:number};
-const same=(a:InboxActivity,w:InboxCapture)=>Number(a.amount)===Number(w.amount)&&new Date(a.occurred_at).toISOString().slice(0,16)===new Date(w.occurred_at).toISOString().slice(0,16)&&(!a.operation_id||a.operation_id===w.operation_id);
-export function matchInboxActivity(activities:InboxActivity[],captures:InboxCapture[]){
- return activities.map(a=>{const matches=captures.filter(w=>same(a,w));const match=matches.length===1&&activities.filter(x=>same(x,matches[0])).length===1?matches[0]:null;return {...a,linked_capture_id:match?.id||null,cash_transaction_id:a.cash_transaction_id||match?.cash_transaction_id||null};});
-}
+export type InboxActivity={link_reason?:string|null;bank_amount?:string|null;mp_account_id?:string;id:string;operation_id:string|null;occurred_at:string;amount:string;name:string;description:string;is_reserve:boolean;capture_key:string;linked_capture_id?:string|null;cash_transaction_id?:string|null;link_version?:number;proposed_concept_id?:string|null;review_version?:number};
+export {matchInboxActivity} from './activityInbox';
 export async function statementInbox(db:SupabaseClient,account:string,from:string,to:string){
  const mapping=await db.from('bank_statement_mp_accounts').select('mp_account_id').eq('financial_account_id',account).maybeSingle();if(mapping.error)throw mapping.error;if(!mapping.data)return {rows:[],activities:[],scan:null,mp:null};const mp=mapping.data.mp_account_id;
  const [rows,activities,scan,concepts,rules]=await Promise.all([
