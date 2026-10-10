@@ -23,7 +23,7 @@ export async function GET(request: Request) {
     const params = new URL(request.url).searchParams, batch = params.get('batch');
     if(params.get('action')==='inbox'){
       const account=uuid(params.get('account')),from=params.get('from')||'2026-10-01',to=params.get('to')||'2026-10-31';
-      if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to)||from<'2026-10-01'||to<from)throw new OperationError('Período inválido');
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to)||from<'2026-09-30'||to<from)throw new OperationError('Período inválido');
       return response(await statementInbox(db,account,from,to));
     }
     if(params.get('action')==='activity-targets'){
@@ -36,7 +36,7 @@ export async function GET(request: Request) {
       if(!bid)throw new OperationError('El componente requiere revisión o respaldo de Excel');return response(await statementSnapshot(db,actor,bid));
     }
     if(params.get('action')==='web-capture'){
-      const account=uuid(params.get('account')),from=params.get('from')||'2026-10-01',to=params.get('to')||'2026-10-31';if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to)||from<'2026-10-01'||to<from)throw new OperationError('Período de captura inválido');
+      const account=uuid(params.get('account')),from=params.get('from')||'2026-10-01',to=params.get('to')||'2026-10-31';if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to)||from<'2026-09-30'||to<from)throw new OperationError('Período de captura inválido');
       const mapping=await db.from('bank_statement_mp_accounts').select('mp_account_id').eq('financial_account_id',account).maybeSingle();if(mapping.error)throw mapping.error;if(!mapping.data)return response({rows:[],scan:null});
       const mp=mapping.data.mp_account_id;const [rows,scan]=await Promise.all([db.from('mp_bank_web_rows').select('id,operation_id,occurred_at,amount,description,counterparty_name,activity_type,operation_kind,statement_entry_id,prepared_entry_id,mp_payments(payer_name,order_code)').eq('mp_account_id',mp).gte('occurred_at',from+'T00:00:00-03:00').lte('occurred_at',to+'T23:59:59-03:00').order('occurred_at',{ascending:false}).limit(1000),db.from('mp_bank_web_scans').select('scanned_at,row_count').eq('mp_account_id',mp).order('id',{ascending:false}).limit(1).maybeSingle()]);if(rows.error)throw rows.error;if(scan.error)throw scan.error;return response({rows:rows.data,scan:scan.data});
     }

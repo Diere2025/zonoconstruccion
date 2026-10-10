@@ -118,3 +118,6 @@ Cuando Logística vincula un pago a un pedido, la referencia del extracto se act
 ## Corrección de centavos — versión 1.6.1
 
 Lee importes cuyos centavos aparecen separados en el listado bancario. Antes de recargar esta versión contra producción, aplicar db_migration_v179_bank_capture_decimal_repair.sql: repara capturas y borradores, conserva el original y las clasificaciones manuales, y no modifica movimientos registrados. El relevamiento histórico usa Relevar período completo en la bandeja; requiere ambas pestañas monitor activas con el alias de la cuenta y el destino del ERP correcto.
+
+### 1.6.2 — Referencias desde el 30/09/2026
+La captura de Actividad y Movimientos bancarios incluye el 30/09/2026 en todas las cuentas. Se mantienen los límites de octubre para generar nuevos movimientos financieros. Recargar la extensión y las pestañas de Mercado Pago para aplicar el nuevo lector.

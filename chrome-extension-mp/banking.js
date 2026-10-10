@@ -5,7 +5,7 @@
   const date=String(text).match(/\b(\d{2})\/(\d{2})\/(\d{4})\b/),time=String(text).match(/\b([01]\d|2[0-3]):([0-5]\d)\b/),op=String(text).match(/#\s*(\d{6,80})\b/),amount=String(text).match(/([-−–]?\s*)\$\s*([\d.]+(?:\s*,\s*\d{1,2})?)/);
   if(!date||!time||!op||!amount)return null;
   const day=`${date[3]}-${date[2]}-${date[1]}`,clock=`${day}T${time[1]}:${time[2]}:00-03:00`;
-  if(!Number.isFinite(Date.parse(clock))||day<'2026-10-01')return null;
+  if(!Number.isFinite(Date.parse(clock))||day<'2026-09-30')return null;
   const value=amount[2].replace(/\s/g,'').replace(/\./g,'').replace(',','.');if(!/^\d+(?:\.\d{1,2})?$/.test(value)||!Number(value))return null;
   const description=String(text).replace(date[0],'').replace(time[0],'').replace(op[0],'').replace(amount[0],'').replace(/\s+/g,' ').trim();
   return {operationId:op[1],occurredAt:clock,amount:(/[-−–]/.test(amount[1])?'-':'')+Number(value).toFixed(2),description:description.slice(0,1000),occurrence:1};
@@ -21,7 +21,7 @@
  const rows=candidates.map(el=>{
   const text=el.innerText||'',times=text.match(/\b(?:[01]\d|2[0-3]):[0-5]\d\b/g)||[],amounts=text.match(/(?:[-−–+]\s*)?\$\s*[\d.]+(?:\s*,\s*\d{1,2})?/g)||[];
   if(times.length!==1||amounts.length!==1)return null;
-  const date=dateResolver(el)?.dateStr;if(!date||date<'2026-10-01')return null;
+  const date=dateResolver(el)?.dateStr;if(!date||date<'2026-09-30')return null;
   const lines=text.split('\n').map(x=>x.trim()).filter(Boolean);
   if(lines.some(x=>/^(pendiente|en proceso|rechazado|cancelado|cancelada|fallido|fallida)$/i.test(x)))return null;
   const details=lines.filter(x=>! /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(x)&&!/^[-−–+]?\s*\$/.test(x)&&!/^(aprobado|aprobada|completado|completada|dinero disponible|saldo disponible)$/i.test(x)&&!/^\d{2}\/\d{2}\/\d{4}$/.test(x)&&!/^#?\d{6,80}$/.test(x));

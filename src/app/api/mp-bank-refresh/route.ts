@@ -24,7 +24,7 @@ export async function POST(request:Request){try{
  }
  const {db,actor}=await financialContext(request,true);if(body.action!=='request'||!['activity','banking'].includes(body.channel))throw Error('Solicitud inválida');
  const from=String(body.from||'2026-10-01'),to=String(body.to||new Date().toLocaleDateString('en-CA',{timeZone:'America/Argentina/Buenos_Aires'}));
- if(!/^2026-\d{2}-\d{2}$/.test(from)||!/^2026-\d{2}-\d{2}$/.test(to)||from<'2026-10-01'||to<from||(Date.parse(to)-Date.parse(from))/86400000>31)throw Error('Seleccioná un período desde octubre de hasta 31 días');
+ if(!/^2026-\d{2}-\d{2}$/.test(from)||!/^2026-\d{2}-\d{2}$/.test(to)||from<'2026-09-30'||to<from||(Date.parse(to)-Date.parse(from))/86400000>31)throw Error('Seleccioná un período válido de hasta 31 días');
  const accounts=await db.from('mp_accounts').select('id,name,alias').eq('is_active',true);if(accounts.error)throw accounts.error;
  const value=String(body.accountId||'').toLowerCase();const selected=(accounts.data||[]).filter(a=>[a.id,a.name,a.alias].some(v=>v&&v.toLowerCase()===value));if(selected.length!==1)throw Error('Elegí una cuenta configurada');
  const r=await db.rpc('request_mp_capture_refresh',{p_account:selected[0].id,p_channel:body.channel,p_user:actor,p_history:body.history===true,p_from:from,p_to:to});if(r.error)throw r.error;
