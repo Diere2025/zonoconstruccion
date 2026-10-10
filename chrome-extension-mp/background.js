@@ -19,6 +19,9 @@ function isActivitiesTab(tab) {
   }
 }
 
+function isBankingTab(tab){try{const url=new URL(tab?.url||'');return (url.hostname==='mercadopago.com.ar'||url.hostname.endsWith('.mercadopago.com.ar'))&&['/banking/movements','/balance/reports/movements'].includes(url.pathname);}catch{return false;}}
+function saveBankingTab(next,previous,respond){chrome.storage.local.set({bankingTabId:next},()=>{if(previous&&previous!==next)chrome.tabs.sendMessage(previous,{action:'MONITOR_STATE',active:false}).catch(()=>{});chrome.tabs.sendMessage(next,{action:'MONITOR_STATE',active:true}).catch(()=>{});respond?.({ok:true,active:true});});}
+
 const WRONG_PAGE_ALARM = "WRONG_PAGE_CHECK";
 let wrongPageTimer;
 
@@ -82,6 +85,7 @@ async function checkMonitorPage() {
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (!changeInfo.url && changeInfo.status !== "complete") return;
+  chrome.storage.local.get(['bankingTabId'],({bankingTabId})=>{if(tabId===bankingTabId&&!isBankingTab(tab)&&tab.status!=='loading'){chrome.storage.local.remove('bankingTabId');chrome.tabs.sendMessage(tabId,{action:'MONITOR_STATE',active:false}).catch(()=>{});}});
   chrome.storage.local.get(["monitorTabId"], ({ monitorTabId }) => {
     if (tabId !== monitorTabId) return;
     if (isActivitiesTab(tab)) clearWrongPageCheck();
@@ -104,6 +108,7 @@ function saveMonitorTab(nextTabId, previousTabId, sendResponse) {
 // Mercado Pago tabs are intentionally passive so normal browsing never emits
 // false outage alerts.
 function pingAllTabs() {
+  chrome.storage.local.get(['bankingTabId'],({bankingTabId})=>{if(bankingTabId)chrome.tabs.sendMessage(bankingTabId,{action:'TRIGGER_POLL'}).catch(()=>{});});
   chrome.storage.local.get(["monitorTabId"], ({ monitorTabId }) => {
     if (!monitorTabId) return;
     chrome.tabs.sendMessage(monitorTabId, { action: "TRIGGER_POLL" }).catch(() => {
@@ -118,6 +123,7 @@ function pingAllTabs() {
 }
 
 chrome.tabs.onRemoved.addListener((tabId) => {
+  chrome.storage.local.get(['bankingTabId'],({bankingTabId})=>{if(bankingTabId===tabId)chrome.storage.local.remove('bankingTabId');});
   chrome.storage.local.get(["monitorTabId"], ({ monitorTabId }) => {
     if (monitorTabId === tabId) scheduleWrongPageCheck();
   });
@@ -138,6 +144,9 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 setInterval(pingAllTabs, 10000);
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if(request.action==='GET_MONITOR_STATE'&&isBankingTab(sender.tab)){
+    chrome.storage.local.get(['bankingTabId'],({bankingTabId})=>{if(!bankingTabId||bankingTabId===sender.tab.id){saveBankingTab(sender.tab.id,bankingTabId,sendResponse);return;}chrome.tabs.get(bankingTabId,tab=>{if(chrome.runtime.lastError||!tab||!isBankingTab(tab))saveBankingTab(sender.tab.id,bankingTabId,sendResponse);else sendResponse({active:false});});});return true;
+  }
   if (request.action === "GET_MONITOR_STATE") {
     chrome.storage.local.get(["monitorTabId"], ({ monitorTabId }) => {
       const senderTabId = sender.tab?.id;
@@ -170,6 +179,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
+  if(request.action==='CLAIM_MONITOR_TAB'&&isBankingTab(sender.tab)){chrome.storage.local.get(['bankingTabId'],({bankingTabId})=>saveBankingTab(sender.tab.id,bankingTabId,sendResponse));return true;}
   if (request.action === "CLAIM_MONITOR_TAB") {
     const nextTabId = sender.tab?.id;
     if (!nextTabId) {
@@ -206,7 +216,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     })
       .then(async (res) => {
         const data = await res.json().catch(() => ({}));
-        
+
         if (paymentSummary && res.ok && data.success === true) {
           chrome.storage.local.get(["history"], (items) => {
             const history = items.history || [];

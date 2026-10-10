@@ -7,6 +7,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const workEndEl = document.getElementById("workEnd");
   const workIntervalEl = document.getElementById("workInterval");
   const offIntervalEl = document.getElementById("offInterval");
+  const bankingWorkIntervalEl = document.getElementById("bankingWorkInterval");
+  const bankingOffIntervalEl = document.getElementById("bankingOffInterval");
   const btnSave = document.getElementById("btnSave");
   const btnTest = document.getElementById("btnTest");
   const btnClearHistory = document.getElementById("btnClearHistory");
@@ -74,6 +76,8 @@ document.addEventListener("DOMContentLoaded", () => {
       "secretToken",
       "workInterval",
       "offInterval",
+      "bankingWorkInterval",
+      "bankingOffInterval",
       "workStart",
       "workEnd",
       "workDays",
@@ -95,6 +99,8 @@ document.addEventListener("DOMContentLoaded", () => {
       else workIntervalEl.value = "60";
       if (res.offInterval) offIntervalEl.value = String(res.offInterval);
       else offIntervalEl.value = "600";
+      bankingWorkIntervalEl.value = String(res.bankingWorkInterval || 1800);
+      bankingOffIntervalEl.value = String(res.bankingOffInterval || 7200);
       if (Array.isArray(res.workDays)) {
         updateDaysUI(res.workDays);
       }
@@ -151,7 +157,9 @@ document.addEventListener("DOMContentLoaded", () => {
       workEnd: workEndEl.value || "21:00",
       workDays: selectedDays,
       workInterval: Number(workIntervalEl.value) || 60,
-      offInterval: Number(offIntervalEl.value) || 600
+      offInterval: Number(offIntervalEl.value) || 600,
+      bankingWorkInterval: Math.max(30, Number(bankingWorkIntervalEl.value) || 1800),
+      bankingOffInterval: Math.max(30, Number(bankingOffIntervalEl.value) || 7200)
     };
 
     chrome.storage.local.set(config, () => {

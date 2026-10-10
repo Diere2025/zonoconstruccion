@@ -133,6 +133,7 @@ export default function FinanceToolbar(p: Props) {
             <button type="button" aria-expanded={openMenu === "actions"} onClick={() => toggleMenu("actions")} className={action}>Más acciones <ChevronDown className="h-3 w-3" /></button>
             {openMenu === "actions" && <div className={menu}>
               <button type="button" className={menuItem} onClick={() => run(p.onConcepts)}><Search className="h-3.5 w-3.5" />Administrar conceptos</button>
+              <a href="/admin/finanzas/extractos" className={menuItem}>Bandeja de extractos Mercado Pago</a>
               <a href="/admin/personal" className={menuItem}><Users className="h-3.5 w-3.5" />Personal y prestadores</a>
               <button type="button" className={menuItem} onClick={() => run(p.onExport)}><Download className="h-3.5 w-3.5" />Exportar CSV</button>
               <button type="button" disabled={p.syncing} className={menuItem} onClick={() => run(p.onSync)}><RefreshCw className={`h-3.5 w-3.5 ${p.syncing ? "animate-spin" : ""}`} />{p.syncing ? "Importando…" : "Importar bancos · sólo faltantes"}</button>

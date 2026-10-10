@@ -9,6 +9,8 @@ let config = {
   // Office hours / schedule configuration
   workInterval: 60,              // Segundos en horario laboral (60s = 1 minuto)
   offInterval: 600,              // Segundos fuera de horario laboral (600s = 10 minutos)
+  bankingWorkInterval: 1800,    // Movimientos: 30 minutos en oficina
+  bankingOffInterval: 7200,     // Movimientos: 2 horas fuera de horario
   workStart: "06:00",            // Hora inicio oficina (06:00 am)
   workEnd: "21:00",              // Hora fin oficina (21:00 hs)
   workDays: [1, 2, 3, 4, 5, 6],  // 1=Lunes a 6=Sábado
@@ -116,7 +118,14 @@ function isWorkHours() {
   }
 }
 
+function getBankingInterval() {
+  return isWorkHours()
+    ? Math.max(30, Number(config.bankingWorkInterval) || 1800)
+    : Math.max(30, Number(config.bankingOffInterval) || 7200);
+}
+
 function getActiveInterval() {
+  if (['/banking/movements', '/balance/reports/movements'].includes(window.location.pathname)) return getBankingInterval();
   return isWorkHours()
     ? Math.max(8, Number(config.workInterval) || 60)
     : Math.max(30, Number(config.offInterval) || 600);
@@ -133,7 +142,7 @@ let isInitialized = false;
 
 // Load saved config
 chrome.storage.local.get(
-  ["webhookUrl", "secretToken", "accountName", "workInterval", "offInterval", "workStart", "workEnd", "workDays", "autoRefresh", "pollInterval"],
+  ["webhookUrl", "secretToken", "accountName", "workInterval", "offInterval", "bankingWorkInterval", "bankingOffInterval", "workStart", "workEnd", "workDays", "autoRefresh", "pollInterval"],
   (res) => {
     if (res.webhookUrl) config.webhookUrl = res.webhookUrl;
     if (res.secretToken) config.secretToken = res.secretToken;
@@ -144,6 +153,8 @@ chrome.storage.local.get(
     if (res.workInterval) config.workInterval = Math.max(8, Number(res.workInterval));
     else if (res.pollInterval) config.workInterval = Math.max(8, Number(res.pollInterval));
     if (res.offInterval) config.offInterval = Math.max(30, Number(res.offInterval));
+    if (res.bankingWorkInterval) config.bankingWorkInterval = Math.max(30, Number(res.bankingWorkInterval));
+    if (res.bankingOffInterval) config.bankingOffInterval = Math.max(30, Number(res.bankingOffInterval));
     if (res.workStart) config.workStart = res.workStart;
     if (res.workEnd) config.workEnd = res.workEnd;
     if (res.workDays) config.workDays = res.workDays;
@@ -156,10 +167,19 @@ chrome.storage.local.get(
   }
 );
 
+// Frecuencias guardadas: aplicar a ambas pestañas sin recargarlas.
+chrome.storage.onChanged?.addListener((changes, area) => {
+  if (area !== 'local') return;
+  for (const key of ['workInterval', 'offInterval', 'bankingWorkInterval', 'bankingOffInterval']) {
+    if (changes[key]) config[key] = changes[key].newValue;
+  }
+  updateMonitorWidget();
+});
+
 let toastContainer = null;
 function createFloatingStatusWidget() {
   if (document.getElementById("zono-mp-widget") || !document.body) return;
-  
+
   const inOffice = isWorkHours();
   const widget = document.createElement("div");
   widget.id = "zono-mp-widget";
@@ -243,14 +263,17 @@ const pendingPayments = new Map();
 const failedPayments = new Map();
 const PAYMENT_RETRY_MS = 30000;
 let lastReadingCount = 0;
+let lastBankCaptureError='';
+let lastActivityCaptureError='',lastRemoteRefreshError='';
 
 function updateReadingStatus() {
   const el = document.getElementById("zono-reading-status");
   if (!el) return;
+  if(['/banking/movements','/balance/reports/movements'].includes(window.location.pathname)){el.textContent='Lectura: '+lastReadingCount+' movimientos cargados'+(lastBankCaptureError?' · sin confirmar':'');el.style.color=lastBankCaptureError?'#fca5a5':'#cbd5e1';el.title=lastBankCaptureError;return;}
   const failures = [...failedPayments.entries()].filter(([key]) => key.startsWith(`${config.accountName}:`));
   el.textContent = `Lectura: ${lastReadingCount} cobros de hoy${failures.length ? ` · ${failures.length} sin confirmar (reintentando)` : ""}`;
   el.style.color = failures.length ? "#fca5a5" : "#cbd5e1";
-  el.title = failures.map(([, failure]) => failure.message).join("\n");
+  el.title = [...failures.map(([, failure]) => failure.message),lastActivityCaptureError,lastRemoteRefreshError].filter(Boolean).join("\n");
 }
 
 // User-triggered, local diagnostic: only rendered movement text and DOM shape.
@@ -330,7 +353,7 @@ function reportPayment(payment, isManualAction = false) {
   }
 
   const account = config.accountName;
-  const key = `${account}:${payment.id}`;
+  const key = `${account}:${payment.id}${payment.operationId ? ":op:"+payment.operationId : ""}`;
   if (pendingPayments.has(key)) return pendingPayments.get(key);
   if (knownTxIds.has(key)) return Promise.resolve("duplicate");
   if (!isManualAction && Date.now() < (failedPayments.get(key)?.retryAt || 0)) {
@@ -348,6 +371,7 @@ function reportPayment(payment, isManualAction = false) {
     bigText: payment.rawText || `Recibiste $ ${payment.amount} De ${payment.payerName}`,
     account,
     token: config.secretToken,
+    operation_id: payment.operationId || null,
     received_at: payment.receivedAt,
     date: payment.receivedAt,
     time: payment.time
@@ -628,6 +652,7 @@ function parseDOMRow(row) {
   const txId = uniqueId || `mp_dom_${cleanAmount}_${cleanPayer}_${dateNum}_${timeStr.replace(":", "")}`;
 
   return {
+    operationId: text.match(/(?:n[.º°o]*\s*(?:de\s*)?operaci[oó]n|#)\s*[:#]?\s*(\d{6,80})/i)?.[1] || null,
     id: txId,
     title: "Transferencia recibida",
     payerName: payer,
@@ -667,6 +692,7 @@ function getVisibleRows() {
 }
 
 function scanDOMActivities() {
+  if(["/banking/movements","/balance/reports/movements"].includes(window.location.pathname)){if(isMonitorTab)reportBankingRows(false);return;}
   if (!isMonitorTab) return;
   if (!isActivitiesPage()) return;
   const err = detectMercadoPagoError();
@@ -677,19 +703,22 @@ function scanDOMActivities() {
   lastReadingCount = payments.length;
   updateReadingStatus();
   payments.forEach(parsed => reportPayment(parsed, false));
+  reportActivityBankRows(false);
 }
 
 // Manual Action: user clicks "Sincronizar visibles"
 async function manualSyncVisibleActivities() {
+  if(["/banking/movements","/balance/reports/movements"].includes(window.location.pathname)){if(isMonitorTab)await reportBankingRows(true);else showToast("Activá el monitoreo en esta pestaña","error");return;}
   if (!isMonitorTab) {
     showToast("Activá el monitoreo en esta pestaña para sincronizar", "error");
     return;
   }
+  reportActivityBankRows(true);
   const topRows = getVisibleRows();
   const payments = topRows.map(parseDOMRow).filter(Boolean);
   if (!payments.length) {
     showToast(`⚠️ Se encontraron ${topRows.length} filas pero 0 cobros entrantes`, "error");
-    return;
+    return {confirmed:0,duplicates:0,failed:0};
   }
   const button = document.getElementById("zono-manual-sync-history");
   if (button) button.disabled = true;
@@ -698,7 +727,9 @@ async function manualSyncVisibleActivities() {
     const confirmed = results.filter(result => result === "confirmed").length;
     const duplicates = results.filter(result => result === "duplicate").length;
     const failed = results.filter(result => result === "failed").length;
+    const summary = {confirmed,duplicates,failed};
     showToast(`📥 ${confirmed} ingresados · ${duplicates} ya registrados${failed ? ` · ${failed} fallaron (se reintentarán)` : ""}`, failed ? "error" : "success");
+    return summary;
   } finally {
     if (button) button.disabled = false;
   }
@@ -747,7 +778,7 @@ function playAlertBeep() {
 // 1. Check if the tab is on the principal activities page
 function isActivitiesPage() {
   const path = window.location.pathname.toLowerCase();
-  return path.startsWith("/activities") || path.startsWith("/movement");
+  return path.startsWith("/activities") || path.startsWith("/movement") || ["/banking/movements","/balance/reports/movements"].includes(path);
 }
 
 // 2. Check if Mercado Pago crashed or is displaying an error screen (ultra-fast selector check)
@@ -973,6 +1004,7 @@ function setConnectionStatus(isOnline) {
 }
 
 function sendHeartbeat() {
+  if(['/banking/movements','/balance/reports/movements'].includes(window.location.pathname))return;
   if (!isMonitorTab) return;
   // 1. DO NOT send heartbeat if not on activities page!
   if (!isActivitiesPage()) {
@@ -1173,6 +1205,7 @@ function startMonitoring() {
       if (!isMonitorTab) return;
       checkRefresh();
       scanDOMActivities();
+      pollRemoteRefresh();
     }
   });
 
@@ -1191,3 +1224,53 @@ function startMonitoring() {
     sendHeartbeat();
   });
 }
+
+let bankingLastAttempt=0;
+let bankingPending=false,bankingLastSignature='',bankingLastSent=0,bankingRetryAt=0;
+async function reportBankingRows(manual){
+ if(bankingPending||!globalThis.ZonoMpBanking||(!manual&&Date.now()<bankingRetryAt))return;
+ if(!manual&&bankingLastAttempt&&Date.now()-bankingLastAttempt<getBankingInterval()*1000)return;
+ bankingLastAttempt=Date.now();
+ const rows=globalThis.ZonoMpBanking.scan(document);lastReadingCount=rows.length;updateReadingStatus();if(!rows.length){if(manual)showToast('No hay movimientos de octubre cargados en pantalla','error');return;}
+ const signature=JSON.stringify([config.accountName,rows]);if(!manual&&signature===bankingLastSignature&&Date.now()-bankingLastSent<getBankingInterval()*1000)return;
+ bankingPending=true;try{const result=await new Promise(resolve=>{const url=new URL(config.webhookUrl);url.pathname='/api/mp-bank-web';url.search='';let finished=false;const timeout=setTimeout(()=>{if(!finished){finished=true;resolve(null);}},20000);chrome.runtime.sendMessage({action:'REPORT_PAYMENT',url:url.toString(),token:config.secretToken,payload:{type:'BANK_WEB_CAPTURE',account:config.accountName,url:window.location.href,rows}},response=>{if(!finished){finished=true;clearTimeout(timeout);resolve(chrome.runtime.lastError?null:response);}});});if(result?.ok&&result.data?.success){bankingLastSignature=signature;bankingLastSent=Date.now();lastBankCaptureError='';updateReadingStatus();showToast(rows.length+' movimientos capturados · sólo filas cargadas','success');}else{lastBankCaptureError=result?.data?.error||'No se confirmó la captura bancaria. Revisá que el ERP tenga la nueva ruta.';bankingRetryAt=Date.now()+30000;updateReadingStatus();if(manual)showToast(lastBankCaptureError,'error');}}finally{bankingPending=false;}
+}
+
+let activityBankLastAttempt=0;
+let activityBankPending=false,activityBankSignature='',activityBankSent=0,activityBankRetryAt=0;
+function reportActivityBankRows(manual=false){
+ if(!isMonitorTab||!globalThis.ZonoMpBanking||!window.location.pathname.startsWith('/activities')||activityBankPending||(!manual&&Date.now()<activityBankRetryAt))return;
+ if(!manual&&activityBankLastAttempt&&Date.now()-activityBankLastAttempt<getBankingInterval()*1000)return;
+ activityBankLastAttempt=Date.now();
+ const rows=globalThis.ZonoMpBanking.scanActivities(document,getRowDate);if(!rows.length)return;const signature=JSON.stringify([config.accountName,rows]);if(!manual&&signature===activityBankSignature&&Date.now()-activityBankSent<getBankingInterval()*1000)return;
+ activityBankPending=true;let settled=false;const finish=response=>{if(settled)return;settled=true;clearTimeout(timeout);activityBankPending=false;if(response?.ok&&response.data?.success){activityBankSignature=signature;activityBankSent=Date.now();lastActivityCaptureError='';}else if(response?.status===404){activityBankRetryAt=Date.now()+3600000;lastActivityCaptureError='';}else{activityBankRetryAt=Date.now()+30000;lastActivityCaptureError=response?.data?.error||response?.error||'No se confirmó el enriquecimiento de Actividad';if(manual)showToast(lastActivityCaptureError,'error');}updateReadingStatus();};const timeout=setTimeout(()=>finish(null),20000);chrome.runtime.sendMessage({action:'REPORT_PAYMENT',url:new URL('/api/mp-bank-web',config.webhookUrl).toString(),token:config.secretToken,payload:{type:'BANK_ACTIVITY_CAPTURE',account:config.accountName,url:window.location.href,rows}},response=>finish(chrome.runtime.lastError?null:response));
+}
+
+// Remote requests: independent from the configured list refresh interval.
+let remoteRefreshBusy=false;
+function refreshChannel(payload){return new Promise(resolve=>{let done=false;const timer=setTimeout(()=>finish(null),20000);function finish(result){if(done)return;done=true;clearTimeout(timer);resolve(result);}chrome.runtime.sendMessage({action:'REPORT_PAYMENT',url:new URL('/api/mp-refresh',config.webhookUrl).toString(),token:config.secretToken,payload:{...payload,account:config.accountName,url:window.location.href}},result=>finish(chrome.runtime.lastError?null:result));});}
+async function pollRemoteRefresh(){
+ if(remoteRefreshBusy||!isMonitorTab||window.location.pathname.replace(/\/$/,'')!=='/activities'||detectMercadoPagoError().hasError)return;
+ remoteRefreshBusy=true;
+ try{
+  const response=await refreshChannel({action:'poll'});lastRemoteRefreshError=response?.ok&&response.data?.success?'':response?.data?.error||response?.error||'No se confirmó la conexión de refresco remoto';updateReadingStatus();const job=response?.ok&&response.data?.success?response.data.data:null;if(!job)return;
+  let ok=false,message='No se pudo actualizar Mercado Pago';
+  try{
+   const button=Array.from(document.querySelectorAll('button,a,[role="button"]')).find(el=>!el.closest('#zono-mp-widget')&&/^(actualizar listado|actualizar)$/i.test((el.innerText||el.textContent||'').trim()));
+   if(!button)throw Error('No está disponible el botón Actualizar listado de Mercado Pago');
+   if(button.disabled)throw Error('Mercado Pago todavía está cargando; volvé a verificar');
+   button.click();await new Promise(resolve=>setTimeout(resolve,2500));
+   for(let attempt=0;attempt<10&&(button.disabled||document.querySelector('main [aria-busy="true"]'));attempt++)await new Promise(resolve=>setTimeout(resolve,500));
+   if(button.disabled||document.querySelector('main [aria-busy="true"]'))throw Error('Mercado Pago todavía está cargando; volvé a verificar');
+   if(!isMonitorTab||window.location.pathname!=='/activities'||detectMercadoPagoError().hasError)throw Error('Mercado Pago no pudo cargar el listado');
+   const result=await manualSyncVisibleActivities();
+   if(!result||result.failed)throw Error('No se pudieron confirmar todos los cobros; volvé a verificar');
+   ok=true;message='Lectura actualizada. Revisá los cobros de la lista.';
+  }catch(error){message=error.message||message;}
+  await refreshChannel({action:'complete',id:job.id,ok,message});
+ }finally{remoteRefreshBusy=false;}
+}
+setTimeout(pollRemoteRefresh,3000);
+
+// Mantener presencia remota aunque el service worker se suspenda.
+setInterval(pollRemoteRefresh,10000);

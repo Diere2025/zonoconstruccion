@@ -1,0 +1,6 @@
+// Anonymized regression fixture: amounts/types match the supplied format, IDs are synthetic.
+const descriptions=['Rendimiento positivo de la inversión','Rendimiento positivo de la inversión','Ingreso de dinero','Ingreso de dinero','Retiro de dinero','Cobro','Retención Impuesto Ingresos Brutos no inscripto Buenos Aires','Costo de Mercado Pago','Costo por intereses absorbidos','Dinero recibido','Movimiento General','Movimiento General','Retiro de dinero','Ingreso de dinero','Pago','Cobro','Retención Impuesto Ingresos Brutos no inscripto Buenos Aires','Costo de Mercado Pago','Dinero recibido','Retiro de dinero','Pago','Ingreso de dinero','Ingreso de dinero'];
+const amounts=['808.48','200.68','165600','367500','-1300000','59902','-1797.06','-4556.55','-7603.3','245000','60000','-60000','-60000','399000','-125385.61','277000','-8310','-10517.65','480900','-64000','-851000','19390','277000'];
+const operations=['1','1','2','3','4','5','5','5','5','6','7','7','8','9','10','11','11','11','12','13','14','15','16'];
+const rows=[['Fecha de Pago','Tipo de Operación','Número de Movimiento','Operación Relacionada','Importe'],...amounts.map((amount,i)=>[`2026-10-08T${String(7+Math.floor(i/2)).padStart(2,'0')}:16:25Z`,descriptions[i],String(1000000000000+i),operations[i],amount])];
+module.exports={rows,grid:()=>rows.map(row=>row.map(value=>({value})))};
