@@ -1,3 +1,4 @@
+import {withOperationOrder} from './operationOrder';
 import {statementActivityContexts,type ActivityReference} from './activityContext';
 import { statementOrderContext, statementOrderLinks } from './orderServer';
 import type { StatementFileAccount } from './fileAccounts';
@@ -39,7 +40,7 @@ export async function statementSnapshot(db: SupabaseClient, actor: string, batch
   if(mp&&value.entries.length){const ids=value.entries.map(entry=>entry.id);for(let i=0;i<ids.length;i+=50){const list=ids.slice(i,i+50).join(',');try{activityRows.push(...await allRows<ActivityReference>(db.from('mp_bank_web_rows').select('id,prepared_entry_id,statement_entry_id,counterparty_name,activity_type,operation_kind').eq('mp_account_id',mp).or('prepared_entry_id.in.('+list+'),statement_entry_id.in.('+list+')').order('id')));}catch(error){if(!['42P01','42703','PGRST204','PGRST205'].includes((error as {code?:string}).code||''))throw error;}}}
   const activityContexts=statementActivityContexts(activityRows);
   return { ...value, rows, account, concepts: catalog.concepts, rules: catalog.rules, orderLinking:catalog.orderLinking,
-    entries: value.entries.map(entry => ({ ...entry, activity_context:activityContexts.get(entry.id),order_link:orderLinks.get(entry.id)?.link||null,order_link_version:orderLinks.get(entry.id)?.version||0, suggested_concept_id: suggestStatementConcept(entry, catalog.concepts, catalog.rules, account.id) })) } satisfies StatementSnapshot;
+    entries: withOperationOrder(value.entries.map(entry => ({ ...entry, activity_context:activityContexts.get(entry.id),order_link:orderLinks.get(entry.id)?.link||null,order_link_version:orderLinks.get(entry.id)?.version||0, suggested_concept_id: suggestStatementConcept(entry, catalog.concepts, catalog.rules, account.id) }))) } satisfies StatementSnapshot;
 }
 export async function recentStatementBatches(db: SupabaseClient, accountId?: string) {
   const deletionAvailable = await statementDeletionAvailable(db);
@@ -50,3 +51,8 @@ export async function recentStatementBatches(db: SupabaseClient, accountId?: str
   if (error) throw error;
   return data as unknown as StatementBatch[];
 }
+
+
+
+
+
