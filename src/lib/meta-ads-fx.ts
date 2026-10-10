@@ -4,7 +4,7 @@ const TTL = 10 * 60_000;
 const MAX_AGE = 60 * 60_000;
 type Offer = { adv?: { price?: string; minSingleTransAmount?: string; maxSingleTransAmount?: string; surplusAmount?: string } };
 export type MetaFx = {
-    transport?: 'direct' | 'criptoya'; referenceUsdt?: number;
+    transport?: 'direct' | 'criptoya'; referenceUsdt?: number; delivery?: 'scheduled';
     source: 'binance_p2p'; baseRate: number | null; effectiveRate: number | null;
     agencyFeeRate: number; referenceArs: number; quotedAt: string | null;
     status: 'fresh' | 'stale' | 'unavailable'; error?: string; diagnostics?: string[];
@@ -20,7 +20,7 @@ export function selectBinanceRate(offers: Offer[]): number {
     const middle = Math.floor(prices.length / 2);
     return prices.length % 2 ? prices[middle] : (prices[middle - 1] + prices[middle]) / 2;
 }
-export function createMetaFxProvider(fetcher: typeof fetch = (input, init) => globalThis.fetch(input, init), now: () => number = Date.now) {
+export function createMetaFxProvider(fetcher: typeof fetch = (input, init) => globalThis.fetch(input, init), now: () => number = Date.now, scheduled = false) {
     let last: MetaFx | null = null;
     let pending: Promise<MetaFx> | null = null;
     let retryAfter = 0;
@@ -40,6 +40,29 @@ export function createMetaFxProvider(fetcher: typeof fetch = (input, init) => gl
             try {
                 diagnostics = [];
                 let quote: {baseRate: number; quotedAt: string; transport: 'direct' | 'criptoya'; referenceUsdt?: number} | null = null;
+                // The hosted runtime may be denied by quote providers. Read a dated snapshot
+                // collected outside that runtime; only market quotes are published, no ERP data.
+                if (scheduled) {
+                    try {
+                        const response = await fetcher('https://raw.githubusercontent.com/Diere2025/zonoconstruccion/codex/meta-fx-quotes/quote.json?t=' + now(), {
+                            cache: 'no-store', signal: AbortSignal.timeout(5000), headers: {Accept: 'application/json'},
+                        });
+                        if (!response.ok) throw new Error('Snapshot unavailable');
+                        const body = await response.json();
+                        const rate = Number(body.baseRate), timestamp = Date.parse(body.quotedAt);
+                        if (body.source !== 'binance_p2p' || !['direct','criptoya'].includes(body.transport) ||
+                            !Number.isFinite(rate) || rate <= 0 || !Number.isFinite(timestamp) ||
+                            timestamp > now() + 60_000 || now() - timestamp > MAX_AGE ||
+                            (body.transport === 'direct' && body.referenceArs !== REFERENCE_ARS) ||
+                            (body.transport === 'criptoya' && body.referenceUsdt !== 500)) throw new Error('Invalid snapshot');
+                        last = {source: 'binance_p2p', transport: body.transport, delivery: 'scheduled',
+                            referenceUsdt: body.transport === 'criptoya' ? 500 : undefined,
+                            baseRate: rate, effectiveRate: rate * (1 + AGENCY_FEE_RATE),
+                            agencyFeeRate: AGENCY_FEE_RATE, referenceArs: REFERENCE_ARS,
+                            quotedAt: new Date(timestamp).toISOString(), status: now() - timestamp < TTL ? 'fresh' : 'stale'};
+                        return last;
+                    } catch { diagnostics.push('Cotización programada no disponible o vencida'); }
+                }
                 for (const host of ['https://p2p.binance.com', 'https://www.binance.com', 'https://c2c.binance.com']) {
                     try {
                         const response = await fetcher(host + '/bapi/c2c/v2/friendly/c2c/adv/search', {
@@ -80,7 +103,7 @@ export function createMetaFxProvider(fetcher: typeof fetch = (input, init) => gl
         return pending;
     };
 }
-export const getMetaFx = createMetaFxProvider();
+export const getMetaFx = createMetaFxProvider((input, init) => globalThis.fetch(input, init), Date.now, true);
 
 // Revalue the response from original USD amounts, never from already converted pesos.
 type DollarMetrics = { spendUsd: number; costPerActionUsd: number };

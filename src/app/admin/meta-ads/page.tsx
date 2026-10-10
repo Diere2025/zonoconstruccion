@@ -1317,7 +1317,7 @@ export default function MetaAdsPage() {
                   <p><strong>Dólar publicitario: {liveData.fx.effectiveRate.toLocaleString('es-AR', {style:'currency', currency:'ARS', minimumFractionDigits:2, maximumFractionDigits:2})}</strong> · Binance P2P compra USDT: {liveData.fx.baseRate.toLocaleString('es-AR', {style:'currency', currency:'ARS', minimumFractionDigits:2, maximumFractionDigits:2})} + agencia 5,5%.</p>
                   <p className="text-slate-500">ARS estimados a cotización actual, incluida la comisión en gasto, presupuesto y costo por mensaje. {liveData.fx.transport === 'criptoya' ? 'Fuente de respaldo: Binance P2P vía CriptoYa, compra de 500 USDT;' : <>Referencia: compra de {formatPrice(liveData.fx.referenceArs)}, mediana de hasta 5 ofertas de comerciantes;</>} el precio final depende del medio de pago.</p>
                   <p className="text-slate-500">Cotización: {new Date(liveData.fx.quotedAt).toLocaleString('es-AR', {timeZone:'America/Argentina/Buenos_Aires'})} · Se consulta al cargar o actualizar, con caché de 10 minutos.</p>
-                  {liveData.fx.status === 'stale' && <p className="font-semibold text-amber-700">Binance no respondió: se usa la última cotización válida, por un máximo de una hora.</p>}
+                  {liveData.fx.status === 'stale' && <p className="font-semibold text-amber-700">Cotización pendiente de actualizar: se usa la última lectura válida, por un máximo de una hora.</p>}
                 </> : <p className="font-semibold text-amber-700">{liveData?.source === 'sheet' ? 'Respaldo de planilla: importes originales, sin recotización Binance.' : 'Cotización Binance no disponible. Se conservan los datos USD; los importes ARS y las simulaciones quedan pendientes.'}</p>}
                 <p className="text-slate-500">El histórico conserva el dólar y la comisión registrados en cada fecha.</p>
               </div>
@@ -1464,7 +1464,7 @@ export default function MetaAdsPage() {
 
                     <div className="flex items-baseline justify-between">
                       <div className="text-2xl font-black text-slate-900 tracking-tight">
-                        {liveSummary?.pacingPercent || 0}% <span className="text-xs font-bold text-slate-400">consumido</span>
+                        {(liveSummary?.pacingPercent || 0).toLocaleString('es-AR', {maximumFractionDigits: 1})}% <span className="text-xs font-bold text-slate-400">consumido</span>
                       </div>
                       {livePacingMetrics && (
                         <div className={`px-2 py-0.5 rounded-lg text-xs font-black font-mono flex items-center gap-1 border ${livePacingMetrics.speedBadge.bg} ${livePacingMetrics.speedBadge.color} ${livePacingMetrics.speedBadge.border}`}>

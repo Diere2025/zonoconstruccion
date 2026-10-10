@@ -41,3 +41,23 @@ test('official C2C host is tried before the aggregator',async()=>{
  const get=lib.createMetaFxProvider(async url=>{if(!url.startsWith('https://c2c.binance.com/'))throw Error('unavailable');return {ok:true,json:async()=>({code:'000000',data:good})}});
  const fx=await get();assert.equal(fx.transport,'direct');assert.equal(fx.baseRate,1602);
 });
+
+test('scheduled snapshot preserves original time and recomputes agency fee',async()=>{
+ const now=1800000000000;let calls=0;
+ const get=lib.createMetaFxProvider(async()=>{calls++;return {ok:true,json:async()=>({source:'binance_p2p',transport:'direct',baseRate:1600,referenceArs:1000000,quotedAt:new Date(now-60000).toISOString(),effectiveRate:99999})}},()=>now,true);
+ const fx=await get();assert.equal(fx.status,'fresh');assert.equal(fx.delivery,'scheduled');assert.equal(fx.effectiveRate,1688);assert.equal(fx.quotedAt,new Date(now-60000).toISOString());await get();assert.equal(calls,1);
+});
+test('scheduled snapshot is stale after ten minutes and never used beyond one hour',async()=>{
+ const now=1800000000000;
+ for(const age of [900000,3600001,-120000]) {
+  const get=lib.createMetaFxProvider(async url=>{if(!url.includes('raw.githubusercontent.com'))throw Error('blocked');return {ok:true,json:async()=>({source:'binance_p2p',transport:'direct',baseRate:1600,referenceArs:1000000,quotedAt:new Date(now-age).toISOString()})}},()=>now,true);
+  const fx=await get();assert.equal(fx.status,age===900000?'stale':'unavailable');assert.equal(fx.effectiveRate,age===900000?1688:null);
+ }
+});
+test('scheduled snapshot rejects another market or inconsistent reference amount',async()=>{
+ const now=1800000000000;
+ for(const change of [{source:'dolar_blue'},{referenceArs:1},{baseRate:0},{transport:'other'}]) {
+ const get=lib.createMetaFxProvider(async url=>{if(!url.includes('raw.githubusercontent.com'))throw Error('blocked');return {ok:true,json:async()=>({source:'binance_p2p',transport:'direct',baseRate:1600,referenceArs:1000000,quotedAt:new Date(now).toISOString(),...change})}},()=>now,true);
+ assert.equal((await get()).effectiveRate,null);
+ }
+});
