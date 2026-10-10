@@ -44,8 +44,8 @@ export function createMetaFxProvider(fetcher: typeof fetch = (input, init) => gl
                 // collected outside that runtime; only market quotes are published, no ERP data.
                 if (scheduled) {
                     try {
-                        const response = await fetcher('https://raw.githubusercontent.com/Diere2025/zonoconstruccion/codex/meta-fx-quotes/quote.json?t=' + now(), {
-                            cache: 'no-store', signal: AbortSignal.timeout(5000), headers: {Accept: 'application/json'},
+                        const response = await fetcher('https://api.github.com/repos/Diere2025/zonoconstruccion/contents/quote.json?ref=codex%2Fmeta-fx-quotes&t=' + now(), {
+                            cache: 'no-store', signal: AbortSignal.timeout(5000), headers: {Accept: 'application/vnd.github.raw+json', 'User-Agent': 'ZonoERP/1.0'},
                         });
                         if (!response.ok) throw new Error('Snapshot unavailable');
                         const body = await response.json();

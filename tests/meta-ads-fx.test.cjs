@@ -50,14 +50,18 @@ test('scheduled snapshot preserves original time and recomputes agency fee',asyn
 test('scheduled snapshot is stale after ten minutes and never used beyond one hour',async()=>{
  const now=1800000000000;
  for(const age of [900000,3600001,-120000]) {
-  const get=lib.createMetaFxProvider(async url=>{if(!url.includes('raw.githubusercontent.com'))throw Error('blocked');return {ok:true,json:async()=>({source:'binance_p2p',transport:'direct',baseRate:1600,referenceArs:1000000,quotedAt:new Date(now-age).toISOString()})}},()=>now,true);
+  const get=lib.createMetaFxProvider(async url=>{if(!url.includes('api.github.com'))throw Error('blocked');return {ok:true,json:async()=>({source:'binance_p2p',transport:'direct',baseRate:1600,referenceArs:1000000,quotedAt:new Date(now-age).toISOString()})}},()=>now,true);
   const fx=await get();assert.equal(fx.status,age===900000?'stale':'unavailable');assert.equal(fx.effectiveRate,age===900000?1688:null);
  }
 });
 test('scheduled snapshot rejects another market or inconsistent reference amount',async()=>{
  const now=1800000000000;
  for(const change of [{source:'dolar_blue'},{referenceArs:1},{baseRate:0},{transport:'other'}]) {
- const get=lib.createMetaFxProvider(async url=>{if(!url.includes('raw.githubusercontent.com'))throw Error('blocked');return {ok:true,json:async()=>({source:'binance_p2p',transport:'direct',baseRate:1600,referenceArs:1000000,quotedAt:new Date(now).toISOString(),...change})}},()=>now,true);
+ const get=lib.createMetaFxProvider(async url=>{if(!url.includes('api.github.com'))throw Error('blocked');return {ok:true,json:async()=>({source:'binance_p2p',transport:'direct',baseRate:1600,referenceArs:1000000,quotedAt:new Date(now).toISOString(),...change})}},()=>now,true);
  assert.equal((await get()).effectiveRate,null);
  }
+});
+
+test('scheduled quote uses uncached Contents API rather than a stale raw CDN',async()=>{
+ const now=1800000000000;let calls=0;const get=lib.createMetaFxProvider(async(url,init)=>{calls++;assert.ok(url.startsWith('https://api.github.com/repos/'));assert.ok(url.includes('ref=codex%2Fmeta-fx-quotes'));assert.equal(init.cache,'no-store');assert.equal(init.headers.Accept,'application/vnd.github.raw+json');return {ok:true,json:async()=>({source:'binance_p2p',transport:'direct',baseRate:1600,referenceArs:1000000,quotedAt:new Date(now).toISOString()})}},()=>now,true);assert.equal((await get()).effectiveRate,1688);await get();assert.equal(calls,1);
 });
