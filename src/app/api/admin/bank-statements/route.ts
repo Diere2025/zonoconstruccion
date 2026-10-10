@@ -161,7 +161,7 @@ export async function POST(request: Request) {
     }
     if (body.action === 'rule') {
       if (typeof body.description !== 'string' || !['ingreso', 'egreso'].includes(body.direction)) throw new OperationError('Regla inválida');
-      const { data, error } = await db.rpc('save_bank_statement_rule', { p_actor: actor, p_account: uuid(body.account), p_description: normalizedStatementText(body.description), p_direction: body.direction, p_concept: uuid(body.conceptId), p_version: body.version ?? null });
+      const { data, error } = await db.rpc('save_bank_statement_rule', { p_actor: actor, p_account: null, p_description: normalizedStatementText(body.description), p_direction: body.direction, p_concept: uuid(body.conceptId), p_version: body.version ?? null });
       if (error) throw error;
       return response({ id: data });
     }
