@@ -6,6 +6,7 @@ import { isMPPaymentOnDay } from '@/lib/mpPaymentDate';
 import ReportDateRangePicker from '@/components/ui/ReportDateRangePicker';
 import type {AccountIncome} from '@/lib/mpAccountIncome';
 import MPAccountProjection from '@/components/MPAccountProjection';
+import MPRefreshButton from '@/components/payments/MPRefreshButton';
 import {
   ShieldCheck,
   Search,
@@ -69,6 +70,7 @@ interface MPPayment {
   is_internal?: boolean;
   order_id?: string;
   order_code?: string;
+  mp_operation_id?: string | null;
   linked_by?: string;
   linked_at?: string;
   notes?: string;
@@ -1580,6 +1582,7 @@ export default function CobrosMercadoPagoPage() {
               {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
             </button>
 
+            <MPRefreshButton accountId={selectedAccountId} onComplete={() => { void loadPayments(); }} />
             <button
               onClick={() => loadPayments()}
               disabled={isLoading}
@@ -2146,6 +2149,7 @@ export default function CobrosMercadoPagoPage() {
                                 {payment.payer_name}
                               </span>
 
+                              {payment.mp_operation_id&&<span className="font-mono text-[10px] text-slate-500">Op. {payment.mp_operation_id}</span>}
                               {/* Mini Account Badge */}
                               {paymentView === 'list' && (
                                 <span

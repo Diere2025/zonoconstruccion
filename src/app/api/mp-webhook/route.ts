@@ -167,6 +167,7 @@ async function handleProcessNotification(
   account: string,
   extraData?: {
     id?: string;
+    operation_id?: string;
     received_at?: string;
     time?: string;
   }
@@ -217,14 +218,17 @@ async function handleProcessNotification(
 
   // Check for duplicate:
   // 1. By exact account-scoped ID
+  const enrichOperation=async(id:string)=>{if(!extraData?.operation_id||new Date(receivedAt).getTime()<Date.parse('2026-10-01T00:00:00-03:00'))return;const result=await supabaseAdmin.from('mp_payments').update({mp_operation_id:extraData.operation_id}).eq('id',id).eq('account_id',resolvedAccountId).is('mp_operation_id',null);if(result.error)throw result.error;};
   if (extraData?.id) {
-    const { data: existingId } = await supabaseAdmin
+    const { data: existingId, error: identityError } = await supabaseAdmin
       .from('mp_payments')
       .select('id, amount, payer_name, received_at')
       .eq('id', paymentId)
       .maybeSingle();
 
+    if (identityError) return NextResponse.json({success:false,error:"No se pudo comprobar si el cobro ya existe. Reintentá."},{status:503});
     if (existingId) {
+      try { await enrichOperation(existingId.id); } catch { return NextResponse.json({success:false,error:"No se pudo actualizar el código de operación. Reintentá."},{status:503}); }
       return NextResponse.json({
         success: true,
         isDuplicate: true,
@@ -240,7 +244,7 @@ async function handleProcessNotification(
     const tenMinBefore = new Date(targetTime - 10 * 60 * 1000).toISOString();
     const tenMinAfter = new Date(targetTime + 10 * 60 * 1000).toISOString();
 
-    const { data: existingFuzzy } = await supabaseAdmin
+    const { data: fuzzyRows, error: duplicateError } = await supabaseAdmin
       .from('mp_payments')
       .select('id, amount, payer_name, received_at')
       .eq('account_id', resolvedAccountId)
@@ -248,10 +252,13 @@ async function handleProcessNotification(
       .ilike('payer_name', parsed.payerName || '')
       .gte('received_at', tenMinBefore)
       .lte('received_at', tenMinAfter)
-      .limit(1)
-      .maybeSingle();
+      .limit(2);
 
+    if(duplicateError)return NextResponse.json({success:false,error:"No se pudo comprobar si el cobro ya existe. Reintentá."},{status:503});
+    if(fuzzyRows&&fuzzyRows.length>1)return NextResponse.json({success:false,error:'Hay varios cobros similares. Se requiere revisar la identidad antes de registrar otro.'},{status:409});
+    const existingFuzzy=fuzzyRows?.length===1?fuzzyRows[0]:null;
     if (existingFuzzy) {
+      if(new Date(existingFuzzy.received_at).toISOString().slice(0,16)===new Date(receivedAt).toISOString().slice(0,16)){try{await enrichOperation(existingFuzzy.id);}catch{return NextResponse.json({success:false,error:'No se pudo actualizar el código de operación del cobro existente. Reintentá.'},{status:503});}}
       console.log('[MP Webhook] Duplicate payment avoided:', existingFuzzy);
       return NextResponse.json({
         success: true,
@@ -262,6 +269,7 @@ async function handleProcessNotification(
     }
   } catch (dupErr) {
     console.warn('[MP Webhook] Error checking duplicate:', dupErr);
+    return NextResponse.json({success:false,error:'No se pudo comprobar si el cobro ya existe. Reintentá.'},{status:503});
   }
 
   // Check if payer is an internal user
@@ -278,6 +286,7 @@ async function handleProcessNotification(
 
   const paymentRecord = {
     id: paymentId,
+    ...(extraData?.operation_id&&new Date(receivedAt).getTime()>=Date.parse('2026-10-01T00:00:00-03:00') ? {mp_operation_id:extraData.operation_id}:{}),
     account_id: resolvedAccountId,
     account_name: resolvedAccount.name,
     amount: parsed.amount,
@@ -476,6 +485,7 @@ ${body.clientTime ? `🕒 *Reloj extensión:* ${body.clientTime} hs\n` : ''}
     return handleProcessNotification(request, title, text, bigText, account, {
       id: rawJsonBody?.id || rawJsonBody?.external_id,
       received_at: rawJsonBody?.received_at || rawJsonBody?.date,
+      operation_id: hasValidToken && /^\d{6,80}$/.test(String(rawJsonBody?.operation_id||'')) ? rawJsonBody.operation_id : undefined,
       time: rawJsonBody?.time
     });
   } catch (err: any) {
