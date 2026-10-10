@@ -1,7 +1,7 @@
 {
   "source": "binance_p2p",
   "transport": "direct",
-  "baseRate": 1602.1,
+  "baseRate": 1602,
   "referenceArs": 1000000,
-  "quotedAt": "2026-10-10T16:17:00.759Z"
+  "quotedAt": "2026-10-10T16:18:29.800Z"
 }
