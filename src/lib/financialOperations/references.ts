@@ -24,3 +24,11 @@ export function supplierApplications(allocations: Array<{ payment_id: string; pu
   }
   return { byPayment, byPurchase };
 }
+
+// All order associations count, including references imported with bank statements.
+export function movementOrderReferences(row: {applications?:ApplicationReference[];client_payments?:Array<{order_id?:string|null;reversed_at?:string|null;orders?:{id?:string;legacy_code?:string|null}|null}>}): ApplicationReference[] {
+ const result=new Map<string,ApplicationReference>();
+ for(const payment of row.client_payments||[]){const id=payment.order_id||payment.orders?.id;if(id&&!payment.reversed_at)result.set(id,{id,code:payment.orders?.legacy_code||id,kind:'Pedido',href:`/admin/finanzas?tab=flow&order=${id}`});}
+ for(const ref of row.applications||[])if(ref.kind==='Pedido')result.set(ref.id,ref);
+ return Array.from(result.values());
+}

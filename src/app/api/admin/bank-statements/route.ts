@@ -1,3 +1,4 @@
+import {statementOrderLinks} from '@/lib/bankStatements/orderServer';
 import {initializeStatementInboxes} from '@/lib/bankStatements/initializeInboxes';
 import {statementInbox,statementInboxSummary} from '@/lib/bankStatements/inbox';
 import { resolveStatementFileAccount } from '@/lib/bankStatements/fileAccounts';
@@ -22,6 +23,21 @@ export async function GET(request: Request) {
   try {
     const { db, actor } = await financialContext(request);
     const params = new URL(request.url).searchParams, batch = params.get('batch');
+    if(params.get('action')==='movement-order'){
+      const transaction=uuid(params.get('transaction'));
+      const cash=await db.from('cash_transactions').select('id,type,category,reversal_of_transaction_id,financial_operations(status)').eq('id',transaction).single();if(cash.error)throw cash.error;
+      const operation=Array.isArray(cash.data.financial_operations)?cash.data.financial_operations[0]:cash.data.financial_operations;
+      if(cash.data.type!=='ingreso'||!['Recaudación','Cobranza'].includes(cash.data.category)||cash.data.reversal_of_transaction_id||operation?.status==='cancelled')throw new OperationError('Seleccioná una cobranza vigente.');
+      const links=await db.from('bank_entry_ledger_links').select('entry_id').eq('cash_transaction_id',transaction).limit(2);if(links.error)throw links.error;
+      if(!links.data?.length)return response({bank:false});
+      if(links.data.length!==1)throw new OperationError('Esta cobranza tiene más de un origen bancario. Revisá sus asociaciones.');
+      const entryId=links.data[0].entry_id;
+      const [entry,rows]=await Promise.all([db.from('bank_statement_entries').select('*').eq('id',entryId).single(),db.from('bank_import_batch_rows').select('batch_id,bank_import_batches!inner(deleted_at)').eq('entry_id',entryId).eq('result','valid').is('bank_import_batches.deleted_at',null).order('batch_id').limit(1)]);
+      if(entry.error)throw entry.error;if(rows.error)throw rows.error;
+      if(!rows.data?.length)throw new OperationError('No se encontró el origen vigente de esta cobranza.');
+      const orderLinks=await statementOrderLinks(db,[entryId]),order=orderLinks.get(entryId);
+      return response({bank:true,batch:rows.data[0].batch_id,entry:{...entry.data,candidates:[],netCandidates:[],order_link:order?.link||null,order_link_version:order?.version||0}});
+    }
     if(params.get('action')==='inbox-accounts'){
       const [mappings,settings]=await Promise.all([db.from('bank_statement_mp_accounts').select('financial_account_id,mp_account_id'),db.from('mp_bank_inbox_settings').select('mp_account_id')]);if(mappings.error)throw mappings.error;if(settings.error)throw settings.error;
       return response({ready:(mappings.data||[]).filter(m=>(settings.data||[]).some(s=>s.mp_account_id===m.mp_account_id)).map(m=>m.financial_account_id)});

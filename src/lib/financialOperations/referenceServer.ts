@@ -38,6 +38,18 @@ export async function movementApplications(db: SupabaseClient, rows: Array<Coded
     const refs=supplierApplications(allocations,payments,allocations.flatMap(a=>a.supplier_purchases?[a.supplier_purchases]:[]),chunk);
     for(const p of payments)if(p.cash_transaction_id)result.set(p.cash_transaction_id,[...(result.get(p.cash_transaction_id)||[]),...(refs.byPayment.get(p.id)||[])]);
     for(const p of clients){const order=one(p.orders);if(!p.reversed_at&&order){const list=result.get(p.cash_transaction_id)||[];list.push({id:order.id,code:order.legacy_code||order.id,kind:'Pedido',href:`/admin/finanzas?tab=flow&order=${order.id}`,amount:Number(p.amount)});result.set(p.cash_transaction_id,list);}}
+    // Bank statement order references reuse the existing movement; they never create client payments.
+    try {
+      const bankLinks=await all(db.from('bank_entry_ledger_links').select('entry_id,cash_transaction_id,bank_statement_entries(bank_statement_order_links(order_id,orders(id,legacy_code)))').in('cash_transaction_id',ids).order('entry_id'));
+      for(const bankLink of bankLinks){const source=one(bankLink.bank_statement_entries);const orderLink=one(source?.bank_statement_order_links||null);const order=one(orderLink?.orders||null);if(!order)continue;const list=result.get(bankLink.cash_transaction_id)||[];if(!list.some(ref=>ref.kind==='Pedido'&&ref.id===order.id))list.push({id:order.id,code:order.legacy_code||order.id,kind:'Pedido',href:`/admin/finanzas?tab=flow&order=${order.id}`});result.set(bankLink.cash_transaction_id,list);}
+      // A verified captured payment remains associated even when its statement link is not materialized.
+      const missing=bankLinks.filter(link=>!(result.get(link.cash_transaction_id)||[]).some(ref=>ref.kind==='Pedido'));
+      if(missing.length){
+        const entries=missing.map(link=>link.entry_id),filter=entries.join(',');
+        const captures=await all(db.from('mp_bank_web_rows').select('id,prepared_entry_id,statement_entry_id,mp_payments(is_verified,is_hidden,is_internal,order_id,order_code,orders(id,legacy_code))').or('prepared_entry_id.in.('+filter+'),statement_entry_id.in.('+filter+')').order('id'));
+        for(const link of missing)for(const capture of captures){if((capture.statement_entry_id||capture.prepared_entry_id)!==link.entry_id)continue;const payment=one(capture.mp_payments),order=one(payment?.orders||null);if(!payment?.is_verified||payment.is_hidden||payment.is_internal||!order||payment.order_code&&payment.order_code.trim().toUpperCase()!==order.legacy_code?.trim().toUpperCase())continue;const list=result.get(link.cash_transaction_id)||[];if(!list.some(ref=>ref.kind==='Pedido'&&ref.id===order.id))list.push({id:order.id,code:order.legacy_code||order.id,kind:'Pedido',href:`/admin/finanzas?tab=flow&order=${order.id}`});result.set(link.cash_transaction_id,list);}
+      }
+    } catch(error) {const failure=error as {code?:string;message?:string};if(!['42P01','PGRST205','PGRST200'].includes(failure.code||'')||!/(bank_statement_order_links|bank_entry_ledger_links)/.test(failure.message||''))throw error;}
     const ops=chunk.map(t=>t.operation_id).filter(Boolean);
     if(ops.length){const vouchers=await all(db.from('operation_vouchers').select('operation_id,voucher_id,treasury_vouchers(id,reference)').in('operation_id',ops).order('operation_id').order('voucher_id'));
       for(const t of chunk)for(const v of vouchers){const voucher=one(v.treasury_vouchers);if(v.operation_id===t.operation_id&&voucher){const list=result.get(t.id)||[];list.push({id:v.voucher_id,code:voucher.reference||v.voucher_id,kind:'Comprobante',href:`/admin/comprobantes-tesoreria?voucher=${v.voucher_id}`});result.set(t.id,list);}}}

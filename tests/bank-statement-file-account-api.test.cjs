@@ -8,6 +8,7 @@ test('server rejects a known extract assigned to a different account before pars
   if(name==='next/server')return{NextResponse:{json:(data,init)=>new Response(JSON.stringify(data),init)}};
   if(name.endsWith('/financialOperations/server'))return{financialContext:async()=>({actor:mp3,db:{rpc:()=>{effects++;throw Error('Must not write');},storage:{from:()=>{effects++;throw Error('Must not upload');}}}})};
   if(name.endsWith('/financialOperations/validation'))return{isUuid:v=>typeof v==='string'&&/^[0-9a-f-]{36}$/.test(v),OperationError};
+  if(name.endsWith('/bankStatements/orderServer'))return {};
   if(name.endsWith('/bankStatements/fileAccounts'))return helper;
   if(name.endsWith('/bankStatements/model'))return{MAX_STATEMENT_BYTES:2097152};
   if(name.endsWith('/bankStatements/workbook'))return{readStatementWorkbook:()=>{effects++;throw Error('Must not parse');}};

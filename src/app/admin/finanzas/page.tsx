@@ -1,5 +1,5 @@
 "use client";
-import {movementCode,type ApplicationReference} from '@/lib/financialOperations/references';
+import {movementOrderReferences,movementCode,type ApplicationReference} from '@/lib/financialOperations/references';
 import {supplierVoucherPending} from '@/lib/financialOperations/voucherStatus';
 
 import AdaptiveSelect from "@/components/ui/AdaptiveSelect";
@@ -11,6 +11,7 @@ import OrderApplications from '@/components/finanzas/operations/OrderApplication
 import OperationEditor from '@/components/finanzas/operations/OperationEditor';
 import OperationChooser from '@/components/finanzas/operations/OperationChooser';
 import { createAuthenticatedRequester } from '@/lib/authenticatedRequest';
+import CollectionOrderLinkModal from '@/components/finanzas/operations/CollectionOrderLinkModal';
 import { inferOperationType, isInactiveFinancialMovement, operationLabels, type OperationType, type OperationSummary } from '@/lib/financialOperations/types';
 const financialRequest = createAuthenticatedRequester(supabase);
 const localOperationRead = (url:string,options?:RequestInit) => {
@@ -1553,10 +1554,10 @@ function FinanceWorkspace() {
                                       )}
 
                                       {['Recaudación','Cobranza'].includes(t.category) && t.type === 'ingreso' && (
-                                        t.client_payments && t.client_payments.length > 0 ? (
-                                          t.client_payments.map(p => (
+                                        movementOrderReferences(t).length > 0 ? (
+                                          movementOrderReferences(t).map(p => (
                                             <span key={p.id} className="inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-black bg-purple-50 border border-purple-100 text-purple-700 uppercase">
-                                              🛍️ {p.orders?.legacy_code || 'S/D'} ({p.orders?.customer_name || 'S/D'})
+                                              🛍️ {p.code}
                                             </span>
                                           ))
                                         ) : (
@@ -1999,7 +2000,7 @@ function FinanceWorkspace() {
       {choosingOperation && <OperationChooser onClose={()=>setChoosingOperation(false)} onChoose={kind=>{setChoosingOperation(false);setOperationEditor({kind});}}/>}
       {orderReference && <OrderApplications id={orderReference} onClose={()=>setOrderReference(null)}/>}
       {operationEditor && <OperationEditor {...operationEditor} readOnly={localInspection} requestOverride={localInspection?localOperationRead:undefined} onClose={()=>setOperationEditor(null)} onSaved={operationSaved}/>}
-      {isLinkModalOpen && reconcilingTx && <OperationEditor kind={inferOperationType(reconcilingTx)} transactionId={reconcilingTx.id} mode="link" onClose={()=>{setIsLinkModalOpen(false);setReconcilingTx(null);}} onSaved={operationSaved}/>}
+      {isLinkModalOpen && reconcilingTx && (reconcilingTx.type==='ingreso' && ['Recaudación','Cobranza'].includes(reconcilingTx.category) ? <CollectionOrderLinkModal transactionId={reconcilingTx.id} code={movementCode(reconcilingTx)} onClose={()=>{setIsLinkModalOpen(false);setReconcilingTx(null);}} onSaved={operationSaved}/> : <OperationEditor kind={inferOperationType(reconcilingTx)} transactionId={reconcilingTx.id} mode="link" onClose={()=>{setIsLinkModalOpen(false);setReconcilingTx(null);}} onSaved={operationSaved}/>)}
 
       {isValidationModalOpen && selectedValidationOrder && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-150">

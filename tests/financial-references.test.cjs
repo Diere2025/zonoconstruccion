@@ -29,3 +29,10 @@ test('legacy identifiers stay unique without truncating UUIDs or dropping unpost
  assert.equal(refs.byPurchase.get('doc')[0].href,'');
  assert.equal(refs.byPurchase.get('doc')[0].amount,0.22);
 });
+
+test('collection badges combine direct and imported order references without duplicate or cancelled links',()=>{
+ const row={client_payments:[{order_id:'o1',orders:{legacy_code:'JS1'}},{order_id:'cancelled',reversed_at:'2026-10-01'}],applications:[{id:'o1',kind:'Pedido',code:'JS1',href:'order1'},{id:'o2',kind:'Pedido',code:'JS2',href:'order2'},{id:'v',kind:'Comprobante',code:'REC',href:'voucher'}]};
+ assert.equal(mod.movementOrderReferences(row).map(r=>r.code).join(','),'JS1,JS2');
+ assert.equal(mod.movementOrderReferences({applications:row.applications.slice(1,2)}).length,1);
+ assert.equal(mod.movementOrderReferences({}).length,0);
+});

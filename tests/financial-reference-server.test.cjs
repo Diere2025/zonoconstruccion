@@ -4,7 +4,7 @@ const fs=require('node:fs'),ts=require('typescript'),vm=require('node:vm');
 function load(file,imports={}){const exports={};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,require:name=>imports[name]});return exports;}
 const references=load('src/lib/financialOperations/references.ts');
 const {movementApplications,voucherMovementReferences,supplierReferenceData}=load('src/lib/financialOperations/referenceServer.ts',{'./references':references});
-function database(tables){return {from(name){let rows=tables[name]||[];return {select(){return this;},order(){return this;},eq(key,value){rows=rows.filter(r=>r[key]===value);return this;},in(key,values){rows=rows.filter(r=>values.includes(r[key]));return this;},async range(start,end){return {data:rows.slice(start,end+1),error:null};}};}};}
+function database(tables){return {from(name){let rows=tables[name]||[];return {select(){return this;},or(){return this;},order(){return this;},eq(key,value){rows=rows.filter(r=>r[key]===value);return this;},in(key,values){rows=rows.filter(r=>values.includes(r[key]));return this;},async range(start,end){return {data:rows.slice(start,end+1),error:null};}};}};}
 test('movement reads normalize object/array relations and vouchers list all associated operations',async()=>{
  const tx=[{id:'t1',type:'egreso',movement_code:'PAG-1',operation_id:'o1'},{id:'t2',type:'ingreso',movement_code:'COB-2',operation_id:'o2'}];
  const db=database({
@@ -25,4 +25,18 @@ test('allocation pagination retains every document past the database page bounda
  const allocations=Array.from({length:501},(_,i)=>({id:`a${i}`,payment_id:'p',purchase_id:`d${i}`,amount:1,supplier_purchases:{id:`d${i}`,invoice_number:`F-${i}`}}));
  const result=await movementApplications(database({supplier_payments:[{id:'p',cash_transaction_id:'t'}],supplier_payment_allocations:allocations}),[{id:'t',type:'egreso'}]);
  assert.equal(result.get('t').length,501);assert.equal(result.get('t').at(-1).code,'F-500');
+});
+test('statement order references appear on existing movements without duplicating client references',async()=>{
+ const source=order=>({bank_statement_order_links:{order_id:order.id,orders:order}});
+ const db=database({bank_entry_ledger_links:[{entry_id:'e1',cash_transaction_id:'t1',bank_statement_entries:source({id:'o1',legacy_code:'PED-ANTERIOR'})},{entry_id:'e2',cash_transaction_id:'t2',bank_statement_entries:[source({id:'o2',legacy_code:'PED-2'})]},{entry_id:'e3',cash_transaction_id:'t3',bank_statement_entries:{bank_statement_order_links:{order_id:null,orders:null}}}],client_payments:[{id:'client',cash_transaction_id:'t2',orders:{id:'o2',legacy_code:'PED-2'}}]});
+ const result=await movementApplications(db,[{id:'t1',type:'ingreso'},{id:'t2',type:'ingreso'},{id:'t3',type:'ingreso'}]);assert.equal(result.get('t1')[0].code,'PED-ANTERIOR');assert.equal(result.get('t2').length,1);assert.equal(result.has('t3'),false);
+});
+
+test('verified captured orders remain visible before the statement link exists; unverified and conflicting payments do not',async()=>{
+ const payment={is_verified:true,is_hidden:false,is_internal:false,order_id:'o',order_code:'JS1',orders:{id:'o',legacy_code:'JS1'}};
+ const tx=['valid','unverified','conflict','internal'].map(id=>({id,type:'ingreso'}));
+ const links=tx.map(t=>({entry_id:'e-'+t.id,cash_transaction_id:t.id,bank_statement_entries:null}));
+ const captures=tx.map(t=>({id:t.id,prepared_entry_id:'e-'+t.id,statement_entry_id:null,mp_payments:{...payment,...(t.id==='unverified'?{is_verified:false}:t.id==='conflict'?{order_code:'JS2'}:t.id==='internal'?{is_internal:true}:{})}}));
+ const result=await movementApplications(database({bank_entry_ledger_links:links,mp_bank_web_rows:captures}),tx);
+ assert.equal(result.get('valid')[0].code,'JS1');for(const id of ['unverified','conflict','internal'])assert.equal(result.has(id),false);
 });
