@@ -21,5 +21,14 @@
   const items=[...doc.querySelectorAll('li,article,a,button,section,tr,[role="row"],[role="listitem"],div')].filter(visible).map(el=>{let day=null;for(const h of headers)if(!h.el.contains(el)&&!el.contains(h.el)&&(h.el.compareDocumentPosition(el)&4))day=h.day;return {el,row:parseText(el.innerText||el.textContent,day)};}).filter(x=>x.row);
   const counts=new Map();return items.filter(x=>!items.some(y=>x.el!==y.el&&x.el.contains(y.el))).map(({row})=>{const key=JSON.stringify([row.occurredAt,row.amount,row.kind,row.description]);row.occurrence=(counts.get(key)||0)+1;counts.set(key,row.occurrence);return row;});
  }
- root.ZonoMpReserve={headerDate,parseText,scan};
+ function inspect(doc,now=new Date()){
+  const selectors='li,article,a,button,section,tr,[role="row"],[role="listitem"],div';
+  const outside=el=>!el.closest("[id^='zono-']");const text=el=>String(el.innerText||el.textContent||'').replace(/\s+/g,' ').trim();
+  const dates=[...doc.querySelectorAll('h1,h2,h3,h4,h5,h6,header,span,p,div,time,[role="heading"]')].filter(outside).filter(el=>headerDate(text(el),now));
+  const candidates=[...doc.querySelectorAll(selectors)].filter(outside).map(el=>({el,text:text(el)})).filter(x=>/dinero\s+(retirado|ingresado|agregado|depositado)|rendimientos/i.test(x.text));
+  const oneTime=candidates.filter(x=>(x.text.match(/\b(?:[01]\d|2[0-3]):[0-5]\d\b/g)||[]).length===1);
+  const summaries=oneTime.slice(-8).map(({el,text:value})=>{let day=null;for(const h of dates)if(!h.contains(el)&&!el.contains(h)&&(h.compareDocumentPosition(el)&4))day=headerDate(text(h),now);return {tag:el.tagName,parents:[el.parentElement?.tagName,el.parentElement?.parentElement?.tagName],visible:!!el.getClientRects().length,excluded:!!el.closest('nav,aside,[hidden],[aria-hidden="true"]'),dateFound:!!day,dateInRange:!!day&&day>='2026-09-28',dollarSigns:(value.match(/\$/g)||[]).length,amountMatches:(value.match(/(?:[-−–+]\s*)?\$\s*[\d.]+(?:\s*,\s*\d{1,2})?/g)||[]).length,labels:(value.match(/\b(?:Dinero\s+(?:retirado|ingresado|agregado|depositado)|Rendimientos)\b/gi)||[]).length,parsed:!!parseText(value,day)};});
+  return {iframes:doc.querySelectorAll('iframe').length,openShadowRoots:[...doc.querySelectorAll('*')].filter(el=>el.shadowRoot).length,recognizedDates:dates.length,eligibleDateHeaders:dates.filter(el=>headerDate(text(el),now)>='2026-09-28').length,candidateContainers:candidates.length,oneTimeContainers:oneTime.length,recognizedRows:scan(doc,now).length,containers:summaries};
+ }
+ root.ZonoMpReserve={headerDate,parseText,scan,inspect};
 })(typeof globalThis!=='undefined'?globalThis:this);
