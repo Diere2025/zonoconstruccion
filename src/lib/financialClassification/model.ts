@@ -1,0 +1,11 @@
+import type {FinancialConcept} from '@/lib/financialConcepts';
+export type CatalogKind='category'|'concept'|'person'|'destination'|'preset';
+export type CatalogItem={id:string;kind:CatalogKind;name:string;category_id:string|null;concept_id:string|null;person_id:string|null;destination_id:string|null;legacy_concept_id:string|null;movement_type:FinancialConcept['movement_type'];efe_category:string;is_active:boolean;version:number;origin:string;detail?:string};
+export type Classification={category:string;concept:string;person:string;destination:string;label:string;active:boolean;detail?:string};
+export function resolvePreset(item:CatalogItem,items:CatalogItem[]):Classification|null{
+ if(item.kind!=='preset')return null;const byId=new Map(items.map(i=>[i.id,i]));const concept=byId.get(item.concept_id||''),category=byId.get(concept?.category_id||''),person=byId.get(item.person_id||''),destination=byId.get(item.destination_id||'');
+ if(!concept||concept.kind!=='concept'||!category||category.kind!=='category'||item.person_id&&person?.kind!=='person'||item.destination_id&&destination?.kind!=='destination')return null;
+ return {category:category.name,concept:concept.name,person:person?.name||'',destination:destination?.name||'',detail:item.detail||'',label:item.name||[concept.name,person?.name,destination?.name].filter(Boolean).join(' · '),active:item.is_active&&concept.is_active&&category.is_active&&(!person||person.is_active)&&(!destination||destination.is_active)&&item.origin!=='historical_client'};
+}
+export function catalogConcepts(concepts:FinancialConcept[],items:CatalogItem[],activeOnly=true){const presets=new Map(items.filter(i=>i.kind==='preset').map(i=>[i.legacy_concept_id,i]));return concepts.flatMap(c=>{const p=presets.get(c.id),classification=p?resolvePreset(p,items):null;const active=c.is_active&&(p?!!classification?.active:!(/\(CL\d+\)/i.test(c.concept)&&c.category==='Recaudación'));if(activeOnly&&!active)return [];return [{...c,movement_type:p?.movement_type||c.movement_type,is_active:active,selection_label:classification?.label||c.concept+' · '+c.category,classification:classification||undefined}];});}
+export const catalogLabels:Record<CatalogKind,string>={category:'Categorías',concept:'Conceptos',person:'Personas habituales',destination:'Destinos',preset:'Opciones frecuentes'};

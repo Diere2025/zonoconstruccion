@@ -18,9 +18,12 @@ const colors:Record<string,[string,string,string]>={
  'Reserva Efectivo (Sueldos)':['#6b21a8','#faf5ff','#e9d5ff'],
 };
 const palette=Object.values(colors);
+export function financialAccountColor(name:string|null|undefined){
+ const label=financialAccountLabel(name);let hash=0;for(const character of label)hash=(hash*31+character.charCodeAt(0))>>>0;
+ return colors[label]||palette[hash%palette.length];
+}
 export default function FinancialAccountBadge({name,className=''}:{name:string|null|undefined;className?:string}){
  const label=financialAccountLabel(name);
- let hash=0;for(const character of label)hash=(hash*31+character.charCodeAt(0))>>>0;
- const [color,backgroundColor,borderColor]=colors[label]||palette[hash%palette.length];
+ const [color,backgroundColor,borderColor]=financialAccountColor(name);
  return <span className={'inline-flex max-w-full items-center gap-1.5 whitespace-nowrap rounded-md border px-2 py-0.5 text-[10px] font-semibold leading-4 '+className} style={{color,backgroundColor,borderColor}} title={label}><span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-current"/>{label}</span>;
 }

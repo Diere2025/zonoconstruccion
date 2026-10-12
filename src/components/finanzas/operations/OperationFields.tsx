@@ -1,3 +1,5 @@
+
+import ErpDateInput from '@/components/ui/ErpDateInput';
 import SupplierDocuments from "./SupplierDocuments";
 import SupplierPicker from './SupplierPicker';
 import type {SupplierOption} from '@/lib/financialOperations/supplierFrequency';
@@ -15,7 +17,7 @@ export function PersonnelFields({value,onChange,employees,onManage}:{value:Opera
     <label className="text-xs font-semibold">Concepto de personal<AdaptiveSelect aria-label="Concepto de personal" className={fieldClass} value={value.detail.payroll_kind || 'salary'} onChange={e=>detail({payroll_kind:e.target.value})}>
       <option value="salary">Sueldo</option><option value="advance">Adelanto</option><option value="temporary">Eventual</option><option value="agreement">Acuerdo</option>
     </AdaptiveSelect></label>
-    <label className="text-xs font-semibold">Período<input aria-label="Período laboral" className={fieldClass} type="month" required value={value.detail.period || ''} onChange={e=>detail({period:e.target.value})}/></label>
+    <label className="text-xs font-semibold">Período<ErpDateInput aria-label="Período laboral" className={fieldClass} type="month" required value={value.detail.period || ''} onChange={e=>detail({period:e.target.value})}/></label>
     <label className="text-xs font-semibold">Empleado o eventual<AdaptiveSelect aria-label="Empleado" required className={fieldClass} value={value.employee_id || ''} onChange={e=>onChange({...value,employee_id:e.target.value,person_id:employees.find(row=>row.id===e.target.value)?.person_id,detail:{...value.detail,beneficiary:''}})}>
       <option value="">Seleccionar persona habilitada</option>{employees.map(row=><option key={row.id} value={row.id}>{row.full_name}</option>)}
     </AdaptiveSelect></label>
@@ -31,7 +33,7 @@ export function SupplierFields({value,onChange,suppliers,purchases,currency}:{va
     </AdaptiveSelect></label>
     {eventual ? <div className="space-y-2">
       <label className="block text-xs font-semibold">Comercio / proveedor (opcional)<input aria-label="Comercio de la compra eventual" className={fieldClass} maxLength={240} placeholder="Ej.: ferretería" value={value.detail.supplier_name || ''} onChange={e=>onChange({...value,detail:{...value.detail,supplier_name:e.target.value}})}/></label>
-      <p className="text-xs text-slate-600">Podés detallar el producto comprado en el detalle de la operación. Se registra el egreso sin crear proveedor, cuenta corriente ni anticipo.</p>
+
     </div> : <>
     <SupplierPicker suppliers={suppliers} value={value.supplier_id||''} onChange={id=>onChange({...value,supplier_id:id,allocations:[]})}/>
     {value.supplier_id&&<SupplierDocuments key={value.supplier_id} value={value} onChange={onChange} purchases={purchases.filter(p=>p.supplier_id===value.supplier_id)} currency={currency} supplierName={suppliers.find(s=>s.id===value.supplier_id)?.name||'Proveedor'}/>}
@@ -43,7 +45,7 @@ export function TaxFields({value,onChange}:{value:OperationInput;onChange:(value
   const detail=(patch:Partial<OperationInput['detail']>)=>onChange({...value,detail:{...value.detail,...patch}});
   return <div className="grid gap-3 sm:grid-cols-2">
     <label className="text-xs font-semibold">Organismo<input className={fieldClass} required value={value.detail.organism || ''} onChange={e=>detail({organism:e.target.value})}/></label>
-    <label className="text-xs font-semibold">Período<input className={fieldClass} type="month" required value={value.detail.period || ''} onChange={e=>detail({period:e.target.value})}/></label>
+    <label className="text-xs font-semibold">Período<ErpDateInput className={fieldClass} type="month" required value={value.detail.period || ''} onChange={e=>detail({period:e.target.value})}/></label>
     <label className="text-xs font-semibold">Cuota / referencia<input className={fieldClass} value={value.detail.reference || ''} onChange={e=>detail({reference:e.target.value})}/></label>
   </div>;
 }

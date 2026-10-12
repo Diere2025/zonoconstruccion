@@ -1,4 +1,6 @@
 "use client";
+import ErpDateInput from '@/components/ui/ErpDateInput';
+
 
 import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
@@ -5565,7 +5567,7 @@ export default function ComprasAdminPage() {
                     </div>
                     <div className="space-y-1">
                       <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Fecha</label>
-                      <input
+                      <ErpDateInput
                         type="date"
                         required
                         disabled={Boolean(editingPurchase?.purchase_reception_id)}
@@ -6171,7 +6173,7 @@ export default function ComprasAdminPage() {
                 <>
                   <div className="w-36 space-y-1">
                     <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Desde</label>
-                    <input
+                    <ErpDateInput
                       type="date"
                       value={calcStartDate}
                       onChange={e => setCalcStartDate(e.target.value)}
@@ -6180,7 +6182,7 @@ export default function ComprasAdminPage() {
                   </div>
                   <div className="w-36 space-y-1">
                     <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Hasta</label>
-                    <input
+                    <ErpDateInput
                       type="date"
                       value={calcEndDate}
                       onChange={e => setCalcEndDate(e.target.value)}

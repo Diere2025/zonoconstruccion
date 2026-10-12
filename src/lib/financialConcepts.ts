@@ -1,4 +1,6 @@
 export type FinancialConcept = {
+  selection_label?: string;
+  classification?: {category:string;concept:string;person:string;destination:string;label:string;active:boolean;detail?:string};
   id: string;
   concept: string;
   category: string;

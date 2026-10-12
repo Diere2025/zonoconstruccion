@@ -1,4 +1,6 @@
 "use client";
+import ErpDateInput from '@/components/ui/ErpDateInput';
+
 
 import React, { useEffect, useState, useMemo, Suspense } from "react";
 import Link from "next/link";
@@ -541,7 +543,7 @@ function WholesaleDashboardContent() {
           <div className="flex items-center gap-2 pt-2 md:pt-0 border-t md:border-t-0 border-slate-100">
             <div className="flex items-center gap-1.5">
               <span className="text-[11px] font-bold text-slate-500">Desde:</span>
-              <input
+              <ErpDateInput
                 type="date"
                 value={customFrom}
                 onChange={(e) => setCustomFrom(e.target.value)}
@@ -550,7 +552,7 @@ function WholesaleDashboardContent() {
             </div>
             <div className="flex items-center gap-1.5">
               <span className="text-[11px] font-bold text-slate-500">Hasta:</span>
-              <input
+              <ErpDateInput
                 type="date"
                 value={customTo}
                 onChange={(e) => setCustomTo(e.target.value)}

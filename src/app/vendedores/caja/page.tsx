@@ -1,4 +1,6 @@
 "use client";
+import ErpDateInput from '@/components/ui/ErpDateInput';
+
 
 import React, { useEffect, useState } from "react";
 import { formatPrice } from "@/lib/utils";
@@ -689,7 +691,7 @@ export default function CajaDiariaPage() {
                 <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-1">
                     <label className="text-[9px] font-black uppercase text-slate-400">Fecha y Hora</label>
-                    <input
+                    <ErpDateInput
                       type="datetime-local"
                       required
                       value={txCreatedAt}

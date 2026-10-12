@@ -1,3 +1,4 @@
+import {movementClassifications} from '@/lib/financialClassification/server';
 import {movementApplications} from '@/lib/financialOperations/referenceServer';
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
@@ -245,6 +246,8 @@ export async function GET(request: Request) {
         };
       });
 
+      const classifications=await movementClassifications(supabaseAdmin,txsWithRunningBalance.map(t=>t.id));
+      for(const t of txsWithRunningBalance)Object.assign(t,{classification:classifications.get(t.id)||null});
       // Reverse to display newest first
       txsWithRunningBalance.reverse();
 

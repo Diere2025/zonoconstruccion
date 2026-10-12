@@ -1,4 +1,6 @@
 "use client";
+import ErpDateInput from '@/components/ui/ErpDateInput';
+
 
 import { useEffect, useMemo, useState } from 'react';
 import { Copy, FilePlus2, Loader2, Save, Search, Trash2, WandSparkles } from 'lucide-react';
@@ -129,8 +131,8 @@ export default function MarketingPromptsPage() {
             <div className="md:col-span-2"><TextField label="Objetivo de negocio" value={params.objective} onChange={value => patch('objective', value)} rows={2} /></div>
             <label><span className={labelClass}>Días completos principales</span><input type="number" min="3" max="365" value={params.periodDays} onChange={event => { const days = Math.max(3, Math.min(365, Number(event.target.value) || 3)); setParams(current => ({ ...current, periodDays: days, recentDays: Math.min(current.recentDays, days) })); }} className={inputClass} /><span className="mt-1 block text-xs text-slate-500">Base para calcular costos, ventas y margen.</span></label>
             <label><span className={labelClass}>Días recientes</span><input type="number" min="1" max={params.periodDays} value={params.recentDays} onChange={event => patch('recentDays', Math.max(1, Math.min(params.periodDays, Number(event.target.value) || 1)))} className={inputClass} /><span className="mt-1 block text-xs text-slate-500">Señal de cambios nuevos, separada de la base principal.</span></label>
-            <label><span className={labelClass}>Desde (opcional)</span><input type="date" value={params.fromDate} onChange={event => patch('fromDate', event.target.value)} className={inputClass} /><span className="mt-1 block text-xs text-slate-500">Usá ambas fechas para un análisis histórico.</span></label>
-            <label><span className={labelClass}>Hasta (opcional)</span><input type="date" min={params.fromDate || undefined} value={params.toDate} onChange={event => patch('toDate', event.target.value)} className={inputClass} /><span className="mt-1 block text-xs text-slate-500">Sin fechas se usan los días completos indicados arriba.</span></label>
+            <label><span className={labelClass}>Desde (opcional)</span><ErpDateInput type="date" value={params.fromDate} onChange={event => patch('fromDate', event.target.value)} className={inputClass} /><span className="mt-1 block text-xs text-slate-500">Usá ambas fechas para un análisis histórico.</span></label>
+            <label><span className={labelClass}>Hasta (opcional)</span><ErpDateInput type="date" min={params.fromDate || undefined} value={params.toDate} onChange={event => patch('toDate', event.target.value)} className={inputClass} /><span className="mt-1 block text-xs text-slate-500">Sin fechas se usan los días completos indicados arriba.</span></label>
             <label className="flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-3 text-sm"><input type="checkbox" checked={params.includeToday} onChange={event => patch('includeToday', event.target.checked)} /> Incluir hoy como parcial</label>
             <TextField label="Aumento máximo diario de pauta (USD)" value={params.maxAdditionalUsd} onChange={value => patch('maxAdditionalUsd', value)} placeholder="Opcional; US$ adicionales por día" />
             <div className="md:col-span-2"><TextField label="Meta de margen o ganancia" value={params.marginGoal} onChange={value => patch('marginGoal', value)} placeholder="Ej.: $5 M de contribución semanal" /></div>

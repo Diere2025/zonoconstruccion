@@ -1,4 +1,6 @@
 'use client';
+import ErpDateInput from '@/components/ui/ErpDateInput';
+
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { CalendarDays, Loader2, Plus, RefreshCw } from 'lucide-react';
@@ -75,7 +77,7 @@ export default function VisitsWorkspace({ me }: { me: VisitsMe }) {
       {selectFilter('Instalador', 'installer_id', { '': me.commercial ? 'Todos' : 'Mis casos', ...Object.fromEntries(me.people.filter(p => p.roles.includes('instalador')).map(p => [p.id, p.name])) })}
       {mode === 'list' && selectFilter('Kit', 'kit_id', { '': 'Todos los kits', ...Object.fromEntries(me.kits.map(k => [k.id, k.name])) })}
       {mode === 'list' && ['from', 'to'].map(key => <VisitDateInput key={key} label={key==='from'?'Desde · visita realizada':'Hasta · visita realizada'} value={params.get(key)||''} onChange={value=>navigate({[key]:value,page:''})}/>)}
-      {mode === 'agenda' && <label className="text-sm">Mes<input className={inputStyle} type="month" value={month} onChange={e => navigate({ month: e.target.value })} /></label>}
+      {mode === 'agenda' && <label className="text-sm">Mes<ErpDateInput className={inputStyle} type="month" value={month} onChange={e => navigate({ month: e.target.value })} /></label>}
       <button className={buttonStyle} onClick={() => { setSearch(''); router.replace(`/visitas?mode=${mode}`); }}>Limpiar</button>
     </section>
     {!loading && error && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{error}</p>}

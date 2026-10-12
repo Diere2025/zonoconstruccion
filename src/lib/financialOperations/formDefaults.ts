@@ -15,13 +15,16 @@ export function prepareOperationForm(input:OperationInput,methods:Method[]):Oper
  const categories:Partial<Record<OperationInput['operation_type'],string>>={supplier_payment:'Proveedores',customer_collection:'Cobranza',payroll_payment:'Sueldos',operating_expense:'Gastos Operativos'};
  const category=categories[p.operation_type];
  if(!category)return p;
+ const catalogCategories:Partial<Record<OperationInput['operation_type'],string[]>>={supplier_payment:['Proveedores','Proveedores (Deuda)','Insumo de Producto'],customer_collection:['Recaudación','Cobranza'],payroll_payment:['Sueldos','Eventuales']};
+ const selectedClassification=!!p.financial_concept_id&&!!p.concept.trim()&&!!catalogCategories[p.operation_type]?.includes(p.category);
  const optional=['supplier_payment','customer_collection','payroll_payment'].includes(p.operation_type);
  const {beneficiary,reference,...detail}=p.detail;
  void beneficiary;void reference;
  return {...p,category,concept:optional&&!p.concept.trim()?operationLabels[p.operation_type]:p.concept,
   financial_concept_id:undefined,sub_category:undefined,cost_center_id:undefined,route_sheet_id:undefined,
   efe_category:p.operation_type==='supplier_payment'?'Pago a Proveedores':undefined,
-  ...(p.operation_type==='operating_expense'?{person_id:undefined}:{}),
+  ...(p.operation_type==='operating_expense'?{person_id:undefined,...(p.financial_concept_id?{financial_concept_id:p.financial_concept_id,category:p.category,sub_category:p.sub_category,efe_category:p.efe_category}:{})}:{}),
+  ...(selectedClassification?{financial_concept_id:p.financial_concept_id,category:p.category,sub_category:p.sub_category,efe_category:p.efe_category}:{}),
   ...(p.operation_type==='supplier_payment'&&p.detail.supplier_allocation_mode==='oldest_first'?{allocations:[]}:{}),
   detail};
 }

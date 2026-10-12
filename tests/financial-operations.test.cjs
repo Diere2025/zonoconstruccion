@@ -9,7 +9,7 @@ const validation=load('src/lib/financialOperations/validation.ts',{'./types':typ
 const defaults=load('src/lib/financialOperations/transferDefaults.ts');
 const {prepareTransfer}=load('src/lib/financialOperations/transferInput.ts',{'./validation':validation});
 const formDefaults=load('src/lib/financialOperations/formDefaults.ts',{'./types':types,'./validation':validation,'./transferInput':{prepareTransfer}});
-const fields=load('src/components/finanzas/operations/OperationFields.tsx',{'@/components/ui/AdaptiveSelect':{__esModule:true,default:()=>null},'./SupplierDocuments':{__esModule:true,default:()=>null},'./SupplierPicker':{__esModule:true,default:()=>null}});
+const fields=load('src/components/finanzas/operations/OperationFields.tsx',{'@/components/ui/AdaptiveSelect':{__esModule:true,default:()=>null},'./SupplierDocuments':{__esModule:true,default:()=>null},'./SupplierPicker':{__esModule:true,default:()=>null},'@/components/ui/ErpDateInput':{__esModule:true,default:'input'}});
 const id=n=>`00000000-0000-0000-0000-${String(n).padStart(12,'0')}`;
 const base={operation_type:'operating_expense',effective_date:'2026-10-01',account_id:id(1),payment_method_id:id(2),direction:'egreso',amount:'100.00',category:'Gastos Operativos',concept:'Prueba válida',detail:{}};
 test('transfer saves without a user-selected method and removes inherited business classifications',()=>{
@@ -107,13 +107,14 @@ test('daily supplier save uses one mutation RPC, with no catalog or FIFO preflig
   '@/lib/financialOperations/server':{financialMutationContext:async()=>({db,actor:id(9)}),financialContext:async()=>{throw new Error('Unexpected permission preflight');}},
   '@/lib/financialOperations/validation':validation,'@/lib/financialOperations/formDefaults':formDefaults,
   '@/lib/financialOperations/voucherStatus':load('src/lib/financialOperations/voucherStatus.ts',{'./validation':validation}),
+  '@/lib/financialClassification/server':{selectableConcepts:async()=>{throw new Error('Unexpected catalog read during mutation');}},
   '@/lib/financialOperations/specialized':{specialTypes:[]},
   '@/lib/financialOperations/references':load('src/lib/financialOperations/references.ts'),
   '@/lib/financialOperations/referenceServer':{movementApplications:async()=>{throw new Error('Unexpected read during mutation');}}
  },{Response});
  const payload={...base,operation_type:'supplier_payment',supplier_id:id(3),detail:{supplier_allocation_mode:'oldest_first'},confirm_without_voucher:true};
  const request=()=>new Request('https://example.test',{method:'POST',body:JSON.stringify({action:'save',key:id(10),payload})});
- assert.equal((await route.POST(request())).status,200);assert.equal(calls.length,1);assert.equal(calls[0].name,'save_financial_operation');assert.equal(calls[0].args.p_actor,id(9));assert.equal(calls[0].args.p_key,id(10));
+ assert.equal((await route.POST(request())).status,200);assert.equal(calls.length,1);assert.equal(calls[0].name,'save_catalog_financial_operation');assert.equal(calls[0].args.p_actor,id(9));assert.equal(calls[0].args.p_key,id(10));
  error={code:'42501',message:'No tenés permisos'};assert.equal((await route.POST(request())).status,403);
 });
 
@@ -209,4 +210,29 @@ test('payable document options exclude paid, voided, credit notes and another cu
  assert.equal(supplierAllocation.supplierDocumentPending(doc),266291.45);
  const docs=[doc,{...doc,id:id(5),paid_amount:266291.45},{...doc,id:id(6),document_type:'Nota de Crédito'},{...doc,id:id(7),currency:'USD'},{...doc,id:id(8),status:'Anulado'},{...doc,id:id(9),paid_amount:266291.45,editable_allocation_amount:'10.00'}];
  assert.deepEqual(Array.from(supplierAllocation.payableSupplierDocuments(docs,id(3),'ARS'),p=>p.id),[id(4),id(9)]);
+});
+
+test('chosen frequent classification survives the operating expense form while personnel linkage is removed',()=>{const prepared=formDefaults.prepareOperationForm({...base,financial_concept_id:id(7),category:'Honorarios',sub_category:'Administración',efe_category:'Servicios',person_id:id(8)},[]);assert.equal(prepared.financial_concept_id,id(7));assert.equal(prepared.category,'Honorarios');assert.equal(prepared.sub_category,'Administración');assert.equal(prepared.efe_category,'Servicios');assert.equal(prepared.person_id,undefined);});
+
+const financialConcepts=load('src/lib/financialConcepts.ts');
+const guided=load('src/lib/financialClassification/guided.ts');
+const common=load('src/lib/financialOperations/commonMovement.ts',{'@/lib/financialConcepts':financialConcepts,'@/lib/financialClassification/guided':guided});
+test('common supplier selection identifies one supplier, retains its catalog classification and applies debt oldest first',()=>{
+ const c={id:id(9),concept:'Cooper',category:'Proveedores',sub_category:'Materiales',movement_type:'Egreso',efe_category:'Pago a Proveedores',is_active:true};
+ const selected=common.selectCommonMovement({...base,operation_type:'general',order_id:id(6),client_id:id(7),destination_account_id:id(8),allocations:[{purchase_id:id(6),amount:'10'}]},c,[{id:id(3),name:'COOPER'}],[]);
+ assert.equal(selected.operation_type,'supplier_payment');assert.equal(selected.supplier_id,id(3));assert.equal(selected.detail.supplier_allocation_mode,'oldest_first');assert.equal(selected.order_id,undefined);assert.equal(selected.client_id,undefined);assert.equal(selected.destination_account_id,undefined);assert.equal(selected.allocations.length,0);assert.equal(selected.amount,base.amount);assert.equal(selected.effective_date,base.effective_date);
+ const prepared=formDefaults.prepareOperationForm(selected,[]);validation.validateOperation(prepared);assert.equal(prepared.financial_concept_id,c.id);assert.equal(prepared.category,c.category);assert.equal(prepared.sub_category,c.sub_category);
+ assert.equal(common.selectCommonMovement(base,c,[{id:id(3),name:'Cooper'},{id:id(4),name:'Cooper'}],[]).supplier_id,undefined);
+ assert.equal(common.selectCommonMovement(base,c,[],[]).supplier_id,undefined);
+});
+test('switching common classification removes supplier links and sets the cash direction from the new concept',()=>{
+ const c={id:id(9),concept:'Rendición Flete Externo',category:'Recaudación',sub_category:'Venta - Recorridos',movement_type:'Ingreso',efe_category:'Ventas',is_active:true};
+ const selected=common.selectCommonMovement({...base,supplier_id:id(3),detail:{supplier_allocation_mode:'oldest_first'}},c,[],[]);
+ assert.equal(selected.operation_type,'general');assert.equal(selected.direction,'ingreso');assert.equal(selected.supplier_id,undefined);assert.equal(Object.keys(selected.detail).length,0);assert.equal(selected.financial_concept_id,c.id);
+});
+
+test('a customer refund remains an expense rather than becoming a customer collection',()=>{
+ const c={id:id(9),concept:'Devolución a cliente',category:'Recaudación',sub_category:'Devoluciones',movement_type:'Egreso',efe_category:'Ventas',is_active:true};
+ const selected=common.selectCommonMovement(base,c,[],[]);
+ assert.equal(selected.operation_type,'general');assert.equal(selected.direction,'egreso');assert.equal(selected.financial_concept_id,c.id);
 });

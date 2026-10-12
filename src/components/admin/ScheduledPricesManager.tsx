@@ -1,4 +1,6 @@
 "use client";
+import ErpDateInput from '@/components/ui/ErpDateInput';
+
 
 import React, { useState, useEffect, useMemo } from "react";
 import { 
@@ -573,7 +575,7 @@ export function ScheduledPricesManager({ products, onPricesUpdated }: ScheduledP
                       <span>Fecha de Vigencia</span>
                       <span className="text-[10px] text-slate-400 font-normal">Año-Mes-Día</span>
                     </label>
-                    <input
+                    <ErpDateInput
                       type="date"
                       required
                       value={effectiveDate}
@@ -778,7 +780,7 @@ export function ScheduledPricesManager({ products, onPricesUpdated }: ScheduledP
                 <div className="p-3.5 bg-white rounded-xl border border-slate-200 space-y-3">
                   <div className="space-y-1">
                     <label className="text-xs font-bold text-slate-700">Fecha de Vigencia</label>
-                    <input
+                    <ErpDateInput
                       type="date"
                       required
                       value={effectiveDate}

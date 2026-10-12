@@ -242,6 +242,7 @@ interface PendingOrder {
 }
 
 interface CashTransactionWithRelations {
+  classification?: {category:string;concept:string;person:string;destination:string;label:string;detail?:string}|null;
   movement_code?:string|null;
   applications?:ApplicationReference[];
   treasury_settlement_id?:string|null;
@@ -415,7 +416,7 @@ export default function AdminFinanzasPage() {
 
 function FinanceWorkspace() {
   const approvalAttempt = useRef<{signature:string;key:string}|null>(null);
-  const [operationEditor, setOperationEditor] = useState<{kind:OperationType;payrollKind?:string;transactionId?:string;sourceAccountId?:string;duplicate?:boolean}|null>(null);
+  const [operationEditor, setOperationEditor] = useState<{compact?:boolean;kind:OperationType;payrollKind?:string;transactionId?:string;sourceAccountId?:string;duplicate?:boolean}|null>(null);
   const [choosingOperation,setChoosingOperation]=useState(false);
   const operationSaved = async () => { await Promise.all([loadTransactions(false, true), initData(), ...(activeTab==='validations'?[loadValidationOrders()]:[])]); };
   const transactionLoadVersion = useRef(0);
@@ -616,22 +617,10 @@ function FinanceWorkspace() {
   const loadCostCenters = async () => {};
 
   const loadFinancialConcepts = async () => {
-    const pageSize = 1000;
-    const all: FinancialConcept[] = [];
-    for (let from = 0; ; from += pageSize) {
-      const { data, error } = await supabase.from('financial_concepts')
-        .select('id,concept,category,sub_category,movement_type,efe_category,is_active,source_row')
-        .order('concept')
-        .order('id')
-        .range(from, from + pageSize - 1);
-      if (error) {
-        setConceptCatalogError('No se pudo cargar la base de conceptos.');
-        return;
-      }
-      all.push(...(data || []) as FinancialConcept[]);
-      if (!data || data.length < pageSize) break;
-    }
-    setFinancialConcepts(all);
+    const response = await financeFetch("/api/admin/financial-classification-catalog");
+    const catalog = await response.json();
+    if (!response.ok) { setConceptCatalogError(catalog.error || "No se pudo cargar la clasificación."); return; }
+    setFinancialConcepts(catalog.concepts);
     setConceptCatalogError("");
   };
 
@@ -1097,6 +1086,7 @@ function FinanceWorkspace() {
             !cat.includes(search) &&
             !sub.includes(search) &&
             !concept.includes(search) &&
+            ![t.classification?.person,t.classification?.destination,t.classification?.detail,t.classification?.label].some(value=>value?.toLowerCase().includes(search)) &&
             !note.includes(search) &&
             !unit.includes(search)) {
           return false;
@@ -1218,13 +1208,13 @@ function FinanceWorkspace() {
 
   const openQuickMovement = (kind: QuickMovement) => {
     if(operationsAvailable===false && !localInspection)return;
-    if(kind==='general'){setChoosingOperation(true);return;}
+    if(kind==='general'){setOperationEditor({kind:'general',compact:true});return;}
     const kinds:Record<QuickMovement,OperationType>={general:'general',eventuales:'payroll_payment',proveedor:'supplier_payment',gasto:'operating_expense',adelanto:'payroll_payment',cobro:'customer_collection',sueldo:'payroll_payment',impuesto:'tax_payment'};
     setOperationEditor({kind:kinds[kind],payrollKind:kind==='eventuales'?'temporary':kind==='adelanto'?'advance':undefined});
   };
   useEffect(() => {
     if (searchParams.get('shortcut') !== 'new-movement' || operationsAvailable !== true) return;
-    setChoosingOperation(true);
+    setOperationEditor({kind:'general',compact:true});
     const next = new URLSearchParams(searchParams.toString());
     next.delete('shortcut'); next.delete('request');
     router.replace('/admin/finanzas' + (next.size ? '?' + next.toString() : ''));
@@ -1246,6 +1236,7 @@ function FinanceWorkspace() {
         <h1 className="text-lg font-bold tracking-tight text-slate-900">{activeTab === "flow" ? "Movimientos" : activeTab === "accounts" ? "Cuentas y saldos" : activeTab === "cc" ? "Cuentas corrientes" : "Comprobantes a validar"}</h1>
       </div>
 
+      {activeTab==='flow'&&<nav aria-label="Secciones de movimientos" className="flex gap-1 rounded-lg border border-slate-200 bg-white p-1"><a href="/admin/finanzas" className="rounded-md bg-brand-50 px-3 py-2 text-sm font-medium text-brand-700">Movimientos</a><a href="/admin/finanzas/saldos" className="rounded-md px-3 py-2 text-sm font-medium text-slate-600">Estado de cuenta</a></nav>}
       {/* =========================================================================
           TAB 1: FLUJO DE CAJA (MOVIMIENTOS GENERALES)
           ========================================================================= */}
@@ -1259,6 +1250,7 @@ function FinanceWorkspace() {
             </div>
           )}
 
+          {(operationsAvailable!==false||localInspection)&&<OperationEditor inline compact kind="general" readOnly={localInspection} requestOverride={localInspection?localOperationRead:undefined} onClose={()=>{}} onSaved={operationSaved} onMoreOperations={()=>setChoosingOperation(true)}/>}
           <FinanceToolbar
             search={searchTerm} onSearch={value => { setSearchTerm(value); setCurrentPage(1); }}
             period={presetRange} onPeriod={value => { if (value === "personalizado") setPresetRange(value); else handlePresetChange(value); setCurrentPage(1); }}
@@ -1419,7 +1411,7 @@ function FinanceWorkspace() {
                                   <div className="flex min-w-0 items-center gap-1">
                                     <div className="flex min-w-0 items-center gap-1.5">
                                       <button type="button" aria-label={`Ver detalle de ${t.concept || "movimiento"}`} aria-expanded={Boolean(expandedTransactions[t.id])} onClick={() => setExpandedTransactions(value => ({ ...value, [t.id]: !value[t.id] }))} className="shrink-0 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-brand-600"><ChevronRight className={`h-3 w-3 transition-transform ${expandedTransactions[t.id] ? "rotate-90" : ""}`} /></button>
-                                      <span className="truncate font-bold" title={t.concept || ""}>{t.concept || "-"}</span>
+                                      <span className="truncate font-bold" title={t.concept || ""}>{t.classification?.concept || t.concept || "-"}</span>
                                       {inactive && <span className="shrink-0 rounded bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold text-amber-800">{t.reversal_of_transaction_id ? 'Compensación' : 'Anulado'}</span>}
                                       {t.bank_review_status && <span className={'shrink-0 rounded px-1.5 py-0.5 text-[9px] font-semibold '+(t.bank_review_status==='pending'?'bg-amber-50 text-amber-800':'bg-emerald-50 text-emerald-800')}>{t.bank_review_status==='pending'?'Sin revisar':'Revisado'}</span>}
                                       {t.is_imported && (
@@ -1490,7 +1482,7 @@ function FinanceWorkspace() {
                                   <span><b>Subcategoría:</b> {t.sub_category || "—"}</span>
                                   <span><b>EFE:</b> {t.efe_category || "—"}</span>
                                   <span className="whitespace-pre-wrap break-words"><b>Observaciones:</b> {t.notes || "—"}</span>
-                                  <span><b>Concepto:</b> {t.concept || "—"}</span>
+                                  <span><b>Concepto original:</b> {t.concept || "—"}</span>{t.classification&&<><span><b>Persona:</b> {t.classification.person||"—"}</span><span><b>Destino:</b> {t.classification.destination||"—"}</span><span><b>Detalle:</b> {t.classification.detail||"—"}</span></>}
                                   {t.financial_operations && <span><b>Operación:</b> {operationLabels[t.financial_operations.operation_type]} · {t.financial_operations.status==='cancelled'?'Anulada':'Registrada'} · versión {t.financial_operations.version}{t.financial_operations.detail.period?` · período ${t.financial_operations.detail.period}`:''}</span>}
                                   {t.reversal_of_transaction_id && <span className="font-semibold text-amber-700">Compensación de anulación</span>}
                                   {t.treasury_settlement_id && <a href="/admin/rendiciones" className="font-semibold text-brand-700 underline">Origen: Rendiciones</a>}
@@ -2000,7 +1992,7 @@ function FinanceWorkspace() {
           ========================================================================= */}
       {choosingOperation && <OperationChooser onClose={()=>setChoosingOperation(false)} onChoose={kind=>{setChoosingOperation(false);setOperationEditor({kind});}}/>}
       {orderReference && <OrderApplications id={orderReference} onClose={()=>setOrderReference(null)}/>}
-      {operationEditor && <OperationEditor {...operationEditor} readOnly={localInspection} requestOverride={localInspection?localOperationRead:undefined} onClose={()=>setOperationEditor(null)} onSaved={operationSaved}/>}
+      {operationEditor && <OperationEditor {...operationEditor} onMoreOperations={()=>{setOperationEditor(null);setChoosingOperation(true);}} readOnly={localInspection} requestOverride={localInspection?localOperationRead:undefined} onClose={()=>setOperationEditor(null)} onSaved={operationSaved}/>}
       {isLinkModalOpen && reconcilingTx && (reconcilingTx.type==='ingreso' && ['Recaudación','Cobranza'].includes(reconcilingTx.category) ? <CollectionOrderLinkModal transactionId={reconcilingTx.id} code={movementCode(reconcilingTx)} onClose={()=>{setIsLinkModalOpen(false);setReconcilingTx(null);}} onSaved={operationSaved}/> : <OperationEditor kind={inferOperationType(reconcilingTx)} transactionId={reconcilingTx.id} mode="link" onClose={()=>{setIsLinkModalOpen(false);setReconcilingTx(null);}} onSaved={operationSaved}/>)}
 
       {isValidationModalOpen && selectedValidationOrder && (

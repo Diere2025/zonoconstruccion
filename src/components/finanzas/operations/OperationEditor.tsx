@@ -1,4 +1,11 @@
-"use client";
+'use client';
+import ErpDateInput from '@/components/ui/ErpDateInput';
+
+import {selectCommonMovement} from '@/lib/financialOperations/commonMovement';
+import SupplierPicker from './SupplierPicker';
+import SupplierDocuments from './SupplierDocuments';
+import GuidedClassificationPicker from '../GuidedClassificationPicker';
+
 import type {ApplicationReference} from '@/lib/financialOperations/references';
 import AdaptiveSelect from "@/components/ui/AdaptiveSelect";
 import { useEffect, useRef, useState } from 'react';
@@ -17,12 +24,14 @@ import type {SupplierOption} from '@/lib/financialOperations/supplierFrequency';
 import { treasuryToday } from '@/lib/treasuryTransactionTime';
 import type { FinancialConcept } from '@/lib/financialConcepts';
 import { fieldClass,PersonnelFields,SupplierFields,TaxFields,type EmployeeOption,type PurchaseOption } from './OperationFields';
+import {defaultCashAccount} from '@/lib/financialOperations/cashDefaults';
+import OperationHelp from './OperationHelp';
 import {isSpecialType} from '@/lib/financialOperations/specialized';
 import SpecialOperationEditor from './SpecialOperationEditor';
 import PeopleManager,{type Person} from './PeopleManager';
 
 const request=createAuthenticatedRequester(supabase);
-type Account={id:string;name:string;currency:string;is_active:boolean;is_custody?:boolean};
+type Account={id:string;name:string;currency:string;is_active:boolean;type?:string;is_custody?:boolean};
 type Receipt={id:string;amount:number;currency:string;cash_transaction_id:string|null;status:string;reversed_at:string|null};
 type Order={id:string;legacy_code:string|null;customer_name:string;client_id?:string;total_amount:number;client_payments?:Receipt[]};
 type Helpers={financialAccounts:Account[];employees:EmployeeOption[];suppliers:SupplierOption[];
@@ -30,7 +39,7 @@ type Helpers={financialAccounts:Account[];employees:EmployeeOption[];suppliers:S
 type Options={paymentMethods:Array<{id:string;name:string}>;concepts:FinancialConcept[];conceptTypes:Array<{financial_concept_id:string;operation_type:OperationType}>;
  vouchers:Array<{id:string;reference:string|null;counterparty:string|null;voucher_date:string}>};
 type Snapshot={transaction:Record<string,unknown>;operation:{id:string;version:number;status:string}|null;planning:boolean;payload:OperationInput;purchases:PurchaseOption[];order:Order|null};
-type Props={kind:OperationType;payrollKind?:string;transactionId?:string;sourceAccountId?:string;duplicate?:boolean;mode?:'save'|'link';onClose:()=>void;onSaved:()=>void;requestOverride?:typeof request;preview?:boolean;realDataPreview?:boolean;readOnly?:boolean};
+type Props={inline?:boolean;compact?:boolean;onMoreOperations?:()=>void;operationId?:string;initialAction?:string;initialResourceId?:string;linkedTransactionId?:string;kind:OperationType;payrollKind?:string;transactionId?:string;sourceAccountId?:string;duplicate?:boolean;mode?:'save'|'link';onClose:()=>void;onSaved:()=>void;requestOverride?:typeof request;preview?:boolean;realDataPreview?:boolean;readOnly?:boolean};
 function defaults(kind:OperationType,payrollKind?:string):OperationInput {
  return {operation_type:kind,effective_date:treasuryToday(),account_id:'',direction:kind==='customer_collection'?'ingreso':'egreso',amount:'',payment_method_id:'',concept:'',
   category:kind==='supplier_payment'?'Proveedores':kind==='customer_collection'?'Cobranza':kind==='payroll_payment'?'Sueldos':kind==='tax_payment'?'Impuestos':kind==='internal_transfer'?'Movimiento de cuentas':'Gastos Operativos',
@@ -40,12 +49,12 @@ export default function OperationEditor(props:Props){
  if(isSpecialType(props.kind))return <SpecialOperationEditor {...props} kind={props.kind}/>;
  return <CoreEditor {...props}/>;
 }
-function CoreEditor({kind,payrollKind,transactionId,sourceAccountId,duplicate=false,mode='save',onClose,onSaved,requestOverride,preview=false,realDataPreview=false,readOnly=false}:Props) {
+function CoreEditor({inline=false,compact=false,onMoreOperations,kind,payrollKind,transactionId,sourceAccountId,duplicate=false,mode='save',onClose,onSaved,requestOverride,preview=false,realDataPreview=false,readOnly=false}:Props) {
  const api=requestOverride || request;
  const [reference,setReference]=useState<{code:string;applications:ApplicationReference[]}|null>(null);
  const [value,setValue]=useState<OperationInput>(()=>defaults(kind,payrollKind));
  const [helpers,setHelpers]=useState<Helpers|null>(null),[options,setOptions]=useState<Options|null>(null);
- const [target,setTarget]=useState<OperationTarget|undefined>(),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[error,setError]=useState('');
+ const [target,setTarget]=useState<OperationTarget|undefined>(),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[error,setError]=useState(''),[savedNotice,setSavedNotice]=useState('');
  const [query,setQuery]=useState(''),[orders,setOrders]=useState<Order[]>([]),[chosenOrder,setChosenOrder]=useState<Order|null>(null);
  const [clients,setClients]=useState<Array<{id:string;business_name:string}>>([]),[chosenClient,setChosenClient]=useState<{id:string;business_name:string}|null>(null);
  const [extraPurchases,setExtraPurchases]=useState<PurchaseOption[]>([]),[blocked,setBlocked]=useState('');
@@ -56,20 +65,21 @@ function CoreEditor({kind,payrollKind,transactionId,sourceAccountId,duplicate=fa
  const [managingPeople,setManagingPeople]=useState(false);
  async function refreshPeople(){try{const h=await api('/api/admin/finanzas-data?action=init');setHelpers(h);}catch(e){setError(e instanceof Error?e.message:'No se pudo actualizar personal.');}}
  useEffect(()=>{
+  if(inline)return;
   const previous=document.activeElement as HTMLElement|null;
   dialog.current?.focus();
   const key=(event:KeyboardEvent)=>{
    if(event.target instanceof Element&&event.target.closest('dialog[open]'))return;
    if(event.key==='Escape' && !busy){event.preventDefault();onClose();}
    if(event.key==='Tab'){
-    const elements=Array.from(dialog.current?.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),a[href]') || []);
+    const elements=Array.from(dialog.current?.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),a[href],summary') || []).filter(el=>el.getClientRects().length>0);
     const first=elements[0],last=elements[elements.length-1];
     if(event.shiftKey && (document.activeElement===first || document.activeElement===dialog.current)){event.preventDefault();last?.focus();}
     else if(!event.shiftKey && (document.activeElement===last || document.activeElement===dialog.current)){event.preventDefault();first?.focus();}
    }
   };
   document.addEventListener('keydown',key);return()=>{document.removeEventListener('keydown',key);previous?.focus();};
- },[busy,onClose]);
+ },[busy,onClose,inline]);
  useEffect(()=>{
   let active=true;
   (async()=>{
@@ -91,7 +101,7 @@ function CoreEditor({kind,payrollKind,transactionId,sourceAccountId,duplicate=fa
       setExtraPurchases(snapshot.purchases || []);setChosenOrder(duplicate?null:snapshot.order);if(!duplicate&&s.client)setChosenClient(s.client);
     } else {
       const available=h.financialAccounts.filter((a:Account)=>a.is_active&&!a.is_custody);
-      const account=available.find((a:Account)=>a.currency==='ARS') || available[0];
+      const account=defaultCashAccount(available);
       setValue(v=>({...v,account_id:account?.id || '',...(kind==='internal_transfer'?transferDefaults(available,sourceAccountId):{})}));
     }
    }catch(e){if(active)setError(e instanceof Error?e.message:'No se pudo abrir el formulario.');}
@@ -107,7 +117,7 @@ function CoreEditor({kind,payrollKind,transactionId,sourceAccountId,duplicate=fa
     .then(data=>{if(active){setOrders(data.pendingOrders || []);setClients(data.clients || []);}}).catch(e=>{if(active)setOrderSearchError(e.message);}).finally(()=>{if(active)setSearchingOrders(false);});},300);
   return()=>{active=false;clearTimeout(timer);};
  },[query,api,choosingOrder]);
- const change=(patch:Partial<OperationInput>)=>{setError('');setValue(v=>({...v,...patch}));};
+ const change=(patch:Partial<OperationInput>)=>{setError('');setSavedNotice('');setValue(v=>({...v,...patch}));};
  const account=helpers?.financialAccounts.find(a=>a.id===value.account_id);
  const isTransfer=value.operation_type==='internal_transfer';
  const purchases=[...extraPurchases,...(helpers?.pendingPurchases || [])].filter((p,i,rows)=>rows.findIndex(x=>x.id===p.id)===i && p.currency===account?.currency);
@@ -116,6 +126,7 @@ function CoreEditor({kind,payrollKind,transactionId,sourceAccountId,duplicate=fa
   if(busy)return;
   if(readOnly){setError('Para guardar operaciones reales falta activar la migración 136.');return;}
   try {
+   if(compact&&!value.financial_concept_id)throw new Error('Elegí una clasificación de la lista.');
    let prepared=prepareOperationForm(value,options?.paymentMethods || []);
    if(prepared.operation_type==='payroll_payment'&&!prepared.employee_id)throw new Error('Seleccioná un empleado o eventual habilitado. Podés darlo de alta desde este formulario.');
    validateOperation(files.length?{...prepared,voucher_ids:[...(prepared.voucher_ids||[]),"00000000-0000-0000-0000-000000000001"]}:prepared);
@@ -127,33 +138,25 @@ function CoreEditor({kind,payrollKind,transactionId,sourceAccountId,duplicate=fa
    const payload={action:mode,payload:prepared,target};const signature=JSON.stringify(payload);
    if(!pending.current || pending.current.signature!==signature)pending.current={signature,key:crypto.randomUUID()};
    setBusy(true);await api('/api/admin/financial-operations',{method:'POST',body:JSON.stringify({...payload,key:pending.current.key})});
-   onClose();onSaved();
+   if(inline){
+    pending.current=null;setMissingVoucher(false);setFiles([]);setChosenOrder(null);setChosenClient(null);
+    setValue(v=>({...v,amount:'',notes:'',voucher_ids:[],allocations:[],order_id:undefined,client_id:undefined,client_payment_id:undefined,detail:{...v.detail,...(v.operation_type==='supplier_payment'?{supplier_allocation_mode:'oldest_first' as const}:{})}}));
+    setSavedNotice('Movimiento registrado. Podés cargar el siguiente.');
+    requestAnimationFrame(()=>dialog.current?.querySelector<HTMLInputElement>('input[aria-label="Importe"]')?.focus());
+   }else onClose();
+   onSaved();
   }catch(e){setError(e instanceof Error?e.message:'No se pudo guardar.');}finally{setBusy(false);}
  }
- return <div ref={dialog} tabIndex={-1} className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-3" role="dialog" aria-modal="true" aria-label={mode==='link'?'Vincular movimiento':operationLabels[value.operation_type]}>
-  <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-5 shadow-xl">
-   <div className="mb-4 flex items-center justify-between gap-3"><h2 className="text-lg font-semibold">{mode==='link'?'Vincular movimiento':operationLabels[value.operation_type]}</h2><button type="button" disabled={busy} onClick={onClose} className="rounded-lg px-3 py-2 text-sm">Cerrar</button></div>
-   {reference && <div className="mb-4 rounded-lg bg-slate-50 p-3 text-xs"><p className="font-semibold">Código: {reference.code}</p><p className="mt-2 font-semibold">Aplicaciones</p>{reference.applications.length?reference.applications.map((a,i)=><a key={a.id+'-'+i} href={a.href} className="mt-1 block text-brand-700 underline">{a.kind} · {a.code}</a>):<p>Sin comprobantes vinculados.</p>}</div>}
-   {!transactionId && <p className="mb-3 text-xs text-slate-500">El código se genera automáticamente al guardar.</p>}
-   {preview && <p className="mb-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Vista local · {realDataPreview?'datos reales en consulta':'datos de ejemplo'}. Guardar solo registra una simulación en esta pantalla.</p>}
-   {readOnly && <p className="mb-3 rounded-lg bg-blue-50 p-3 text-sm text-blue-900">Formulario integrado con datos reales. Podés revisar y completar los campos; guardar requiere activar la migración pendiente.</p>}
-   {error && <p role="alert" className="mb-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-   {loading?<p className="py-6 text-sm">Cargando datos actuales…</p>:blocked?<div className="space-y-3"><p className="text-sm">{blocked}</p>{!blocked.includes('anulada') && <a className="text-sm text-brand-700 underline" href={blocked.includes('Rendiciones')?'/admin/rendiciones':blocked.includes('vendedores')?'/vendedores/caja':'/admin/finanzas/planificacion'}>Abrir módulo de origen</a>}</div>:helpers && options?<form data-shortcut-submit onSubmit={submit}><fieldset disabled={busy} className="space-y-4">
-    <div className="grid gap-3 sm:grid-cols-2">
-     <label className="text-xs font-semibold">Fecha<input className={fieldClass} type="date" required disabled={mode==='link'} value={value.effective_date} onChange={e=>change({effective_date:e.target.value})}/></label>
-     <AccountPicker label={isTransfer?'Cuenta origen':'Cuenta'} accounts={helpers.financialAccounts.filter(a=>a.is_active&&!a.is_custody)} value={value.account_id} disabled={mode==='link'||busy} onChange={id=>change({account_id:id,allocations:[],client_payment_id:undefined})}/>
-     {isTransfer&&<AccountPicker label="Cuenta destino" accounts={helpers.financialAccounts.filter(a=>a.is_active&&!a.is_custody&&a.id!==value.account_id&&a.currency===account?.currency)} value={value.destination_account_id||''} disabled={busy} onChange={id=>change({destination_account_id:id})}/>}
-     {value.operation_type==='general' && <label className="text-xs font-semibold">Dirección<AdaptiveSelect searchLabel="Dirección" className={fieldClass} disabled={mode==='link'} value={value.direction} onChange={e=>change({direction:e.target.value as OperationInput['direction']})}><option value="ingreso">Ingreso</option><option value="egreso">Egreso</option></AdaptiveSelect></label>}
-     <label className="text-xs font-semibold">Importe {account?.currency}<input className={fieldClass} type="number" required min="0.01" step="0.01" disabled={mode==='link'} value={value.amount} onChange={e=>change({amount:e.target.value})}/></label>
-    </div>
-    {value.operation_type==='supplier_payment' && <SupplierFields value={value} onChange={setValue} suppliers={helpers.suppliers} purchases={purchases} currency={account?.currency}/>}
+ const additionalFields=helpers&&options?<>{compact&&value.operation_type==='supplier_payment'&&<>{!value.supplier_id&&<SupplierPicker suppliers={helpers.suppliers} value="" onChange={id=>change({supplier_id:id,allocations:[]})}/>}<p className="text-xs text-slate-500">El pago se aplica primero a la deuda más antigua; el excedente queda a cuenta.</p>{value.supplier_id&&<details className="rounded-lg border p-3"><summary className="cursor-pointer text-sm">Ver aplicación del pago</summary><div className="mt-3"><SupplierDocuments value={value} onChange={setValue} purchases={purchases.filter(p=>p.supplier_id===value.supplier_id)} currency={account?.currency} supplierName={helpers.suppliers.find(s=>s.id===value.supplier_id)?.name||'Proveedor'}/></div></details>}</>}
+    {!compact&&value.operation_type==='supplier_payment' && <SupplierFields value={value} onChange={setValue} suppliers={helpers.suppliers} purchases={purchases} currency={account?.currency}/>}
     {value.operation_type==='payroll_payment' && <PersonnelFields value={value} onChange={setValue} employees={helpers.employees} onManage={preview?undefined:()=>setManagingPeople(true)}/>}
     {value.operation_type==='tax_payment' && <TaxFields value={value} onChange={setValue}/>}
     {value.operation_type==='customer_collection'&&<div className="space-y-2"><span className="text-xs font-semibold">Pedido o cliente</span><div className="flex gap-2"><button type="button" disabled={busy} className={fieldClass+' text-left'} onClick={()=>{setChoosingOrder(true);setQuery('');setOrders([]);}}>{chosenOrder?(chosenOrder.legacy_code||chosenOrder.id.slice(0,8))+' · '+chosenOrder.customer_name:chosenClient?chosenClient.business_name+' · Saldo a favor':'Seleccionar pedido o cliente'}</button>{(chosenOrder||chosenClient)&&<button type="button" disabled={busy} className="rounded border px-3 text-xs" onClick={()=>{setChosenOrder(null);setChosenClient(null);change({order_id:undefined,client_id:undefined,client_payment_id:undefined});}}>Quitar</button>}</div>{value.client_payment_id&&<div className="flex justify-between text-xs"><span>Cobro existente vinculado</span><button type="button" onClick={()=>change({client_payment_id:undefined})}>Quitar vínculo</button></div>}</div>}
-    {value.operation_type==='customer_collection'&&<p className="text-xs text-slate-600">Registrá el importe efectivamente recibido. El excedente del pedido queda como saldo a favor del cliente; también podés seleccionar un cliente sin pedido.</p>}
-    <label className="block text-xs font-semibold">Detalle{['supplier_payment','customer_collection','payroll_payment'].includes(value.operation_type)?' (opcional)':''}<input aria-label="Detalle" className={fieldClass} required={!['supplier_payment','customer_collection','payroll_payment'].includes(value.operation_type)} minLength={2} maxLength={240} value={value.concept} onChange={e=>change({concept:e.target.value})}/></label>
-    <label className="block text-xs font-semibold">Observaciones<textarea className={`${fieldClass} h-20 py-2`} value={value.notes || ''} maxLength={4000} onChange={e=>change({notes:e.target.value})}/></label>
-    {value.operation_type==='general' && <details className="rounded-lg border border-slate-200 p-3"><summary className="text-sm">Clasificación y referencias</summary><p className="mt-2 text-xs text-slate-500">Categoría y subcategoría agrupan el movimiento en informes; EFE lo ubica en el estado de flujo de efectivo. Centro de costo y hoja de ruta lo relacionan con su actividad.</p><div className="mt-3 grid gap-3 sm:grid-cols-2">
+
+    {!compact&&['general','operating_expense','tax_payment'].includes(value.operation_type)&&<GuidedClassificationPicker label="Clasificación" value={value.financial_concept_id||''} concepts={options.concepts.filter(c=>value.operation_type==='general'||options.conceptTypes.some(t=>t.financial_concept_id===c.id&&t.operation_type===value.operation_type))} onChange={id=>{if(!id){change({financial_concept_id:undefined,concept:''});return;}const c=options.concepts.find(x=>x.id===id);if(c)change({financial_concept_id:c.id,concept:c.concept,category:c.category,sub_category:c.sub_category,efe_category:c.efe_category,...(value.operation_type==='general'&&c.movement_type!=='Mov. Financiero'?{direction:c.movement_type==='Ingreso'?'ingreso':'egreso'}:{})});}}/>}
+    {!compact&&!['supplier_payment','customer_collection','payroll_payment'].includes(value.operation_type)&&<label className="block text-xs font-semibold">Detalle<input aria-label="Detalle" className={fieldClass} required minLength={2} maxLength={240} value={value.concept} onChange={e=>change({concept:e.target.value})}/></label>}
+    <details className="rounded-lg border p-3"><summary className="cursor-pointer text-sm font-semibold">Más opciones</summary>{(compact||['supplier_payment','customer_collection','payroll_payment'].includes(value.operation_type))&&<label className="mt-3 block text-xs font-semibold">Detalle (opcional)<input aria-label="Detalle" className={fieldClass} maxLength={240} value={value.concept} onChange={e=>change({concept:e.target.value})}/></label>}<label className="mt-3 block text-xs font-semibold">Observaciones<textarea className={`${fieldClass} h-20 py-2`} value={value.notes || ''} maxLength={4000} onChange={e=>change({notes:e.target.value})}/></label></details>
+    {!compact&&value.operation_type==='general' && <details className="rounded-lg border border-slate-200 p-3"><summary className="text-sm">Clasificación y referencias</summary><p className="mt-2 text-xs text-slate-500">Categoría y subcategoría agrupan el movimiento en informes; EFE lo ubica en el estado de flujo de efectivo. Centro de costo y hoja de ruta lo relacionan con su actividad.</p><div className="mt-3 grid gap-3 sm:grid-cols-2">
       <label className="text-xs font-semibold">Categoría<input className={fieldClass} required list="operation-categories" value={value.category} onChange={e=>change({category:e.target.value,financial_concept_id:undefined})}/><datalist id="operation-categories">{[...new Set(options.concepts.map(c=>c.category))].map(c=><option key={c} value={c}/>)}</datalist></label>
       <label className="text-xs font-semibold">Subcategoría<input className={fieldClass} value={value.sub_category || ''} onChange={e=>change({sub_category:e.target.value,financial_concept_id:undefined})}/></label>
       <label className="text-xs font-semibold">Clasificación EFE<input className={fieldClass} value={value.efe_category || ''} onChange={e=>change({efe_category:e.target.value,financial_concept_id:undefined})}/></label>
@@ -163,11 +166,36 @@ function CoreEditor({kind,payrollKind,transactionId,sourceAccountId,duplicate=fa
     </div></details>}
     <OperationAttachments files={files} onFilesChange={setFiles} ids={value.voucher_ids||[]} labels={options.vouchers} disabled={busy} onRemove={id=>change({voucher_ids:(value.voucher_ids||[]).filter(v=>v!==id)})}/>
     {value.operation_type==='internal_transfer' && <p className="text-sm text-slate-600">Se registrará una salida de {value.amount || '0'} {account?.currency} y una entrada del mismo importe en la cuenta destino.</p>}
-    <div className="flex justify-end gap-2"><button type="button" disabled={busy} onClick={onClose} className="rounded-lg border px-4 py-2 text-sm">Cerrar</button><button disabled={busy || readOnly} className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{readOnly?'Guardado pendiente de migración':busy?'Guardando…':mode==='link'?'Confirmar vinculación':'Guardar operación'}</button></div>
+</>:null;
+ const orderSelection=<><input autoFocus aria-label="Buscar pedido o cliente" className={fieldClass} placeholder="Código de pedido o nombre (al menos 3 caracteres)" value={query} onChange={e=>setQuery(e.target.value)}/>{orderSearchError&&<p role="alert" className="mt-3 text-sm text-red-700">{orderSearchError}</p>}{searchingOrders?<p className="mt-3 text-sm">Buscando…</p>:query.trim().length>=3&&!orders.length&&!clients.length&&!orderSearchError?<p className="mt-3 text-sm">Sin coincidencias.</p>:null}<div className="mt-3 space-y-2">{orders.map(o=><button key={o.id} type="button" className="block w-full rounded-lg border p-3 text-left text-sm" onClick={()=>{setChosenOrder(o);setChosenClient(null);change({order_id:o.id,client_id:o.client_id,client_payment_id:undefined});setChoosingOrder(false);setOrders([]);setQuery('');}}>{o.legacy_code||o.id.slice(0,8)} · {o.customer_name}</button>)}{clients.map(c=><button key={c.id} type="button" className="block w-full rounded-lg border p-3 text-left text-sm" onClick={()=>{setChosenClient(c);setChosenOrder(null);change({client_id:c.id,order_id:undefined,client_payment_id:undefined});setChoosingOrder(false);}}>{c.business_name} · Registrar saldo a favor sin pedido</button>)}</div>{chosenOrder&&<div className="mt-4 space-y-2"><p className="text-sm font-semibold">Cobros registrados de {chosenOrder.legacy_code}</p>{chosenOrder.client_payments?.filter(p=>!p.cash_transaction_id&&!p.reversed_at&&p.status==='Aprobado'&&p.currency===account?.currency).map(p=><button key={p.id} type="button" className="block w-full rounded-lg border p-2 text-left text-xs" onClick={()=>{change({client_payment_id:p.id,...(!value.amount?{amount:String(p.amount)}:{})});setChoosingOrder(false);}}>Vincular cobro existente: {p.currency} {Number(p.amount).toLocaleString('es-AR')}</button>)}</div>}</>;
+ return <div ref={dialog} tabIndex={-1} className={inline?'rounded-xl border border-blue-200 bg-white shadow-sm':'fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-3'} role={inline?'region':'dialog'} aria-modal={inline?undefined:true} aria-label={inline?'Carga rápida de movimientos':compact?'Nuevo movimiento':mode==='link'?'Vincular movimiento':operationLabels[value.operation_type]}>
+  <div className={inline?'p-3':'max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-5 shadow-xl'}>
+   {inline?<h2 className="mb-2 text-sm font-semibold">Carga rápida</h2>:<div className="mb-4 flex items-center justify-between gap-3"><h2 className="text-lg font-semibold">{compact?'Nuevo movimiento':mode==='link'?'Vincular movimiento':operationLabels[value.operation_type]}</h2><button type="button" disabled={busy} onClick={onClose} className="rounded-lg px-3 py-2 text-sm">Cerrar</button></div>}
+   {savedNotice&&<p role="status" className="mb-2 text-xs text-emerald-700">{savedNotice}</p>}
+   {reference && <div className="mb-4 rounded-lg bg-slate-50 p-3 text-xs"><p className="font-semibold">Código: {reference.code}</p><p className="mt-2 font-semibold">Aplicaciones</p>{reference.applications.length?reference.applications.map((a,i)=><a key={a.id+'-'+i} href={a.href} className="mt-1 block text-brand-700 underline">{a.kind} · {a.code}</a>):<p>Sin comprobantes vinculados.</p>}</div>}
+   {!compact&&<OperationHelp kind={value.operation_type}/>}
+   {compact&&!inline&&<p className="mb-4 text-sm text-slate-500">Buscá un movimiento común y su clasificación se completa automáticamente.</p>}
+   {preview && <p className="mb-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Vista local · {realDataPreview?'datos reales en consulta':'datos de ejemplo'}. Guardar solo registra una simulación en esta pantalla.</p>}
+   {readOnly && <p className="mb-3 rounded-lg bg-blue-50 p-3 text-sm text-blue-900">Formulario integrado con datos reales. Podés revisar y completar los campos; guardar requiere activar la migración pendiente.</p>}
+   {error && <p role="alert" className="mb-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+   {loading?<p className="py-6 text-sm">Cargando datos actuales…</p>:blocked?<div className="space-y-3"><p className="text-sm">{blocked}</p>{!blocked.includes('anulada') && <a className="text-sm text-brand-700 underline" href={blocked.includes('Rendiciones')?'/admin/rendiciones':blocked.includes('vendedores')?'/vendedores/caja':'/admin/finanzas/planificacion'}>Abrir módulo de origen</a>}</div>:helpers && options?<form data-shortcut-submit onSubmit={submit}><fieldset disabled={busy} className={inline?'grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]':'space-y-4'}>
+    {compact&&<GuidedClassificationPicker compact dense={inline} disabled={busy} label="Clasificación" value={value.financial_concept_id||''} concepts={options.concepts.filter(c=>c.movement_type!=='Mov. Financiero'&&c.category!=='Movimiento de cuentas')} onChange={id=>{if(!id){change({financial_concept_id:undefined});return;}const c=options.concepts.find(x=>x.id===id);if(c)setValue(v=>selectCommonMovement(v,c,helpers.suppliers,helpers.employees));}}/>}
+    <div className={inline?'grid min-w-0 items-start gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_minmax(0,1fr)_auto]':'grid gap-3 sm:grid-cols-2'}>
+     <label className="text-xs font-semibold">Fecha<ErpDateInput className={fieldClass} type="date" required disabled={mode==='link'} value={value.effective_date} onChange={e=>change({effective_date:e.target.value})}/></label>
+     <AccountPicker label={isTransfer?'Cuenta origen':inline?'Caja':'Cuenta'} accounts={helpers.financialAccounts.filter(a=>a.is_active&&!a.is_custody)} value={value.account_id} disabled={mode==='link'||busy} onChange={id=>change({account_id:id,allocations:[],client_payment_id:undefined})}/>
+     {isTransfer&&<AccountPicker label="Cuenta destino" accounts={helpers.financialAccounts.filter(a=>a.is_active&&!a.is_custody&&a.id!==value.account_id&&a.currency===account?.currency)} value={value.destination_account_id||''} disabled={busy} onChange={id=>change({destination_account_id:id})}/>}
+     {!compact&&value.operation_type==='general' && <label className="text-xs font-semibold">Dirección<AdaptiveSelect searchLabel="Dirección" className={fieldClass} disabled={mode==='link'} value={value.direction} onChange={e=>change({direction:e.target.value as OperationInput['direction']})}><option value="ingreso">Ingreso</option><option value="egreso">Egreso</option></AdaptiveSelect></label>}
+     <label className="text-xs font-semibold">Importe {account?.currency}<input aria-label="Importe" className={fieldClass} type="number" required min="0.01" step="0.01" disabled={mode==='link'} value={value.amount} onChange={e=>change({amount:e.target.value})}/></label>
+     {inline&&<button disabled={busy||readOnly||!value.financial_concept_id} className="mt-4 h-10 rounded-lg bg-brand-600 px-4 text-sm font-semibold text-white disabled:opacity-50">{busy?'Guardando…':'Registrar'}</button>}
+    </div>
+    {inline&&<details key={value.operation_type+Boolean(value.supplier_id)} open={!!value.financial_concept_id&&(!['general','supplier_payment'].includes(value.operation_type)||(value.operation_type==='supplier_payment'&&!value.supplier_id))} className="min-w-0 lg:col-span-2"><summary className="cursor-pointer text-xs text-slate-600">Comprobante, observaciones y aplicación</summary><div className="mt-3 space-y-3">{additionalFields}</div></details>}
+    {!inline&&additionalFields}
+    {compact&&onMoreOperations&&<button type="button" disabled={busy} onClick={onMoreOperations} className="text-left text-xs text-blue-700 underline lg:col-span-2">Ver otros tipos de operación</button>}
+    {!inline&&<div className="flex justify-end gap-2"><button type="button" disabled={busy} onClick={onClose} className="rounded-lg border px-4 py-2 text-sm">Cerrar</button><button disabled={busy || readOnly} className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{readOnly?'Guardado pendiente de migración':busy?'Guardando…':compact?'Registrar movimiento':mode==='link'?'Confirmar vinculación':value.operation_type==='customer_collection'?'Registrar cobro':value.operation_type==='internal_transfer'?'Registrar transferencia':value.operation_type==='operating_expense'?'Registrar gasto':value.operation_type==='general'?'Guardar movimiento':'Registrar pago'}</button></div>}
    </fieldset></form>:null}
   </div>
   {missingVoucher&&<MissingVoucherModal files={files} onFilesChange={setFiles} busy={busy} error={error} onClose={()=>setMissingVoucher(false)} onSave={without=>{void submit(undefined,without);}}/>}
-  {choosingOrder&&<SelectionModal title="Seleccionar pedido o cliente" onClose={()=>setChoosingOrder(false)}><input autoFocus aria-label="Buscar pedido o cliente" className={fieldClass} placeholder="Código de pedido o nombre (al menos 3 caracteres)" value={query} onChange={e=>setQuery(e.target.value)}/>{orderSearchError&&<p role="alert" className="mt-3 text-sm text-red-700">{orderSearchError}</p>}{searchingOrders?<p className="mt-3 text-sm">Buscando…</p>:query.trim().length>=3&&!orders.length&&!clients.length&&!orderSearchError?<p className="mt-3 text-sm">Sin coincidencias.</p>:null}<div className="mt-3 space-y-2">{orders.map(o=><button key={o.id} type="button" className="block w-full rounded-lg border p-3 text-left text-sm" onClick={()=>{setChosenOrder(o);setChosenClient(null);change({order_id:o.id,client_id:o.client_id,client_payment_id:undefined});setChoosingOrder(false);setOrders([]);setQuery('');}}>{o.legacy_code||o.id.slice(0,8)} · {o.customer_name}</button>)}{clients.map(c=><button key={c.id} type="button" className="block w-full rounded-lg border p-3 text-left text-sm" onClick={()=>{setChosenClient(c);setChosenOrder(null);change({client_id:c.id,order_id:undefined,client_payment_id:undefined});setChoosingOrder(false);}}>{c.business_name} · Registrar saldo a favor sin pedido</button>)}</div>{chosenOrder&&<div className="mt-4 space-y-2"><p className="text-sm font-semibold">Cobros registrados de {chosenOrder.legacy_code}</p>{chosenOrder.client_payments?.filter(p=>!p.cash_transaction_id&&!p.reversed_at&&p.status==='Aprobado'&&p.currency===account?.currency).map(p=><button key={p.id} type="button" className="block w-full rounded-lg border p-2 text-left text-xs" onClick={()=>{change({client_payment_id:p.id,...(!value.amount?{amount:String(p.amount)}:{})});setChoosingOrder(false);}}>Vincular cobro existente: {p.currency} {Number(p.amount).toLocaleString('es-AR')}</button>)}</div>}</SelectionModal>}
+  {choosingOrder&&<SelectionModal title="Seleccionar pedido o cliente" onClose={()=>setChoosingOrder(false)}>{orderSelection}</SelectionModal>}
   {managingPeople&&<PeopleManager onClose={()=>setManagingPeople(false)} onChanged={()=>{void refreshPeople();}}/>}
  </div>;
 }

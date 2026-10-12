@@ -1,4 +1,6 @@
 "use client";
+import ErpDateInput from '@/components/ui/ErpDateInput';
+
 
 import React, { useState } from "react";
 import { X, Calendar, CalendarClock, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
@@ -155,7 +157,7 @@ export function QuickScheduleModal({ product, isOpen, onClose, onSuccess }: Quic
               <span>Fecha de Vigencia</span>
               <span className="text-[10px] text-slate-400 font-normal">A partir de las 00:00 hs</span>
             </label>
-            <input
+            <ErpDateInput
               type="date"
               required
               value={effectiveDate}

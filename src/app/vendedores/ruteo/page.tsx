@@ -1,4 +1,6 @@
 "use client";
+import ErpDateInput from '@/components/ui/ErpDateInput';
+
 
 import React, { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
@@ -7882,7 +7884,7 @@ export default function RuteoPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <label className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Fecha Inicio Vigencia *</label>
-                  <input 
+                  <ErpDateInput
                     type="date"
                     required
                     value={rateStartDate}
@@ -7892,7 +7894,7 @@ export default function RuteoPage() {
                 </div>
                 <div className="space-y-1">
                   <label className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Fecha Fin Vigencia (Opcional)</label>
-                  <input 
+                  <ErpDateInput
                     type="date"
                     value={rateEndDate}
                     onChange={(e) => setRateEndDate(e.target.value)}

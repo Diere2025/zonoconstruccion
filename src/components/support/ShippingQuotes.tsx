@@ -1,4 +1,6 @@
 'use client';
+import ErpDateInput from '@/components/ui/ErpDateInput';
+
 import type { ShippingQuote, ShippingRequest } from '@/lib/support/shipping';
 import { paymentLabels, quoteExpired, shippingMapUrl } from '@/lib/support/shipping';
 import { fieldClass, secondaryClass } from './SupportShell';
@@ -11,7 +13,7 @@ export function ShippingQuoteEditor({ quotes, onChange }: { quotes: ShippingQuot
         <label className="block text-sm">Transporte / expreso<input required maxLength={250} value={quote.carrier} onChange={e => change(index, { carrier: e.target.value })} className={`${fieldClass} mt-1`} /></label>
         <div className="grid grid-cols-2 gap-3">{(['cost', 'customer_price'] as const).map(field => <label key={field} className="text-sm">{field === 'cost' ? 'Costo transporte' : 'Importe al cliente'}<input type="number" required min={0} max={100000000} step="0.01" value={Number.isFinite(quote[field]) ? quote[field] : ''} onChange={e => change(index, { [field]: e.target.value === '' ? NaN : Number(e.target.value) })} className={`${fieldClass} mt-1`} /></label>)}</div>
         <label className="block text-sm">Forma de pago<select value={quote.payment} onChange={e => change(index, { payment: e.target.value as ShippingQuote['payment'] })} className={`${fieldClass} mt-1`}>{Object.entries(paymentLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
-        <div className="grid gap-3 sm:grid-cols-2"><label className="text-sm">Plazo estimado<input required maxLength={250} value={quote.delivery} onChange={e => change(index, { delivery: e.target.value })} className={`${fieldClass} mt-1`} /></label><label className="text-sm">Vigente hasta<input type="date" required value={quote.valid_until} onChange={e => change(index, { valid_until: e.target.value })} className={`${fieldClass} mt-1`} /></label></div>
+        <div className="grid gap-3 sm:grid-cols-2"><label className="text-sm">Plazo estimado<input required maxLength={250} value={quote.delivery} onChange={e => change(index, { delivery: e.target.value })} className={`${fieldClass} mt-1`} /></label><label className="text-sm">Vigente hasta<ErpDateInput type="date" required value={quote.valid_until} onChange={e => change(index, { valid_until: e.target.value })} className={`${fieldClass} mt-1`} /></label></div>
         <label className="block text-sm">Condiciones / qué incluye<textarea rows={2} maxLength={1000} value={quote.conditions} onChange={e => change(index, { conditions: e.target.value })} className={`${fieldClass} mt-1`} /></label>
     </fieldset>)}{quotes.length < 5 && <button type="button" className={secondaryClass} onClick={() => onChange([...quotes, emptyQuote()])}>Agregar alternativa</button>}</div>;
 }

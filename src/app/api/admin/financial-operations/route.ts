@@ -1,3 +1,4 @@
+import {selectableConcepts} from '@/lib/financialClassification/server';
 import {movementCode,movementHref} from '@/lib/financialOperations/references';
 import {movementApplications} from '@/lib/financialOperations/referenceServer';
 import {requireSupplierVoucherConfirmation} from '@/lib/financialOperations/voucherStatus';
@@ -105,7 +106,7 @@ export async function GET(request: Request) {
       ['Proveedores','Proveedores (Deuda)','Insumo de Producto'].includes(c.category)?'supplier_payment':c.category==='Sueldos'?'payroll_payment':['Recaudación','Cobranza'].includes(c.category) && c.sub_category!=='Cambio Entregas'?'customer_collection':['Impuestos','IIGG'].includes(c.category)?'tax_payment':c.category==='Movimiento de cuentas'?'internal_transfer':c.movement_type==='Egreso'?'operating_expense':'general'}));
     const disabledConcepts=new Set<string>();
     for(let offset=0;;offset+=500){const page=await db.from('financial_people_concepts').select('concept_id,person:financial_people(is_active)').order('id').range(offset,offset+499);if(page.error)throw page.error;for(const link of page.data||[]){const person=Array.isArray(link.person)?link.person[0]:link.person;if(person&&!person.is_active)disabledConcepts.add(link.concept_id);}if((page.data||[]).length<500)break;}
-    return NextResponse.json({paymentMethods:methods.data,vouchers:vouchers.data,concepts:concepts.filter(c=>!disabledConcepts.has(c.id)),conceptTypes:legacyPreview?inferredTypes:conceptTypes.data},{headers:{'Cache-Control':'no-store'}});
+    return NextResponse.json({paymentMethods:methods.data,vouchers:vouchers.data,concepts:await selectableConcepts(db,concepts.filter(c=>!disabledConcepts.has(c.id))),conceptTypes:legacyPreview?inferredTypes:conceptTypes.data},{headers:{'Cache-Control':'no-store'}});
   } catch(error) { return failure(error); }
 }
 export async function POST(request: Request) {
@@ -140,7 +141,7 @@ export async function POST(request: Request) {
         return NextResponse.json({result:cancelled.data},{headers:{'Cache-Control':'no-store'}});
       }
     }
-    const {data,error} = await db.rpc(body.action==='cancel'?'mutate_financial_operation':'save_financial_operation',{
+    const {data,error} = await db.rpc(body.action==='cancel'?'mutate_financial_operation':body.action==='save'?'save_catalog_financial_operation':'save_financial_operation',{
       p_actor:actor,p_key:body.key,p_action:body.action,p_payload:body.payload || {},p_target:body.target || {},p_reason:body.reason || ''
     });
     if (error) throw error;

@@ -1,4 +1,6 @@
 "use client";
+import ErpDateInput from '@/components/ui/ErpDateInput';
+
 import { cuotaSimpleInstallments, isRetiredPaymentMethod } from "@/lib/cuotaSimple";
 
 import { createAdaptiveImportBatch } from "@/lib/adaptiveImportBatch";
@@ -902,7 +904,7 @@ export default function ImportarPedidosPage() {
               <option value="custom">Desde una fecha</option>
               <option value="full">Todo el historial</option>
             </select>
-            {logisticsPeriod === 'custom' && <input type="date" aria-label="Revisar entregados desde" value={logisticsSince} disabled={importingOrders || !syncLogistics} onChange={e => setLogisticsSince(e.target.value)} className="rounded border border-slate-300 px-2 py-1" />}
+            {logisticsPeriod === 'custom' && <ErpDateInput type="date" aria-label="Revisar entregados desde" value={logisticsSince} disabled={importingOrders || !syncLogistics} onChange={e => setLogisticsSince(e.target.value)} className="rounded border border-slate-300 px-2 py-1" />}
           </div>
           <p className="text-[11px] text-slate-500">Siempre se revisan los pedidos en reparto, cancelaciones pendientes y entregados sin estado o fecha conciliados. Cada 7 días, la siguiente sincronización hace una revisión completa automáticamente.</p>
           <label className="flex items-center gap-2 text-xs text-slate-600">

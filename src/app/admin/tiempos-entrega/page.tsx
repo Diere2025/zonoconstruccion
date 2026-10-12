@@ -1,4 +1,6 @@
 "use client";
+import ErpDateInput from '@/components/ui/ErpDateInput';
+
 
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
@@ -702,7 +704,7 @@ export default function DeliveryTimesAdminPage() {
 
                 <div className="space-y-1">
                   <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none">Desde</label>
-                  <input 
+                  <ErpDateInput
                     type="date"
                     value={startDate}
                     onChange={e => { setStartDate(e.target.value); setPresetRange("personalizado"); setCurrentPage(1); }}
@@ -712,7 +714,7 @@ export default function DeliveryTimesAdminPage() {
 
                 <div className="space-y-1">
                   <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none">Hasta</label>
-                  <input 
+                  <ErpDateInput
                     type="date"
                     value={endDate}
                     onChange={e => { setEndDate(e.target.value); setPresetRange("personalizado"); setCurrentPage(1); }}

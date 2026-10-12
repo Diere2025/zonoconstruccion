@@ -1,4 +1,6 @@
 "use client";
+import ErpDateInput from '@/components/ui/ErpDateInput';
+
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
@@ -103,7 +105,7 @@ export default function SupplierAccounts() {
           }}>
             <p className="text-sm">Computar desde esta fecha, inclusive. Lo anterior queda fuera hasta que lo incorpores.</p>
             <div className="grid gap-3 sm:grid-cols-3">
-              <label className="text-xs">Fecha de inicio<input type="date" required value={startDate} onChange={e => setStartDate(e.target.value)} className={input} /></label>
+              <label className="text-xs">Fecha de inicio<ErpDateInput type="date" required value={startDate} onChange={e => setStartDate(e.target.value)} className={input} /></label>
               <label className="text-xs">Saldo inicial ARS<input type="number" step="0.01" required value={openingArs} onChange={e => setOpeningArs(e.target.value)} className={input} /></label>
               <label className="text-xs">Saldo inicial USD<input type="number" step="0.01" required value={openingUsd} onChange={e => setOpeningUsd(e.target.value)} className={input} /></label>
             </div>

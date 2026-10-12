@@ -1,4 +1,6 @@
 "use client";
+import ErpDateInput from '@/components/ui/ErpDateInput';
+
 
 import React, { useState, useEffect } from "react";
 import { Product } from "@/types";
@@ -562,7 +564,7 @@ export function ProductFormModal({ product, isOpen, onClose, onSuccess, allProdu
                       (El precio actual queda intacto hasta entonces)
                     </span>
                   </div>
-                  <input
+                  <ErpDateInput
                     type="date"
                     min={getTomorrowStr()}
                     value={scheduledEffectiveDate}

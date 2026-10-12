@@ -1,4 +1,6 @@
 "use client";
+import ErpDateInput from '@/components/ui/ErpDateInput';
+
 
 import React, { useEffect, useState, useMemo } from "react";
 import { 
@@ -925,14 +927,14 @@ export default function PendingDeliveryBillingPage() {
           <div className="flex flex-wrap items-center gap-3 bg-brand-50/50 p-3 rounded-xl border border-brand-100 text-xs">
             <span className="font-bold text-brand-900">Rango personalizado:</span>
             <div className="flex items-center gap-2">
-              <input
+              <ErpDateInput
                 type="date"
                 value={customStartDate}
                 onChange={e => setCustomStartDate(e.target.value)}
                 className="px-2.5 py-1.5 bg-white border border-brand-200 rounded-lg text-xs font-bold text-slate-800"
               />
               <span className="text-slate-400">hasta</span>
-              <input
+              <ErpDateInput
                 type="date"
                 value={customEndDate}
                 onChange={e => setCustomEndDate(e.target.value)}
