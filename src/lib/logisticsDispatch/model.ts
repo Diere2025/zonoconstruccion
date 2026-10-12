@@ -62,7 +62,8 @@ export function buildDispatchSource(sources:{logistics:Row[];summary:Row[];follo
 export function matchMovements(source:MovementSource[],ledger:Array<{id:string;date:string;type:string;amount:number|string;concept:string;account:string;financial_account_id:string;is_imported:boolean;reversal_of_transaction_id?:string|null}>,dispatchBySettlement:Map<string,string>){
  const sources=new Map<string,MovementSource[]>(),actual=new Map<string,typeof ledger>(),links:Array<{code:string;transactionId:string;settlementCode:string|null;date:string;type:string;amount:number;concept:string;accountId:string;sourceRow:number}>=[],issues:LinkIssue[]=[];
  for(const row of source){const key=movementFingerprint(row);sources.set(key,[...(sources.get(key)||[]),row]);}
- for(const row of ledger){if(!row.is_imported||row.reversal_of_transaction_id)continue;const key=movementFingerprint(row);actual.set(key,[...(actual.get(key)||[]),row]);}
+ const reversed=new Set(ledger.flatMap(row=>row.reversal_of_transaction_id?[row.reversal_of_transaction_id]:[]));
+ for(const row of ledger){if(!row.is_imported||row.reversal_of_transaction_id||reversed.has(row.id))continue;const key=movementFingerprint(row);actual.set(key,[...(actual.get(key)||[]),row]);}
  for(const [fingerprint,rows] of sources){
   const candidates=actual.get(fingerprint)||[];
   for(const row of rows){const code=row.code.startsWith('LOG_REC_')?row.code:dispatchBySettlement.get(row.code);if(!code)continue;

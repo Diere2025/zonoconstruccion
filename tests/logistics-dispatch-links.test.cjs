@@ -14,4 +14,5 @@ assert.equal(m.matchMovements([row],[{...ledger,is_imported:false}],new Map()).l
 assert.equal(m.matchMovements([row],[{...ledger,reversal_of_transaction_id:'reversed'}],new Map()).links.length,0);
 const rend={...row,code:'REND07052'};assert.equal(m.matchMovements([rend],[ledger],new Map([['REND07052','LOG_REC_05344']])).links.length,1);
 assert.equal(m.matchMovements([rend],[ledger],new Map()).links.length,0);
+assert.equal(m.matchMovements([row],[ledger,{...ledger,id:'reversal',is_imported:false,reversal_of_transaction_id:'one'}],new Map()).links.length,0);
 console.log('PASS dispatch parsing, cancelled attempts, account normalization, reversals and ambiguous movement matching');

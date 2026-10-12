@@ -132,7 +132,7 @@ begin
  join client_payments cp on cp.id=p.client_payment_id
  where p.archived_at is null and cp.reversed_at is null and cp.status='Aprobado' and cp.cash_transaction_id is not null
  on conflict(transaction_id) do nothing;
- delete from logistics_link_issues where source_from=v_from and source_to=v_to;
+ delete from logistics_link_issues where source_from>=v_from and source_to<=v_to;
  insert into logistics_link_issues(key,kind,code,reference,message,source_from,source_to)
  select x.key,x.kind,x.code,x.reference,x.message,v_from,v_to from jsonb_to_recordset(p_payload->'issues') as x(key text,kind text,code text,reference text,message text)
  on conflict(key) do update set message=excluded.message,source_from=excluded.source_from,source_to=excluded.source_to,updated_at=now();

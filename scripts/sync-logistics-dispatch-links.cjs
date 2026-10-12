@@ -49,4 +49,3 @@ async function main(){
  }catch(e){await db.query('rollback');throw e;}finally{await db.end();}
 }
 main().catch(e=>{console.error(e.code||e.message);process.exitCode=1;});
-
