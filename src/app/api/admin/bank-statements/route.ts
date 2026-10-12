@@ -1,5 +1,5 @@
 import {initializeStatementInboxes} from '@/lib/bankStatements/initializeInboxes';
-import {statementInbox} from '@/lib/bankStatements/inbox';
+import {statementInbox,statementInboxSummary} from '@/lib/bankStatements/inbox';
 import { resolveStatementFileAccount } from '@/lib/bankStatements/fileAccounts';
 import { NextResponse } from 'next/server';
 import { financialContext } from '@/lib/financialOperations/server';
@@ -26,10 +26,15 @@ export async function GET(request: Request) {
       const [mappings,settings]=await Promise.all([db.from('bank_statement_mp_accounts').select('financial_account_id,mp_account_id'),db.from('mp_bank_inbox_settings').select('mp_account_id')]);if(mappings.error)throw mappings.error;if(settings.error)throw settings.error;
       return response({ready:(mappings.data||[]).filter(m=>(settings.data||[]).some(s=>s.mp_account_id===m.mp_account_id)).map(m=>m.financial_account_id)});
     }
+    if(params.get('action')==='inbox-summary'){
+      const from=params.get('from')||'2026-09-30',to=params.get('to')||from;
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to)||from<'2026-09-30'||to<from)throw new OperationError('Período inválido');
+      return response(await statementInboxSummary(db,from,to));
+    }
     if(params.get('action')==='inbox'){
       const account=uuid(params.get('account')),from=params.get('from')||'2026-10-01',to=params.get('to')||'2026-10-31';
       if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to)||from<'2026-09-30'||to<from)throw new OperationError('Período inválido');
-      return response(await statementInbox(db,account,from,to));
+      return response(await statementInbox(db,account,from,to,actor));
     }
     if(params.get('action')==='activity-targets'){
       const search=params.get('q')||'';if(search.length>80)throw new OperationError('Búsqueda demasiado larga');
@@ -100,6 +105,12 @@ export async function POST(request: Request) {
       return response(await statementSnapshot(db, actor, data));
     }
     const body = await request.json();
+    if(body.action==='automatic-configure'){
+      if(typeof body.enabled!=='boolean')throw new OperationError('Configuración inválida');const r=await db.rpc('configure_bank_auto_posting',{p_actor:actor,p_account:uuid(body.account),p_enabled:body.enabled});if(r.error)throw r.error;return response({saved:true});
+    }
+    if(body.action==='inbox-reviewed'){
+      const r=await db.rpc('review_bank_inbox_capture',{p_actor:actor,p_capture:uuid(body.capture),p_version:version(body.version)});if(r.error)throw r.error;return response({saved:true});
+    }
     if(body.action==='activity-classify'){
       const r=await db.rpc('classify_bank_activity_reference',{p_actor:actor,p_activity:uuid(body.activity),p_concept:body.concept==null?null:uuid(body.concept),p_version:version(body.version)});if(r.error)throw r.error;return response({saved:true});
     }
@@ -161,6 +172,13 @@ export async function POST(request: Request) {
     }
     if (body.action === 'rule') {
       if (typeof body.description !== 'string' || !['ingreso', 'egreso'].includes(body.direction)) throw new OperationError('Regla inválida');
+      if (body.group !== undefined) {
+        if (!['common','binance_p2p'].includes(body.group) || typeof body.displayName !== 'string' || typeof body.merchantAlias !== 'string') throw new OperationError('Asociación inválida');
+        const options=body.conceptIds===undefined?[uuid(body.conceptId)]:body.conceptIds;
+        if(!Array.isArray(options)||!options.length||options.length>20)throw new OperationError('Seleccioná los conceptos');options.forEach(uuid);
+        const {data,error}=await db.rpc('save_bank_rule_options',{p_actor:actor,p_description:normalizedStatementText(body.description),p_direction:body.direction,p_concepts:options,p_version:body.version??null,p_group:body.group,p_name:body.displayName,p_alias:body.merchantAlias});
+        if(error)throw error;return response({id:data});
+      }
       const { data, error } = await db.rpc('save_bank_statement_rule', { p_actor: actor, p_account: null, p_description: normalizedStatementText(body.description), p_direction: body.direction, p_concept: uuid(body.conceptId), p_version: body.version ?? null });
       if (error) throw error;
       return response({ id: data });

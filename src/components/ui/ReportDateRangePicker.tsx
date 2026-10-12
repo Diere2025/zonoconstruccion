@@ -11,10 +11,11 @@ const presets = [
 ] as const;
 export const displayReportDate = (value: string) => value ? value.split('-').reverse().join('/') : '';
 const iso = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+const sevenDaysAgo=()=>{const value=new Date(today()+'T12:00:00Z');value.setUTCDate(value.getUTCDate()-6);return value.toISOString().slice(0,10);};
 const localDate = (value: string) => { const [y, m, d] = value.split('-').map(Number); return new Date(y, m - 1, d); };
 
 export default function ReportDateRangePicker({ from, to, onChange, align = 'start' }: { from: string; to: string; onChange: (from: string, to: string) => void; align?: 'start' | 'end' }) {
-  const [open, setOpen] = useState(false), [preset, setPreset] = useState(() => from === today() && to === today() ? 'hoy' : from === to.slice(0, 7) + '-01' && to === today() ? 'mes' : 'personalizado');
+  const [open, setOpen] = useState(false), [preset, setPreset] = useState(() => from === today() && to === today() ? 'hoy' : from === sevenDaysAgo() && to === today() ? '7dias' : from === to.slice(0, 7) + '-01' && to === today() ? 'mes' : 'personalizado');
   const [draftPreset, setDraftPreset] = useState(preset), [start, setStart] = useState(from), [end, setEnd] = useState(to);
   const [view, setView] = useState(() => localDate(from)), [hover, setHover] = useState('');
   const [inputError, setInputError] = useState('');

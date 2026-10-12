@@ -63,6 +63,7 @@ export const erpModules: ErpModule[] = [
     { id: "tesoreria-2", name: "Rendiciones de Recorridos", href: "/admin/rendiciones", icon: ClipboardList, allowedRoles: ['admin', 'administracion'] },
     { id: "tesoreria-3", name: "Caja Diaria", href: "/admin/caja", icon: Wallet, adminOnly: true },
     { id: "tesoreria-4", name: "Movimientos", href: "/admin/finanzas", icon: Coins, allowedRoles: ['admin', 'administracion'] },
+    { id: "tesoreria-clasificar", name: "Movimientos sin clasificar", href: "/admin/finanzas/clasificar", icon: Coins, allowedRoles: ['admin', 'administracion'] },
     { id: "tesoreria-planificacion", name: "Planificación de pagos", href: "/admin/finanzas/planificacion", icon: CalendarDays, adminOnly: true },
     { id: "tesoreria-5", name: "Cuentas y saldos", href: "/admin/finanzas?tab=accounts", icon: Wallet, allowedRoles: ['admin', 'administracion'] },
     { id: "tesoreria-6", name: "Cuentas corrientes", href: "/admin/finanzas?tab=cc", icon: BookOpen, allowedRoles: ['admin', 'administracion'] },

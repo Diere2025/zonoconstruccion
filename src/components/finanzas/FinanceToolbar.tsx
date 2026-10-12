@@ -1,5 +1,6 @@
 "use client";
 import AdaptiveSelect from "@/components/ui/AdaptiveSelect";
+import StatementDateInput from "@/components/finanzas/statements/StatementDateInput";
 
 import { useEffect, useRef, useState } from "react";
 import { ArrowRightLeft, ChevronDown, Download, PlusCircle, RefreshCw, Search, SlidersHorizontal, Users } from "lucide-react";
@@ -105,14 +106,14 @@ export default function FinanceToolbar(p: Props) {
       {openMenu && <button type="button" aria-label="Cerrar menú" className="fixed inset-0 z-20 cursor-default" onClick={() => setOpenMenu(null)} />}
       <div ref={measurementsRef} aria-hidden="true" className="invisible pointer-events-none fixed -left-[10000px] top-0 flex w-max gap-2">
         <span className={action}><PlusCircle className="h-3.5 w-3.5" />Nuevo movimiento</span>
-        <span className={action}><ArrowRightLeft className="h-3.5 w-3.5" />Transferencia</span>
+        <span className={action}><RefreshCw className="h-3.5 w-3.5" />Importar extracto</span>
         <span className={action}><Users className="h-3.5 w-3.5" />Pago al personal</span>
         {extraMovements.map(item => <span key={item.kind} className={action}>{item.label}</span>)}
         <span className={action}>Más movimientos <ChevronDown className="h-3 w-3" /></span>
       </div>
       <div ref={actionRowRef} className="flex flex-wrap items-center gap-2">
         <button type="button" disabled={p.disabled} onClick={() => p.onNew("general")} className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-brand-600 bg-brand-600 px-2.5 text-xs font-semibold text-white hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500/30 disabled:cursor-not-allowed disabled:opacity-50"><PlusCircle className="h-3.5 w-3.5" /> Nuevo movimiento</button>
-        <button type="button" disabled={p.disabled} onClick={p.onTransfer} className={action}><ArrowRightLeft className="h-3.5 w-3.5" /> Transferencia</button>
+        <a href="/admin/finanzas/extractos" className={action}><RefreshCw className="h-3.5 w-3.5" /> Importar extracto</a>
         <button type="button" disabled={p.disabled} onClick={() => p.onNew("sueldo")} className={action}><Users className="h-3.5 w-3.5" /> Pago al personal</button>
         {extraMovements.slice(0, visibleExtras).map(item => <button key={item.kind} type="button" disabled={p.disabled} onClick={() => p.onNew(item.kind)} className={action}>{item.label}</button>)}
         {visibleExtras < extraMovements.length && <div className="relative">
@@ -122,6 +123,7 @@ export default function FinanceToolbar(p: Props) {
           </div>}
         </div>}
         <div ref={toolsRef} className="ml-auto flex flex-wrap items-center gap-2">
+          <a href="/admin/finanzas/clasificar" className={action}><Search className="h-3.5 w-3.5"/>Sin clasificar</a>
           <button type="button" aria-expanded={p.showSummary} onClick={p.onSummary} className={action}>{p.showSummary ? "Ocultar resumen" : "Ver resumen"}</button>
           <div className="relative">
             <button type="button" aria-expanded={openMenu === "columns"} onClick={() => toggleMenu("columns")} className={action}>Columnas <ChevronDown className="h-3 w-3" /></button>
@@ -132,11 +134,10 @@ export default function FinanceToolbar(p: Props) {
           <div className="relative">
             <button type="button" aria-expanded={openMenu === "actions"} onClick={() => toggleMenu("actions")} className={action}>Más acciones <ChevronDown className="h-3 w-3" /></button>
             {openMenu === "actions" && <div className={menu}>
-              <button type="button" className={menuItem} onClick={() => run(p.onConcepts)}><Search className="h-3.5 w-3.5" />Administrar conceptos</button>
-              <a href="/admin/finanzas/extractos" className={menuItem}>Bandeja de extractos Mercado Pago</a>
+              <button type="button" className={menuItem} disabled={p.disabled} onClick={() => run(p.onTransfer)}><ArrowRightLeft className="h-3.5 w-3.5" />Transferencia manual</button><a href="/admin/finanzas?tab=counts" className={menuItem}>Conteo de efectivo</a><a href="/admin/finanzas?tab=partners" className={menuItem}>Retiros de socios</a><button type="button" className={menuItem} onClick={() => run(p.onConcepts)}><Search className="h-3.5 w-3.5" />Administrar conceptos</button>
               <a href="/admin/personal" className={menuItem}><Users className="h-3.5 w-3.5" />Personal y prestadores</a>
               <button type="button" className={menuItem} onClick={() => run(p.onExport)}><Download className="h-3.5 w-3.5" />Exportar CSV</button>
-              <button type="button" disabled={p.syncing} className={menuItem} onClick={() => run(p.onSync)}><RefreshCw className={`h-3.5 w-3.5 ${p.syncing ? "animate-spin" : ""}`} />{p.syncing ? "Importando…" : "Importar bancos · sólo faltantes"}</button>
+              <button type="button" disabled={p.syncing} className={menuItem} onClick={() => run(p.onSync)}><RefreshCw className={`h-3.5 w-3.5 ${p.syncing ? "animate-spin" : ""}`} />{p.syncing ? "Importando…" : "Importar desde Sheets · cuentas pendientes"}</button>
             </div>}
           </div>
         </div>
@@ -150,8 +151,8 @@ export default function FinanceToolbar(p: Props) {
           <option value="hoy">Hoy</option><option value="7dias">7 días</option><option value="30dias">30 días</option><option value="mes">Este mes</option><option value="año">Este año</option><option value="personalizado">Personalizado</option>
         </AdaptiveSelect>
         {p.period === "personalizado" && <>
-          <label className="flex items-center gap-1 text-xs text-slate-500">Desde<input type="date" aria-label="Desde" value={p.startDate} onChange={e => p.onStartDate(e.target.value)} className={control} /></label>
-          <label className="flex items-center gap-1 text-xs text-slate-500">Hasta<input type="date" aria-label="Hasta" value={p.endDate} onChange={e => p.onEndDate(e.target.value)} className={control} /></label>
+          <label className="flex items-center gap-1 text-xs text-slate-500">Desde<StatementDateInput label="Desde" value={p.startDate} onChange={p.onStartDate} className={`${control} w-28`} /></label>
+          <label className="flex items-center gap-1 text-xs text-slate-500">Hasta<StatementDateInput label="Hasta" value={p.endDate} onChange={p.onEndDate} className={`${control} w-28`} /></label>
         </>}
         <AdaptiveSelect aria-label="Cuenta financiera" value={p.account} onChange={e => p.onAccount(e.target.value)} className={`${control} max-w-60`}><option value="all">Todas las cuentas</option>{p.accounts.map(a => <option key={a.id} value={a.id}>{financialAccountLabel(a.name)}</option>)}</AdaptiveSelect>
         <AdaptiveSelect aria-label="Tipo de movimiento" value={p.type} onChange={e => p.onType(e.target.value as "all" | "ingreso" | "egreso")} className={control}><option value="all">Todos los tipos</option><option value="ingreso">Ingresos</option><option value="egreso">Egresos</option></AdaptiveSelect>

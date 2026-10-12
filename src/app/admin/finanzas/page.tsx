@@ -275,6 +275,7 @@ interface CashTransactionWithRelations {
     code: string;
   } | null;
   is_imported?: boolean;
+  bank_review_status?: 'pending'|'reviewed'|null;
   route_sheet_id?: string | null;
   route_sheets?: {
     id: string;
@@ -1418,9 +1419,10 @@ function FinanceWorkspace() {
                                       <button type="button" aria-label={`Ver detalle de ${t.concept || "movimiento"}`} aria-expanded={Boolean(expandedTransactions[t.id])} onClick={() => setExpandedTransactions(value => ({ ...value, [t.id]: !value[t.id] }))} className="shrink-0 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-brand-600"><ChevronRight className={`h-3 w-3 transition-transform ${expandedTransactions[t.id] ? "rotate-90" : ""}`} /></button>
                                       <span className="truncate font-bold" title={t.concept || ""}>{t.concept || "-"}</span>
                                       {inactive && <span className="shrink-0 rounded bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold text-amber-800">{t.reversal_of_transaction_id ? 'Compensación' : 'Anulado'}</span>}
+                                      {t.bank_review_status && <span className={'shrink-0 rounded px-1.5 py-0.5 text-[9px] font-semibold '+(t.bank_review_status==='pending'?'bg-amber-50 text-amber-800':'bg-emerald-50 text-emerald-800')}>{t.bank_review_status==='pending'?'Sin revisar':'Revisado'}</span>}
                                       {t.is_imported && (
-                                        <span className="inline-flex items-center gap-0.5 text-blue-700 bg-blue-50 px-1 py-0.2 rounded text-[7px] font-black uppercase tracking-wider scale-90 select-none shrink-0" title="Importado desde planilla de cálculo">
-                                          Planilla
+                                        <span className="inline-flex items-center gap-0.5 text-blue-700 bg-blue-50 px-1 py-0.2 rounded text-[7px] font-black uppercase tracking-wider scale-90 select-none shrink-0" title="Movimiento importado">
+                                          Importado
                                         </span>
                                       )}
                                     </div>

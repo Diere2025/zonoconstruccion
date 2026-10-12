@@ -9,14 +9,14 @@ export const STATEMENT_PARSER_VERSION = 'mp-movements-v1';
 export const STATEMENT_DATE_POLICY = 'source-calendar-v1';
 export type SourceCell = { value: unknown; formula?: string };
 export type StatementSource = { sheet: string; row: number; raw: string[]; errors: string[]; movementId: string | null; operationId: string | null; sourceDate: string | null; occurredAt: string | null; date: string | null; description: string; amount: string | null; cents: number | null };
-export type StatementTotals = { rows: number; valid: number; operations: number; incoming: number; outgoing: number; net: number; from: string | null; to: string | null };
+export type StatementTotals = { origin?:'web'; coverage?:string; rows: number; valid: number; operations: number; incoming: number; outgoing: number; net: number; from: string | null; to: string | null };
 export type StatementEntry = { id: string; version: number; external_movement_id: string; related_operation_id: string | null; source_date: string; occurred_at: string; effective_date: string; description: string; signed_amount: string; financial_concept_id: string | null; resolution: 'pending' | 'new' | 'link'; target_transaction_id: string | null; resolution_reason?: string | null; activity_context?:StatementActivityContext; source?: {origin?:string;originalOccurredAt?:string;counterpartyName?:string;webOriginalSource?:{originalOccurredAt?:string;counterpartyName?:string}}; operation_order?: {code:string|null;entry_id:string|null;ambiguous:boolean}|null; order_link?: StatementOrderLink | null; order_link_version?: number; suggested_concept_id?: string | null; link?: { cash_transaction_id: string; kind: string; reversed: boolean; concept: string; movement_code: string | null } | null; candidates: StatementCandidate[]; netCandidates: StatementCandidate[] };
 export type StatementCandidate = { id: string; concept: string; amount: string; created_at: string; movement_code: string | null; operation_id: string | null };
 export type BatchRow = { sheet_row: number; source: StatementSource; result: 'valid' | 'error' | 'conflict' | 'duplicate'; entry_id: string | null };
 export type StatementBatch = { id: string; financial_account_id: string; filename: string; created_at: string; version: number; totals: StatementTotals; financial_accounts?: { name: string } };
 export type StatementSnapshot = { batch: StatementBatch; rows: BatchRow[]; entries: StatementEntry[]; concepts: FinancialConcept[]; account: StatementAccount; rules: StatementRule[]; orderLinking?: StatementOrderContext; checkpoint: { effective_date: string; reported_amount: string; reference: string; ledger_amount: string } | null };
-export type StatementAccount = { id: string; name: string; currency: string; type: string; is_active: boolean; direct_from: string | null };
-export type StatementRule = { id: string; description: string; direction: 'ingreso' | 'egreso'; financial_concept_id: string; financial_account_id: string | null; version: number };
+export type StatementAccount = { automatic_from?: string | null; id: string; name: string; currency: string; type: string; is_active: boolean; direct_from: string | null };
+export type StatementRule = { alternative_concept_ids?: string[]; association_group?: 'common' | 'binance_p2p'; display_name?: string | null; merchant_alias?: string | null; evidence_files?: string[]; id: string; description: string; direction: 'ingreso' | 'egreso'; financial_concept_id: string; financial_account_id: string | null; version: number };
 export const normalizedStatementText = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase().replace(/\s+/g, ' ');
 
 // Source decimals use a dot, never locale-dependent thousands separators.
@@ -109,7 +109,7 @@ export function suggestStatementConcept(entry: Pick<StatementEntry, 'description
   const direction = cents > 0 ? 'ingreso' : 'egreso';
   const scoped = rules.filter(rule => rule.direction === direction && normalizedStatementText(rule.description) === description && (rule.financial_account_id === accountId || !rule.financial_account_id));
   const selected = scoped.some(rule => rule.financial_account_id === accountId) ? scoped.filter(rule => rule.financial_account_id === accountId) : scoped;
-  const unique = [...new Set(selected.map(rule => rule.financial_concept_id))];
+  const unique = [...new Set(selected.flatMap(rule => [rule.financial_concept_id,...(rule.alternative_concept_ids||[])]))];
   if (unique.length) return unique.length === 1 && concepts.some(concept => concept.id === unique[0] && concept.is_active) ? unique[0] : null;
   const target = knownConcepts[description];
   if (!target || (direction === 'ingreso' && !['cobro', 'ingreso de dinero', 'dinero recibido', 'rendimiento positivo de la inversion', 'rendimiento bruto', 'movimiento de cuentas'].includes(description)) || (direction === 'egreso' && ['cobro', 'ingreso de dinero', 'dinero recibido', 'rendimiento positivo de la inversion', 'rendimiento bruto'].includes(description))) return null;

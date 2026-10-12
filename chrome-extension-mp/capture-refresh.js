@@ -1,16 +1,16 @@
 /* Capture-only refreshes never send historical rows to the collections webhook. */
 (function(){
- const pending=new Map(),lastAttempt=new Map();let polling=false;
+ const pending=new Map(),lastAttempt=new Map(),lastSignature=new Map(),failedAt=new Map();let polling=false;
  const path=()=>location.pathname.replace(/\/$/,'');
  const channel=()=>path()==='/activities'?'activity':/^(?:\/banking\/movements(?:\/[1-9]\d*)?|\/balance\/reports\/movements)\/?$/.test(path())?'banking':null;
  function send(route,payload){return new Promise(resolve=>{let done=false;const timer=setTimeout(()=>finish(null),20000);function finish(result){if(done)return;done=true;clearTimeout(timer);resolve(result);}chrome.runtime.sendMessage({action:'REPORT_PAYMENT',url:new URL(route,config.webhookUrl).toString(),token:config.secretToken,payload:{...payload,account:config.accountName,url:location.href}},result=>finish(chrome.runtime.lastError?null:result));});}
  async function captureLoaded(lane,manual=false,period){
   if(!isMonitorTab||channel()!==lane)return {captured:0,failed:true};
   const key=[lane,config.accountName,config.webhookUrl].join('|');if(pending.has(key))return pending.get(key);
-  if(!manual&&Date.now()-(lastAttempt.get(key)||0)<getBankingInterval()*1000)return {captured:0,skipped:true};
+
   const work=(async()=>{let rows=lane==='activity'?ZonoMpBanking.scanActivities(document,getRowDate):ZonoMpBanking.scan(document);if(period)rows=rows.filter(r=>r.occurredAt.slice(0,10)>=period.date_from&&r.occurredAt.slice(0,10)<=period.date_to);
-   if(!rows.length)return {captured:0,failed:false,empty:true};lastAttempt.set(key,Date.now());let captured=0;for(let offset=0;offset<rows.length;offset+=100){const r=await send('/api/mp-bank-web',{type:lane==='activity'?'BANK_ACTIVITY_CAPTURE':'BANK_WEB_CAPTURE',rows:rows.slice(offset,offset+100)});if(!r?.ok||!r.data?.success){const message=r?.status===404?'Captura de extractos todavía no publicada':r?.data?.error||r?.error||'La captura no fue confirmada';if(lane==='activity')lastActivityCaptureError=r?.status===404?'':message;else lastBankCaptureError=message;updateReadingStatus();return {captured,failed:true,message};}captured+=r.data.captured??Math.min(100,rows.length-offset);}
-   if(lane==='activity')lastActivityCaptureError='';else {lastBankCaptureError='';lastReadingCount=rows.length;}updateReadingStatus();return {captured,failed:false};
+   if(!rows.length)return {captured:0,failed:false,empty:true};const signature=JSON.stringify(rows);if(!manual&&(Date.now()-(failedAt.get(key)||0)<30000||lastSignature.get(key)===signature&&Date.now()-(lastAttempt.get(key)||0)<getBankingInterval()*1000))return {captured:0,skipped:true};lastAttempt.set(key,Date.now());let captured=0;for(let offset=0;offset<rows.length;offset+=100){const r=await send('/api/mp-bank-web',{type:lane==='activity'?'BANK_ACTIVITY_CAPTURE':'BANK_WEB_CAPTURE',rows:rows.slice(offset,offset+100)});if(!r?.ok||!r.data?.success){failedAt.set(key,Date.now());const message=r?.status===404?'Captura de extractos todavía no publicada':r?.data?.error||r?.error||'La captura no fue confirmada';if(lane==='activity')lastActivityCaptureError=r?.status===404?'':message;else lastBankCaptureError=message;updateReadingStatus();return {captured,failed:true,message};}captured+=r.data.captured??Math.min(100,rows.length-offset);}
+   lastSignature.set(key,signature);failedAt.delete(key);if(lane==='activity')lastActivityCaptureError='';else {lastBankCaptureError='';lastReadingCount=rows.length;}updateReadingStatus();return {captured,failed:false};
   })().finally(()=>pending.delete(key));pending.set(key,work);return work;
  }
  function earliest(lane){
@@ -41,6 +41,9 @@
  async function poll(){const lane=channel();if(polling||!lane||!isMonitorTab||detectMercadoPagoError().hasError)return;polling=true;try{
   const saved=sessionStorage.getItem('zono-capture-refresh-job');if(saved){sessionStorage.removeItem('zono-capture-refresh-job');const previous=JSON.parse(saved);if(previous.account===config.accountName&&previous.channel===lane)await finishJob(lane,previous.job);}
   const response=await send('/api/mp-bank-refresh',{action:'poll',channel:lane});if(!response?.ok||!response.data?.success)return;const job=response.data.data;if(!job)return;
+  // New bank movements live on the first page. A historical date filter or
+  // paginated monitor must return there before executing a fresh read.
+  if(lane==='banking'&&!job.history){const current=new URL(location.href),begin=(current.searchParams.get('beginDate')||'').slice(0,10),end=(current.searchParams.get('endDate')||'').slice(0,10);if(path()!=='/banking/movements'||begin&&begin>job.date_from||end&&end<job.date_to){sessionStorage.setItem('zono-capture-refresh-job',JSON.stringify({job,account:config.accountName,channel:lane}));location.assign(location.origin+'/banking/movements');return;}}
   const button=[...document.querySelectorAll('button,a,[role="button"]')].find(el=>!el.closest('#zono-mp-widget')&&/^(actualizar listado|actualizar)$/i.test((el.innerText||el.textContent||'').trim()));
   if(button&&!button.disabled){button.click();await finishJob(lane,job);}
   else {sessionStorage.setItem('zono-capture-refresh-job',JSON.stringify({job,account:config.accountName,channel:lane}));location.reload();}
@@ -54,11 +57,11 @@
   if(manual){
    if(result.failed)showToast(result.message||'No se pudo capturar. Verificá que esta sea la pestaña monitor y que corresponda a '+label+'.','error');
    else if(result.empty)showToast('No se detectaron filas compatibles para capturar. Cargá el listado desde el 30/09/2026 y volvé a sincronizar.','error');
-   else showToast(result.captured+' '+label+' confirmados en el ERP · sólo filas cargadas · sin generar movimientos financieros','success');
+   else showToast(result.captured+' '+label+' confirmados en el ERP · sólo filas cargadas · registro según la configuración de la cuenta','success');
   }
   return result;
  }
  reportBankingRows=manual=>reportCapture('banking',manual);
  reportActivityBankRows=manual=>reportCapture('activity',manual);
- setTimeout(poll,4000);setInterval(poll,10000);
+ setTimeout(poll,4000);setInterval(poll,10000);setInterval(()=>{if(channel()==='activity'&&isMonitorTab&&!polling)void captureLoaded('activity').catch(()=>{});},10000);
 })();

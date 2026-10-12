@@ -18,11 +18,12 @@ export async function statementCatalog(db: SupabaseClient) {
     allRows<FinancialConcept>(db.from('financial_concepts').select('id,concept,category,sub_category,movement_type,efe_category,is_active,source_row').eq('is_active', true).order('concept').order('id')),
     allRows<{financial_account_id: string; direct_from: string}>(db.from('bank_account_import_settings').select('financial_account_id,direct_from').order('financial_account_id')),
     allRows<StatementFileAccount>(db.from('bank_statement_file_accounts').select('external_account_id,financial_account_id,version').order('external_account_id')),
-    allRows<StatementRule>(db.from('bank_classification_rules').select('id,description,direction,financial_concept_id,financial_account_id,version').eq('is_active', true).order('id')),
+    allRows<StatementRule>(db.from('bank_classification_rules').select('id,description,direction,financial_concept_id,financial_account_id,version,association_group,display_name,merchant_alias,evidence_files,alternative_concept_ids').eq('is_active', true).order('id')),
     statementDeletionAvailable(db),
     statementOrderContext(db),
   ]);
-  return { accounts: accounts.filter(isMercadoPagoAccount).map(account => ({ ...account, direct_from: settings.find(setting => setting.financial_account_id === account.id)?.direct_from || null })), concepts, rules, fileAccounts, deletionAvailable, orderLinking };
+  const autoSettings=await allRows<{mp_account_id:string;automatic_from:string|null}>(db.from('mp_bank_inbox_settings').select('mp_account_id,automatic_from').order('mp_account_id'));
+  return { accounts: accounts.filter(isMercadoPagoAccount).map(account => ({ ...account, automatic_from:autoSettings.find(setting=>setting.mp_account_id===orderLinking.mappings.find(m=>m.financial_account_id===account.id)?.mp_account_id)?.automatic_from||null, direct_from: settings.find(setting => setting.financial_account_id === account.id)?.direct_from || null })), concepts, rules, fileAccounts, deletionAvailable, orderLinking };
 }
 export async function statementSnapshot(db: SupabaseClient, actor: string, batchId: string) {
   const [review, catalog, rows] = await Promise.all([
@@ -44,7 +45,7 @@ export async function statementSnapshot(db: SupabaseClient, actor: string, batch
 }
 export async function recentStatementBatches(db: SupabaseClient, accountId?: string) {
   const deletionAvailable = await statementDeletionAvailable(db);
-  let query = db.from('bank_import_batches').select('id,financial_account_id,filename,created_at,version,totals,financial_accounts(name)').order('created_at', { ascending: false }).order('id').limit(50);
+  let query = db.from('bank_import_batches').select('id,financial_account_id,filename,created_at,version,totals,financial_accounts(name)').neq('parser_version','mp-web-v1').order('created_at', { ascending: false }).order('id').limit(50);
   if (deletionAvailable) query = query.is('deleted_at', null);
   if (accountId) query = query.eq('financial_account_id', accountId);
   const { data, error } = await query;
