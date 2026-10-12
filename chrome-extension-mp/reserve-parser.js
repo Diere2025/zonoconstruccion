@@ -9,7 +9,7 @@
   const value=new Date(Date.UTC(year,month-1,day));return value.getUTCFullYear()===year&&value.getUTCMonth()===month-1&&value.getUTCDate()===day?`${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`:null;
  }
  function parseText(text,day){
-  if(!day||day<'2026-09-28')return null;text=String(text||'').replace(/\s+/g,' ').trim();const times=text.match(/\b(?:[01]\d|2[0-3]):[0-5]\d\b/g)||[],amounts=text.match(/(?:[-−–+]\s*)?\$\s*[\d.]+(?:\s*,\s*\d{1,2})?/g)||[],labels=text.match(/\b(?:Dinero (?:retirado|ingresado|agregado|depositado)|Rendimientos)\b/gi)||[];
+  if(!day||day<'2026-09-28')return null;text=String(text||'').replace(/\s+/g,' ').trim();const times=text.match(/\b(?:[01]\d|2[0-3]):[0-5]\d\b/g)||[],amounts=text.match(/(?:[-−–+]\s*)?\$\s*[\d.]+(?:\s*,\s*\d{1,2})?/g)||[],labels=text.match(/\b(?:Dinero (?:retirado|ingresado|agregado|depositado|reservado)|Rendimientos)\b/gi)||[];
   const uniqueLabels=[...new Set(labels.map(label=>label.toLowerCase()))];
   if(times.length!==1||amounts.length!==1||uniqueLabels.length!==1)return null;
   const description=labels[0],kind=/retirado/i.test(description)?'withdrawal':/rendimientos/i.test(description)?'yield':'deposit',raw=amounts[0],number=Number(raw.replace(/[^\d.,]/g,'').replace(/\./g,'').replace(',','.'));
@@ -26,9 +26,9 @@
   const selectors='li,article,a,button,section,tr,[role="row"],[role="listitem"],div';
   const outside=el=>!el.closest("[id^='zono-']");const text=el=>String(el.innerText||el.textContent||'').replace(/\s+/g,' ').trim();
   const dates=[...doc.querySelectorAll('h1,h2,h3,h4,h5,h6,header,span,p,div,time,[role="heading"]')].filter(outside).filter(el=>headerDate(text(el),now));
-  const candidates=[...doc.querySelectorAll(selectors)].filter(outside).map(el=>({el,text:text(el)})).filter(x=>/dinero\s+(retirado|ingresado|agregado|depositado)|rendimientos/i.test(x.text));
+  const candidates=[...doc.querySelectorAll(selectors)].filter(outside).map(el=>({el,text:text(el)})).filter(x=>/dinero\s+(retirado|ingresado|agregado|depositado|reservado)|rendimientos/i.test(x.text));
   const oneTime=candidates.filter(x=>(x.text.match(/\b(?:[01]\d|2[0-3]):[0-5]\d\b/g)||[]).length===1);
-  const summaries=oneTime.slice(-8).map(({el,text:value})=>{let day=null;for(const h of dates)if(!h.contains(el)&&!el.contains(h)&&(h.compareDocumentPosition(el)&4))day=headerDate(text(h),now);return {tag:el.tagName,parents:[el.parentElement?.tagName,el.parentElement?.parentElement?.tagName],visible:!!el.getClientRects().length,excluded:!!el.closest('nav,aside,[hidden],[aria-hidden="true"]'),dateFound:!!day,dateInRange:!!day&&day>='2026-09-28',dollarSigns:(value.match(/\$/g)||[]).length,amountMatches:(value.match(/(?:[-−–+]\s*)?\$\s*[\d.]+(?:\s*,\s*\d{1,2})?/g)||[]).length,labels:(value.match(/\b(?:Dinero\s+(?:retirado|ingresado|agregado|depositado)|Rendimientos)\b/gi)||[]).length,parsed:!!parseText(value,day)};});
+  const summaries=oneTime.slice(-8).map(({el,text:value})=>{let day=null;for(const h of dates)if(!h.contains(el)&&!el.contains(h)&&(h.compareDocumentPosition(el)&4))day=headerDate(text(h),now);return {tag:el.tagName,parents:[el.parentElement?.tagName,el.parentElement?.parentElement?.tagName],visible:!!el.getClientRects().length,excluded:!!el.closest('nav,aside,[hidden],[aria-hidden="true"]'),dateFound:!!day,dateInRange:!!day&&day>='2026-09-28',dollarSigns:(value.match(/\$/g)||[]).length,amountMatches:(value.match(/(?:[-−–+]\s*)?\$\s*[\d.]+(?:\s*,\s*\d{1,2})?/g)||[]).length,labels:(value.match(/\b(?:Dinero\s+(?:retirado|ingresado|agregado|depositado|reservado)|Rendimientos)\b/gi)||[]).length,parsed:!!parseText(value,day)};});
   return {iframes:doc.querySelectorAll('iframe').length,openShadowRoots:[...doc.querySelectorAll('*')].filter(el=>el.shadowRoot).length,recognizedDates:dates.length,eligibleDateHeaders:dates.filter(el=>headerDate(text(el),now)>='2026-09-28').length,candidateContainers:candidates.length,oneTimeContainers:oneTime.length,recognizedRows:scan(doc,now).length,containers:summaries};
  }
  root.ZonoMpReserve={headerDate,parseText,scan,inspect};
