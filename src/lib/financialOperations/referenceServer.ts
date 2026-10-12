@@ -50,6 +50,18 @@ export async function movementApplications(db: SupabaseClient, rows: Array<Coded
         for(const link of missing)for(const capture of captures){if((capture.statement_entry_id||capture.prepared_entry_id)!==link.entry_id)continue;const payment=one(capture.mp_payments),order=one(payment?.orders||null);if(!payment?.is_verified||payment.is_hidden||payment.is_internal||!order||payment.order_code&&payment.order_code.trim().toUpperCase()!==order.legacy_code?.trim().toUpperCase())continue;const list=result.get(link.cash_transaction_id)||[];if(!list.some(ref=>ref.kind==='Pedido'&&ref.id===order.id))list.push({id:order.id,code:order.legacy_code||order.id,kind:'Pedido',href:`/admin/finanzas?tab=flow&order=${order.id}`});result.set(link.cash_transaction_id,list);}
       }
     } catch(error) {const failure=error as {code?:string;message?:string};if(!['42P01','PGRST205','PGRST200'].includes(failure.code||'')||!/(bank_statement_order_links|bank_entry_ledger_links)/.test(failure.message||''))throw error;}
+    try {
+      const links=await all(db.from('logistics_dispatch_movements').select('transaction_id,logistics_dispatches(id,code),treasury_settlements(id,code)').in('transaction_id',ids).order('transaction_id'));
+      for(const link of links){
+        const dispatch=one(link.logistics_dispatches),settlement=one(link.treasury_settlements),list=result.get(link.transaction_id)||[];
+        if(dispatch)list.push({id:dispatch.id,code:dispatch.code,kind:'Delivery',href:'/admin/logistica-vinculos?delivery='+encodeURIComponent(dispatch.code)});
+        if(settlement)list.push({id:settlement.id,code:settlement.code,kind:'Rendición',href:'/admin/rendiciones?rendicion='+settlement.id});
+        result.set(link.transaction_id,list);
+      }
+    } catch(error) {
+      const failure=error as {code?:string;message?:string};
+      if(!['42P01','PGRST205','PGRST200'].includes(failure.code||'')||!failure.message?.includes('logistics_dispatch_movements'))throw error;
+    }
     const ops=chunk.map(t=>t.operation_id).filter(Boolean);
     if(ops.length){const vouchers=await all(db.from('operation_vouchers').select('operation_id,voucher_id,treasury_vouchers(id,reference)').in('operation_id',ops).order('operation_id').order('voucher_id'));
       for(const t of chunk)for(const v of vouchers){const voucher=one(v.treasury_vouchers);if(v.operation_id===t.operation_id&&voucher){const list=result.get(t.id)||[];list.push({id:v.voucher_id,code:voucher.reference||v.voucher_id,kind:'Comprobante',href:`/admin/comprobantes-tesoreria?voucher=${v.voucher_id}`});result.set(t.id,list);}}}

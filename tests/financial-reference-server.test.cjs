@@ -39,4 +39,9 @@ test('verified captured orders remain visible before the statement link exists; 
  const captures=tx.map(t=>({id:t.id,prepared_entry_id:'e-'+t.id,statement_entry_id:null,mp_payments:{...payment,...(t.id==='unverified'?{is_verified:false}:t.id==='conflict'?{order_code:'JS2'}:t.id==='internal'?{is_internal:true}:{})}}));
  const result=await movementApplications(database({bank_entry_ledger_links:links,mp_bank_web_rows:captures}),tx);
  assert.equal(result.get('valid')[0].code,'JS1');for(const id of ['unverified','conflict','internal'])assert.equal(result.has(id),false);
+ });
+test('dispatch and rendition references point to existing records without creating collections',async()=>{
+ const db=database({logistics_dispatch_movements:[{transaction_id:'cash',logistics_dispatches:{id:'dispatch',code:'LOG_REC_05344'},treasury_settlements:{id:'rend',code:'REND07052'}}]});
+ const result=await movementApplications(db,[{id:'cash',type:'egreso'}]);
+ assert.equal(result.get('cash').length,2);assert.equal(result.get('cash')[0].kind,'Delivery');assert.match(result.get('cash')[0].href,/delivery=LOG_REC_05344/);assert.equal(result.get('cash')[1].code,'REND07052');
 });
