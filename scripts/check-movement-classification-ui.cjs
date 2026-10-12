@@ -1,7 +1,7 @@
 // Synthetic browser/API fixtures only. All external requests are intercepted.
 const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
 const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),ts=require('typescript'),assert=require('node:assert/strict');
-process.loadEnvFile('.env.local');
+process.loadEnvFile(process.env.CLASSIFICATION_TEST_ENV||'.env.local');
 const {grid}=require('../tests/fixtures/mp-statement.cjs');const model={};vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/lib/bankStatements/model.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:model,Date,Intl,Map,Set,BigInt,Number,Array,Error});
 const source=JSON.parse(JSON.stringify(model.parseStatementGrid('Sheet0',grid())));
 const ids=Array.from({length:40},(_,i)=>`00000000-0000-4000-8000-${String(i+1).padStart(12,'0')}`);

@@ -1,6 +1,6 @@
 const {test}=require('node:test'),assert=require('assert/strict'),fs=require('fs'),vm=require('vm'),ts=require('typescript');
 function load(file){const exports={};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,Date,Map,Set,URL,Error,AbortController,setTimeout,clearTimeout,require:()=>({})});return exports;}
-const {readMPRefresh}=load('src/lib/mpRefreshClient.ts'),{matchInboxActivity}=load('src/lib/bankStatements/inbox.ts');
+const {readMPRefresh}=load('src/lib/mpRefreshClient.ts'),{matchInboxActivity}=load('src/lib/bankStatements/activityInbox.ts');
 test('a hung initial request cannot leave Verificando forever',async()=>{await assert.rejects(()=>readMPRefresh(()=>new Promise(()=>{}),'MP3',()=>{},{callTimeoutMs:15}),/tiempo/);});
 test('a hung status read also terminates with an explicit error',async()=>{let calls=0;await assert.rejects(()=>readMPRefresh(async()=>++calls===1?{data:[{id:'id',status:'reading',account_name:'MP3'}]}:new Promise(()=>{}),'MP3',()=>{},{pauseMs:1,callTimeoutMs:15}),/tiempo/);});
 test('polling has a total deadline and returns an expired result',async()=>{const result=await readMPRefresh(async()=>({data:[{id:'id',status:'reading',account_name:'MP3'}]}),'MP3',()=>{},{timeoutMs:30,pauseMs:1});assert.equal(result[0].status,'expired');});
