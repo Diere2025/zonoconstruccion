@@ -26,3 +26,8 @@ test('allocation pagination retains every document past the database page bounda
  const result=await movementApplications(database({supplier_payments:[{id:'p',cash_transaction_id:'t'}],supplier_payment_allocations:allocations}),[{id:'t',type:'egreso'}]);
  assert.equal(result.get('t').length,501);assert.equal(result.get('t').at(-1).code,'F-500');
 });
+test('dispatch and rendition references point to existing records without creating collections',async()=>{
+ const db=database({logistics_dispatch_movements:[{transaction_id:'cash',logistics_dispatches:{id:'dispatch',code:'LOG_REC_05344'},treasury_settlements:{id:'rend',code:'REND07052'}}]});
+ const result=await movementApplications(db,[{id:'cash',type:'egreso'}]);
+ assert.equal(result.get('cash').length,2);assert.equal(result.get('cash')[0].kind,'Delivery');assert.match(result.get('cash')[0].href,/delivery=LOG_REC_05344/);assert.equal(result.get('cash')[1].code,'REND07052');
+});

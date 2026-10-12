@@ -1,6 +1,7 @@
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
+import { settlementDispatchReferences } from "@/lib/logisticsDispatch/references";
 import { treasuryDateTime, treasuryToday } from "@/lib/treasuryTransactionTime";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
@@ -213,7 +214,7 @@ export async function GET(request: Request) {
         .neq("status", "archived")
         .order("settlement_date", { ascending: false }).order("code", { ascending: false }).limit(500);
       if (error) throw error;
-      const rows = data || [];
+      const rows = await settlementDispatchReferences(supabaseAdmin, data || []);
       const stats = rows.reduce((acc, row) => {
         if (row.status === "confirmed") acc.confirmed += 1;
         else if (row.movements_generated_at || row.count_date || asNumber(row.counted_cash) > 0) acc.drafts += 1;
@@ -225,7 +226,7 @@ export async function GET(request: Request) {
         const archived = await supabaseAdmin.from("treasury_settlements").select("*")
           .eq("status", "archived").order("archived_at", { ascending: false }).limit(500);
         if (archived.error) throw archived.error;
-        return NextResponse.json({ rows: archived.data || [], stats, canImportMonth: authorization.actor.canImportMonth });
+        return NextResponse.json({ rows: await settlementDispatchReferences(supabaseAdmin, archived.data || []), stats, canImportMonth: authorization.actor.canImportMonth });
       }
       return NextResponse.json({ rows, stats, canImportMonth: authorization.actor.canImportMonth });
     }
@@ -262,14 +263,14 @@ export async function GET(request: Request) {
       if (countsRes.error) throw countsRes.error;
       if (electronicTicketsRes.error) throw electronicTicketsRes.error;
 
-      const settlement = settlementRes.data;
+      const settlement = (await settlementDispatchReferences(supabaseAdmin, [settlementRes.data]))[0];
       let electronicTickets = electronicTicketsRes.data || [];
 
       // Load route orders and auto-detect linked payments from Chequeo de Pagos (mp_payments)
       let routeOrders: any[] = [];
       let targetRouteSheetId = settlement.route_sheet_id;
 
-      if (settlement.status !== "archived" && !targetRouteSheetId && settlement.carrier_id && settlement.settlement_date) {
+      if (!settlement.dispatch_code && settlement.status !== "archived" && !targetRouteSheetId && settlement.carrier_id && settlement.settlement_date) {
         const { data: matchedRoute } = await supabaseAdmin
           .from("route_sheets")
           .select("id")

@@ -38,6 +38,18 @@ export async function movementApplications(db: SupabaseClient, rows: Array<Coded
     const refs=supplierApplications(allocations,payments,allocations.flatMap(a=>a.supplier_purchases?[a.supplier_purchases]:[]),chunk);
     for(const p of payments)if(p.cash_transaction_id)result.set(p.cash_transaction_id,[...(result.get(p.cash_transaction_id)||[]),...(refs.byPayment.get(p.id)||[])]);
     for(const p of clients){const order=one(p.orders);if(!p.reversed_at&&order){const list=result.get(p.cash_transaction_id)||[];list.push({id:order.id,code:order.legacy_code||order.id,kind:'Pedido',href:`/admin/finanzas?tab=flow&order=${order.id}`,amount:Number(p.amount)});result.set(p.cash_transaction_id,list);}}
+    try {
+      const links=await all(db.from('logistics_dispatch_movements').select('transaction_id,logistics_dispatches(id,code),treasury_settlements(id,code)').in('transaction_id',ids).order('transaction_id'));
+      for(const link of links){
+        const dispatch=one(link.logistics_dispatches),settlement=one(link.treasury_settlements),list=result.get(link.transaction_id)||[];
+        if(dispatch)list.push({id:dispatch.id,code:dispatch.code,kind:'Delivery',href:'/admin/logistica-vinculos?delivery='+encodeURIComponent(dispatch.code)});
+        if(settlement)list.push({id:settlement.id,code:settlement.code,kind:'Rendición',href:'/admin/rendiciones?rendicion='+settlement.id});
+        result.set(link.transaction_id,list);
+      }
+    } catch(error) {
+      const failure=error as {code?:string;message?:string};
+      if(!['42P01','PGRST205','PGRST200'].includes(failure.code||'')||!failure.message?.includes('logistics_dispatch_movements'))throw error;
+    }
     const ops=chunk.map(t=>t.operation_id).filter(Boolean);
     if(ops.length){const vouchers=await all(db.from('operation_vouchers').select('operation_id,voucher_id,treasury_vouchers(id,reference)').in('operation_id',ops).order('operation_id').order('voucher_id'));
       for(const t of chunk)for(const v of vouchers){const voucher=one(v.treasury_vouchers);if(v.operation_id===t.operation_id&&voucher){const list=result.get(t.id)||[];list.push({id:v.voucher_id,code:voucher.reference||v.voucher_id,kind:'Comprobante',href:`/admin/comprobantes-tesoreria?voucher=${v.voucher_id}`});result.set(t.id,list);}}}

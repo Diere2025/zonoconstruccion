@@ -72,6 +72,7 @@ export const erpModules: ErpModule[] = [
     { id: "tesoreria-caja-personal", name: "Mi Caja", href: "/vendedores/caja", icon: Wallet, sellerOnly: true },
   ] },
   { id: 'logistica', title: 'Logística y Distribución', description: 'Entregas, recorridos, transportistas e impresión.', icon: Truck, links: [
+    { id: 'logistica-vinculos', name: 'Vinculación de entregas', href: '/admin/logistica-vinculos', icon: Truck, adminOnly: true },
     { id: 'logistica-solicitudes', name: 'Solicitudes a Logística', href: '/solicitudes-logistica', icon: ClipboardList },
     { id: "logistica-1", name: "Gestión de Transportistas", href: "/admin/fleteros", icon: Truck, allowedRoles: ['admin', 'logistica'] },
     { id: "logistica-2", name: "Ruteo de Entregas", href: "/vendedores/ruteo", icon: Truck },
