@@ -10,7 +10,8 @@
  }
  function parseText(text,day){
   if(!day||day<'2026-09-28')return null;text=String(text||'').replace(/\s+/g,' ').trim();const times=text.match(/\b(?:[01]\d|2[0-3]):[0-5]\d\b/g)||[],amounts=text.match(/(?:[-−–+]\s*)?\$\s*[\d.]+(?:\s*,\s*\d{1,2})?/g)||[],labels=text.match(/\b(?:Dinero (?:retirado|ingresado|agregado|depositado)|Rendimientos)\b/gi)||[];
-  if(times.length!==1||amounts.length!==1||labels.length!==1)return null;
+  const uniqueLabels=[...new Set(labels.map(label=>label.toLowerCase()))];
+  if(times.length!==1||amounts.length!==1||uniqueLabels.length!==1)return null;
   const description=labels[0],kind=/retirado/i.test(description)?'withdrawal':/rendimientos/i.test(description)?'yield':'deposit',raw=amounts[0],number=Number(raw.replace(/[^\d.,]/g,'').replace(/\./g,'').replace(',','.'));
   const negative=/[-−–]/.test(raw);if(!number||(kind==='withdrawal')!==negative)return null;
   return {occurredAt:day+'T'+times[0]+':00-03:00',amount:(negative?'-':'')+number.toFixed(2),description,kind,occurrence:1};
