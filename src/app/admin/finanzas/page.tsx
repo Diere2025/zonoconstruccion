@@ -51,6 +51,7 @@ import SupplierAccounts from "@/components/finanzas/SupplierAccounts";
 import FinancialConceptManager from "@/components/finanzas/FinancialConceptManager";
 import BankSheetImportModal from "@/components/finanzas/BankSheetImportModal";
 import SearchableSelect from "@/components/ui/SearchableSelect";
+import FinancialAccountBadge from '@/components/finanzas/FinancialAccountBadge';
 import { financialAccountLabel } from "@/lib/financialAccountLabels";
 import type { FinancialConcept } from "@/lib/financialConcepts";
 
@@ -1437,7 +1438,7 @@ function FinanceWorkspace() {
                                   </span>
                                 </td>
                                 <td className="py-1.5 px-2 whitespace-nowrap text-slate-900 font-bold">
-                                  {financialAccountLabel(t.financial_accounts?.name || "Efectivo Diario")}
+                                  <FinancialAccountBadge name={t.financial_accounts?.name || "Efectivo Diario"}/>
                                 </td>
                                 <td className={`py-1.5 px-2 whitespace-nowrap text-right font-black tabular-nums ${isIngreso ? 'text-emerald-600' : 'text-rose-600'}`}>
                                   {t.currency === 'USD' ? `US$ ${t.amount.toLocaleString('es-AR', { minimumFractionDigits: 2 })}` : formatPrice(t.amount)}
@@ -1774,7 +1775,7 @@ function FinanceWorkspace() {
                         <td className="py-3.5 px-3">
                           <div className="flex items-center gap-2">
                             <span className={`w-2 h-2 rounded-full ${dotColor}`} />
-                            <span className="text-slate-900 font-bold">{financialAccountLabel(acc.name)}</span>
+                            <FinancialAccountBadge name={acc.name}/>
                           </div>
                         </td>
                         <td className="py-3.5 px-3">
@@ -2135,7 +2136,7 @@ function FinanceWorkspace() {
                       return (
                         <tr key={rec.id || rec.accountName} className="hover:bg-slate-50/50 transition-colors">
                           <td className="py-3 px-3 font-bold text-slate-900">
-                            {financialAccountLabel(rec.accountName)}
+                            <FinancialAccountBadge name={rec.accountName}/>
                           </td>
                           <td className="py-3 px-3 text-right text-slate-700 font-mono text-[11px] font-bold">
                             {rec.currency === 'USD' ? `US$ ${(rec.initialBalance || 0).toLocaleString('es-AR')}` : formatPrice(rec.initialBalance || 0)}
