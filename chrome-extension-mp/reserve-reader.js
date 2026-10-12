@@ -4,14 +4,14 @@
  const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
  function say(text){if(status)status.textContent=text;}
  function send(rows){return new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('El ERP no respondió a tiempo')),20000);chrome.runtime.sendMessage({action:'REPORT_PAYMENT',url:new URL('/api/mp-reserve-web',settings.reserveReaderLocal?'http://localhost:3000':settings.webhookUrl||'https://zono-erp.pages.dev').toString(),token:settings.secretToken,payload:{type:'RESERVE_WEB_CAPTURE',account:settings.accountName,url:location.href,rows}},r=>{clearTimeout(timer);if(chrome.runtime.lastError||!r?.ok||!r.data?.success)reject(Error(r?.data?.error||'No se confirmó la lectura de reserva'));else resolve(r.data);});});}
- async function capture(force=false){const rows=ZonoMpReserve.scan(document);if(!rows.length){say('No se identificaron filas. Esperá la carga o desplazate por el listado.');return [];}
+ async function capture(force=false){const rows=ZonoMpReserve.scan(document);if(!rows.length)throw Error('No se reconocieron movimientos en esta página; no se guardaron filas');
   const signature=JSON.stringify(rows);if(!force&&signature===lastSignature)return rows;
   for(let i=0;i<rows.length;i+=100)await send(rows.slice(i,i+100));lastSignature=signature;say(rows.length+' filas leídas · evidencia guardada, sin duplicar movimientos');return rows;
  }
  async function run(history){if(busy||!supported())return;busy=true;enabled=true;for(const b of box.querySelectorAll('button'))b.disabled=true;
   try{say('Leyendo reserva…');let seen=new Set(),stalled=0;for(let page=0;page<(history?120:1)&&supported();page++){
    const rows=await capture(true);if(!history)break;const oldest=rows.map(r=>r.occurredAt.slice(0,10)).sort()[0];if(oldest&&oldest<='2026-09-28'){say('Lectura hasta el 28/09/2026 guardada · sin modificar saldos');break;}
-   const signature=JSON.stringify(rows);if(seen.has(signature)){if(++stalled>=3){say('Sin más filas cargadas. Revisá si hay páginas anteriores pendientes.');break;}}else{seen.add(signature);stalled=0;}
+   const signature=JSON.stringify(rows);if(seen.has(signature)){if(++stalled>=3){say('Lectura parcial: '+rows.length+' filas confirmadas en esta página. Faltan fechas anteriores al '+oldest.split('-').reverse().join('/')+'.');break;}}else{seen.add(signature);stalled=0;}
    const next=[...document.querySelectorAll('button,a,[role="button"]')].find(el=>!el.closest("[id^='zono-']")&&el.getClientRects().length&&!el.disabled&&el.getAttribute('aria-disabled')!=='true'&&/^(siguiente|ver m[aá]s|cargar m[aá]s|mostrar m[aá]s|m[aá]s movimientos)$/i.test((el.getAttribute('aria-label')||el.innerText||'').trim()));
    if(next)next.click();else window.scrollTo({top:document.documentElement.scrollHeight,behavior:'instant'});say('Leyendo páginas anteriores · '+seen.size+' páginas vistas');await wait(1800);
   }}catch(e){say(e.message+' · reintentá Leer visibles');}finally{busy=false;for(const b of box.querySelectorAll('button'))b.disabled=false;}
