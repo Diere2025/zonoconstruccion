@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Zono - Mercado Pago Monitor",
-  "version": "1.6.5",
+  "version": "1.6.6",
   "description": "Monitoreo automatico de transferencias y cobros de Mercado Pago en tiempo real para Zono ERP.",
   "permissions": [
     "storage",
@@ -30,7 +30,9 @@
       "js": [
         "banking.js",
         "content.js",
-        "capture-refresh.js"
+        "capture-refresh.js",
+        "reserve-parser.js",
+        "reserve-reader.js"
       ],
       "run_at": "document_end"
     }
