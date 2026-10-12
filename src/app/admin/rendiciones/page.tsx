@@ -26,6 +26,7 @@ const deliveryStatusChoice = (status: string) => {
 
 type SettlementStatus = "draft" | "confirmed" | "archived";
 interface SettlementRecord {
+  dispatch_code?: string;
   id: string;
   code: string;
   status: SettlementStatus;
@@ -1023,6 +1024,7 @@ function RendicionesContent() {
                 <div>
                   <div className="flex items-center gap-2">
                     <h1 className="text-base font-black tracking-tight text-slate-900">{code}</h1>
+                    {detail.settlement.dispatch_code && <a className="text-xs font-bold text-blue-700 underline" href={`/admin/logistica-vinculos?delivery=${encodeURIComponent(detail.settlement.dispatch_code)}`}>{detail.settlement.dispatch_code}</a>}
                     <span className={`rounded-md border px-2 py-0.5 text-[10px] font-black uppercase tracking-wider ${statusClasses(detail.settlement)}`}>
                       {statusLabel(detail.settlement)}
                     </span>
@@ -2232,7 +2234,7 @@ function RendicionesContent() {
                     >
                       <div className="min-w-0">
                         <p className="truncate font-black text-slate-900">{row.carrier_name}</p>
-                        <p className="truncate text-[11px] text-slate-500">{row.code}{row.route_detail ? ` · ${row.route_detail}` : ""} · {row.source === "spreadsheet" ? "Planilla" : row.source === "route" ? "Recorrido" : "Manual"}</p>
+                        <p className="truncate text-[11px] text-slate-500">{row.code}{row.dispatch_code ? ` · ${row.dispatch_code}` : ""}{row.route_detail ? ` · ${row.route_detail}` : ""} · {row.source === "spreadsheet" ? "Planilla" : row.source === "route" ? "Recorrido" : "Manual"}</p>
                       </div>
                       <span className={`w-fit rounded-md border px-2 py-0.5 text-[10px] font-bold ${statusClasses(row)}`}>{statusLabel(row)}</span>
                       <div className="sm:text-right">
