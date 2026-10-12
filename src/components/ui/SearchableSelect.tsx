@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useId, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Check, ChevronDown, Search, X } from "lucide-react";
 
 interface Props {
@@ -14,16 +15,19 @@ interface Props {
   clearOnSearch?: boolean;
   disabled?:boolean;
   hideLabel?:boolean;
+  portal?: boolean;
 }
 
 const normalize = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("es").trim();
 
 /** Search selects an existing record; typed text cannot be submitted as a record id. */
-export default function SearchableSelect({ id, label, value, options, onChange, required = false, placeholder = "Seleccionar…", clearOnSearch = true,disabled=false,hideLabel=false }: Props) {
+export default function SearchableSelect({ id, label, value, options, onChange, required = false, placeholder = "Seleccionar…", clearOnSearch = true,disabled=false,hideLabel=false,portal=false }: Props) {
   const generatedId = useId();
   const inputId = id || generatedId;
   const listId = `${inputId}-options`;
   const inputRef = useRef<HTMLInputElement>(null);
+  const [menuPosition, setMenuPosition] = useState<{ left: number; width: number; top?: number; bottom?: number; maxHeight: number } | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
@@ -40,6 +44,38 @@ export default function SearchableSelect({ id, label, value, options, onChange, 
     if (open && highlightedIndex >= 0) document.getElementById(`${listId}-${highlightedIndex}`)?.scrollIntoView({ block: "nearest" });
   }, [open, highlightedIndex, listId]);
 
+  // A portaled menu escapes table overflow while staying attached to its input.
+  useLayoutEffect(() => {
+    if (!portal || !open || disabled) return;
+    const reposition = () => {
+      const input = inputRef.current;
+      if (!input) return;
+      const rect = input.getBoundingClientRect();
+      const gap = 4, margin = 8;
+      const below = window.innerHeight - rect.bottom - gap - margin;
+      const above = rect.top - gap - margin;
+      const upwards = below < 192 && above > below;
+      const width = Math.min(rect.width, window.innerWidth - margin * 2);
+      setMenuPosition({
+        left: Math.max(margin, Math.min(rect.left, window.innerWidth - width - margin)),
+        width,
+        maxHeight: Math.max(0, Math.min(192, upwards ? above : below)),
+        ...(upwards ? { bottom: window.innerHeight - rect.top + gap } : { top: rect.bottom + gap }),
+      });
+    };
+    const onScroll = (event: Event) => {
+      if (event.target instanceof Node && menuRef.current?.contains(event.target)) return;
+      reposition();
+    };
+    reposition();
+    window.addEventListener("resize", reposition);
+    window.addEventListener("scroll", onScroll, true);
+    return () => {
+      window.removeEventListener("resize", reposition);
+      window.removeEventListener("scroll", onScroll, true);
+    };
+  }, [portal, open, disabled]);
+
   const choose = (nextValue: string) => {
     onChange(nextValue);
     setOpen(false);
@@ -47,6 +83,14 @@ export default function SearchableSelect({ id, label, value, options, onChange, 
     setActiveIndex(0);
   };
   const showOptions = () => { setOpen(true); setQuery(""); setActiveIndex(0); };
+
+  const menu = <div ref={menuRef} id={listId} role="listbox" aria-label={label} style={portal ? menuPosition ?? undefined : undefined} className={`${portal ? "fixed z-[1000]" : "absolute left-0 right-0 top-full z-30 mt-1 max-h-48"} overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-white p-1 shadow-xl`}>
+        {filtered.length ? filtered.map((option, index) => <button
+          key={option.value} id={`${listId}-${index}`} type="button" role="option" tabIndex={-1}
+          aria-selected={option.value === value} onMouseDown={event => event.preventDefault()} onClick={() => choose(option.value)}
+          className={`flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm ${index === highlightedIndex ? "bg-brand-50 text-brand-800" : "text-slate-700 hover:bg-slate-50"}`}
+        ><span className="min-w-0 break-words">{option.label}</span>{option.value === value && <Check className="h-4 w-4 shrink-0 text-brand-600" />}</button>) : <p className="px-3 py-3 text-xs text-slate-500">No se encontraron opciones.</p>}
+      </div>;
 
   return (
     <div className="relative min-w-0">
@@ -83,13 +127,7 @@ export default function SearchableSelect({ id, label, value, options, onChange, 
         {value && <button type="button" disabled={disabled} aria-label={`Limpiar ${label.toLocaleLowerCase("es")}`} onMouseDown={event => event.preventDefault()} onClick={() => choose("")} className="absolute right-8 top-1/2 -translate-y-1/2 rounded p-1 text-slate-400 hover:text-slate-600"><X className="h-3.5 w-3.5" /></button>}
         <button type="button" disabled={disabled} aria-label={`${open ? "Cerrar" : "Mostrar"} ${label.toLocaleLowerCase("es")}`} onMouseDown={event => event.preventDefault()} onClick={() => { if (open) setOpen(false); else { inputRef.current?.focus(); showOptions(); } }} className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-slate-400 hover:text-slate-600"><ChevronDown className="h-4 w-4" /></button>
       </div>
-      {!disabled && open && <div id={listId} role="listbox" aria-label={label} className="absolute left-0 right-0 top-full z-30 mt-1 max-h-48 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-xl">
-        {filtered.length ? filtered.map((option, index) => <button
-          key={option.value} id={`${listId}-${index}`} type="button" role="option" tabIndex={-1}
-          aria-selected={option.value === value} onMouseDown={event => event.preventDefault()} onClick={() => choose(option.value)}
-          className={`flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm ${index === highlightedIndex ? "bg-brand-50 text-brand-800" : "text-slate-700 hover:bg-slate-50"}`}
-        ><span className="min-w-0 break-words">{option.label}</span>{option.value === value && <Check className="h-4 w-4 shrink-0 text-brand-600" />}</button>) : <p className="px-3 py-3 text-xs text-slate-500">No se encontraron opciones.</p>}
-      </div>}
+      {!disabled && open && (portal ? menuPosition && createPortal(menu, document.body) : menu)}
     </div>
   );
 }
