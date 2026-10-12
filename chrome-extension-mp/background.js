@@ -1,3 +1,4 @@
+if (typeof importScripts === "function") importScripts("reserve-monitor.js");
 // background.js - Service worker with full CORS bypass
 chrome.runtime.onInstalled.addListener(() => {
   console.log("[Zono MP Monitor] Extension installed successfully");

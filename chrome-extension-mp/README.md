@@ -127,3 +127,7 @@ Sincronizar visibles muestra progreso, confirmación de referencias, lista vací
 
 ### 1.6.4 — Paginación bancaria
 Las rutas /banking/movements/2 y demás páginas numeradas mantienen el canal de Movimientos y la pestaña monitor. Las rutas de captura del ERP también aceptan esas páginas.
+
+## Monitor de Reserva Diego (1.7.0)
+
+En el perfil MP3, abrí la pestaña de Reserva Diego y pulsá **Activar monitor**. Tiene una selección de pestaña independiente de Actividad y Movimientos. La activación se conserva al recargar; la lectura del histórico suspende el refresco hasta terminar. Usa los intervalos de trabajo/fuera de horario del perfil (mínimo 60 segundos; valores predeterminados 60/600 segundos). Mantené la pestaña abierta. La evidencia se cruza con los asientos existentes en el ERP; no se vuelve a ingresar un interés ya registrado.
