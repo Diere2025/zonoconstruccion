@@ -10,7 +10,8 @@ const aliases: Record<string,string> = {
 export type BankAccount = {id:string;name:string;currency:string;type:string;is_active:boolean};
 export type BankRow = {key:string;sheetRow:number;date:string;accountId:string;accountName:string;type:'ingreso'|'egreso';amount:number;concept:string;category:string;subCategory:string;businessUnit:string;efeCategory:string;status:'new'|'imported'|'review';reason?:string};
 export type BankPreview = {hash:string;rows:BankRow[];accounts:BankAccount[];issues:{sheetRow:number;reason:string}[];excludedCash:number;from:string;to:string};
-export const bankAccounts = (accounts:BankAccount[]) => accounts.filter(row=>row.type!=='efectivo' && row.currency==='ARS' && Object.values(aliases).includes(row.name));
+const canonicalAccountName = (name:string) => name.replace(/^Cuenta[.\s]+/i, '');
+export const bankAccounts = (accounts:BankAccount[]) => accounts.filter(row=>row.type!=='efectivo' && row.currency==='ARS' && Object.values(aliases).some(name=>canonicalAccountName(name)===canonicalAccountName(row.name)));
 export function parseBankCsv(content:string):string[][] {
   const rows:string[][]=[]; let row:string[]=[],cell='',quoted=false;
   for(let i=0;i<content.length;i++){
@@ -48,7 +49,7 @@ export function parseBankSheet(csv:string,accounts:BankAccount[],from:string,to:
     const date=dateFrom(raw[1]||'');
     if(!date){issues.push({sheetRow:index+1,reason:'Fecha inválida'});continue;}
     if(date<from || date>to)continue;
-    const box=bankAccounts(accounts).find(row=>row.name===name);
+    const box=bankAccounts(accounts).find(row=>canonicalAccountName(row.name)===canonicalAccountName(name));
     if(!box || !box.is_active){issues.push({sheetRow:index+1,reason:`Cuenta no disponible: ${name}`});continue;}
     if(accountId && box.id!==accountId)continue;
     const amount=amountFrom(raw[6]||'');

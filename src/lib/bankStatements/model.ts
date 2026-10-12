@@ -116,7 +116,7 @@ export function suggestStatementConcept(entry: Pick<StatementEntry, 'description
   const matches = concepts.filter(concept => concept.is_active && normalizedStatementText(concept.concept) === normalizedStatementText(target) && (target !== 'Cobro' || normalizedStatementText(concept.category) === 'recaudacion') && (target !== 'MP - Intereses Ganados' || normalizedStatementText(concept.category) === 'inversiones'));
   return matches.length === 1 ? matches[0].id : null;
 }
-export const isMercadoPagoAccount = (account: { name: string; currency: string; type: string; is_active: boolean }) => account.is_active && account.currency === 'ARS' && ['banco', 'virtual'].includes(account.type) && /^Cuenta[. ]MP(?:\d+|Caro)$/i.test(account.name);
+export const isMercadoPagoAccount = (account: { name: string; currency: string; type: string; is_active: boolean }) => account.is_active && account.currency === 'ARS' && ['banco', 'virtual'].includes(account.type) && /^(?:Cuenta[. ]+)?MP(?:\d+|Caro)$/i.test(account.name);
 
 
 

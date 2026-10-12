@@ -37,3 +37,14 @@ test('recognizes an existing manual payment without consuming it twice for repea
   const existing=[{financial_account_id:'mp3',created_at:'2026-09-30T15:00:00Z',type:'egreso',amount:'675000',concept:' PUBLICIDAD '}];
   assert.equal(bank.classifyBankRows([row,{...row,key:'second'}],existing).map(row=>row.status).join(','),'imported,review');
 });
+
+test('renamed accounts keep legacy sheet aliases and import keys, excluding reserves',()=>{
+ const csv=[header,'Otro,30/09/2026,Cobro,Recaudación,ZONO,Ingreso,500,Cuenta.MP3'].join('\n');
+ const renamed=accounts.map(a=>({...a,name:a.name.replace(/^Cuenta /,'')}));
+ renamed.push({...renamed[0],id:'reserve',name:'MP3 Reserva Diego'});
+ const before=bank.parseBankSheet(csv,accounts,'2026-09-30','2026-09-30');
+ const after=bank.parseBankSheet(csv,renamed,'2026-09-30','2026-09-30');
+ assert.equal(after.issues.length,0);assert.equal(after.rows[0].accountName,'MP3');
+ assert.equal(after.rows[0].key,before.rows[0].key);
+ assert.equal(bank.bankAccounts(renamed).some(a=>a.id==='reserve'),false);
+});

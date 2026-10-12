@@ -26,3 +26,9 @@ test('MP yields and received funds use the requested active categories, only for
 test('web gross yield has the same concept as official investment yield and keeps sign guard',()=>{const concepts=[{id:'interest',concept:'MP - Intereses Ganados',category:'Inversiones',is_active:true}];assert.equal(model.suggestStatementConcept({description:'Rendimiento bruto',signed_amount:'142.80'},concepts,[],'mp3'),'interest');assert.equal(model.suggestStatementConcept({description:'Rendimiento bruto',signed_amount:'-142.80'},concepts,[],'mp3'),null);});
 
 test('identified reserve transfers suggest an internal movement on both signed components',()=>{const concepts=[{id:'reserve',concept:'Movimiento de cuentas',category:'Movimiento de cuentas',is_active:true}];for(const amount of ['120000.00','-120000.00'])assert.equal(model.suggestStatementConcept({description:'Movimiento de cuentas',signed_amount:amount},concepts,[],'mp3'),'reserve');assert.equal(model.suggestStatementConcept({description:'Movimiento desconocido',signed_amount:'120000.00'},concepts,[],'mp3'),null);});
+
+test('concise MP account names keep imports enabled and reserves separate',()=>{
+ const account={currency:'ARS',type:'virtual',is_active:true};
+ for(const name of ['Cuenta MP3','Cuenta.MP4','MP3','MP4','MP5'])assert.equal(model.isMercadoPagoAccount({...account,name}),true);
+ for(const name of ['MP3 Reserva Diego','Reserva Diego','Galicia'])assert.equal(model.isMercadoPagoAccount({...account,name}),false);
+});

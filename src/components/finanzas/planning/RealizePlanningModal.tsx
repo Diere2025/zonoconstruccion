@@ -29,8 +29,8 @@ const defaultAccount = (accounts: Account[], fund: Fund) => {
   const compatible = accounts.filter(account => account.is_active && account.currency === fund.currency);
   if (fund.kind === 'cash') return (compatible.find(account => account.name === 'Caja Efectivo Pesos')
     || compatible.find(account => account.type === 'efectivo') || compatible[0])?.id || '';
-  if (fund.kind === 'personal') return (compatible.find(account => account.name === 'Cuenta MP3') || compatible[0])?.id || '';
-  return (compatible.find(account => account.type !== 'efectivo' && !/^Cuenta MP[345]$/i.test(account.name)) || compatible[0])?.id || '';
+  if (fund.kind === 'personal') return (compatible.find(account => /^(?:Cuenta[. ]+)?MP3$/i.test(account.name)) || compatible[0])?.id || '';
+  return (compatible.find(account => account.type !== 'efectivo' && !/^(?:Cuenta[. ]+)?MP[345]$/i.test(account.name)) || compatible[0])?.id || '';
 };
 
 export default function RealizePlanningModal({ item, sourceFund, funds, initialAmount, initialDate,
