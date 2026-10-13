@@ -33,6 +33,9 @@ function route(prior,options={}) {
       : name === 'next/server' ? { NextResponse: { json: (body, options) => ({ body, status: options?.status || 200 }) } }
       : name === '@/lib/financialOperations/server' ? {financialContext:async()=>({db})}
       : name === '@/lib/financialOperations/validation' ? {OperationError:class extends Error {}}
+      : name === '@/lib/financialClassification/server' ? {movementClassifications:async()=>new Map()}
+      : name === '@/lib/financialOperations/referenceServer' ? {movementApplications:async()=>new Map()}
+      : name === '@/lib/financialOperations/partnerReporting' ? {partnerAssignments:async()=>new Map(),businessPortion:()=>({})}
       : { compareTreasuryTransactions: () => 0 }
   });
   return { GET: exports.GET, reads: () => reads,selections };

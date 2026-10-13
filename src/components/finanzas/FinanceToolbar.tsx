@@ -157,7 +157,7 @@ export default function FinanceToolbar(p: Props) {
         <AdaptiveSelect aria-label="Cuenta financiera" value={p.account} onChange={e => p.onAccount(e.target.value)} className={`${control} max-w-60`}><option value="all">Todas las cuentas</option>{p.accounts.map(a => <option key={a.id} value={a.id}>{financialAccountLabel(a.name)}</option>)}</AdaptiveSelect>
         <AdaptiveSelect aria-label="Tipo de movimiento" value={p.type} onChange={e => p.onType(e.target.value as "all" | "ingreso" | "egreso")} className={control}><option value="all">Todos los tipos</option><option value="ingreso">Ingresos</option><option value="egreso">Egresos</option></AdaptiveSelect>
         <button type="button" aria-expanded={moreFilters} onClick={() => setMoreFilters(value => !value)} className={action}><SlidersHorizontal className="h-3.5 w-3.5" />Más filtros{additionalFilters > 0 && <span className="rounded bg-brand-50 px-1 text-brand-700">{additionalFilters}</span>}</button>
-        {(p.search || p.account !== "all" || p.type !== "all" || additionalFilters > 0 || p.period !== "30dias") && <button type="button" onClick={p.onClear} className="text-xs font-semibold text-brand-600 hover:underline">Limpiar filtros</button>}
+        {(p.search || p.account !== "all" || p.type !== "all" || additionalFilters > 0 || p.period !== "7dias") && <button type="button" onClick={p.onClear} className="text-xs font-semibold text-brand-600 hover:underline">Limpiar filtros</button>}
         <button type="button" onClick={p.onRefresh} aria-label="Actualizar movimientos" title="Actualizar movimientos" className={action}><RefreshCw className="h-3.5 w-3.5" /></button>
       </div>
       {moreFilters && <div className="mt-2.5 flex flex-wrap gap-3 border-t border-slate-100 pt-2.5">

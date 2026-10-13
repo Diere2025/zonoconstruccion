@@ -224,7 +224,11 @@ export async function GET(request: Request) {
         if (page.length < pageSize) break;
       }
 
-      const applications=operationsAvailable?await movementApplications(supabaseAdmin,allData):new Map();
+      const ids = allData.map(t=>t.id);
+      const [applications,classifications] = await Promise.all([
+        operationsAvailable ? movementApplications(supabaseAdmin,allData) : Promise.resolve(new Map()),
+        movementClassifications(supabaseAdmin,ids)
+      ]);
       // 3. Compute running balance
       const txsWithRunningBalance = allData.sort(compareTreasuryTransactions).map(t => {
         const accId = t.financial_account_id || 'cash_register';
@@ -246,7 +250,6 @@ export async function GET(request: Request) {
         };
       });
 
-      const classifications=await movementClassifications(supabaseAdmin,txsWithRunningBalance.map(t=>t.id));
       for(const t of txsWithRunningBalance)Object.assign(t,{classification:classifications.get(t.id)||null});
       // Reverse to display newest first
       txsWithRunningBalance.reverse();

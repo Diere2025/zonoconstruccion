@@ -5,6 +5,7 @@ import {supplierVoucherPending} from '@/lib/financialOperations/voucherStatus';
 import AdaptiveSelect from "@/components/ui/AdaptiveSelect";
 
 import React, { useState, useEffect, useMemo, useRef, Suspense } from "react";
+import { financeDateRange } from '@/lib/financeDateRange';
 import { treasuryDateTime, treasuryToday } from "@/lib/treasuryTransactionTime";
 import { supabase } from "@/lib/supabase";
 import OrderApplications from '@/components/finanzas/operations/OrderApplications';
@@ -532,13 +533,9 @@ function FinanceWorkspace() {
   const [tfDate, setTfDate] = useState(treasuryToday);
 
   // Filtros del Flujo de Caja
-  const [startDate, setStartDate] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 30);
-    return d.toISOString().split('T')[0];
-  });
-  const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0]);
-  const [presetRange, setPresetRange] = useState("30dias");
+  const [startDate, setStartDate] = useState(() => financeDateRange('7dias').start);
+  const [endDate, setEndDate] = useState(treasuryToday);
+  const [presetRange, setPresetRange] = useState("7dias");
   const [filterAccountId, setFilterAccountId] = useState("all");
   const [filterType, setFilterType] = useState<'all' | 'ingreso' | 'egreso'>('all');
   const [filterCategory, setFilterCategory] = useState("all");
@@ -855,37 +852,7 @@ function FinanceWorkspace() {
     setPresetRange(preset);
     if (preset === "personalizado") return;
 
-    const d = new Date();
-    let start = d.toISOString().split('T')[0];
-    let end = d.toISOString().split('T')[0];
-
-    switch (preset) {
-      case "hoy":
-        break;
-      case "ayer":
-        d.setDate(d.getDate() - 1);
-        start = d.toISOString().split('T')[0];
-        end = d.toISOString().split('T')[0];
-        break;
-      case "7dias":
-        d.setDate(d.getDate() - 7);
-        start = d.toISOString().split('T')[0];
-        end = new Date().toISOString().split('T')[0];
-        break;
-      case "30dias":
-        d.setDate(d.getDate() - 30);
-        start = d.toISOString().split('T')[0];
-        end = new Date().toISOString().split('T')[0];
-        break;
-      case "mes":
-        start = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
-        end = new Date().toISOString().split('T')[0];
-        break;
-      case "año":
-        start = `${d.getFullYear()}-01-01`;
-        end = new Date().toISOString().split('T')[0];
-        break;
-    }
+    const { start, end } = financeDateRange(preset);
 
     setStartDate(start);
     setEndDate(end);
@@ -1261,7 +1228,7 @@ function FinanceWorkspace() {
             category={filterCategory} onCategory={value => { setFilterCategory(value); setCurrentPage(1); }} categories={categoriesList}
             unit={filterCostCenterId} onUnit={value => { setFilterCostCenterId(value); setCurrentPage(1); }} units={costCenters}
             showCancelled={showCancelled} onShowCancelled={value => { setShowCancelled(value); setCurrentPage(1); }}
-            onClear={() => { setShowCancelled(false); setSearchTerm(""); setFilterAccountId("all"); setFilterType("all"); setFilterCategory("all"); setFilterCostCenterId("all"); handlePresetChange("30dias"); setCurrentPage(1); }}
+            onClear={() => { setShowCancelled(false); setSearchTerm(""); setFilterAccountId("all"); setFilterType("all"); setFilterCategory("all"); setFilterCostCenterId("all"); handlePresetChange("7dias"); setCurrentPage(1); }}
             onRefresh={() => { void loadTransactions(); }} onNew={openQuickMovement} onTransfer={() => openQuickTransfer()}
             onConcepts={() => setIsConceptManagerOpen(true)} onExport={handleExportCSV} onSync={handleSyncFromSheets}
             syncing={false} disabled={(operationsAvailable===false && !localInspection) || Boolean(initDataError && financialAccounts.length === 0)}

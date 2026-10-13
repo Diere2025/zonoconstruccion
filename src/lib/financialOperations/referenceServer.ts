@@ -1,3 +1,4 @@
+import { readBatches } from './readBatches';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { movementCode, movementHref, supplierApplications, type ApplicationReference, type CodedMovement } from './references';
 async function all<T>(query: {range:(start:number,end:number)=>PromiseLike<{data:T[]|null;error:unknown}>}): Promise<T[]> {
@@ -24,8 +25,8 @@ export async function supplierReferenceData(db: SupabaseClient, supplierId: stri
 }
 export async function movementApplications(db: SupabaseClient, rows: Array<CodedMovement & {operation_id?: string | null}>) {
   const result=new Map<string,ApplicationReference[]>();
-  for(let i=0;i<rows.length;i+=100){
-    const chunk=rows.slice(i,i+100), ids=chunk.map(t=>t.id);
+  await readBatches(rows, async chunk => {
+    const ids=chunk.map(t=>t.id);
     const [payments,clients]=await Promise.all([
       all(db.from('supplier_payments').select('id,cash_transaction_id,purchase_id,amount,reversed_at').in('cash_transaction_id',ids).order('id')),
       all(db.from('client_payments').select('id,cash_transaction_id,reversed_at,amount,orders(id,legacy_code)').in('cash_transaction_id',ids).order('id'))
@@ -62,10 +63,11 @@ export async function movementApplications(db: SupabaseClient, rows: Array<Coded
       const failure=error as {code?:string;message?:string};
       if(!['42P01','PGRST205','PGRST200'].includes(failure.code||'')||!failure.message?.includes('logistics_dispatch_movements'))throw error;
     }
+
     const ops=chunk.map(t=>t.operation_id).filter(Boolean);
     if(ops.length){const vouchers=await all(db.from('operation_vouchers').select('operation_id,voucher_id,treasury_vouchers(id,reference)').in('operation_id',ops).order('operation_id').order('voucher_id'));
       for(const t of chunk)for(const v of vouchers){const voucher=one(v.treasury_vouchers);if(v.operation_id===t.operation_id&&voucher){const list=result.get(t.id)||[];list.push({id:v.voucher_id,code:voucher.reference||v.voucher_id,kind:'Comprobante',href:`/admin/comprobantes-tesoreria?voucher=${v.voucher_id}`});result.set(t.id,list);}}}
-  }
+  });
   return result;
 }
 export async function voucherMovementReferences(db: SupabaseClient, voucherIds: string[]) {
