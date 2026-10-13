@@ -43,10 +43,10 @@ test('biodigestor overrides prior and manually selected categories regardless of
 test('discounts, installation services, accessories and zero quantities do not force biodigestor', () => {
   for (const item of [
     { name: 'Descuento Combo Biodigestor', quantity: 1 },
-    { name: 'Mano de obra Biodigestor', quantity: 1 },
     { name: 'Cono Biodigestor', quantity: 1 },
     { name: 'Biodigestor 500L', quantity: 0 }
   ]) assert.equal(resolve([item], 'OTRO'), 'OTRO');
+  assert.equal(resolve([{name:'Mano de obra Biodigestor',quantity:1}], 'OTRO'), 'INSTALACIÓN BIOFORT');
 });
 
 test('standalone products, SKU matching and unrelated categories stay supported', () => {
@@ -57,4 +57,28 @@ test('standalone products, SKU matching and unrelated categories stay supported'
   assert.equal(detect([{ name: 'Kit cámara de inspección CII', quantity: 1 }]), 'OTRO');
   assert.equal(detect([{ name: 'Descuento Combo Biodigestor', quantity: 1 }, { name: 'Tanque 1000L', quantity: 2 }]), 'TANQUES');
   assert.equal(detect([]), 'OTRO');
+});
+
+test('JS26123 / JS26124: biodigestor included at $0 belongs to the installation', () => {
+  for (const priceField of ['customPrice', 'unit_price', 'unitPrice']) {
+    const items = [
+      { name: 'Kit Instalación Biodigestor Convencional 600L', quantity: 1, [priceField]: 1730000 },
+      { name: 'BioFort - Biodigestor 600L', quantity: 1, [priceField]: 0 },
+      { name: 'BioFort - Séptica 600L', quantity: 1, [priceField]: 0 },
+      { name: 'Awaduct - Caño 110 4mts', quantity: 3, [priceField]: 0 }
+    ];
+    assert.equal(detect(items), 'INSTALACIÓN BIOFORT');
+    assert.equal(resolve(items, 'BIODIGESTOR'), 'INSTALACIÓN BIOFORT');
+    assert.equal(resolve(items.map(({name,...rest})=>({product_name:name,...rest})), 'auto'), 'INSTALACIÓN BIOFORT');
+    assert.equal(detect([...items, {name:'BioFort - Biodigestor 600L',quantity:1,[priceField]:300000}]), 'BIODIGESTOR');
+  }
+  assert.equal(detect([
+    {name:'Kit Instalación Biodigestor Convencional 600L',quantity:1},
+    {name:'BioFort - Biodigestor 600L',quantity:1,isIncludedInKit:true}
+  ]), 'INSTALACIÓN BIOFORT');
+  assert.equal(detect([{name:'BioFort - Biodigestor 600L',quantity:1,unit_price:0}]), 'BIODIGESTOR');
+  assert.equal(detect([
+    {name:'Kit Instalación Biodigestor Convencional 600L',quantity:0},
+    {name:'BioFort - Biodigestor 600L',quantity:1,unit_price:0}
+  ]), 'BIODIGESTOR');
 });

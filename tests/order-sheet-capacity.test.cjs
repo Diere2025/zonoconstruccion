@@ -152,18 +152,19 @@ test('an expansion permission failure prevents order writes and blocks the downs
   assert.equal(f.calls.filter(c=>c.url.endsWith('?fields=sheets.properties')).length,1);
 });
 
-test('biodigestor overrides an old OTRO payload in every seller and operational row',async()=>{
+test('JS26123 / JS26124: every split sheet row keeps installation when components are included at $0',async()=>{
   const f=fixture();
-  vm.runInContext("getNextAvailableSheetSlots=async()=>[{code:'JS1',rowNumber:2700},{code:'JS2',rowNumber:2701}]; getNextEmptyOperationalRows=async()=>[2700,2701]",f.context);
-  const order={clientName:'Cliente',category:'OTRO',items:[
-    {name:'BioFort - Biodigestor 500L',quantity:1,unitPrice:100},
-    ...Array.from({length:12},()=>({name:'Otro producto',quantity:100,unitPrice:10}))
+  vm.runInContext("getNextAvailableSheetSlots=async()=>[{code:'JS26123',rowNumber:2700},{code:'JS26124',rowNumber:2701}]; getNextEmptyOperationalRows=async()=>[2700,2701]",f.context);
+  const order={clientName:'Cliente',category:'BIODIGESTOR',items:[
+    {name:'Kit Instalación Biodigestor Convencional 600L',quantity:1,unitPrice:1730000},
+    {name:'BioFort - Biodigestor 600L',quantity:1,unitPrice:0},
+    ...Array.from({length:11},()=>({name:'Accesorio incluido',quantity:1,unitPrice:0}))
   ]};
   await f.exports.appendOrderToSellerSheet('seller','Pendientes',order);
-  const operational=await f.exports.appendNewOrderToOperationalSheets(['JS1','JS2'],order);
-  assert.equal(operational.central.success,true);
-  assert.equal(operational.deliveriesCurrent.success,true);
+  const result=await f.exports.appendNewOrderToOperationalSheets(['JS26123','JS26124'],order);
+  assert.equal(result.central.success,true);
+  assert.equal(result.deliveriesCurrent.success,true);
   const categories=f.calls.flatMap(c=>c.body?.data||[]).filter(d=>/![UT]\d+:[VW]\d+$/.test(d.range));
   assert.equal(categories.length,6);
-  assert.ok(categories.every(d=>d.values[0][0]==='BIODIGESTOR'));
+  assert.ok(categories.every(d=>d.values[0][0]==='INSTALACIÓN BIOFORT'));
 });

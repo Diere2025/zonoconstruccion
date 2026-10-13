@@ -4,18 +4,35 @@ export interface CategoryOrderItem {
   sku?: string;
   category?: string;
   quantity: number;
+  customPrice?: number | null;
+  unit_price?: number | string | null;
+  unitPrice?: number | null;
+  isIncludedInKit?: boolean;
+}
+
+export function hasBiofortInstallation(items: CategoryOrderItem[]): boolean {
+  return items.some(item => {
+    const full = `${item.name || item.product_name || ""} ${item.sku || ""} ${item.category || ""}`.toLowerCase();
+    return item.quantity > 0 && (full.includes("instalaci") || full.includes("mano de obra")) &&
+      /biofort|biodigestor|séptic|septic/.test(full);
+  });
 }
 
 export function hasBiodigestor(items: CategoryOrderItem[]): boolean {
+  const installation = hasBiofortInstallation(items);
   return items.some(item => {
     const full = `${item.name || item.product_name || ""} ${item.sku || ""}`.toLowerCase();
-    return item.quantity > 0 && /\bbiodigestor(?:es)?\b/.test(full) &&
+    const price = item.customPrice ?? item.unit_price ?? item.unitPrice;
+    // Kit components at $0 belong to the installation, not a separate sale.
+    const included = installation && (item.isIncludedInKit === true || (price != null && Number(price) === 0));
+    return !included && item.quantity > 0 && /\bbiodigestor(?:es)?\b/.test(full) &&
       !/descuento|bonificaci|instalaci|mano de obra|\bcono\b/.test(full);
   });
 }
 
 export function resolveOrderCategory(items: CategoryOrderItem[], requested?: string | null): string {
   if (hasBiodigestor(items)) return "BIODIGESTOR";
+  if (hasBiofortInstallation(items)) return "INSTALACIÓN BIOFORT";
   return requested?.trim() && requested !== "auto" ? requested.trim() : detectOrderCategory(items);
 }
 
@@ -26,13 +43,7 @@ export function detectOrderCategory(orderItems: CategoryOrderItem[]): string {
 
   // A complete BioFort installation contains many $0 accessories. Its category
   // must be defined by the installation item, not by the most numerous accessory.
-  const hasBiofortInstallation = orderItems.some(item => {
-    const full = `${item.name || item.product_name || ""} ${item.sku || ""} ${item.category || ""}`.toLowerCase();
-    const isInstallation = full.includes("instalaci") || full.includes("mano de obra");
-    const isBiofort = full.includes("biofort") || full.includes("biodigestor") || full.includes("séptic") || full.includes("septic");
-    return isInstallation && isBiofort;
-  });
-  if (hasBiofortInstallation) return "INSTALACIÓN BIOFORT";
+  if (hasBiofortInstallation(orderItems)) return "INSTALACIÓN BIOFORT";
 
   let termotanqueCount = 0;
   let tanquesCount = 0;

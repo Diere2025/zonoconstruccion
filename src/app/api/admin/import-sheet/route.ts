@@ -1,4 +1,4 @@
-import { hasBiodigestor } from '@/lib/orderCategory';
+import { hasBiodigestor, hasBiofortInstallation } from '@/lib/orderCategory';
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
@@ -697,7 +697,7 @@ export async function POST(request: Request) {
       let mepsCount = 0;
       let escalerasCount = 0;
       let pinturasCount = 0;
-      const categoryItems: { name: string; quantity: number }[] = [];
+      const categoryItems: { name: string; quantity: number; unit_price: number }[] = [];
 
       for (let pIdx = 30; pIdx < row.length; pIdx += 4) {
         const prodName = (row[pIdx] || "").trim();
@@ -706,7 +706,7 @@ export async function POST(request: Request) {
         const qty = parseInt(prodQtyRaw.replace(/[^0-9.-]/g, ''), 10) || 0;
         if (qty <= 0) continue;
 
-        categoryItems.push({ name: prodName, quantity: qty });
+        categoryItems.push({ name: prodName, quantity: qty, unit_price: parseSpanishNumber((row[pIdx + 2] || "").trim()) });
         const nameLower = prodName.toLowerCase();
         if (nameLower.includes("termotanque") || nameLower.includes("termo")) termotanqueCount += qty;
         else if (nameLower.includes("aquafort") || nameLower.includes("tanque") || nameLower.includes("base") || nameLower.includes("flotante") || nameLower.includes("flotador")) tanquesCount += qty;
@@ -728,6 +728,7 @@ export async function POST(request: Request) {
       counts.sort((a, b) => b.count - a.count);
       if (counts[0].count > 0) deducedCategory = counts[0].cat;
       if (hasBiodigestor(categoryItems)) deducedCategory = "BIODIGESTOR";
+      else if (hasBiofortInstallation(categoryItems)) deducedCategory = "INSTALACIÓN BIOFORT";
 
       let dbOrderStatus = 'Pendiente';
       const normStatus = normalizeText(rawStatus);
