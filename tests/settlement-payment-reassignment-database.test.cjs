@@ -1,0 +1,64 @@
+const fs = require('node:fs');
+const assert = require('node:assert/strict');
+const path = require('node:path');
+const { PGlite } = require(require.resolve('@electric-sql/pglite', { paths: [path.resolve('.codex-tmp/supplier-account-check')] }));
+(async () => {
+ const db = new PGlite();
+ const actor = '00000000-0000-0000-0000-000000000001';
+ const settlement = '00000000-0000-0000-0000-000000000002';
+ const route = '00000000-0000-0000-0000-000000000003';
+ const oldOrder = '00000000-0000-0000-0000-000000000004';
+ const newOrder = '00000000-0000-0000-0000-000000000005';
+ try {
+  await db.exec(`create role anon; create role authenticated; create role service_role;
+   create schema auth; create table auth.users(id uuid primary key, email text);
+   create table sellers(id uuid, full_name text);
+   create table treasury_settlements(id uuid primary key, status text, route_sheet_id uuid);
+   create table mp_payments(id text primary key, order_id uuid, order_code text, linked_by text, linked_at timestamptz);
+   create table treasury_settlement_electronic_tickets(settlement_id uuid, mp_payment_id text);
+   create table orders(id uuid primary key, legacy_code text);
+   create table deliveries(order_id uuid, route_sheet_id uuid);
+   create function can_manage_treasury_settlements(uuid default null) returns boolean language sql as $$ select $1 is null or $1 = '${actor}'::uuid $$;
+   create function save_treasury_settlement_with_orders(p_save jsonb, p_statuses jsonb) returns treasury_settlements language plpgsql as $$
+   declare s treasury_settlements; begin
+    if p_save->>'fail' = 'yes' then raise exception 'save failed'; end if;
+    select * into s from treasury_settlements where id=(p_save->>'p_settlement_id')::uuid; return s;
+   end; $$;
+   insert into auth.users values ('${actor}', 'laura@example.test');
+   insert into sellers values ('${actor}', 'Laura');
+   insert into treasury_settlements values ('${settlement}', 'draft', '${route}');
+   insert into orders values ('${oldOrder}', 'JS25776'), ('${newOrder}', 'JS25914');
+   insert into deliveries values ('${oldOrder}', '${route}'), ('${newOrder}', '${route}');
+   insert into mp_payments values ('payment-1', '${oldOrder}', 'JS25776', 'Logística', null);`);
+  const sql=fs.readFileSync('database/db_migration_v201_settlement_payment_reassignment.sql','utf8');
+  await db.exec(sql); await db.exec(sql);
+  const changes = [{ payment_id: 'payment-1', previous_order_id: oldOrder, previous_order_code: 'JS25776', order_id: newOrder, order_code: 'JS25914' }];
+  const save = { p_actor_id: actor, p_settlement_id: settlement, p_electronic_tickets: [{ mp_payment_id: 'payment-1', order_id: newOrder, order_code: 'JS25914', amount: 277000 }] };
+  const call = (payload=save, reassignment=changes) => db.query('select * from save_treasury_settlement_with_payment_links($1,$2,$3)', [payload, [], reassignment]);
+  const payment = async () => (await db.query("select * from mp_payments where id='payment-1'")).rows[0];
+  await assert.rejects(call({...save, p_actor_id: newOrder}), /permisos/);
+  await assert.rejects(call(save, [changes[0], changes[0]]), /más de un pedido/);
+  await assert.rejects(call({...save, fail: 'yes'}), /save failed/);
+  assert.equal((await payment()).order_code, 'JS25776');
+  assert.equal((await db.query('select * from treasury_settlement_payment_reassignments')).rows.length, 0);
+  await db.exec(`update treasury_settlements set status='confirmed'`);
+  await assert.rejects(call(), /Reabrí/);
+  await db.exec(`update treasury_settlements set status='draft'`);
+  await assert.rejects(call(save, [{...changes[0], order_code: 'JS2591'}]), /no pertenece al recorrido/);
+  await assert.rejects(call({...save,p_electronic_tickets:[]}), /no coincide/);
+  await db.exec(`delete from deliveries where order_id='${oldOrder}'`);
+  await assert.rejects(call(), /pago no pertenece/);
+  await db.exec(`insert into treasury_settlement_electronic_tickets values ('${settlement}', 'payment-1')`);
+  await call();
+  assert.equal((await payment()).order_code, 'JS25914');
+  assert.equal((await payment()).order_id, newOrder);
+  assert.equal((await payment()).linked_by, 'Laura');
+  const audit = (await db.query('select * from treasury_settlement_payment_reassignments')).rows;
+  assert.equal(audit.length, 1); assert.equal(audit[0].previous_order_code, 'JS25776'); assert.equal(audit[0].order_code, 'JS25914');
+  await assert.rejects(call(), /Otro usuario/);
+  assert.equal((await db.query('select * from treasury_settlement_payment_reassignments')).rows.length, 1);
+  const permissions = (await db.query("select has_function_privilege('authenticated','save_treasury_settlement_with_payment_links(jsonb,jsonb,jsonb)','execute') client, has_function_privilege('service_role','save_treasury_settlement_with_payment_links(jsonb,jsonb,jsonb)','execute') server")).rows[0];
+  assert.equal(permissions.client,false); assert.equal(permissions.server,true);
+  console.log('PASS: atomic rollback, authorization, draft lock, route scope, ticket consistency, reassignment, audit and stale-write rejection.');
+ } finally { await db.close(); }
+})().catch(error => { console.error(error); process.exitCode=1; });

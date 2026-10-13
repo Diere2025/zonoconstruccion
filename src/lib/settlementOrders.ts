@@ -56,7 +56,7 @@ export function isExcludedSettlementTicket(ticket: SettlementTicketReference, or
     return Boolean(
       (ticket.orderId && order.orderId && ticket.orderId === order.orderId) ||
       (code && normalizeCode(order.orderCode) === code) ||
-      (ticket.mpPaymentId && order.linkedPayments?.some(payment => payment.id === ticket.mpPaymentId)),
+      (!ticket.orderId && !code && ticket.mpPaymentId && order.linkedPayments?.some(payment => payment.id === ticket.mpPaymentId)),
     );
   });
 }

@@ -73,6 +73,10 @@ interface ElectronicTicketRow {
   orderId?: string | null;
   orderCode?: string | null;
   mpPaymentId?: string | null;
+  paymentOrderCode?: string | null;
+  paymentOrderId?: string | null;
+  originalOrderCode?: string | null;
+  originalOrderId?: string | null;
   notes?: string | null;
 }
 export interface LinkedPaymentInfo {
@@ -382,6 +386,8 @@ function RendicionesContent() {
       orderId: ticket.order_id || null,
       orderCode: ticket.order_code || null,
       mpPaymentId: ticket.mp_payment_id || null,
+      paymentOrderCode: ticket.payment_order_code,
+      paymentOrderId: ticket.payment_order_id,
       notes: ticket.notes || "",
     }));
     setElectronicTickets(loadedTickets);
@@ -702,6 +708,8 @@ function RendicionesContent() {
           : ticket.reference;
         return {
           ...ticket,
+          originalOrderCode: ticket.originalOrderCode !== undefined ? ticket.originalOrderCode : (ticket.paymentOrderCode !== undefined ? ticket.paymentOrderCode : ticket.orderCode || null),
+          originalOrderId: ticket.originalOrderCode !== undefined ? ticket.originalOrderId : (ticket.paymentOrderCode !== undefined ? ticket.paymentOrderId : ticket.orderId || null),
           orderCode: cleanCode || null,
           orderId: matched?.orderId || null,
           reference: autoRef,
@@ -941,6 +949,8 @@ function RendicionesContent() {
             order_id: ticket.orderId || null,
             order_code: ticket.orderCode || null,
             mp_payment_id: ticket.mpPaymentId || null,
+            original_order_code: ticket.originalOrderCode,
+            original_order_id: ticket.originalOrderId,
             notes: ticket.notes || null,
           })),
         }),
@@ -1669,7 +1679,7 @@ function RendicionesContent() {
               <div className="flex-1 overflow-y-auto p-4 space-y-3.5">
                 <ElectronicTicketEditor
                   title="Tickets detallados"
-                  subtitle="Los pagos de pedidos postergados o anulados quedan visibles, pero no se descuentan del efectivo de este recorrido."
+                  subtitle="Al cambiar el pedido de un pago vinculado y guardar, también se corrige Chequeo de Pagos. Los pagos de pedidos postergados o anulados no se descuentan del efectivo del recorrido."
                   tickets={electronicTickets}
                   routeOrders={routeOrders}
                   readOnly={readOnly}
@@ -2919,7 +2929,7 @@ function ElectronicTicketEditor({
                       ticket.orderCode ? "border-blue-300 text-blue-900" : "border-amber-300 text-amber-900 bg-amber-50/30"
                     }`}
                   >
-                    <option value="">-- Seleccionar pedido del recorrido --</option>
+                    <option value="" disabled={Boolean(ticket.mpPaymentId)}>-- Seleccionar pedido del recorrido --</option>
                     {ticket.orderCode && !routeOrders.some(o => o.orderCode.trim().toUpperCase() === cleanCode) && (
                       <option value={ticket.orderCode}>
                         {ticket.orderCode} (Externo o manual)

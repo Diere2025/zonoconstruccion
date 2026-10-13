@@ -1,3 +1,4 @@
+import { settlementPaymentReassignments } from "@/lib/settlementPaymentReassignment";
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
@@ -38,6 +39,8 @@ type ElectronicTicketPayload = {
   order_id?: string | null;
   order_code?: string | null;
   mp_payment_id?: string | null;
+  original_order_code?: string | null;
+  original_order_id?: string | null;
   notes?: string | null;
 };
 type SavePayload = {
@@ -434,6 +437,16 @@ export async function GET(request: Request) {
         }
       }
 
+      // Snapshot the actual payment link, even if it was moved outside this route.
+      // This lets a refreshed editor recover from a concurrent Chequeo correction.
+      const paymentIds = [...new Set(electronicTickets.map(ticket => ticket.mp_payment_id).filter(Boolean))];
+      let ticketPaymentLinks: Array<{ id: string; order_id: string | null; order_code: string | null }> = [];
+      if (paymentIds.length) {
+        const links = await supabaseAdmin.from("mp_payments").select("id, order_id, order_code").in("id", paymentIds);
+        if (links.error) throw links.error;
+        ticketPaymentLinks = links.data || [];
+      }
+
       const { data: existingMovements, error: movementsError } = await supabaseAdmin
         .from("cash_transactions")
         .select("id, type, amount, concept, category, created_at, financial_account_id")
@@ -445,7 +458,10 @@ export async function GET(request: Request) {
         settlement,
         expenses: expensesRes.data || [],
         cashCounts: countsRes.data || [],
-        electronicTickets,
+        electronicTickets: electronicTickets.map(ticket => {
+          const payment = ticketPaymentLinks.find(payment => String(payment.id) === ticket.mp_payment_id);
+          return payment ? { ...ticket, payment_order_code: payment.order_code, payment_order_id: payment.order_id } : ticket;
+        }),
         routeOrders,
         financialAccounts: accountsRes.data || [],
         existingMovements: existingMovements || [],
@@ -1305,7 +1321,9 @@ export async function POST(request: Request) {
       .single();
     if (carrierError || !carrier) return NextResponse.json({ error: "El transportista seleccionado no está disponible." }, { status: 400 });
 
-    const { data, error } = await supabaseAdmin.rpc("save_treasury_settlement_with_orders", {
+    const reassignments = settlementPaymentReassignments(electronicTickets);
+    const { data, error } = await supabaseAdmin.rpc(reassignments.length ? "save_treasury_settlement_with_payment_links" : "save_treasury_settlement_with_orders", {
+      ...(reassignments.length ? { p_reassignments: reassignments } : {}),
       p_delivery_statuses: body.deliveryStatuses || [],
       p_save: {
         p_actor_id: actor.id,
