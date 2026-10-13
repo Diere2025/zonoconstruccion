@@ -57,3 +57,5 @@ google-credentials.json
 
 # Private delivery reconciliation and browser fixtures
 /output/logistics-dispatch-links/
+
+output/logistics-planning/

@@ -406,11 +406,13 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
     const allowedPaths = new Set<string>();
     if (hasRole('instalador')) allowedPaths.add('/visitas');
     if (hasRole('logistica')) {
+      allowedPaths.add('/admin/logistica-planificacion');
       ['/admin/cobros-mp', '/admin/fleteros', '/admin/control-planillas', '/admin/configuracion-impresion', '/vendedores/ruteo/comprobantes', '/vendedores/ruteo/remitos']
         .forEach(route => allowedPaths.add(route));
     }
     if (hasRole('fletero')) allowedPaths.add('/admin/cobros-mp');
     if (hasRole('administracion')) {
+      allowedPaths.add('/admin/logistica-planificacion');
       ['/admin/cobros-mp', '/admin/finanzas', '/admin/finanzas/extractos', '/admin/rendiciones', '/admin/comprobantes-tesoreria']
         .forEach(route => allowedPaths.add(route));
     }
