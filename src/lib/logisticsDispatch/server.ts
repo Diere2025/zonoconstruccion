@@ -1,9 +1,11 @@
+import {applyStoredDispatchAssignments} from './settlementSource';
+import {sameSettlementCarrier} from './settlementIdentity';
 import {calculateRealDispatchCosts} from './costs';
 import {normalizeSettlementCarriers} from '@/lib/carrierIdentity';
 import {resolveDispatchDigitalTickets} from './digitalTickets';
 import {createClient} from '@supabase/supabase-js';
 import {fetchSpreadsheetValues} from '@/lib/googleSheets';
-import {SOURCE_IDS,buildDispatchSource,matchMovements} from './model';
+import {SOURCE_IDS,buildDispatchSource,matchMovements,sheetDate} from './model';
 import {authenticateSystemAdministrator} from '@/lib/systemAdminAccess';
 import {validDate,nextDate} from '@/lib/paymentPlanning/model';
 export const dispatchDatabase=()=>createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!,process.env.SUPABASE_SERVICE_ROLE_KEY!,{auth:{persistSession:false,autoRefreshToken:false}});
@@ -23,7 +25,12 @@ export async function prepareDispatchSync(db:ReturnType<typeof dispatchDatabase>
   fetchSpreadsheetValues(SOURCE_IDS.settlements,"'Entregas'!A2:AU10000"),
   fetchSpreadsheetValues(SOURCE_IDS.cash,"'Caja'!A2:Q12000")
  ]);
- const source=buildDispatchSource({logistics,summary,follow,settlements,cash},from,to);
+ const storedDispatches=await dispatchRows(db.from('logistics_dispatches').select('id,code,delivery_date,carrier_name').gte('delivery_date',from).lte('delivery_date',to).order('id'));
+ const storedAttempts=storedDispatches.length?await dispatchRows(db.from('logistics_dispatch_attempts').select('dispatch_id,order_code').in('dispatch_id',storedDispatches.map(d=>d.id)).order('id')):[];
+ const assignmentLinks=storedAttempts.flatMap(a=>{const d=storedDispatches.find(d=>d.id===a.dispatch_id);return d?[{code:d.code,date:d.delivery_date,carrierName:d.carrier_name,orderCode:a.order_code}]:[];});
+ const assigned=applyStoredDispatchAssignments(logistics,assignmentLinks,sheetDate,sameSettlementCarrier);
+ const source=buildDispatchSource({logistics:assigned.values,summary,follow,settlements,cash},from,to);
+ const assignedRows=new Set(assigned.assignedRows);for(const d of source.dispatches){const history=d.data.attemptHistory as Record<string,Array<{row:number;method:string;sourceCode:string}>>|undefined;if(history)for(const events of Object.values(history))for(const event of events)if(assignedRows.has(event.row)){event.method='erp_assignment';event.sourceCode='';}}
  const [transactions,existingSettlements]=await Promise.all([
   dispatchRows(db.from('cash_transactions').select('id,type,amount,currency,concept,financial_account_id,is_imported,reversal_of_transaction_id,created_at,financial_accounts(name)').gte('created_at',from+'T00:00:00-03:00').lt('created_at',nextDate(to)+'T00:00:00-03:00').order('id')),
   dispatchRows(db.from('treasury_settlements').select('id,code,status,settlement_date,route_sheet_id').gte('settlement_date',from).lte('settlement_date',to).order('id'))

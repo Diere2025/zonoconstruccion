@@ -1,4 +1,8 @@
+import {deliveredSourceOnly,assignedDispatchCode,mergeDeliveredGroups} from '@/lib/logisticsDispatch/settlementSource';
 import { settlementPaymentReassignments } from "@/lib/settlementPaymentReassignment";
+import {carrierIdentityKey,resolveCarrierIdentity,normalizeSettlementCarriers,canonicalCarrierOptions} from '@/lib/carrierIdentity';
+import {splitOrderCodes} from '@/lib/orderSync';
+import {consolidateSettlementSnapshots,sameSettlementCarrier} from '@/lib/logisticsDispatch/settlementIdentity';
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
@@ -44,7 +48,7 @@ type ElectronicTicketPayload = {
   notes?: string | null;
 };
 type SavePayload = {
-  action?: "create" | "save" | "confirm" | "import-month" | "confirm-entregando" | "generate-movements" | "update-delivery-status" | "archive" | "delete-archived" | "reopen";
+  action?: "create" | "save" | "confirm" | "import-month" | "confirm-entregando" | "confirm-entregados" | "generate-movements" | "update-delivery-status" | "archive" | "delete-archived" | "reopen";
   archiveReason?: string;
   settlementId?: string;
   code?: string;
@@ -154,45 +158,9 @@ function argentinaMonth() {
   };
 }
 
-function carrierTokens(value: string) {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .match(/[a-z0-9]+/g)?.sort().join(" ") || "";
-}
-
-function carrierWords(value: string) {
-  return carrierTokens(value).split(" ").filter(Boolean);
-}
-
-function findCarrier<T extends { id: string; name: string }>(name: string, carriers: T[]): T | null {
-  const normalized = carrierTokens(name);
-  if (normalized.includes("gyv")) return carriers.find(carrier => carrier.name.toLowerCase() === "gyv") || null;
-  const exact = carriers.find(carrier => carrierTokens(carrier.name) === normalized);
-  if (exact) return exact;
-  const sourceWords = carrierWords(name);
-  const candidates = carriers.filter(carrier => {
-    const candidateWords = carrierWords(carrier.name);
-    return sourceWords.length >= 2 && sourceWords.every(word => candidateWords.includes(word));
-  });
-  if (candidates.length === 1) return candidates[0];
-
-  const candidateSubsets = carriers.filter(carrier => {
-    const candidateWords = carrierWords(carrier.name);
-    return candidateWords.length >= 2 && candidateWords.every(word => sourceWords.includes(word));
-  });
-  if (candidateSubsets.length === 1) return candidateSubsets[0];
-
-  const significantSourceWords = sourceWords.filter(w => w.length >= 4);
-  const bySignificantWord = carriers.filter(carrier => {
-    const candidateWords = carrierWords(carrier.name);
-    return significantSourceWords.some(w => candidateWords.includes(w));
-  });
-  if (bySignificantWord.length === 1) return bySignificantWord[0];
-
-  return null;
-}
+function carrierTokens(value:string){return carrierIdentityKey(value);}
+function findCarrier<T extends {id:string;name:string}>(name:string,carriers:T[]):T|null{return resolveCarrierIdentity(name,carriers).carrier;}
+async function canonicalSettlementView(rows:any[]){const catalog=await supabaseAdmin.from('carriers').select('id,name,is_active');if(catalog.error)throw catalog.error;return consolidateSettlementSnapshots(normalizeSettlementCarriers(rows,catalog.data||[]));}
 
 function readableError(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -217,7 +185,7 @@ export async function GET(request: Request) {
         .neq("status", "archived")
         .order("settlement_date", { ascending: false }).order("code", { ascending: false }).limit(500);
       if (error) throw error;
-      const rows = await settlementDispatchReferences(supabaseAdmin, data || []);
+      const rows = await canonicalSettlementView(await settlementDispatchReferences(supabaseAdmin, data || []));
       const stats = rows.reduce((acc, row) => {
         if (row.status === "confirmed") acc.confirmed += 1;
         else if (row.movements_generated_at || row.count_date || asNumber(row.counted_cash) > 0) acc.drafts += 1;
@@ -240,7 +208,7 @@ export async function GET(request: Request) {
         .eq("is_active", true)
         .order("name");
       if (error) throw error;
-      return NextResponse.json({ carriers: data || [] });
+      return NextResponse.json({ carriers: canonicalCarrierOptions(data || []) });
     }
     if (action === "financial-accounts") {
       const { data, error } = await supabaseAdmin
@@ -266,7 +234,9 @@ export async function GET(request: Request) {
       if (countsRes.error) throw countsRes.error;
       if (electronicTicketsRes.error) throw electronicTicketsRes.error;
 
-      const settlement = (await settlementDispatchReferences(supabaseAdmin, [settlementRes.data]))[0];
+      const related=await supabaseAdmin.from('treasury_settlements').select('*').eq('settlement_date',settlementRes.data.settlement_date).neq('status','archived');if(related.error)throw related.error;
+      const projected=consolidateSettlementSnapshots(await settlementDispatchReferences(supabaseAdmin,related.data||[]));
+      const settlement = projected.find(row=>row.id===settlementId)||(await settlementDispatchReferences(supabaseAdmin,[settlementRes.data]))[0];
       let electronicTickets = electronicTicketsRes.data || [];
 
       // Load route orders and auto-detect linked payments from Chequeo de Pagos (mp_payments)
@@ -467,8 +437,9 @@ export async function GET(request: Request) {
         existingMovements: existingMovements || [],
       });
     }
-    if (action === "preview-entregando") {
-      const source = searchParams.get("source") === "entregados" ? "entregados" : "entregando";
+    if (action === "preview-entregados" || action === "preview-entregando") {
+      if ((searchParams.get("source") && searchParams.get("source") !== "entregados") || (action === "preview-entregando" && searchParams.get("source") !== "entregados")) return NextResponse.json({error:"Entregando ya no se importa. Usá Entregados."},{status:400});
+      const source = "entregados" as const;
       const date = searchParams.get("date") || "";
       if (source === "entregados" && !/^\d{4}-\d{2}-\d{2}$/.test(date)) return NextResponse.json({ error: "Seleccioná una fecha válida." }, { status: 400 });
       const preview = await getEntregandoPreview(source, date);
@@ -481,8 +452,9 @@ export async function GET(request: Request) {
   }
 }
 
-async function getEntregandoPreview(source: "entregando" | "entregados" = "entregando", date = "") {
-  const rows = await fetchSpreadsheetValues(LOGISTICS_SPREADSHEET_ID, source === "entregados" ? "'🔴 Entregados'!A2:CG" : "'Entregando'!A3:CG");
+async function getEntregandoPreview(source: "entregando" | "entregados" = "entregados", date = "") {
+  deliveredSourceOnly(source);
+  const rows = await fetchSpreadsheetValues(LOGISTICS_SPREADSHEET_ID, "'🔴 Entregados'!A2:CO");
   let currentHeaderCarrier = "";
   let currentHeaderRouteNumber = 1;
   const groups = new Map<string, {
@@ -492,6 +464,8 @@ async function getEntregandoPreview(source: "entregando" | "entregados" = "entre
     dateDisplay: string;
     runNumber: number;
     routeNumberStr: string;
+    dispatchCode: string;
+    sourceIssue?: string;
     routeDetail: string;
     zone: string;
     vehicle: string;
@@ -500,6 +474,7 @@ async function getEntregandoPreview(source: "entregando" | "entregados" = "entre
     totalAmount: number;
     orders: Array<{
       orderCode: string;
+      sourceRow?: number;
       stopOrder: number;
       totalAmount: number;
       toCollectAmount?: number;
@@ -555,8 +530,10 @@ async function getEntregandoPreview(source: "entregando" | "entregados" = "entre
       if (colMatch) runNumber = parseInt(colMatch[1], 10) || 1;
     }
 
+    const rawDispatchCode = String(row[92] || '').trim().toUpperCase();
+    const dispatchCode = /^LOG_REC_\d+[A-Z]?$/.test(rawDispatchCode) ? rawDispatchCode : '';
     const routeNumberStr = `R${runNumber}`;
-    const groupKey = `${carrierName.toLowerCase()}|${dateParsed}|${routeNumberStr}`;
+    const groupKey = `${dispatchCode || carrierName.toLowerCase()}|${dateParsed}|${routeNumberStr}`;
     if (!groups.has(groupKey)) {
       groups.set(groupKey, {
         key: groupKey,
@@ -565,6 +542,7 @@ async function getEntregandoPreview(source: "entregando" | "entregados" = "entre
         dateDisplay: dateRaw,
         runNumber,
         routeNumberStr,
+        dispatchCode,
         routeDetail: `${routeNumberStr}${zone ? ` · ${zone}` : ` · ${carrierName}`}`,
         zone,
         vehicle,
@@ -578,6 +556,7 @@ async function getEntregandoPreview(source: "entregando" | "entregados" = "entre
     const grp = groups.get(groupKey)!;
     const nextOrder = {
       orderCode,
+      sourceRow:i+2,
       stopOrder,
       totalAmount: fullOrderTotal > 0 ? fullOrderTotal : totalToCollect,
       toCollectAmount: totalToCollect,
@@ -595,64 +574,40 @@ async function getEntregandoPreview(source: "entregando" | "entregados" = "entre
     grp.totalAmount = settlementOrdersTotal(grp.orders);
   }
 
-  const groupList = Array.from(groups.values());
+  let groupList = Array.from(groups.values());
   if (groupList.length === 0) return [];
-
-  // A manual correction on an existing draft must survive another read of Entregando.
-  if (source === "entregando") {
-    const codes = Array.from(new Set(groupList.flatMap(group => group.orders.map(order => order.orderCode.toUpperCase()))));
-    for (let offset = 0; offset < codes.length; offset += 200) {
-      const { data: matchedOrders, error: ordersError } = await supabaseAdmin.from("orders")
-        .select("id, legacy_code").in("legacy_code", codes.slice(offset, offset + 200));
-      if (ordersError) throw ordersError;
-      const byId = new Map((matchedOrders || []).map(order => [order.id, String(order.legacy_code).toUpperCase()]));
-      if (byId.size === 0) continue;
-      const { data: deliveries, error: deliveriesError } = await supabaseAdmin.from("deliveries")
-        .select("order_id, delivery_date, status, failure_reason, route_sheets(run_number, carriers(name))").in("order_id", Array.from(byId.keys()));
-      if (deliveriesError) throw deliveriesError;
-      const corrected = new Map((deliveries || []).filter(delivery => isSettlementDeliveryCorrection(delivery.status, delivery.failure_reason))
-        .map(delivery => {
-          const route = Array.isArray(delivery.route_sheets) ? delivery.route_sheets[0] : delivery.route_sheets;
-          const carrier = Array.isArray(route?.carriers) ? route.carriers[0] : route?.carriers;
-          const day = String(delivery.delivery_date).slice(0, 10);
-          return [`${byId.get(delivery.order_id)}|${day}|${route?.run_number || 1}|${String(carrier?.name || "").trim().toLowerCase()}`, settlementDeliveryStatus(delivery.status, delivery.failure_reason)];
-        }));
-      for (const group of groupList) {
-        for (const order of group.orders) {
-          const status = corrected.get(`${order.orderCode.toUpperCase()}|${group.deliveryDate}|${group.runNumber}|${group.carrierName.trim().toLowerCase()}`);
-          order.deliveryStatus = settlementPreviewDeliveryStatus(order.deliveryStatus || "Entregando", status);
-        }
-        group.totalAmount = settlementOrdersTotal(group.orders);
-      }
-    }
-  }
 
   const { data: carriers, error: carriersError } = await supabaseAdmin
     .from("carriers")
     .select("id, name, vehicle_description")
     .eq("is_active", true);
   if (carriersError) throw carriersError;
+  groupList=mergeDeliveredGroups(groupList,name=>findCarrier(name,carriers||[])?.id||carrierIdentityKey(name),settlementOrdersTotal);
 
   const dates = Array.from(new Set(groupList.map(g => g.deliveryDate)));
-  const { data: existingSettlements, error: settlementsError } = await supabaseAdmin
+  const { data: rawExistingSettlements, error: settlementsError } = await supabaseAdmin
     .from("treasury_settlements")
-    .select("id, code, status, carrier_id, carrier_name, settlement_date, deliveries_total, route_detail, route_sheet_id, change_fund, source_row")
+    .select("id, code, status, carrier_id, carrier_name, settlement_date, deliveries_total, route_detail, route_sheet_id, change_fund, source_row, source, electronic_total, tolls_total, extraordinary_total, expected_cash, counted_cash, difference, shortage_recovered")
     .neq("status", "archived")
     .in("settlement_date", dates);
   if (settlementsError) throw settlementsError;
+  const referencedSettlements=await settlementDispatchReferences(supabaseAdmin, rawExistingSettlements || []);
+  const storedDispatchIds=new Set(referencedSettlements.filter(s=>s.dispatch_code).map(s=>s.id));
+  const existingSettlements = consolidateSettlementSnapshots(referencedSettlements);
 
   const matches = new Map<string, { settlement: NonNullable<typeof existingSettlements>[number] | null; issue: string | null }>();
   const buckets = new Map<string, typeof groupList>();
   for (const group of groupList) {
     const carrier = findCarrier(group.carrierName, carriers || []);
-    const bucketKey = `${group.deliveryDate}|${carrier?.id || carrierTokens(group.carrierName)}`;
+    const bucketKey = `${group.deliveryDate}|${group.dispatchCode || carrier?.id || carrierTokens(group.carrierName)}`;
     buckets.set(bucketKey, [...(buckets.get(bucketKey) || []), group]);
   }
   for (const bucket of buckets.values()) {
     const carrier = findCarrier(bucket[0].carrierName, carriers || []);
     const candidates = (existingSettlements || []).filter(settlement =>
       settlement.settlement_date === bucket[0].deliveryDate &&
-      ((carrier && settlement.carrier_id === carrier.id) || carrierTokens(settlement.carrier_name) === carrierTokens(bucket[0].carrierName))
+      (!bucket[0].dispatchCode || !settlement.dispatch_code || settlement.dispatch_code===bucket[0].dispatchCode) &&
+      ((bucket[0].dispatchCode && settlement.dispatch_code === bucket[0].dispatchCode) || (carrier && settlement.carrier_id === carrier.id) || findCarrier(settlement.carrier_name, carriers || [])?.id === carrier?.id && Boolean(carrier) || carrierTokens(settlement.carrier_name) === carrierTokens(bucket[0].carrierName))
     );
     const assigned = new Set<string>();
     for (const group of bucket) {
@@ -680,13 +635,23 @@ async function getEntregandoPreview(source: "entregando" | "entregados" = "entre
     }
   }
 
+  const knownDispatches=await supabaseAdmin.from('logistics_dispatches').select('code,delivery_date,carrier_name').in('delivery_date',dates);if(knownDispatches.error)throw knownDispatches.error;
+  const sourceCodes=[...new Set(groupList.map(g=>g.dispatchCode).filter(Boolean))];
+  for(let offset=0;offset<sourceCodes.length;offset+=200){const explicit=await supabaseAdmin.from('logistics_dispatches').select('code,delivery_date,carrier_name').in('code',sourceCodes.slice(offset,offset+200));if(explicit.error)throw explicit.error;knownDispatches.data=[...new Map([...(knownDispatches.data||[]),...(explicit.data||[])].map(d=>[d.code,d])).values()];}
   return groupList.map(grp => {
     const matchedCarrier = findCarrier(grp.carrierName, carriers || []);
     const match = matches.get(grp.key);
     const existing = match?.settlement;
+    const dispatchCandidates=(knownDispatches.data||[]).filter(d=>d.delivery_date===grp.deliveryDate&&((matchedCarrier&&findCarrier(d.carrier_name,carriers||[])?.id===matchedCarrier.id)||carrierTokens(d.carrier_name)===carrierTokens(grp.carrierName)));
+    const dispatchCode=grp.dispatchCode||existing?.dispatch_code||"";
 
     return {
       ...grp,
+      dispatchCode,
+      dispatchCandidates,
+      dispatchNeedsAssignment: !dispatchCode,
+      existingDispatchCode: existing?.dispatch_code || "",
+      requiresDispatchLink: Boolean(existing?.route_sheet_id && !storedDispatchIds.has(existing.id)),
       source,
       carrierId: matchedCarrier?.id || null,
       matchedCarrierName: matchedCarrier?.name || grp.carrierName,
@@ -695,33 +660,65 @@ async function getEntregandoPreview(source: "entregando" | "entregados" = "entre
       existingSettlementCode: existing?.code || null,
       existingStatus: existing?.status || null,
       existingRouteSheetId: existing?.route_sheet_id || null,
-      matchingIssue: match?.issue || null,
+      matchingIssue: grp.sourceIssue || (!matchedCarrier?"Fletero sin identificación única en el catálogo. Revisar el nombre antes de generar.":null) || match?.issue || (grp.dispatchCode&&(knownDispatches.data||[]).some(d=>d.code===grp.dispatchCode&&d.delivery_date!==grp.deliveryDate)?'El código de delivery corresponde a otra fecha; revisar la postergación en la planilla.':null),
       changeFund: existing?.change_fund || 0,
     };
   });
 }
 
+async function linkGeneratedDispatch(code:string,date:string,carrier:string,settlementId:string,routeId:string){
+ const existing=await supabaseAdmin.from('logistics_dispatches').select('id,delivery_date,carrier_name').eq('code',code).maybeSingle();if(existing.error)throw existing.error;
+ if(existing.data&&!sameSettlementCarrier(existing.data.carrier_name,carrier))throw new Error('El delivery pertenece a otro fletero.');
+ if(existing.data&&existing.data.delivery_date!==date)throw new Error('El código de delivery pertenece a otra fecha. Revisá la planilla antes de vincular.');
+ let dispatchId=existing.data?.id;
+ if(!dispatchId){const created=await supabaseAdmin.from('logistics_dispatches').upsert({code,delivery_date:date,carrier_name:carrier,data:{}},{onConflict:'code',ignoreDuplicates:true}).select('id,delivery_date').maybeSingle();if(created.error)throw created.error;const resolved=created.data|| (await supabaseAdmin.from('logistics_dispatches').select('id,delivery_date').eq('code',code).single()).data;if(!resolved||resolved.delivery_date!==date)throw new Error('El delivery cambió; volvé a leer la hoja.');dispatchId=resolved.id;}
+ const old=await supabaseAdmin.from('logistics_dispatch_settlements').select('dispatch_id').eq('settlement_id',settlementId).maybeSingle();if(old.error)throw old.error;if(old.data&&old.data.dispatch_id!==dispatchId)throw new Error('La rendición ya pertenece a otro delivery.');
+ const bound=await supabaseAdmin.from('logistics_dispatch_settlements').upsert({settlement_id:settlementId,dispatch_id:dispatchId},{onConflict:'settlement_id',ignoreDuplicates:true});if(bound.error)throw bound.error;
+ const route=await supabaseAdmin.from('logistics_dispatch_routes').select('dispatch_id').eq('route_sheet_id',routeId).maybeSingle();if(route.error)throw route.error;if(route.data&&route.data.dispatch_id!==dispatchId)throw new Error('El recorrido ya pertenece a otro delivery.');
+ const attached=await supabaseAdmin.from('logistics_dispatch_routes').upsert({route_sheet_id:routeId,dispatch_id:dispatchId},{onConflict:'route_sheet_id',ignoreDuplicates:true});if(attached.error)throw attached.error;
+ const verified=await supabaseAdmin.from('logistics_dispatch_settlements').select('dispatch_id').eq('settlement_id',settlementId).single();if(verified.error||verified.data.dispatch_id!==dispatchId)throw verified.error||new Error('El vínculo de la rendición cambió; volvé a leer.');
+ const deliveries=await supabaseAdmin.from('deliveries').select('id,order_id,status,orders(legacy_code)').eq('route_sheet_id',routeId);if(deliveries.error)throw deliveries.error;
+ const attempts=(deliveries.data||[]).flatMap(delivery=>{const order=Array.isArray(delivery.orders)?delivery.orders[0]:delivery.orders;return splitOrderCodes(order?.legacy_code).map(orderCode=>({dispatch_id:dispatchId,order_code:orderCode,order_id:delivery.order_id,delivery_id:delivery.id,outcome:delivery.status||'En recorrido',executed:true,source_rows:[],source_spreadsheet_id:LOGISTICS_SPREADSHEET_ID}));});
+ if(attempts.length){const stored=await supabaseAdmin.from('logistics_dispatch_attempts').upsert(attempts,{onConflict:'dispatch_id,order_code',ignoreDuplicates:true});if(stored.error)throw stored.error;}
+
+}
+
 async function confirmEntregandoItems(actor: AuthorizedUser, items: any[]) {
   // Never rely on a settlement id supplied by the browser: the preview may be stale.
   // Resolve every selected route again before making any writes.
+  items.forEach(item=>deliveredSourceOnly(item.source));
   const previews = new Map<string, Awaited<ReturnType<typeof getEntregandoPreview>>[number]>();
-  const sourceDates = new Set(items.map(item => `${item.source === "entregados" ? "entregados" : "entregando"}|${item.deliveryDate}`));
+  const sourceDates = new Set(items.map(item => `${"entregados"}|${item.deliveryDate}`));
   for (const sourceDate of sourceDates) {
     const [source, deliveryDate] = sourceDate.split("|") as ["entregando" | "entregados", string];
     const fresh = await getEntregandoPreview(source, deliveryDate);
     fresh.forEach(group => previews.set(`${sourceDate}|${group.key}`, group));
   }
   for (const item of items) {
-    const source = item.source === "entregados" ? "entregados" : "entregando";
+    const source = "entregados";
     const fresh = previews.get(`${source}|${item.deliveryDate}|${item.key}`);
     if (!fresh) throw new Error(`El recorrido de ${item.carrierName || "la selección"} cambió en la planilla. Volvé a leerla.`);
     if (fresh.matchingIssue) throw new Error(fresh.matchingIssue);
+    const requested=String(fresh.dispatchCode||item.dispatchCode||"").trim().toUpperCase();
+    const knownResult=requested?await supabaseAdmin.from("logistics_dispatches").select("code,delivery_date,carrier_name").eq("code",requested).maybeSingle():{data:null,error:null};
+    if(knownResult.error)throw knownResult.error;
+    if(knownResult.data&&!sameSettlementCarrier(knownResult.data.carrier_name,fresh.carrierName))throw new Error("La logística seleccionada pertenece a otro fletero.");
+    fresh.dispatchCode=assignedDispatchCode(fresh.dispatchCode,fresh.existingDispatchCode,item.dispatchCode,fresh.dispatchCandidates||[],knownResult.data,fresh.deliveryDate);
     if (fresh.existingStatus === "confirmed") {
-      if (source !== "entregados" || fresh.existingRouteSheetId) throw new Error(`${fresh.existingSettlementCode} ya está confirmada y vinculada, o requiere leer la hoja Entregados.`);
+      if (source !== "entregados" || (fresh.existingRouteSheetId && !fresh.requiresDispatchLink)) throw new Error(`${fresh.existingSettlementCode} ya está confirmada y vinculada, o requiere leer la hoja Entregados.`);
       item.orders = fresh.orders;
     }
     item.existingSettlementId = fresh.existingSettlementId;
     item.existingStatus = fresh.existingStatus;
+    item.dispatchCode = fresh.dispatchCode;
+    item.carrierId = fresh.carrierId;
+    item.carrierName=fresh.matchedCarrierName||fresh.carrierName;
+    item.deliveryDate=fresh.deliveryDate;
+    item.runNumber=fresh.runNumber;
+    item.routeDetail=fresh.routeDetail;
+    item.zone=fresh.zone;
+    item.existingRouteSheetId = fresh.existingRouteSheetId;
+    if(fresh.dispatchCode){const dispatch=await supabaseAdmin.from('logistics_dispatches').select('delivery_date').eq('code',fresh.dispatchCode).maybeSingle();if(dispatch.error)throw dispatch.error;if(dispatch.data&&dispatch.data.delivery_date!==fresh.deliveryDate)throw new Error('El delivery '+fresh.dispatchCode+' pertenece a otra fecha. Revisá el código en la planilla.');}
   }
 
   const { data: activeCarriers, error: activeCarriersError } = await supabaseAdmin
@@ -736,31 +733,20 @@ async function confirmEntregandoItems(actor: AuthorizedUser, items: any[]) {
   let linkedCount = 0;
 
   for (const item of items) {
-    const source = item.source === "entregados" ? "entregados" : "entregando";
+    const source = "entregados";
     const selectedOrders = Array.isArray(item.orders) ? item.orders : [];
     const deliveriesTotal = settlementOrdersTotal(selectedOrders);
     let matchedCarrier = item.carrierId ? carriersList.find(c => c.id === item.carrierId) || null : null;
     if (!matchedCarrier) {
       matchedCarrier = findCarrier(item.carrierName, carriersList);
     }
-    if (!matchedCarrier) {
-      const { data: newCarrier, error: newCarrierErr } = await supabaseAdmin.from("carriers").insert({
-        name: item.carrierName,
-        vehicle_description: item.vehicle || "Agrale",
-        is_active: true,
-      }).select("id, name, vehicle_description").single();
-      if (newCarrierErr) throw newCarrierErr;
-      matchedCarrier = newCarrier;
-      carriersList.push(matchedCarrier);
-    }
+    if (!matchedCarrier) throw new Error('El fletero no tiene una identidad única en el catálogo. Revisá sus alias antes de generar otra rendición.');
 
     const runNumber = item.runNumber || 1;
-    const { data: foundRouteSheet, error: routeSheetError } = await supabaseAdmin.from("route_sheets")
-      .select("id, code")
-      .eq("delivery_date", item.deliveryDate)
-      .eq("carrier_id", matchedCarrier.id)
-      .eq("run_number", runNumber)
-      .maybeSingle();
+    const routeQuery=supabaseAdmin.from('route_sheets').select('id,code');
+    const { data: foundRouteSheet, error: routeSheetError } = item.existingRouteSheetId
+      ? await routeQuery.eq('id',item.existingRouteSheetId).eq('delivery_date',item.deliveryDate).maybeSingle()
+      : await routeQuery.eq('delivery_date',item.deliveryDate).eq('carrier_id',matchedCarrier.id).eq('run_number',runNumber).maybeSingle();
     if (routeSheetError) throw routeSheetError;
     let routeSheet = foundRouteSheet;
 
@@ -798,7 +784,7 @@ async function confirmEntregandoItems(actor: AuthorizedUser, items: any[]) {
     if (existingSettlement && item.existingSettlementId && existingSettlement.id !== item.existingSettlementId) {
       throw new Error(`El recorrido de ${item.carrierName} ya está asociado a otra rendición. Revisá las duplicadas antes de continuar.`);
     }
-    if (existingSettlement?.status === "confirmed" && existingSettlement.route_sheet_id) continue;
+    if (existingSettlement?.status === "confirmed" && existingSettlement.route_sheet_id) { if(item.dispatchCode) { await linkGeneratedDispatch(item.dispatchCode,item.deliveryDate,item.carrierName,existingSettlement.id,routeSheet.id); linkedCount++; } continue; }
     if (routeSheet) {
       const routeUpdate = await supabaseAdmin.from("route_sheets").update({
         total_theoretical_cash: deliveriesTotal,
@@ -897,6 +883,7 @@ async function confirmEntregandoItems(actor: AuthorizedUser, items: any[]) {
         .select("id")
         .single();
       if (linkError || !linked) throw linkError || new Error("La rendición cambió mientras se vinculaban los pedidos.");
+      if(item.dispatchCode) await linkGeneratedDispatch(item.dispatchCode,item.deliveryDate,item.carrierName,existingSettlement.id,routeSheet.id);
       linkedCount++;
       continue;
     }
@@ -922,6 +909,7 @@ async function confirmEntregandoItems(actor: AuthorizedUser, items: any[]) {
           updated_at: new Date().toISOString(),
         }).eq("id", existingSettlement.id).eq("status", "draft");
         if (settlementUpdate.error) throw settlementUpdate.error;
+        if(item.dispatchCode) await linkGeneratedDispatch(item.dispatchCode,item.deliveryDate,item.carrierName,existingSettlement.id,routeSheet.id);
         updatedCount++;
       }
     } else {
@@ -940,8 +928,9 @@ async function confirmEntregandoItems(actor: AuthorizedUser, items: any[]) {
         status: 'draft',
         notes: `Generada desde hoja ${source === "entregados" ? "Entregados" : "Entregando"} (${selectedOrders.length} pedidos)`,
         created_by: actor.id,
-      });
+      }).select("id").single();
       if (settlementInsert.error) throw settlementInsert.error;
+      if(item.dispatchCode) await linkGeneratedDispatch(item.dispatchCode,item.deliveryDate,item.carrierName,settlementInsert.data.id,routeSheet.id);
       createdCount++;
     }
   }
@@ -1144,9 +1133,10 @@ export async function POST(request: Request) {
       const result = await importCurrentMonth(actor);
       return NextResponse.json({ success: true, ...result });
     }
-    if (body.action === "confirm-entregando") {
+    if (body.action === "confirm-entregados" || body.action === "confirm-entregando") {
       const items = Array.isArray(body.items) ? body.items : [];
       if (items.length === 0) return NextResponse.json({ error: "No se seleccionaron recorridos para crear." }, { status: 400 });
+      if(items.some(item=>item.source && item.source!=="entregados") || (body.action==="confirm-entregando" && items.some(item=>item.source!=="entregados")))return NextResponse.json({error:"Entregando ya no se importa. Usá Entregados."},{status:400});
       const result = await confirmEntregandoItems(actor, items);
       return NextResponse.json({ success: true, ...result });
     }
@@ -1172,7 +1162,7 @@ export async function POST(request: Request) {
       let amount = paid ? 0 : Math.max(0, Number(order.totals?.pending_balance ?? order.total_amount ?? 0) || 0);
       if (order.legacy_code) {
         try {
-          for (const range of ["'🔴 Entregados'!A2:AC", "'Entregando'!A3:AC"]) {
+          for (const range of ["'🔴 Entregados'!A2:AC"]) {
             const sheetRows = await fetchSpreadsheetValues(LOGISTICS_SPREADSHEET_ID, range);
             const sheetRow = sheetRows.find(row => String(row[0] || "").trim().toUpperCase() === String(order.legacy_code).trim().toUpperCase()
               && parseSheetDate(row[1]) === settlement.settlement_date);

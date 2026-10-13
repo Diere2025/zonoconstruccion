@@ -1,5 +1,6 @@
 "use client";
 
+import DispatchAssignmentModal from "./DispatchAssignmentModal";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -27,6 +28,7 @@ const deliveryStatusChoice = (status: string) => {
 type SettlementStatus = "draft" | "confirmed" | "archived";
 interface SettlementRecord {
   dispatch_code?: string;
+  consolidated_sources?: Array<{id:string;code:string}>;
   id: string;
   code: string;
   status: SettlementStatus;
@@ -143,6 +145,11 @@ interface EntregandoOrder {
 }
 
 interface EntregandoPreviewItem {
+  dispatchCode?: string;
+  dispatchCandidates?: Array<{code:string;delivery_date:string;carrier_name:string}>;
+  dispatchNeedsAssignment?: boolean;
+  dispatchAssignedManually?: boolean;
+  requiresDispatchLink?: boolean;
   key: string;
   source?: "entregando" | "entregados";
   carrierName: string;
@@ -239,8 +246,9 @@ function RendicionesContent() {
   const [creating, setCreating] = useState(false);
   const [createForm, setCreateForm] = useState({ code: "", settlementDate: today(), carrierId: "", routeDetail: "" });
 
+  const [dispatchAssignmentKey,setDispatchAssignmentKey]=useState<string|null>(null);
   const [entregandoModalOpen, setEntregandoModalOpen] = useState(false);
-  const [previewSource, setPreviewSource] = useState<"entregando" | "entregados">("entregando");
+  const [previewSource, setPreviewSource] = useState<"entregando" | "entregados">("entregados");
   const [deliveredDate, setDeliveredDate] = useState(defaultDeliveredDate);
   const [deliveredDateIsDefault, setDeliveredDateIsDefault] = useState(true);
   const [deliveredDateHint, setDeliveredDateHint] = useState(defaultDeliveredDateHint);
@@ -437,7 +445,7 @@ function RendicionesContent() {
   const availableDates = useMemo(() => Array.from(new Set(rows.map(row => row.settlement_date?.slice(0, 10)).filter(Boolean) as string[])).sort((a, b) => b.localeCompare(a)), [rows]);
   const filteredRows = useMemo(() => rows.filter(row => {
     const term = search.trim().toLowerCase();
-    const matchesSearch = !term || [row.code, row.carrier_name, row.route_detail, displayDate(row.settlement_date)]
+    const matchesSearch = !term || [row.code, row.dispatch_code, ...(row.consolidated_sources||[]).map(source=>source.code), row.carrier_name, row.route_detail, displayDate(row.settlement_date)]
       .some(value => String(value || "").toLowerCase().includes(term));
     const matchesDate = !dateFilter || row.settlement_date?.slice(0, 10) === dateFilter;
     const matchesFilter = (filter === "archived" && row.status === "archived") || (filter === "all" && row.status !== "archived") || (filter === "confirmed" && row.status === "confirmed")
@@ -557,11 +565,11 @@ function RendicionesContent() {
     }
   };
 
-  const loadSheetPreview = async (source: "entregando" | "entregados", date = "") => {
+  const loadSheetPreview = async (source: "entregados", date = "") => {
     setEntregandoLoading(true);
     setError("");
     try {
-      const query = new URLSearchParams({ action: "preview-entregando", source });
+      const query = new URLSearchParams({ action: "preview-entregados", source });
       if (source === "entregados") query.set("date", date);
       const payload = await authenticatedFetch(`/api/admin/rendiciones?${query}`);
       const preview: EntregandoPreviewItem[] = (payload.preview || []).map((item: EntregandoPreviewItem) => ({
@@ -571,7 +579,7 @@ function RendicionesContent() {
       setEntregandoPreview(preview);
       const initialSelected: Record<string, boolean> = {};
       preview.forEach(item => {
-        initialSelected[item.key] = !item.matchingIssue && (item.existingStatus !== "confirmed" || (source === "entregados" && !item.existingRouteSheetId));
+        initialSelected[item.key] = !item.matchingIssue && (item.existingStatus !== "confirmed" || (source === "entregados" && (!item.existingRouteSheetId || Boolean(item.requiresDispatchLink))));
       });
       setSelectedEntregandoKeys(initialSelected);
     } catch (requestError) {
@@ -581,7 +589,7 @@ function RendicionesContent() {
     }
   };
 
-  const openEntregandoModal = (source: "entregando" | "entregados") => {
+  const openEntregandoModal = (source: "entregados") => {
     setEntregandoModalOpen(true);
     setPreviewSource(source);
     if (source === "entregados") {
@@ -592,7 +600,7 @@ function RendicionesContent() {
     setEntregandoPreview([]);
     setSelectedEntregandoKeys({});
     setError("");
-    if (source === "entregando") void loadSheetPreview(source);
+    void loadSheetPreview("entregados",defaultDeliveredDate());
   };
 
   const confirmEntregando = async () => {
@@ -601,13 +609,15 @@ function RendicionesContent() {
       setError("Seleccioná al menos un recorrido para crear o actualizar.");
       return;
     }
+    const missing=selectedItems.find(item=>!item.dispatchCode);
+    if(missing){setDispatchAssignmentKey(missing.key);return;}
     setEntregandoConfirming(true);
     setError("");
     try {
       const payload = await authenticatedFetch("/api/admin/rendiciones", {
         method: "POST",
         body: JSON.stringify({
-          action: "confirm-entregando",
+          action: "confirm-entregados",
           items: selectedItems.map(item => ({
             ...item,
             changeFund: item.changeFund || 0,
@@ -2121,13 +2131,6 @@ function RendicionesContent() {
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
-                onClick={() => openEntregandoModal("entregando")}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-bold text-white shadow-2xs hover:bg-blue-500 transition-colors"
-              >
-                <Truck className="h-3.5 w-3.5" /> Leer hoja Entregando
-              </button>
-              <button
-                type="button"
                 onClick={() => openEntregandoModal("entregados")}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700 hover:bg-blue-100 transition-colors"
               >
@@ -2244,7 +2247,7 @@ function RendicionesContent() {
                     >
                       <div className="min-w-0">
                         <p className="truncate font-black text-slate-900">{row.carrier_name}</p>
-                        <p className="truncate text-[11px] text-slate-500">{row.code}{row.dispatch_code ? ` · ${row.dispatch_code}` : ""}{row.route_detail ? ` · ${row.route_detail}` : ""} · {row.source === "spreadsheet" ? "Planilla" : row.source === "route" ? "Recorrido" : "Manual"}</p>
+                        <p className="truncate text-[11px] text-slate-500">{row.code}{row.consolidated_sources?.length ? ` · Planilla asociada: ${row.consolidated_sources.map(source=>source.code).join(", ")}` : ""}{row.dispatch_code ? ` · ${row.dispatch_code}` : ""}{row.route_detail ? ` · ${row.route_detail}` : ""} · {row.source === "spreadsheet" ? "Planilla" : row.source === "route" ? "Recorrido" : "Manual"}</p>
                       </div>
                       <span className={`w-fit rounded-md border px-2 py-0.5 text-[10px] font-bold ${statusClasses(row)}`}>{statusLabel(row)}</span>
                       <div className="sm:text-right">
@@ -2297,6 +2300,8 @@ function RendicionesContent() {
           </div>
         </div>
       )}
+
+      {dispatchAssignmentKey && entregandoPreview.find(item=>item.key===dispatchAssignmentKey) && <DispatchAssignmentModal key={dispatchAssignmentKey} item={entregandoPreview.find(item=>item.key===dispatchAssignmentKey)!} onClose={()=>setDispatchAssignmentKey(null)} onAssign={code=>{setEntregandoPreview(current=>current.map(item=>item.key===dispatchAssignmentKey?{...item,dispatchCode:code,dispatchAssignedManually:true,dispatchNeedsAssignment:false}:item));setDispatchAssignmentKey(null);}} />}
 
       {entregandoModalOpen && (
         <div
@@ -2360,7 +2365,7 @@ function RendicionesContent() {
                           type="button"
                           onClick={() => {
                             const all: Record<string, boolean> = {};
-                            entregandoPreview.forEach(item => { all[item.key] = true; });
+                            entregandoPreview.forEach(item => { all[item.key] = !item.matchingIssue && (item.existingStatus !== "confirmed" || !item.existingRouteSheetId || item.requiresDispatchLink===true); });
                             setSelectedEntregandoKeys(all);
                           }}
                           className="text-blue-600 hover:underline"
@@ -2427,7 +2432,7 @@ function RendicionesContent() {
                                   <input
                                     type="checkbox"
                                     checked={isSelected}
-                                    disabled={Boolean(item.matchingIssue) || (item.existingStatus === "confirmed" && (previewSource !== "entregados" || Boolean(item.existingRouteSheetId)))}
+                                    disabled={Boolean(item.matchingIssue) || (item.existingStatus === "confirmed" && (previewSource !== "entregados" || (Boolean(item.existingRouteSheetId) && !item.requiresDispatchLink)))}
                                     onChange={e => {
                                       const checked = e.target.checked;
                                       setSelectedEntregandoKeys(prev => ({ ...prev, [item.key]: checked }));
@@ -2436,7 +2441,7 @@ function RendicionesContent() {
                                   />
                                 </td>
                                 <td className="py-2 px-2.5">
-                                  <div className="font-black text-slate-900">{item.carrierName}</div>
+                                  <div className="font-black text-slate-900">{item.carrierName}</div>{item.dispatchCode&&<p className="text-[10px] font-semibold text-blue-700">{item.dispatchCode}{item.dispatchAssignedManually?" · Asignado manualmente":""}</p>}{(!item.dispatchCode||item.dispatchAssignedManually)&&<button type="button" onClick={()=>setDispatchAssignmentKey(item.key)} className="mt-1 text-[11px] font-semibold text-amber-700 underline">{item.dispatchCode?"Cambiar logística":"Asignar logística"}</button>}
                                   {item.vehicle && (
                                     <span className="inline-block rounded bg-slate-100 px-1.5 py-0.2 text-[9px] font-semibold text-slate-600">
                                       {item.vehicle}
