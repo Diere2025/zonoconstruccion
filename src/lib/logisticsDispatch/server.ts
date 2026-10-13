@@ -1,3 +1,6 @@
+import {calculateRealDispatchCosts} from './costs';
+import {normalizeSettlementCarriers} from '@/lib/carrierIdentity';
+import {resolveDispatchDigitalTickets} from './digitalTickets';
 import {createClient} from '@supabase/supabase-js';
 import {fetchSpreadsheetValues} from '@/lib/googleSheets';
 import {SOURCE_IDS,buildDispatchSource,matchMovements} from './model';
@@ -32,30 +35,45 @@ export async function prepareDispatchSync(db:ReturnType<typeof dispatchDatabase>
  const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify([payload,existingSettlements])))),n=>n.toString(16).padStart(2,'0')).join('');
  return {payload,hash,summary:{dispatches:source.dispatches.length,attempts:source.attempts.filter(a=>a.executed).length,excludedAttempts:source.attempts.filter(a=>!a.executed).length,settlements:source.settlements.length,movements:matched.links.length,issues:payload.issues.length}};
 }
+async function dispatchReversals(db:ReturnType<typeof dispatchDatabase>,movements:any[]){
+ const ids=[...new Set<string>(movements.flatMap(m=>{const t=Array.isArray(m.cash_transactions)?m.cash_transactions[0]:m.cash_transactions;return t?.id?[t.id]:[];}))];const reversed=new Set<string>();
+ for(let offset=0;offset<ids.length;offset+=200){const rows=await dispatchRows(db.from('cash_transactions').select('id,reversal_of_transaction_id').in('reversal_of_transaction_id',ids.slice(offset,offset+200)).order('id'));rows.forEach(r=>reversed.add(r.reversal_of_transaction_id));}return reversed;
+}
 export async function readDispatches(db:ReturnType<typeof dispatchDatabase>,from:string,to:string){
  dispatchPeriod(from,to);
- const dispatches=await dispatchRows(db.from('logistics_dispatches').select('*').gte('delivery_date',from).lte('delivery_date',to).order('delivery_date',{ascending:false}).order('code'));
+ const rawDispatches=await dispatchRows(db.from('logistics_dispatches').select('*').gte('delivery_date',from).lte('delivery_date',to).order('delivery_date',{ascending:false}).order('code'));
+ const catalog=await dispatchRows(db.from('carriers').select('id,name,is_active').order('id'));
+ const dispatches=normalizeSettlementCarriers(rawDispatches,catalog);
  if(!dispatches.length)return {dispatches:[],issues:[]};
  const ids=dispatches.map(d=>d.id),[attempts,settlements,movements,issues]=await Promise.all([
- dispatchRows(db.from('logistics_dispatch_attempts').select('dispatch_id,order_id,executed').in('dispatch_id',ids).order('id')),
+ dispatchRows(db.from('logistics_dispatch_attempts').select('dispatch_id,order_id,order_code,outcome,executed').in('dispatch_id',ids).order('id')),
  dispatchRows(db.from('logistics_dispatch_settlements').select('dispatch_id,settlement_id,treasury_settlements(status)').in('dispatch_id',ids).order('settlement_id')),
- dispatchRows(db.from('logistics_dispatch_movements').select('dispatch_id,transaction_id').in('dispatch_id',ids).order('transaction_id')),
+ dispatchRows(db.from('logistics_dispatch_movements').select('dispatch_id,transaction_id,cash_transactions(id,type,amount,currency,category,sub_category,created_at,movement_code,reversal_of_transaction_id)').in('dispatch_id',ids).order('transaction_id')),
  dispatchRows(db.from('logistics_link_issues').select('*').gte('source_to',from).lte('source_from',to).order('key'))
  ]);
- return {dispatches:dispatches.map(d=>({...d,attemptCount:attempts.filter(a=>a.dispatch_id===d.id&&a.executed).length,missingOrders:attempts.filter(a=>a.dispatch_id===d.id&&a.executed&&!a.order_id).length,excludedAttempts:attempts.filter(a=>a.dispatch_id===d.id&&!a.executed).length,settlementCount:settlements.filter(s=>s.dispatch_id===d.id&&(Array.isArray(s.treasury_settlements)?s.treasury_settlements[0]:s.treasury_settlements)?.status!=='archived').length,movementCount:movements.filter(m=>m.dispatch_id===d.id).length})),issues};
+ const reversed=await dispatchReversals(db,movements);
+ return {dispatches:dispatches.map(d=>{const {payments,...realCosts}=calculateRealDispatchCosts(attempts.filter(a=>a.dispatch_id===d.id),movements.filter(m=>m.dispatch_id===d.id),reversed);return {...d,realCosts,attemptCount:attempts.filter(a=>a.dispatch_id===d.id&&a.executed).length,missingOrders:attempts.filter(a=>a.dispatch_id===d.id&&a.executed&&!a.order_id).length,excludedAttempts:attempts.filter(a=>a.dispatch_id===d.id&&!a.executed).length,settlementCount:settlements.filter(s=>s.dispatch_id===d.id&&(Array.isArray(s.treasury_settlements)?s.treasury_settlements[0]:s.treasury_settlements)?.status!=='archived').length,movementCount:movements.filter(m=>m.dispatch_id===d.id).length};}),issues};
 }
 export async function dispatchDetail(db:ReturnType<typeof dispatchDatabase>,code:string){
- if(!/^LOG_REC_\d+$/.test(code))throw Object.assign(new Error('Código de salida inválido.'),{status:400});
+ if(!/^LOG_REC_\d+[A-Z]?$/.test(code))throw Object.assign(new Error('Código de salida inválido.'),{status:400});
  const lookup=await db.from('logistics_dispatches').select('*').eq('code',code).single();if(lookup.error)throw lookup.error;
- const dispatch=lookup.data,[attempts,settlements,movements,routes]=await Promise.all([
+ const catalog=await dispatchRows(db.from('carriers').select('id,name,is_active').order('id'));
+ const dispatch=normalizeSettlementCarriers([lookup.data],catalog)[0],[attempts,settlements,movements,routes]=await Promise.all([
  dispatchRows(db.from('logistics_dispatch_attempts').select('*,orders(id,legacy_code,customer_name,total_amount,status,payment_status),deliveries(id,status,delivery_date,route_sheet_id)').eq('dispatch_id',dispatch.id).order('order_code')),
  dispatchRows(db.from('logistics_dispatch_settlements').select('*,treasury_settlements(*,treasury_settlement_expenses(*),treasury_settlement_electronic_tickets(*))').eq('dispatch_id',dispatch.id).order('settlement_id')),
- dispatchRows(db.from('logistics_dispatch_movements').select('*,cash_transactions(id,movement_code,type,amount,currency,concept,created_at,sub_category,financial_accounts(name))').eq('dispatch_id',dispatch.id).order('transaction_id')),
+ dispatchRows(db.from('logistics_dispatch_movements').select('*,cash_transactions(id,movement_code,type,amount,currency,concept,created_at,category,sub_category,reversal_of_transaction_id,financial_accounts(name))').eq('dispatch_id',dispatch.id).order('transaction_id')),
  dispatchRows(db.from('logistics_dispatch_routes').select('*,route_sheets(code,delivery_date,run_number)').eq('dispatch_id',dispatch.id).order('route_sheet_id'))
  ]);
- const orderIds=[...new Set(attempts.filter(a=>a.executed&&a.order_id).map(a=>a.order_id))];
- const payments=orderIds.length?await dispatchRows(db.from('client_payments').select('id,order_id,amount,currency,status,created_at,route_sheet_id,cash_transaction_id,payment_methods(name)').in('order_id',orderIds).eq('status','Aprobado').is('reversed_at',null).order('id')):[];
- const mpPayments=orderIds.length?await dispatchRows(db.from('mp_payments').select('id,order_id,order_code,amount,account_name,payment_type,received_at,is_verified').in('order_id',orderIds).eq('is_verified',true).eq('is_hidden',false).eq('is_internal',false).order('id')):[];
- // Order receipts are shown separately: an advance does not prove collection on this dispatch.
- return {dispatch,attempts,settlements,movements,routes,orderPayments:payments,verifiedDigitalPayments:mpPayments};
+ const tickets=settlements.flatMap(link=>(Array.isArray(link.treasury_settlements)?link.treasury_settlements[0]:link.treasury_settlements)?.treasury_settlement_electronic_tickets||[]);
+ const orderIds=[...new Set([...attempts.filter(a=>a.executed&&a.order_id).map(a=>a.order_id),...tickets.filter(t=>t.order_id).map(t=>t.order_id)])];
+ const paymentIds=[...new Set(tickets.filter(t=>t.mp_payment_id).map(t=>t.mp_payment_id))];
+ const columns='id,order_id,order_code,amount,account_name,payment_type,received_at,is_verified,is_hidden,is_internal';
+ const [orderPayments,ticketPayments]=await Promise.all([
+  orderIds.length?dispatchRows(db.from('mp_payments').select(columns).in('order_id',orderIds).eq('is_verified',true).eq('is_hidden',false).eq('is_internal',false).order('id')):Promise.resolve([]),
+  paymentIds.length?dispatchRows(db.from('mp_payments').select(columns).in('id',paymentIds).order('id')):Promise.resolve([])
+ ]);
+ const mpPayments=[...new Map([...orderPayments,...ticketPayments].map(p=>[p.id,p])).values()];
+ // Imported approval history can contain repeated snapshots without ledger evidence; dispatch collections use linked movements and rendition tickets.
+ const realCosts=calculateRealDispatchCosts(attempts,movements,await dispatchReversals(db,movements));
+ return {dispatch,realCosts,attempts,settlements:resolveDispatchDigitalTickets(settlements,mpPayments,attempts,dispatch.delivery_date),movements,routes,verifiedDigitalPayments:mpPayments.filter(p=>p.is_verified&&!p.is_hidden&&!p.is_internal)};
 }

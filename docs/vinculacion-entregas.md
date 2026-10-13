@@ -1,21 +1,21 @@
-# Vinculación de entregas — primera etapa
+# Vinculación y costos reales de entregas
 
-El código LOG_REC identifica la salida física. Los recorridos R1/R2 del ERP y las rendiciones REND conservan sus identificadores y pueden pertenecer a la misma salida. Un pedido conserva cada intento histórico; se enlaza a la entrega actual del ERP solamente cuando coincide el día, sin reemplazar esa entrega.
+El código LOG_REC identifica la salida física. Los pedidos conservan el historial de postergaciones y los recorridos R1/R2 y rendiciones REND mantienen sus identificadores. Los códigos con un sufijo, como LOG_REC_05395B, identifican salidas distintas.
 
-La pantalla /admin/logistica-vinculos permite consultar pedidos, rendiciones, movimientos existentes y cobros aprobados del pedido. Estos cobros se muestran separados de los movimientos identificados con la salida, porque pueden incluir anticipos. No calcula tarifas, costos por pedido ni márgenes.
+La pantalla /admin/logistica-vinculos está disponible exclusivamente para administradores. Su API comprueba la identidad autenticada y el permiso en el servidor tanto para consultar como para sincronizar.
 
-La sincronización usa Entregados (CO), Seguimiento (ID_Entrega), Entregas por fletero (AU: COD LOG) y Caja (A: código). La vista previa se valida nuevamente al aplicar. La operación corre en una transacción y requiere un administrador. No crea ingresos ni egresos.
+La consulta cruza las planillas Entregados, Seguimiento, Entregas por fletero y Caja con los pedidos, rendiciones y movimientos del ERP. Los pagos de Servicio de Flete registrados en Caja se muestran como fuente cuando no tienen un movimiento ERP identificado inequívocamente; consultarlos no crea movimientos. Una reversión de un movimiento identificado se excluye del costo. Las tarifas teóricas no se utilizan.
 
-Los movimientos importados se adoptan sólo con coincidencia única en las fuentes y el ERP de cuenta, fecha argentina, concepto, tipo e importe. Los ambiguos se registran como pendientes. Las relaciones explícitas de rendiciones, pagos aprobados y movimientos generados mantienen su procedencia. Los pagos digitales no se asignan por importe.
+El reparto principal asigna el flete pagado únicamente a los pedidos entregados que admiten costo. La vista comparativa reparte también entre los pedidos postergados, anulados y no entregados para analizar las salidas fallidas; es una distribución analítica, no una medición de gasto por parada. CAMB y ENC quedan fuera del reparto y de la facturación y ganancia ordinarias; conservan su historial. Los retiros de depósito y las salidas no realizadas no requieren flete.
 
-Se importan únicamente rendiciones ausentes, con los importes y tickets de la fuente. Las existentes y las archivadas no se modifican. La rendición archivada puede aparecer como historia dentro de su salida y permanece archivada. Las nuevas tablas llevan RLS; la función de escritura sólo está disponible para service_role, con comprobación adicional del actor.
+El resumen muestra facturación, flete pagado, porcentaje de flete, costo por entrega, índice de entrega y ganancia antes y después del flete. Se agrupa por día o fletero; cada fecha puede expandirse para ver los fleteros. El período predeterminado es Este mes. El detalle se abre en un modal.
 
-LOG_REC_05344 del 07/09/2026 pertenece a GyV. Los 13 pedidos planificados de Salcedo conservan su historia, pero executed=false; los 14 de GyV pertenecen a la salida ejecutada. REND07051 no se asocia a esa salida.
+La ganancia reutiliza Resultado diario de entregas: ventas descontadas, flete cobrado y recargos menos materiales y servicios registrados, descontando después el costo de la salida. Los costos de materiales que sean estimaciones conservan esa indicación. No equivale al resultado neto de la empresa. Los datos faltantes de un pedido ordinario se muestran pendientes, sin sustituirlos por cero.
 
-Verificación: parser, movimientos ambiguos y reversados, referencias financieras, permisos, consultas reales y navegador en inglés; fechas DD/MM/YYYY y horarios argentinos de 24 horas. La carga se ejecuta dos veces para comprobar idempotencia. Se comparan los registros originales completos de caja, cobros, rendiciones, entregas y recorridos antes de confirmar la transacción.
+Los cobros digitales se cruzan con tickets de rendición y operaciones verificadas; los importes ambiguos no se asignan automáticamente. Se eliminaron del detalle los historiales repetidos de cobros aprobados sin evidencia que los atribuya a esa salida.
 
-Carga inicial desde el 01/09/2026 hasta el 12/10/2026: 107 salidas, 1.165 intentos ejecutados, 115 rendiciones y 262 movimientos. Se agregaron 10 rendiciones que faltaban; se conservó una archivada. Permanecen 301 avisos de fuente o vinculación: 93 pedidos sin código, 35 pedidos no localizados en ERP, 162 movimientos sin coincidencia única, 8 discrepancias de fechas y 3 de resultados de intentos.
+La sincronización requiere vista previa vigente y transacción. Vincula registros existentes e importa únicamente rendiciones ausentes; conserva las existentes y archivadas. No crea ingresos ni egresos. En localhost la acción sigue siendo una revisión sin persistencia. En producción actualiza los vínculos y vuelve a leer las fuentes.
 
-Para repetir una carga: node scripts/sync-logistics-dispatch-links.cjs --from=2026-09-01 --to=2026-10-12 (ensayo que se revierte); agregar --apply para confirmar. El script usa credenciales del entorno, no las imprime y registra un resumen privado en output/logistics-dispatch-links/.
+Migración v200: permite una letra mayúscula al final de LOG_REC, sin renumerar códigos existentes. El ensayo de publicación sincroniza dos veces y compara los registros originales de caja, cobros, rendiciones, entregas y recorridos antes de confirmar.
 
-La segunda etapa definirá tarifas vigentes, extras y reparto del costo por pedido. Hasta entonces, todos los importes mostrados corresponden a registros reales, sin asignaciones de costos estimadas.
+Validación: pruebas de reparto, centavos, reversión, postergaciones, excepciones CAMB/ENC, identidad de fleteros, pagos digitales, permisos, sincronización idempotente y navegador en inglés con fechas DD/MM/YYYY.

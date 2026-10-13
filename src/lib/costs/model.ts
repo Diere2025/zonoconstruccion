@@ -34,6 +34,8 @@ export function resolvePurchaseArticle(articles:Article[],name:string):Article|u
 /** Explicit catalog aliases only: preserve brand, capacity and pipe diameter. */
 export function catalogIdentity(value: unknown): string {
   const n=normalize(value);
+  if(n==='tapaclickconaro')return 'taparoscacaro';
+  if(n==='taparoscaa')return 'taparoscacaro';
   if(n==='valvuladeflotanteeco12varillaplastica'||n==='flotanteecovarillaplastica12')return 'flotanteecovarillaplastica12';
   const desengrasadora=n.match(/^camaradesengrasadora(?:paracocina)?(70|300|500|600|750|1000)litros(?:canos(50|110)mm)?biofort$/);
   if(desengrasadora){const capacity=desengrasadora[1],diameter=desengrasadora[2];if(capacity==='70'&&!diameter)return n;return `biofortdesengrasadora${capacity}l${diameter?'c'+diameter:''}`;}
