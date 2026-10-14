@@ -1,0 +1,18 @@
+'use client';
+type Row=Record<string,any>;
+const money=(n:number|null|undefined)=>n===null||n===undefined?'Sin pago vinculado':new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS'}).format(n);
+export function dispatchPaymentLabel(row:Row){const state=row.paymentState;if(row.status==='cancelled'&&!state?.payments?.length)return 'No corresponde · no salió';if(row.paymentSourcePending?.length)return 'Pago en Caja · revisar vínculo';if(state?.liquidated)return state.basis==='local_review'?'Liquidada · prueba local':'Liquidada';return state?.state==='paid'?'Pago registrado':state?.state==='partial'?'Pago parcial':state?.state==='needs_review'?'Revisar pago':'Sin pago vinculado';}
+function dateTime(value:string){const parts=Object.fromEntries(new Intl.DateTimeFormat('es-AR',{timeZone:'America/Argentina/Buenos_Aires',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(value)).map(p=>[p.type,p.value]));return `${parts.day}/${parts.month}/${parts.year} ${parts.hour}:${parts.minute}`;}
+export default function DispatchPaymentSummary({row}:{row:Row}){
+ const state=row.paymentState;
+ return <section className="space-y-4"><div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4"><h3 className="font-semibold">{dispatchPaymentLabel(row)}</h3><p className="mt-1 text-2xl font-bold">{money(state?.paidAmount)}</p><p className="mt-2 text-sm">El cierre de la salida y su pago se controlan por separado. El pago proviene de movimientos de Servicio de Flete vinculados al LOG.</p></div>
+  {!!row.paymentSourcePending?.length&&<p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Hay un pago registrado en Caja para este LOG. Falta identificar o importar el movimiento del ERP; revisarlo antes de emitir otro pago.</p>}
+  {state?.basis==='local_review'&&<p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Pago de prueba guardado en este navegador. No es un movimiento real.</p>}
+  {state?.sourceReviewLocal&&<p className="rounded-lg bg-blue-50 p-3 text-sm text-blue-900">Pago real existente, reconciliado con el LOG de Caja en esta revisión local. La asociación corregida todavía no se aplicó a la base compartida.</p>}
+  {state?.expectedAmount!==null&&state?.expectedAmount!==undefined?<p className="text-sm">Total acordado / aprobado: <strong>{money(state.expectedAmount)}</strong> · Saldo: <strong>{money(state.remainingAmount)}</strong></p>:<p className="text-sm text-slate-500">Se muestra lo efectivamente abonado. La tarifa prevista no se usa como saldo pendiente.</p>}
+  {!!state?.reversedPaymentCount&&<p className="text-sm text-amber-800">{state.reversedPaymentCount} movimientos revertidos excluidos del pago.</p>}
+  {!!state?.unsupportedCurrencyCount&&<p className="text-sm text-amber-800">Hay movimientos en otra moneda o con importes que requieren revisión.</p>}
+  <div className="overflow-x-auto"><table className="w-full min-w-[650px] text-left text-sm"><thead className="bg-slate-50"><tr>{['Movimiento','Fecha y hora','Cuenta','Concepto','Abonado'].map(h=><th key={h} className="p-3">{h}</th>)}</tr></thead><tbody>{(state?.payments||[]).map((p:Row)=><tr key={p.id} className="border-t"><td className="p-3">{p.href?<a className="font-medium text-blue-600 underline" href={p.href}>{p.code}</a>:p.code}</td><td className="p-3">{dateTime(p.date)}</td><td className="p-3">{p.account||'—'}</td><td className="p-3">{p.concept||'Servicio de Flete'}</td><td className="p-3 font-semibold">{money(p.amount)}</td></tr>)}</tbody></table></div>
+  {!state?.payments?.length&&<p className="text-sm text-slate-500">No hay un pago de flete activo vinculado a esta salida. Una rendición o un peaje no acreditan el pago al fletero.</p>}
+ </section>;
+}

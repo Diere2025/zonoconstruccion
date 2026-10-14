@@ -17,7 +17,8 @@ const allocate=(total:number,rows:Row[]):Map<string,number>=>{const result=new M
 /** Computes allocation views from posted freight expenses only. No tariff estimates or persistence. */
 export function calculateRealDispatchCosts(attempts:Row[],links:Row[],reversedIds:Set<string>=new Set()){
  const transactions=new Map<string,Row>();for(const link of links){const tx=one(link.cash_transactions);if(tx?.id)transactions.set(tx.id,tx);}
- const freight=[...transactions.values()].filter(t=>t.type==='egreso'&&[text(t.category),text(t.sub_category)].includes('servicio de flete'));
+ const freightRoles=new Set(links.filter(l=>l.purpose==='freight_fee').map(l=>l.transaction_id||one(l.cash_transactions)?.id));
+ const freight=[...transactions.values()].filter(t=>t.type==='egreso'&&(freightRoles.has(t.id)||[text(t.category),text(t.sub_category)].includes('servicio de flete')));
  const active=freight.filter(t=>!t.reversal_of_transaction_id&&!reversedIds.has(t.id)&&Number(t.amount)>0);
  const unsupported=active.filter(t=>t.currency!=='ARS'||!Number.isSafeInteger(Math.round(Number(t.amount)*100)));
  const ars=active.filter(t=>t.currency==='ARS'&&Number.isSafeInteger(Math.round(Number(t.amount)*100)));

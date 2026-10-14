@@ -57,7 +57,7 @@ export async function readDispatches(db:ReturnType<typeof dispatchDatabase>,from
  const ids=dispatches.map(d=>d.id),[attempts,settlements,movements,issues]=await Promise.all([
  dispatchRows(db.from('logistics_dispatch_attempts').select('dispatch_id,order_id,order_code,outcome,executed').in('dispatch_id',ids).order('id')),
  dispatchRows(db.from('logistics_dispatch_settlements').select('dispatch_id,settlement_id,treasury_settlements(status)').in('dispatch_id',ids).order('settlement_id')),
- dispatchRows(db.from('logistics_dispatch_movements').select('dispatch_id,transaction_id,cash_transactions(id,type,amount,currency,category,sub_category,created_at,movement_code,reversal_of_transaction_id)').in('dispatch_id',ids).order('transaction_id')),
+ dispatchRows(db.from('logistics_dispatch_movements').select('*,cash_transactions(id,type,amount,currency,category,sub_category,created_at,movement_code,reversal_of_transaction_id)').in('dispatch_id',ids).order('transaction_id')),
  dispatchRows(db.from('logistics_link_issues').select('*').gte('source_to',from).lte('source_from',to).order('key'))
  ]);
  const reversed=await dispatchReversals(db,movements);

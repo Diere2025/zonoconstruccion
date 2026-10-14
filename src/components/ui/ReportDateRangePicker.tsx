@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Calendar, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import { today } from '@/lib/costs/model';
 
@@ -14,11 +14,26 @@ const iso = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1)
 const sevenDaysAgo=()=>{const value=new Date(today()+'T12:00:00Z');value.setUTCDate(value.getUTCDate()-6);return value.toISOString().slice(0,10);};
 const localDate = (value: string) => { const [y, m, d] = value.split('-').map(Number); return new Date(y, m - 1, d); };
 
-export default function ReportDateRangePicker({ from, to, onChange, align = 'start' }: { from: string; to: string; onChange: (from: string, to: string) => void; align?: 'start' | 'end' }) {
+export default function ReportDateRangePicker({ from, to, onChange, align = 'start', hideLabel=false }: { from: string; to: string; onChange: (from: string, to: string) => void; align?: 'start' | 'end'; hideLabel?:boolean }) {
   const [open, setOpen] = useState(false), [preset, setPreset] = useState(() => from === today() && to === today() ? 'hoy' : from === sevenDaysAgo() && to === today() ? '7dias' : from === to.slice(0, 7) + '-01' && to === today() ? 'mes' : 'personalizado');
   const [draftPreset, setDraftPreset] = useState(preset), [start, setStart] = useState(from), [end, setEnd] = useState(to);
   const [view, setView] = useState(() => localDate(from)), [hover, setHover] = useState('');
   const [inputError, setInputError] = useState('');
+  useEffect(() => {
+    // A deep link or parent filter can change dates after the picker mounted.
+    // Preserve a user-selected preset only while its date bounds still match.
+    setPreset(previous => {
+      if(previous==='personalizado')return previous;
+      const first=localDate(today()),last=localDate(today());
+      if(previous==='ayer'){first.setDate(first.getDate()-1);last.setDate(last.getDate()-1);}
+      if(previous==='7dias'||previous==='30dias')first.setDate(first.getDate()-(previous==='7dias'?6:29));
+      if(previous==='semana')first.setDate(first.getDate()-(first.getDay()+6)%7);
+      if(previous==='mes')first.setDate(1);
+      if(previous==='mes_pasado'){first.setDate(1);first.setMonth(first.getMonth()-1);last.setDate(0);}
+      if(from===iso(first)&&to===iso(last))return previous;
+      return from===today()&&to===today()?'hoy':from===sevenDaysAgo()&&to===today()?'7dias':'personalizado';
+    });
+  }, [from,to]);
   const choosePreset = (id: string) => {
     setDraftPreset(id); setInputError('');
     if (id === 'personalizado') return;
@@ -35,15 +50,16 @@ export default function ReportDateRangePicker({ from, to, onChange, align = 'sta
     if (!start || end) { setStart(date); setEnd(''); }
     else { setStart(date < start ? date : start); setEnd(date < start ? start : date); }
   };
+  const shownPreset = preset==='7dias'&&(from!==sevenDaysAgo()||to!==today()) ? 'personalizado' : preset;
   const apply = () => {
     if (!start || !end || start > end) { setInputError('Seleccioná una fecha inicial y final válidas.'); return; }
     onChange(start, end); setPreset(draftPreset); setOpen(false);
   };
-  return <div className="relative"><span className="block">Período</span>
+  return <div className="relative">{!hideLabel&&<span className="block">Período</span>}
     <button type="button" aria-expanded={open} aria-haspopup="dialog" onClick={() => {
-      setStart(from); setEnd(to); setDraftPreset(preset); setView(localDate(from)); setInputError(''); setOpen(!open);
-    }} className="flex w-full items-center gap-2 rounded border border-slate-300 bg-white p-2 text-left text-sm text-slate-900">
-      <Calendar className="h-4 w-4"/><span>{presets.find(p => p[0] === preset)?.[1]} ({displayReportDate(from)} - {displayReportDate(to)})</span><ChevronDown className="h-4 w-4"/>
+      setStart(from); setEnd(to); setDraftPreset(shownPreset); setView(localDate(from)); setInputError(''); setOpen(!open);
+    }} className="flex h-10 w-full items-center gap-2 rounded border border-slate-300 bg-white p-2 text-left text-sm text-slate-900">
+      <Calendar className="h-4 w-4"/><span>{presets.find(p => p[0] === shownPreset)?.[1]} ({displayReportDate(from)} - {displayReportDate(to)})</span><ChevronDown className="h-4 w-4"/>
     </button>
     {open && <><div className="fixed inset-0 z-40" onClick={() => setOpen(false)}/>
       <div role="dialog" aria-label="Seleccionar rango de fechas" onKeyDown={e => { if (e.key === 'Escape') setOpen(false); }} className={`absolute top-full z-50 mt-2 flex w-[650px] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl md:flex-row ${align === 'end' ? 'right-0' : 'left-0'}`}>

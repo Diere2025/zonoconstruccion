@@ -26,6 +26,8 @@ export default function SearchableSelect({ id, label, value, options, onChange, 
   const inputId = id || generatedId;
   const listId = `${inputId}-options`;
   const inputRef = useRef<HTMLInputElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const menuPointerDown = useRef(false);
   const [menuPosition, setMenuPosition] = useState<{ left: number; width: number; top?: number; bottom?: number; maxHeight: number } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
@@ -37,6 +39,22 @@ export default function SearchableSelect({ id, label, value, options, onChange, 
     return options.filter(option => words.every(word => normalize(option.label).includes(word)));
   }, [options, query]);
   const highlightedIndex = Math.min(activeIndex, filtered.length - 1);
+  useEffect(() => {
+    if (!open) return;
+    const outside = (event: PointerEvent) => {
+      menuPointerDown.current = !!menuRef.current?.contains(event.target as Node);
+      if (!menuPointerDown.current && !containerRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const release = () => { menuPointerDown.current = false; };
+    document.addEventListener('pointerdown', outside, true);
+    document.addEventListener('pointerup', release, true);
+    document.addEventListener('pointercancel', release, true);
+    return () => {
+      document.removeEventListener('pointerdown', outside, true);
+      document.removeEventListener('pointerup', release, true);
+      document.removeEventListener('pointercancel', release, true);
+    };
+  }, [open]);
   useEffect(() => {
     inputRef.current?.setCustomValidity(!disabled && required && !selected ? "Seleccioná una opción de la lista." : "");
   }, [required, selected,disabled]);
@@ -93,7 +111,7 @@ export default function SearchableSelect({ id, label, value, options, onChange, 
       </div>;
 
   return (
-    <div className="relative min-w-0">
+    <div ref={containerRef} className="relative min-w-0">
       {!hideLabel && <label htmlFor={inputId} className="mb-1 block text-xs font-semibold text-slate-500">{label}{required && <span className="text-slate-400"> *</span>}</label>}
       <div className="relative">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -105,7 +123,12 @@ export default function SearchableSelect({ id, label, value, options, onChange, 
           placeholder={open ? "Escribí para filtrar…" : placeholder}
           value={open ? query : selected?.label || ""}
           onFocus={showOptions}
-          onBlur={() => setOpen(false)}
+          onBlur={event => {
+            // Native scrollbar presses can blur the input with no relatedTarget.
+            // Keep the menu mounted throughout the drag; outside clicks still close it.
+            if (!event.relatedTarget || menuPointerDown.current || menuRef.current?.contains(event.relatedTarget as Node)) return;
+            setOpen(false);
+          }}
           onChange={event => {
             setQuery(event.target.value); setActiveIndex(0); setOpen(true);
             if (value && clearOnSearch) onChange("");
