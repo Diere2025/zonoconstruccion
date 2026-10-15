@@ -21,7 +21,8 @@
     if(Date.now()<Number(state.reserveMonitorNextReloadAt)){reply({ok:true,skipped:true,nextReloadAt:state.reserveMonitorNextReloadAt});return;}
     const nextReloadAt=Date.now()+interval(request.intervalSeconds);chrome.storage.local.set({reserveMonitorNextReloadAt:nextReloadAt},()=>{reply({ok:true,nextReloadAt});setTimeout(()=>{const url=new URL(sender.tab.url);if(url.search||url.hash)chrome.tabs.update(id,{url:url.origin+reservePath});else chrome.tabs.reload(id);},100);});return;
    }
-   if(!state.reserveMonitorEnabled){reply({ok:true,active:false,enabled:false});return;}
+   // New profiles start automatically; an explicit manual pause remains paused.
+   if(state.reserveMonitorEnabled===false){reply({ok:true,active:false,enabled:false});return;}
    chrome.alarms.create(alarm,{periodInMinutes:0.5});
    if(state.reserveMonitorTabId===id){reply({ok:true,active:true,enabled:true,nextReloadAt:state.reserveMonitorNextReloadAt||Date.now()+interval(request.intervalSeconds)});return;}
    if(!state.reserveMonitorTabId){claim(id,null,interval(request.intervalSeconds),reply);return;}

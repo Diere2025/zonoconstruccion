@@ -131,3 +131,9 @@ Las rutas /banking/movements/2 y demás páginas numeradas mantienen el canal de
 ## Monitor de Reserva Diego (1.7.0)
 
 En el perfil MP3, abrí la pestaña de Reserva Diego y pulsá **Activar monitor**. Tiene una selección de pestaña independiente de Actividad y Movimientos. La activación se conserva al recargar; la lectura del histórico suspende el refresco hasta terminar. Usa los intervalos de trabajo/fuera de horario del perfil (mínimo 60 segundos; valores predeterminados 60/600 segundos). Mantené la pestaña abierta. La evidencia se cruza con los asientos existentes en el ERP; no se vuelve a ingresar un interés ya registrado.
+
+## Inicio automático de Reserva (1.7.1)
+
+Al abrir la pestaña de Reserva Diego, el monitor se activa automáticamente en perfiles nuevos y comienza a leer sin pulsar Activar monitor. Al reiniciar Chrome o restaurar las pestañas, recupera el monitor habilitado aunque cambie el identificador de pestaña. Las pestañas duplicadas quedan pasivas. Una pausa manual se conserva: para reanudarla, pulsá Activar monitor.
+
+Para actualizar una instalación clonada, ejecutá `git pull` en la rama `codex/extension-mp-1.7.0`, recargá la extensión en `chrome://extensions/` y recargá la pestaña de Reserva. La rama conserva su nombre para que las otras PC sigan recibiendo las actualizaciones.
