@@ -32,14 +32,14 @@ const serverLocation = (): boolean | null => null;
 const browserLocation = () => {
   const host = window.location.hostname.toLowerCase();
   const search = new URLSearchParams(window.location.search);
-  return host.includes('zono-erp') || host.includes('pages.dev') || search.get('erp') === 'true';
+  return host === 'erp.zono.com.ar' || host.includes('zono-erp') || host.includes('pages.dev') || search.get('erp') === 'true';
 };
 
 export default function RootPage() {
   const isErp = useSyncExternalStore(subscribeToLocation, browserLocation, serverLocation);
   if (isErp === null) return <div role="status" className="min-h-screen flex items-center justify-center bg-slate-50 text-sm text-slate-500">Cargando Zono…</div>;
 
-  // When visiting on zono-erp.pages.dev, redirect into the ERP
+  // On the ERP custom domain and Pages deployments, redirect into the ERP.
   if (isErp === true) {
     return <ErpRedirector />;
   }
