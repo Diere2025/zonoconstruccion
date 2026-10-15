@@ -336,7 +336,7 @@ export default function PresupuestosMayoristaPage() {
   }, [subtotalProducts, totalOrderDiscountAmount]);
 
   const totalFreight = useMemo(() => {
-    return freightType.includes("Incluido") ? 0 : customFreightAmount;
+    return freightType === "Flete Especial" ? customFreightAmount : 0;
   }, [freightType, customFreightAmount]);
 
   const ivaAmount = useMemo(() => {
@@ -580,7 +580,7 @@ export default function PresupuestosMayoristaPage() {
     if (totalFreight > 0) {
       lines.push(`🚚 *Flete:* $${totalFreight.toLocaleString("es-AR")}`);
     } else {
-      lines.push(`🚚 *Logística:* Flete Incluido`);
+      lines.push(`🚚 *Logística:* ${freightType}`);
     }
 
     if (includeIva) {
@@ -726,7 +726,7 @@ export default function PresupuestosMayoristaPage() {
     currY += 6;
     doc.setTextColor(71, 85, 105);
     doc.text("Logística / Flete:", 124, currY);
-    doc.text(totalFreight > 0 ? `$${totalFreight.toLocaleString("es-AR")}` : "Incluido", 192, currY, { align: "right" });
+    doc.text(totalFreight > 0 ? `$${totalFreight.toLocaleString("es-AR")}` : freightType === "Flete Incluido (En depósito)" ? "Incluido" : freightType, 192, currY, { align: "right" });
 
     if (includeIva) {
       currY += 6;
@@ -1040,6 +1040,7 @@ export default function PresupuestosMayoristaPage() {
                   className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs font-medium outline-none"
                 >
                   <option value="Flete Incluido (En depósito)">Flete Incluido</option>
+                  <option value="Flete no incluido">Flete no incluido</option>
                   <option value="Retiro en Fábrica Zono">Retiro en Fábrica</option>
                   <option value="Flete Especial">Flete Especial ($)</option>
                 </select>
