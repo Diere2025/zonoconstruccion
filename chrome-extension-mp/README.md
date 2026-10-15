@@ -77,3 +77,57 @@ node chrome-extension-mp/tests/serve.cjs
 ```
 
 Abrí `http://127.0.0.1:8766/activities`. Ejecuta el script real sobre listados de prueba con respuestas simuladas de Chrome y ERP. No envía pagos a servicios externos.
+
+## Captura bancaria desde octubre de 2026 (v1.4.0)
+
+Se pueden mantener abiertas dos pestañas activas por perfil: `/activities` para Chequeo de Pagos y `/banking/movements` para movimientos bancarios. Cada fuente conserva su propia pestaña monitor. La captura bancaria no sustituye las alertas de Chequeo.
+
+Después de actualizar, recargá la extensión en `chrome://extensions` y ambas páginas. Confirmá el alias de la cuenta abierta. Para probar la implementación local, configurá `http://localhost:3000/api/mp-webhook` en el popup: las capturas utilizan automáticamente `/api/mp-bank-web` del mismo servidor. La nueva ruta es independiente del webhook de cobros; una instalación vieja devuelve un error y no registra pagos de prueba.
+
+La captura sólo considera filas cargadas desde el 01/10/2026. No recorre páginas ni acredita cobertura completa del período. Podés cargar más filas y usar **Sincronizar visibles**. Los registros repetidos se actualizan; el número de operación agrupa varias partidas y no se utiliza como identificador único de fila.
+
+En Finanzas → Importar extracto, seleccioná la cuenta y abrí **Movimientos capturados de Mercado Pago**. Consultá por fecha y filtrá por operación, cliente o pedido. Actividad completa nombres; los cruces con Chequeo se realizan sólo cuando son únicos. Una operación de reserva explícita conserva sus partidas positivas/negativas y se muestra como transferencia interna, sin requerir pedido.
+
+El extracto mensual completa el identificador de movimiento y confirma filas coincidentes por cuenta, operación, importe con signo y minuto. Las coincidencias ambiguas siguen provisionales. Capturar o cruzar datos no registra dinero ni modifica saldos de pedidos. La publicación productiva de esta versión no se realiza con la actualización de la extensión; usar el endpoint local hasta que se publique el backend.
+
+
+### Frecuencias independientes (v1.4.1)
+
+El popup separa Chequeo de Pagos (Actividad) de Movimientos bancarios, con frecuencias en oficina y fuera de horario para cada circuito. Chequeo conserva los valores existentes; Movimientos inicia en 30 minutos/2 horas. Los horarios y el destino son compartidos. La frecuencia bancaria también controla la lectura complementaria de nombres/reservas en Actividad, sin retrasar Chequeo. Guardar aplica las frecuencias a las pestañas abiertas. Recargar la extensión y las páginas una vez para instalar esta versión. La lectura utiliza filas cargadas; no implica refresco remoto ni cobertura completa. Sincronizar visibles en Movimientos omite la espera.
+
+
+### Verificar pagos ahora (v1.5.0)
+
+En Chequeo de Pagos, todos los roles con acceso (incluidos fleteros y vendedores) pueden pedir una lectura inmediata de la cuenta filtrada o de todas. La extensión activa de Actividad consulta pedidos remotos cada aproximadamente 10 segundos, pulsa Actualizar listado y espera los envíos al ERP. Se informa lectura terminada, fallo, desconexión o vencimiento; nunca se confirma un pago por el solo hecho de refrescar. Las solicitudes simultáneas de una cuenta se agrupan y vencen a los 90 segundos. Ambos dispositivos deben usar el mismo destino ERP. Es necesaria la extensión 1.5.0 y la migración v175. Backend disponible localmente; pendiente publicar en producción.
+
+### Referencias administrativas de Actividad (v1.5.2)
+
+La lectura complementaria incluye destinatarios/comercios y tipos de operaciones de todas las filas cargadas con fecha, hora e importe único; se excluyen estados pendientes o fallidos explícitos. Compras, transferencias salientes, servicios y devoluciones se usan para identificar componentes bancarios, sin generar cobros en Chequeo ni modificar saldos. Los extractos guardados muestran referencias actualizadas de capturas asociadas a su entrada. Las referencias ambiguas quedan para revisión.
+
+
+### Bandeja y relevamiento de referencias (v1.6.0)
+
+Finanzas → Más acciones → Bandeja de extractos Mercado Pago abre /admin/finanzas/extractos. Las capturas preparan los ítems sin registrar dinero. Se conservan el texto original de Movimientos, el de Actividad y el concepto administrativo. Los filtros permiten revisar pendientes de movimiento, pendientes de documento oficial y actividades sin vínculo. El Excel confirma los mismos componentes: no vuelve a registrar sus importes. Los movimientos ya aprobados conservan sus conceptos, fechas e importes.
+
+Al ingresar a la pantalla o pulsar Actualizar Mercado Pago se solicita lectura a ambas pestañas de la cuenta. Relevar período completo carga páginas desde octubre y declara cobertura parcial si no alcanza el inicio solicitado. Estas solicitudes usan /api/mp-bank-refresh, una cola independiente de Chequeo de Pagos. La lectura histórica sólo transmite referencias a /api/mp-bank-web; no reproduce cobranzas históricas en el webhook de pagos. Al terminar vuelve al listado actual para que el monitor continúe.
+
+Actualizar requiere recargar la extensión y las pestañas de Actividad y Movimientos de cada perfil. Usar el mismo destino productivo https://zono-erp.pages.dev/api/mp-webhook y el alias correcto. Las frecuencias bancarias se mantienen configurables (30 minutos en oficina, 2 horas fuera de horario por defecto).
+
+Cuando Logística vincula un pago a un pedido, la referencia del extracto se actualiza sin generar otro cobro. Un fallo de enriquecimiento se deja para reintentar sin deshacer el vínculo del pedido. Verificar pagos ahora dispone de tiempos máximos de consulta y estado por cuenta: un problema de conexión ya no deja el botón verificando indefinidamente.
+
+## Corrección de centavos — versión 1.6.1
+
+Lee importes cuyos centavos aparecen separados en el listado bancario. Antes de recargar esta versión contra producción, aplicar db_migration_v179_bank_capture_decimal_repair.sql: repara capturas y borradores, conserva el original y las clasificaciones manuales, y no modifica movimientos registrados. El relevamiento histórico usa Relevar período completo en la bandeja; requiere ambas pestañas monitor activas con el alias de la cuenta y el destino del ERP correcto.
+
+### 1.6.2 — Referencias desde el 30/09/2026
+La captura de Actividad y Movimientos bancarios incluye el 30/09/2026 en todas las cuentas. Se mantienen los límites de octubre para generar nuevos movimientos financieros. Recargar la extensión y las pestañas de Mercado Pago para aplicar el nuevo lector.
+
+### 1.6.3 — Confirmación de sincronización manual
+Sincronizar visibles muestra progreso, confirmación de referencias, lista vacía o error del ERP en ambos canales. El contador de referencias de Actividad se presenta separado de los cobros de Chequeo de Pagos. Las capturas automáticas no agregan avisos.
+
+### 1.6.4 — Paginación bancaria
+Las rutas /banking/movements/2 y demás páginas numeradas mantienen el canal de Movimientos y la pestaña monitor. Las rutas de captura del ERP también aceptan esas páginas.
+
+## Monitor de Reserva Diego (1.7.0)
+
+En el perfil MP3, abrí la pestaña de Reserva Diego y pulsá **Activar monitor**. Tiene una selección de pestaña independiente de Actividad y Movimientos. La activación se conserva al recargar; la lectura del histórico suspende el refresco hasta terminar. Usa los intervalos de trabajo/fuera de horario del perfil (mínimo 60 segundos; valores predeterminados 60/600 segundos). Mantené la pestaña abierta. La evidencia se cruza con los asientos existentes en el ERP; no se vuelve a ingresar un interés ya registrado.

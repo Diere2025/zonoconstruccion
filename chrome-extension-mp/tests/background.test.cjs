@@ -171,7 +171,12 @@ async function settle() {
     assert.equal(ext.storage.monitorTabId, undefined, 'only Activities may auto-claim monitoring');
   }
 
-  console.log('8/8 background monitor recovery and navigation tests passed');
+  {
+    const ext=createExtension({monitorTabId:10,tabs:[{id:10,url:'https://www.mercadopago.com.ar/activities'},{id:22,url:'https://www.mercadopago.com.ar/banking/movements'}]});
+    const response=await ext.message({action:'GET_MONITOR_STATE'},{tab:{id:22,url:'https://www.mercadopago.com.ar/banking/movements'}});assert.equal(response.active,true);assert.equal(ext.storage.monitorTabId,10);assert.equal(ext.storage.bankingTabId,22);assert.ok(!ext.sent.some(m=>m.tabId===10&&m.message.active===false));ext.listeners.alarm({name:'POLL_PULSE'});await settle();assert.ok(ext.sent.some(m=>m.tabId===10&&m.message.action==='TRIGGER_POLL'));assert.ok(ext.sent.some(m=>m.tabId===22&&m.message.action==='TRIGGER_POLL'));
+    const paginated={id:22,url:'https://www.mercadopago.com.ar/banking/movements/2?beginDate=2026-09-30'};ext.listeners.updated(22,{url:paginated.url},paginated);await settle();const next=await ext.message({action:'GET_MONITOR_STATE'},{tab:paginated});assert.equal(next.active,true);assert.equal(ext.storage.bankingTabId,22);assert.equal(ext.storage.monitorTabId,10);ext.listeners.removed(22);assert.equal(ext.storage.bankingTabId,undefined);assert.equal(ext.storage.monitorTabId,10);
+  }
+  console.log('9/9 background monitor recovery and navigation tests passed');
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;

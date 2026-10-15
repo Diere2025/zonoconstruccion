@@ -81,6 +81,7 @@
     <div class="helper-text">Azul = día activo con monitoreo intensivo</div>
   </div>
 
+  <div class="section-title">Chequeo de Pagos · Actividad</div>
   <div class="field-row">
     <div>
       <label>Refresco Oficina</label>
@@ -103,6 +104,39 @@
       </select>
     </div>
   </div>
+
+  <div class="section-title">Movimientos bancarios</div>
+  <div class="field-row">
+    <div>
+      <label>Lectura en oficina</label>
+      <select id="bankingWorkInterval">
+        <option value="30">Cada 30 seg</option>
+        <option value="60">Cada 1 min</option>
+        <option value="120">Cada 2 min</option>
+        <option value="300">Cada 5 min</option>
+        <option value="600">Cada 10 min</option>
+        <option value="900">Cada 15 min</option>
+        <option value="1800" selected>Cada 30 min</option>
+        <option value="3600">Cada 1 hora</option>
+        <option value="7200">Cada 2 horas</option>
+      </select>
+    </div>
+    <div>
+      <label>Fuera de horario</label>
+      <select id="bankingOffInterval">
+        <option value="30">Cada 30 seg</option>
+        <option value="60">Cada 1 min</option>
+        <option value="120">Cada 2 min</option>
+        <option value="300">Cada 5 min</option>
+        <option value="600">Cada 10 min</option>
+        <option value="900">Cada 15 min</option>
+        <option value="1800">Cada 30 min</option>
+        <option value="3600">Cada 1 hora</option>
+        <option value="7200" selected>Cada 2 horas</option>
+      </select>
+    </div>
+  </div>
+  <div class="helper-text">Lee las filas cargadas y los datos complementarios de Actividad. Sincronizar visibles permite una lectura inmediata.</div>
 
   <div class="section-title">🔗 Conexión con Zono ERP</div>
 
