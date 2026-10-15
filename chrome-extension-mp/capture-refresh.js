@@ -3,8 +3,8 @@
  const pending=new Map(),lastAttempt=new Map(),lastSignature=new Map(),failedAt=new Map();let polling=false;
  const path=()=>location.pathname.replace(/\/$/,'');
  const channel=()=>path()==='/activities'?'activity':/^(?:\/banking\/movements(?:\/[1-9]\d*)?|\/balance\/reports\/movements)\/?$/.test(path())?'banking':null;
- function send(route,payload){return new Promise(resolve=>{let done=false;const timer=setTimeout(()=>finish(null),20000);function finish(result){if(done)return;done=true;clearTimeout(timer);resolve(result);}chrome.runtime.sendMessage({action:'REPORT_PAYMENT',url:new URL(route,config.webhookUrl).toString(),token:config.secretToken,payload:{...payload,account:config.accountName,url:location.href}},result=>finish(chrome.runtime.lastError?null:result));});}
- async function captureLoaded(lane,manual=false,period){
+ function send(route,payload){if(globalThis.ZonoExtensionContext?.alive()===false)return Promise.resolve(null);return new Promise(resolve=>{let done=false;const timer=setTimeout(()=>finish(null),20000);function finish(result){if(done)return;done=true;clearTimeout(timer);resolve(result);}chrome.runtime.sendMessage({action:'REPORT_PAYMENT',url:new URL(route,config.webhookUrl).toString(),token:config.secretToken,payload:{...payload,account:config.accountName,url:location.href}},result=>finish(chrome.runtime.lastError?null:result));});}
+ async function captureLoaded(lane,manual=false,period){if(globalThis.ZonoExtensionContext?.alive()===false)return {captured:0,failed:true,message:"La extensión se está reconectando"};
   if(!isMonitorTab||channel()!==lane)return {captured:0,failed:true};
   const key=[lane,config.accountName,config.webhookUrl].join('|');if(pending.has(key))return pending.get(key);
 
@@ -38,7 +38,7 @@
   throw Error('El listado todavía no está disponible. Volvé a solicitar la actualización.');
  }
  async function finishJob(lane,job){let ok=false,message='La lectura no pudo completarse';try{await waitForListing(lane);if(job.history){const result=await readHistory(lane,job);message=result.message;}else {const result=await captureLoaded(lane,true,job);if(result.failed)throw Error(result.message||'Captura no confirmada');message=result.captured+' referencias capturadas de las filas cargadas.';}ok=true;}catch(error){message=error.message||message;}await send('/api/mp-bank-refresh',{action:'complete',channel:lane,id:job.id,ok,message});if(job.history)location.assign(location.origin+(lane==='activity'?'/activities':'/banking/movements'));}
- async function poll(){const lane=channel();if(polling||!lane||!isMonitorTab||detectMercadoPagoError().hasError)return;polling=true;try{
+ async function poll(){if(globalThis.ZonoExtensionContext?.alive()===false)return;const lane=channel();if(polling||!lane||!isMonitorTab||detectMercadoPagoError().hasError)return;polling=true;try{
   const saved=sessionStorage.getItem('zono-capture-refresh-job');if(saved){sessionStorage.removeItem('zono-capture-refresh-job');const previous=JSON.parse(saved);if(previous.account===config.accountName&&previous.channel===lane)await finishJob(lane,previous.job);}
   const response=await send('/api/mp-bank-refresh',{action:'poll',channel:lane});if(!response?.ok||!response.data?.success)return;const job=response.data.data;if(!job)return;
   // New bank movements live on the first page. A historical date filter or

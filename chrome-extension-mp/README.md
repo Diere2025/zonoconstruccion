@@ -137,3 +137,9 @@ En el perfil MP3, abrí la pestaña de Reserva Diego y pulsá **Activar monitor*
 Al abrir la pestaña de Reserva Diego, el monitor se activa automáticamente en perfiles nuevos y comienza a leer sin pulsar Activar monitor. Al reiniciar Chrome o restaurar las pestañas, recupera el monitor habilitado aunque cambie el identificador de pestaña. Las pestañas duplicadas quedan pasivas. Una pausa manual se conserva: para reanudarla, pulsá Activar monitor.
 
 Para actualizar una instalación clonada, ejecutá `git pull` en la rama `codex/extension-mp-1.7.0`, recargá la extensión en `chrome://extensions/` y recargá la pestaña de Reserva. La rama conserva su nombre para que las otras PC sigan recibiendo las actualizaciones.
+
+## Recuperación al recargar la extensión (1.7.2)
+
+Si Chrome invalida el contexto de la extensión, los lectores dejan de enviar con el contexto anterior y recargan una vez las páginas de Actividades, Movimientos o Reserva para cargar los scripts vigentes. Las páginas de operaciones no se recargan por esta recuperación. La detección usa un temporizador y puede demorarse en pestañas en segundo plano.
+
+Al instalar esta corrección por primera vez, ejecutá git pull, recargá la extensión y recargá también las pestañas de Mercado Pago: los scripts de versiones anteriores todavía no incluyen la recuperación.

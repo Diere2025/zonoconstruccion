@@ -69,6 +69,7 @@ function updateMonitorWidget() {
 }
 
 function requestMonitorState() {
+  if(globalThis.ZonoExtensionContext?.alive()===false)return;
   chrome.runtime.sendMessage({ action: "GET_MONITOR_STATE" }, (response) => {
     isMonitorTab = Boolean(response?.active);
     updateMonitorWidget();
@@ -76,6 +77,7 @@ function requestMonitorState() {
 }
 
 function claimThisTabAsMonitor() {
+  if(globalThis.ZonoExtensionContext?.alive()===false)return;
   if (!isActivitiesPage()) {
     showToast("Abrí Actividad de Mercado Pago antes de activar el monitoreo", "error");
     return;
@@ -216,7 +218,7 @@ function createFloatingStatusWidget() {
   document.getElementById("zono-quick-account")?.addEventListener("change", (e) => {
     const newAcc = e.target.value;
     config.accountName = newAcc;
-    chrome.storage.local.set({ accountName: newAcc }, () => {
+    globalThis.ZonoExtensionContext?.alive()!==false && chrome.storage.local.set({ accountName: newAcc }, () => {
       showToast(`Cuenta configurada: ${newAcc}`, "success");
       sendHeartbeat();
     });
@@ -281,6 +283,7 @@ function updateReadingStatus() {
 // User-triggered, local diagnostic: only rendered movement text and DOM shape.
 // Never include storage, cookies, configuration secrets or page HTML/scripts.
 function getReadingDiagnostics() {
+  if(globalThis.ZonoExtensionContext?.alive()===false)return {error:"La extensión se está reconectando"};
   const elements = [...document.body.querySelectorAll("*")].filter(el =>
     !el.closest("[id^='zono-'], script, style, nav, header, aside") && el.getClientRects().length);
   const incoming = el => /transferencia\s+recibida|dinero\s+recibido|recibiste|cobro/i.test(el.innerText || "");
@@ -350,6 +353,7 @@ function isOutgoingMovement(rawText) {
 }
 
 function reportPayment(payment, isManualAction = false) {
+  if(globalThis.ZonoExtensionContext?.alive()===false)return Promise.resolve("failed");
   if (isOutgoingMovement(`${payment.title} ${payment.payerName} ${payment.rawText}`)) {
     return Promise.resolve("skipped");
   }
@@ -694,6 +698,7 @@ function getVisibleRows() {
 }
 
 function scanDOMActivities() {
+  if(globalThis.ZonoExtensionContext?.alive()===false)return;
   if(isBankingPage()){if(isMonitorTab)reportBankingRows(false);return;}
   if (!isMonitorTab) return;
   if (!isActivitiesPage()) return;
@@ -814,6 +819,7 @@ let wrongPageSeconds = 0;
 let wrongPageAlertSent = false;
 
 function handleWrongPage() {
+  if(globalThis.ZonoExtensionContext?.alive()===false)return;
   if (!isMonitorTab) return;
   if (wrongPageSeconds === 0) {
     chrome.runtime.sendMessage({ action: "WATCH_WRONG_PAGE" });
@@ -901,6 +907,7 @@ function handleMercadoPagoError(errCheck) {
 }
 
 function sendPageAlert(errorType, message, alertTitle) {
+  if(globalThis.ZonoExtensionContext?.alive()===false)return;
   const now = new Date();
   const clientTime = now.toLocaleTimeString("es-AR", {
     timeZone: "America/Argentina/Buenos_Aires",
@@ -939,6 +946,7 @@ function sendPageAlert(errorType, message, alertTitle) {
 let consecutiveFailedRefreshes = 0;
 
 function triggerActualizarListado() {
+  if(globalThis.ZonoExtensionContext?.alive()===false)return;
   if (!isMonitorTab) return false;
   if (!isActivitiesPage()) {
     handleWrongPage();
@@ -1006,6 +1014,7 @@ function setConnectionStatus(isOnline) {
 }
 
 function sendHeartbeat() {
+  if(globalThis.ZonoExtensionContext?.alive()===false)return;
   if(isBankingPage())return;
   if (!isMonitorTab) return;
   // 1. DO NOT send heartbeat if not on activities page!
@@ -1117,7 +1126,7 @@ function startMonitoring() {
         document.getElementById("zono-quick-account")?.addEventListener("change", (e) => {
           const newAcc = e.target.value;
           config.accountName = newAcc;
-          chrome.storage.local.set({ accountName: newAcc }, () => {
+          globalThis.ZonoExtensionContext?.alive()!==false && chrome.storage.local.set({ accountName: newAcc }, () => {
             showToast(`Cuenta configurada: ${newAcc}`, "success");
             sendHeartbeat();
           });
@@ -1230,6 +1239,7 @@ function startMonitoring() {
 let bankingLastAttempt=0;
 let bankingPending=false,bankingLastSignature='',bankingLastSent=0,bankingRetryAt=0;
 async function reportBankingRows(manual){
+  if(globalThis.ZonoExtensionContext?.alive()===false)return;
  if(bankingPending||!globalThis.ZonoMpBanking||(!manual&&Date.now()<bankingRetryAt))return;
  if(!manual&&bankingLastAttempt&&Date.now()-bankingLastAttempt<getBankingInterval()*1000)return;
  bankingLastAttempt=Date.now();
@@ -1241,6 +1251,7 @@ async function reportBankingRows(manual){
 let activityBankLastAttempt=0;
 let activityBankPending=false,activityBankSignature='',activityBankSent=0,activityBankRetryAt=0;
 function reportActivityBankRows(manual=false){
+  if(globalThis.ZonoExtensionContext?.alive()===false)return;
  if(!isMonitorTab||!globalThis.ZonoMpBanking||!window.location.pathname.startsWith('/activities')||activityBankPending||(!manual&&Date.now()<activityBankRetryAt))return;
  if(!manual&&activityBankLastAttempt&&Date.now()-activityBankLastAttempt<getBankingInterval()*1000)return;
  activityBankLastAttempt=Date.now();
@@ -1250,8 +1261,9 @@ function reportActivityBankRows(manual=false){
 
 // Remote requests: independent from the configured list refresh interval.
 let remoteRefreshBusy=false;
-function refreshChannel(payload){return new Promise(resolve=>{let done=false;const timer=setTimeout(()=>finish(null),20000);function finish(result){if(done)return;done=true;clearTimeout(timer);resolve(result);}chrome.runtime.sendMessage({action:'REPORT_PAYMENT',url:new URL('/api/mp-refresh',config.webhookUrl).toString(),token:config.secretToken,payload:{...payload,account:config.accountName,url:window.location.href}},result=>finish(chrome.runtime.lastError?null:result));});}
+function refreshChannel(payload){if(globalThis.ZonoExtensionContext?.alive()===false)return Promise.resolve(null);return new Promise(resolve=>{let done=false;const timer=setTimeout(()=>finish(null),20000);function finish(result){if(done)return;done=true;clearTimeout(timer);resolve(result);}chrome.runtime.sendMessage({action:'REPORT_PAYMENT',url:new URL('/api/mp-refresh',config.webhookUrl).toString(),token:config.secretToken,payload:{...payload,account:config.accountName,url:window.location.href}},result=>finish(chrome.runtime.lastError?null:result));});}
 async function pollRemoteRefresh(){
+  if(globalThis.ZonoExtensionContext?.alive()===false)return;
  if(remoteRefreshBusy||!isMonitorTab||window.location.pathname.replace(/\/$/,'')!=='/activities'||detectMercadoPagoError().hasError)return;
  remoteRefreshBusy=true;
  try{
