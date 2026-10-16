@@ -1169,6 +1169,8 @@ export default function PedidosPage() {
 
   // Client Selection Toggle
   const [selectedClientId, setSelectedClientId] = useState("");
+  const [isEditingClientDetails, setIsEditingClientDetails] = useState(false);
+  useEffect(() => { setIsEditingClientDetails(false); }, [selectedClientId]);
   const [appliedWholesaleDiscountLabel, setAppliedWholesaleDiscountLabel] = useState("");
   const isNewClient = !selectedClientId;
   const [selectedAddressId, setSelectedAddressId] = useState("");
@@ -1180,7 +1182,7 @@ export default function PedidosPage() {
   const [showWholesaleClientModal, setShowWholesaleClientModal] = useState(false);
 
   const isAnabelSeller = currentUserId === ANABEL_SELLER_ID && role !== 'admin';
-  const lastRetailAutofillClientIdRef = useRef<string>('');
+  const lastClientAutofillKeyRef = useRef<string>('');
   const hasAppliedClientUrlRef = useRef(false);
 
   // Debounce client search
@@ -2930,7 +2932,7 @@ export default function PedidosPage() {
     async function fetchAddresses() {
       if (!selectedClientId) {
         manualAddressClientIdRef.current = '';
-        lastRetailAutofillClientIdRef.current = '';
+        lastClientAutofillKeyRef.current = '';
         setClientAddresses([]);
         setAppliedWholesaleDiscountLabel("");
         return;
@@ -2951,7 +2953,8 @@ export default function PedidosPage() {
         return;
       }
 
-      if (isAnabelSeller && !isWholesaleContext && lastRetailAutofillClientIdRef.current === selectedClientId) return;
+      const autofillKey = JSON.stringify([selectedClientId, isWholesaleContext, sourceQuoteId]);
+      if (lastClientAutofillKeyRef.current === autofillKey) return;
 
       // Autofill client name and details
       const c = clients.find(cl => cl.id === selectedClientId);
@@ -2960,7 +2963,7 @@ export default function PedidosPage() {
         setNewClientName(c.business_name);
         setNewClientTaxId(c.tax_id || "");
         setShowTaxIdField(!!c.tax_id);
-        const phones = (c.phone_primary || c.phone || "").split(",").map(p => p.trim()).filter(Boolean);
+        const phones = [c.phone_primary || c.phone || "", c.phone_secondary || ""].join(",").split(",").map(p => p.trim()).filter(Boolean);
         if (phones.length === 0) {
           setNewClientPhones(["", ""]);
         } else if (phones.length === 1) {
@@ -3048,7 +3051,7 @@ export default function PedidosPage() {
           setAclaraciones("");
         }
       }
-      if (isAnabelSeller && !isWholesaleContext) lastRetailAutofillClientIdRef.current = selectedClientId;
+      lastClientAutofillKeyRef.current = autofillKey;
     }
     fetchAddresses();
     return () => { cancelled = true; };
@@ -3450,8 +3453,8 @@ export default function PedidosPage() {
           setNewClientTaxId(orderTaxId);
           setShowTaxIdField(!!orderTaxId);
           const phones = savedCustomer
-            ? [savedCustomer.phone_primary || '', savedCustomer.phone_secondary || ''].filter(Boolean)
-            : (c.phone_primary || c.phone || "").split(",").map((p: string) => p.trim()).filter(Boolean);
+            ? [savedCustomer.phone_primary || '', savedCustomer.phone_secondary || ''].join(',').split(',').map((p: string) => p.trim()).filter(Boolean)
+            : [c.phone_primary || c.phone || "", c.phone_secondary || ""].join(",").split(",").map((p: string) => p.trim()).filter(Boolean);
           if (phones.length === 0) {
             setNewClientPhones(["", ""]);
           } else if (phones.length === 1) {
@@ -3859,9 +3862,10 @@ export default function PedidosPage() {
     }
 
     // 2. Datos del cliente (teléfonos si no vienen en la consulta)
-    let clientPhone = rawOrder.client_phone || "";
-    let clientPhone2 = rawOrder.client_phone_secondary || "";
-    if (!clientPhone && rawOrder.client_id) {
+    const savedCustomer = rawOrder.totals?.customer_snapshot;
+    let clientPhone = savedCustomer?.phone_primary ?? rawOrder.client_phone ?? "";
+    let clientPhone2 = savedCustomer?.phone_secondary ?? rawOrder.client_phone_secondary ?? "";
+    if (!savedCustomer && !clientPhone && rawOrder.client_id) {
       const c = clients.find(cl => cl.id === rawOrder.client_id);
       if (c) {
         clientPhone = c.phone_primary || "";
@@ -4006,7 +4010,7 @@ export default function PedidosPage() {
       order_date: fechaPedido || new Date().toISOString().split('T')[0],
       customer_name: cliente || newClientName || "Cliente",
       client_phone: newClientPhones[0] || "",
-      client_phone_secondary: newClientPhones[1] || "",
+      client_phone_secondary: newClientPhones.slice(1).filter(Boolean).join(", "),
       address: direccion || "",
       locality: isPickup ? 'Depósito' : locObj?.name || "",
       zone_name: locObj?.zones?.name || "",
@@ -4091,9 +4095,10 @@ export default function PedidosPage() {
       const selectedPayMethodName = dbPaymentMethods.find(m => m.id === order.payment_method_id)?.name || 'Contado';
       const totalsObj = order.totals || {};
 
-      let clientPhone = '';
-      let clientPhone2 = '';
-      if (order.client_id) {
+      const savedCustomer = totalsObj.customer_snapshot;
+      let clientPhone = savedCustomer?.phone_primary || '';
+      let clientPhone2 = savedCustomer?.phone_secondary || '';
+      if (!savedCustomer && order.client_id) {
         let c = clients.find(cl => cl.id === order.client_id);
         if (!c) {
           const { data: cData } = await supabase
@@ -5250,7 +5255,7 @@ export default function PedidosPage() {
                 name: isNewClient ? newClientName : cliente,
                 tax_id: newClientTaxId,
                 phone_primary: newClientPhones[0] || '',
-                phone_secondary: newClientPhones[1] || ''
+                phone_secondary: newClientPhones.slice(1).filter(Boolean).join(', ')
               },
               items_subtotal: itemsGrossSubtotal,
               order_discount_type: persistedOrderDiscountType,
@@ -5368,12 +5373,8 @@ export default function PedidosPage() {
         // Persistir el trabajo junto al pedido; el servidor lo procesa luego.
         {
           const selectedPayMethodName = dbPaymentMethods.find(m => m.id === paymentsList[0]?.payment_method_id)?.name || 'Contado';
-          const clientPhone = isNewClient || (isAnabelSeller && !isWholesaleContext)
-            ? (newClientPhones.map(cleanPhoneForSaving).filter(Boolean)[0] || '')
-            : (clients.find(c => c.id === selectedClientId)?.phone_primary || '');
-          const clientPhone2 = isNewClient || (isAnabelSeller && !isWholesaleContext)
-            ? (newClientPhones.map(cleanPhoneForSaving).filter(Boolean)[1] || '')
-            : '';
+          const clientPhone = newClientPhones.map(cleanPhoneForSaving).filter(Boolean)[0] || '';
+          const clientPhone2 = newClientPhones.map(cleanPhoneForSaving).filter(Boolean).slice(1).join(', ');
           let sellerFullName = sellersList.find(s => s.id === seller_id)?.full_name;
           if (!sellerFullName) {
             const { data: sRow } = await supabase
@@ -5433,7 +5434,7 @@ export default function PedidosPage() {
             receipts: {
               type: 'receipt',
               customerName: (isNewClient ? newClientName : cliente) || '',
-              taxId: isNewClient || (isAnabelSeller && !isWholesaleContext) ? newClientTaxId : (clients.find(c => c.id === selectedClientId)?.tax_id || ''),
+              taxId: newClientTaxId,
               sellerName: sellerFullName,
               status: paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? 'Señado' : 'Pendiente'),
               pendingBalance,
@@ -5487,7 +5488,7 @@ export default function PedidosPage() {
               name: isNewClient ? newClientName : cliente,
               tax_id: newClientTaxId,
               phone_primary: newClientPhones[0] || '',
-              phone_secondary: newClientPhones[1] || ''
+              phone_secondary: newClientPhones.slice(1).filter(Boolean).join(', ')
             },
             items_subtotal: itemsGrossSubtotal,
             order_discount_type: persistedOrderDiscountType,
@@ -5678,12 +5679,8 @@ export default function PedidosPage() {
         } | undefined;
         let operationalSyncSkipped = isWholesaleContext && !FACUNDO_SELLER_IDS.includes(originalOrderSnapshot?.seller_id || seller_id);
         if (!operationalSyncSkipped) try {
-          const clientPhone = isNewClient || (isAnabelSeller && !isWholesaleContext)
-            ? (newClientPhones.map(cleanPhoneForSaving).filter(Boolean)[0] || '')
-            : (clients.find(c => c.id === selectedClientId)?.phone_primary || '');
-          const clientPhone2 = isNewClient || (isAnabelSeller && !isWholesaleContext)
-            ? (newClientPhones.map(cleanPhoneForSaving).filter(Boolean)[1] || '')
-            : '';
+          const clientPhone = newClientPhones.map(cleanPhoneForSaving).filter(Boolean)[0] || '';
+          const clientPhone2 = newClientPhones.map(cleanPhoneForSaving).filter(Boolean).slice(1).join(', ');
           let sellerFullName = sellersList.find(s => s.id === seller_id)?.full_name;
           if (!sellerFullName) {
             sellerFullName = (seller_id === loggedInUserId ? (currentSeller?.full_name || userData.user.user_metadata?.full_name) : '') || 'Vendedor';
@@ -5766,9 +5763,7 @@ export default function PedidosPage() {
         }
         const selectedPayMethodName = dbPaymentMethods.find(m => m.id === paymentsList[0]?.payment_method_id)?.name || 'Contado';
         const payStatusName = paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? `Señado (${formatPrice(depositAmount)})` : 'Contra Entrega');
-        const clientPhone = isNewClient || (isAnabelSeller && !isWholesaleContext)
-            ? (newClientPhones.map(cleanPhoneForSaving).filter(Boolean)[0] || '')
-            : (clients.find(c => c.id === selectedClientId)?.phone_primary || '');
+        const clientPhone = newClientPhones.map(cleanPhoneForSaving).filter(Boolean)[0] || '';
 
         const copyMsg = buildCopyableModificationMessage({
           legacyCode: effectiveLegacyCode || orderData.legacy_code || legacyCode || 'S/C',
@@ -5821,7 +5816,7 @@ export default function PedidosPage() {
       if (editingOrderId) try {
         const orderCodeForTelegram = effectiveLegacyCode || finalLegacyCode || legacyCode || orderData?.legacy_code || '';
         const clientNameForTelegram = (isNewClient ? newClientName : cliente) || '';
-        const clientTaxIdForTelegram = isNewClient || (isAnabelSeller && !isWholesaleContext) ? newClientTaxId : (clients.find(c => c.id === selectedClientId)?.tax_id || '');
+        const clientTaxIdForTelegram = newClientTaxId;
         const paymentStatusLabel = paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? 'Señado' : 'Pendiente');
 
         const unsentReceipts = paymentsList.filter(p => Boolean(p.receipt_url) && !p.telegram_sent);
@@ -6462,11 +6457,19 @@ export default function PedidosPage() {
                     <div className="bg-brand-50 border border-brand-100 rounded-lg p-2.5 flex items-center justify-between gap-3 text-xs animate-in fade-in slide-in-from-top-1">
                       <div>
                         <span className="font-black text-brand-700">Cliente Existente Seleccionado</span>
-                        <p className="text-[10px] text-slate-500 font-bold leading-tight mt-0.5">La información de CUIT y Teléfono ha sido precargada.</p>
+                        <p className="text-[10px] text-slate-500 font-bold leading-tight mt-0.5">Podés editar los datos de este pedido sin volver a cargarlos.</p>
                         {isWholesaleContext && appliedWholesaleDiscountLabel && (
                           <p className="text-[10px] text-emerald-700 font-black leading-tight mt-1">{appliedWholesaleDiscountLabel} aplicado al pedido.</p>
                         )}
                       </div>
+                      <div className="flex shrink-0 flex-col gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setIsEditingClientDetails(value => !value)}
+                          className="px-2 py-1 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded text-[10px] transition-all"
+                        >
+                          {isEditingClientDetails ? 'Listo' : 'Editar datos'}
+                        </button>
                       <button
                         type="button"
                         onClick={() => {
@@ -6486,17 +6489,38 @@ export default function PedidosPage() {
                         }}
                         className="px-2 py-1 bg-white hover:bg-slate-50 border border-slate-200 text-slate-600 font-bold rounded text-[9px] shadow-sm transition-all"
                       >
-                        Cambiar / Limpiar
+                          Cambiar cliente
                       </button>
                     </div>
+                    </div>
 
-                    {isAnabelSeller && !isWholesaleContext && (
-                      <div className="grid gap-2 rounded-xl border border-amber-200 bg-amber-50/70 p-3">
-                        <p className="text-[10px] font-bold text-amber-800">Datos para este pedido. Los cambios no modifican la ficha del cliente ni sus pedidos anteriores.</p>
-                        <input value={cliente} onChange={e => { setCliente(e.target.value); setNewClientName(e.target.value); }} placeholder="Nombre para este pedido" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs" />
-                        <input value={newClientPhones[0] || ''} onChange={e => setNewClientPhones(prev => [e.target.value, prev[1] || ''])} placeholder="Teléfono para este pedido" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs" />
-                        <input value={newClientPhones[1] || ''} onChange={e => setNewClientPhones(prev => [prev[0] || '', e.target.value])} placeholder="Teléfono secundario para este pedido" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs" />
-                        <input value={newClientTaxId} onChange={e => setNewClientTaxId(e.target.value)} placeholder="DNI / CUIT para este pedido" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs" />
+                    {(isEditingClientDetails || (isAnabelSeller && !isWholesaleContext)) && (
+                      <div className="grid gap-3 rounded-xl border border-brand-200 bg-white p-3">
+                        <p className="text-[10px] font-bold text-slate-600">Los cambios se guardan al guardar el pedido. No modifican la ficha del cliente ni sus pedidos anteriores.</p>
+                        <label className="grid gap-1 text-[10px] font-bold text-slate-600">
+                          Nombre / Razón social
+                          <input value={cliente} onChange={e => { setCliente(e.target.value); setNewClientName(e.target.value); }} required className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-800" />
+                        </label>
+                        {newClientPhones.map((phone, index) => (
+                          <div key={index} className="flex items-end gap-1.5">
+                            <label className="grid min-w-0 flex-1 gap-1 text-[10px] font-bold text-slate-600">
+                              {index === 0 ? 'Teléfono principal' : `Teléfono adicional ${index}`}
+                              <input type="tel" value={phone} onChange={e => setNewClientPhones(prev => prev.map((value, i) => i === index ? e.target.value : value))} className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-800" />
+                            </label>
+                            {index > 0 && (
+                              <button type="button" onClick={() => setNewClientPhones(prev => prev.filter((_, i) => i !== index))} aria-label={`Eliminar teléfono adicional ${index}`} className="rounded-lg border border-red-200 p-2 text-red-600 hover:bg-red-50">
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                        <button type="button" onClick={() => setNewClientPhones(prev => [...prev, ''])} className="flex w-fit items-center gap-1 rounded-lg border border-brand-200 bg-brand-50 px-2.5 py-1 text-[10px] font-bold text-brand-700 hover:bg-brand-100">
+                          <Plus className="h-3 w-3" /> Agregar teléfono
+                        </button>
+                        <label className="grid gap-1 text-[10px] font-bold text-slate-600">
+                          DNI / CUIT
+                          <input value={newClientTaxId} onChange={e => setNewClientTaxId(e.target.value)} className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-800" />
+                        </label>
                       </div>
                     )}
 
