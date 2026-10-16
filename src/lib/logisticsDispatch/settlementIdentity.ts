@@ -1,8 +1,14 @@
-import {carrierIdentityKey} from '@/lib/carrierIdentity';
+import {carrierIdentityKey,carrierCommercialProfile} from '@/lib/carrierIdentity';
 type Row=Record<string,any>;
 const fields=['deliveries_total','change_fund','electronic_total','tolls_total','extraordinary_total','expected_cash','counted_cash','difference','shortage_recovered'];
 const words=(name:string):string[]=>name.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().match(/[a-z0-9]+/g)||[];
 export function sameSettlementCarrier(a:string,b:string){if(carrierIdentityKey(a)===carrierIdentityKey(b)&&carrierIdentityKey(a))return true;const x=words(a),y=words(b);return Math.min(x.length,y.length)>=2&&(x.every(w=>y.includes(w))||y.every(w=>x.includes(w)));}
+/** LOG ownership follows the transport company; settlement matching still follows the driver. */
+export function sameDispatchCarrier(a:string,b:string){
+ if(sameSettlementCarrier(a,b))return true;
+ const company=carrierCommercialProfile(a)?.company_key;
+ return Boolean(company&&company===carrierCommercialProfile(b)?.company_key);
+}
 /** Read-only consolidation of an imported snapshot and its existing route; every origin remains accessible. */
 export function consolidateSettlementSnapshots<T extends Row>(rows:T[]):T[]{
  const replacements=new Map<string,T>(),merged=new Set<string>();

@@ -462,15 +462,17 @@ export default function EstadoResultadosView() {
                   </td>
                   {group.subtotal.dailyValues.map((dVal, dIdx) => {
                     const dayRev = dailyFacturaciones[dIdx] || 0;
-                    const showPct = !isIngresos && dayRev > 0 && dVal > 0;
+                    const showPct = !isIngresos && dayRev > 0 && dVal !== 0;
                     const pctOfDay = showPct ? ((dVal / dayRev) * 100).toFixed(1) : null;
 
                     return (
                       <td
                         key={dIdx}
                         className={`py-2 px-3 text-right font-semibold ${
-                          dVal > 0
-                            ? isIngresos
+                          dVal !== 0
+                            ? dVal < 0
+                              ? 'text-rose-600 dark:text-rose-400 font-bold'
+                              : isIngresos
                               ? 'text-indigo-600 dark:text-indigo-400'
                               : isResultados
                               ? 'text-emerald-600 dark:text-emerald-400 font-bold'
@@ -478,13 +480,15 @@ export default function EstadoResultadosView() {
                             : 'text-slate-300 dark:text-slate-600'
                         }`}
                       >
-                        {dVal > 0 ? (
+                        {dVal !== 0 ? (
                           <div className="flex flex-col items-end leading-tight">
                             <span>{formatCurrency(dVal)}</span>
                             {pctOfDay && (
                               <span
                                 className={`text-[9.5px] font-semibold tracking-tight ${
-                                  isResultados
+                                  dVal < 0
+                                    ? 'text-rose-600/80 dark:text-rose-400/80'
+                                    : isResultados
                                     ? 'text-emerald-600/80 dark:text-emerald-400/80'
                                     : 'text-slate-400 dark:text-slate-500'
                                 }`}
@@ -582,15 +586,17 @@ export default function EstadoResultadosView() {
                         </td>
                         {row.dailyValues.map((val, vIdx) => {
                           const dayRev = dailyFacturaciones[vIdx] || 0;
-                          const showPct = (isSurcharge || isBaseSales || isMpNeto || !isIngresos) && dayRev > 0 && val > 0;
+                          const showPct = (isSurcharge || isBaseSales || isMpNeto || !isIngresos) && dayRev > 0 && val !== 0;
                           const pctOfDay = showPct ? ((val / dayRev) * 100).toFixed(1) : null;
 
                           return (
                             <td
                               key={vIdx}
                               className={`py-2 px-3 text-right ${
-                                val > 0
-                                  ? isMainUtilidad
+                                val !== 0
+                                  ? val < 0
+                                    ? 'text-rose-600 dark:text-rose-400 font-semibold'
+                                    : isMainUtilidad
                                     ? 'text-emerald-600 font-bold'
                                     : isAcumulado
                                     ? 'text-purple-600 font-semibold'
@@ -604,13 +610,15 @@ export default function EstadoResultadosView() {
                                   : 'text-slate-300 dark:text-slate-600'
                               }`}
                             >
-                              {val > 0 ? (
+                              {val !== 0 ? (
                                 <div className="flex flex-col items-end leading-tight">
                                   <span>{formatCurrency(val)}</span>
                                   {pctOfDay && (
                                     <span
                                       className={`text-[9px] font-medium tracking-tight ${
-                                        isMainUtilidad
+                                        val < 0
+                                          ? 'text-rose-600/70 dark:text-rose-400/70'
+                                          : isMainUtilidad
                                           ? 'text-emerald-600/70'
                                           : isSurcharge
                                           ? 'text-indigo-600/70 dark:text-indigo-400/70'

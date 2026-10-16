@@ -31,6 +31,8 @@ export function validateOperation(input: unknown): asserts input is OperationInp
   for (const field of ['sub_category','efe_category','notes'] as const) if (p[field] !== undefined && (typeof p[field] !== 'string' || p[field]!.length > (field === 'notes' ? 4000 : 240))) throw new OperationError('Texto fuera de rango.');
   if (!p.detail || typeof p.detail !== 'object' || Array.isArray(p.detail)) throw new OperationError('Detalle inválido.');
   for (const [key,value] of Object.entries(p.detail)) {
+    // Bank captures persist this boolean alongside the editable reference.
+    if (key === 'automatic' && typeof value === 'boolean') continue;
     if (!['period','payroll_kind','beneficiary','reference','organism','supplier_kind','supplier_name','supplier_allocation_mode'].includes(key) || typeof value !== 'string' || value.length > 240) throw new OperationError('Detalle específico inválido.');
   }
   if (p.operation_type === 'internal_transfer' && (!isUuid(p.destination_account_id) || p.destination_account_id === p.account_id)) throw new OperationError('Elegí dos cuentas distintas.');

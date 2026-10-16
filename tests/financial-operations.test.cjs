@@ -236,3 +236,14 @@ test('a customer refund remains an expense rather than becoming a customer colle
  const selected=common.selectCommonMovement(base,c,[],[]);
  assert.equal(selected.operation_type,'general');assert.equal(selected.direction,'egreso');assert.equal(selected.financial_concept_id,c.id);
 });
+
+test('automatically posted MP movements can be corrected while preserving their reference',()=>{
+ const edited={...base,operation_type:'general',concept:'Microsoft Office 365',amount:'46649.75',
+  detail:{reference:'13772845922',automatic:true}};
+ const prepared=formDefaults.prepareOperationForm(edited,[]);
+ validation.validateOperation(prepared);
+ assert.equal(prepared.detail.automatic,true);
+ assert.equal(prepared.detail.reference,'13772845922');
+ for(const automatic of ['true',1,null,{}])assert.throws(()=>validation.validateOperation({...edited,detail:{automatic}}),/Detalle específico inválido/);
+ assert.throws(()=>validation.validateOperation({...edited,detail:{unknown:true}}),/Detalle específico inválido/);
+});

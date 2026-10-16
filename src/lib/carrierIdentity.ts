@@ -1,5 +1,6 @@
 export type CarrierRecord={id:string;name:string;is_active?:boolean};
 const aliases:Record<string,string>={
+ 'gustao gyv':'gyv',
  'gustavo gyv':'gyv','gomez gustavo':'gyv','gomez gustavo omar':'gyv','gomez gustavo gyv':'gyv','gomez gustavo gyv omar':'gyv',
  'alejandro camissa':'alejandro gavaplast','alejandro cammisa':'alejandro gavaplast','daniel ozuna':'daniel osuna','diego weiss':'diego weis',
 };

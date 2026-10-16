@@ -2,7 +2,7 @@ import {deliveredSourceOnly,assignedDispatchCode,mergeDeliveredGroups} from '@/l
 import { settlementPaymentReassignments } from "@/lib/settlementPaymentReassignment";
 import {carrierIdentityKey,resolveCarrierIdentity,normalizeSettlementCarriers,canonicalCarrierOptions} from '@/lib/carrierIdentity';
 import {splitOrderCodes} from '@/lib/orderSync';
-import {consolidateSettlementSnapshots,sameSettlementCarrier} from '@/lib/logisticsDispatch/settlementIdentity';
+import {consolidateSettlementSnapshots,sameDispatchCarrier} from '@/lib/logisticsDispatch/settlementIdentity';
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
@@ -668,7 +668,7 @@ async function getEntregandoPreview(source: "entregando" | "entregados" = "entre
 
 async function linkGeneratedDispatch(code:string,date:string,carrier:string,settlementId:string,routeId:string){
  const existing=await supabaseAdmin.from('logistics_dispatches').select('id,delivery_date,carrier_name').eq('code',code).maybeSingle();if(existing.error)throw existing.error;
- if(existing.data&&!sameSettlementCarrier(existing.data.carrier_name,carrier))throw new Error('El delivery pertenece a otro fletero.');
+ if(existing.data&&!sameDispatchCarrier(existing.data.carrier_name,carrier))throw new Error('El delivery pertenece a otro fletero.');
  if(existing.data&&existing.data.delivery_date!==date)throw new Error('El código de delivery pertenece a otra fecha. Revisá la planilla antes de vincular.');
  let dispatchId=existing.data?.id;
  if(!dispatchId){const created=await supabaseAdmin.from('logistics_dispatches').upsert({code,delivery_date:date,carrier_name:carrier,data:{}},{onConflict:'code',ignoreDuplicates:true}).select('id,delivery_date').maybeSingle();if(created.error)throw created.error;const resolved=created.data|| (await supabaseAdmin.from('logistics_dispatches').select('id,delivery_date').eq('code',code).single()).data;if(!resolved||resolved.delivery_date!==date)throw new Error('El delivery cambió; volvé a leer la hoja.');dispatchId=resolved.id;}
@@ -702,7 +702,7 @@ async function confirmEntregandoItems(actor: AuthorizedUser, items: any[]) {
     const requested=String(fresh.dispatchCode||item.dispatchCode||"").trim().toUpperCase();
     const knownResult=requested?await supabaseAdmin.from("logistics_dispatches").select("code,delivery_date,carrier_name").eq("code",requested).maybeSingle():{data:null,error:null};
     if(knownResult.error)throw knownResult.error;
-    if(knownResult.data&&!sameSettlementCarrier(knownResult.data.carrier_name,fresh.carrierName))throw new Error("La logística seleccionada pertenece a otro fletero.");
+    if(knownResult.data&&!sameDispatchCarrier(knownResult.data.carrier_name,fresh.carrierName))throw new Error(`La logística ${requested} pertenece a ${knownResult.data.carrier_name} y el recorrido figura como ${fresh.carrierName}. Revisá el fletero y el código en Entregados.`);
     fresh.dispatchCode=assignedDispatchCode(fresh.dispatchCode,fresh.existingDispatchCode,item.dispatchCode,fresh.dispatchCandidates||[],knownResult.data,fresh.deliveryDate);
     if (fresh.existingStatus === "confirmed") {
       if (source !== "entregados" || (fresh.existingRouteSheetId && !fresh.requiresDispatchLink)) throw new Error(`${fresh.existingSettlementCode} ya está confirmada y vinculada, o requiere leer la hoja Entregados.`);
