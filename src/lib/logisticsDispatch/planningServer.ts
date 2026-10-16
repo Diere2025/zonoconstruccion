@@ -20,7 +20,8 @@ export async function planningAccess(request:Request,write=false){
  const roles=[profile.data?.role,...(profile.data?.roles||[])];const active=profile.data?.is_active!==false;
  const admin=active&&(roles.includes('admin')||['diego.boveda@gmail.com','caroibarra.93@gmail.com'].includes((user.email||'').toLowerCase()));
  const canWrite=active&&(admin||roles.includes('logistica'));const canRead=canWrite||active&&roles.includes('administracion');
- if(!canRead||write&&!canWrite)throw error('No tenés permiso para esta acción de logística.',403);return {db,actor:user.id,canWrite,admin};
+ let financialRead=false;if(active&&!canRead&&!write){const permission=await db.rpc('can_manage_financial_operations',{p_user_id:user.id});if(permission?.error)throw permission.error;financialRead=permission?.data===true;}
+ if(!canRead&&!financialRead||write&&!canWrite)throw error('No tenés permiso para esta acción de logística.',403);return {db,actor:user.id,canWrite,admin};
 }
 export async function planningRows(query:any){const rows:any[]=[];for(let i=0;;i+=500){const result=await query.range(i,i+499);if(result.error)throw result.error;rows.push(...result.data);if(result.data.length<500)return rows;}}
 export async function planningCatalog(db:any){const rows=await planningRows(db.from('carriers').select('id,name,is_active').order('name'));return canonicalCarrierOptions(rows);}
@@ -53,10 +54,12 @@ export async function savePlanning(db:any,actor:string,body:any){
  if(!body.dispatchId&&!/^[0-9a-f-]{36}$/i.test(body.requestKey||''))throw error('Falta la identificación de la solicitud.');
  const floor=body.dispatchId||sourceCode?0:await createSourceFloor();
  const payload={dispatchId:body.dispatchId||null,version:body.version,requestKey:body.requestKey,sourceCode,planned,actual,status,tariffSnapshot,estimate,legacy};
- let taskArgs:any={};
- if(body.sendToAdministration){const row={dispatch_id:body.dispatchId,status,planned,actual,tariff_snapshot:tariffSnapshot,logistics_dispatches:{code:old?((await db.from('logistics_dispatches').select('code').eq('id',body.dispatchId).single()).data?.code):sourceCode,carrier_name:carrier.name}};const fee=approveLiquidation(row,{basis:planned.agreedAmount!==null?'agreed':'calculated',base:planned.agreedAmount,additions:[],notes:actual.notes});taskArgs={p_fee:fee,p_summary:closureMessage(row,fee)};}
- const result=await db.rpc(body.sendToAdministration?'save_logistics_plan_with_payment_task':'save_logistics_dispatch_plan',{p_actor:actor,p_payload:payload,p_floor:floor,...taskArgs});if(result.error)throw error(result.error.message,result.error.code==='40001'?409:400);return result.data;
+ body.sendToAdministration=status==='completed'&&!old?.planned?.historicalImport;let taskArgs:any={};
+ if(body.sendToAdministration){const row={dispatch_id:body.dispatchId,status,planned,actual,tariff_snapshot:tariffSnapshot,logistics_dispatches:{code:old?((await db.from('logistics_dispatches').select('code').eq('id',body.dispatchId).single()).data?.code):sourceCode,carrier_name:carrier.name}};try{const fee=approveLiquidation(row,{basis:planned.agreedAmount!==null?'agreed':'calculated',base:planned.agreedAmount,additions:[],notes:actual.notes});taskArgs={p_fee:fee,p_summary:closureMessage(row,fee)};}catch(e:any){if(!/datos tarifarios pendientes|importe positivo/.test(e.message))throw e;body.sendToAdministration=false;}}
+ const command=body.sendToAdministration?'save_logistics_plan_with_payment_task':status==='completed'&&!old?.planned?.historicalImport?'save_logistics_plan_with_review_task':'save_logistics_dispatch_plan';
+ const result=await db.rpc(command,{p_actor:actor,p_payload:payload,p_floor:floor,...taskArgs});if(result.error)throw error(result.error.message,result.error.code==='40001'?409:400);return result.data;
 }
+export async function saveDispatchExtras(db:any,actor:string,body:any){const r=await db.from('logistics_dispatch_plans').select('*').eq('dispatch_id',body.dispatchId).single();if(r.error)throw r.error;if(r.data.version!==body.version)throw error('La salida cambió. Actualizá.',409);const actual=validateDispatchActual({...r.data.actual,extras:body.extras},false,r.data.planned.loads.map((l:any)=>l.runNumber));const result=await db.rpc('save_logistics_dispatch_extras',{p_actor:actor,p_dispatch:body.dispatchId,p_version:body.version,p_extras:actual.extras});if(result.error)throw result.error;return result.data;}
 export async function confirmPlanningTask(db:any,actor:string,body:any){
  const r=await db.from('logistics_dispatch_plans').select('*,logistics_dispatches(code,carrier_name)').eq('dispatch_id',body.dispatchId).single();if(r.error)throw r.error;
  if(r.data.version!==body.version)throw error('La salida cambió. Actualizá.',409);

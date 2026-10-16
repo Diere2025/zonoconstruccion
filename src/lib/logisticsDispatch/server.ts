@@ -1,3 +1,4 @@
+import {dispatchCostTerms,allocationLinks} from './settlementAccountingServer';
 import {applyStoredDispatchAssignments} from './settlementSource';
 import {sameSettlementCarrier} from './settlementIdentity';
 import {calculateRealDispatchCosts} from './costs';
@@ -60,8 +61,9 @@ export async function readDispatches(db:ReturnType<typeof dispatchDatabase>,from
  dispatchRows(db.from('logistics_dispatch_movements').select('*,cash_transactions(id,type,amount,currency,category,sub_category,created_at,movement_code,reversal_of_transaction_id)').in('dispatch_id',ids).order('transaction_id')),
  dispatchRows(db.from('logistics_link_issues').select('*').gte('source_to',from).lte('source_from',to).order('key'))
  ]);
- const reversed=await dispatchReversals(db,movements);
- return {dispatches:dispatches.map(d=>{const {payments,...realCosts}=calculateRealDispatchCosts(attempts.filter(a=>a.dispatch_id===d.id),movements.filter(m=>m.dispatch_id===d.id),reversed);return {...d,realCosts,attemptCount:attempts.filter(a=>a.dispatch_id===d.id&&a.executed).length,missingOrders:attempts.filter(a=>a.dispatch_id===d.id&&a.executed&&!a.order_id).length,excludedAttempts:attempts.filter(a=>a.dispatch_id===d.id&&!a.executed).length,settlementCount:settlements.filter(s=>s.dispatch_id===d.id&&(Array.isArray(s.treasury_settlements)?s.treasury_settlements[0]:s.treasury_settlements)?.status!=='archived').length,movementCount:movements.filter(m=>m.dispatch_id===d.id).length};}),issues};
+ const effectiveMovements=await allocationLinks(db,movements,ids,'id,type,amount,currency,category,sub_category,created_at,movement_code,reversal_of_transaction_id');
+ const reversed=await dispatchReversals(db,effectiveMovements),costTerms=await dispatchCostTerms(db,ids);
+ return {dispatches:dispatches.map(d=>{const {payments,...realCosts}=calculateRealDispatchCosts(attempts.filter(a=>a.dispatch_id===d.id),effectiveMovements.filter(m=>m.dispatch_id===d.id),reversed,costTerms.find(t=>t.dispatch_id===d.id));return {...d,realCosts,attemptCount:attempts.filter(a=>a.dispatch_id===d.id&&a.executed).length,missingOrders:attempts.filter(a=>a.dispatch_id===d.id&&a.executed&&!a.order_id).length,excludedAttempts:attempts.filter(a=>a.dispatch_id===d.id&&!a.executed).length,settlementCount:settlements.filter(s=>s.dispatch_id===d.id&&(Array.isArray(s.treasury_settlements)?s.treasury_settlements[0]:s.treasury_settlements)?.status!=='archived').length,movementCount:effectiveMovements.filter(m=>m.dispatch_id===d.id).length};}),issues};
 }
 export async function dispatchDetail(db:ReturnType<typeof dispatchDatabase>,code:string){
  if(!/^LOG_REC_\d+[A-Z]?$/.test(code))throw Object.assign(new Error('Código de salida inválido.'),{status:400});
@@ -83,6 +85,8 @@ export async function dispatchDetail(db:ReturnType<typeof dispatchDatabase>,code
  ]);
  const mpPayments=[...new Map([...orderPayments,...ticketPayments].map(p=>[p.id,p])).values()];
  // Imported approval history can contain repeated snapshots without ledger evidence; dispatch collections use linked movements and rendition tickets.
- const realCosts=calculateRealDispatchCosts(attempts,movements,await dispatchReversals(db,movements));
- return {dispatch,realCosts,attempts,settlements:resolveDispatchDigitalTickets(settlements,mpPayments,attempts,dispatch.delivery_date),movements,routes,verifiedDigitalPayments:mpPayments.filter(p=>p.is_verified&&!p.is_hidden&&!p.is_internal)};
+ const effectiveMovements=await allocationLinks(db,movements,[dispatch.id],'id,type,amount,currency,category,sub_category,concept,created_at,movement_code,reversal_of_transaction_id,financial_accounts(name)');
+ const costTerms=await dispatchCostTerms(db,[dispatch.id]);
+ const realCosts=calculateRealDispatchCosts(attempts,effectiveMovements,await dispatchReversals(db,effectiveMovements),costTerms[0]);
+ return {dispatch,realCosts,attempts,settlements:resolveDispatchDigitalTickets(settlements,mpPayments,attempts,dispatch.delivery_date),movements:effectiveMovements,routes,verifiedDigitalPayments:mpPayments.filter(p=>p.is_verified&&!p.is_hidden&&!p.is_internal)};
 }
