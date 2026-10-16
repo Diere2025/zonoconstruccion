@@ -21,7 +21,7 @@ function dollars(cents) {
   return Number(cents) / 100;
 }
 
-function latestSpendLimitIncrease(activities = []) {
+function latestSpendLimitIncrease(activities = [], currentSpendCap) {
   const candidates = activities
     .filter(activity => activity.event_type === 'ad_account_update_spend_limit')
     .map(activity => {
@@ -32,7 +32,7 @@ function latestSpendLimitIncrease(activities = []) {
         if (details?.type !== 'payment_amount' || !Number.isFinite(oldValue) || !Number.isFinite(newValue) || newValue <= oldValue) return null;
         const timestamp = Date.parse(activity.event_time);
         if (!Number.isFinite(timestamp)) return null;
-        return { timestamp, amount: (newValue - oldValue) / 100 };
+        return { timestamp, amount: (newValue - oldValue) / 100, newValue };
       } catch {
         return null;
       }
@@ -41,8 +41,12 @@ function latestSpendLimitIncrease(activities = []) {
     .sort((a, b) => b.timestamp - a.timestamp);
   if (!candidates.length) return null;
   const latest = candidates[0];
+  if (currentSpendCap !== undefined && latest.newValue !== Number(currentSpendCap)) {
+    return 'El historial de Meta todavía no refleja el límite actual; no se puede confirmar el último aumento.';
+  }
   const date = new Intl.DateTimeFormat('es-AR', {
-    timeZone: 'America/Argentina/Buenos_Aires', dateStyle: 'short', timeStyle: 'short'
+    timeZone: 'America/Argentina/Buenos_Aires', day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
   }).format(new Date(latest.timestamp));
   const amount = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'USD' }).format(latest.amount);
   return `Último aumento del límite: ${date} — +${amount}.`;
@@ -58,10 +62,11 @@ function formatMessage(account, now = new Date()) {
   const remaining = Math.max(0, cap - spent);
   const display = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'USD' }).format(remaining);
   const date = new Intl.DateTimeFormat('es-AR', {
-    timeZone: 'America/Argentina/Buenos_Aires', dateStyle: 'short', timeStyle: 'short'
+    timeZone: 'America/Argentina/Buenos_Aires', day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
   }).format(now);
   const urgent = remaining < 500;
-  const limitIncrease = latestSpendLimitIncrease(account.activities?.data || []);
+  const limitIncrease = latestSpendLimitIncrease(account.activities?.data || [], account.spend_cap);
   const limitLine = limitIncrease ? `\n${limitIncrease}` : '';
   const text = urgent
     ? `🚨🚨 SALDO PUBLICITARIO BAJO 🚨🚨\n\nCuenta Meta S731.04\nDisponible hasta el límite de gasto: ${display}${limitLine}\n\n⚠️ CARGAR SALDO O AUMENTAR EL LÍMITE DE INMEDIATO PARA EVITAR CORTES.\n\nActualizado: ${date} (Argentina)`

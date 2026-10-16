@@ -8,7 +8,7 @@ type TelegramUpdate = {
   edited_message?: { text?: string; chat?: { id?: number | string }; message_id?: number };
 };
 
-function latestSpendLimitIncrease(activities: Array<{ event_time?: string; event_type?: string; extra_data?: string | Record<string, unknown> }> = []) {
+function latestSpendLimitIncrease(activities: Array<{ event_time?: string; event_type?: string; extra_data?: string | Record<string, unknown> }> = [], currentSpendCap?: string | number) {
   const candidates = activities
     .filter(activity => activity.event_type === 'ad_account_update_spend_limit')
     .map(activity => {
@@ -18,17 +18,21 @@ function latestSpendLimitIncrease(activities: Array<{ event_time?: string; event
         const newValue = Number(details?.new_value);
         const timestamp = Date.parse(activity.event_time || '');
         if (details?.type !== 'payment_amount' || !Number.isFinite(oldValue) || !Number.isFinite(newValue) || newValue <= oldValue || !Number.isFinite(timestamp)) return null;
-        return { timestamp, amount: (newValue - oldValue) / 100 };
+        return { timestamp, amount: (newValue - oldValue) / 100, newValue };
       } catch {
         return null;
       }
     })
-    .filter((value): value is { timestamp: number; amount: number } => value !== null)
+    .filter((value): value is { timestamp: number; amount: number; newValue: number } => value !== null)
     .sort((a, b) => b.timestamp - a.timestamp);
   if (!candidates.length) return '';
   const latest = candidates[0];
+  if (currentSpendCap !== undefined && latest.newValue !== Number(currentSpendCap)) {
+    return '\nEl historial de Meta todavía no refleja el límite actual; no se puede confirmar el último aumento.';
+  }
   const date = new Intl.DateTimeFormat('es-AR', {
-    timeZone: 'America/Argentina/Buenos_Aires', dateStyle: 'short', timeStyle: 'short'
+    timeZone: 'America/Argentina/Buenos_Aires', day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
   }).format(new Date(latest.timestamp));
   const amount = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'USD' }).format(latest.amount);
   return `\nÚltimo aumento del límite: ${date} — +${amount}.`;
@@ -61,7 +65,7 @@ async function sendBalance(chatId: string, replyToMessageId?: number) {
   if (cap <= 0) throw new Error('La cuenta no tiene un límite de gasto definido.');
   const remaining = Math.max(0, cap - Number(account.amount_spent)) / 100;
   const display = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'USD' }).format(remaining);
-  const limitIncrease = latestSpendLimitIncrease(account.activities?.data || []);
+  const limitIncrease = latestSpendLimitIncrease(account.activities?.data || [], account.spend_cap);
   const urgent = remaining < 500;
   const message = urgent
     ? `🚨🚨 SALDO PUBLICITARIO BAJO 🚨🚨\n\nCuenta Meta S731.04\nDisponible hasta el límite de gasto: ${display}${limitIncrease}\n\n⚠️ CARGAR SALDO O AUMENTAR EL LÍMITE DE INMEDIATO PARA EVITAR CORTES.`
