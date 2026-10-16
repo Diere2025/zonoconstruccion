@@ -1,0 +1,7 @@
+const fs=require('node:fs'),vm=require('node:vm'),ts=require('typescript'),assert=require('node:assert/strict');
+const exports_={};vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/lib/logisticsDispatch/accountPaymentMethod.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText,{exports:exports_});
+const resolve=exports_.freightAccountMethod,methods=[{id:'cash',name:'Efectivo'},{id:'bank',name:'Transferencia'},{id:'card',name:'Tarjeta de Crédito'}];
+const accounts=['efectivo','banco','virtual','tarjeta'].map(type=>({id:type,name:'Nombre arbitrario',type,currency:'ARS',is_active:true}));
+assert.equal(resolve('efectivo',accounts,methods),'cash');assert.equal(resolve('banco',accounts,methods),'bank');assert.equal(resolve('virtual',accounts,methods),'bank');assert.equal(resolve('tarjeta',accounts,methods),'card');
+assert.throws(()=>resolve('efectivo',[{...accounts[0],is_active:false}],methods));assert.throws(()=>resolve('efectivo',[{...accounts[0],currency:'USD'}],methods));assert.throws(()=>resolve('efectivo',[{...accounts[0],type:undefined}],methods));assert.throws(()=>resolve('banco',accounts,[methods[0]]));assert.throws(()=>resolve('efectivo',accounts,[...methods,{id:'duplicate',name:'EFECTIVO'}]));
+console.log('PASS freight account methods: account type controls cash/bank/wallet/card; no name guessing, inactive/foreign/missing/ambiguous configuration rejected.');

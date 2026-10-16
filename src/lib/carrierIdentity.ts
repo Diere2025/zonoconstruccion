@@ -1,5 +1,6 @@
 export type CarrierRecord={id:string;name:string;is_active?:boolean};
 const aliases:Record<string,string>={
+ 'gv':'gyv',
  'gustao gyv':'gyv',
  'gustavo gyv':'gyv','gomez gustavo':'gyv','gomez gustavo omar':'gyv','gomez gustavo gyv':'gyv','gomez gustavo gyv omar':'gyv',
  'alejandro camissa':'alejandro gavaplast','alejandro cammisa':'alejandro gavaplast','daniel ozuna':'daniel osuna','diego weiss':'diego weis',
@@ -23,7 +24,8 @@ export function carrierCommercialProfile(name:string,zoneHint=''):{company_key:s
  const zone=(name+' '+zoneHint).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
  const area=/\bla\s+plata\b/.test(zone)?'la_plata':/\bzarate\b/.test(zone)?'zarate':'general';
  if(key==='gyv')return {company_key:'gyv',company_name:'GyV',driver_name:/\bgustavo\b/i.test(name)?'Gustavo Gomez':'Chofer no identificado',tariff_area_hint:area,tariff_group_hint:area==='general'?'regular':'lp_zarate'};
- if(words.includes('ramallo')&&words.includes('jorge'))return {company_key:'gyv',company_name:'GyV',driver_name:'Esteban Jorge Ramallo',tariff_area_hint:area,tariff_group_hint:area==='general'?'regular':'lp_zarate'};
+ if(words.includes('ramallo')&&words.includes('jorge'))return {company_key:'gyv',company_name:'GyV',driver_name:name,tariff_area_hint:area,tariff_group_hint:area==='general'?'regular':'lp_zarate'};
+ if(words.includes('herrera')&&words.includes('patricio')||words.includes('rostagno')&&words.includes('gaston'))return {company_key:'gyv',company_name:'GyV',driver_name:name,tariff_area_hint:area,tariff_group_hint:area==='general'?'regular':'lp_zarate'};
  if(key==='alejandro gavaplast')return {company_key:'gavaplast',company_name:'Gavaplast',driver_name:'Alejandro Camissa',tariff_area_hint:area};
  return null;
 }

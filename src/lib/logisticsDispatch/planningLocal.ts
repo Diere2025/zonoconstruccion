@@ -1,3 +1,6 @@
+import {freightAccountMethod} from './accountPaymentMethod';
+import {applySettlementTerms,validateSettlementTerms,validatePaymentAllocation} from './settlementAccounting';
+import {validateNovelty,validateNoveltyDeductions,noveltyBalances,planOwner} from './novelties';
 import {validateDispatchPlan, validateDispatchActual, estimateDispatchFee, rateSnapshot, tariffApplies, planningNumber} from './planning';
 import {validDate} from '@/lib/paymentPlanning/model';
 import {approveLiquidation, type Liquidation} from './liquidation';
@@ -7,13 +10,15 @@ import {paymentTask,type PaymentTask} from './paymentTasks';
 import {tariffDisplayName} from './planningPresentation';
 import {dispatchPaymentState,reconcilePaymentStates} from './planningPayments';
 type Row = Record<string, any>;
-type State = {tasks?:PaymentTask[]; reconciledPayments?: Row[]; carriers?: Row[]; plans: Row[]; tariffs: Row[]; liquidations: Liquidation[]};
+type State = {novelties?:Row[];paymentRequests?:Row[];settlementTerms?:Row[]; paymentAllocations?:Row[]; tasks?:PaymentTask[]; reconciledPayments?: Row[]; carriers?: Row[]; plans: Row[]; tariffs: Row[]; liquidations: Liquidation[]};
+const mergeTasks=(tasks:PaymentTask[],task:PaymentTask)=>{const previous=tasks.find(t=>t.dispatchId===task.dispatchId);return [...tasks.filter(t=>t.dispatchId!==task.dispatchId),{...task,...(previous?{id:previous.id,createdAt:previous.createdAt}:{})}];};
 /** Development review only. No writes are forwarded to shared Sheets, treasury or Supabase. */
 export function localPlanningRequester(remote: (url: string, options?: RequestInit) => Promise<any>) {
  let seed: Row | null = null;
  let rows: Row[] = [];
  let tariffPreview: Row[] = [];
  let paymentPreview:Row[]=[];
+ let allocationPayment:Row|null=null;
  const storageKey = () => 'erp-logistics-review-v1:' + seed?.actor;
  const read = (): State => JSON.parse(localStorage.getItem(storageKey()) || '{"plans":[],"tariffs":[],"liquidations":[]}');
  const persist = (state: State) => localStorage.setItem(storageKey(), JSON.stringify(state));
@@ -23,6 +28,7 @@ export function localPlanningRequester(remote: (url: string, options?: RequestIn
    const result = correctPlanningView(await remote(url, options));
    if (url.includes('action=payment-source-preview'))paymentPreview=result.rows||[];
    if (url.includes('action=tariff-preview')) tariffPreview = result.rows || [];
+   if(url.includes('action=allocation-payment')){const stored=read().paymentAllocations?.find(a=>a.transaction.id===result.transaction.id);allocationPayment=stored||result;return allocationPayment;}
    if (!result.plans) return result;
    seed = result;
    const state = read();
@@ -35,7 +41,7 @@ export function localPlanningRequester(remote: (url: string, options?: RequestIn
     persist(state);
    }
    const params = new URL(url, window.location.origin).searchParams;
-   rows = [...result.plans.filter((p: Row) => !state.plans.some(x => x.dispatch_id === p.dispatch_id)), ...state.plans.filter(p => p.planned.deliveryDate >= params.get('from')! && p.planned.deliveryDate <= params.get('to')!)];
+   rows = [...result.plans.filter((p: Row) => !state.plans.some(x => x.dispatch_id === p.dispatch_id)), ...state.plans.filter(p => params.get('scope')==='settlements'||p.planned.deliveryDate >= params.get('from')! && p.planned.deliveryDate <= params.get('to')!)];
    const corrected = correctPlanningView({...result,carriers:seed!.carriers,plans:rows,tariffs:[...state.tariffs,...result.tariffs]});
    rows = corrected.plans.map((p:Row)=>{
     p=reconcilePaymentStates([p],state.reconciledPayments||[])[0];
@@ -44,11 +50,44 @@ export function localPlanningRequester(remote: (url: string, options?: RequestIn
     const simulated=fee.payment?[{cash_transactions:{id:fee.payment.id,type:'egreso',amount:fee.payment.amount,currency:'ARS',category:'Servicio de Flete',created_at:fee.payment.date+'T12:00:00-03:00',movement_code:fee.payment.id,concept:'Pago de prueba',financial_accounts:{name:fee.payment.account}}}]:[];
     const paymentState=dispatchPaymentState(p,simulated,new Set(),fee.total);
     return {...p,paymentState:{...paymentState,basis:'local_review',payments:paymentState.payments.map((tx:Row)=>({...tx,href:''}))}};
-   }); corrected.plans=rows; seed!.carriers = corrected.carriers;
-   return {...corrected,liquidations:state.liquidations,tasks:state.tasks||[],taskPlans:state.plans,localReview:true};
+   });
+   const allocations=state.paymentAllocations||[];
+   for(const p of rows){const current=p.paymentState;if(!current)continue;const affected=new Set(allocations.map(a=>a.transaction.id));const links=(current.payments||[]).filter((t:Row)=>!affected.has(t.id)).map((t:Row)=>({transaction_id:t.id,purpose:'freight_fee',cash_transactions:{...t,type:'egreso',currency:'ARS',created_at:t.date,movement_code:t.code,category:'Servicio de Flete'}}));for(const a of allocations){const part=a.allocations.find((v:Row)=>v.dispatch_id===p.dispatch_id);if(part)links.push({transaction_id:a.transaction.id,purpose:'freight_fee',allocated_amount:part.amount,cash_transactions:a.transaction} as any);}if(allocations.length){p.paymentState=dispatchPaymentState(p,links,new Set(),current.expectedAmount);const localPayments=links.filter((l:Row)=>l.cash_transactions?.source_local);if(localPayments.length)p.paymentState={...p.paymentState,basis:'local_review',payments:p.paymentState.payments.map((tx:Row)=>{const local=localPayments.find((l:Row)=>l.cash_transactions.id===tx.id);return local?{...tx,code:local.cash_transactions.movement_code,href:''}:tx;})};}}
+   const combinedTerms=[...result.plans.filter((p:Row)=>p.settlementTerms&&!state.settlementTerms?.some(t=>t.dispatch_id===p.dispatch_id)).map((p:Row)=>p.settlementTerms),...(state.settlementTerms||[])];
+   rows=applySettlementTerms(rows,combinedTerms,state.liquidations); corrected.plans=rows; seed!.carriers = corrected.carriers;
+   corrected.novelties=noveltyBalances([...(result.novelties||[]),...(state.novelties||[])],combinedTerms);
+   return {...corrected,liquidations:state.liquidations.map(f=>{const term=state.settlementTerms?.find(t=>t.dispatch_id===f.dispatchId);return term?{...f,total:Number(term.net_amount),deductions:term.deductions,status:rows.find(p=>p.dispatch_id===f.dispatchId)?.paymentState?.liquidated?'paid':'ready'}:f;}),tasks:state.tasks||[],taskPlans:state.plans,localReview:true};
   }
   if (!seed?.actor) throw new Error('Actualizá la sesión antes de guardar.');
   const body = JSON.parse(String(options?.body || '{}')), state = read();
+  if(body.action==='stage-freight-history'){
+   if(!seed.canLiquidate)throw new Error('Sin permiso de Tesorería.');let staged=0;
+   for(const draft of seed.historicalDrafts||[]){
+    if(!draft.eligibleForLocalStaging)continue;
+    const row=rows.find(r=>(Array.isArray(r.logistics_dispatches)?r.logistics_dispatches[0]:r.logistics_dispatches)?.code===draft.code);
+    if(!row||row.status!=='completed'||row.settlementTerms||row.actual?.extras?.length||Number(row.paymentState?.paidAmount)!==Number(draft.paid))continue;
+    const deductions=draft.novelties.map((n:Row)=>{state.novelties=state.novelties||[];if(!state.novelties.some(x=>x.id===n.id)&&!(seed!.novelties||[]).some((x:Row)=>x.id===n.id))state.novelties.push({id:n.id,carrier_id:row.carrier_id,company_key:null,origin_date:n.date,source_dispatch_id:null,kind:'shortage',label:'Faltante de rendición',reference:'Laura · Novedades · fila '+n.row,amount:n.discount,status:'approved'});return {noveltyId:n.id,kind:'offset',label:'Faltante de rendición',reference:'Laura · Novedades · fila '+n.row,amount:n.discount};});
+    validateNoveltyDeductions(row,deductions,[...(seed.novelties||[]),...(state.novelties||[])],state.settlementTerms||[]);
+    state.settlementTerms=[...(state.settlementTerms||[]),{dispatch_id:row.dispatch_id,gross_amount:draft.gross,net_amount:draft.net,extra_snapshot:[],deductions,evidence:'Revisión del chat y de Novedades de Laura; pago real verificado por importe. Diferencia menor a $100 conservada.',version:1}];staged++;
+   }
+   persist(state);return {staged,ledgerWrites:0};
+  }
+  if(body.action==='save-freight-novelty'){
+   if(!seed.canLiquidate)throw new Error('Sin permiso de Tesorería.');const novelty=validateNovelty(body);
+   const old=state.novelties?.find(n=>n.id===body.id);if(old){if(JSON.stringify(novelty)!==JSON.stringify(Object.fromEntries(Object.keys(novelty).map(k=>[k,old[k]]))))throw new Error('Solicitud reutilizada con otros datos.');return old;}
+   const saved={...novelty,id:body.id,status:'approved',created_by:seed.actor};state.novelties=[...(state.novelties||[]),saved];persist(state);return saved;
+  }
+  if(body.action==='pay-freight-services'){
+   if(!seed.canLiquidate)throw new Error('Sin permiso de Tesorería.');
+   const previous=state.paymentRequests?.find(p=>p.key===body.requestKey);if(previous){if(previous.input!==JSON.stringify(body))throw new Error('Solicitud reutilizada con otros datos.');return previous.result;}
+   const amount=Number(body.payload?.amount),parts=validatePaymentAllocation(body,amount);if(!validDate(body.payload?.effective_date))throw new Error('Fecha inválida.');
+   freightAccountMethod(body.payload?.account_id,seed.freightAccounts||[],seed.freightPaymentMethods||[]);
+   let owner:string|undefined;const allocations=parts.map(part=>{const row=rows.find(r=>(Array.isArray(r.logistics_dispatches)?r.logistics_dispatches[0]:r.logistics_dispatches)?.code===part.code),input=body.allocations.find((a:Row)=>a.code===part.code);if(!row||row.status!=='completed'||row.extrasNeedReview||!row.settlementTerms||row.settlementTerms.version!==input.termsVersion||part.amount>(row.paymentState?.remainingAmount??0))throw new Error('Revisá el saldo confirmado y la versión de cada LOG.');const current=planOwner(row);if(owner&&owner!==current)throw new Error('El pago conjunto debe corresponder al mismo responsable.');owner=current;return {dispatch_id:row.dispatch_id,amount:part.amount,reason:part.reason,logistics_dispatches:{code:part.code}};});
+   const transaction={source_local:true,id:crypto.randomUUID(),movement_code:'LOCAL_PAG_'+String((state.paymentRequests?.length||0)+1).padStart(5,'0'),type:'egreso',currency:'ARS',category:'Servicio de Flete',amount,concept:body.payload.concept,created_at:body.payload.effective_date+'T12:00:00-03:00',financial_accounts:{name:seed.freightAccounts.find((a:Row)=>a.id===body.payload.account_id).name}};
+   state.paymentAllocations=[...(state.paymentAllocations||[]),{transaction,allocations}];const result={movement_code:transaction.movement_code,transaction_ids:[transaction.id],local:true};state.paymentRequests=[...(state.paymentRequests||[]),{key:body.requestKey,input:JSON.stringify(body),result}];persist(state);return result;
+  }
+  if(body.action==='save-settlement-terms'){if(!seed.canLiquidate)throw new Error('Sin permiso de Tesorería.');const terms=validateSettlementTerms(body);validateNoveltyDeductions(rows.find(r=>r.dispatch_id===body.dispatchId)||{},terms.deductions,[...(seed.novelties||[]),...(state.novelties||[])],state.settlementTerms||[]);const previous=(state.settlementTerms||[]).find(t=>t.dispatch_id===body.dispatchId);if((previous?.version||0)!==(body.termsVersion||0))throw new Error('El saldo cambió. Actualizá.');if(!rows.some(p=>p.dispatch_id===body.dispatchId&&p.status==='completed'))throw new Error('Confirmá una salida cerrada.');state.settlementTerms=[...(state.settlementTerms||[]).filter(t=>t.dispatch_id!==body.dispatchId),{dispatch_id:body.dispatchId,gross_amount:terms.grossAmount,net_amount:terms.netAmount,extra_snapshot:body.extraSnapshot||[],deductions:terms.deductions,evidence:terms.evidence,version:(previous?.version||0)+1}];persist(state);return {saved:true};}
+  if(body.action==='allocate-freight-payment'){if(!seed.canLiquidate)throw new Error('Sin permiso de Tesorería.');if(!allocationPayment||allocationPayment.transaction.id!==body.transactionId)throw new Error('Consultá primero el movimiento.');const parts=validatePaymentAllocation(body,Number(allocationPayment.transaction.amount));const allocations=parts.map((part:Row)=>{const p=rows.find(r=>(Array.isArray(r.logistics_dispatches)?r.logistics_dispatches[0]:r.logistics_dispatches)?.code===part.code);if(!p)throw new Error('Seleccioná un período que incluya todos los LOG del desglose local.');return {dispatch_id:p.dispatch_id,amount:part.amount,reason:part.reason,logistics_dispatches:{code:part.code}};});state.paymentAllocations=[...(state.paymentAllocations||[]).filter(a=>a.transaction.id!==body.transactionId),{transaction:allocationPayment.transaction,allocations}];persist(state);return {saved:true};}
   if(body.action==='reconcile-payment-links'){
    if(!seed.canWrite&&!seed.canLiquidate)throw new Error('No tenés permiso para revisar vínculos.');
    if(!paymentPreview.length)throw new Error('Consultá primero los movimientos de Caja.');
@@ -61,12 +100,15 @@ export function localPlanningRequester(remote: (url: string, options?: RequestIn
    const fee = state.liquidations.find(f => f.dispatchId === body.dispatchId);
    if (!fee || fee.status !== 'ready' || fee.version !== body.version) throw new Error('La liquidación cambió o ya está pagada. Actualizá.');
    if (!validDate(body.date) || !body.account?.trim() || !['Transferencia','Efectivo'].includes(body.method)) throw new Error('Completá fecha, cuenta y medio de pago.');
+   const settlement=(state.settlementTerms||[]).find(t=>t.dispatch_id===fee.dispatchId),paymentAmount=settlement?Number(settlement.net_amount):fee.total;
+   if(paymentAmount<=0)throw new Error('El servicio está compensado; no corresponde registrar otro pago.');
    fee.status = 'paid'; fee.version++;
-   fee.payment = {id:'LOCAL-PAG-'+crypto.randomUUID().slice(0,8).toUpperCase(),date:body.date,account:body.account.trim(),method:body.method.trim(),amount:fee.total};
+   fee.payment = {id:'LOCAL-PAG-'+crypto.randomUUID().slice(0,8).toUpperCase(),date:body.date,account:body.account.trim(),method:body.method.trim(),amount:paymentAmount};
    for(const task of state.tasks||[])if(task.dispatchId===fee.dispatchId&&task.status==='pending'){task.status='completed';task.completedAt=new Date().toISOString();task.movementId=fee.payment.id;}
    persist(state); return {payment:fee.payment};
   }
   if (!seed.canWrite) throw new Error('No tenés permiso para modificar logística.');
+  if(body.action==='save-dispatch-extras'){const old=rows.find(p=>p.dispatch_id===body.dispatchId);if(!old||old.version!==body.version)throw new Error('La salida cambió. Actualizá.');if(old.status==='cancelled')throw new Error('La salida no salió.');const actual=validateDispatchActual({...old.actual,extras:body.extras},false,old.planned.loads.map((l:Row)=>l.runNumber));state.plans=[...state.plans.filter(p=>p.dispatch_id!==old.dispatch_id),{...old,version:old.version+1,actual}];persist(state);return {saved:true};}
   if (body.action === 'import-tariffs') {
    if (!seed.admin) throw new Error('Solo administradores pueden gestionar tarifas.');
    const selected = new Set(body.rows || []), rates = tariffPreview.filter(r=>selected.has(r.sourceRow));
@@ -83,7 +125,7 @@ export function localPlanningRequester(remote: (url: string, options?: RequestIn
    if (!row || row.planned.historicalImport) throw new Error('El historial importado no se vuelve a liquidar. Usá una salida de prueba.');
    if (row.version !== body.version) throw new Error('La salida cambió. Actualizá.');
    const fee = approveLiquidation(row, body, state.liquidations.find(f => f.dispatchId === row.dispatch_id));
-   state.liquidations.push(fee);state.tasks=[...(state.tasks||[]),paymentTask(row,fee,seed.paymentRecipient)];persist(state); return {liquidation:fee,task:state.tasks[state.tasks.length-1]};
+   state.liquidations.push(fee);state.tasks=mergeTasks(state.tasks||[],paymentTask(row,fee,seed.paymentRecipient));persist(state); return {liquidation:fee,task:state.tasks[state.tasks.length-1]};
   }
   if (body.action === 'save-tariff') {
    if (!seed.admin) throw new Error('Solo administradores pueden gestionar tarifas.');
@@ -125,7 +167,8 @@ export function localPlanningRequester(remote: (url: string, options?: RequestIn
   const id = old?.dispatch_id || crypto.randomUUID();
   const row = {dispatch_id:id,carrier_id:carrier.id,version:(old?.version||0)+1,request_key:body.requestKey,status:body.status,paymentState:old?.paymentState,planned,actual,tariff_snapshot:snapshot,estimate:estimateDispatchFee(planned,snapshot),local:true,logistics_dispatches:old?.logistics_dispatches || {code:body.sourceCode||'LOCAL_LOG_'+String(state.plans.length+1).padStart(5,'0'),carrier_name:carrier.name,delivery_date:planned.deliveryDate}};
   state.plans = [...state.plans.filter(p=>p.dispatch_id!==id),row];
-  if(body.sendToAdministration){const fee=approveLiquidation(row,{basis:planned.agreedAmount!==null?'agreed':'calculated',base:planned.agreedAmount,additions:[],notes:actual.notes},state.liquidations.find(f=>f.dispatchId===id));state.liquidations.push(fee);state.tasks=[...(state.tasks||[]),paymentTask(row,fee,seed.paymentRecipient)];}
+  if(body.sendToAdministration&&body.status==='completed'){try{const fee=approveLiquidation(row,{basis:planned.agreedAmount!==null?'agreed':'calculated',base:planned.agreedAmount,additions:[],notes:actual.notes},state.liquidations.find(f=>f.dispatchId===id));state.liquidations.push(fee);state.tasks=mergeTasks(state.tasks||[],paymentTask(row,fee,seed.paymentRecipient));}catch(e:any){if(!/datos tarifarios pendientes|importe positivo/.test(e.message))throw e;}}
+  if(row.status==='completed'&&!state.tasks?.some(t=>t.dispatchId===id)){state.tasks=[...(state.tasks||[]),{id:crypto.randomUUID(),dispatchId:id,assigneeId:seed.paymentRecipient?.id||null,assigneeName:seed.paymentRecipient?.name||'Administración',title:'Revisar y pagar flete · '+row.logistics_dispatches.code,summary:'Salida cerrada: confirmar importe y novedades en Liquidaciones de fletes.',amount:null,status:'pending',createdAt:new Date().toISOString()}];}
   persist(state);
   return {dispatchId:id,version:row.version};
  };

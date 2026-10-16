@@ -23,13 +23,15 @@ export function dispatchPaymentState(plan: Row, links: Row[], reversedIds = new 
  const costs = calculateRealDispatchCosts([], links, reversedIds);
  const paidAmount = costs.paidAmount;
  const expectedAmount = approvedAmount ?? (Number(plan.planned?.agreedAmount) > 0 ? Number(plan.planned.agreedAmount) : null);
- const partial = paidAmount !== null && expectedAmount !== null && Math.round(paidAmount * 100) < Math.round(expectedAmount * 100);
+ const difference=paidAmount!==null&&expectedAmount!==null?Math.round((paidAmount-expectedAmount)*100)/100:null;
+ const minorDifference=difference!==null&&difference!==0&&paidAmount!>0&&Math.abs(difference)<100?difference:null;
+ const partial = paidAmount !== null && expectedAmount !== null && Math.round(paidAmount * 100) < Math.round(expectedAmount * 100)&&minorDifference===null;
  const state = costs.status === 'needs_review' ? 'needs_review' : paidAmount === null ? 'unpaid' : partial ? 'partial' : 'paid';
  const transactions = new Map<string, Row>();
  for (const link of links) {const tx = Array.isArray(link.cash_transactions) ? link.cash_transactions[0] : link.cash_transactions; if (tx) transactions.set(tx.id, tx);}
  return {
   state, liquidated: plan.status === 'completed' && state === 'paid', paidAmount, expectedAmount,
-  remainingAmount: expectedAmount === null ? null : Math.max(0, Math.round((expectedAmount - (paidAmount || 0)) * 100) / 100),
+  remainingAmount: expectedAmount === null ? null : minorDifference!==null?0:Math.max(0, Math.round((expectedAmount - (paidAmount || 0)) * 100) / 100),minorDifference,
   basis: 'posted_freight', reversedPaymentCount: costs.reversedPaymentCount,
   unsupportedCurrencyCount: costs.unsupportedCurrencyCount,
   payments: costs.payments.map(p => {const tx = transactions.get(p.id), account = Array.isArray(tx?.financial_accounts) ? tx.financial_accounts[0] : tx?.financial_accounts; return {...p,code:movementCode({id:p.id,type:tx?.type||'egreso',movement_code:tx?.movement_code}),href:movementHref(p.id),account:account?.name || '',concept:tx?.concept || '',linkMethod:links.find(l=>l.transaction_id===p.id)?.method || '',reference:explicitMovementLog(tx?.notes)};})

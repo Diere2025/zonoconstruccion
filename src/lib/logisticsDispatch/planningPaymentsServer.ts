@@ -1,3 +1,4 @@
+import {allocationLinks} from './settlementAccountingServer';
 import {planningRows} from './planningServer';
 import {dispatchPaymentState,explicitMovementLog} from './planningPayments';
 type Row = Record<string, any>;
@@ -36,11 +37,12 @@ export async function planningPaymentStates(db: any, plans: Row[]) {
   if(!dispatchId || assigned.has(tx.id))continue;
   links.push({dispatch_id:dispatchId,transaction_id:tx.id,method:'movement_log_reference',cash_transactions:tx});
  }
- const transactions = [...new Set(links.flatMap(l=>{const tx=Array.isArray(l.cash_transactions)?l.cash_transactions[0]:l.cash_transactions;return tx?.id?[tx.id]:[];}))];
+ const effectiveLinks=await allocationLinks(db,links,ids,columns);
+ const transactions = [...new Set(effectiveLinks.flatMap(l=>{const tx=Array.isArray(l.cash_transactions)?l.cash_transactions[0]:l.cash_transactions;return tx?.id?[tx.id]:[];}))];
  const reversed = new Set<string>();
  for (let i=0;i<transactions.length;i+=150) {
   const rows = await planningRows(db.from('cash_transactions').select('id,reversal_of_transaction_id').in('reversal_of_transaction_id',transactions.slice(i,i+150)).order('id'));
   rows.forEach(r=>reversed.add(r.reversal_of_transaction_id));
  }
- return plans.map(p=>({...p,paymentState:dispatchPaymentState(p,links.filter(l=>l.dispatch_id===p.dispatch_id),reversed)}));
+ return plans.map(p=>({...p,paymentState:dispatchPaymentState(p,effectiveLinks.filter(l=>l.dispatch_id===p.dispatch_id),reversed)}));
 }

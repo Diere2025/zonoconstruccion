@@ -10,7 +10,8 @@ const costs=load('src/lib/logisticsDispatch/costs.ts'),refs=load('src/lib/financ
 const tx={id:'late',type:'egreso',amount:300000,currency:'ARS',category:'Servicio de Flete',concept:'Servicio de flete',notes:'LOG_REC_05428',created_at:'2026-10-20T15:00:00Z',financial_accounts:{name:'Caja Efectivo Pesos'}};
 let ledgerReads=0;
 const db={from(table){let filters=[];const q={select:()=>q,eq:()=>q,order:()=>q,or:()=>{filters.push('notes');return q;},in:()=>q,gte:()=>{throw Error('Trip/payment must not require same date');},lt:()=>{throw Error('Trip/payment must not require same date');},range:async()=>({data:table==='cash_transactions'&&filters.includes('notes')?[tx]:[],error:null})};return q;}};
-const server=load('src/lib/logisticsDispatch/planningPaymentsServer.ts',{'./planningServer':{planningRows:async q=>(await q.range()).data},'./planningPayments':payments});
+const accounting=load('src/lib/logisticsDispatch/settlementAccounting.ts'),accountingServer=load('src/lib/logisticsDispatch/settlementAccountingServer.ts',{'./planningServer':{planningRows:async q=>(await q.range()).data},'./settlementAccounting':accounting});
+const server=load('src/lib/logisticsDispatch/planningPaymentsServer.ts',{'./settlementAccountingServer':accountingServer,'./planningServer':{planningRows:async q=>(await q.range()).data},'./planningPayments':payments});
 let identified;
 const cash=[];cash[0]='LOG_REC_05428';cash[1]='09/10/2026';cash[2]='RAMALLO, MARIO JORGE';cash[3]='Gasto';cash[4]='300.000';cash[6]='Servicio de Flete';cash[14]='Caja.EfectivoPesos';
 const preview=load('src/lib/logisticsDispatch/planningSourcePaymentsServer.ts',{'./model':model,'@/lib/paymentPlanning/model':period,'./planningServer':{planningRows:async()=>{ledgerReads++;return [];}},'./planningPaymentsServer':{planningPaymentStates:async()=>identified},'@/lib/googleSheets':{fetchSpreadsheetValues:async()=>[cash]}});

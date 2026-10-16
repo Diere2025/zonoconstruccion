@@ -1,0 +1,585 @@
+{
+  "scope": "Revisión local de diferencias identificadas; no contiene pagos nuevos.",
+  "source": {
+    "url": "https://docs.google.com/spreadsheets/d/1l_PASp0hMX2ECGcAs5SXbPNstsrzAXHrxE0UBcTiAAU/edit?gid=1986812169#gid=1986812169",
+    "capturedAt": "2026-10-15T22:47:00.580Z"
+  },
+  "drafts": [
+    {
+      "code": "LOG_REC_05342",
+      "serviceDate": "2026-09-07",
+      "carrier": "Pablo Damián Lavayen",
+      "gross": 290900,
+      "paid": 281900,
+      "discount": 9063,
+      "net": 281837,
+      "difference": 63,
+      "classification": "reconciled_single_source",
+      "evidence": [
+        {
+          "row": 1549,
+          "date": "2026-09-04",
+          "carrier": "LAVAYEN, PABLO DAMIAN",
+          "discount": 9063,
+          "category": "Faltante",
+          "state": "REALIZADO"
+        }
+      ],
+      "ledgerWrites": 0,
+      "eligibleForLocalStaging": true,
+      "reason": "Servicio y una novedad identificados; comprobar el pago actual antes de incorporar.",
+      "novelties": [
+        {
+          "row": 1549,
+          "date": "2026-09-04",
+          "carrier": "LAVAYEN, PABLO DAMIAN",
+          "discount": 9063,
+          "category": "Faltante",
+          "state": "REALIZADO",
+          "id": "497bb67e-93d2-509b-91b7-2533f4e5a6fc"
+        }
+      ]
+    },
+    {
+      "code": "LOG_REC_05345",
+      "serviceDate": "2026-09-08",
+      "carrier": "Pablo Damián Lavayen",
+      "gross": 285300,
+      "paid": 280800,
+      "discount": 4483,
+      "net": 280817,
+      "difference": -17,
+      "classification": "reconciled_single_source",
+      "evidence": [
+        {
+          "row": 1550,
+          "date": "2026-09-07",
+          "carrier": "LAVAYEN, PABLO DAMIAN",
+          "discount": 4483,
+          "category": "Faltante",
+          "state": "REALIZADO"
+        }
+      ],
+      "ledgerWrites": 0,
+      "eligibleForLocalStaging": true,
+      "reason": "Servicio y una novedad identificados; comprobar el pago actual antes de incorporar.",
+      "novelties": [
+        {
+          "row": 1550,
+          "date": "2026-09-07",
+          "carrier": "LAVAYEN, PABLO DAMIAN",
+          "discount": 4483,
+          "category": "Faltante",
+          "state": "REALIZADO",
+          "id": "d33a7cbc-832f-55a9-9796-c1c24101e2fd"
+        }
+      ]
+    },
+    {
+      "code": "LOG_REC_05348",
+      "serviceDate": "2026-09-09",
+      "carrier": "Pablo Damián Lavayen",
+      "gross": 227300,
+      "paid": 225600,
+      "discount": 1700,
+      "net": 225600,
+      "difference": 0,
+      "classification": "reconciled_single_source",
+      "evidence": [
+        {
+          "row": 1551,
+          "date": "2026-09-08",
+          "carrier": "LAVAYEN, PABLO DAMIAN",
+          "discount": 1700,
+          "category": "Faltante",
+          "state": "REALIZADO"
+        }
+      ],
+      "ledgerWrites": 0,
+      "eligibleForLocalStaging": true,
+      "reason": "Servicio y una novedad identificados; comprobar el pago actual antes de incorporar.",
+      "novelties": [
+        {
+          "row": 1551,
+          "date": "2026-09-08",
+          "carrier": "LAVAYEN, PABLO DAMIAN",
+          "discount": 1700,
+          "category": "Faltante",
+          "state": "REALIZADO",
+          "id": "ae15dbd8-4932-504c-90b7-e08289d1afd3"
+        }
+      ]
+    },
+    {
+      "code": "LOG_REC_05378",
+      "serviceDate": "2026-09-16",
+      "carrier": "Pablo Damián Lavayen",
+      "gross": 275630,
+      "paid": 273520,
+      "discount": 2114,
+      "net": 273516,
+      "difference": 4,
+      "classification": "proposed_compound_match",
+      "evidence": [
+        {
+          "row": 1555,
+          "date": "2026-09-11",
+          "carrier": "LAVAYEN, PABLO DAMIAN",
+          "discount": 714,
+          "category": "Faltante",
+          "state": "REALIZADO"
+        },
+        {
+          "row": 1557,
+          "date": "2026-09-15",
+          "carrier": "LAVAYEN, PABLO DAMIAN",
+          "discount": 1400,
+          "category": "Faltante",
+          "state": "REALIZADO"
+        }
+      ],
+      "ledgerWrites": 0,
+      "eligibleForLocalStaging": false,
+      "reason": "Confirmar aplicación conjunta de faltantes.",
+      "novelties": [
+        {
+          "row": 1555,
+          "date": "2026-09-11",
+          "carrier": "LAVAYEN, PABLO DAMIAN",
+          "discount": 714,
+          "category": "Faltante",
+          "state": "REALIZADO",
+          "id": "087a37eb-1ec1-5214-a951-88da28b33b2e"
+        },
+        {
+          "row": 1557,
+          "date": "2026-09-15",
+          "carrier": "LAVAYEN, PABLO DAMIAN",
+          "discount": 1400,
+          "category": "Faltante",
+          "state": "REALIZADO",
+          "id": "d43c5788-718e-53cc-905e-4a5f5f219a37"
+        }
+      ]
+    },
+    {
+      "code": "LOG_REC_05391",
+      "serviceDate": "2026-09-21",
+      "carrier": "Pablo Damián Lavayen",
+      "gross": 120000,
+      "paid": 96640,
+      "discount": 23360,
+      "net": 96640,
+      "difference": 0,
+      "classification": "proposed_compound_match",
+      "evidence": [
+        {
+          "row": 1560,
+          "date": "2026-09-18",
+          "carrier": "LAVAYEN, PABLO DAMIAN",
+          "discount": 22354,
+          "category": "Faltante",
+          "state": "REALIZADO"
+        },
+        {
+          "row": 1561,
+          "date": "2026-09-19",
+          "carrier": "LAVAYEN, PABLO DAMIAN",
+          "discount": 1006,
+          "category": "Faltante",
+          "state": "REALIZADO"
+        }
+      ],
+      "ledgerWrites": 0,
+      "eligibleForLocalStaging": false,
+      "reason": "Confirmar aplicación conjunta de faltantes.",
+      "novelties": [
+        {
+          "row": 1560,
+          "date": "2026-09-18",
+          "carrier": "LAVAYEN, PABLO DAMIAN",
+          "discount": 22354,
+          "category": "Faltante",
+          "state": "REALIZADO",
+          "id": "92a5b6c3-b2ba-5967-bcf6-44258eb49f1b"
+        },
+        {
+          "row": 1561,
+          "date": "2026-09-19",
+          "carrier": "LAVAYEN, PABLO DAMIAN",
+          "discount": 1006,
+          "category": "Faltante",
+          "state": "REALIZADO",
+          "id": "21115c2d-c19f-5bfa-8ec7-d1d9e7e38419"
+        }
+      ]
+    },
+    {
+      "code": "LOG_REC_05401",
+      "serviceDate": "2026-09-25",
+      "carrier": "Diego Weiss",
+      "gross": 144500,
+      "paid": 126500,
+      "discount": 18000,
+      "net": 126500,
+      "difference": 0,
+      "classification": "reconciled_single_source",
+      "evidence": [
+        {
+          "row": 1556,
+          "date": "2026-09-12",
+          "carrier": "WEISS, DIEGO ",
+          "discount": 18000,
+          "category": "Faltante",
+          "state": "REALIZADO"
+        }
+      ],
+      "ledgerWrites": 0,
+      "eligibleForLocalStaging": true,
+      "reason": "Servicio y una novedad identificados; comprobar el pago actual antes de incorporar.",
+      "novelties": [
+        {
+          "row": 1556,
+          "date": "2026-09-12",
+          "carrier": "WEISS, DIEGO ",
+          "discount": 18000,
+          "category": "Faltante",
+          "state": "REALIZADO",
+          "id": "c11423dd-2215-5e71-9b6f-e7dd324691b1"
+        }
+      ]
+    },
+    {
+      "code": "LOG_REC_05404",
+      "serviceDate": "2026-09-26",
+      "carrier": "Diego Weiss",
+      "gross": 119000,
+      "paid": 91400,
+      "discount": 27650,
+      "net": 91350,
+      "difference": 50,
+      "classification": "reconciled_single_source",
+      "evidence": [
+        {
+          "row": 1572,
+          "date": "2026-09-25",
+          "carrier": "WEISS, DIEGO ",
+          "discount": 27650,
+          "category": "Faltante",
+          "state": "REALIZADO"
+        }
+      ],
+      "ledgerWrites": 0,
+      "eligibleForLocalStaging": true,
+      "reason": "Servicio y una novedad identificados; comprobar el pago actual antes de incorporar.",
+      "novelties": [
+        {
+          "row": 1572,
+          "date": "2026-09-25",
+          "carrier": "WEISS, DIEGO ",
+          "discount": 27650,
+          "category": "Faltante",
+          "state": "REALIZADO",
+          "id": "d5c81d4d-2cc0-5cea-a202-59ae9c61b4ba"
+        }
+      ]
+    },
+    {
+      "code": "LOG_REC_05407",
+      "serviceDate": "2026-09-28",
+      "carrier": "Pablo Damián Lavayen",
+      "gross": 318200,
+      "paid": 316700,
+      "discount": 1513,
+      "net": 316687,
+      "difference": 13,
+      "classification": "reconciled_single_source",
+      "evidence": [
+        {
+          "row": 1571,
+          "date": "2026-09-25",
+          "carrier": "LAVAYEN, PABLO DAMIAN",
+          "discount": 1513,
+          "category": "Faltante",
+          "state": "REALIZADO"
+        }
+      ],
+      "ledgerWrites": 0,
+      "eligibleForLocalStaging": true,
+      "reason": "Servicio y una novedad identificados; comprobar el pago actual antes de incorporar.",
+      "novelties": [
+        {
+          "row": 1571,
+          "date": "2026-09-25",
+          "carrier": "LAVAYEN, PABLO DAMIAN",
+          "discount": 1513,
+          "category": "Faltante",
+          "state": "REALIZADO",
+          "id": "7b82b726-41e4-5279-8f03-7460fc8d62bd"
+        }
+      ]
+    },
+    {
+      "code": "LOG_REC_05412",
+      "serviceDate": "2026-10-01",
+      "carrier": "Jorge Salcedo",
+      "gross": 300000,
+      "paid": 277800,
+      "discount": 22180,
+      "net": 277820,
+      "difference": -20,
+      "classification": "reconciled_single_source",
+      "evidence": [
+        {
+          "row": 1570,
+          "date": "2026-09-24",
+          "carrier": "Jorge Salcedo",
+          "discount": 22180,
+          "category": "Faltante",
+          "state": "REALIZADO"
+        }
+      ],
+      "ledgerWrites": 0,
+      "eligibleForLocalStaging": true,
+      "reason": "Servicio y una novedad identificados; comprobar el pago actual antes de incorporar.",
+      "novelties": [
+        {
+          "row": 1570,
+          "date": "2026-09-24",
+          "carrier": "Jorge Salcedo",
+          "discount": 22180,
+          "category": "Faltante",
+          "state": "REALIZADO",
+          "id": "62218ef6-9254-501c-b42e-2e4a7a867219"
+        }
+      ]
+    },
+    {
+      "code": "LOG_REC_05413",
+      "serviceDate": "2026-10-01",
+      "carrier": "Pablo Damián Lavayen",
+      "gross": 266060,
+      "paid": 263300,
+      "discount": 2776,
+      "net": 263284,
+      "difference": 16,
+      "classification": "reconciled_single_source",
+      "evidence": [
+        {
+          "row": 1574,
+          "date": "2026-09-28",
+          "carrier": "LAVAYEN, PABLO DAMIAN",
+          "discount": 2776,
+          "category": "Faltante",
+          "state": "REALIZADO"
+        }
+      ],
+      "ledgerWrites": 0,
+      "eligibleForLocalStaging": true,
+      "reason": "Servicio y una novedad identificados; comprobar el pago actual antes de incorporar.",
+      "novelties": [
+        {
+          "row": 1574,
+          "date": "2026-09-28",
+          "carrier": "LAVAYEN, PABLO DAMIAN",
+          "discount": 2776,
+          "category": "Faltante",
+          "state": "REALIZADO",
+          "id": "bfe22355-5313-5fd4-9a39-f85c6daf60e2"
+        }
+      ]
+    },
+    {
+      "code": "LOG_REC_05419",
+      "serviceDate": "2026-10-03",
+      "carrier": "Pablo Damián Lavayen",
+      "gross": 250000,
+      "paid": 246500,
+      "discount": 3513,
+      "net": 246487,
+      "difference": 13,
+      "classification": "reconciled_single_source",
+      "evidence": [
+        {
+          "row": 1575,
+          "date": "2026-10-01",
+          "carrier": "LAVAYEN, PABLO DAMIAN",
+          "discount": 3513,
+          "category": "Faltante",
+          "state": "REALIZADO"
+        }
+      ],
+      "ledgerWrites": 0,
+      "eligibleForLocalStaging": true,
+      "reason": "Servicio y una novedad identificados; comprobar el pago actual antes de incorporar.",
+      "novelties": [
+        {
+          "row": 1575,
+          "date": "2026-10-01",
+          "carrier": "LAVAYEN, PABLO DAMIAN",
+          "discount": 3513,
+          "category": "Faltante",
+          "state": "REALIZADO",
+          "id": "66cb0be5-7710-5b51-a0b6-c3d8e3dc153d"
+        }
+      ]
+    },
+    {
+      "code": "LOG_REC_05429",
+      "serviceDate": "2026-10-08",
+      "carrier": "Pablo Damián Lavayen",
+      "gross": 283330,
+      "paid": 282800,
+      "discount": 553,
+      "net": 282777,
+      "difference": 23,
+      "classification": "reconciled_single_source",
+      "evidence": [
+        {
+          "row": 1576,
+          "date": "2026-10-08",
+          "carrier": "LAVAYEN, PABLO DAMIAN",
+          "discount": 553,
+          "category": "Faltante",
+          "state": "REALIZADO"
+        }
+      ],
+      "ledgerWrites": 0,
+      "eligibleForLocalStaging": true,
+      "reason": "Servicio y una novedad identificados; comprobar el pago actual antes de incorporar.",
+      "novelties": [
+        {
+          "row": 1576,
+          "date": "2026-10-08",
+          "carrier": "LAVAYEN, PABLO DAMIAN",
+          "discount": 553,
+          "category": "Faltante",
+          "state": "REALIZADO",
+          "id": "10f588cc-3552-50d2-85f7-287d78fde62d"
+        }
+      ]
+    },
+    {
+      "code": "LOG_REC_05432",
+      "serviceDate": "2026-10-09",
+      "carrier": "Diego Weiss",
+      "gross": 80000,
+      "paid": 57500,
+      "discount": 22500,
+      "net": 57500,
+      "difference": 0,
+      "classification": "reconciled_single_source",
+      "evidence": [
+        {
+          "row": 1573,
+          "date": "2026-09-26",
+          "carrier": "WEISS, DIEGO ",
+          "discount": 22500,
+          "category": "Faltante",
+          "state": "REALIZADO"
+        }
+      ],
+      "ledgerWrites": 0,
+      "eligibleForLocalStaging": true,
+      "reason": "Servicio y una novedad identificados; comprobar el pago actual antes de incorporar.",
+      "novelties": [
+        {
+          "row": 1573,
+          "date": "2026-09-26",
+          "carrier": "WEISS, DIEGO ",
+          "discount": 22500,
+          "category": "Faltante",
+          "state": "REALIZADO",
+          "id": "c69b549b-8236-5fab-a486-90616e819776"
+        }
+      ]
+    },
+    {
+      "code": "LOG_REC_05440",
+      "serviceDate": "2026-10-13",
+      "carrier": "Jorge Salcedo",
+      "gross": 330000,
+      "paid": 271600,
+      "discount": 58400,
+      "net": 271600,
+      "difference": 0,
+      "classification": "reconciled_single_source",
+      "evidence": [
+        {
+          "row": 1580,
+          "date": "2026-10-12",
+          "carrier": "Jorge Salcedo",
+          "discount": 58400,
+          "category": "Faltante",
+          "state": "REALIZADO"
+        }
+      ],
+      "ledgerWrites": 0,
+      "eligibleForLocalStaging": false,
+      "reason": "Distribuir primero los conceptos de otros LOG.",
+      "novelties": [
+        {
+          "row": 1580,
+          "date": "2026-10-12",
+          "carrier": "Jorge Salcedo",
+          "discount": 58400,
+          "category": "Faltante",
+          "state": "REALIZADO",
+          "id": "ff805599-86e8-5379-8bc0-2d8a4810d540"
+        }
+      ]
+    },
+    {
+      "code": "LOG_REC_05442",
+      "serviceDate": "2026-10-13",
+      "carrier": "Diego Weis",
+      "gross": 88400,
+      "paid": 65950,
+      "discount": 22460,
+      "net": 65940,
+      "difference": 10,
+      "classification": "proposed_compound_match",
+      "evidence": [
+        {
+          "row": 1579,
+          "date": "2026-10-09",
+          "carrier": "WEISS, DIEGO ",
+          "discount": 12460,
+          "category": "Faltante",
+          "state": "REALIZADO"
+        },
+        {
+          "row": 1581,
+          "date": "2026-10-12",
+          "carrier": "WEISS, DIEGO ",
+          "discount": 10000,
+          "category": "Faltante",
+          "state": "REALIZADO"
+        }
+      ],
+      "ledgerWrites": 0,
+      "eligibleForLocalStaging": false,
+      "reason": "Confirmar aplicación conjunta de faltantes.",
+      "novelties": [
+        {
+          "row": 1579,
+          "date": "2026-10-09",
+          "carrier": "WEISS, DIEGO ",
+          "discount": 12460,
+          "category": "Faltante",
+          "state": "REALIZADO",
+          "id": "186f66c9-a66d-5e3a-a181-96937f8e36e3"
+        },
+        {
+          "row": 1581,
+          "date": "2026-10-12",
+          "carrier": "WEISS, DIEGO ",
+          "discount": 10000,
+          "category": "Faltante",
+          "state": "REALIZADO",
+          "id": "04e971b5-91f0-516a-b64f-04e85ec919f9"
+        }
+      ]
+    }
+  ]
+}
