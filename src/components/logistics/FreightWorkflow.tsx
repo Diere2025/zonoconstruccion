@@ -1,4 +1,5 @@
 'use client';
+import {pendingDispatchSettlements} from '@/lib/logisticsDispatch/planningPresentation';
 import {freightAccountMethod} from '@/lib/logisticsDispatch/accountPaymentMethod';
 import {useRef,useState} from 'react';
 import ErpDateInput from '@/components/ui/ErpDateInput';
@@ -13,7 +14,7 @@ const header=(p:Row)=>Array.isArray(p.logistics_dispatches)?p.logistics_dispatch
 export function FreightLiquidations({plans,data,onRequest,onRefresh,onReview,onApprove}:{plans:Row[];data:Row;onRequest:(q:string,b?:Row)=>Promise<any>;onRefresh:()=>Promise<void>;onReview:(r:Row)=>void;onApprove:(r:Row)=>void}){
  const [filter,setFilter]=useState('pending'),[selected,setSelected]=useState<Record<string,string>>({}),[date,setDate]=useState(treasuryToday()),[account,setAccount]=useState(''),[error,setError]=useState(''),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false);
  const key=useRef(crypto.randomUUID()),previous=useRef('');
- const closed=plans.filter(p=>p.status==='completed'),shown=closed.filter(p=>filter==='all'||filter==='paid'?filter==='all'||p.paymentState?.liquidated:!p.paymentState?.liquidated);
+ const closed=plans.filter(p=>p.status==='completed'),pendingIds=new Set(pendingDispatchSettlements(closed,data.liquidations||[]).map(e=>e.row.dispatch_id)),shown=closed.filter(p=>filter==='all'||(filter==='paid'?!pendingIds.has(p.dispatch_id)&&p.paymentState?.liquidated:pendingIds.has(p.dispatch_id)));
  const chosen=closed.filter(p=>selected[p.dispatch_id]!==undefined),total=chosen.reduce((n,p)=>n+(Number(selected[p.dispatch_id])||0),0);
  const toggle=(p:Row)=>{setError('');const next={...selected};if(next[p.dispatch_id]!==undefined)delete next[p.dispatch_id];else{if(chosen.length&&planOwner(chosen[0])!==planOwner(p)){setError('Seleccioná servicios del mismo fletero o empresa.');return;}next[p.dispatch_id]=String(p.paymentState.remainingAmount);}setSelected(next);};
  const pay=async(e:React.FormEvent)=>{e.preventDefault();setBusy(true);setError('');try{
