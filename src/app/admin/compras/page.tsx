@@ -57,6 +57,18 @@ import SupplierReceiptItems from '@/components/admin/SupplierReceiptItems';
 import SupplierReceiptFiles from "@/components/admin/SupplierReceiptFiles";
 import SupplierPurchaseOrderImageModal from "@/components/admin/SupplierPurchaseOrderImageModal";
 import { formatPrice, formatDateDDMMYYYY } from "@/lib/utils";
+import {
+  buildReplenishmentAnalysis,
+  summarizeReplenishmentWindows,
+  computeItemMetricsForMode,
+  DEFAULT_RADAR_CONFIG,
+  REPLENISHMENT_RADAR_SETTING_ID,
+  ReplenishmentItemResult,
+  ReplenishmentWindowSummary,
+  ReplenishmentRadarConfig,
+  HistoryWindowMode,
+  RawSaleRecord,
+} from "@/lib/erp/replenishmentEngine";
 
 interface Supplier {
   id: string;
@@ -452,16 +464,18 @@ export default function ComprasAdminPage() {
   const [isCalcSupplierDropdownOpen, setIsCalcSupplierDropdownOpen] = useState(false);
   const [calcDaysToCover, setCalcDaysToCover] = useState("30");
   const [calcHistoryPeriod, setCalcHistoryPeriod] = useState("15");
-  const [calcHistoryType, setCalcHistoryType] = useState<'days' | 'range'>('days');
+  const [calcHistoryType, setCalcHistoryType] = useState<HistoryWindowMode>('auto');
   const [calcStartDate, setCalcStartDate] = useState("");
   const [calcEndDate, setCalcEndDate] = useState("");
   const [calcSeasonality, setCalcSeasonality] = useState("1.0");
   const [calcBudget, setCalcBudget] = useState("");
   const [calcMaxUnits, setCalcMaxUnits] = useState("");
   const [calcDeliveryGraceDays, setCalcDeliveryGraceDays] = useState("2");
+  const [calcSmoothOutliers, setCalcSmoothOutliers] = useState(true);
   const [calcLoading, setCalcLoading] = useState(false);
   const [syncingCosts, setSyncingCosts] = useState(false);
-  const [calcResults, setCalcResults] = useState<any[]>([]);
+  const [calcResults, setCalcResults] = useState<ReplenishmentItemResult[]>([]);
+  const [calcWindowSummary, setCalcWindowSummary] = useState<ReplenishmentWindowSummary | null>(null);
   const [calcAverageCoverage, setCalcAverageCoverage] = useState(0);
   const [calcTotalCost, setCalcTotalCost] = useState(0);
   const [calcTargetDeliveryDate, setCalcTargetDeliveryDate] = useState("");
@@ -473,6 +487,23 @@ export default function ComprasAdminPage() {
     reservedUnits: number;
     salesUnits: number;
   } | null>(null);
+
+  // --- Global Replenishment Radar States ---
+  const [radarConfig, setRadarConfig] = useState<ReplenishmentRadarConfig>(DEFAULT_RADAR_CONFIG);
+  const [radarConfigLoaded, setRadarConfigLoaded] = useState(false);
+  const [radarTargetDaysInput, setRadarTargetDaysInput] = useState<string>(String(DEFAULT_RADAR_CONFIG.targetDays));
+  const [showRadarSupplierModal, setShowRadarSupplierModal] = useState(false);
+  const [radarSupplierSearch, setRadarSupplierSearch] = useState("");
+  const [savingRadarConfig, setSavingRadarConfig] = useState(false);
+  const [radarLoading, setRadarLoading] = useState(false);
+  const [radarItems, setRadarItems] = useState<ReplenishmentItemResult[]>([]);
+  const [radarWindowSummary, setRadarWindowSummary] = useState<ReplenishmentWindowSummary | null>(null);
+  const [radarUrgencyFilter, setRadarUrgencyFilter] = useState<'all_actionable' | 'critical_shortage' | 'below_rop' | 'scheduled_replenishment'>('all_actionable');
+  const [radarSelectedSupplierId, setRadarSelectedSupplierId] = useState<string>("ALL");
+  const [radarGroupBySupplier, setRadarGroupBySupplier] = useState(true);
+  const [radarSearchTerm, setRadarSearchTerm] = useState("");
+  const [isRadarCollapsed, setIsRadarCollapsed] = useState(false);
+  const [radarGeneratingPO, setRadarGeneratingPO] = useState(false);
 
   // Selection states
   const [selectedSupplierId, setSelectedSupplierId] = useState("");
@@ -820,6 +851,37 @@ export default function ComprasAdminPage() {
         setTempUsdRate(rateVal.toString());
       }
 
+      // Fetch Replenishment Radar Config (preconfigured suppliers & settings)
+      try {
+        const { data: radarSetting } = await supabase
+          .from("site_settings")
+          .select("value")
+          .eq("id", REPLENISHMENT_RADAR_SETTING_ID)
+          .maybeSingle();
+        let parsedRadar: Partial<ReplenishmentRadarConfig> | null = null;
+        if (radarSetting?.value) {
+          parsedRadar = typeof radarSetting.value === "string"
+            ? JSON.parse(radarSetting.value)
+            : radarSetting.value;
+        } else if (typeof window !== "undefined") {
+          const localRaw = window.localStorage.getItem(REPLENISHMENT_RADAR_SETTING_ID);
+          if (localRaw) parsedRadar = JSON.parse(localRaw);
+        }
+        if (parsedRadar) {
+          const mergedRadar = {
+            ...DEFAULT_RADAR_CONFIG,
+            ...parsedRadar,
+            excludedSupplierIds: Array.isArray(parsedRadar.excludedSupplierIds) ? parsedRadar.excludedSupplierIds : [],
+          };
+          setRadarConfig(mergedRadar);
+          setRadarTargetDaysInput(String(mergedRadar.targetDays || 30));
+        }
+      } catch (radarErr) {
+        console.warn("No se pudo cargar configuración del radar de compras:", radarErr);
+      } finally {
+        setRadarConfigLoaded(true);
+      }
+
       // Fetch price lists
       const { data: lists } = await supabase.from("price_lists").select("*").order("created_at", { ascending: false });
       if (lists) setPricelists(lists);
@@ -910,7 +972,7 @@ export default function ComprasAdminPage() {
       // Fetch Purchase Receptions
       const { data: recs } = await supabase
         .from("purchase_receptions")
-        .select("*, supplier:suppliers(name), purchase_orders(oc_code), purchase_reception_items(purchase_order_items(purchase_orders(oc_code))), purchase_reception_orders(purchase_orders(oc_code))")
+        .select("*, supplier:suppliers(name), purchase_orders!purchase_receptions_purchase_order_id_fkey(oc_code), purchase_reception_items(purchase_order_items(purchase_orders(oc_code))), purchase_reception_orders(purchase_orders(oc_code))")
         .order("reception_date", { ascending: false });
       if (recs) setReceptions(recs);
 
@@ -941,6 +1003,48 @@ export default function ComprasAdminPage() {
       setLoading(false);
     }
   }
+
+  // --- PLANILLA OC / RECEPCIONES BIDIRECTIONAL SYNC ---
+  const [sheetSyncModalOpen, setSheetSyncModalOpen] = useState(false);
+  const [sheetSyncLoading, setSheetSyncLoading] = useState(false);
+  const [sheetSyncExecuting, setSheetSyncExecuting] = useState(false);
+  const [sheetSyncSinceDate, setSheetSyncSinceDate] = useState("2026-09-01");
+  const [sheetSyncSummary, setSheetSyncSummary] = useState<any | null>(null);
+
+  const handleOpenSheetContrast = async (customSince?: string) => {
+    const since = customSince || sheetSyncSinceDate || "2026-09-01";
+    setSheetSyncModalOpen(true);
+    setSheetSyncLoading(true);
+    try {
+      const res = await fetch(`/api/admin/purchase-sheet-sync?since=${encodeURIComponent(since)}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Error al contrastar con la planilla");
+      setSheetSyncSummary(data);
+    } catch (err: any) {
+      alert("Error al contrastar planilla: " + err.message);
+    } finally {
+      setSheetSyncLoading(false);
+    }
+  };
+
+  const handleExecuteSheetSync = async () => {
+    setSheetSyncExecuting(true);
+    try {
+      const res = await fetch("/api/admin/purchase-sheet-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sinceDate: sheetSyncSinceDate || "2026-09-01" }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Error al sincronizar con la planilla");
+      setSheetSyncSummary(data);
+      await loadAllData(true);
+    } catch (err: any) {
+      alert("Error al sincronizar planilla: " + err.message);
+    } finally {
+      setSheetSyncExecuting(false);
+    }
+  };
 
   // --- PURCHASE ORDERS & RECEPTIONS HELPERS ---
   const fetchPoDetails = async (poId: string) => {
@@ -1780,429 +1884,646 @@ export default function ComprasAdminPage() {
     }
   };
 
-  const handleCalculateReplenishment = async () => {
-    if (!calcSupplierId) {
-      alert("Por favor seleccioná un proveedor o la opción de Todos los Proveedores.");
-      return;
+  const fetchBaseReplenishmentDataset = async (minDays: number = 30, startDate?: string, endDate?: string) => {
+    const fetchDays = Math.max(30, minDays || 30);
+    const limitDate = new Date();
+    limitDate.setDate(limitDate.getDate() - fetchDays);
+    const defaultCutoffStr = limitDate.toISOString().split('T')[0];
+
+    const effectiveCutoffStr = startDate && startDate < defaultCutoffStr ? startDate : defaultCutoffStr;
+
+    let salesDataQuery = supabase
+      .from('order_items')
+      .select(`
+        order_id,
+        product_id,
+        product_name,
+        quantity,
+        orders!inner(status, order_date)
+      `)
+      .neq('orders.status', 'Cancelado')
+      .gte('orders.order_date', effectiveCutoffStr);
+
+    if (endDate) {
+      salesDataQuery = salesDataQuery.lte('orders.order_date', endDate);
     }
-    setCalcLoading(true);
-    setCalcResults([]);
+
+    const { data: salesData, error: salesErr } = await salesDataQuery;
+    if (salesErr) throw salesErr;
+
+    const saleRecords: RawSaleRecord[] = [];
+    salesData?.forEach((item: any, index: number) => {
+      const orderObj = Array.isArray(item.orders) ? item.orders[0] : item.orders;
+      const orderDate = orderObj?.order_date || '';
+      const qty = Number(item.quantity) || 0;
+      if (qty <= 0 || !orderDate) return;
+      saleRecords.push({
+        orderKey: item.order_id ? `db_${item.order_id}` : `db_row_${index}_${orderDate}`,
+        productId: item.product_id || null,
+        productName: (item.product_name || '').trim(),
+        quantity: qty,
+        orderDate,
+        source: 'db',
+      });
+    });
+
+    // Fetch unimported seller orders from spreadsheets to include in sales and reserves
+    const unimportedReservesMap: Record<string, number> = {};
+    const unimportedReservesNormMap: Record<string, number> = {};
     try {
-      let days = 15;
-      let salesDataQuery = supabase
-        .from('order_items')
-        .select(`
-          product_id,
-          product_name,
-          quantity,
-          orders!inner(status, order_date)
-        `)
-        .neq('orders.status', 'Cancelado');
+      const unRes = await fetch('/api/admin/unimported-orders');
+      if (unRes.ok) {
+        const unimportedData = await unRes.json();
+        if (unimportedData && unimportedData.unimportedOrders) {
+          let totalUnRes = 0;
+          let totalUnSales = 0;
 
-      if (calcHistoryType === 'days') {
-        days = Number(calcHistoryPeriod) || 15;
-        const limitDate = new Date();
-        limitDate.setDate(limitDate.getDate() - days);
-        const limitDateStr = limitDate.toISOString().split('T')[0];
-        salesDataQuery = salesDataQuery.gt('orders.order_date', limitDateStr);
-      } else {
-        if (!calcStartDate || !calcEndDate) {
-          alert("Por favor ingresá tanto la fecha de inicio como la de fin para el rango.");
-          setCalcLoading(false);
-          return;
+          unimportedData.unimportedOrders.forEach((order: any, ordIdx: number) => {
+            const ordDate = (order.orderDate || '').split('T')[0];
+            const isWithinPeriod = ordDate >= effectiveCutoffStr && (!endDate || ordDate <= endDate);
+            const sheetOrderKey = `sheet_${order.id || order.orderCode || ordIdx}_${ordDate}`;
+
+            order.items?.forEach((it: any) => {
+              const qty = Number(it.quantity) || 0;
+              if (qty <= 0) return;
+
+              const norm = (it.normalizedName || '')
+                .toLowerCase()
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/[^a-z0-9]/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+
+              if (isWithinPeriod && ordDate) {
+                saleRecords.push({
+                  orderKey: sheetOrderKey,
+                  productId: it.productId || null,
+                  productName: it.normalizedName || it.productName || '',
+                  quantity: qty,
+                  orderDate: ordDate,
+                  source: 'sheet',
+                });
+                totalUnSales += qty;
+              }
+
+              if (order.isReserved) {
+                if (it.productId) {
+                  unimportedReservesMap[it.productId] = (unimportedReservesMap[it.productId] || 0) + qty;
+                }
+                if (norm) {
+                  unimportedReservesNormMap[norm] = (unimportedReservesNormMap[norm] || 0) + qty;
+                }
+                totalUnRes += qty;
+              }
+            });
+          });
+
+          setUnimportedStats({
+            ordersCount: unimportedData.unimportedOrders.length,
+            reservedUnits: totalUnRes,
+            salesUnits: totalUnSales,
+          });
         }
-        const start = new Date(calcStartDate);
-        const end = new Date(calcEndDate);
-        const diffTime = Math.abs(end.getTime() - start.getTime());
-        days = Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
-        salesDataQuery = salesDataQuery.gte('orders.order_date', calcStartDate).lte('orders.order_date', calcEndDate);
       }
+    } catch (err) {
+      console.warn("No se pudieron cargar pedidos no importados para reposición:", err);
+    }
 
-      const { data: salesData, error: salesErr } = await salesDataQuery;
-      if (salesErr) throw salesErr;
+    // Fetch fresh stock levels from active, non-discontinued products
+    const { data: latestProducts, error: prodErr } = await supabase
+      .from('products')
+      .select('id, name, sku, stock_physical, stock_reserved, stock_current, price, cost_price, category, is_active, is_discontinued')
+      .eq('is_active', true)
+      .eq('is_discontinued', false);
 
-      const normalizeText = (str: string) => {
-        if (!str) return '';
-        return str
+    if (prodErr) throw prodErr;
+
+    // Fetch pending quantities from purchase orders in transit
+    const { data: transitData, error: transitErr } = await supabase
+      .from('purchase_order_items')
+      .select('product_id, raw_product_name, quantity_ordered, quantity_received, purchase_orders!inner(status)')
+      .neq('purchase_orders.status', 'Cumplido')
+      .neq('purchase_orders.status', 'Cancelado');
+
+    if (transitErr) throw transitErr;
+
+    const transitMap: Record<string, number> = {};
+    const transitNormMap: Record<string, number> = {};
+
+    transitData?.forEach(item => {
+      const pId = item.product_id;
+      const pName = (item.raw_product_name || '').trim();
+      const qtyOrdered = Number(item.quantity_ordered) || 0;
+      const qtyReceived = Number(item.quantity_received) || 0;
+      const pending = Math.max(0, qtyOrdered - qtyReceived);
+      if (pId) {
+        transitMap[pId] = (transitMap[pId] || 0) + pending;
+      }
+      if (pName) {
+        const norm = pName
           .toLowerCase()
           .normalize('NFD')
           .replace(/[\u0300-\u036f]/g, '')
           .replace(/[^a-z0-9]/g, ' ')
           .replace(/\s+/g, ' ')
           .trim();
-      };
-
-      const salesMap: Record<string, number> = {};
-      const salesNormalizedMap: Record<string, number> = {};
-
-      salesData?.forEach(item => {
-        const pId = item.product_id;
-        const pName = (item.product_name || '').trim();
-        const qty = Number(item.quantity) || 0;
-        if (pId) {
-          salesMap[pId] = (salesMap[pId] || 0) + qty;
-        }
-        if (pName) {
-          const norm = normalizeText(pName);
-          salesNormalizedMap[norm] = (salesNormalizedMap[norm] || 0) + qty;
-        }
-      });
-
-      // 1b. Fetch unimported seller orders from spreadsheets to include in sales and reserves
-      const unimportedReservesMap: Record<string, number> = {};
-      const unimportedReservesNormMap: Record<string, number> = {};
-      try {
-        const unRes = await fetch('/api/admin/unimported-orders');
-        if (unRes.ok) {
-          const unimportedData = await unRes.json();
-          if (unimportedData && unimportedData.unimportedOrders) {
-            const cutoffDateStr = calcHistoryType === 'days' 
-              ? (() => { const d = new Date(); d.setDate(d.getDate() - days); return d.toISOString().split('T')[0]; })()
-              : (calcStartDate || '1970-01-01');
-            const endCutoffStr = calcHistoryType === 'days' ? '9999-12-31' : (calcEndDate || '9999-12-31');
-
-            let totalUnRes = 0;
-            let totalUnSales = 0;
-
-            unimportedData.unimportedOrders.forEach((order: any) => {
-              const isWithinPeriod = order.orderDate >= cutoffDateStr && order.orderDate <= endCutoffStr;
-
-              order.items?.forEach((it: any) => {
-                const qty = Number(it.quantity) || 0;
-                if (qty <= 0) return;
-
-                // Add to sales if within period
-                if (isWithinPeriod) {
-                  if (it.productId) {
-                    salesMap[it.productId] = (salesMap[it.productId] || 0) + qty;
-                  }
-                  if (it.normalizedName) {
-                    const norm = normalizeText(it.normalizedName);
-                    salesNormalizedMap[norm] = (salesNormalizedMap[norm] || 0) + qty;
-                  }
-                  totalUnSales += qty;
-                }
-
-                // Add to reserves if order is active/pending
-                if (order.isReserved) {
-                  if (it.productId) {
-                    unimportedReservesMap[it.productId] = (unimportedReservesMap[it.productId] || 0) + qty;
-                  }
-                  if (it.normalizedName) {
-                    const norm = normalizeText(it.normalizedName);
-                    unimportedReservesNormMap[norm] = (unimportedReservesNormMap[norm] || 0) + qty;
-                  }
-                  totalUnRes += qty;
-                }
-              });
-            });
-
-            setUnimportedStats({
-              ordersCount: unimportedData.unimportedOrders.length,
-              reservedUnits: totalUnRes,
-              salesUnits: totalUnSales
-            });
-          }
-        }
-      } catch (err) {
-        console.warn("No se pudieron cargar pedidos no importados para reposición:", err);
+        transitNormMap[norm] = (transitNormMap[norm] || 0) + pending;
       }
+    });
 
-      // 2. Fetch fresh stock levels from active, non-discontinued products
-      const { data: latestProducts, error: prodErr } = await supabase
-        .from('products')
-        .select('id, name, sku, stock_physical, stock_reserved, stock_current, price, cost_price, category, is_active, is_discontinued')
-        .eq('is_active', true)
-        .eq('is_discontinued', false);
-      
-      if (prodErr) throw prodErr;
+    return {
+      saleRecords,
+      unimportedReservesMap,
+      unimportedReservesNormMap,
+      latestProducts: latestProducts || [],
+      transitMap,
+      transitNormMap,
+    };
+  };
 
-      // 3. Filter relations
-      const filterAllSuppliers = calcSupplierId === "ALL";
-      const supRelations = filterAllSuppliers ? relations : relations.filter(r => r.supplier_id === calcSupplierId);
+  const applyBudgetAndUnitCapsToResults = (
+    rawItems: ReplenishmentItemResult[],
+    maxUnitsVal: number,
+    budgetLimitVal: number,
+    targetDays: number
+  ) => {
+    const results = rawItems.map(r => ({ ...r }));
 
-      // 4. Fetch pending quantities from purchase orders in transit
-      const { data: transitData, error: transitErr } = await supabase
-        .from('purchase_order_items')
-        .select('product_id, raw_product_name, quantity_ordered, quantity_received, purchase_orders!inner(status)')
-        .neq('purchase_orders.status', 'Cumplido')
-        .neq('purchase_orders.status', 'Cancelado');
+    // 1. Cap at configured maximum total units
+    if (maxUnitsVal > 0) {
+      const totalIdealUnits = results.reduce((acc, item) => acc + item.quantityDefaultSuggested, 0);
+      if (totalIdealUnits > maxUnitsVal) {
+        const ratio = maxUnitsVal / totalIdealUnits;
+        let currentUnitsSum = 0;
 
-      if (transitErr) throw transitErr;
-
-      const transitMap: Record<string, number> = {};
-      const transitNormMap: Record<string, number> = {};
-
-      transitData?.forEach(item => {
-        const pId = item.product_id;
-        const pName = (item.raw_product_name || '').trim();
-        const qtyOrdered = Number(item.quantity_ordered) || 0;
-        const qtyReceived = Number(item.quantity_received) || 0;
-        const pending = Math.max(0, qtyOrdered - qtyReceived);
-        if (pId) {
-          transitMap[pId] = (transitMap[pId] || 0) + pending;
-        }
-        if (pName) {
-          const norm = normalizeText(pName);
-          transitNormMap[norm] = (transitNormMap[norm] || 0) + pending;
-        }
-      });
-
-      const supplierObj = filterAllSuppliers ? null : suppliers.find(s => s.id === calcSupplierId);
-      const leadTime = supplierObj ? (Number(supplierObj.delivery_time_days) || 0) : 5;
-      const safetyDays = supplierObj ? (Number(supplierObj.safety_stock_days) || 7) : 7;
-      const seasonalityMult = Number(calcSeasonality) || 1.0;
-      const targetDays = Number(calcDaysToCover) || 30;
-
-      const results: any[] = [];
-      const relationCostMap: Record<string, number> = {};
-      supRelations.forEach(r => {
-        relationCostMap[r.product_id] = Number(r.purchase_cost) || 0;
-      });
-
-      latestProducts.forEach(p => {
-        // Skip outlet, internal, discontinued or legacy duplicate products
-        const lowerName = (p.name || '').toLowerCase();
-        if (lowerName.startsWith('[interno]') || lowerName.includes('(out') || lowerName.includes('outlet')) return;
-
-        const hasRelation = filterAllSuppliers || (p.id in relationCostMap);
-        if (!hasRelation) return;
-
-        // Find total sales by ID and normalized name matching
-        const normPName = normalizeText(p.name || '');
-        let totalQtySold = 0;
-        for (const [sNorm, sQty] of Object.entries(salesNormalizedMap)) {
-          if (sNorm === normPName || sNorm.includes(normPName) || normPName.includes(sNorm)) {
-            totalQtySold += sQty;
-          }
-        }
-        if ((salesMap[p.id] || 0) > totalQtySold) {
-          totalQtySold = salesMap[p.id];
-        }
-
-        // Demanda derivada: los tachos y cisternas de 1000L absorben la demanda de los Biodigestores y Cámaras de 1000L fabricados
-        if ((normPName.includes('tacho') || normPName.includes('cisterna')) && normPName.includes('1000')) {
-          for (const [sNorm, sQty] of Object.entries(salesNormalizedMap)) {
-            if ((sNorm.includes('biodigestor') || sNorm.includes('septica') || sNorm.includes('camara')) && sNorm.includes('1000')) {
-              totalQtySold += sQty;
-            }
-          }
-        }
-
-        // Do not include products with 0 sales in the analyzed period
-        if (totalQtySold <= 0) return;
-
-        let purchaseCost = 0;
-        if (p.cost_price && Number(p.cost_price) > 0) {
-          purchaseCost = Number(p.cost_price);
-        } else if (filterAllSuppliers) {
-          const rel = relations.find(r => r.product_id === p.id && r.is_primary) || relations.find(r => r.product_id === p.id);
-          purchaseCost = rel && Number(rel.purchase_cost) > 0 ? Number(rel.purchase_cost) : (Number(p.price) * 0.7);
-        } else {
-          purchaseCost = relationCostMap[p.id] || (Number(p.price) * 0.7);
-        }
-
-        const vpd = (totalQtySold / days) * seasonalityMult;
-
-        const stockPhys = Math.max(0, Number(p.stock_physical) || 0);
-        const dbRes = Math.max(0, Number(p.stock_reserved) || 0);
-        const unimportedRes = (p.id && unimportedReservesMap[p.id]) || unimportedReservesNormMap[normPName] || 0;
-        const stockRes = dbRes + unimportedRes;
-        const stockDisp = typeof p.stock_current === 'number'
-          ? Math.max(0, p.stock_current - unimportedRes)
-          : Math.max(0, stockPhys - stockRes);
-
-        let transit = transitMap[p.id] || 0;
-        for (const [tNorm, tQty] of Object.entries(transitNormMap)) {
-          if (tNorm === normPName || tNorm.includes(normPName) || normPName.includes(tNorm)) {
-            if (tQty > transit) transit = tQty;
-          }
-        }
-
-        const dca = vpd > 0 ? (stockDisp / vpd) : 999;
-        const rop = vpd * (leadTime + safetyDays);
-
-        // Effective projected stock (available in warehouse + incoming OCs in transit)
-        const projectedStockWithTransit = stockDisp + transit;
-        const dcaWithTransit = vpd > 0 ? (projectedStockWithTransit / vpd) : 999;
-
-        // Calculate tentative delivery date for the NEW order to prevent running out of stock
-        let tentativeDateStr = 'Inmediato (Hoy)';
-        let tentativeDateObj: Date | null = new Date();
-        let daysUntilStockout = 0;
-
-        const graceDays = Number(calcDeliveryGraceDays) || 0;
-
-        if (projectedStockWithTransit <= 0 && graceDays === 0) {
-          tentativeDateStr = '¡Hoy! (Sin stock)';
-          daysUntilStockout = 0;
-          tentativeDateObj = new Date();
-          if (tentativeDateObj.getDay() === 0) {
-            tentativeDateObj.setDate(tentativeDateObj.getDate() + 1);
-          }
-        } else if (dcaWithTransit < 365) {
-          const rawCoverage = Math.max(0, Math.floor(dcaWithTransit));
-          const { targetDate, displayDays } = getValidReceptionDate(new Date(), rawCoverage, graceDays);
-          daysUntilStockout = displayDays;
-          tentativeDateObj = targetDate;
-          tentativeDateStr = formatDateDDMMYYYY(targetDate);
-        } else {
-          tentativeDateStr = '+1 año';
-          daysUntilStockout = 999;
-          tentativeDateObj = null;
-        }
-
-        // Quantity suggested for target days of coverage (taking into account available stock and transit)
-        let quantitySuggested = Math.max(0, Math.ceil((vpd * targetDays) - stockDisp - transit));
-        const backorder = Math.max(0, stockRes - stockPhys);
-
-        let abcClass: 'A' | 'B' | 'C' = 'C';
-        if (totalQtySold > 15) abcClass = 'A';
-        else if (totalQtySold > 0) abcClass = 'B';
-
-        results.push({
-          productId: p.id,
-          name: p.name,
-          sku: p.sku,
-          stockPhysical: stockPhys,
-          stockReserved: stockRes,
-          dbReserved: dbRes,
-          unimportedReserved: unimportedRes,
-          stockAvailable: stockDisp,
-          transit: transit,
-          vpd: vpd,
-          dca: dca,
-          rop: rop,
-          daysUntilStockout: daysUntilStockout,
-          tentativeDateStr: tentativeDateStr,
-          tentativeDateObj: tentativeDateObj,
-          quantitySuggested: quantitySuggested,
-          quantityDefaultSuggested: quantitySuggested,
-          unitCost: purchaseCost,
-          subtotal: quantitySuggested * purchaseCost,
-          abcClass: abcClass,
-          totalQtySold: totalQtySold,
-          backorder: backorder,
-          priorityScore: 0
+        results.forEach(item => {
+          const exactScaled = item.quantityDefaultSuggested * ratio;
+          const floored = Math.floor(exactScaled);
+          item.quantitySuggested = floored;
+          item.subtotal = floored * item.unitCost;
+          item.remainder = exactScaled - floored;
+          currentUnitsSum += floored;
         });
-      });
 
-      // 1. Cap the suggestion at the configured maximum total units.
-      const maxUnits = Number(calcMaxUnits) || 0;
-      if (maxUnits > 0) {
-        const totalIdealUnits = results.reduce((acc, item) => acc + item.quantityDefaultSuggested, 0);
-
-        if (totalIdealUnits > maxUnits) {
-          // Scale down proportionally from ideal suggestions
-          const ratio = maxUnits / totalIdealUnits;
-          let currentUnitsSum = 0;
-
-          results.forEach(item => {
-            const exactScaled = item.quantityDefaultSuggested * ratio;
-            const floored = Math.floor(exactScaled);
-            item.quantitySuggested = floored;
-            item.subtotal = floored * item.unitCost;
-            item.remainder = exactScaled - floored;
-            currentUnitsSum += floored;
-          });
-
-          let unitsRemaining = maxUnits - currentUnitsSum;
-          const sortedByRemainder = [...results]
-            .filter(item => item.quantityDefaultSuggested > 0)
-            .sort((a, b) => {
+        let unitsRemaining = maxUnitsVal - currentUnitsSum;
+        const sortedByRemainder = [...results]
+          .filter(item => item.quantityDefaultSuggested > 0)
+          .sort((a, b) => {
             const abcWeightA = a.abcClass === 'A' ? 2 : a.abcClass === 'B' ? 1 : 0;
             const abcWeightB = b.abcClass === 'A' ? 2 : b.abcClass === 'B' ? 1 : 0;
             if (abcWeightB !== abcWeightA) return abcWeightB - abcWeightA;
             return (b.remainder || 0) - (a.remainder || 0);
           });
 
-          let idx = 0;
-          while (unitsRemaining > 0 && sortedByRemainder.length > 0) {
-            const item = sortedByRemainder[idx % sortedByRemainder.length];
-            item.quantitySuggested += 1;
-            item.subtotal = item.quantitySuggested * item.unitCost;
-            unitsRemaining--;
-            idx++;
-          }
+        let idx = 0;
+        while (unitsRemaining > 0 && sortedByRemainder.length > 0) {
+          const item = sortedByRemainder[idx % sortedByRemainder.length];
+          item.quantitySuggested += 1;
+          item.subtotal = item.quantitySuggested * item.unitCost;
+          unitsRemaining--;
+          idx++;
         }
       }
+    }
 
-      // 2. Apply budget constraint maintaining strict proportionality
-      const budgetLimit = Number(calcBudget) || 0;
-      if (budgetLimit > 0) {
-        const totalIdealCost = results.reduce((acc, item) => acc + (item.quantitySuggested * item.unitCost), 0);
+    // 2. Apply budget constraint maintaining strict proportionality
+    if (budgetLimitVal > 0) {
+      const totalIdealCost = results.reduce((acc, item) => acc + (item.quantitySuggested * item.unitCost), 0);
+      if (totalIdealCost > budgetLimitVal && totalIdealCost > 0) {
+        const ratio = budgetLimitVal / totalIdealCost;
+        let remainingBudget = budgetLimitVal;
 
-        if (totalIdealCost > budgetLimit && totalIdealCost > 0) {
-          const ratio = budgetLimit / totalIdealCost;
-          let remainingBudget = budgetLimit;
+        results.forEach(item => {
+          const exactScaled = item.quantitySuggested * ratio;
+          const floored = Math.floor(exactScaled);
+          item.quantitySuggested = floored;
+          item.subtotal = floored * item.unitCost;
+          item.remainder = exactScaled - floored;
+          remainingBudget -= item.subtotal;
+        });
 
-          results.forEach(item => {
-            const exactScaled = item.quantitySuggested * ratio;
-            const floored = Math.floor(exactScaled);
-            item.quantitySuggested = floored;
-            item.subtotal = floored * item.unitCost;
-            item.remainder = exactScaled - floored;
-            remainingBudget -= item.subtotal;
+        const sortedByRemainder = [...results]
+          .filter(item => item.unitCost > 0)
+          .sort((a, b) => {
+            const abcWeightA = a.abcClass === 'A' ? 2 : a.abcClass === 'B' ? 1 : 0;
+            const abcWeightB = b.abcClass === 'A' ? 2 : b.abcClass === 'B' ? 1 : 0;
+            if (abcWeightB !== abcWeightA) return abcWeightB - abcWeightA;
+            return (b.remainder || 0) - (a.remainder || 0);
           });
 
-          const sortedByRemainder = [...results]
-            .filter(item => item.unitCost > 0)
-            .sort((a, b) => {
-              const abcWeightA = a.abcClass === 'A' ? 2 : a.abcClass === 'B' ? 1 : 0;
-              const abcWeightB = b.abcClass === 'A' ? 2 : b.abcClass === 'B' ? 1 : 0;
-              if (abcWeightB !== abcWeightA) return abcWeightB - abcWeightA;
-              return (b.remainder || 0) - (a.remainder || 0);
-            });
-
-          for (const item of sortedByRemainder) {
-            if (remainingBudget >= item.unitCost) {
-              item.quantitySuggested += 1;
-              item.subtotal = item.quantitySuggested * item.unitCost;
-              remainingBudget -= item.unitCost;
-            }
+        for (const item of sortedByRemainder) {
+          if (remainingBudget >= item.unitCost) {
+            item.quantitySuggested += 1;
+            item.subtotal = item.quantitySuggested * item.unitCost;
+            remainingBudget -= item.unitCost;
           }
         }
       }
+    }
 
-      // Calculate totals
-      let totalCost = 0;
-      let coverageSum = 0;
-      let coverageCount = 0;
-      results.forEach(item => {
-        totalCost += item.subtotal;
-        const finalCoverage = item.vpd > 0 ? Math.max(0, ((item.stockAvailable + item.transit + item.quantitySuggested) / item.vpd)) : 999;
-        if (finalCoverage < 999) {
-          coverageSum += finalCoverage;
-          coverageCount++;
+    // Calculate summary totals
+    let totalCost = 0;
+    let coverageSum = 0;
+    let coverageCount = 0;
+    results.forEach(item => {
+      totalCost += item.subtotal;
+      const finalCoverage = item.vpdActive > 0
+        ? Math.max(0, ((item.stockAvailable + item.transit + item.quantitySuggested) / item.vpdActive))
+        : 999;
+      if (finalCoverage < 999) {
+        coverageSum += finalCoverage;
+        coverageCount++;
+      }
+    });
+
+    const itemsBeingOrdered = results.filter(r => r.quantitySuggested > 0);
+    let earliestDeliveryDateDisplay = 'Sin urgencia';
+    let earliestDeliveryDays = 999;
+    let earliestTargetDate: Date | null = null;
+
+    if (itemsBeingOrdered.length > 0) {
+      itemsBeingOrdered.forEach(it => {
+        if (it.daysUntilStockout < earliestDeliveryDays) {
+          earliestDeliveryDays = it.daysUntilStockout;
+          earliestTargetDate = it.tentativeDateObj;
         }
       });
 
-      // Calculate earliest tentative delivery date needed for items being ordered
-      const itemsBeingOrdered = results.filter(r => r.quantitySuggested > 0);
-      let earliestDeliveryDateDisplay = 'Sin urgencia';
-      let earliestDeliveryDays = 999;
-      let earliestTargetDate: Date | null = null;
+      if (earliestDeliveryDays <= 0) {
+        earliestDeliveryDateDisplay = '¡Hoy! (Sin stock)';
+      } else if (earliestDeliveryDays < 365 && earliestTargetDate) {
+        earliestDeliveryDateDisplay = `${formatDateDDMMYYYY(earliestTargetDate)} (en ${earliestDeliveryDays}d)`;
+      }
+    }
 
-      if (itemsBeingOrdered.length > 0) {
-        itemsBeingOrdered.forEach(it => {
-          if (it.daysUntilStockout < earliestDeliveryDays) {
-            earliestDeliveryDays = it.daysUntilStockout;
-            earliestTargetDate = it.tentativeDateObj;
+    return {
+      results,
+      totalCost,
+      averageCoverage: coverageCount > 0 ? (coverageSum / coverageCount) : targetDays,
+      earliestDeliveryDateDisplay,
+    };
+  };
+
+  // --- GLOBAL REPLENISHMENT RADAR HANDLERS ---
+  const persistRadarConfigSilently = async (updated: ReplenishmentRadarConfig) => {
+    try {
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(REPLENISHMENT_RADAR_SETTING_ID, JSON.stringify(updated));
+      }
+      await supabase
+        .from('site_settings')
+        .upsert(
+          {
+            id: REPLENISHMENT_RADAR_SETTING_ID,
+            value: JSON.stringify(updated),
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'id' }
+        );
+    } catch (err) {
+      console.warn('Guardado local activo para radarConfig:', err);
+    }
+  };
+
+  const handleApplyRadarTargetDays = (rawDays: number) => {
+    const cleanDays = Math.max(1, Math.min(365, Math.round(Number(rawDays) || 30)));
+    setRadarTargetDaysInput(String(cleanDays));
+    const nextCfg: ReplenishmentRadarConfig = {
+      ...radarConfig,
+      targetDays: cleanDays,
+      configured: true,
+    };
+    setRadarConfig(nextCfg);
+
+    if (radarItems.length > 0) {
+      const recomputed = radarItems.map(item =>
+        computeItemMetricsForMode({
+          baseItem: item,
+          historyMode: 'auto',
+          customDays: 15,
+          seasonalityMult: Number(calcSeasonality) || 1.0,
+          targetDays: cleanDays,
+          graceDays: Number(nextCfg.graceDays) || 2,
+        })
+      );
+      recomputed.sort((a, b) => {
+        if (b.priorityScore !== a.priorityScore) return b.priorityScore - a.priorityScore;
+        return b.subtotal - a.subtotal;
+      });
+      setRadarItems(recomputed);
+      setRadarWindowSummary(summarizeReplenishmentWindows(recomputed));
+    }
+    void persistRadarConfigSilently(nextCfg);
+  };
+
+  const handleOpenSupplierInSimulator = (supplierId: string, supplierName: string) => {
+    if (!supplierId) return;
+    setCalcSupplierId(supplierId);
+    setCalcSupplierSearchText(supplierName);
+    setCalcDaysToCover(String(radarConfig.targetDays || 30));
+    void handleCalculateReplenishment(undefined, undefined, supplierId);
+    if (typeof document !== 'undefined') {
+      const el = document.getElementById('simulador-proveedor-section');
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }
+  };
+
+  const handleSaveRadarConfig = async (newConfig: ReplenishmentRadarConfig, showNotification = true) => {
+    setSavingRadarConfig(true);
+    const updated: ReplenishmentRadarConfig = {
+      ...newConfig,
+      configured: true,
+    };
+    setRadarConfig(updated);
+    setRadarTargetDaysInput(String(updated.targetDays || 30));
+    try {
+      await persistRadarConfigSilently(updated);
+      if (showNotification) {
+        setShowRadarSupplierModal(false);
+      }
+      void handleLoadGlobalRadar(updated);
+    } finally {
+      setSavingRadarConfig(false);
+    }
+  };
+
+  const handleLoadGlobalRadar = async (overrideConfig?: ReplenishmentRadarConfig) => {
+    const cfg = overrideConfig || radarConfig;
+    setRadarLoading(true);
+    try {
+      const dataset = await fetchBaseReplenishmentDataset(30);
+      const { items, windowSummary } = buildReplenishmentAnalysis({
+        products: dataset.latestProducts,
+        suppliers,
+        relations,
+        saleRecords: dataset.saleRecords,
+        unimportedReservesMap: dataset.unimportedReservesMap,
+        unimportedReservesNormMap: dataset.unimportedReservesNormMap,
+        transitMap: dataset.transitMap,
+        transitNormMap: dataset.transitNormMap,
+        supplierFilterId: 'RADAR',
+        excludedSupplierIds: cfg.excludedSupplierIds || [],
+        includeUnassignedUrgent: cfg.includeUnassignedUrgent ?? true,
+        historyMode: 'auto',
+        customDays: 15,
+        seasonalityMult: Number(calcSeasonality) || 1.0,
+        targetDays: Number(cfg.targetDays) || 30,
+        graceDays: Number(cfg.graceDays) || 2,
+        defaultSmoothOutliers: cfg.smoothOutliers ?? true,
+      });
+
+      setRadarItems(items);
+      setRadarWindowSummary(windowSummary);
+    } catch (err: any) {
+      console.error('Error cargando Radar Global de Compras:', err);
+    } finally {
+      setRadarLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeSubTab === 'purchase_calculator' && radarConfigLoaded && suppliers.length > 0 && radarItems.length === 0 && !radarLoading) {
+      void handleLoadGlobalRadar();
+    }
+  }, [activeSubTab, radarConfigLoaded, suppliers.length]);
+
+  const handleToggleRadarItemSpike = (productId: string) => {
+    const updated = radarItems.map(item => {
+      if (item.productId !== productId) return item;
+      const nextInclude = !item.includeOutlierSpike;
+      return computeItemMetricsForMode({
+        baseItem: {
+          ...item,
+          includeOutlierSpike: nextInclude,
+        },
+        historyMode: 'auto',
+        customDays: 15,
+        seasonalityMult: Number(calcSeasonality) || 1.0,
+        targetDays: Number(radarConfig.targetDays) || 30,
+        graceDays: Number(radarConfig.graceDays) || 2,
+      });
+    });
+    setRadarItems(updated);
+    setRadarWindowSummary(summarizeReplenishmentWindows(updated));
+  };
+
+  const handleChangeRadarItemSupplier = (productId: string, newSupplierId: string) => {
+    const updated = radarItems.map(item => {
+      if (item.productId !== productId) return item;
+      const supOpt = item.availableSuppliers.find(s => s.supplierId === newSupplierId);
+      const supObj = suppliers.find(s => s.id === newSupplierId);
+      const nextCost = supOpt && supOpt.purchaseCost > 0 ? supOpt.purchaseCost : item.unitCost;
+      const nextLead = supOpt ? supOpt.leadTimeDays : (Number(supObj?.delivery_time_days) || 5);
+      const nextSafety = supOpt ? supOpt.safetyStockDays : (Number(supObj?.safety_stock_days) || 7);
+
+      return computeItemMetricsForMode({
+        baseItem: {
+          ...item,
+          supplierId: newSupplierId,
+          supplierName: supOpt?.supplierName || supObj?.name || 'Sin proveedor asignado',
+          unitCost: nextCost,
+          leadTimeDays: nextLead,
+          safetyStockDays: nextSafety,
+        },
+        historyMode: 'auto',
+        customDays: 15,
+        seasonalityMult: Number(calcSeasonality) || 1.0,
+        targetDays: Number(radarConfig.targetDays) || 30,
+        graceDays: Number(radarConfig.graceDays) || 2,
+      });
+    });
+    setRadarItems(updated);
+  };
+
+  const handleGeneratePOsFromRadar = async (onlySupplierId?: string) => {
+    const targetSupFilter = onlySupplierId || (radarSelectedSupplierId !== 'ALL' ? radarSelectedSupplierId : undefined);
+    const visibleActionable = radarItems.filter(item => {
+      if (item.quantitySuggested <= 0) return false;
+      if (targetSupFilter && item.supplierId !== targetSupFilter) return false;
+      if (radarUrgencyFilter !== 'all_actionable' && item.urgencyLevel !== radarUrgencyFilter) return false;
+      return true;
+    });
+
+    if (visibleActionable.length === 0) {
+      alert("No hay productos con cantidad sugerida mayor a cero en la selección actual.");
+      return;
+    }
+
+    const withSupplier = visibleActionable.filter(it => Boolean(it.supplierId));
+    const withoutSupplier = visibleActionable.filter(it => !it.supplierId);
+
+    if (withSupplier.length === 0) {
+      alert("Los artículos seleccionados no tienen un proveedor asignado. Asignales un proveedor desde el selector de la fila antes de generar la OC.");
+      return;
+    }
+
+    const grouped: Record<string, ReplenishmentItemResult[]> = {};
+    for (const item of withSupplier) {
+      if (!grouped[item.supplierId]) grouped[item.supplierId] = [];
+      grouped[item.supplierId].push(item);
+    }
+
+    const supEntries = Object.entries(grouped);
+    const breakdownLines = supEntries.map(([sId, items]) => {
+      const sName = items[0]?.supplierName || suppliers.find(s => s.id === sId)?.name || 'Proveedor';
+      const units = items.reduce((a, b) => a + b.quantitySuggested, 0);
+      const sub = items.reduce((a, b) => a + b.quantitySuggested * b.unitCost, 0);
+      return `• 1 OC para ${sName}: ${items.length} prod. (${units} u.) — ${formatPrice(sub)}`;
+    });
+
+    const msg = supEntries.length === 1
+      ? `¿Confirmás generar la Orden de Compra para ${supEntries[0][1][0]?.supplierName || 'el proveedor seleccionado'}?\n\n${breakdownLines[0]}`
+      : `Se generarán ${supEntries.length} Órdenes de Compra POR SEPARADO (una por cada proveedor):\n\n${breakdownLines.join('\n')}${
+          withoutSupplier.length > 0 ? `\n\n(${withoutSupplier.length} artículo(s) sin proveedor asignado serán omitidos).` : ''
+        }\n\n¿Confirmás la generación?`;
+
+    if (!confirm(msg)) return;
+
+    setRadarGeneratingPO(true);
+    try {
+      let poOffset = 0;
+      for (const [supId, items] of supEntries) {
+        poOffset++;
+        const nextNum = purchaseOrders.length + poOffset;
+        const ocCode = `OP-RADAR-${String(nextNum).padStart(5, '0')}`;
+        const total = items.reduce((acc, i) => acc + (i.quantitySuggested * i.unitCost), 0);
+
+        let minDaysToStockout = 999;
+        let earliestDateForPo: Date | null = null;
+        items.forEach(it => {
+          if (typeof it.daysUntilStockout === 'number' && it.daysUntilStockout < minDaysToStockout) {
+            minDaysToStockout = it.daysUntilStockout;
+            earliestDateForPo = it.tentativeDateObj;
           }
         });
+        const estDelivery = earliestDateForPo || getValidReceptionDate(new Date(), Math.max(0, minDaysToStockout), 0).targetDate;
 
-        if (earliestDeliveryDays <= 0) {
-          earliestDeliveryDateDisplay = '¡Hoy! (Sin stock)';
-        } else if (earliestDeliveryDays < 365 && earliestTargetDate) {
-          earliestDeliveryDateDisplay = `${formatDateDDMMYYYY(earliestTargetDate)} (en ${earliestDeliveryDays}d)`;
-        }
+        const { data: newPo, error: poErr } = await supabase
+          .from('purchase_orders')
+          .insert({
+            oc_code: ocCode,
+            supplier_id: supId,
+            order_date: new Date().toISOString(),
+            estimated_delivery_date: estDelivery.toISOString(),
+            payment_condition: 'Cuenta Corriente',
+            total_amount: total,
+            status: 'Pendiente',
+            notes: `OC generada desde Radar Inteligente de Compras (Recibir antes del ${formatDateDDMMYYYY(estDelivery)})`,
+          })
+          .select()
+          .single();
+
+        if (poErr) throw poErr;
+
+        const itemsIns = items.map(item => ({
+          purchase_order_id: newPo.id,
+          product_id: item.productId,
+          raw_product_name: item.name,
+          quantity_ordered: item.quantitySuggested,
+          unit_cost: item.unitCost,
+          subtotal: item.quantitySuggested * item.unitCost,
+        }));
+
+        const { error: linesErr } = await supabase
+          .from('purchase_order_items')
+          .insert(itemsIns);
+
+        if (linesErr) throw linesErr;
       }
 
-      setCalcResults(results);
-      setCalcTotalCost(totalCost);
-      setCalcAverageCoverage(coverageCount > 0 ? (coverageSum / coverageCount) : targetDays);
-      setCalcTargetDeliveryDate(earliestDeliveryDateDisplay);
+      alert(
+        supEntries.length === 1
+          ? `¡Orden de Compra generada correctamente para ${supEntries[0][1][0]?.supplierName}!`
+          : `¡Se generaron ${supEntries.length} Órdenes de Compra separadas por proveedor correctamente!`
+      );
+      await loadAllData(true);
+      navigateSubTab("purchase_orders");
+    } catch (err: any) {
+      alert("Error al generar OCs desde el Radar: " + err.message);
+    } finally {
+      setRadarGeneratingPO(false);
+    }
+  };
 
+  // --- SIMULATOR / CALCULATOR HANDLERS ---
+  const handleCalculateReplenishment = async (
+    overrideHistoryType?: HistoryWindowMode,
+    overrideHistoryPeriod?: string,
+    overrideSupplierId?: string,
+    overrideSmoothOutliers?: boolean
+  ) => {
+    const activeSupId = overrideSupplierId ?? calcSupplierId;
+    if (!activeSupId) {
+      alert("Por favor seleccioná un proveedor o la opción de Todos los Proveedores.");
+      return;
+    }
+
+    const activeHistoryType = overrideHistoryType ?? calcHistoryType;
+    const activePeriodStr = overrideHistoryPeriod ?? calcHistoryPeriod;
+    const activeSmooth = overrideSmoothOutliers ?? calcSmoothOutliers;
+
+    let customDays = 15;
+    if (activeHistoryType === 'days') {
+      customDays = Math.max(1, Number(activePeriodStr) || 15);
+    } else if (activeHistoryType === 'range') {
+      if (!calcStartDate || !calcEndDate) {
+        alert("Por favor ingresá tanto la fecha de inicio como la de fin para el rango.");
+        return;
+      }
+      const start = new Date(calcStartDate);
+      const end = new Date(calcEndDate);
+      const diffTime = Math.abs(end.getTime() - start.getTime());
+      customDays = Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
+    }
+
+    setCalcLoading(true);
+    setCalcResults([]);
+    try {
+      const dataset = await fetchBaseReplenishmentDataset(
+        customDays,
+        activeHistoryType === 'range' ? calcStartDate : undefined,
+        activeHistoryType === 'range' ? calcEndDate : undefined
+      );
+
+      const targetDays = Number(calcDaysToCover) || 30;
+      const seasonalityMult = Number(calcSeasonality) || 1.0;
+      const graceDays = Number(calcDeliveryGraceDays) || 0;
+
+      const { items, windowSummary } = buildReplenishmentAnalysis({
+        products: dataset.latestProducts,
+        suppliers,
+        relations,
+        saleRecords: dataset.saleRecords,
+        unimportedReservesMap: dataset.unimportedReservesMap,
+        unimportedReservesNormMap: dataset.unimportedReservesNormMap,
+        transitMap: dataset.transitMap,
+        transitNormMap: dataset.transitNormMap,
+        supplierFilterId: activeSupId,
+        historyMode: activeHistoryType,
+        customDays,
+        customStartDate: activeHistoryType === 'range' ? calcStartDate : undefined,
+        customEndDate: activeHistoryType === 'range' ? calcEndDate : undefined,
+        seasonalityMult,
+        targetDays,
+        graceDays,
+        defaultSmoothOutliers: activeSmooth,
+      });
+
+      const { results, totalCost, averageCoverage, earliestDeliveryDateDisplay } = applyBudgetAndUnitCapsToResults(
+        items,
+        Number(calcMaxUnits) || 0,
+        Number(calcBudget) || 0,
+        targetDays
+      );
+
+      setCalcResults(results);
+      setCalcWindowSummary(windowSummary);
+      setCalcTotalCost(totalCost);
+      setCalcAverageCoverage(averageCoverage);
+      setCalcTargetDeliveryDate(earliestDeliveryDateDisplay);
     } catch (err: any) {
       alert("Error en el cálculo: " + err.message);
     } finally {
@@ -2210,33 +2531,169 @@ export default function ComprasAdminPage() {
     }
   };
 
-  const handleGeneratePOFromCalc = async () => {
-    const itemsToOrder = calcResults.filter(r => r.quantitySuggested > 0);
+  const handleQuickSwitchCalcWindow = (mode: HistoryWindowMode, days?: number) => {
+    setCalcHistoryType(mode);
+    const periodStr = days ? String(days) : calcHistoryPeriod;
+    if (days) setCalcHistoryPeriod(String(days));
+
+    if (calcResults.length === 0) return;
+
+    const customDays = days || Number(periodStr) || 15;
+    const targetDays = Number(calcDaysToCover) || 30;
+    const seasonalityMult = Number(calcSeasonality) || 1.0;
+    const graceDays = Number(calcDeliveryGraceDays) || 0;
+
+    const recomputed = calcResults.map(item =>
+      computeItemMetricsForMode({
+        baseItem: item,
+        historyMode: mode,
+        customDays,
+        seasonalityMult,
+        targetDays,
+        graceDays,
+      })
+    );
+
+    const { results, totalCost, averageCoverage, earliestDeliveryDateDisplay } = applyBudgetAndUnitCapsToResults(
+      recomputed,
+      Number(calcMaxUnits) || 0,
+      Number(calcBudget) || 0,
+      targetDays
+    );
+
+    setCalcResults(results);
+    setCalcWindowSummary(summarizeReplenishmentWindows(results));
+    setCalcTotalCost(totalCost);
+    setCalcAverageCoverage(averageCoverage);
+    setCalcTargetDeliveryDate(earliestDeliveryDateDisplay);
+  };
+
+  const handleToggleCalcItemSpike = (productId: string) => {
+    const customDays = Number(calcHistoryPeriod) || 15;
+    const targetDays = Number(calcDaysToCover) || 30;
+    const seasonalityMult = Number(calcSeasonality) || 1.0;
+    const graceDays = Number(calcDeliveryGraceDays) || 0;
+
+    const recomputed = calcResults.map(item => {
+      if (item.productId !== productId) return item;
+      return computeItemMetricsForMode({
+        baseItem: {
+          ...item,
+          includeOutlierSpike: !item.includeOutlierSpike,
+        },
+        historyMode: calcHistoryType,
+        customDays,
+        seasonalityMult,
+        targetDays,
+        graceDays,
+      });
+    });
+
+    const { results, totalCost, averageCoverage, earliestDeliveryDateDisplay } = applyBudgetAndUnitCapsToResults(
+      recomputed,
+      Number(calcMaxUnits) || 0,
+      Number(calcBudget) || 0,
+      targetDays
+    );
+
+    setCalcResults(results);
+    setCalcWindowSummary(summarizeReplenishmentWindows(results));
+    setCalcTotalCost(totalCost);
+    setCalcAverageCoverage(averageCoverage);
+    setCalcTargetDeliveryDate(earliestDeliveryDateDisplay);
+  };
+
+  const handleToggleAllCalcSpikes = (smoothAll: boolean) => {
+    setCalcSmoothOutliers(smoothAll);
+    if (calcResults.length === 0) return;
+
+    const customDays = Number(calcHistoryPeriod) || 15;
+    const targetDays = Number(calcDaysToCover) || 30;
+    const seasonalityMult = Number(calcSeasonality) || 1.0;
+    const graceDays = Number(calcDeliveryGraceDays) || 0;
+
+    const recomputed = calcResults.map(item =>
+      computeItemMetricsForMode({
+        baseItem: {
+          ...item,
+          includeOutlierSpike: !smoothAll,
+        },
+        historyMode: calcHistoryType,
+        customDays,
+        seasonalityMult,
+        targetDays,
+        graceDays,
+      })
+    );
+
+    const { results, totalCost, averageCoverage, earliestDeliveryDateDisplay } = applyBudgetAndUnitCapsToResults(
+      recomputed,
+      Number(calcMaxUnits) || 0,
+      Number(calcBudget) || 0,
+      targetDays
+    );
+
+    setCalcResults(results);
+    setCalcWindowSummary(summarizeReplenishmentWindows(results));
+    setCalcTotalCost(totalCost);
+    setCalcAverageCoverage(averageCoverage);
+    setCalcTargetDeliveryDate(earliestDeliveryDateDisplay);
+  };
+
+  const handleGeneratePOFromCalc = async (onlySupplierId?: string) => {
+    const itemsToOrder = calcResults.filter(r => {
+      if (r.quantitySuggested <= 0) return false;
+      if (onlySupplierId) {
+        const supId = calcSupplierId === "ALL"
+          ? (r.supplierId || (relations.find(rel => rel.product_id === r.productId && rel.is_primary) || relations.find(rel => rel.product_id === r.productId))?.supplier_id || "")
+          : calcSupplierId;
+        if (supId !== onlySupplierId) return false;
+      }
+      return true;
+    });
     if (itemsToOrder.length === 0) {
       alert("No hay artículos con cantidad sugerida mayor a cero.");
       return;
     }
 
-    if (!confirm(`¿Confirmás la generación de Órdenes de Compra para ${itemsToOrder.length} artículos?`)) {
+    const grouped: Record<string, any[]> = {};
+    for (const item of itemsToOrder) {
+      let supId = calcSupplierId;
+      if (calcSupplierId === "ALL") {
+        supId = item.supplierId || (relations.find(r => r.product_id === item.productId && r.is_primary) || relations.find(r => r.product_id === item.productId))?.supplier_id || "";
+      }
+      if (!supId) continue;
+      if (!grouped[supId]) grouped[supId] = [];
+      grouped[supId].push(item);
+    }
+
+    const supEntries = Object.entries(grouped);
+    if (supEntries.length === 0) {
+      alert("Los artículos seleccionados no tienen un proveedor vinculado.");
+      return;
+    }
+
+    const breakdownLines = supEntries.map(([sId, items]) => {
+      const sName = items[0]?.supplierName || suppliers.find(s => s.id === sId)?.name || 'Proveedor';
+      const units = items.reduce((a, b) => a + b.quantitySuggested, 0);
+      const sub = items.reduce((a, b) => a + b.quantitySuggested * b.unitCost, 0);
+      return `• 1 OC para ${sName}: ${items.length} prod. (${units} u.) — ${formatPrice(sub)}`;
+    });
+
+    const confirmMsg = supEntries.length === 1
+      ? `¿Confirmás la generación de la Orden de Compra para ${supEntries[0][1][0]?.supplierName || suppliers.find(s => s.id === supEntries[0][0])?.name || 'el proveedor'}?\n\n${breakdownLines[0]}`
+      : `Se generarán ${supEntries.length} Órdenes de Compra POR SEPARADO (una por cada proveedor):\n\n${breakdownLines.join('\n')}\n\n¿Confirmás la generación?`;
+
+    if (!confirm(confirmMsg)) {
       return;
     }
 
     setCalcLoading(true);
     try {
-      const grouped: Record<string, any[]> = {};
-      for (const item of itemsToOrder) {
-        let supId = calcSupplierId;
-        if (calcSupplierId === "ALL") {
-          const rel = relations.find(r => r.product_id === item.productId && r.is_primary) || relations.find(r => r.product_id === item.productId);
-          supId = rel ? rel.supplier_id : "";
-        }
-        if (!supId) continue;
-        if (!grouped[supId]) grouped[supId] = [];
-        grouped[supId].push(item);
-      }
-
-      for (const [supId, items] of Object.entries(grouped)) {
-        const nextNum = purchaseOrders.length + 1;
+      let poIdx = 0;
+      for (const [supId, items] of supEntries) {
+        poIdx++;
+        const nextNum = purchaseOrders.length + poIdx;
         const ocCode = `OP-AUTO-${String(nextNum).padStart(5, '0')}`;
         const total = items.reduce((acc, i) => acc + (i.quantitySuggested * i.unitCost), 0);
 
@@ -3892,6 +4349,15 @@ export default function ComprasAdminPage() {
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Button
+                onClick={() => void handleOpenSheetContrast()}
+                disabled={sheetSyncLoading || sheetSyncExecuting}
+                className="rounded-xl gap-1.5 py-2 px-3 text-xs font-black bg-emerald-600 hover:bg-emerald-700 text-white"
+                title="Contrastar y sincronizar Órdenes de Compra y Documentos de Recepción con la planilla Google Sheets"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${sheetSyncLoading || sheetSyncExecuting ? 'animate-spin' : ''}`} />
+                Sincronizar Planilla OC / DR
+              </Button>
+              <Button
                 onClick={handleSyncCostsFromSheet}
                 disabled={syncingCosts}
                 className="rounded-xl gap-1.5 py-2 px-3 text-xs font-black bg-amber-500 hover:bg-amber-600 text-white"
@@ -5413,6 +5879,192 @@ export default function ComprasAdminPage() {
         </div>
       )}
 
+      {/* MODAL CONTRASTE Y SINCRONIZACIÓN BIDIRECCIONAL CON PLANILLA OC / DR */}
+      {sheetSyncModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm overflow-y-auto">
+          <div className="bg-white rounded-3xl w-full max-w-4xl shadow-2xl p-6 space-y-5 my-8 animate-in zoom-in-95 duration-150">
+            <div className="flex justify-between items-start border-b pb-4 gap-3">
+              <div>
+                <h3 className="text-lg font-black text-slate-900">
+                  Sincronización Bidireccional: Planilla OC / Recepciones ↔ ERP
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Contrasta las hojas <span className="font-bold text-slate-700">1.OCs</span>, <span className="font-bold text-slate-700">2.DetalleOCs</span> y <span className="font-bold text-slate-700">DocumentosDeRecepción</span> contra el ERP desde el <span className="font-bold text-slate-800">{formatDateDDMMYYYY(sheetSyncSinceDate)}</span>.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSheetSyncModalOpen(false)}
+                className="p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-200/70">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-black uppercase text-slate-500 tracking-wider">Desde Fecha:</span>
+                <DatePickerDDMMYYYY
+                  value={sheetSyncSinceDate}
+                  onChange={(v) => {
+                    const nextVal = v || "2026-09-01";
+                    setSheetSyncSinceDate(nextVal);
+                    void handleOpenSheetContrast(nextVal);
+                  }}
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  onClick={() => void handleOpenSheetContrast()}
+                  disabled={sheetSyncLoading || sheetSyncExecuting}
+                  className="bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 text-xs font-black rounded-xl py-2 px-3 gap-1.5"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${sheetSyncLoading ? 'animate-spin' : ''}`} />
+                  Volver a Contrastar
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => void handleExecuteSheetSync()}
+                  disabled={
+                    sheetSyncLoading ||
+                    sheetSyncExecuting ||
+                    !sheetSyncSummary ||
+                    (sheetSyncSummary.sheetToErp?.missingOCs?.length === 0 &&
+                      sheetSyncSummary.sheetToErp?.missingReceptions?.length === 0 &&
+                      sheetSyncSummary.erpToSheet?.missingOCs?.length === 0 &&
+                      sheetSyncSummary.erpToSheet?.missingReceptionLines?.length === 0)
+                  }
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black rounded-xl py-2 px-4 gap-1.5 shadow-sm disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${sheetSyncExecuting ? 'animate-spin' : ''}`} />
+                  {sheetSyncExecuting ? "Sincronizando..." : "Sincronizar Faltantes Ahora"}
+                </Button>
+              </div>
+            </div>
+
+            {sheetSyncLoading ? (
+              <div className="py-12 text-center space-y-2">
+                <Loader2 className="w-7 h-7 animate-spin mx-auto text-brand-600" />
+                <p className="text-xs font-bold text-slate-500">Contrastando planilla de Google Sheets contra el ERP...</p>
+              </div>
+            ) : sheetSyncSummary ? (
+              <div className="space-y-4">
+                {sheetSyncSummary.executed && (
+                  <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs font-bold flex flex-wrap items-center justify-between gap-2">
+                    <span>
+                      ✓ Sincronización completada: {sheetSyncSummary.executed.importedOCsCount} OCs y {sheetSyncSummary.executed.importedReceptionsCount} Recepciones importadas al ERP · {sheetSyncSummary.executed.pushedOCsCount} OCs y {sheetSyncSummary.executed.pushedReceptionItemsCount} líneas de recepción enviadas a Planilla.
+                    </span>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Planilla -> ERP */}
+                  <div className="border border-slate-200 rounded-2xl p-4 space-y-3 bg-slate-50/40">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-black uppercase tracking-wider text-slate-800">
+                        1. En Planilla y faltantes en ERP (Importar)
+                      </h4>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-blue-50 text-blue-700 border border-blue-200">
+                        {sheetSyncSummary.sheetToErp?.missingOCs?.length || 0} OCs · {sheetSyncSummary.sheetToErp?.missingReceptions?.length || 0} DR
+                      </span>
+                    </div>
+
+                    <div className="max-h-56 overflow-y-auto space-y-2 pr-1">
+                      {(sheetSyncSummary.sheetToErp?.missingOCs?.length || 0) === 0 &&
+                      (sheetSyncSummary.sheetToErp?.missingReceptions?.length || 0) === 0 ? (
+                        <div className="text-xs text-emerald-700 bg-emerald-50/70 border border-emerald-200/80 rounded-xl p-3 font-bold">
+                          ✓ Todas las OCs y Documentos de Recepción de la planilla están cargados en el ERP.
+                        </div>
+                      ) : (
+                        <>
+                          {sheetSyncSummary.sheetToErp?.missingOCs?.map((o: any) => (
+                            <div key={o.oc_code} className="p-2.5 bg-white rounded-xl border border-slate-200/80 text-xs flex justify-between items-center gap-2">
+                              <div>
+                                <span className="font-black text-brand-700">{o.oc_code}</span>
+                                <span className="text-slate-500 ml-1.5">{o.date}</span>
+                                <span className="font-bold text-slate-800 block">{o.supplier}</span>
+                              </div>
+                              <div className="text-right">
+                                <span className="font-black text-slate-900 block">{formatPrice(o.total)}</span>
+                                <span className="text-[10px] text-slate-500">{o.itemsCount} ítems · {o.status}</span>
+                              </div>
+                            </div>
+                          ))}
+                          {sheetSyncSummary.sheetToErp?.missingReceptions?.map((r: any, idx: number) => (
+                            <div key={`${r.oc_code}-${r.date}-${idx}`} className="p-2.5 bg-white rounded-xl border border-blue-200/80 text-xs flex justify-between items-center gap-2">
+                              <div>
+                                <span className="font-black text-blue-700">DR {r.oc_code}</span>
+                                <span className="text-slate-500 ml-1.5">{r.date}</span>
+                                <span className="font-bold text-slate-800 block">{r.supplier}</span>
+                              </div>
+                              <div className="text-right">
+                                <span className="font-black text-blue-700 block">{r.totalUnits} u. recibidas</span>
+                                <span className="text-[10px] text-slate-500">{r.itemsCount} líneas</span>
+                              </div>
+                            </div>
+                          ))}
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* ERP -> Planilla */}
+                  <div className="border border-slate-200 rounded-2xl p-4 space-y-3 bg-slate-50/40">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-black uppercase tracking-wider text-slate-800">
+                        2. En ERP y faltantes en Planilla (Subir)
+                      </h4>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-50 text-amber-800 border border-amber-200">
+                        {sheetSyncSummary.erpToSheet?.missingOCs?.length || 0} OCs · {sheetSyncSummary.erpToSheet?.missingReceptionLines?.length || 0} líneas DR
+                      </span>
+                    </div>
+
+                    <div className="max-h-56 overflow-y-auto space-y-2 pr-1">
+                      {(sheetSyncSummary.erpToSheet?.missingOCs?.length || 0) === 0 &&
+                      (sheetSyncSummary.erpToSheet?.missingReceptionLines?.length || 0) === 0 ? (
+                        <div className="text-xs text-emerald-700 bg-emerald-50/70 border border-emerald-200/80 rounded-xl p-3 font-bold">
+                          ✓ Todas las OCs y Recepciones del ERP están reflejadas en la planilla.
+                        </div>
+                      ) : (
+                        <>
+                          {sheetSyncSummary.erpToSheet?.missingOCs?.map((o: any) => (
+                            <div key={o.oc_code} className="p-2.5 bg-white rounded-xl border border-slate-200/80 text-xs flex justify-between items-center gap-2">
+                              <div>
+                                <span className="font-black text-amber-700">{o.oc_code}</span>
+                                <span className="text-slate-500 ml-1.5">{o.date}</span>
+                                <span className="font-bold text-slate-800 block">{o.supplier}</span>
+                              </div>
+                              <div className="text-right">
+                                <span className="font-black text-slate-900 block">{formatPrice(o.total)}</span>
+                                <span className="text-[10px] text-slate-500">{o.itemsCount} ítems · {o.status}</span>
+                              </div>
+                            </div>
+                          ))}
+                          {sheetSyncSummary.erpToSheet?.missingReceptionLines?.map((l: any, idx: number) => (
+                            <div key={`${l.oc_code}-${l.productName}-${idx}`} className="p-2.5 bg-white rounded-xl border border-amber-200/80 text-xs flex justify-between items-center gap-2">
+                              <div>
+                                <span className="font-black text-amber-800">DR {l.oc_code}</span>
+                                <span className="text-slate-500 ml-1.5">{l.date}</span>
+                                <span className="font-bold text-slate-800 block truncate max-w-[220px]">{l.productName}</span>
+                              </div>
+                              <div className="text-right">
+                                <span className="font-black text-amber-800 block">{l.quantityReceived} u.</span>
+                                <span className="text-[10px] text-slate-500">{l.supplier}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      )}
+
       {/* SUBTAB: RECEPTIONS */}
       {activeSubTab === 'receptions' && (
         <div className="space-y-4">
@@ -5421,20 +6073,31 @@ export default function ComprasAdminPage() {
               <h3 className="font-black text-slate-900 text-sm">Recepción de Mercadería</h3>
               <p className="text-xs text-slate-400">Registrá lo recibido para generar la deuda y actualizar la OC, con o sin impacto en stock.</p>
             </div>
-            <Button onClick={() => {
-              setReceptionSupplierId("");
-              setReceptionSlipNumber("");
-              setReceptionPOIds([]);
-              setReceptionNotes("");
-              setReceptionItems([]);
-              setReceptionUpdateStock(false);
-              setReceptionAlignPO(false);
-              setModalSupplierSearchText("");
-              setModalOCSearchText("");
-              setShowNewReceptionModal(true);
-            }} className="rounded-xl gap-1.5 py-2 px-3 text-xs font-black">
-              <Plus className="w-3.5 h-3.5" /> Registrar Recepción
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                onClick={() => void handleOpenSheetContrast()}
+                disabled={sheetSyncLoading || sheetSyncExecuting}
+                className="rounded-xl gap-1.5 py-2 px-3 text-xs font-black bg-emerald-600 hover:bg-emerald-700 text-white"
+                title="Contrastar y sincronizar Órdenes de Compra y Documentos de Recepción con la planilla Google Sheets"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${sheetSyncLoading || sheetSyncExecuting ? 'animate-spin' : ''}`} />
+                Sincronizar Planilla OC / DR
+              </Button>
+              <Button onClick={() => {
+                setReceptionSupplierId("");
+                setReceptionSlipNumber("");
+                setReceptionPOIds([]);
+                setReceptionNotes("");
+                setReceptionItems([]);
+                setReceptionUpdateStock(false);
+                setReceptionAlignPO(false);
+                setModalSupplierSearchText("");
+                setModalOCSearchText("");
+                setShowNewReceptionModal(true);
+              }} className="rounded-xl gap-1.5 py-2 px-3 text-xs font-black">
+                <Plus className="w-3.5 h-3.5" /> Registrar Recepción
+              </Button>
+            </div>
           </div>
 
           <div className="bg-white border rounded-3xl overflow-hidden shadow-sm">
@@ -6039,12 +6702,872 @@ export default function ComprasAdminPage() {
 
       {/* SUBTAB: PURCHASE CALCULATOR */}
       {activeSubTab === 'purchase_calculator' && (
-        <div className="space-y-4">
+        <div className="space-y-6">
+          {/* ================================================================= */}
+          {/* MODULE 1: RADAR GLOBAL DE SUGERENCIAS DE COMPRA (MULTIPROVEEDOR) */}
+          {/* ================================================================= */}
+          {(() => {
+            const excludedSet = new Set(radarConfig.excludedSupplierIds || []);
+            const activeSuppliersCount = Math.max(0, suppliers.length - excludedSet.size);
+            const actionableItems = radarItems.filter(it => it.quantitySuggested > 0 || it.urgencyLevel === 'critical_shortage');
+            const criticalShortageItems = actionableItems.filter(it => it.urgencyLevel === 'critical_shortage');
+            const belowRopItems = actionableItems.filter(it => it.urgencyLevel === 'below_rop');
+            const scheduledItems = actionableItems.filter(it => it.urgencyLevel === 'scheduled_replenishment');
+
+            // Build summary per supplier across actionable items (respecting urgency filter & search, before supplier filter)
+            const baseFilteredItems = actionableItems.filter(it => {
+              if (radarUrgencyFilter !== 'all_actionable' && it.urgencyLevel !== radarUrgencyFilter) return false;
+              if (radarSearchTerm.trim()) {
+                const q = radarSearchTerm.toLowerCase();
+                const matchName = (it.name || '').toLowerCase().includes(q);
+                const matchSku = (it.sku || '').toLowerCase().includes(q);
+                const matchSup = (it.supplierName || '').toLowerCase().includes(q);
+                if (!matchName && !matchSku && !matchSup) return false;
+              }
+              return true;
+            });
+
+            const supplierSummariesMap = new Map<
+              string,
+              {
+                supplierId: string;
+                supplierName: string;
+                itemsCount: number;
+                unitsCount: number;
+                totalCost: number;
+                hasCritical: boolean;
+                maxPriority: number;
+              }
+            >();
+
+            for (const it of baseFilteredItems) {
+              const key = it.supplierId || '__UNASSIGNED__';
+              const sName = it.supplierName || 'Sin proveedor asignado';
+              const prev = supplierSummariesMap.get(key) || {
+                supplierId: it.supplierId || '',
+                supplierName: sName,
+                itemsCount: 0,
+                unitsCount: 0,
+                totalCost: 0,
+                hasCritical: false,
+                maxPriority: 0,
+              };
+              prev.itemsCount += 1;
+              prev.unitsCount += it.quantitySuggested || 0;
+              prev.totalCost += it.subtotal || 0;
+              if (it.urgencyLevel === 'critical_shortage') prev.hasCritical = true;
+              if (it.priorityScore > prev.maxPriority) prev.maxPriority = it.priorityScore;
+              supplierSummariesMap.set(key, prev);
+            }
+
+            const supplierSummaries = Array.from(supplierSummariesMap.values()).sort((a, b) => {
+              if (a.hasCritical !== b.hasCritical) return a.hasCritical ? -1 : 1;
+              if (b.maxPriority !== a.maxPriority) return b.maxPriority - a.maxPriority;
+              return a.supplierName.localeCompare(b.supplierName, 'es');
+            });
+
+            const filteredRadarItems = baseFilteredItems.filter(it => {
+              if (radarSelectedSupplierId !== 'ALL') {
+                const key = it.supplierId || '__UNASSIGNED__';
+                if (key !== radarSelectedSupplierId) return false;
+              }
+              return true;
+            });
+
+            const totalSuggestedCost = filteredRadarItems.reduce((acc, it) => acc + (it.subtotal || 0), 0);
+            const totalSuggestedUnits = filteredRadarItems.reduce((acc, it) => acc + (it.quantitySuggested || 0), 0);
+            const involvedSuppliersCount = new Set(filteredRadarItems.filter(i => i.quantitySuggested > 0 && i.supplierId).map(i => i.supplierId)).size;
+
+            // Group items by supplier for grouped rendering
+            const groupedBySupplier: Array<{
+              key: string;
+              supplierId: string;
+              supplierName: string;
+              items: ReplenishmentItemResult[];
+              totalUnits: number;
+              totalCost: number;
+              hasCritical: boolean;
+            }> = [];
+
+            if (radarGroupBySupplier) {
+              const map = new Map<string, ReplenishmentItemResult[]>();
+              for (const it of filteredRadarItems) {
+                const k = it.supplierId || '__UNASSIGNED__';
+                if (!map.has(k)) map.set(k, []);
+                map.get(k)!.push(it);
+              }
+              for (const [k, grpItems] of map.entries()) {
+                grpItems.sort((a, b) => b.priorityScore - a.priorityScore || b.subtotal - a.subtotal);
+                groupedBySupplier.push({
+                  key: k,
+                  supplierId: grpItems[0]?.supplierId || '',
+                  supplierName: grpItems[0]?.supplierName || 'Sin proveedor asignado',
+                  items: grpItems,
+                  totalUnits: grpItems.reduce((acc, i) => acc + (i.quantitySuggested || 0), 0),
+                  totalCost: grpItems.reduce((acc, i) => acc + (i.subtotal || 0), 0),
+                  hasCritical: grpItems.some(i => i.urgencyLevel === 'critical_shortage'),
+                });
+              }
+              groupedBySupplier.sort((a, b) => {
+                if (a.hasCritical !== b.hasCritical) return a.hasCritical ? -1 : 1;
+                return a.supplierName.localeCompare(b.supplierName, 'es');
+              });
+            }
+
+            return (
+              <div className="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden">
+                {/* Compact Header bar */}
+                <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 text-white px-4 py-3 sm:px-5 flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-brand-500/20 border border-brand-400/30 flex items-center justify-center shrink-0">
+                      <Sparkles className="w-4 h-4 text-brand-300" />
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="font-black text-white text-sm">
+                        Radar Global de Sugerencias de Compra
+                      </h3>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
+                        7/15/30d + Pendientes
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowRadarSupplierModal(true)}
+                      className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-600 text-[11px] font-black text-slate-100 flex items-center gap-1.5 transition-all cursor-pointer"
+                      title="Elegir qué proveedores incluir en las sugerencias automáticas"
+                    >
+                      <Settings className="w-3.5 h-3.5 text-brand-400" />
+                      <span>Proveedores ({activeSuppliersCount}/{suppliers.length})</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={radarLoading}
+                      onClick={() => void handleLoadGlobalRadar()}
+                      className="px-3 py-1.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-[11px] font-black text-white flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${radarLoading ? 'animate-spin' : ''}`} />
+                      {radarLoading ? 'Analizando...' : 'Actualizar'}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsRadarCollapsed(!isRadarCollapsed)}
+                      className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                      title={isRadarCollapsed ? 'Expandir Radar' : 'Contraer Radar'}
+                    >
+                      <ChevronDown className={`w-4 h-4 transition-transform ${isRadarCollapsed ? '-rotate-90' : ''}`} />
+                    </button>
+                  </div>
+                </div>
+
+                {!isRadarCollapsed && (
+                  <div className="p-4 sm:p-5 space-y-3.5">
+                    {/* Quick parameters bar (with manual intermediate days input) */}
+                    <div className="flex flex-wrap items-center justify-between gap-2.5 bg-slate-50 px-3.5 py-2.5 rounded-2xl border border-slate-200/70">
+                      <div className="flex flex-wrap items-center gap-2.5">
+                        <div className="flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-xl border border-slate-200">
+                          <label className="text-[10px] font-black uppercase text-slate-500 tracking-wider">Cobertura Meta:</label>
+                          <input
+                            type="number"
+                            min="1"
+                            max="365"
+                            value={radarTargetDaysInput}
+                            onChange={e => {
+                              const raw = e.target.value;
+                              setRadarTargetDaysInput(raw);
+                              const num = parseInt(raw, 10);
+                              if (!Number.isNaN(num) && num >= 1 && num <= 365) {
+                                handleApplyRadarTargetDays(num);
+                              }
+                            }}
+                            onBlur={() => {
+                              const num = parseInt(radarTargetDaysInput, 10);
+                              handleApplyRadarTargetDays(Number.isNaN(num) ? (radarConfig.targetDays || 30) : num);
+                            }}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') {
+                                const num = parseInt(radarTargetDaysInput, 10);
+                                handleApplyRadarTargetDays(Number.isNaN(num) ? (radarConfig.targetDays || 30) : num);
+                              }
+                            }}
+                            className="w-14 px-1.5 py-0.5 rounded-lg border border-slate-200 bg-slate-50 font-black text-xs text-center text-slate-900 focus:border-brand-500 focus:bg-white outline-none"
+                            title="Ingresá cualquier cantidad de días de cobertura (ej. 10, 12, 15, 20, 30)"
+                          />
+                          <span className="text-[11px] font-bold text-slate-500">días</span>
+                          <div className="flex items-center gap-1 pl-1 border-l border-slate-200">
+                            {[7, 15, 30].map(preset => (
+                              <button
+                                key={preset}
+                                type="button"
+                                onClick={() => handleApplyRadarTargetDays(preset)}
+                                className={`px-1.5 py-0.5 rounded text-[10px] font-black cursor-pointer transition-colors ${
+                                  Number(radarConfig.targetDays) === preset
+                                    ? 'bg-brand-600 text-white'
+                                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                }`}
+                              >
+                                {preset}d
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nextCfg = { ...radarConfig, smoothOutliers: !radarConfig.smoothOutliers };
+                            void handleSaveRadarConfig(nextCfg, false);
+                          }}
+                          className={`px-2.5 py-1.5 rounded-xl border text-[11px] font-black flex items-center gap-1.5 transition-all cursor-pointer ${
+                            radarConfig.smoothOutliers
+                              ? 'bg-indigo-50 border-indigo-200 text-indigo-800'
+                              : 'bg-amber-50 border-amber-300 text-amber-900'
+                          }`}
+                          title="Cuando está activo, si un producto tuvo un pedido aislado muy grande, atenúa el pico para no sobre-comprar"
+                        >
+                          <Scale className="w-3.5 h-3.5" />
+                          {radarConfig.smoothOutliers ? 'Picos suavizados' : 'Picos al 100%'}
+                        </button>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="relative">
+                          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                          <input
+                            type="text"
+                            placeholder="Buscar producto o proveedor..."
+                            value={radarSearchTerm}
+                            onChange={e => setRadarSearchTerm(e.target.value)}
+                            className="pl-7 pr-2.5 py-1 rounded-xl border border-slate-200 bg-white text-xs font-bold outline-none focus:border-brand-500 w-48"
+                          />
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => setRadarGroupBySupplier(!radarGroupBySupplier)}
+                          className={`px-2.5 py-1 rounded-xl border text-[11px] font-black transition-all cursor-pointer ${
+                            radarGroupBySupplier
+                              ? 'bg-slate-900 text-white border-slate-900'
+                              : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                          }`}
+                        >
+                          {radarGroupBySupplier ? '📋 Agrupado por Proveedor' : '⚡ Lista por Urgencia'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Compact Urgency Filter & Total Bar */}
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() => setRadarUrgencyFilter(radarUrgencyFilter === 'critical_shortage' ? 'all_actionable' : 'critical_shortage')}
+                        className={`text-left px-3 py-2.5 rounded-2xl border transition-all cursor-pointer flex items-center justify-between gap-2 ${
+                          radarUrgencyFilter === 'critical_shortage'
+                            ? 'bg-rose-50 border-rose-400 ring-2 ring-rose-500/20'
+                            : 'bg-rose-50/40 border-rose-200/80 hover:bg-rose-50'
+                        }`}
+                      >
+                        <div>
+                          <span className="text-[10px] font-black uppercase tracking-wider text-rose-700 block">
+                            🔴 1. Urgentes / Pendientes
+                          </span>
+                          <span className="text-[11px] text-rose-800/80 font-bold">
+                            {criticalShortageItems.reduce((a, b) => a + b.netShortageAfterTransit, 0)} u. faltantes
+                          </span>
+                        </div>
+                        <span className="text-lg font-black text-rose-700 shrink-0">
+                          {criticalShortageItems.length}
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setRadarUrgencyFilter(radarUrgencyFilter === 'below_rop' ? 'all_actionable' : 'below_rop')}
+                        className={`text-left px-3 py-2.5 rounded-2xl border transition-all cursor-pointer flex items-center justify-between gap-2 ${
+                          radarUrgencyFilter === 'below_rop'
+                            ? 'bg-amber-50 border-amber-400 ring-2 ring-amber-500/20'
+                            : 'bg-amber-50/40 border-amber-200/80 hover:bg-amber-50'
+                        }`}
+                      >
+                        <div>
+                          <span className="text-[10px] font-black uppercase tracking-wider text-amber-800 block">
+                            🟠 2. Bajo Punto Pedido
+                          </span>
+                          <span className="text-[11px] text-amber-800/80 font-bold">
+                            Pedir antes de quiebre
+                          </span>
+                        </div>
+                        <span className="text-lg font-black text-amber-700 shrink-0">
+                          {belowRopItems.length}
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setRadarUrgencyFilter(radarUrgencyFilter === 'scheduled_replenishment' ? 'all_actionable' : 'scheduled_replenishment')}
+                        className={`text-left px-3 py-2.5 rounded-2xl border transition-all cursor-pointer flex items-center justify-between gap-2 ${
+                          radarUrgencyFilter === 'scheduled_replenishment'
+                            ? 'bg-brand-50 border-brand-400 ring-2 ring-brand-500/20'
+                            : 'bg-slate-50/70 border-slate-200 hover:bg-slate-100/70'
+                        }`}
+                      >
+                        <div>
+                          <span className="text-[10px] font-black uppercase tracking-wider text-slate-600 block">
+                            📈 3. Rotación ({radarConfig.targetDays}d)
+                          </span>
+                          <span className="text-[11px] text-slate-500 font-bold">
+                            Reposición 7/15/30d
+                          </span>
+                        </div>
+                        <span className="text-lg font-black text-slate-900 shrink-0">
+                          {scheduledItems.length}
+                        </span>
+                      </button>
+
+                      <div className="px-3 py-2 rounded-2xl bg-slate-900 text-white border border-slate-800 flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">
+                              Total ({involvedSuppliersCount} prov.)
+                            </span>
+                            {radarUrgencyFilter !== 'all_actionable' && (
+                              <button
+                                type="button"
+                                onClick={() => setRadarUrgencyFilter('all_actionable')}
+                                className="text-[9px] font-black text-brand-300 hover:underline cursor-pointer"
+                              >
+                                Ver todos
+                              </button>
+                            )}
+                          </div>
+                          <p className="text-sm font-black text-emerald-400 truncate">
+                            {formatPrice(totalSuggestedCost)} <span className="text-[11px] text-cyan-300">({totalSuggestedUnits}u)</span>
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          disabled={radarGeneratingPO || totalSuggestedUnits <= 0}
+                          onClick={() => void handleGeneratePOsFromRadar()}
+                          className="bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[11px] py-1.5 px-2.5 rounded-xl shrink-0 gap-1 cursor-pointer disabled:opacity-50"
+                          title="Genera 1 Orden de Compra independiente por cada proveedor incluido"
+                        >
+                          {radarGeneratingPO ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Save className="w-3.5 h-3.5" />
+                          )}
+                          <span>
+                            {involvedSuppliersCount <= 1
+                              ? 'Generar OC'
+                              : `Generar ${involvedSuppliersCount} OCs (Separadas)`}
+                          </span>
+                        </Button>
+                      </div>
+                    </div>
+
+                    {/* Interactive Supplier Pills Bar: click a supplier to filter / tweak parameters / generate its OC */}
+                    {supplierSummaries.length > 0 && (
+                      <div className="bg-slate-50/80 border border-slate-200/80 rounded-2xl p-2.5 space-y-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+                          <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                            Proveedores con sugerencias (presioná uno para filtrar, tocar parámetros o generar su OC individual):
+                          </span>
+                          {radarSelectedSupplierId !== 'ALL' && (
+                            <button
+                              type="button"
+                              onClick={() => setRadarSelectedSupplierId('ALL')}
+                              className="text-[10px] font-black text-brand-600 hover:underline cursor-pointer"
+                            >
+                              Mostrar todos los proveedores ({supplierSummaries.length})
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setRadarSelectedSupplierId('ALL')}
+                            className={`px-2.5 py-1.5 rounded-xl text-xs font-black border transition-all cursor-pointer ${
+                              radarSelectedSupplierId === 'ALL'
+                                ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
+                                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                            }`}
+                          >
+                            Todos ({baseFilteredItems.length})
+                          </button>
+
+                          {supplierSummaries.map(sup => {
+                            const key = sup.supplierId || '__UNASSIGNED__';
+                            const isSelected = radarSelectedSupplierId === key;
+                            return (
+                              <div
+                                key={key}
+                                className={`inline-flex items-center rounded-xl border text-xs transition-all overflow-hidden ${
+                                  isSelected
+                                    ? 'bg-brand-600 text-white border-brand-600 shadow-xs'
+                                    : sup.hasCritical
+                                    ? 'bg-rose-50/70 text-slate-800 border-rose-200 hover:bg-rose-100/60'
+                                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                                }`}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => setRadarSelectedSupplierId(isSelected ? 'ALL' : key)}
+                                  className="px-2.5 py-1.5 font-black flex items-center gap-1.5 cursor-pointer"
+                                  title="Filtrar listado por este proveedor"
+                                >
+                                  {sup.hasCritical && <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0" />}
+                                  <span>{sup.supplierName}</span>
+                                  <span className={`text-[10px] font-bold ${isSelected ? 'text-brand-100' : 'text-slate-400'}`}>
+                                    ({sup.itemsCount} · {formatPrice(sup.totalCost)})
+                                  </span>
+                                </button>
+                                {sup.supplierId && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenSupplierInSimulator(sup.supplierId, sup.supplierName)}
+                                    className={`px-2 py-1.5 border-l text-[10px] font-black cursor-pointer transition-colors ${
+                                      isSelected
+                                        ? 'border-brand-500 bg-brand-700 hover:bg-brand-800 text-white'
+                                        : 'border-slate-200 bg-slate-50 hover:bg-brand-50 text-brand-700'
+                                    }`}
+                                    title={`Tocar parámetros de ${sup.supplierName} (días, presupuesto, escalonamiento) y simular su OC`}
+                                  >
+                                    ⚙️ Parámetros
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Radar Table */}
+                    {radarLoading ? (
+                      <div className="py-10 text-center space-y-2">
+                        <Loader2 className="w-6 h-6 animate-spin text-brand-600 mx-auto" />
+                        <p className="text-xs font-bold text-slate-600">
+                          Analizando ventas 7/15/30d, entregas pendientes y stock en tránsito...
+                        </p>
+                      </div>
+                    ) : filteredRadarItems.length === 0 ? (
+                      <div className="py-8 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200 space-y-1">
+                        <CheckCircle2 className="w-6 h-6 text-emerald-500 mx-auto" />
+                        <p className="text-xs font-black text-slate-800">
+                          No se encontraron productos pendientes de pedir con los filtros actuales.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="border border-slate-200 rounded-2xl overflow-hidden">
+                        <div className="overflow-x-auto max-h-[540px]">
+                          <table className="w-full text-left text-xs border-collapse">
+                            <thead className="sticky top-0 z-10 bg-slate-100 border-b text-slate-500 font-black uppercase tracking-wider text-[10px]">
+                              <tr>
+                                <th className="py-2.5 px-3">Producto</th>
+                                <th className="py-2.5 px-3">Proveedor</th>
+                                <th className="py-2.5 px-3 text-right">Ritmo 7/15/30d</th>
+                                <th className="py-2.5 px-3 text-right">Stock / Pend.</th>
+                                <th className="py-2.5 px-3 text-center">Límite Recibo</th>
+                                <th className="py-2.5 px-3 text-right" style={{ width: '105px' }}>Pedir</th>
+                                <th className="py-2.5 px-3 text-right">Subtotal</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 font-bold text-slate-700">
+                              {(radarGroupBySupplier
+                                ? groupedBySupplier
+                                : [
+                                    {
+                                      key: '__ALL__',
+                                      supplierId: '',
+                                      supplierName: '',
+                                      items: filteredRadarItems,
+                                      totalUnits: totalSuggestedUnits,
+                                      totalCost: totalSuggestedCost,
+                                      hasCritical: false,
+                                    },
+                                  ]
+                              ).map(group => (
+                                <React.Fragment key={group.key}>
+                                  {radarGroupBySupplier && (
+                                    <tr className="bg-slate-100/90 border-y border-slate-200/90">
+                                      <td colSpan={7} className="py-2 px-3">
+                                        <div className="flex flex-wrap items-center justify-between gap-2">
+                                          <div className="flex items-center gap-2">
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                group.supplierId &&
+                                                handleOpenSupplierInSimulator(group.supplierId, group.supplierName)
+                                              }
+                                              className="font-black text-slate-900 hover:text-brand-600 text-xs flex items-center gap-1.5 cursor-pointer"
+                                              title="Presioná para cargar este proveedor en el Simulador y ajustar sus parámetros"
+                                            >
+                                              <span>🏭 {group.supplierName}</span>
+                                            </button>
+                                            <span className="px-2 py-0.5 rounded-full bg-white border border-slate-200 text-[10px] font-black text-slate-600">
+                                              {group.items.length} prod. · {group.totalUnits} u. · {formatPrice(group.totalCost)}
+                                            </span>
+                                          </div>
+
+                                          {group.supplierId && (
+                                            <div className="flex items-center gap-1.5">
+                                              <button
+                                                type="button"
+                                                onClick={() => handleOpenSupplierInSimulator(group.supplierId, group.supplierName)}
+                                                className="px-2.5 py-1 rounded-lg bg-white hover:bg-brand-50 text-brand-700 border border-slate-300 text-[10px] font-black flex items-center gap-1 cursor-pointer transition-colors"
+                                                title="Ajustar días a cubrir, ventana de ventas, presupuesto o escalonar entregas de este proveedor"
+                                              >
+                                                <Settings className="w-3 h-3" />
+                                                <span>Tocar Parámetros / Simular</span>
+                                              </button>
+
+                                              <button
+                                                type="button"
+                                                disabled={radarGeneratingPO || group.totalUnits <= 0}
+                                                onClick={() => void handleGeneratePOsFromRadar(group.supplierId)}
+                                                className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-black flex items-center gap-1 cursor-pointer transition-colors disabled:opacity-50"
+                                                title={`Generar Orden de Compra individual únicamente para ${group.supplierName}`}
+                                              >
+                                                <Save className="w-3 h-3" />
+                                                <span>Generar OC de {group.supplierName}</span>
+                                              </button>
+                                            </div>
+                                          )}
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  )}
+
+                                  {group.items.map(item => {
+                                    const isCritical = item.urgencyLevel === 'critical_shortage';
+                                    const isRop = item.urgencyLevel === 'below_rop';
+                                    return (
+                                      <tr
+                                        key={item.productId}
+                                        className={`transition-colors ${
+                                          isCritical
+                                            ? 'bg-rose-50/25 hover:bg-rose-50/50'
+                                            : isRop
+                                            ? 'bg-amber-50/20 hover:bg-amber-50/40'
+                                            : 'hover:bg-slate-50/70'
+                                        }`}
+                                      >
+                                        <td className="py-2 px-3">
+                                          <div className="flex items-center gap-2">
+                                            <span
+                                              className={`px-1.5 py-0.5 rounded text-[9px] font-black shrink-0 border ${
+                                                isCritical
+                                                  ? 'bg-rose-100 text-rose-800 border-rose-300'
+                                                  : isRop
+                                                  ? 'bg-amber-100 text-amber-800 border-amber-300'
+                                                  : 'bg-brand-50 text-brand-700 border-brand-200'
+                                              }`}
+                                              title={item.urgencyReason}
+                                            >
+                                              {isCritical ? 'URGENTE' : isRop ? 'ROP' : 'ROTACIÓN'}
+                                            </span>
+                                            <div className="min-w-0">
+                                              <p className="text-slate-900 font-black leading-tight truncate max-w-[280px]" title={item.name}>
+                                                {item.name}
+                                              </p>
+                                              {item.netShortageAfterTransit > 0 && (
+                                                <span className="text-[10px] text-rose-600 font-black">
+                                                  Faltan {item.netShortageAfterTransit} u. p/ entregar
+                                                </span>
+                                              )}
+                                            </div>
+                                          </div>
+                                        </td>
+
+                                        <td className="py-2 px-3">
+                                          <select
+                                            value={item.supplierId || ''}
+                                            onChange={e => handleChangeRadarItemSupplier(item.productId, e.target.value)}
+                                            className="w-full max-w-[165px] px-2 py-1 rounded-lg border border-slate-200 bg-white text-[11px] font-bold text-slate-800"
+                                          >
+                                            {!item.supplierId && <option value="">-- Sin prov. --</option>}
+                                            {item.availableSuppliers.map(s => (
+                                              <option key={s.supplierId} value={s.supplierId}>
+                                                {s.supplierName} {s.isPrimary ? '★' : ''}
+                                              </option>
+                                            ))}
+                                            {item.availableSuppliers.length === 0 &&
+                                              suppliers.map(s => (
+                                                <option key={s.id} value={s.id}>
+                                                  {s.name}
+                                                </option>
+                                              ))}
+                                          </select>
+                                        </td>
+
+                                        <td className="py-2 px-3 text-right">
+                                          <div className="flex items-center justify-end gap-1.5">
+                                            <span
+                                              className={`px-1.5 py-0.5 rounded text-[9px] font-black ${
+                                                item.trend === 'up'
+                                                  ? 'bg-emerald-100 text-emerald-800'
+                                                  : item.trend === 'down'
+                                                  ? 'bg-amber-100 text-amber-800'
+                                                  : item.trend === 'sporadic'
+                                                  ? 'bg-purple-100 text-purple-800'
+                                                  : 'bg-slate-100 text-slate-700'
+                                              }`}
+                                              title={item.windowReason}
+                                            >
+                                              {item.trend === 'up'
+                                                ? `↑ ${item.suggestedWindowDays}d`
+                                                : item.trend === 'down'
+                                                ? `↓ ${item.suggestedWindowDays}d`
+                                                : item.trend === 'sporadic'
+                                                ? 'Espor.'
+                                                : `${item.suggestedWindowDays}d`}
+                                            </span>
+                                            <span className="font-black text-slate-900">{item.vpdActive.toFixed(2)} u/d</span>
+                                          </div>
+                                          <div className="flex items-center justify-end gap-1.5 text-[10px] text-slate-400 font-normal">
+                                            <span>
+                                              {item.includeOutlierSpike ? item.qty7dRaw : item.qty7dSmoothed}/
+                                              {item.includeOutlierSpike ? item.qty15dRaw : item.qty15dSmoothed}/
+                                              {item.includeOutlierSpike ? item.qty30dRaw : item.qty30dSmoothed}u
+                                            </span>
+                                            {item.outlierInfo.hasSpike && (
+                                              <button
+                                                type="button"
+                                                onClick={() => handleToggleRadarItemSpike(item.productId)}
+                                                className={`px-1.5 py-0.2 rounded text-[9px] font-black cursor-pointer ${
+                                                  item.includeOutlierSpike
+                                                    ? 'bg-amber-100 text-amber-900'
+                                                    : 'bg-indigo-50 text-indigo-700'
+                                                }`}
+                                                title={`${item.outlierInfo.reason} (Click para alternar)`}
+                                              >
+                                                {item.includeOutlierSpike ? '⚠️ Pico incl.' : '🛡️ Suavizado'}
+                                              </button>
+                                            )}
+                                          </div>
+                                        </td>
+
+                                        <td className="py-2 px-3 text-right">
+                                          <span className={`font-black ${item.stockAvailable <= 0 ? 'text-rose-600' : 'text-slate-900'}`}>
+                                            Disp: {item.stockAvailable}
+                                          </span>
+                                          <span className="text-[10px] text-slate-400 font-normal block">
+                                            Fís:{item.stockPhysical} · Pend:{item.stockReserved}
+                                            {item.transit > 0 ? ` · Tráns:${item.transit}` : ''}
+                                          </span>
+                                        </td>
+
+                                        <td className="py-2 px-3 text-center">
+                                          {item.daysUntilStockout <= 0 ? (
+                                            <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-rose-100 text-rose-700 border border-rose-200">
+                                              ¡Hoy!
+                                            </span>
+                                          ) : (
+                                            <div>
+                                              <span className={`font-black text-[11px] ${item.daysUntilStockout <= 7 ? 'text-amber-600' : 'text-slate-700'}`}>
+                                                {item.tentativeDateStr}
+                                              </span>
+                                              <span className="text-[9px] text-slate-400 font-normal block">
+                                                ({Math.round(item.dcaWithTransit)}d cob.)
+                                              </span>
+                                            </div>
+                                          )}
+                                        </td>
+
+                                        <td className="py-2 px-3 text-right">
+                                          <input
+                                            type="number"
+                                            min="0"
+                                            value={item.quantitySuggested}
+                                            onChange={e => {
+                                              const val = Math.max(0, parseInt(e.target.value) || 0);
+                                              setRadarItems(prev =>
+                                                prev.map(r =>
+                                                  r.productId === item.productId
+                                                    ? { ...r, quantitySuggested: val, subtotal: val * r.unitCost }
+                                                    : r
+                                                )
+                                              );
+                                            }}
+                                            className={`w-16 px-2 py-1 border rounded-lg text-right text-xs font-black ${
+                                              item.quantitySuggested > 0
+                                                ? 'border-emerald-500 text-emerald-700 bg-emerald-50/40'
+                                                : 'border-slate-200'
+                                            }`}
+                                          />
+                                        </td>
+
+                                        <td className="py-2 px-3 text-right">
+                                          <p className="text-slate-900 font-black">{formatPrice(item.subtotal)}</p>
+                                          <span className="text-[9px] text-slate-400 font-normal block">
+                                            c/u {formatPrice(item.unitCost)}
+                                          </span>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </React.Fragment>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* Modal para Preconfigurar Proveedores del Radar Global */}
+          {showRadarSupplierModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
+              <div className="bg-white rounded-3xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+                <div className="p-5 sm:p-6 border-b flex items-center justify-between bg-slate-50">
+                  <div>
+                    <h3 className="font-black text-slate-900 text-sm sm:text-base">
+                      Preconfigurar Proveedores del Radar Global
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Marcá los proveedores que querés incluir en las sugerencias automáticas. Los desmarcados (ej. proveedores que se manejan de otra forma) quedarán excluidos y guardados.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowRadarSupplierModal(false)}
+                    className="p-1.5 rounded-full hover:bg-slate-200 text-slate-400 hover:text-slate-700 cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="p-4 border-b bg-white flex flex-wrap items-center justify-between gap-2">
+                  <div className="relative flex-1 min-w-[200px]">
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Buscar proveedor..."
+                      value={radarSupplierSearch}
+                      onChange={e => setRadarSupplierSearch(e.target.value)}
+                      className="w-full pl-8 pr-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold outline-none focus:border-brand-500"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setRadarConfig(prev => ({ ...prev, excludedSupplierIds: [] }))}
+                      className="px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-black cursor-pointer"
+                    >
+                      Incluir Todos
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRadarConfig(prev => ({ ...prev, excludedSupplierIds: suppliers.map(s => s.id) }))}
+                      className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 text-xs font-black cursor-pointer"
+                    >
+                      Desmarcar Todos
+                    </button>
+                  </div>
+                </div>
+
+                <div className="p-4 overflow-y-auto flex-1 divide-y divide-slate-100">
+                  {suppliers
+                    .filter(s => s.name.toLowerCase().includes(radarSupplierSearch.toLowerCase()))
+                    .map(sup => {
+                      const isIncluded = !(radarConfig.excludedSupplierIds || []).includes(sup.id);
+                      const linkedCount = relations.filter(r => r.supplier_id === sup.id).length;
+                      return (
+                        <label
+                          key={sup.id}
+                          className="flex items-center justify-between py-2.5 px-3 rounded-xl hover:bg-slate-50 cursor-pointer select-none"
+                        >
+                          <div className="flex items-center gap-3">
+                            <input
+                              type="checkbox"
+                              checked={isIncluded}
+                              onChange={e => {
+                                const checked = e.target.checked;
+                                setRadarConfig(prev => {
+                                  const curr = new Set(prev.excludedSupplierIds || []);
+                                  if (checked) curr.delete(sup.id);
+                                  else curr.add(sup.id);
+                                  return { ...prev, excludedSupplierIds: Array.from(curr) };
+                                });
+                              }}
+                              className="w-4 h-4 rounded text-brand-600 focus:ring-brand-500 border-slate-300"
+                            />
+                            <div>
+                              <p className={`text-xs font-black ${isIncluded ? 'text-slate-900' : 'text-slate-400 line-through'}`}>
+                                {sup.name}
+                              </p>
+                              <p className="text-[10px] text-slate-400">
+                                Plazo entrega: {sup.delivery_time_days || 5}d · Stock seg.: {sup.safety_stock_days || 7}d · {linkedCount} prod. vinculados
+                              </p>
+                            </div>
+                          </div>
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black border ${
+                            isIncluded
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              : 'bg-slate-100 text-slate-500 border-slate-200'
+                          }`}>
+                            {isIncluded ? 'Incluido' : 'Excluido'}
+                          </span>
+                        </label>
+                      );
+                    })}
+                </div>
+
+                <div className="p-4 border-t bg-slate-50 flex items-center justify-between gap-3">
+                  <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={radarConfig.includeUnassignedUrgent ?? true}
+                      onChange={e => setRadarConfig(prev => ({ ...prev, includeUnassignedUrgent: e.target.checked }))}
+                      className="w-4 h-4 rounded text-brand-600 border-slate-300"
+                    />
+                    Incluir también productos con faltante urgente aún sin proveedor asignado
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      onClick={() => setShowRadarSupplierModal(false)}
+                      className="bg-slate-200 hover:bg-slate-300 text-slate-700 py-2 px-4 rounded-xl text-xs font-black"
+                    >
+                      Cancelar
+                    </Button>
+                    <Button
+                      type="button"
+                      disabled={savingRadarConfig}
+                      onClick={() => void handleSaveRadarConfig(radarConfig, true)}
+                      className="bg-brand-600 hover:bg-brand-700 text-white py-2 px-5 rounded-xl text-xs font-black gap-1.5"
+                    >
+                      {savingRadarConfig ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                      Guardar Preconfiguración
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ================================================================= */}
+          {/* MODULE 2: SIMULADOR / CALCULADOR DETALLADO POR PROVEEDOR          */}
+          {/* ================================================================= */}
           {/* Controls Card */}
-          <div className="bg-white p-6 rounded-3xl border border-slate-200/60 shadow-sm space-y-6">
-            <div>
-              <h3 className="font-black text-slate-900 text-sm">Asistente de Reabastecimiento Inteligente</h3>
-              <p className="text-xs text-slate-400">Calculá la compra recomendada analizando la velocidad de venta histórica, stock de seguridad y plazos del proveedor.</p>
+          <div id="simulador-proveedor-section" className="bg-white p-5 rounded-3xl border border-slate-200/60 shadow-sm space-y-5 scroll-mt-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="font-black text-slate-900 text-sm">Simulador y Parámetros por Proveedor (Individual)</h3>
+                <p className="text-xs text-slate-400">Ajustá días a cubrir, ventana de historial (7/15/30d), presupuesto o entregas escalonadas para generar la Orden de Compra de un proveedor específico.</p>
+              </div>
+              <span className="px-3 py-1 rounded-full bg-brand-50 text-brand-700 border border-brand-200 text-[10px] font-black uppercase tracking-wider">
+                Modo Inteligente 7 / 15 / 30 días
+              </span>
             </div>
 
             <div className="flex flex-wrap gap-4 items-end">
@@ -6062,6 +7585,7 @@ export default function ComprasAdminPage() {
                       if (e.target.value === "") {
                         setCalcSupplierId("");
                         setCalcResults([]);
+                        setCalcWindowSummary(null);
                       }
                     }}
                     className="w-full px-4 py-2.5 pr-8 rounded-xl border border-slate-200 bg-slate-50 font-bold text-xs outline-none focus:border-brand-500 focus:bg-white transition-all shadow-sm"
@@ -6073,6 +7597,7 @@ export default function ComprasAdminPage() {
                         setCalcSupplierSearchText("");
                         setCalcSupplierId("");
                         setCalcResults([]);
+                        setCalcWindowSummary(null);
                         setIsCalcSupplierDropdownOpen(false);
                       }}
                       className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
@@ -6096,6 +7621,7 @@ export default function ComprasAdminPage() {
                             setCalcSupplierId("ALL");
                             setCalcSupplierSearchText("Todos los Proveedores");
                             setCalcResults([]);
+                            setCalcWindowSummary(null);
                             setIsCalcSupplierDropdownOpen(false);
                           }}
                           className={`w-full text-left px-3.5 py-2.5 text-xs font-black transition-colors ${
@@ -6115,6 +7641,7 @@ export default function ComprasAdminPage() {
                               setCalcSupplierId(s.id);
                               setCalcSupplierSearchText(s.name);
                               setCalcResults([]);
+                              setCalcWindowSummary(null);
                               setIsCalcSupplierDropdownOpen(false);
                             }}
                             className={`w-full text-left px-3.5 py-2 text-xs font-semibold transition-colors ${
@@ -6146,19 +7673,20 @@ export default function ComprasAdminPage() {
                 />
               </div>
 
-              <div className="w-44 space-y-1">
+              <div className="w-56 space-y-1">
                 <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Tipo Historial Venta</label>
                 <select
                   value={calcHistoryType}
-                  onChange={e => setCalcHistoryType(e.target.value as any)}
-                  className="w-full px-4 py-2.5 rounded-xl border bg-slate-50 font-bold text-xs"
+                  onChange={e => setCalcHistoryType(e.target.value as HistoryWindowMode)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border bg-slate-50 font-bold text-xs"
                 >
-                  <option value="days">Días Recientes</option>
+                  <option value="auto">⚡ Automático Inteligente (7/15/30d)</option>
+                  <option value="days">Días Recientes (Manual)</option>
                   <option value="range">Rango de Fechas</option>
                 </select>
               </div>
 
-              {calcHistoryType === 'days' ? (
+              {calcHistoryType === 'days' && (
                 <div className="w-36 space-y-1">
                   <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Días a Analizar</label>
                   <input
@@ -6169,7 +7697,9 @@ export default function ComprasAdminPage() {
                     className="w-full px-4 py-2.5 rounded-xl border bg-slate-50 font-bold text-xs"
                   />
                 </div>
-              ) : (
+              )}
+
+              {calcHistoryType === 'range' && (
                 <>
                   <div className="w-36 space-y-1">
                     <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Desde</label>
@@ -6191,6 +7721,18 @@ export default function ComprasAdminPage() {
                   </div>
                 </>
               )}
+
+              <div className="w-52 space-y-1">
+                <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Pedidos Grandes / Picos</label>
+                <select
+                  value={calcSmoothOutliers ? 'smooth' : 'raw'}
+                  onChange={e => handleToggleAllCalcSpikes(e.target.value === 'smooth')}
+                  className="w-full px-3.5 py-2.5 rounded-xl border bg-slate-50 font-bold text-xs"
+                >
+                  <option value="smooth">🛡️ Suavizar picos atípicos (Rec.)</option>
+                  <option value="raw">Incluir picos completos (100%)</option>
+                </select>
+              </div>
 
               <div className="w-44 space-y-1">
                 <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Estacionalidad</label>
@@ -6262,7 +7804,7 @@ export default function ComprasAdminPage() {
 
               <Button
                 disabled={calcLoading}
-                onClick={handleCalculateReplenishment}
+                onClick={() => void handleCalculateReplenishment()}
                 className="bg-brand-600 hover:bg-brand-700 py-2.5 px-6 rounded-xl text-white font-black text-xs shadow-sm cursor-pointer"
               >
                 {calcLoading ? (
@@ -6281,6 +7823,115 @@ export default function ComprasAdminPage() {
           {/* Results section */}
           {calcResults.length > 0 && (
             <div className="space-y-4">
+              {/* Smart Window Diagnostic & 1-Click Switcher Banner */}
+              {calcWindowSummary && (
+                <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm space-y-4">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div className="space-y-1 max-w-3xl">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border ${
+                          calcWindowSummary.trend === 'up' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                          calcWindowSummary.trend === 'down' ? 'bg-amber-50 text-amber-800 border-amber-200' :
+                          'bg-brand-50 text-brand-700 border-brand-200'
+                        }`}>
+                          Diagnóstico de Ventana (7 / 15 / 30 días)
+                        </span>
+                        <h4 className="font-black text-slate-900 text-xs sm:text-sm">
+                          {calcWindowSummary.recommendationTitle}
+                        </h4>
+                      </div>
+                      <p className="text-xs text-slate-600 leading-relaxed">
+                        {calcWindowSummary.recommendationDetail}
+                      </p>
+                    </div>
+
+                    {/* Quick 1-click window switcher */}
+                    <div className="flex flex-wrap items-center gap-1.5 bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
+                      <button
+                        type="button"
+                        onClick={() => handleQuickSwitchCalcWindow('auto')}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                          calcHistoryType === 'auto'
+                            ? 'bg-slate-900 text-white shadow-sm'
+                            : 'text-slate-600 hover:bg-white'
+                        }`}
+                      >
+                        ⚡ Auto Ponderado
+                      </button>
+                      {([7, 15, 30] as const).map(d => {
+                        const isRecommended = calcWindowSummary.recommendedDays === d;
+                        const isSelected = calcHistoryType === 'days' && Number(calcHistoryPeriod) === d;
+                        return (
+                          <button
+                            key={d}
+                            type="button"
+                            onClick={() => handleQuickSwitchCalcWindow('days', d)}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1 ${
+                              isSelected
+                                ? 'bg-brand-600 text-white shadow-sm'
+                                : 'text-slate-700 hover:bg-white'
+                            }`}
+                          >
+                            <span>Usar {d}d</span>
+                            {isRecommended && (
+                              <span className={`px-1.5 py-0.2 rounded text-[9px] ${
+                                isSelected ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-800'
+                              }`}>
+                                Sugerido
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* 7d vs 15d vs 30d + Outliers bar */}
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 pt-2 border-t border-slate-100 text-xs">
+                    <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200/60 flex items-center justify-between">
+                      <div>
+                        <span className="text-[10px] font-black uppercase text-slate-400 block">Últimos 7 Días</span>
+                        <span className="font-black text-slate-900 text-sm">{calcWindowSummary.vpd7dTotal.toFixed(2)} u/día</span>
+                      </div>
+                      <span className="text-xs font-bold text-slate-500">{calcWindowSummary.qty7d} u. vendidas</span>
+                    </div>
+                    <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200/60 flex items-center justify-between">
+                      <div>
+                        <span className="text-[10px] font-black uppercase text-slate-400 block">Últimos 15 Días</span>
+                        <span className="font-black text-slate-900 text-sm">{calcWindowSummary.vpd15dTotal.toFixed(2)} u/día</span>
+                      </div>
+                      <span className="text-xs font-bold text-slate-500">{calcWindowSummary.qty15d} u. vendidas</span>
+                    </div>
+                    <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200/60 flex items-center justify-between">
+                      <div>
+                        <span className="text-[10px] font-black uppercase text-slate-400 block">Últimos 30 Días</span>
+                        <span className="font-black text-slate-900 text-sm">{calcWindowSummary.vpd30dTotal.toFixed(2)} u/día</span>
+                      </div>
+                      <span className="text-xs font-bold text-slate-500">{calcWindowSummary.qty30d} u. vendidas</span>
+                    </div>
+                    <div className="p-3 rounded-2xl bg-indigo-50/60 border border-indigo-200/70 flex items-center justify-between">
+                      <div>
+                        <span className="text-[10px] font-black uppercase text-indigo-700 block">Filtro Pedidos Grandes</span>
+                        <span className="font-black text-indigo-950 text-xs">
+                          {calcWindowSummary.outliersDetectedCount > 0
+                            ? `${calcWindowSummary.outliersDetectedCount} prod. con pico (${calcWindowSummary.outliersExcessUnits} u. extra)`
+                            : 'Sin picos atípicos detectados'}
+                        </span>
+                      </div>
+                      {calcWindowSummary.outliersDetectedCount > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => handleToggleAllCalcSpikes(!calcSmoothOutliers)}
+                          className="px-2.5 py-1 rounded-xl bg-white border border-indigo-200 text-[10px] font-black text-indigo-700 hover:bg-indigo-100 cursor-pointer shrink-0"
+                        >
+                          {calcSmoothOutliers ? 'Incluir todos' : 'Suavizar todos'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Unimported orders real-time integration notice */}
               {unimportedStats && unimportedStats.ordersCount > 0 && (
                 <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 text-amber-900 px-5 py-3 rounded-3xl text-xs flex flex-wrap items-center justify-between gap-3 shadow-sm">
@@ -6334,10 +7985,13 @@ export default function ComprasAdminPage() {
                 <div className="space-y-2 pl-4 flex flex-col justify-center">
                   <div className="flex flex-col gap-2">
                     <Button
-                      onClick={handleGeneratePOFromCalc}
+                      onClick={() => void handleGeneratePOFromCalc()}
                       className="bg-emerald-600 hover:bg-emerald-700 text-xs font-black text-white py-2 px-4 rounded-xl flex-1 justify-center gap-1.5 shadow-sm cursor-pointer"
                     >
-                      <Save className="w-3.5 h-3.5" /> Generar OCs
+                      <Save className="w-3.5 h-3.5" />
+                      {calcSupplierId && calcSupplierId !== "ALL"
+                        ? `Generar OC (${calcSupplierSearchText || 'Proveedor'})`
+                        : "Generar OCs (Separadas)"}
                     </Button>
                     <Button
                       onClick={() => setShowStaggeredModal(true)}
@@ -6357,7 +8011,7 @@ export default function ComprasAdminPage() {
                       <tr className="bg-slate-50 border-b text-slate-400 font-bold uppercase tracking-wider">
                         <th className="p-4">SKU / Producto</th>
                         <th className="p-4 text-center">Clase ABC</th>
-                        <th className="p-4 text-right">VPD (Venta Prom.)</th>
+                        <th className="p-4 text-right">VPD Inteligente & Ventanas</th>
                         <th className="p-4 text-right">Stock Disp.</th>
                         <th className="p-4 text-right">En Tránsito</th>
                         <th className="p-4 text-right">Cobertura Act.</th>
@@ -6370,13 +8024,16 @@ export default function ComprasAdminPage() {
                     <tbody className="divide-y divide-slate-100 font-bold text-slate-700">
                       {calcResults.map((item, idx) => {
                         const hasStockoutAlert = item.stockPhysical <= item.stockReserved;
-                        const isUnderSafety = item.dca < 7; // under safety stock of 7 days
+                        const isUnderSafety = item.dca < 7;
                         return (
                           <tr key={item.productId} className="hover:bg-slate-50/50 transition-colors">
                             <td className="p-4">
                               <p className="text-slate-900">{item.name}</p>
                               {item.sku && item.sku !== item.name && !item.sku.endsWith('_OLD') && !item.sku.startsWith('AUTO-') && (
-                                <span className="text-[10px] text-slate-400 font-mono">{item.sku}</span>
+                                <span className="text-[10px] text-slate-400 font-mono block">{item.sku}</span>
+                              )}
+                              {calcSupplierId === 'ALL' && item.supplierName && (
+                                <span className="text-[10px] text-brand-600 font-bold block mt-0.5">{item.supplierName}</span>
                               )}
                             </td>
                             <td className="p-4 text-center">
@@ -6388,11 +8045,57 @@ export default function ComprasAdminPage() {
                                 Clase {item.abcClass}
                               </span>
                             </td>
-                            <td className="p-4 text-right font-normal">{item.vpd.toFixed(3)} u/día</td>
+                            <td className="p-4 text-right">
+                              <div className="space-y-1">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <span className={`px-1.5 py-0.5 rounded text-[9px] font-black ${
+                                    item.trend === 'up' ? 'bg-emerald-100 text-emerald-800' :
+                                    item.trend === 'down' ? 'bg-amber-100 text-amber-800' :
+                                    item.trend === 'sporadic' ? 'bg-purple-100 text-purple-800' :
+                                    'bg-slate-100 text-slate-700'
+                                  }`} title={item.windowReason}>
+                                    {item.trend === 'up' ? `↑ Sug. ${item.suggestedWindowDays}d` :
+                                     item.trend === 'down' ? `↓ Sug. ${item.suggestedWindowDays}d` :
+                                     item.trend === 'sporadic' ? 'Esporádico (30d)' :
+                                     `→ Sug. ${item.suggestedWindowDays}d`}
+                                  </span>
+                                  <span className="font-black text-slate-900">{item.vpdActive.toFixed(2)} u/día</span>
+                                </div>
+                                <p className="text-[10px] text-slate-400 font-normal">
+                                  7d: {item.includeOutlierSpike ? item.qty7dRaw : item.qty7dSmoothed}u · 15d: {item.includeOutlierSpike ? item.qty15dRaw : item.qty15dSmoothed}u · 30d: {item.includeOutlierSpike ? item.qty30dRaw : item.qty30dSmoothed}u
+                                </p>
+                                {item.outlierInfo.hasSpike && (
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    <span
+                                      className={`px-2 py-0.5 rounded-lg text-[9px] font-black border ${
+                                        item.includeOutlierSpike
+                                          ? 'bg-amber-100 text-amber-900 border-amber-300'
+                                          : 'bg-indigo-50 text-indigo-800 border-indigo-200'
+                                      }`}
+                                      title={item.outlierInfo.reason}
+                                    >
+                                      {item.includeOutlierSpike
+                                        ? `⚠️ Pico incluido (${item.outlierInfo.maxOrderQty}u en 1 ped.)`
+                                        : `🛡️ Pico suavizado (-${item.outlierInfo.excessUnits30d}u de ped. ${item.outlierInfo.maxOrderQty}u)`}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleToggleCalcItemSpike(item.productId)}
+                                      className="text-[10px] font-black text-brand-600 hover:underline cursor-pointer"
+                                    >
+                                      {item.includeOutlierSpike ? 'Suavizar' : 'Incluir pico'}
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </td>
                             <td className="p-4 text-right">
                               <p className="text-slate-900">{item.stockAvailable}</p>
+                              <span className="text-[10px] text-slate-400 font-normal block">Fís: {item.stockPhysical}</span>
                               {item.stockReserved > 0 && (
-                                <span className="text-[10px] text-red-500 font-normal">Res: {item.stockReserved}</span>
+                                <span className={`text-[10px] font-bold block ${item.backorder > 0 ? 'text-rose-600' : 'text-red-500'}`}>
+                                  Res: {item.stockReserved} {item.backorder > 0 ? `(Faltan ${item.backorder})` : ''}
+                                </span>
                               )}
                               {item.unimportedReserved > 0 && (
                                 <span className="text-[9px] text-amber-700 font-semibold block">+{item.unimportedReserved} de planillas</span>
@@ -6400,7 +8103,7 @@ export default function ComprasAdminPage() {
                             </td>
                             <td className="p-4 text-right font-normal text-slate-400">{item.transit}</td>
                             <td className="p-4 text-right">
-                              {item.vpd === 0 ? (
+                              {item.vpdActive === 0 ? (
                                 <span className="text-slate-400 font-normal">Sin ventas</span>
                               ) : (
                                 <span className={`font-black ${
@@ -6442,13 +8145,12 @@ export default function ComprasAdminPage() {
                                   updated[idx].subtotal = val * updated[idx].unitCost;
                                   setCalcResults(updated);
 
-                                  // Recalculate cost
                                   let totalCost = 0;
                                   let coverageSum = 0;
                                   let coverageCount = 0;
                                   updated.forEach(it => {
                                     totalCost += it.subtotal;
-                                    const fc = it.vpd > 0 ? Math.max(0, ((it.stockAvailable + it.transit + it.quantitySuggested) / it.vpd)) : 999;
+                                    const fc = it.vpdActive > 0 ? Math.max(0, ((it.stockAvailable + it.transit + it.quantitySuggested) / it.vpdActive)) : 999;
                                     if (fc < 999) {
                                       coverageSum += fc;
                                       coverageCount++;
@@ -7423,7 +9125,7 @@ export default function ComprasAdminPage() {
             <div>
               <h4 className="font-black text-sm">Discrepancias de Costos Detectadas</h4>
               <p className="text-xs text-amber-800/90 font-semibold mt-1">
-                Las compras se comparan con los costos calculados de materiales / compra usados en Resultado diario de entregas.
+                Las compras se comparan con los costos calculados de materiales / compra usados en Resultado diario de entregas. 
                 El margen usa ese mismo costo calculado, sin gastos de fabricación. Revisá el cálculo o ignorá la alerta si es un cambio temporal.
               </p>
             </div>
@@ -7556,7 +9258,7 @@ export default function ComprasAdminPage() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {uniqueAlerts.map(alt => {
-                  const diffPct = alt.catalog_cost == null ? null : alt.catalog_cost > 0
+                  const diffPct = alt.catalog_cost == null ? null : alt.catalog_cost > 0 
                     ? ((alt.purchase_cost - alt.catalog_cost) / alt.catalog_cost) * 100 
                     : 100;
                   
