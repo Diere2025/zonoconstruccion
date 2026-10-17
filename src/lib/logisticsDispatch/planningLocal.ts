@@ -90,7 +90,7 @@ export function localPlanningRequester(remote: (url: string, options?: RequestIn
    persist(state);return {staged,ledgerWrites:0};
   }
   if(body.action==='save-freight-novelty'){
-   if(!seed.canLiquidate)throw new Error('Sin permiso de Tesorería.');const novelty=validateNovelty(body);
+   if(!seed.canLiquidate)throw new Error('Sin permiso de Tesorería.');const novelty=validateNovelty(body);if(novelty.source_dispatch_id){const p=rows.find(p=>p.dispatch_id===novelty.source_dispatch_id);if(!p||(novelty.carrier_id?novelty.carrier_id!==p.carrier_id:planOwner(p)!=='company:'+novelty.company_key))throw new Error('El LOG de origen no corresponde al responsable seleccionado.');}
    const old=state.novelties?.find(n=>n.id===body.id);if(old){if(JSON.stringify(novelty)!==JSON.stringify(Object.fromEntries(Object.keys(novelty).map(k=>[k,old[k]]))))throw new Error('Solicitud reutilizada con otros datos.');return old;}
    const saved={...novelty,id:body.id,status:'approved',created_by:seed.actor};state.novelties=[...(state.novelties||[]),saved];persist(state);return saved;
   }
