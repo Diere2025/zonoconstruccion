@@ -44,10 +44,12 @@ export function applySettlementTerms(plans: Row[], terms: Row[], fees: Row[] = [
   const state = p.paymentState || {}, expected = Number(term.net_amount), paid = state.paidAmount ?? 0;
   const acceptance=term.difference_acceptance;
   const difference=Math.round((paid-expected)*100)/100;
-  const differenceAccepted=!!acceptance&&Number(acceptance.version)===Number(term.version)&&Number(acceptance.paidAmount)===Number(paid)&&Number(acceptance.netAmount)===expected&&Number(acceptance.difference)===difference&&Math.abs(difference)<=500;
-  const minorDifference=paid>0&&difference!==0&&(Math.abs(difference)<100||differenceAccepted)?difference:null;
-  const remaining = minorDifference!==null?0:Math.max(0, -difference), settled = remaining === 0;
-  return {...p,settlementTerms:term,paymentState:{...state,expectedAmount:expected,remainingAmount:remaining,minorDifference,differenceAccepted,overpaidAmount:Math.max(0,difference),state:state.state === 'needs_review'?'needs_review':settled?'paid':paid>0?'partial':'unpaid',liquidated:p.status==='completed'&&settled&&state.state!=='needs_review'}};
+  const differenceAccepted=!!acceptance&&Number(acceptance.version)<=Number(term.version)&&Number(paid)>=Number(acceptance.paidAmount)&&expected>=Number(acceptance.netAmount)&&Number(acceptance.difference)<0&&Math.abs(Number(acceptance.difference))<=500;
+  const acceptedCredit=differenceAccepted?-Number(acceptance.difference):0;
+  const effectiveDifference=Math.round((paid+acceptedCredit-expected)*100)/100;
+  const minorDifference=paid>0&&effectiveDifference!==0&&Math.abs(effectiveDifference)<100?effectiveDifference:differenceAccepted&&effectiveDifference===0?Number(acceptance.difference):null;
+  const remaining = minorDifference!==null?0:Math.max(0, -effectiveDifference), settled = remaining === 0;
+  return {...p,settlementTerms:term,paymentState:{...state,expectedAmount:expected,remainingAmount:remaining,minorDifference,differenceAccepted,acceptedDifferenceAmount:acceptedCredit,overpaidAmount:Math.max(0,effectiveDifference),state:state.state === 'needs_review'?'needs_review':settled?'paid':paid>0?'partial':'unpaid',liquidated:p.status==='completed'&&settled&&state.state!=='needs_review'}};
  });
  return adjusted.map(p=>{
   const extras=p.actual?.extras||[],term=terms.find(t=>t.dispatch_id===p.dispatch_id),fee=fees.find(f=>(f.dispatchId||f.dispatch_id)===p.dispatch_id);
