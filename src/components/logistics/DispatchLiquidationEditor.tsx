@@ -7,7 +7,7 @@ import {actualFee,closureMessage,type Liquidation,type FeeAddition} from '@/lib/
 const input='w-full rounded-lg border border-slate-200 px-3 py-2 text-sm';
 const money=(n:number|null)=>n===null?'A confirmar':new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS'}).format(n);
 export default function DispatchLiquidationEditor({row,fee,canApprove,canPay,localReview=true,onSave}:{row:any;fee?:Liquidation;canApprove:boolean;canPay:boolean;localReview?:boolean;onSave:(body:any)=>Promise<void>}){
- const estimate=actualFee(row.planned,row.actual.km,row.tariff_snapshot);
+ const estimate=actualFee(row.planned,row.actual.km,row.tariff_snapshot,row.actual);
  const [basis,setBasis]=useState(estimate.amount===null||estimate.basis==='agreed'?'agreed':'calculated'),[base,setBase]=useState(String(estimate.amount??'')),[additions,setAdditions]=useState<FeeAddition[]>([]),[notes,setNotes]=useState(''),[date,setDate]=useState(treasuryToday()),[account,setAccount]=useState(''),[method,setMethod]=useState('Transferencia'),[error,setError]=useState(''),[busy,setBusy]=useState(false),[copied,setCopied]=useState(false);
  const submit=async(body:any)=>{setBusy(true);setError('');try{await onSave(body);}catch(e:any){setError(e.message);}finally{setBusy(false);}};
  const total=fee?.total??((basis==='calculated'?estimate.amount||0:Number(base)||0)+additions.reduce((n,a)=>n+a.amount,0)+(row.actual?.extras||[]).reduce((n:number,e:any)=>n+Number(e.amount),0));

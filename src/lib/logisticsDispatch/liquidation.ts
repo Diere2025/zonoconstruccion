@@ -1,17 +1,19 @@
-import {estimateDispatchFee, validateDispatchExtras, type DispatchPlan} from './planning';
+import {estimateDispatchFee, effectiveMinutes, validateDispatchExtras, type DispatchPlan} from './planning';
 export type FeeAddition = {label: string; amount: number; reference?: string; extraId?:string; kind?:string; orderCode?:string; runNumber?:number|null};
 export type Liquidation = {dispatchId: string; version: number; status: 'ready' | 'paid'; basis: 'agreed' | 'calculated'; base: number; additions: FeeAddition[]; total: number; deductions?: {label:string;amount:number;kind:string;reference:string}[]; notes: string; approvedAt: string; payment?: {id: string; date: string; account: string; method: string; amount: number}};
 const round = (n: number) => Math.round(n * 100) / 100;
-export function actualFee(plan: DispatchPlan, actualKm: number | null, terms: any) {
+export function actualFee(plan: DispatchPlan, actualKm: number | null, terms: any, actual?: any) {
  // One fee per paid LOG, using total ACTUAL km, not the sum of forecast km.
- return estimateDispatchFee({...plan, loads: [{runNumber: 1, zone: '', routeUrl: '', plannedKm: actualKm, plannedOrders: null}]}, terms);
+ const result=estimateDispatchFee({...plan, loads: [{runNumber: 1, zone: '', routeUrl: '', plannedKm: actualKm, plannedOrders: null}]}, terms);
+ if(plan.agreedAmount===null&&terms?.extraHour>0&&terms?.includedMinutes>0){const minutes=actual?effectiveMinutes(actual):null;if(minutes===null)return {...result,review:[...result.review,'Completar horarios para calcular horas extras.']};return {...result,amount:result.amount===null?null:round(result.amount+Math.max(0,minutes-terms.includedMinutes)/60*terms.extraHour)};}
+ return result;
 }
 export function approveLiquidation(row: any, input: any, previous?: Liquidation): Liquidation {
  if (row.status !== 'completed') throw new Error('Cerrá la ejecución antes de aprobar el pago.');
  if (previous) throw new Error('Esta salida ya tiene una liquidación aprobada.');
  if(row.paymentSourcePending?.length)throw new Error('Ya figura un pago en Caja para este LOG. Revisá el vínculo o su importación antes de generar otra tarea.');
  if(Number(row.paymentState?.paidAmount)>0)throw new Error('Ya hay pagos de este LOG. Revisá los movimientos antes de generar una nueva tarea.');
- const calculated = actualFee(row.planned, row.actual?.km ?? null, row.tariff_snapshot);
+ const calculated = actualFee(row.planned, row.actual?.km ?? null, row.tariff_snapshot,row.actual);
  const agreed = input.basis === 'agreed';
  const base = agreed ? Number(input.base) : calculated.amount;
  if (!agreed && (base === null || calculated.review.some((r: string) => !r.startsWith('Peajes')))) throw new Error('Hay datos tarifarios pendientes. Confirmá un importe acordado.');
@@ -32,8 +34,10 @@ export function closureMessage(row: any, fee: Liquidation) {
   `${d}/${m}/${y} · ${header?.carrier_name || row.carrierName}`,
   `Chofer: ${plan.driverName||header?.carrier_name||row.carrierName} · Vehículo: ${plan.vehicle} · Acompañante: ${plan.companion || 'Sin acompañante'}`,
   ...plan.loads.map((r: any) => {const actual = row.actual.loads?.find((a: any) => a.runNumber === r.runNumber); return `R${r.runNumber} · ${r.zone || 'Zona a confirmar'}${r.plannedKm !== null && r.plannedKm !== undefined ? ` · ${r.plannedKm} km previstos` : ''}${actual?.departure && actual?.arrival ? ` · ${actual.departure}–${actual.arrival}${actual.arrivalNextDay ? ' (regreso al día siguiente)' : ''}` : ''}`;}),
+  ...(row.actual.timingMode==='global'?[`Horario global: ${row.actual.globalTimes?.departure||'—'}–${row.actual.globalTimes?.arrival||'—'}`]:[]),
   `Km reales del LOG: ${row.actual.km ?? 'A confirmar'}`,
   ...(fee.basis === 'calculated' && terms ? [`Base: ${money(terms.baseDay)} · ${terms.includedKm ?? '—'} km incluidos`, `Km excedentes: ${Math.max(0, row.actual.km - terms.includedKm).toFixed(1)} × ${money(terms.extraKm || 0)}`, `Acompañante: ${plan.companion&&!/sin acompa/i.test(plan.companion)?money(terms.companion):'Sin acompañante · sin adicional'}`] : ['Importe acordado por viaje']),
+  ...(fee.basis==='calculated'&&terms?.extraHour>0&&terms?.includedMinutes>0&&effectiveMinutes(row.actual)!==null?[`Horas extras: ${Math.max(0,effectiveMinutes(row.actual)!-terms.includedMinutes)} minutos · ${money(terms.extraHour)} por hora`]:[]),
   `Subtotal: ${money(fee.base)}`,
   ...fee.additions.map(a => `Adicional · ${a.label}${a.reference ? ' ('+a.reference+')' : ''}${a.orderCode?' · '+a.orderCode:''}${a.runNumber?' · R'+a.runNumber:''}: ${money(a.amount)}`),
   ...(fee.deductions||[]).map(d=>`${d.kind==='offset'?'Compensación / cuota':'Descuento de flete'} · ${d.label} (${d.reference}): −${money(d.amount)}`),

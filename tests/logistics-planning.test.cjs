@@ -13,3 +13,10 @@ const db={auth:{getUser:async()=>({data:{user:{id:carrierId,email:'fixture@examp
 const server=load('src/lib/logisticsDispatch/planningServer.ts',{'@supabase/supabase-js':{createClient:()=>db},'./planning':p,'@/lib/carrierIdentity':carriers,'./tariffs':tariffs,'@/lib/paymentPlanning/model':periods});
 const req={headers:{get:()=> 'Bearer fixture'}};
 (async()=>{assert.equal((await server.planningAccess(req)).canWrite,false);await assert.rejects(server.planningAccess(req,true),/permiso/);role='logistica';assert.equal((await server.planningAccess(req,true)).canWrite,true);active=false;await assert.rejects(server.planningAccess(req),/permiso/);assert.equal(writes,0);const before=reads;await assert.rejects(server.planningAccess({headers:{get:()=>null}}),/sesión/);assert.equal(reads,before);console.log('PASS planning: per-load km with one LOG fee, agreed vs actual, zero unknown, date/time and URLs, GyV shared tariff, role checks from server-owned profile, no writes.');})().catch(e=>{console.error(e);process.exitCode=1});
+
+const globalActual=p.validateDispatchActual({timingMode:'global',globalTimes:{departure:'7:30',arrival:'17:00'},loads:[],km:151.2},true,[1,2]);
+assert.equal(globalActual.globalTimes.departure,'07:30');assert.equal(globalActual.loads.length,0);assert.equal(p.effectiveMinutes(globalActual),570);
+assert.equal(p.validateDispatchPlan({...plan,departure:'7:30'}).departure,'07:30');
+assert.throws(()=>p.validateDispatchActual({timingMode:'global',globalTimes:{departure:'7:30',arrival:''},km:151.2},true,[1,2]),/cerrar/);
+assert.equal(p.effectiveMinutes(p.validateDispatchActual({timingMode:'global',globalTimes:{departure:'23:30',arrival:'1:00'},km:100},true,[1,2])),90);
+console.log('PASS global times: one window for R1/R2, H:mm normalization, overnight and required close fields.');
