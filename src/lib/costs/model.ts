@@ -1,5 +1,5 @@
 export type Origin = 'Compra' | 'Fabricación' | 'Ensamblado' | 'No usar' | 'Por confirmar';
-export interface Purchase { key: string; source: string; row: number; receipt: string; name: string; code: string; date: string; vendor: string; quantity: number; unit: string; cost: number; kind?: 'Lista'; vat?: number; observed?: string }
+export interface Purchase { key: string; source: string; row: number; receipt: string; name: string; code: string; date: string; vendor: string; quantity: number; unit: string; cost: number; kind?: 'Lista'; vat?: number; observed?: string; validUntil?: string }
 export interface Component { code: string; name: string; quantity: number; unit: string }
 export interface Recipe { code: string; name: string; components: Component[] }
 export interface Article { code: string; name: string; sku?:string; aliases: string[]; unit: string; fallback: number | null; factor: number }

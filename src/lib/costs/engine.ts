@@ -4,7 +4,7 @@ export function calculate(def: Definition, purchases: Purchase[], product: Produ
   const s = latestSetting(settings,product.code,asOf); const global = latestSetting(settings,'GLOBAL',asOf);
   const origin = s?.origin || product.origin; const warnings = new Set<string>();
   const articles = new Map(def.articles.map(a=>[a.code,a])); const recipes = new Map(def.recipes.map(r=>[r.code,r]));
-  const available = purchases.filter(p=>p.date <= asOf);
+  const available = purchases.filter(p=>p.date <= asOf && (!p.validUntil || asOf < p.validUntil));
   const byCode = new Map<string,Purchase[]>(); for (const p of available) { const list=byCode.get(p.code)||[]; list.push(p); byCode.set(p.code,list); }
   // Explicitly equivalent catalog names share price evidence without duplicating purchase events.
   const priceGroups=new Map<string,Article[]>();

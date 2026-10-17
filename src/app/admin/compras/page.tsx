@@ -55,6 +55,7 @@ import { Button } from "@/components/ui/Button";
 import PlanningDateInput from '@/components/finanzas/planning/PlanningDateInput';
 import SupplierReceiptItems from '@/components/admin/SupplierReceiptItems';
 import SupplierReceiptFiles from "@/components/admin/SupplierReceiptFiles";
+import PurchaseReconciliation from '@/components/admin/PurchaseReconciliation';
 import SupplierPurchaseOrderImageModal from "@/components/admin/SupplierPurchaseOrderImageModal";
 import { formatPrice, formatDateDDMMYYYY } from "@/lib/utils";
 import {
@@ -430,6 +431,7 @@ export default function ComprasAdminPage() {
 
   // Receptions States
   const [receptions, setReceptions] = useState<any[]>([]);
+  const [reconciliationTarget, setReconciliationTarget] = useState<{supplierId?:string;receiptId?:string}|null>(null);
   const [loadingReceptions, setLoadingReceptions] = useState(false);
   const [selectedReception, setSelectedReception] = useState<any | null>(null);
   const [receptionItemsDetail, setReceptionItemsDetail] = useState<any[]>([]);
@@ -4071,6 +4073,10 @@ export default function ComprasAdminPage() {
   };
 
   const handleOpenEditPurchase = (purchase: any) => {
+    if (purchase.purchase_reception_id) {
+      setReconciliationTarget({supplierId:purchase.supplier_id,receiptId:purchase.purchase_reception_id});
+      return;
+    }
     setEditingPurchase(purchase);
     setEditInvoiceNumber(purchase.invoice_number || "");
     setEditPurchaseDate(purchase.purchase_date ? purchase.purchase_date.split('T')[0] : "");
@@ -4085,6 +4091,11 @@ export default function ComprasAdminPage() {
   const handleSaveEditPurchase = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingPurchase) return;
+    if (editingPurchase.purchase_reception_id) {
+      setShowEditPurchaseModal(false);
+      setReconciliationTarget({supplierId:editingPurchase.supplier_id,receiptId:editingPurchase.purchase_reception_id});
+      return;
+    }
     setSavingEdit(true);
 
     try {
@@ -6062,6 +6073,7 @@ export default function ComprasAdminPage() {
       )}
 
       {/* SUBTAB: RECEPTIONS */}
+      {reconciliationTarget && <PurchaseReconciliation {...reconciliationTarget} onClose={() => setReconciliationTarget(null)} onChanged={() => { void loadAllData(true); }} />}
       {activeSubTab === 'receptions' && (
         <div className="space-y-4">
           <div className="flex justify-between items-center bg-white p-4 rounded-xl border border-slate-200/60 shadow-sm">
@@ -6070,6 +6082,7 @@ export default function ComprasAdminPage() {
               <p className="text-xs text-slate-400">Registrá lo recibido para generar la deuda y actualizar la OC, con o sin impacto en stock.</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <Button onClick={() => setReconciliationTarget({})} className="rounded-xl gap-1.5 py-2 px-3 text-xs font-black">Conciliación / pendientes</Button>
               <Button
                 onClick={() => void handleOpenSheetContrast()}
                 disabled={sheetSyncLoading || sheetSyncExecuting}
@@ -6123,6 +6136,7 @@ export default function ComprasAdminPage() {
                         <td className="p-4 text-slate-700">{receptionOrderCodes(rec)}</td>
                         <td className="p-4 font-normal text-slate-500 max-w-xs truncate">{rec.notes || '-'}</td>
                         <td className="p-4 text-center">
+                          <button type="button" onClick={() => setReconciliationTarget({supplierId:rec.supplier_id,receiptId:rec.id})} className="rounded-lg border px-2 py-1 text-xs text-brand-700">Completar comprobante y conciliar</button>
                           <button
                             onClick={() => {
                               setSelectedReception(rec);
@@ -6168,6 +6182,7 @@ export default function ComprasAdminPage() {
                     </div>
 
                     <SupplierReceiptFiles key={selectedReception.id} id={selectedReception.id} />
+                    <button type="button" onClick={() => setReconciliationTarget({supplierId:selectedReception.supplier_id,receiptId:selectedReception.id})} className="rounded-xl bg-brand-600 px-4 py-2 text-sm font-bold text-white">Completar comprobante y conciliar</button>
                     <div className="border border-slate-200 rounded-2xl overflow-x-auto shadow-sm">
                       <table className="w-full text-left text-xs min-w-[500px]">
                         <thead>
