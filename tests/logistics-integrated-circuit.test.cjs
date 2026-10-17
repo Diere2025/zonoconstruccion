@@ -34,6 +34,18 @@ const unknown=profit.dispatchProfitability([{code:'LOG_REC_1',delivery_date:'202
  await assert.rejects(pay('40000000-0000-4000-8000-000000000003',[{...allocations[0],amount:50000,termsVersion:2}],{...payload,amount:'50000.00'}),/Confirmá/);
  assert.equal((await db.query('select count(*) n from cash_transactions')).rows[0].n,1);
  await save(d1,1,300000,[]);assert.equal(Number((await db.query('select sum(amount) n from logistics_freight_novelty_applications')).rows[0].n),5000);
+ const differenceMigration=fs.readFileSync('database/db_migration_v217_freight_accepted_difference.sql','utf8');await db.exec(differenceMigration);await db.exec(differenceMigration);
+ await save(d1,2,50500,[]);
+ await assert.rejects(db.query('select accept_logistics_freight_difference($1,$2,$3,$4,$5)',[other,d1,3,50000,'Cambio']),/permiso/);
+ await assert.rejects(db.query('select accept_logistics_freight_difference($1,$2,$3,$4,$5)',[actor,d1,3,49999,'Cambio']),/cambiaron/);
+ await db.query('select accept_logistics_freight_difference($1,$2,$3,$4,$5)',[actor,d1,3,50000,'Diferencia de $500 aceptada']);
+ assert.equal((await db.query('select count(*) n from cash_transactions')).rows[0].n,1);
+ const accepted=(await db.query('select * from logistics_freight_settlement_terms where dispatch_id=$1',[d1])).rows[0];assert.equal(Number(accepted.gross_amount),50500);assert.equal(Number(accepted.difference_acceptance.difference),-500);
+ await assert.rejects(pay('40000000-0000-4000-8000-000000000008',[{code:'LOG_REC_1',amount:500,termsVersion:4,reason:'No duplicar'}],{...payload,amount:'500.00'}),/diferencia aceptada/);
+ await save(d1,4,51500,[]);
+ await pay('40000000-0000-4000-8000-000000000009',[{code:'LOG_REC_1',amount:1500,termsVersion:5,reason:'Nuevo acuerdo confirmado'}],{...payload,amount:'1500.00'});
+ assert.equal((await db.query('select count(*) n from cash_transactions')).rows[0].n,2);
+ console.log('PASS accepted difference: permission, exact snapshot, $500 inclusive, unchanged original payment/cost, audit, duplicate blocked and new confirmed amount reopens balance.');
  console.log('PASS: service cost versus cash, margin, partial payments, commercial discounts, missing cost, GyV grouping, novelty capacity, retry safety, permissions, versions and no duplicate ledger entries.');
  }finally{await db.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

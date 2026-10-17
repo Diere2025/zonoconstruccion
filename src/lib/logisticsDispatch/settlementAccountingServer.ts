@@ -44,6 +44,9 @@ export async function paymentForAllocation(db:any,code:string){
 }
 export async function saveSettlementAccounting(db:any,actor:string,body:Row){
  const permission=await db.rpc('can_manage_financial_operations',{p_user_id:actor});if(permission.error)throw permission.error;if(permission.data!==true)throw Object.assign(new Error('Sin permiso de Tesorería para confirmar saldos o distribuir pagos.'),{status:403});
+ if(body.action==='accept-freight-difference'){
+  const r=await db.rpc('accept_logistics_freight_difference',{p_actor:actor,p_dispatch:body.dispatchId,p_version:body.termsVersion,p_paid:body.paidAmount,p_reason:String(body.reason||'').trim()});if(r.error)throw r.error;return r.data;
+ }
  if(body.action==='save-settlement-terms'){
   const terms=validateSettlementTerms(body);
   const r=await db.rpc('save_logistics_freight_settlement_terms',{p_actor:actor,p_dispatch:body.dispatchId,p_version:body.termsVersion??0,p_terms:{...terms,extraSnapshot:body.extraSnapshot||[]}});if(r.error)throw r.error;return r.data;

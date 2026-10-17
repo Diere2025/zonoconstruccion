@@ -8,7 +8,7 @@ export function pendingDispatchSettlements(plans:Row[],fees:Row[]=[]){
   const fee=fees.find(f=>f.dispatchId===row.dispatch_id),state=row.paymentState;
   if(row.paymentSourcePending?.length){entries.set(row.dispatch_id,{row,fee,kind:'cash',amount:row.paymentSourcePending.reduce((n:number,p:Row)=>n+(Number(p.amount)||0),0)});continue;}
   if(row.extrasNeedReview){entries.set(row.dispatch_id,{row,fee,kind:'review',amount:row.extraChargesDelta??null});continue;}
-  if(state?.liquidated||state?.state==='paid'||fee?.status==='paid')continue;
+  if(state?.liquidated||state?.state==='paid'||!state&&fee?.status==='paid')continue;
   const kind=state?.state==='needs_review'?'review':'pending';
   entries.set(row.dispatch_id,{row,fee,kind,amount:state?.remainingAmount??state?.expectedAmount??fee?.total??row.planned?.agreedAmount??null});
  }
