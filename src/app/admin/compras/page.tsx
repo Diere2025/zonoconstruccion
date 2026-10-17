@@ -504,6 +504,7 @@ export default function ComprasAdminPage() {
   const [radarSearchTerm, setRadarSearchTerm] = useState("");
   const [isRadarCollapsed, setIsRadarCollapsed] = useState(false);
   const [radarGeneratingPO, setRadarGeneratingPO] = useState(false);
+  const [assistantViewMode, setAssistantViewMode] = useState<'global_radar' | 'supplier_simulator'>('global_radar');
 
   // Selection states
   const [selectedSupplierId, setSelectedSupplierId] = useState("");
@@ -2219,16 +2220,11 @@ export default function ComprasAdminPage() {
 
   const handleOpenSupplierInSimulator = (supplierId: string, supplierName: string) => {
     if (!supplierId) return;
+    setAssistantViewMode('supplier_simulator');
     setCalcSupplierId(supplierId);
     setCalcSupplierSearchText(supplierName);
     setCalcDaysToCover(String(radarConfig.targetDays || 30));
     void handleCalculateReplenishment(undefined, undefined, supplierId);
-    if (typeof document !== 'undefined') {
-      const el = document.getElementById('simulador-proveedor-section');
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }
-    }
   };
 
   const handleSaveRadarConfig = async (newConfig: ReplenishmentRadarConfig, showNotification = true) => {
@@ -6702,11 +6698,123 @@ export default function ComprasAdminPage() {
 
       {/* SUBTAB: PURCHASE CALCULATOR */}
       {activeSubTab === 'purchase_calculator' && (
-        <div className="space-y-6">
+        <div className="space-y-4">
+          {/* Selector de Pestaña: Radar Global vs Simulador por Proveedor Individual */}
+          {(() => {
+            const actionableRadarCount = radarItems.filter(it => it.quantitySuggested > 0 || it.urgencyLevel === 'critical_shortage').length;
+            const criticalRadarCount = radarItems.filter(it => it.urgencyLevel === 'critical_shortage').length;
+            const selectedSupplierObj = suppliers.find(s => s.id === calcSupplierId);
+
+            return (
+              <div className="bg-white p-2 rounded-2xl border border-slate-200/80 shadow-sm grid grid-cols-1 md:grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setAssistantViewMode('global_radar')}
+                  className={`flex items-center justify-between gap-3 px-4 py-3 rounded-xl border text-left transition-all cursor-pointer ${
+                    assistantViewMode === 'global_radar'
+                      ? 'bg-slate-900 text-white border-slate-900 shadow-md'
+                      : 'bg-slate-50/70 hover:bg-slate-100 text-slate-700 border-slate-200/80'
+                  }`}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div
+                      className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                        assistantViewMode === 'global_radar'
+                          ? 'bg-brand-500/20 text-brand-300 border border-brand-400/30'
+                          : 'bg-white text-brand-600 border border-slate-200'
+                      }`}
+                    >
+                      <Sparkles className="w-4 h-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-black text-xs sm:text-sm truncate">
+                          1. Radar Global (Multiproveedor)
+                        </span>
+                      </div>
+                      <p
+                        className={`text-[11px] truncate ${
+                          assistantViewMode === 'global_radar' ? 'text-slate-300' : 'text-slate-500'
+                        }`}
+                      >
+                        Panorama general de urgencias, pendientes de entrega y sugerencias agrupadas por proveedor
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {criticalRadarCount > 0 && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-500 text-white">
+                        {criticalRadarCount} urg.
+                      </span>
+                    )}
+                    <span
+                      className={`px-2.5 py-0.5 rounded-full text-[10px] font-black ${
+                        assistantViewMode === 'global_radar'
+                          ? 'bg-white/15 text-white'
+                          : 'bg-slate-200 text-slate-700'
+                      }`}
+                    >
+                      {actionableRadarCount} sug.
+                    </span>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setAssistantViewMode('supplier_simulator')}
+                  className={`flex items-center justify-between gap-3 px-4 py-3 rounded-xl border text-left transition-all cursor-pointer ${
+                    assistantViewMode === 'supplier_simulator'
+                      ? 'bg-brand-600 text-white border-brand-600 shadow-md'
+                      : 'bg-slate-50/70 hover:bg-slate-100 text-slate-700 border-slate-200/80'
+                  }`}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div
+                      className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                        assistantViewMode === 'supplier_simulator'
+                          ? 'bg-white/20 text-white border border-white/30'
+                          : 'bg-white text-slate-700 border border-slate-200'
+                      }`}
+                    >
+                      <Settings className="w-4 h-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-black text-xs sm:text-sm truncate">
+                          2. Simulador por Proveedor (Individual)
+                        </span>
+                      </div>
+                      <p
+                        className={`text-[11px] truncate ${
+                          assistantViewMode === 'supplier_simulator' ? 'text-brand-100' : 'text-slate-500'
+                        }`}
+                      >
+                        Ajustar días a cubrir, ventana 7/15/30d, presupuesto o escalonar entregas de un proveedor
+                      </p>
+                    </div>
+                  </div>
+                  <div className="shrink-0">
+                    <span
+                      className={`px-2.5 py-0.5 rounded-full text-[10px] font-black ${
+                        assistantViewMode === 'supplier_simulator'
+                          ? 'bg-white text-brand-700'
+                          : selectedSupplierObj
+                          ? 'bg-brand-50 text-brand-700 border border-brand-200'
+                          : 'bg-slate-200 text-slate-600'
+                      }`}
+                    >
+                      {selectedSupplierObj ? selectedSupplierObj.name : 'Elegir proveedor'}
+                    </span>
+                  </div>
+                </button>
+              </div>
+            );
+          })()}
+
           {/* ================================================================= */}
           {/* MODULE 1: RADAR GLOBAL DE SUGERENCIAS DE COMPRA (MULTIPROVEEDOR) */}
           {/* ================================================================= */}
-          {(() => {
+          {assistantViewMode === 'global_radar' && (() => {
             const excludedSet = new Set(radarConfig.excludedSupplierIds || []);
             const activeSuppliersCount = Math.max(0, suppliers.length - excludedSet.size);
             const actionableItems = radarItems.filter(it => it.quantitySuggested > 0 || it.urgencyLevel === 'critical_shortage');
@@ -7558,109 +7666,103 @@ export default function ComprasAdminPage() {
           {/* ================================================================= */}
           {/* MODULE 2: SIMULADOR / CALCULADOR DETALLADO POR PROVEEDOR          */}
           {/* ================================================================= */}
-          {/* Controls Card */}
-          <div id="simulador-proveedor-section" className="bg-white p-5 rounded-3xl border border-slate-200/60 shadow-sm space-y-5 scroll-mt-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <h3 className="font-black text-slate-900 text-sm">Simulador y Parámetros por Proveedor (Individual)</h3>
-                <p className="text-xs text-slate-400">Ajustá días a cubrir, ventana de historial (7/15/30d), presupuesto o entregas escalonadas para generar la Orden de Compra de un proveedor específico.</p>
-              </div>
-              <span className="px-3 py-1 rounded-full bg-brand-50 text-brand-700 border border-brand-200 text-[10px] font-black uppercase tracking-wider">
-                Modo Inteligente 7 / 15 / 30 días
-              </span>
-            </div>
-
-            <div className="flex flex-wrap gap-4 items-end">
-              <div className="flex-1 min-w-[220px] space-y-1 relative">
-                <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Proveedor *</label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    placeholder="Buscar proveedor o seleccionar..."
-                    value={calcSupplierSearchText}
-                    onFocus={() => setIsCalcSupplierDropdownOpen(true)}
-                    onChange={e => {
-                      setCalcSupplierSearchText(e.target.value);
-                      setIsCalcSupplierDropdownOpen(true);
-                      if (e.target.value === "") {
-                        setCalcSupplierId("");
-                        setCalcResults([]);
-                        setCalcWindowSummary(null);
-                      }
-                    }}
-                    className="w-full px-4 py-2.5 pr-8 rounded-xl border border-slate-200 bg-slate-50 font-bold text-xs outline-none focus:border-brand-500 focus:bg-white transition-all shadow-sm"
-                  />
-                  {calcSupplierSearchText && (
+          {assistantViewMode === 'supplier_simulator' && (
+            <div className="space-y-5">
+              {/* Controls Card */}
+              <div id="simulador-proveedor-section" className="bg-white p-5 rounded-3xl border border-slate-200/60 shadow-sm space-y-5 scroll-mt-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h3 className="font-black text-slate-900 text-sm">Simulador y Parámetros por Proveedor (Individual)</h3>
+                    <p className="text-xs text-slate-400">Ajustá días a cubrir, ventana de historial (7/15/30d), presupuesto o entregas escalonadas para generar la Orden de Compra de un proveedor específico.</p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => {
-                        setCalcSupplierSearchText("");
-                        setCalcSupplierId("");
-                        setCalcResults([]);
-                        setCalcWindowSummary(null);
-                        setIsCalcSupplierDropdownOpen(false);
-                      }}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
+                      onClick={() => setAssistantViewMode('global_radar')}
+                      className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer"
                     >
-                      <X className="w-3.5 h-3.5" />
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                      <span>Volver al Radar Global</span>
                     </button>
-                  )}
+                    <span className="px-3 py-1 rounded-full bg-brand-50 text-brand-700 border border-brand-200 text-[10px] font-black uppercase tracking-wider">
+                      Modo Inteligente 7 / 15 / 30 días
+                    </span>
+                  </div>
                 </div>
 
-                {isCalcSupplierDropdownOpen && (
-                  <>
-                    <div 
-                      className="fixed inset-0 z-20" 
-                      onClick={() => setIsCalcSupplierDropdownOpen(false)} 
-                    />
-                    <div className="absolute left-0 right-0 mt-1 max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-xl z-30 py-1 divide-y divide-slate-50">
-                      {("todos los proveedores".includes(calcSupplierSearchText.toLowerCase()) || calcSupplierSearchText === "") && (
+                <div className="flex flex-wrap gap-4 items-end">
+                  <div className="flex-1 min-w-[220px] space-y-1 relative">
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Proveedor Individual *</label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        placeholder="Buscar y elegir un proveedor..."
+                        value={calcSupplierSearchText}
+                        onFocus={() => setIsCalcSupplierDropdownOpen(true)}
+                        onChange={e => {
+                          setCalcSupplierSearchText(e.target.value);
+                          setIsCalcSupplierDropdownOpen(true);
+                          if (e.target.value === "") {
+                            setCalcSupplierId("");
+                            setCalcResults([]);
+                            setCalcWindowSummary(null);
+                          }
+                        }}
+                        className="w-full px-4 py-2.5 pr-8 rounded-xl border border-slate-200 bg-slate-50 font-bold text-xs outline-none focus:border-brand-500 focus:bg-white transition-all shadow-sm"
+                      />
+                      {calcSupplierSearchText && (
                         <button
                           type="button"
                           onClick={() => {
-                            setCalcSupplierId("ALL");
-                            setCalcSupplierSearchText("Todos los Proveedores");
+                            setCalcSupplierSearchText("");
+                            setCalcSupplierId("");
                             setCalcResults([]);
                             setCalcWindowSummary(null);
                             setIsCalcSupplierDropdownOpen(false);
                           }}
-                          className={`w-full text-left px-3.5 py-2.5 text-xs font-black transition-colors ${
-                            calcSupplierId === "ALL" ? "bg-brand-50 text-brand-600" : "hover:bg-slate-50 text-slate-800"
-                          }`}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
                         >
-                          🌟 Todos los Proveedores
+                          <X className="w-3.5 h-3.5" />
                         </button>
                       )}
-                      {suppliers
-                        .filter(s => s.name.toLowerCase().includes(calcSupplierSearchText.toLowerCase()))
-                        .map(s => (
-                          <button
-                            key={s.id}
-                            type="button"
-                            onClick={() => {
-                              setCalcSupplierId(s.id);
-                              setCalcSupplierSearchText(s.name);
-                              setCalcResults([]);
-                              setCalcWindowSummary(null);
-                              setIsCalcSupplierDropdownOpen(false);
-                            }}
-                            className={`w-full text-left px-3.5 py-2 text-xs font-semibold transition-colors ${
-                              calcSupplierId === s.id ? "bg-brand-50 text-brand-600 font-black" : "hover:bg-slate-50 text-slate-700 hover:text-brand-600"
-                            }`}
-                          >
-                            {s.name}
-                          </button>
-                        ))}
-                      {suppliers.filter(s => s.name.toLowerCase().includes(calcSupplierSearchText.toLowerCase())).length === 0 &&
-                        !("todos los proveedores".includes(calcSupplierSearchText.toLowerCase())) && (
-                          <div className="px-3.5 py-3 text-xs text-slate-400 italic text-center">
-                            No se encontraron proveedores
-                          </div>
-                        )}
                     </div>
-                  </>
-                )}
-              </div>
+
+                    {isCalcSupplierDropdownOpen && (
+                      <>
+                        <div 
+                          className="fixed inset-0 z-20" 
+                          onClick={() => setIsCalcSupplierDropdownOpen(false)} 
+                        />
+                        <div className="absolute left-0 right-0 mt-1 max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-xl z-30 py-1 divide-y divide-slate-50">
+                          {suppliers
+                            .filter(s => s.name.toLowerCase().includes(calcSupplierSearchText.toLowerCase()))
+                            .map(s => (
+                              <button
+                                key={s.id}
+                                type="button"
+                                onClick={() => {
+                                  setCalcSupplierId(s.id);
+                                  setCalcSupplierSearchText(s.name);
+                                  setCalcResults([]);
+                                  setCalcWindowSummary(null);
+                                  setIsCalcSupplierDropdownOpen(false);
+                                }}
+                                className={`w-full text-left px-3.5 py-2 text-xs font-semibold transition-colors ${
+                                  calcSupplierId === s.id ? "bg-brand-50 text-brand-600 font-black" : "hover:bg-slate-50 text-slate-700 hover:text-brand-600"
+                                }`}
+                              >
+                                {s.name}
+                              </button>
+                            ))}
+                          {suppliers.filter(s => s.name.toLowerCase().includes(calcSupplierSearchText.toLowerCase())).length === 0 && (
+                            <div className="px-3.5 py-3 text-xs text-slate-400 italic text-center">
+                              No se encontraron proveedores
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
 
               <div className="w-36 space-y-1">
                 <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Días a Cubrir (Stock Target)</label>
@@ -8225,6 +8327,8 @@ export default function ComprasAdminPage() {
                   </Button>
                 </div>
               </div>
+            </div>
+          )}
             </div>
           )}
         </div>
