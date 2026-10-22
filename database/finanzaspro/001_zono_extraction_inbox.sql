@@ -31,7 +31,7 @@ begin
 end $$;
 
 create or replace function public.review_zono_extraction(p_source uuid,p_revision bigint,p_action text,p_data jsonb,p_actor text) returns jsonb language plpgsql security definer set search_path=public,pg_temp as $$
-declare r zono_extraction_inbox;b cajas;m movimientos;ids uuid[]:='{}';id uuid;amount numeric;day text;box text;category text;concept text;v_mode text;note text;item jsonb;
+declare r zono_extraction_inbox;b cajas;m movimientos;ids uuid[]:='{}';v_movement_id uuid;amount numeric;day text;box text;category text;concept text;v_mode text;note text;item jsonb;
 begin
  if p_actor is null or length(p_actor)<1 or length(p_actor)>256 then raise exception 'Sesión requerida';end if;
  select * into strict r from zono_extraction_inbox where source_id=p_source for update;
@@ -44,9 +44,9 @@ begin
  elsif p_action='link' then
   if jsonb_typeof(p_data->'movement_ids') is distinct from 'array' or jsonb_array_length(p_data->'movement_ids') not between 1 and 20 then raise exception 'Seleccioná los movimientos existentes';end if;
   for item in select value from jsonb_array_elements(p_data->'movement_ids') loop
-   id:=(item#>>'{}')::uuid;select * into strict m from movimientos where movimientos.id=id;
+   v_movement_id:=(item#>>'{}')::uuid;select * into strict m from movimientos where movimientos.id=v_movement_id;
    if coalesce((select moneda from cajas where nombre=m.caja limit 1),'ARS')<>r.payload->>'currency' then raise exception 'La moneda del movimiento no coincide';end if;
-   ids:=array_append(ids,id);
+   ids:=array_append(ids,v_movement_id);
   end loop;
   v_mode:='link';
  elsif p_action='approve' then
@@ -60,12 +60,12 @@ begin
   category:=p_data->>'category';if v_mode='direct_payment' and not exists(select 1 from categorias where nombre=category) then raise exception 'Seleccioná una categoría del gasto';end if;
   -- Lock source across the complete decision and use stable keys for retries.
   insert into movimientos(firebase_id,fecha,categoria,caja,concepto,tipo,monto,fecha_importacion)
-   values('zono:'||p_source::text||':income',day,'Extracción Zono',box,'Extracción Zono · '||concept,'Crédito',amount,now()) returning movimientos.id into id;
-  ids:=array_append(ids,id);
+   values('zono:'||p_source::text||':income',day,'Extracción Zono',box,'Extracción Zono · '||concept,'Crédito',amount,now()) returning movimientos.id into v_movement_id;
+  ids:=array_append(ids,v_movement_id);
   if v_mode='direct_payment' then
    insert into movimientos(firebase_id,fecha,categoria,caja,concepto,tipo,monto,fecha_importacion)
-    values('zono:'||p_source::text||':expense',day,category,box,concept,'Débito',amount,now()) returning movimientos.id into id;
-   ids:=array_append(ids,id);
+    values('zono:'||p_source::text||':expense',day,category,box,concept,'Débito',amount,now()) returning movimientos.id into v_movement_id;
+   ids:=array_append(ids,v_movement_id);
   end if;
  else raise exception 'Acción inválida';end if;
  update zono_extraction_inbox set state=case when p_action='approve' then 'approved' when p_action='link' then 'linked' else 'dismissed' end,
