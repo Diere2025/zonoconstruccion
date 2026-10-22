@@ -9,7 +9,8 @@ const concepts=['Binance','Tarjetas'].map((concept,i)=>({id:id(i+3),concept,cate
 const original={id:id(2),code:'PAG-0000013229',occurred_at:'2026-10-21T15:00:00Z',account_id:id(5),account:'MP5',type:'egreso',amount:'1000000',currency:'ARS',version:0,description:'Pago original VISA',counterparty:'Comercio original',operation_reference:'123456',suggested_concept_ids:[id(3)]};
 let pending=true,movement={...original,concept_id:id(3),concept:'Binance',category:'Publicidad',notes:'Pago original',classification:null,token:'a'.repeat(32),editable:true,bank:[{description:'Pago original VISA',reference:'123456',occurred_at:original.occurred_at,captures:[{description:'Compra VISA',counterparty:'Comercio original',reference:'123456',payment_id:'654321'}]}],history:[]};
 const writes=[];
-const rules=[{id:id(8),description:'pablo javier mercado',display_name:'Pablo Javier Mercado · habitual',direction:'egreso',financial_concept_id:id(3),financial_account_id:null,version:4,association_group:'binance_p2p',alternative_concept_ids:[],merchant_alias:'Pablo'}];
+const rules=[{id:id(8),description:'pablo javier mercado',display_name:'Pablo Javier Mercado · habitual',direction:'egreso',financial_concept_id:id(3),financial_account_id:null,version:4,association_group:'binance_p2p',alternative_concept_ids:[],merchant_alias:'Pablo'},{id:id(9),description:'otra persona binance',display_name:'Otra persona Binance',direction:'egreso',financial_concept_id:id(3),financial_account_id:null,version:2,association_group:'binance_p2p',alternative_concept_ids:[]}];
+let failDeactivation=true;
 movement.rules=rules;
 (async()=>{const browser=await chromium.launch({channel:'chrome',headless:true});try{
  const context=await browser.newContext({locale:'en-US',timezoneId:'America/Argentina/Buenos_Aires',viewport:{width:1400,height:1000}});
@@ -24,7 +25,11 @@ movement.rules=rules;
   }
   if(url.pathname==='/api/admin/bank-statements'){
    if(request.method()==='GET')value={accounts:[],batches:[],rules,concepts};
-   else{const body=request.postDataJSON();writes.push(body);assert.equal(body.description,'pablo javier mercado');assert.equal(body.version,4);assert.equal(body.group,'common');assert.equal(body.conceptId,id(4));Object.assign(rules[0],{association_group:body.group,financial_concept_id:body.conceptId,version:5});value={id:id(8)};}
+   else{const body=request.postDataJSON();writes.push(body);if(body.action==='rule-deactivate'){
+    assert.deepEqual(Object.keys(body).sort(),['action','rule','version']);const index=rules.findIndex(rule=>rule.id===body.rule);assert.ok(index>=0);assert.equal(body.version,rules[index].version);
+    if(failDeactivation){failDeactivation=false;rules[index].version++;return route.fulfill({status:409,contentType:'application/json',body:JSON.stringify({error:'La asociación cambió. Actualizá la lista.'})});}
+    rules.splice(index,1);value={saved:true};
+   }else{assert.equal(body.description,'pablo javier mercado');assert.equal(body.version,4);assert.equal(body.group,'common');assert.equal(body.conceptId,id(4));Object.assign(rules[0],{association_group:body.group,financial_concept_id:body.conceptId,version:5});value={id:id(8)};}}
   }
   await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(value)});
  });
@@ -35,7 +40,14 @@ movement.rules=rules;
  await dialog.getByRole('combobox',{name:'Nueva clasificación · Búsqueda rápida'}).fill('Tarjetas');await page.getByRole('option',{name:/Tarjetas/}).click();await dialog.getByRole('button',{name:'Guardar Nueva clasificación'}).click();await dialog.getByRole('status').filter({hasText:'Clasificación corregida'}).waitFor();assert.equal(writes.at(-1).action,'reclassify');assert.equal(writes.at(-1).concept,id(4));await dialog.getByText('Pago original VISA',{exact:true}).waitFor();await dialog.getByText('Antes: Sin clasificar',{exact:true}).waitFor();
  await dialog.getByRole('button',{name:/Modificar asociación de Pablo/}).click();await dialog.getByLabel('Uso de la asociación').selectOption('common');
  await dialog.getByRole('combobox',{name:'Concepto de la asociación',exact:true}).fill('Tarjetas');await page.getByRole('option',{name:/Tarjetas/}).click();await dialog.getByRole('button',{name:'Guardar cambios',exact:true}).click();await dialog.getByText('Asociación guardada para todas las cuentas.',{exact:true}).waitFor();assert.equal(writes.at(-1).description,'pablo javier mercado');
+ const previousWrites=writes.length;
+ await dialog.getByRole('button',{name:'Desactivar asociación pablo javier mercado',exact:true}).click();const confirmation=dialog.getByRole('group',{name:'Confirmar desactivación de asociación'});
+ await confirmation.getByText(/Pablo Javier Mercado/).waitFor();await confirmation.getByRole('button',{name:'Cancelar',exact:true}).click();assert.equal(writes.length,previousWrites);
+ await dialog.getByRole('button',{name:'Editar asociación pablo javier mercado',exact:true}).click();await dialog.getByRole('button',{name:'Desactivar asociación',exact:true}).click();await confirmation.getByRole('button',{name:'Confirmar desactivación'}).click();
+ await dialog.getByRole('alert').filter({hasText:'La asociación cambió'}).waitFor();await dialog.getByRole('button',{name:'Editar asociación pablo javier mercado',exact:true}).waitFor();
+ await dialog.getByRole('button',{name:'Desactivar asociación pablo javier mercado',exact:true}).click();await confirmation.getByRole('button',{name:'Confirmar desactivación'}).click();await dialog.getByRole('status').filter({hasText:'Asociación desactivada: Pablo'}).waitFor();assert.equal(writes.at(-1).version,6);assert.equal(await dialog.getByRole('button',{name:'Editar asociación pablo javier mercado',exact:true}).count(),0);await dialog.getByText('Pago original VISA',{exact:true}).waitFor();assert.equal(movement.amount,'1000000');assert.equal(movement.concept,'Tarjetas');
+ await dialog.getByLabel('Buscar asociaciones',{exact:true}).fill('Otra persona');await dialog.getByRole('button',{name:'Desactivar asociación otra persona binance',exact:true}).click();await confirmation.getByRole('button',{name:'Confirmar desactivación'}).click();await dialog.getByRole('status').filter({hasText:'Asociación desactivada: Otra persona'}).waitFor();assert.equal(rules.length,0);
  fs.mkdirSync('output/classification-correction',{recursive:true});await page.screenshot({path:'output/classification-correction/desktop.png',fullPage:true});
  await page.setViewportSize({width:390,height:844});await page.screenshot({path:'output/classification-correction/mobile.png',fullPage:true});assert.ok(await dialog.evaluate(el=>el.scrollWidth<=el.clientWidth));await dialog.getByRole('button',{name:'Cerrar'}).click();
- console.log('PASS: undo, original bank/payment data, English-browser dates, reset, reclassification, history, Binance association discovery/editing with original key/version and mobile layout; API requests mocked.');
+ console.log('PASS: correction and original payment, association editing, deactivation from list/editor, cancellation, stale-rule error/retry, common/Binance rules and mobile layout; API requests mocked.');
  }finally{await browser.close();}})().catch(error=>{console.error(error);process.exitCode=1});
