@@ -1,0 +1,53 @@
+const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
+const {PGlite}=require(require.resolve('@electric-sql/pglite',{paths:[path.resolve('.codex-tmp/supplier-account-check')]}));
+const id=n=>`00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
+test('classification correction preserves money and bank context, supports reset, guards stale and cancelled movements, and audits both states',async()=>{
+ const db=new PGlite();try{
+ await db.exec(`create role anon;create role authenticated;create role service_role;
+ create table financial_accounts(id uuid primary key,name text);
+ create table financial_operations(id uuid primary key,status text,version integer,updated_at timestamptz);
+ create table financial_concepts(id uuid primary key,is_active boolean,concept text,category text,sub_category text,efe_category text,movement_type text);
+ create table cash_transactions(id uuid primary key,movement_code text,created_at timestamptz,financial_account_id uuid,type text,amount numeric,currency text,operation_id uuid,reversal_of_transaction_id uuid,financial_concept_id uuid,concept text,category text,sub_category text,efe_category text,notes text);
+ create table financial_classification_snapshots(transaction_id uuid primary key,value jsonb);
+ create table financial_movement_classification_events(id bigint generated always as identity,transaction_id uuid,before_value jsonb,after_value jsonb,actor_id uuid,created_at timestamptz default now());
+ create table financial_operation_events(operation_id uuid,action text,before_value jsonb,after_value jsonb,reason text,actor_id uuid);
+ create table bank_statement_entries(id uuid,description text,external_movement_id text,related_operation_id text,occurred_at timestamptz,financial_concept_id uuid,version integer);
+ create table bank_entry_ledger_links(entry_id uuid,cash_transaction_id uuid);
+ create table bank_classification_rules(id uuid,description text,display_name text,association_group text,financial_account_id uuid,is_active boolean,direction text);
+ create function bank_reference_key(text) returns text language sql as 'select lower(trim($1))';
+ create table mp_bank_web_rows(activity_type text default null,statement_entry_id uuid,prepared_entry_id uuid,description text,counterparty_name text,operation_id text,payment_id text,proposed_concept_id uuid,review_version integer);
+ create function can_manage_treasury_settlements(uuid) returns boolean language sql as 'select $1 is not null';
+ create function can_manage_financial_operations(uuid) returns boolean language sql as 'select $1 is not null';
+ create function apply_catalog_classification(uuid,uuid,uuid) returns void language plpgsql as $$begin
+ if $3='${id(5)}'::uuid then raise exception 'Esta opción está deshabilitada';end if;
+ insert into financial_classification_snapshots values($2,jsonb_build_object('concept','Tarjetas','person','Diego','detail','VISA'));end $$;
+ insert into financial_accounts values('${id(1)}','MP5');
+ insert into financial_operations values('${id(2)}','posted',1,now());
+ insert into financial_concepts values('${id(3)}',true,'Binance','Publicidad','','','Egreso'),('${id(4)}',true,'Tarjetas','Extracciones','','','Egreso'),('${id(5)}',true,'Deshabilitada','Extracciones','','','Egreso'),('${id(6)}',true,'Cobro','Recaudación','','','Ingreso');
+ insert into cash_transactions values('${id(7)}','PAG-0000013229','2026-10-21T15:00:00Z','${id(1)}','egreso',1000000,'ARS','${id(2)}',null,'${id(3)}','Binance','Publicidad','','','Pago original');
+ insert into bank_statement_entries values('${id(8)}','Pago original VISA','123456','987654','2026-10-21T15:00:00Z','${id(3)}',1);
+ insert into bank_entry_ledger_links values('${id(8)}','${id(7)}');
+ insert into mp_bank_web_rows(statement_entry_id,prepared_entry_id,description,counterparty_name,operation_id,payment_id,proposed_concept_id,review_version) values('${id(8)}',null,'Compra VISA','Comercio original','123456','654321','${id(3)}',1);`);
+ await db.exec(`insert into bank_classification_rules values('${id(10)}','comercio original','Pablo Javier Mercado','binance_p2p',null,true,'egreso'),('${id(11)}','comercio original','Otra cuenta','common','${id(99)}',true,'egreso'),('${id(12)}','comercio original','Ingreso','common',null,true,'ingreso');`);
+ await db.exec('alter table cash_transactions add column bank_review_status text,add column bank_reviewed_at timestamptz,add column bank_reviewed_by uuid,add column created_by uuid;');
+ await db.exec(fs.readFileSync('database/db_migration_v191_classified_movements_reviewed.sql','utf8').split('-- Preserve')[0].replace(/^begin;\s*/,''));
+ await db.exec(fs.readFileSync('database/db_migration_v221_movement_classification_correction.sql','utf8'));
+ const read=async actor=> (await db.query('select read_movement_classification($1,$2) value',[actor===undefined?id(9):actor,id(7)])).rows[0].value;
+ const correct=async(concept,token,actor=id(9))=>db.query('select correct_movement_classification($1,$2,$3,$4)',[actor,id(7),concept,token]);
+ const money=async()=> (await db.query('select id,movement_code,created_at,financial_account_id,type,amount,currency,operation_id,notes from cash_transactions')).rows;
+ const before=await read(),balances=await money();assert.equal(before.bank[0].captures[0].counterparty,'Comercio original');assert.equal(before.bank[0].captures[0].payment_id,'654321');
+ assert.equal(before.rules.length,1);assert.equal(before.rules[0].display_name,'Pablo Javier Mercado');assert.equal(before.rules[0].association_group,'binance_p2p');
+ await assert.rejects(read(null),/Sin permiso/);await assert.rejects(correct(id(4),before.token,null),/Sin permiso/);
+ await assert.rejects(correct(id(6),before.token),/tipo/);await assert.rejects(correct(id(5),before.token),/deshabilitada/);
+ assert.deepEqual(await read(),before,'a failed catalog application must roll back every change');
+ await correct(id(4),before.token);const changed=await read();assert.equal(changed.classification.detail,'VISA');assert.equal(changed.history[0].before.label,'Binance');assert.equal(changed.history[0].after.label,'Tarjetas');assert.notEqual(changed.token,before.token);assert.deepEqual(changed.bank,before.bank);assert.deepEqual(await money(),balances);
+ assert.equal((await db.query('select bank_review_status from cash_transactions')).rows[0].bank_review_status,'reviewed');
+ await assert.rejects(correct(null,before.token),/movimiento cambió/);
+ await correct(null,changed.token);const reset=await read();assert.equal(reset.concept_id,null);assert.equal(reset.concept,'Sin clasificar');assert.equal(reset.classification,null);assert.equal(reset.history[0].before.classification.detail,'VISA');assert.deepEqual(await money(),balances);
+ assert.equal((await db.query('select bank_review_status from cash_transactions')).rows[0].bank_review_status,'pending');
+ assert.equal((await db.query('select proposed_concept_id from mp_bank_web_rows')).rows[0].proposed_concept_id,null);
+ assert.equal((await db.query('select version from financial_operations')).rows[0].version,3);
+ await db.exec(`update financial_operations set status='cancelled'`);const cancelled=await read();assert.equal(cancelled.editable,false);await assert.rejects(correct(id(4),cancelled.token),/anulado/);
+ await db.exec(`update financial_operations set status='posted';update cash_transactions set operation_id=null`);const legacy=await read();await correct(id(4),legacy.token);assert.equal((await read()).concept,'Tarjetas');assert.equal((await money()).length,1);
+ }finally{await db.close();}
+});
