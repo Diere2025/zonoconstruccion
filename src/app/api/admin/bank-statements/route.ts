@@ -186,6 +186,11 @@ export async function POST(request: Request) {
       if (error) throw error;
       return response({ id: data });
     }
+    if (body.action === 'rule-deactivate') {
+      const { data, error } = await db.rpc('deactivate_bank_classification_rule', { p_actor: actor, p_rule: uuid(body.rule), p_version: version(body.version) });
+      if (error) throw error;
+      return response(data);
+    }
     if (body.action === 'rule') {
       if (typeof body.description !== 'string' || !['ingreso', 'egreso'].includes(body.direction)) throw new OperationError('Regla inválida');
       if (body.group !== undefined) {
