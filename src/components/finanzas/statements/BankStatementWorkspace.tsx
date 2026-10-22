@@ -28,6 +28,8 @@ type Draft = { conceptId: string; resolution: 'pending' | 'new' | 'link'; target
 type CommitPayload = { action: string; batch: string; version: number; key: string; confirmAccount: boolean; entries: { id: string; version: number }[] };
 export default function BankStatementWorkspace() {
  const [settingsOpen,setSettingsOpen]=useState(false),[settingsTab,setSettingsTab]=useState<'associations'|'automatic'|'binance'|'aliases'|'files'|'prepare'>('associations'),[importOpen,setImportOpen]=useState(false);
+ const [associationSearch,setAssociationSearch]=useState('');
+ useEffect(()=>{const params=new URLSearchParams(window.location.search);if(params.get('settings')==='associations'){setSettingsOpen(true);setSettingsTab('associations');setAssociationSearch(params.get('search')||'');}},[]);
  const [orderContext,setOrderContext]=useState<StatementOrderContext>({available:false,accounts:[],mappings:[]});
  const [inboxRevision,setInboxRevision]=useState(0);
  const [deletionAvailable,setDeletionAvailable]=useState(false);
@@ -90,7 +92,7 @@ export default function BankStatementWorkspace() {
   {settingsOpen&&<SelectionModal title="Configuración de extractos" wide disabled={busy} onClose={()=>setSettingsOpen(false)}>
    <div role="tablist" aria-label="Configuración bancaria" className="mb-4 flex gap-1 overflow-x-auto border-b border-slate-200">{([['associations','Asociaciones automáticas'],['binance','Binance P2P'],['automatic','Registro automático'],['aliases','Alias de cuentas'],['files','Identificadores de archivos'],['prepare','Preparar cuentas']] as const).map(([value,label])=><button key={value} type="button" role="tab" id={'bank-settings-'+value} aria-selected={settingsTab===value} aria-controls={'bank-settings-panel-'+value} disabled={busy} onClick={()=>setSettingsTab(value)} className={'shrink-0 border-b-2 px-3 py-3 text-sm font-medium '+(settingsTab===value?'border-brand-600 text-brand-700':'border-transparent text-slate-500 hover:text-slate-800')}>{label}</button>)}</div>
    <div role="tabpanel" id={'bank-settings-panel-'+settingsTab} aria-labelledby={'bank-settings-'+settingsTab}>
-    {settingsTab==='associations'&&<BankAssociationSettings onSaved={()=>setInboxRevision(value=>value+1)}/>}
+    {settingsTab==='associations'&&<BankAssociationSettings initialSearch={associationSearch} onSaved={()=>setInboxRevision(value=>value+1)}/>}
     {settingsTab==='automatic'&&<BankAutomaticSettings accounts={accounts.filter(a=>orderContext.mappings.some(m=>m.financial_account_id===a.id))} onSaved={async()=>{await catalog();setInboxRevision(value=>value+1);}}/>}
     {settingsTab==='binance'&&<BankAssociationSettings group="binance_p2p" onSaved={()=>setInboxRevision(value=>value+1)}/>}
     {settingsTab==='aliases'&&<StatementMpAccountSettings accounts={accounts} context={orderContext} busy={busy} save={saveMpAccount}/>}

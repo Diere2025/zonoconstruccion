@@ -10,6 +10,7 @@ import { treasuryDateTime, treasuryToday } from "@/lib/treasuryTransactionTime";
 import { supabase } from "@/lib/supabase";
 import OrderApplications from '@/components/finanzas/operations/OrderApplications';
 import OperationEditor from '@/components/finanzas/operations/OperationEditor';
+import MovementClassificationDetail from '@/components/finanzas/MovementClassificationDetail';
 import OperationChooser from '@/components/finanzas/operations/OperationChooser';
 import { createAuthenticatedRequester } from '@/lib/authenticatedRequest';
 import CollectionOrderLinkModal from '@/components/finanzas/operations/CollectionOrderLinkModal';
@@ -441,6 +442,7 @@ function FinanceWorkspace() {
   const [showSummary, setShowSummary] = useState(false);
   const [optionalColumns, setOptionalColumns] = useState<Record<OptionalFinanceColumn, boolean>>({ subcategory: false, efe: false, notes: false });
   const [expandedTransactions, setExpandedTransactions] = useState<Record<string, boolean>>({});
+  const [classificationTransactionId, setClassificationTransactionId] = useState<string|null>(null);
   useEffect(() => {
     try {
       setShowSummary(localStorage.getItem("zono_finanzas_summary") === "true");
@@ -1422,7 +1424,8 @@ function FinanceWorkspace() {
                                     </button>
                                     <details className="relative" onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) e.currentTarget.open = false; }}>
                                       <summary aria-label="Más acciones del movimiento" className="cursor-pointer list-none rounded p-1 text-slate-400 hover:bg-slate-100"><MoreHorizontal className="h-3.5 w-3.5" /></summary>
-                                      <div className="absolute right-0 top-full z-20 min-w-32 rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
+                                      <div className="absolute right-0 top-full z-20 min-w-48 rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
+                                    <button type="button" className="block w-full rounded px-2 py-2 text-left text-xs hover:bg-slate-50" onClick={()=>setClassificationTransactionId(t.id)}>Ver pago / cambiar clasificación</button>
                                     <button
                                       type="button" disabled={operationsAvailable===false || inactive || Boolean(cancellingTransactionId)}
                                       onClick={() => handleDuplicateTx(t)}
@@ -1449,7 +1452,8 @@ function FinanceWorkspace() {
                                   <span><b>Subcategoría:</b> {t.sub_category || "—"}</span>
                                   <span><b>EFE:</b> {t.efe_category || "—"}</span>
                                   <span className="whitespace-pre-wrap break-words"><b>Observaciones:</b> {t.notes || "—"}</span>
-                                  <span><b>Concepto original:</b> {t.concept || "—"}</span>{t.classification&&<><span><b>Persona:</b> {t.classification.person||"—"}</span><span><b>Destino:</b> {t.classification.destination||"—"}</span><span><b>Detalle:</b> {t.classification.detail||"—"}</span></>}
+                                  <button type="button" className="text-brand-700 underline" onClick={()=>setClassificationTransactionId(t.id)}>Ver pago original y clasificación</button>
+                                  <span><b>Concepto del movimiento:</b> {t.concept || "—"}</span>{t.classification&&<><span><b>Persona:</b> {t.classification.person||"—"}</span><span><b>Destino:</b> {t.classification.destination||"—"}</span><span><b>Detalle:</b> {t.classification.detail||"—"}</span></>}
                                   {t.financial_operations && <span><b>Operación:</b> {operationLabels[t.financial_operations.operation_type]} · {t.financial_operations.status==='cancelled'?'Anulada':'Registrada'} · versión {t.financial_operations.version}{t.financial_operations.detail.period?` · período ${t.financial_operations.detail.period}`:''}</span>}
                                   {t.reversal_of_transaction_id && <span className="font-semibold text-amber-700">Compensación de anulación</span>}
                                   {t.treasury_settlement_id && <a href="/admin/rendiciones" className="font-semibold text-brand-700 underline">Origen: Rendiciones</a>}
@@ -1959,6 +1963,7 @@ function FinanceWorkspace() {
           ========================================================================= */}
       {choosingOperation && <OperationChooser onClose={()=>setChoosingOperation(false)} onChoose={kind=>{setChoosingOperation(false);setOperationEditor({kind});}}/>}
       {orderReference && <OrderApplications id={orderReference} onClose={()=>setOrderReference(null)}/>}
+      {classificationTransactionId&&<MovementClassificationDetail transactionId={classificationTransactionId} readOnly={localInspection} onClose={()=>setClassificationTransactionId(null)} onSaved={operationSaved}/>}
       {operationEditor && <OperationEditor {...operationEditor} onMoreOperations={()=>{setOperationEditor(null);setChoosingOperation(true);}} readOnly={localInspection} requestOverride={localInspection?localOperationRead:undefined} onClose={()=>setOperationEditor(null)} onSaved={operationSaved}/>}
       {isLinkModalOpen && reconcilingTx && (reconcilingTx.type==='ingreso' && ['Recaudación','Cobranza'].includes(reconcilingTx.category) ? <CollectionOrderLinkModal transactionId={reconcilingTx.id} code={movementCode(reconcilingTx)} onClose={()=>{setIsLinkModalOpen(false);setReconcilingTx(null);}} onSaved={operationSaved}/> : <OperationEditor kind={inferOperationType(reconcilingTx)} transactionId={reconcilingTx.id} mode="link" onClose={()=>{setIsLinkModalOpen(false);setReconcilingTx(null);}} onSaved={operationSaved}/>)}
 
