@@ -6,6 +6,7 @@ const colors:Record<string,[string,string,string]>={
  'MP4':['#5b21b6','#f5f3ff','#ddd6fe'],
  'MP5':['#92400e','#fffbeb','#fde68a'],
  'MP3 Reserva Diego':['#155e75','#ecfeff','#a5f3fc'],
+ 'MP4 Reserva Diego':['#6b21a8','#faf5ff','#e9d5ff'],
  'Efectivo Pesos':['#166534','#f0fdf4','#bbf7d0'],
  'Efectivo Dólares':['#334155','#f1f5f9','#cbd5e1'],
  'Galicia':['#065f46','#ecfdf5','#a7f3d0'],
