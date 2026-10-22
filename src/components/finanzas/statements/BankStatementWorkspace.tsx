@@ -29,7 +29,7 @@ type CommitPayload = { action: string; batch: string; version: number; key: stri
 export default function BankStatementWorkspace() {
  const [settingsOpen,setSettingsOpen]=useState(false),[settingsTab,setSettingsTab]=useState<'associations'|'automatic'|'binance'|'aliases'|'files'|'prepare'>('associations'),[importOpen,setImportOpen]=useState(false);
  const [associationSearch,setAssociationSearch]=useState('');
- useEffect(()=>{const params=new URLSearchParams(window.location.search);if(params.get('settings')==='associations'){setSettingsOpen(true);setSettingsTab('associations');setAssociationSearch(params.get('search')||'');}},[]);
+ useEffect(()=>{const params=new URLSearchParams(window.location.search);if(params.get('settings')==='associations'){setSettingsOpen(true);setSettingsTab('associations');setAssociationSearch(params.get('search')||'');}if(params.get('import')==='excel')setImportOpen(true);},[]);
  const [orderContext,setOrderContext]=useState<StatementOrderContext>({available:false,accounts:[],mappings:[]});
  const [inboxRevision,setInboxRevision]=useState(0);
  const [deletionAvailable,setDeletionAvailable]=useState(false);
