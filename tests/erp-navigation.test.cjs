@@ -109,3 +109,22 @@ test('unauthorized screens do not acquire a breadcrumb through another module', 
  test('sellers including restricted sellers can open payment checks', () => {
  for (const restricted of [true, false]) assert.ok(urls(visibleErpModules(identity(['seller'], restricted))).includes('/admin/cobros-mp'));
  });
+
+test('Administración can open and configure unclassified movements without access to management reports', () => {
+  const routes = ['/admin/finanzas/clasificar', '/admin/finanzas/clasificacion/configuracion'];
+  const layout = fs.readFileSync('src/components/ui/AdminLayout.tsx', 'utf8');
+  const guard = layout.match(/const canAccessSpecializedRoute = useCallback\(\(path: string, search: string\) => \{([\s\S]*?)\}, \[hasRole, isAdminRole\]\);/)[1];
+  const compiled = ts.transpileModule(`function canAccess(path: string, search: string) {${guard}}`, {}).outputText;
+  const canOpen = (roles, destination) => vm.runInNewContext(`${compiled}\ncanAccess('${destination}', '')`, {
+    isAdminRole: roles.includes('admin'), hasRole: role => roles.includes(role), Set, Array, URLSearchParams
+  });
+  for (const route of routes) {
+    assert.ok(urls(visibleErpModules(identity(['administracion']))).includes(route));
+    assert.equal(canOpen(['administracion'], route), true);
+    assert.equal(canOpen(['admin'], route), true);
+    for (const role of ['compras', 'logistica', 'fletero']) assert.equal(canOpen([role], route), false, role);
+  }
+  for (const route of ['/admin/finanzas/eerr', '/admin/finanzas/planificacion', '/admin/finanzas/desconocida']) {
+    assert.equal(canOpen(['administracion'], route), false, route);
+  }
+});

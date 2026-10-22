@@ -2504,7 +2504,7 @@ function RendicionesContent() {
                                 <td className="py-2 px-2.5">
                                   {item.matchingIssue ? (
                                     <span className="inline-flex max-w-48 items-center rounded-md border border-red-200 bg-red-50 px-1.5 py-0.5 text-[10px] font-bold text-red-700" title={item.matchingIssue}>
-                                      Revisar duplicadas
+                                      {item.matchingIssue}
                                     </span>
                                   ) : item.existingStatus === "confirmed" && !item.existingRouteSheetId && previewSource === "entregados" ? (
                                     <span className="inline-flex items-center gap-1 rounded-md border border-violet-200 bg-violet-50 px-1.5 py-0.5 text-[10px] font-bold text-violet-700">

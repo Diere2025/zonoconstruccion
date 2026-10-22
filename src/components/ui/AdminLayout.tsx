@@ -413,7 +413,7 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
     if (hasRole('fletero')) allowedPaths.add('/admin/cobros-mp');
     if (hasRole('administracion')) {
       allowedPaths.add('/admin/logistica-planificacion');
-      ['/admin/cobros-mp', '/admin/finanzas', '/admin/finanzas/extractos', '/admin/rendiciones', '/admin/comprobantes-tesoreria']
+      ['/admin/cobros-mp', '/admin/finanzas', '/admin/finanzas/extractos', '/admin/finanzas/clasificar', '/admin/finanzas/clasificacion/configuracion', '/admin/rendiciones', '/admin/comprobantes-tesoreria']
         .forEach(route => allowedPaths.add(route));
     }
     if (hasRole('compras')) {
