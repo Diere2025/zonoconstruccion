@@ -3,7 +3,6 @@
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { 
-  Package, 
   RefreshCw, 
   AlertTriangle, 
   CheckCircle2, 
@@ -14,6 +13,8 @@ import {
   ArrowRightLeft,
   Factory
 } from "lucide-react";
+import { sortStockProducts, stockSupplierLabel, type StockSortKey } from "@/lib/stockControlSorting";
+import type { StockPurchaseContext } from "@/lib/stockPurchaseContext";
 import { Button } from "@/components/ui/Button";
 
 interface ProductComparison {
@@ -49,8 +50,14 @@ export default function StockControlPage() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
-  const [filterType, setFilterType] = useState<"discrepancies" | "all" | "onlyInDb" | "unmatched">("discrepancies");
+  const [filterType, setFilterType] = useState<"catalog" | "discrepancies" | "all" | "onlyInDb" | "unmatched">("catalog");
   
+  const [sortKey, setSortKey] = useState<StockSortKey>("supplier");
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+  const [supplierId, setSupplierId] = useState("");
+  const [stockFilter, setStockFilter] = useState("all");
+  const [purchaseContext, setPurchaseContext] = useState<Record<string, StockPurchaseContext> | null>(null);
+  const [purchaseWarning, setPurchaseWarning] = useState<string | null>(null);
   const [comparisonList, setComparisonList] = useState<ProductComparison[]>([]);
   const [unmatchedSheetProducts, setUnmatchedSheetProducts] = useState<UnmatchedProduct[]>([]);
   const [onlyInDb, setOnlyInDb] = useState<OnlyInDbProduct[]>([]);
@@ -61,10 +68,10 @@ export default function StockControlPage() {
     fetchData();
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (preserveSuccess = false) => {
     setLoading(true);
     setError(null);
-    setSuccessMessage(null);
+    if (!preserveSuccess) setSuccessMessage(null);
     try {
       const res = await fetch("/api/admin/sync-stock");
       if (!res.ok) {
@@ -74,8 +81,10 @@ export default function StockControlPage() {
       setComparisonList(data.comparisonList || []);
       setUnmatchedSheetProducts(data.unmatchedSheetProducts || []);
       setOnlyInDb(data.onlyInDb || []);
-    } catch (err: any) {
-      setError(err.message || "Error al cargar la comparación.");
+      setPurchaseContext(data.purchaseContext ?? null);
+      setPurchaseWarning(data.purchaseWarning || null);
+    } catch (err: unknown) {
+      setError((err instanceof Error ? err.message : "") || "Error al cargar la comparación.");
     } finally {
       setLoading(false);
     }
@@ -96,9 +105,10 @@ export default function StockControlPage() {
         throw new Error(data.error || "Error en la sincronización del stock.");
       }
       setSuccessMessage(`Sincronización finalizada con éxito. Se actualizaron los niveles de ${data.updatedCount} productos.`);
-      await fetchData();
-    } catch (err: any) {
-      setError(err.message || "Error al sincronizar.");
+      await fetchData(true);
+    } catch (err: unknown) {
+      setError((err instanceof Error ? err.message : "") || "Error al sincronizar.");
+    } finally {
       setSyncing(false);
     }
   };
@@ -110,28 +120,40 @@ export default function StockControlPage() {
     c => c.sheetPhysical !== c.dbPhysical || c.sheetReserved !== c.dbCalculatedReserved
   ).length;
 
-  // Filter comparison list
-  const filteredComparisonList = comparisonList.filter(c => {
-    const matchesSearch = 
-      c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-      c.sku.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    if (!matchesSearch) return false;
-
-    if (filterType === "discrepancies") {
-      return c.sheetPhysical !== c.dbPhysical || c.sheetReserved !== c.dbCalculatedReserved;
-    }
+  const catalog = [...comparisonList.map(p => ({ ...p, id: p.productId })), ...onlyInDb];
+  const supplierOptions = [...new Map(Object.values(purchaseContext || {}).flatMap(c => c.suppliers).map(s => [s.id, s])).values()].sort((a, b) => a.name.localeCompare(b.name, "es"));
+  const available = (p: { dbPhysical: number; dbCalculatedReserved: number }) => p.dbPhysical - p.dbCalculatedReserved;
+  const matchesFilters = (p: { id?: string; productId?: string; name: string; sku: string; dbPhysical: number; dbCalculatedReserved: number }) => {
+    const context = purchaseContext?.[p.id || p.productId || ""];
+    const term = searchTerm.trim().toLocaleLowerCase("es");
+    if (![p.name, p.sku || ""].some(value => value.toLocaleLowerCase("es").includes(term))) return false;
+    if (supplierId === "none" ? !context || context.suppliers.length > 0 : supplierId && !context?.suppliers.some(s => s.id === supplierId)) return false;
+    if (stockFilter === "incoming") return !!context && context.pendingIncoming > 0;
+    if (stockFilter === "shortage") return available(p) < 0;
+    if (stockFilter === "uncovered") return !!context && available(p) + context.pendingIncoming < 0;
     return true;
-  });
-
-  const filteredOnlyInDb = onlyInDb.filter(p => 
-    p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    p.sku.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
-  const filteredUnmatched = unmatchedSheetProducts.filter(p => 
-    p.name.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  };
+  const filteredComparisonList = sortStockProducts(comparisonList.filter(p => matchesFilters(p) && (filterType !== "discrepancies" || p.sheetPhysical !== p.dbPhysical || p.sheetReserved !== p.dbCalculatedReserved)), purchaseContext, sortKey, sortDirection, p => p.dbAvailable);
+  const filteredOnlyInDb = sortStockProducts((filterType === "catalog" ? catalog : onlyInDb).filter(matchesFilters), purchaseContext, sortKey, sortDirection);
+  const filteredUnmatched = unmatchedSheetProducts.filter(p => !supplierId && stockFilter === "all" && p.name.toLowerCase().includes(searchTerm.trim().toLowerCase()));
+  const filteredCatalog = catalog.filter(matchesFilters);
+  const renderSupplyCells = (id: string, currentAvailable: number) => {
+    const context = purchaseContext?.[id];
+    const projected = context ? currentAvailable + context.pendingIncoming : null;
+    return <>
+      <td className="py-3.5 px-5 text-center text-slate-600">
+        {context ? context.pendingIncoming > 0 ? <details>
+          <summary className="cursor-pointer font-semibold text-blue-700">{context.pendingIncoming} por recibir · {context.pendingOrders.length} OC</summary>
+          <ul className="mt-2 space-y-1 text-left text-[11px]">{context.pendingOrders.map(order => <li key={order.id}><Link className="text-blue-700 underline" href="/admin/compras">{order.code}</Link> · {order.supplierName}: {order.quantity}</li>)}</ul>
+        </details> : "Sin pendientes" : "No disponible"}
+      </td>
+      <td className={"py-3.5 px-5 text-center font-semibold tabular-nums " + (projected !== null && projected < 0 ? "text-rose-600" : "text-slate-700")}>{projected ?? "—"}</td>
+    </>;
+  };
+  const renderSuppliers = (id: string) => <td className="py-3.5 px-5 text-slate-600">{stockSupplierLabel(purchaseContext?.[id]) || (purchaseContext ? "Sin proveedor vinculado" : "Proveedor no disponible")}</td>;
+  const sortHeader = (key: StockSortKey, label: string, centered = true) => <th aria-sort={sortKey === key ? (sortDirection === "asc" ? "ascending" : "descending") : "none"} className={"py-3 px-5 " + (centered ? "text-center" : "text-left")}>
+    <button type="button" className="cursor-pointer hover:text-brand-700" onClick={() => { if (sortKey === key) setSortDirection(sortDirection === "asc" ? "desc" : "asc"); else { setSortKey(key); setSortDirection("asc"); } }}>{label}<span aria-hidden="true">{sortKey === key ? sortDirection === "asc" ? " ↑" : " ↓" : " ↕"}</span></button>
+  </th>;
 
   return (
     <div className="space-y-6 pb-12">
@@ -158,7 +180,7 @@ export default function StockControlPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={fetchData}
+            onClick={() => fetchData()}
             isLoading={loading}
             disabled={syncing}
           >
@@ -259,7 +281,7 @@ export default function StockControlPage() {
             <span className="font-semibold text-slate-900 block">¿Cómo funciona la sincronización y cálculo de stock?</span>
             <ul className="list-disc pl-4 space-y-0.5 text-[11px]">
               <li><b>Stock Físico:</b> Se sincroniza directamente desde la planilla de Google Sheets.</li>
-              <li><b>Stock Reservado:</b> Se calcula sumando el stock comprometido en todos los pedidos activos (<i>Pendiente, Confirmado</i>), considerando tanto minoristas como mayoristas sin límite temporal.</li>
+              <li><b>Stock Reservado:</b> Se calcula sumando el stock comprometido en todos los pedidos activos (<i>Pendiente, Confirmado</i>), considerando minoristas y mayoristas dentro de la ventana operativa de 30 días, más pedidos de vendedores pendientes de importar.</li>
               <li><b>Stock Disponible:</b> Es el resultado exacto de <code>Físico - Reservado</code>.</li>
             </ul>
           </div>
@@ -270,15 +292,36 @@ export default function StockControlPage() {
           <div className="space-y-1 text-slate-600">
             <span className="font-semibold text-slate-900 block">Identificación de desfases</span>
             <p className="text-[11px] leading-relaxed">
-              Las filas resaltadas indican cuando el valor asentado en la planilla difiere de los pedidos reales en sistema. Al presionar <b>"Sincronizar Todo"</b>, se actualizará el stock reservado de la base de datos con el cálculo consolidado.
+              Las filas resaltadas indican cuando el valor asentado en la planilla difiere de los pedidos reales en sistema. Al presionar <b>Sincronizar Todo</b>, se actualizará el stock reservado de la base de datos con el cálculo consolidado.
             </p>
           </div>
         </div>
       </div>
 
+      {purchaseWarning && <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-800">{purchaseWarning}</div>}
+      <div className="card-enterprise p-4 space-y-3">
+        <div className="flex flex-wrap gap-3 items-end">
+          <label className="text-xs text-slate-600">Proveedor
+            <select aria-label="Proveedor" className="input-standard mt-1 min-w-48" value={supplierId} disabled={!purchaseContext} onChange={e => setSupplierId(e.target.value)}>
+              <option value="">Todos los proveedores</option><option value="none">Sin proveedor vinculado</option>
+              {supplierOptions.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </label>
+          <label className="text-xs text-slate-600">Situación de stock
+            <select aria-label="Situación de stock" className="input-standard mt-1 min-w-48" value={stockFilter} onChange={e => setStockFilter(e.target.value)}>
+              <option value="all">Todas las situaciones</option><option value="incoming" disabled={!purchaseContext}>Con pendiente de recibir</option>
+              <option value="shortage">Disponible calculado negativo</option><option value="uncovered" disabled={!purchaseContext}>Faltante aun recibiendo las OCs</option>
+            </select>
+          </label>
+          <button type="button" className="text-xs text-blue-700 underline py-2" onClick={() => { setSupplierId(""); setStockFilter("all"); setSearchTerm(""); }}>Limpiar filtros</button>
+        </div>
+        <p className="text-xs text-slate-600">{filteredCatalog.length} productos del catálogo coinciden · {purchaseContext ? filteredCatalog.filter(p => (purchaseContext[p.id]?.pendingIncoming || 0) > 0).length + " con ingreso pendiente" : "Ingresos pendientes no disponibles"} · {filteredCatalog.filter(p => available(p) < 0).length} con faltante actual</p>
+        <p className="text-[11px] text-slate-500">Disponible calculado = físico en DB − reservas calculadas. Proyectado = disponible calculado + saldo de OCs pendientes o parciales; no es stock recibido. El proveedor incluye vínculos del catálogo y OCs abiertas; las cantidades muestran todos los ingresos del producto.</p>
+      </div>
       {/* Filters and Actions Bar */}
       <div className="card-enterprise p-4 flex flex-col md:flex-row gap-4 items-center justify-between">
         <div className="flex flex-wrap items-center gap-1.5 w-full md:w-auto">
+          <button type="button" onClick={() => setFilterType("catalog")} className={"px-3 py-1.5 text-xs font-semibold rounded-xl " + (filterType === "catalog" ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600")}>Catálogo completo ({catalog.length})</button>
           <button
             type="button"
             onClick={() => setFilterType("discrepancies")}
@@ -299,7 +342,7 @@ export default function StockControlPage() {
                 : "bg-slate-100 text-slate-600 hover:bg-slate-200"
             }`}
           >
-            Todos ({comparisonList.length})
+            Emparejados ({comparisonList.length})
           </button>
           <button
             type="button"
@@ -345,37 +388,41 @@ export default function StockControlPage() {
             Analizando planilla y stock de pedidos activos...
           </span>
         </div>
-      ) : filterType === "onlyInDb" ? (
+      ) : filterType === "onlyInDb" || filterType === "catalog" ? (
         <div className="card-enterprise overflow-hidden">
           {filteredOnlyInDb.length === 0 ? (
             <div className="p-12 text-center text-xs font-medium text-slate-400">
-              No hay productos en la base de datos que falten en la planilla.
+              No se encontraron productos con los filtros seleccionados.
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left">
                 <thead>
                   <tr className="bg-slate-50/80 text-[11px] font-semibold text-slate-400 uppercase border-b border-slate-100">
-                    <th className="py-3 px-5">Producto / SKU</th>
-                    <th className="py-3 px-5 text-center">DB Físico</th>
-                    <th className="py-3 px-5 text-center">DB Reservado</th>
-                    <th className="py-3 px-5 text-center">DB Disponible</th>
+                    {sortHeader("name", "SKU", false)}
+                    {sortHeader("supplier", "Proveedor", false)}
+                    {sortHeader("physical", "Físico en sistema")}
+                    {sortHeader("reserved", "Reservado calculado")}
+                    {sortHeader("available", "Disponible calculado")}
+                    {sortHeader("incoming", "Pendiente de recibir")}
+                    {sortHeader("projected", "Proyectado")}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
                   {filteredOnlyInDb.map((p) => (
                     <tr key={p.id} className="hover:bg-slate-50/60 transition-colors">
                       <td className="py-3.5 px-5">
-                        <span className="block text-slate-900 font-semibold">{p.name}</span>
-                        <span className="block text-[11px] text-slate-400 font-mono">{p.sku || "Sin SKU"}</span>
+                        <span className="block text-slate-900 font-semibold">{p.sku || p.name}</span>
                       </td>
+                      {renderSuppliers(p.id)}
                       <td className="py-3.5 px-5 text-center font-semibold text-slate-900 tabular-nums">{p.dbPhysical}</td>
                       <td className="py-3.5 px-5 text-center text-slate-500 font-medium tabular-nums">
                         {p.dbCalculatedReserved}
                       </td>
-                      <td className={`py-3.5 px-5 text-center font-semibold tabular-nums ${p.dbAvailable < 0 ? "text-rose-600" : "text-slate-700"}`}>
-                        {p.dbAvailable}
+                      <td className={`py-3.5 px-5 text-center font-semibold tabular-nums ${available(p) < 0 ? "text-rose-600" : "text-slate-700"}`}>
+                        {available(p)}
                       </td>
+                      {renderSupplyCells(p.id, available(p))}
                     </tr>
                   ))}
                 </tbody>
@@ -387,7 +434,7 @@ export default function StockControlPage() {
         <div className="card-enterprise overflow-hidden">
           {filteredUnmatched.length === 0 ? (
             <div className="p-12 text-center text-xs font-medium text-slate-400">
-              No hay productos en la planilla que falten en la base de datos.
+              No se encontraron productos. Los productos sin emparejar no tienen proveedor ni OCs identificables; limpiá los filtros para verlos.
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -423,7 +470,7 @@ export default function StockControlPage() {
           {filteredComparisonList.length === 0 ? (
             <div className="p-12 text-center text-xs font-medium text-slate-400">
               {filterType === "discrepancies" 
-                ? "¡Excelente! Todo el stock emparejado está sincronizado y consistente."
+                ? "No hay discrepancias que coincidan con los filtros seleccionados."
                 : "No se encontraron productos emparejados."}
             </div>
           ) : (
@@ -431,10 +478,13 @@ export default function StockControlPage() {
               <table className="w-full text-left">
                 <thead>
                   <tr className="bg-slate-50/80 text-[11px] font-semibold text-slate-400 uppercase border-b border-slate-100">
-                    <th className="py-3 px-5">Producto / SKU</th>
-                    <th className="py-3 px-5 text-center">Stock Físico (Planilla vs DB)</th>
-                    <th className="py-3 px-5 text-center">Reservado (Planilla vs DB Pedidos)</th>
-                    <th className="py-3 px-5 text-center">Disponible (Planilla vs DB)</th>
+                    {sortHeader("name", "SKU", false)}
+                    {sortHeader("supplier", "Proveedor", false)}
+                    {sortHeader("physical", "Stock físico (Planilla vs DB)")}
+                    {sortHeader("reserved", "Reservado (Planilla vs pedidos)")}
+                    {sortHeader("available", "Disponible (Planilla vs DB)")}
+                    {sortHeader("incoming", "Pendiente de recibir")}
+                    {sortHeader("projected", "Proyectado")}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
@@ -446,10 +496,8 @@ export default function StockControlPage() {
                       <tr key={c.productId} className="hover:bg-slate-50/60 transition-colors">
                         <td className="py-3.5 px-5">
                           <span className="block text-slate-900 font-semibold">{c.sku || c.name}</span>
-                          {c.name && c.name !== c.sku && (
-                            <span className="block text-[11px] text-slate-400">{c.name}</span>
-                          )}
                         </td>
+                        {renderSuppliers(c.productId)}
                         
                         {/* Stock Físico */}
                         <td className="py-3.5 px-5 text-center">
@@ -498,6 +546,7 @@ export default function StockControlPage() {
                             </span>
                           </div>
                         </td>
+                        {renderSupplyCells(c.productId, available(c))}
                       </tr>
                     );
                   })}
