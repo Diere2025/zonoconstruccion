@@ -1,4 +1,5 @@
 import {deliveredSourceOnly,assignedDispatchCode,mergeDeliveredGroups} from '@/lib/logisticsDispatch/settlementSource';
+import {projectCorrectedDeliveredRows} from '@/lib/logisticsDispatch/identityCorrectionServer';
 import { settlementPaymentReassignments } from "@/lib/settlementPaymentReassignment";
 import {carrierIdentityKey,resolveCarrierIdentity,normalizeSettlementCarriers,canonicalCarrierOptions} from '@/lib/carrierIdentity';
 import {splitOrderCodes} from '@/lib/orderSync';
@@ -454,7 +455,7 @@ export async function GET(request: Request) {
 
 async function getEntregandoPreview(source: "entregando" | "entregados" = "entregados", date = "") {
   deliveredSourceOnly(source);
-  const rows = await fetchSpreadsheetValues(LOGISTICS_SPREADSHEET_ID, "'🔴 Entregados'!A2:CO");
+  const rows = await projectCorrectedDeliveredRows(supabaseAdmin, await fetchSpreadsheetValues(LOGISTICS_SPREADSHEET_ID, "'🔴 Entregados'!A2:CO"));
   let currentHeaderCarrier = "";
   let currentHeaderRouteNumber = 1;
   const groups = new Map<string, {

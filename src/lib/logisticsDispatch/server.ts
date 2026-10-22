@@ -1,5 +1,6 @@
 import {dispatchCostTerms,allocationLinks} from './settlementAccountingServer';
 import {applyStoredDispatchAssignments} from './settlementSource';
+import {projectCorrectedDeliveredRows} from './identityCorrectionServer';
 import {sameSettlementCarrier} from './settlementIdentity';
 import {calculateRealDispatchCosts} from './costs';
 import {normalizeSettlementCarriers} from '@/lib/carrierIdentity';
@@ -30,7 +31,7 @@ export async function prepareDispatchSync(db:ReturnType<typeof dispatchDatabase>
  const nativePlans=storedDispatches.length?await dispatchRows(db.from('logistics_dispatch_plans').select('*').in('dispatch_id',storedDispatches.map(d=>d.id)).order('dispatch_id')):[];
  const storedAttempts=storedDispatches.length?await dispatchRows(db.from('logistics_dispatch_attempts').select('dispatch_id,order_code').in('dispatch_id',storedDispatches.map(d=>d.id)).order('id')):[];
  const assignmentLinks=storedAttempts.flatMap(a=>{const d=storedDispatches.find(d=>d.id===a.dispatch_id);return d?[{code:d.code,date:d.delivery_date,carrierName:d.carrier_name,orderCode:a.order_code}]:[];});
- const assigned=applyStoredDispatchAssignments(logistics,assignmentLinks,sheetDate,sameSettlementCarrier);
+ const assigned=applyStoredDispatchAssignments(await projectCorrectedDeliveredRows(db,logistics),assignmentLinks,sheetDate,sameSettlementCarrier);
  const source=buildDispatchSource({logistics:assigned.values,summary,follow,settlements,cash},from,to);
  for(const plan of nativePlans){const stored=storedDispatches.find(d=>d.id===plan.dispatch_id);if(!stored)continue;let dispatch=source.dispatches.find(d=>d.code===stored.code);if(dispatch&&(dispatch.date!==stored.delivery_date||!sameSettlementCarrier(dispatch.carrierName,stored.carrier_name)))source.issues.push({key:'erp_plan_identity|'+stored.code,kind:'erp_plan_identity',code:stored.code,reference:'',message:'La planilla difiere de la fecha o fletero del LOG planificado en el ERP.'});if(!dispatch){dispatch={code:stored.code,date:stored.delivery_date,carrierName:stored.carrier_name,data:stored.data||{}};source.dispatches.push(dispatch);}dispatch.date=stored.delivery_date;dispatch.carrierName=stored.carrier_name;dispatch.data={...dispatch.data,vehicle:plan.planned.vehicle,companion:plan.planned.companion,zone:plan.planned.loads.map((l:any)=>l.zone).join(' · '),planning:plan.planned,actual:plan.actual,planStatus:plan.status,tariffEstimate:plan.estimate,...(plan.status==='cancelled'?{notDeparted:true,departureNote:plan.planned.notes||'Salida cancelada en planificación.'}:{})};}
  const assignedRows=new Set(assigned.assignedRows);for(const d of source.dispatches){const history=d.data.attemptHistory as Record<string,Array<{row:number;method:string;sourceCode:string}>>|undefined;if(history)for(const events of Object.values(history))for(const event of events)if(assignedRows.has(event.row)){event.method='erp_assignment';event.sourceCode='';}}

@@ -2,6 +2,7 @@ import {planningRows} from './planningServer';
 import {deriveLoadOrders,deliveredOrderRecords} from './planningOrders';
 import {fetchSpreadsheetValues} from '@/lib/googleSheets';
 import {SOURCE_IDS} from './model';
+import {projectCorrectedDeliveredRows} from './identityCorrectionServer';
 type Row=Record<string,any>;
 export async function planningOrderLoads(db:any,plans:Row[]){
  if(!plans.length)return [];
@@ -14,7 +15,7 @@ export async function planningOrderLoads(db:any,plans:Row[]){
  }
  // Historical orders still originate in Entregados; native route orders take precedence.
  let values:any[][]=[];
- try{values=await fetchSpreadsheetValues(SOURCE_IDS.logistics,"'🔴 Entregados'!A3:CO12000");}catch{
+ try{values=await projectCorrectedDeliveredRows(db,await fetchSpreadsheetValues(SOURCE_IDS.logistics,"'🔴 Entregados'!A3:CO12000"));}catch{
   return deriveLoadOrders(plans,records).map(p=>({...p,orderSourceWarning:'No se pudo consultar Entregados. Los datos sin pedidos vinculados todavía no están confirmados.'}));
  }
  const native=new Set(records.map(r=>r.code+'|'+r.runNumber));

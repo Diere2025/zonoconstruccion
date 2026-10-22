@@ -77,6 +77,24 @@ export function localPlanningRequester(remote: (url: string, options?: RequestIn
   }
   if (!seed?.actor) throw new Error('Actualizá la sesión antes de guardar.');
   const body = JSON.parse(String(options?.body || '{}')), state = read();
+  if(['preview-correction','correct-dispatch'].includes(body.action)){
+   if(!seed.canWrite)throw new Error('Sin permiso para corregir recorridos.');
+   const current=rows.find(r=>r.dispatch_id===body.dispatchId),carrier=seed.carriers.find((c:Row)=>c.id===body.carrierId);
+   if(!current||current.version!==body.version)throw new Error('El recorrido cambió. Volvé a consultar el impacto.');
+   if(!validDate(body.deliveryDate)||!carrier||String(body.reason||'').trim().length<10)throw new Error('Completá fecha, fletero y motivo.');
+   const header=Array.isArray(current.logistics_dispatches)?current.logistics_dispatches[0]:current.logistics_dispatches;
+   const payments=current.paymentState?.payments||[],settlements=current.renditions||[],blockers=[];
+   if(settlements.some((s:Row)=>s.status!=='draft'))blockers.push('Hay rendiciones confirmadas. Tesorería debe reabrirlas antes de corregir el recorrido.');
+   if(current.status==='cancelled')blockers.push('El LOG está cancelado.');
+   if(current.planned.carrierId!==body.carrierId&&(state.liquidations.some(f=>f.dispatchId===body.dispatchId)||current.settlementTerms?.status==='paid'))blockers.push('Revisar la liquidación aprobada antes de cambiar el fletero.');
+   const token=JSON.stringify([current.version,body.deliveryDate,body.carrierId,body.driverName,body.reason,body.acknowledgePayments]);
+   const preview={token,sourceToken:'local',beforeDate:current.planned.deliveryDate,deliveryDate:body.deliveryDate,beforeCarrier:header.carrier_name,carrierName:carrier.name,counts:{deliveries:0,orders:0,routes:0,settlements:settlements.length,payments:payments.length},sourceRows:0,related:{orders:[],settlements,payments},warnings:['Revisión local: la corrección se guarda solamente en este navegador.'],blockers};
+   if(body.action==='preview-correction')return preview;
+   if(body.token!==token||blockers.length)throw new Error(blockers[0]||'Volvé a consultar el impacto.');
+   if(payments.length&&!body.acknowledgePayments)throw new Error('Confirmá la revisión de los pagos vinculados.');
+   const corrected={...current,version:current.version+1,carrier_id:carrier.id,planned:{...current.planned,deliveryDate:body.deliveryDate,carrierId:carrier.id,driverName:body.driverName,tariffId:null},tariff_snapshot:null,logistics_dispatches:{...header,delivery_date:body.deliveryDate,carrier_name:carrier.name},renditions:settlements.map((s:Row)=>({...s,settlement_date:body.deliveryDate,carrier_name:carrier.name}))};
+   state.plans=[...state.plans.filter(p=>p.dispatch_id!==body.dispatchId),corrected];persist(state);return {saved:true};
+  }
   if(body.action==='stage-freight-history'){
    if(!seed.canLiquidate)throw new Error('Sin permiso de Tesorería.');let staged=0;
    for(const draft of seed.historicalDrafts||[]){
