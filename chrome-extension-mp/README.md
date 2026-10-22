@@ -143,3 +143,13 @@ Para actualizar una instalación clonada, ejecutá `git pull` en la rama `codex/
 Si Chrome invalida el contexto de la extensión, los lectores dejan de enviar con el contexto anterior y recargan una vez las páginas de Actividades, Movimientos o Reserva para cargar los scripts vigentes. Las páginas de operaciones no se recargan por esta recuperación. La detección usa un temporizador y puede demorarse en pestañas en segundo plano.
 
 Al instalar esta corrección por primera vez, ejecutá git pull, recargá la extensión y recargá también las pestañas de Mercado Pago: los scripts de versiones anteriores todavía no incluyen la recuperación.
+
+## Reserva Diego MP4 (1.7.3)
+
+Admite la reserva `7b241292-a4d8-46ca-9fa2-9ea6b61427fa` en el perfil de MP4 (`pagoszono.26`). Abrí https://www.mercadopago.com.ar/savings/movements/7b241292-a4d8-46ca-9fa2-9ea6b61427fa y mantené la pestaña abierta. Si el monitor figura pausado, pulsá Activar monitor. La lectura histórica comienza el 22/10/2026. El ingreso inicial de $447.200 del 22/10/2026 a las 12:31 se vincula con la transferencia existente, sin cargar saldo inicial adicional. MP3 y MP4 usan sus respectivos perfiles de Chrome y conservan el monitoreo independiente de Actividades y Movimientos.
+
+Para actualizar, ejecutá git pull en la rama codex/extension-mp-1.7.0, recargá la extensión en chrome://extensions/ y recargá las pestañas de Mercado Pago.
+
+## Paneles unificados (1.7.3)
+
+Actividades, Movimientos y Reserva comparten diseño y controles, con fondo azul, verde petróleo y violeta respectivamente. Cada pestaña conserva su sección al navegar; fuera del listado correcto el panel se vuelve rojo, bloquea la captura y permite volver mediante un enlace. Reserva muestra rojo también si la cuenta seleccionada no coincide. La versión 1.7.3 parte de 1.7.2 y conserva sus mejoras de reconexión y arranque automático. El archivo ABRIR-MERCADO-PAGO.bat abre MP4 con Profile 6 y su nueva reserva. Ejecutarlo desde el usuario Administrador (1).

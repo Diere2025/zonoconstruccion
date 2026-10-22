@@ -10,7 +10,7 @@ function fixture(path='/activities'){
  return {context,pulse:()=>pulse(),invalidate:()=>{valid=false;},reloads:()=>reloads};
 }
 test('healthy context never reloads; invalidation recovers each monitor page once',()=>{
- for(const path of ['/activities','/banking/movements','/banking/movements/2','/balance/reports/movements','/savings/movements/000101a7-1f12-4102-9d9e-871da7f7b326/']){
+ for(const path of ['/activities','/banking/movements','/banking/movements/2','/balance/reports/movements','/savings/movements/000101a7-1f12-4102-9d9e-871da7f7b326/','/savings/movements/7b241292-a4d8-46ca-9fa2-9ea6b61427fa/']){
   const f=fixture(path);f.pulse();assert.equal(f.reloads(),0);assert.equal(f.context.ZonoExtensionContext.alive(),true);
   f.invalidate();f.pulse();f.pulse();assert.equal(f.context.ZonoExtensionContext.alive(),false);assert.equal(f.reloads(),1);
  }

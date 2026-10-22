@@ -1,8 +1,8 @@
 // A reserve monitor uses its own tab ownership and alarm; it never claims
 // the Activity or Banking monitor slots in this Chrome profile.
 (function(){
- const reservePath='/savings/movements/000101a7-1f12-4102-9d9e-871da7f7b326',alarm='RESERVE_MONITOR_PULSE';
- const valid=tab=>{try{const url=new URL(tab?.url||'');return ['mercadopago.com.ar','www.mercadopago.com.ar'].includes(url.hostname)&&url.protocol==='https:'&&url.pathname.replace(/\/$/,'')===reservePath;}catch{return false;}};
+ const reservePaths=['/savings/movements/000101a7-1f12-4102-9d9e-871da7f7b326','/savings/movements/7b241292-a4d8-46ca-9fa2-9ea6b61427fa'],alarm='RESERVE_MONITOR_PULSE';
+ const valid=tab=>{try{const url=new URL(tab?.url||'');return ['mercadopago.com.ar','www.mercadopago.com.ar'].includes(url.hostname)&&url.protocol==='https:'&&reservePaths.includes(url.pathname.replace(/\/$/,''));}catch{return false;}};
  const interval=value=>Math.max(60,Math.min(86400,Number(value)||60))*1000;
  function pulse(){chrome.storage.local.get(['reserveMonitorEnabled','reserveMonitorTabId'],state=>{if(state.reserveMonitorEnabled&&state.reserveMonitorTabId)chrome.tabs.sendMessage(state.reserveMonitorTabId,{action:'RESERVE_MONITOR_TICK'}).catch(()=>{});});}
  function claim(tabId,prior,ms,reply){const nextReloadAt=Date.now()+ms;chrome.storage.local.set({reserveMonitorEnabled:true,reserveMonitorTabId:tabId,reserveMonitorNextReloadAt:nextReloadAt},()=>{chrome.alarms.create(alarm,{periodInMinutes:0.5});if(prior&&prior!==tabId)chrome.tabs.sendMessage(prior,{action:'RESERVE_MONITOR_CHANGED',active:false}).catch(()=>{});reply({ok:true,active:true,enabled:true,nextReloadAt});});}
@@ -19,7 +19,7 @@
    if(request.action==='RESERVE_MONITOR_RELOAD'){
     if(!state.reserveMonitorEnabled||state.reserveMonitorTabId!==id){reply({ok:false,error:'Monitor de reserva inactivo'});return;}
     if(Date.now()<Number(state.reserveMonitorNextReloadAt)){reply({ok:true,skipped:true,nextReloadAt:state.reserveMonitorNextReloadAt});return;}
-    const nextReloadAt=Date.now()+interval(request.intervalSeconds);chrome.storage.local.set({reserveMonitorNextReloadAt:nextReloadAt},()=>{reply({ok:true,nextReloadAt});setTimeout(()=>{const url=new URL(sender.tab.url);if(url.search||url.hash)chrome.tabs.update(id,{url:url.origin+reservePath});else chrome.tabs.reload(id);},100);});return;
+    const nextReloadAt=Date.now()+interval(request.intervalSeconds);chrome.storage.local.set({reserveMonitorNextReloadAt:nextReloadAt},()=>{reply({ok:true,nextReloadAt});setTimeout(()=>{const url=new URL(sender.tab.url);if(url.search||url.hash)chrome.tabs.update(id,{url:url.origin+url.pathname.replace(/\/$/,'')});else chrome.tabs.reload(id);},100);});return;
    }
    // New profiles start automatically; an explicit manual pause remains paused.
    if(state.reserveMonitorEnabled===false){reply({ok:true,active:false,enabled:false});return;}

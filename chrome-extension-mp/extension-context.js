@@ -12,7 +12,7 @@
     const path = location.pathname.replace(/\/$/, '');
     const monitorPage = path === '/activities' ||
       /^(?:\/banking\/movements(?:\/[1-9]\d*)?|\/balance\/reports\/movements)$/.test(path) ||
-      path === '/savings/movements/000101a7-1f12-4102-9d9e-871da7f7b326';
+      ['/savings/movements/000101a7-1f12-4102-9d9e-871da7f7b326','/savings/movements/7b241292-a4d8-46ca-9fa2-9ea6b61427fa'].includes(path);
     if (monitorPage && !recoveryStarted) {
       recoveryStarted = true;
       location.reload();

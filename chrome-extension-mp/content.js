@@ -1,7 +1,7 @@
 // content.js - DOM Processor for Mercado Pago Web
 console.log("[Zono MP Monitor] Content script initialized on", window.location.href);
 
-function isBankingPage(){return /^(?:\/banking\/movements(?:\/[1-9]\d*)?|\/balance\/reports\/movements)\/?$/.test(window.location.pathname);}
+function isBankingPage(){if(globalThis.ZonoMonitorUI?.matches()===false)return false;return /^(?:\/banking\/movements(?:\/[1-9]\d*)?|\/balance\/reports\/movements)\/?$/.test(window.location.pathname);}
 
 // Config defaults
 let config = {
@@ -56,6 +56,7 @@ function startWidgetClock() {
 }
 
 function updateMonitorWidget() {
+  globalThis.ZonoMonitorUI?.apply(document.getElementById("zono-mp-widget"),{active:isMonitorTab,error:isConnectedToErp?"":"Sin conexión confirmada con el ERP"});
   const button = document.getElementById("zono-claim-monitor");
   if (!button) return;
   button.textContent = isMonitorTab ? "✓ Pestaña monitor" : "Activar aquí";
@@ -69,6 +70,7 @@ function updateMonitorWidget() {
 }
 
 function requestMonitorState() {
+  if(globalThis.ZonoMonitorUI?.matches()===false){isMonitorTab=false;updateMonitorWidget();return;}
   if(globalThis.ZonoExtensionContext?.alive()===false)return;
   chrome.runtime.sendMessage({ action: "GET_MONITOR_STATE" }, (response) => {
     isMonitorTab = Boolean(response?.active);
@@ -187,31 +189,14 @@ function createFloatingStatusWidget() {
   const inOffice = isWorkHours();
   const widget = document.createElement("div");
   widget.id = "zono-mp-widget";
-  widget.style.cssText = "position: fixed; bottom: 20px; right: 20px; z-index: 2147483647; background: #001538; color: white; padding: 12px 18px; border-radius: 14px; box-shadow: 0 6px 25px rgba(0,0,0,0.5); font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif; font-size: 13px; display: flex; align-items: center; gap: 12px; border: 2px solid " + (isConnectedToErp ? "#0069ff" : "#ef4444") + "; user-select: none;";
-  widget.innerHTML = `
-    <span id="zono-status-dot" style="width: 10px; height: 10px; border-radius: 50%; background: ${isConnectedToErp ? '#10b981' : '#ef4444'}; display: inline-block; box-shadow: 0 0 10px ${isConnectedToErp ? '#10b981' : '#ef4444'};"></span>
-    <div>
-      <div style="display: flex; align-items: center; gap: 6px;">
-        <span style="font-weight: 800; font-size: 12px; letter-spacing: 0.5px; color: #38bdf8;">ZONO ERP AUTO-SYNC</span>
-        <span id="zono-clock" style="font-size: 10px; font-weight: 700; color: #cbd5e1; background: #0f172a; border: 1px solid #334155; padding: 1px 6px; border-radius: 4px;" title="Hora detectada por la extensión (Argentina)">🕒 --:--:--</span>
-        <span id="zono-schedule-badge" style="font-size: 9px; font-weight: 700; padding: 1px 6px; border-radius: 4px; background: ${inOffice ? '#064e3b' : '#312e81'}; color: ${inOffice ? '#34d399' : '#a5b4fc'}; border: 1px solid ${inOffice ? '#059669' : '#4338ca'};">
-          ${inOffice ? '🟢 OFICINA (' + config.workStart + '-' + config.workEnd + ')' : '🌙 FUERA DE HORARIO'}
-        </span>
-      </div>
-      <div style="font-size: 11px; color: #94a3b8; display: flex; align-items: center; gap: 6px; margin-top: 2px;" id="zono-mp-status-text">
-        <span>Próximo refresco: <b id="zono-countdown" style="color: #34d399;">${formatCountdown(getActiveInterval())}</b></span>
-        <select id="zono-quick-account" style="background: #0f172a; color: #38bdf8; border: 1px solid #334155; border-radius: 6px; font-size: 11px; font-weight: 700; padding: 2px 6px; outline: none; cursor: pointer;">
-          <option value="pagoszono.26" ${config.accountName === "pagoszono.26" ? "selected" : ""}>pagoszono.26</option>
-          <option value="diegozono.mp" ${config.accountName === "diegozono.mp" ? "selected" : ""}>diegozono.mp</option>
-          <option value="cobroszono" ${config.accountName === "cobroszono" ? "selected" : ""}>cobroszono</option>
-        </select>
-      </div>
-      <div style="font-size: 11px; margin-top: 3px;"><span id="zono-reading-status" style="color: #cbd5e1;">Lectura: esperando listado…</span> <button id="zono-diagnose" style="background: transparent; color: #38bdf8; border: 0; cursor: pointer; font-size: 10px;">Diagnóstico</button></div>
-    </div>
-    <button id="zono-force-refresh" title="Presionar Actualizar listado ahora" style="background: #0069ff; color: white; border: none; border-radius: 8px; padding: 6px 11px; font-size: 11px; font-weight: 700; cursor: pointer; margin-left: 4px;">Actualizar ya</button>
-    <button id="zono-manual-sync-history" title="Importar pagos visibles en pantalla manualmente" style="background: #1e293b; color: #38bdf8; border: 1px solid #3b82f6; border-radius: 8px; padding: 6px 9px; font-size: 10px; font-weight: 700; cursor: pointer;">📥 Sincronizar visibles</button>
-    <button id="zono-claim-monitor" style="background: #1e293b; color: #dbeafe; border: 1px solid #3b82f6; border-radius: 8px; padding: 6px 9px; font-size: 10px; font-weight: 700; cursor: pointer;">Activar aquí</button>
+  const kind=globalThis.ZonoMonitorUI?.expected.kind||(isBankingPage()?'movements':'activities');
+  widget.innerHTML = (globalThis.ZonoMonitorUI?.header(kind)||'') + `
+    <div class="zono-meta"><span id="zono-clock" title="Hora de Argentina">--:--:--</span><span id="zono-schedule-badge"></span><select id="zono-quick-account" aria-label="Cuenta de Mercado Pago"><option value="pagoszono.26">pagoszono.26</option><option value="diegozono.mp">diegozono.mp</option><option value="cobroszono">cobroszono</option></select></div>
+    <div id="zono-mp-status-text" class="zono-reading">Próximo refresco: <b id="zono-countdown">${formatCountdown(getActiveInterval())}</b></div>
+    <div class="zono-reading"><span id="zono-reading-status">Lectura: esperando listado…</span></div>
+    <div class="zono-actions"><button id="zono-force-refresh">Actualizar ya</button><button id="zono-manual-sync-history">Sincronizar visibles</button><button id="zono-claim-monitor">Activar aquí</button><button id="zono-diagnose">Diagnóstico</button></div>
   `;
+  widget.querySelector('#zono-quick-account').value=config.accountName;
   document.body.appendChild(widget);
   startWidgetClock();
 
@@ -245,6 +230,7 @@ function createFloatingStatusWidget() {
 
 function ensureWidget() {
   if (!document.body) return;
+  globalThis.ZonoMonitorUI?.apply(document.getElementById('zono-mp-widget'),{active:isMonitorTab,error:isConnectedToErp?'':'Sin conexión confirmada con el ERP'});
   if (!document.getElementById("zono-mp-widget")) {
     createFloatingStatusWidget();
   }
@@ -785,7 +771,7 @@ function playAlertBeep() {
 // 1. Check if the tab is on the principal activities page
 function isActivitiesPage() {
   const path = window.location.pathname.toLowerCase();
-  return path.startsWith("/activities") || path.startsWith("/movement") || isBankingPage();
+  return globalThis.ZonoMonitorUI?.matches()!==false && (path.replace(/\/$/, "")==="/activities" || isBankingPage());
 }
 
 // 2. Check if Mercado Pago crashed or is displaying an error screen (ultra-fast selector check)
