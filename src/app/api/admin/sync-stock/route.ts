@@ -7,6 +7,7 @@ import { fetchSpreadsheetCsv } from '@/lib/googleSheets';
 import { getUnimportedSellerOrders } from '@/lib/unimportedOrders';
 import { deduplicateReservationItems } from '@/lib/stockReservationItems';
 import { isServiceProduct } from '@/lib/serviceProducts';
+import { buildStockPurchaseContext } from '@/lib/stockPurchaseContext';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.dummy';
@@ -24,6 +25,26 @@ const normalizeText = (text: string): string => {
     .replace(/[\u0300-\u036f]/g, "") // remove accents
     .replace(/[^a-z0-9]/g, ""); // remove spaces, quotes, and symbols for robust matching
 };
+
+async function fetchStockPurchaseContext() {
+  const readAll = async (table: string, select: string, activeOrders = false) => {
+    const rows: any[] = [];
+    for (let page = 0; ; page++) {
+      let query = supabaseAdmin.from(table).select(select).order('id').range(page * 1000, page * 1000 + 999);
+      if (activeOrders) query = query.in('purchase_orders.status', ['Pendiente', 'Parcial']);
+      const { data, error } = await query;
+      if (error) throw error;
+      rows.push(...(data || []));
+      if (!data || data.length < 1000) return rows;
+    }
+  };
+  const [suppliers, relations, items] = await Promise.all([
+    readAll('suppliers', 'id, name'),
+    readAll('product_supplier_relations', 'id, product_id, supplier_id'),
+    readAll('purchase_order_items', 'id, product_id, raw_product_name, quantity_ordered, quantity_received, status, shortfall_closed, purchase_orders!inner(id, oc_code, status, supplier_id)', true),
+  ]);
+  return { suppliers, relations, items };
+}
 
 async function fetchProductsAll() {
   let allProducts: any[] = [];
@@ -96,13 +117,13 @@ function parseCSV(text: string): any[] {
   const lines = text.split('\n');
   const results: any[] = [];
   if (lines.length === 0) return results;
-
+  
   const headers = lines[0].split(',').map(normalizeRowKey);
-
+  
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i].trim();
     if (!line) continue;
-
+    
     const cells: string[] = [];
     let current = '';
     let inQuotes = false;
@@ -118,7 +139,7 @@ function parseCSV(text: string): any[] {
       }
     }
     cells.push(current.trim());
-
+    
     const obj: any = {};
     headers.forEach((h, idx) => {
       obj[h] = cells[idx] ? cells[idx].replace(/^"|"$/g, '').trim() : '';
@@ -224,11 +245,15 @@ export async function GET() {
     // Google Sheets and database reads are independent. Starting them together
     // avoids paying the stock-sheet download time before the ERP queries begin.
     const loadStartedAt = Date.now();
-    const [stockSheetLoad, productsLoad, pendingItemsLoad, unimportedLoad] = await Promise.all([
+    const [stockSheetLoad, productsLoad, pendingItemsLoad, unimportedLoad, purchasesLoad] = await Promise.all([
       timed(fetchSpreadsheetCsv(STOCK_SHEET_URL)),
       timed(fetchProductsAll()),
       timed(fetchPendingOrderItems(dateLimitStr)),
-      timed(getUnimportedSellerOrders().catch(() => null))
+      timed(getUnimportedSellerOrders().catch(() => null)),
+      fetchStockPurchaseContext().catch((error) => {
+        console.error('Error loading stock purchase context:', error);
+        return null;
+      })
     ]);
     const loadMs = Date.now() - loadStartedAt;
     const csvText = stockSheetLoad.value;
@@ -296,7 +321,7 @@ export async function GET() {
         const dbReserved = parseFloat(dbProd.stock_reserved || '0') || 0;
         // Prefer the consolidated name total: historical and current product IDs
         // can represent the same physical SKU (for example, Flotante Eco).
-        const dbCalculatedReserved =
+        const dbCalculatedReserved = 
           dbCalculatedReservesMap.get(`norm_${normCleanProdName}`) ||
           dbCalculatedReservesMap.get(`norm_${normProdName}`) ||
           dbCalculatedReservesMap.get(`norm_${normalizeText(dbProd.name)}`) ||
@@ -349,6 +374,8 @@ export async function GET() {
       comparisonList,
       unmatchedSheetProducts,
       onlyInDb,
+      purchaseContext: purchasesLoad ? buildStockPurchaseContext(dbProducts, purchasesLoad.suppliers, purchasesLoad.relations, purchasesLoad.items) : null,
+      purchaseWarning: purchasesLoad ? null : 'No se pudieron cargar los proveedores y las OCs pendientes. Actualizá para reintentar.',
       metrics: { loadMs, totalMs: Date.now() - startedAt, sourcesMs }
     });
 
@@ -433,7 +460,7 @@ export async function POST() {
         const sheetPhysical = parseFloat((row['Stock Actual'] || '0').replace(',', '.')) || 0;
         const sheetReserved = parseFloat((row['Reservado'] || '0').replace(',', '.')) || 0;
         // Prefer the consolidated name total so product aliases are not omitted.
-        const dbCalculatedReserved =
+        const dbCalculatedReserved = 
           dbCalculatedReservesMap.get(`norm_${normCleanProdName}`) ||
           dbCalculatedReservesMap.get(`norm_${normProdName}`) ||
           dbCalculatedReservesMap.get(`norm_${normalizeText(dbProd.name)}`) ||
