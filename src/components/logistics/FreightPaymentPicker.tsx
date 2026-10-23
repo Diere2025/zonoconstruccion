@@ -1,0 +1,17 @@
+'use client';
+import {useEffect,useRef,useState} from 'react';
+import {displayReportDate} from '@/components/ui/ReportDateRangePicker';
+import {treasuryToday} from '@/lib/treasuryTransactionTime';
+type Row=Record<string,any>;
+const money=(v:number)=>new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS'}).format(v);
+export default function FreightPaymentPicker({dispatchId,onRequest,onSelect,onClose}:{dispatchId:string;onRequest:(query:string)=>Promise<any>;onSelect:(code:string)=>Promise<void>;onClose:()=>void}){
+ const dialog=useRef<HTMLDialogElement>(null);
+ const [rows,setRows]=useState<Row[]>([]),[period,setPeriod]=useState<Row|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState(''),[other,setOther]=useState(false),[busy,setBusy]=useState(false);
+ useEffect(()=>{dialog.current?.showModal();let active=true;onRequest('?action=available-freight-payments&dispatchId='+encodeURIComponent(dispatchId)).then(r=>{if(active){setRows(r.rows);setPeriod(r);}}).catch(e=>{if(active)setError(e.message);}).finally(()=>{if(active)setLoading(false);});return ()=>{active=false;};},[dispatchId,onRequest]);
+ const shown=rows.filter(r=>other||r.match!=='review');
+ return <dialog ref={dialog} onCancel={onClose} className="m-auto max-h-[85vh] w-[min(950px,95vw)] overflow-auto rounded-xl border p-5 backdrop:bg-black/40" aria-labelledby="freight-payment-picker-title"><div className="flex items-center justify-between gap-4"><h3 id="freight-payment-picker-title" className="text-lg font-semibold">Vincular un pago existente</h3><button type="button" onClick={onClose} disabled={busy} aria-label="Cerrar selector de pagos">Cerrar</button></div><p className="my-3 text-sm">Elegí un movimiento y revisá su correspondencia e importe antes de confirmar. Sólo se muestran pagos sin vínculo ni desglose, activos en pesos.</p>{period&&<p className="text-sm text-slate-500">Movimientos del {displayReportDate(period.from)} al {displayReportDate(period.to)}, además de los que mencionan este LOG.</p>}
+ <label className="my-3 flex gap-2 text-sm"><input type="checkbox" checked={other} onChange={e=>setOther(e.target.checked)}/>Mostrar también otros pagos del período sin referencia suficiente</label>
+ {loading?<p role="status">Buscando pagos disponibles…</p>:<div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr>{['Movimiento / fecha','Cuenta','Concepto y referencia','Importe',''].map(h=><th key={h} className="p-2">{h}</th>)}</tr></thead><tbody>{shown.map(r=><tr key={r.id} className="border-t"><td className="p-2">{r.movement_code}<p>{displayReportDate(treasuryToday(new Date(r.created_at)))}</p></td><td className="p-2">{(Array.isArray(r.financial_accounts)?r.financial_accounts[0]:r.financial_accounts)?.name||'—'}</td><td className="p-2">{r.concept}<p>{r.notes}</p><p className="text-amber-800">{r.evidence}</p></td><td className="p-2">{money(Number(r.amount))}</td><td className="p-2"><button type="button" disabled={busy} className="rounded-lg bg-blue-600 px-3 py-2 text-white" onClick={async()=>{setBusy(true);setError('');try{await onSelect(r.movement_code);onClose();}catch(e:any){setError(e.message);}finally{setBusy(false);}}}>Revisar pago</button></td></tr>)}</tbody></table>{!shown.length&&<p className="py-4">No hay pagos disponibles con estos criterios. Si ya tiene vínculo, consultalo por su código en la distribución avanzada.</p>}</div>}
+ {error&&<p role="alert" className="mt-3 text-red-700">{error}</p>}
+ </dialog>;
+}
