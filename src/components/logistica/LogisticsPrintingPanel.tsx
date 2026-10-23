@@ -17,6 +17,7 @@ import { LogisticsPrintOrder } from '@/lib/logisticsPrintOrders';
 import { LogisticsRemittance } from '@/lib/logisticsRemittances';
 import { waitForPrintImages } from '@/lib/printAssets';
 import { supabase } from '@/lib/supabase';
+import { POINT_ONE_PAYMENT_PLAN } from '@/lib/cuotaSimple';
 import {
   LOGISTICS_TRIP_MAX_COLUMNS,
   normalizeLogisticsPastedRows,
@@ -187,7 +188,7 @@ export default function LogisticsPrintingPanel() {
       }
       const payload = await response.json() as { rates?: number[]; pointRate?: number; canEdit?: boolean; error?: string };
       if (!response.ok || !Array.isArray(payload.rates) || payload.rates.length !== DEFAULT_ORDER_NOTE_RATES.length) throw new Error(payload.error || 'No se pudieron cargar los recargos de cuotas.');
-      setNoteSettings(current => ({ ...current, posnetRates: payload.rates!, pointRate: payload.pointRate ?? 7 }));
+      setNoteSettings(current => ({ ...current, posnetRates: payload.rates!, pointRate: payload.pointRate ?? POINT_ONE_PAYMENT_PLAN.surcharge_percentage }));
       setCuotaSimpleError('');
       setCuotaSimpleStatus('ready');
     } catch (loadError) {
@@ -378,7 +379,7 @@ export default function LogisticsPrintingPanel() {
     setSelected(new Set());
     setSearch('');
     setError('');
-    setNoteSettings(current => ({ ...emptyNoteSettings(), posnetRates: current.posnetRates }));
+    setNoteSettings(current => ({ ...emptyNoteSettings(), posnetRates: current.posnetRates, pointRate: current.pointRate }));
     setTripWarning(null);
     setShowIgnoredEncWarning(false);
     setIgnoredEncCodes([]);

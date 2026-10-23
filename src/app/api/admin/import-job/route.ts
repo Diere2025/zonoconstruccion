@@ -375,7 +375,7 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
             if (pwMatch) {
               installments = parseInt(pwMatch[1], 10);
               name = `Payway${installments} (Sept-26)`;
-            } else if (name.toLowerCase().includes("cuota simple")) {
+            } else if (/cuota\s+simple|posnet/i.test(name)) {
               installments = cuotaSimpleInstallments(name) || 6;
             } else if (name.match(/(\d+)\s*cuota/i)) {
               installments = parseInt(name.match(/(\d+)\s*cuota/i)![1], 10);

@@ -31,20 +31,20 @@ function row(code, date = '24/09/2026', driver = 'Chofer A', route = 'R1') {
 
 test('current installment names and retired methods are recognized', () => {
   for (const [index, plan] of plans.CUOTA_SIMPLE_PLANS.entries()) {
-    assert.equal(plans.cuotaSimpleInstallments(plan.name), [2, 3, 6, 9, 12, 18][index]);
+    assert.equal(plans.cuotaSimpleInstallments(plan.name), [3, 6][index]);
     assert.equal(plans.isRetiredPaymentMethod(plan.name), false);
     assert.equal(notes.selectedOrderNoteCardIndex(plan.name), index);
   }
   for (const name of ['Payway6 (Sept-26)', 'Cuota Simple (Sept-26)', 'Cuota Simple (Mayo-26)']) {
     assert.equal(plans.isRetiredPaymentMethod(name), true);
-    assert.equal(notes.selectedOrderNoteCardIndex(name), 2);
+    assert.equal(notes.selectedOrderNoteCardIndex(name), 1);
   }
   assert.equal(plans.isRetiredPaymentMethod('Contado'), false);
 });
 
 test('cash and each preselected plan share a base without compounding surcharges', () => {
   const base = { ...print.parseLogisticsPrintRows([row('JS1')])[0], productsSubtotal: 100000, pendingBalance: 100000 };
-  const expected = [122000, 128000, 145500, 170000, 193000, 241000];
+  const expected = [125000, 143000];
   assert.deepEqual(Array.from(notes.orderNoteCardAmounts(base, notes.DEFAULT_ORDER_NOTE_RATES)), expected);
   for (const [index, plan] of plans.CUOTA_SIMPLE_PLANS.entries()) {
     for (const surcharge of [0, expected[index] - 100000]) {
@@ -57,7 +57,7 @@ test('cash and each preselected plan share a base without compounding surcharges
 
 test('a saved custom total is preserved in its selected installment column', () => {
   const order = { ...print.parseLogisticsPrintRows([row('JS1')])[0], paymentMethod: 'Cuota Simple x3 (oct26)', productsSubtotal: 100000, surcharge: 25000, pendingBalance: 125000 };
-  assert.deepEqual(Array.from(notes.orderNoteCardAmounts(order, notes.DEFAULT_ORDER_NOTE_RATES)), [122000, 125000, 145500, 170000, 193000, 241000]);
+  assert.deepEqual(Array.from(notes.orderNoteCardAmounts(order, notes.DEFAULT_ORDER_NOTE_RATES)), [125000, 143000]);
 });
 
 test('historical Payway and inflated legacy Cuota Simple recover their base', () => {
@@ -67,41 +67,54 @@ test('historical Payway and inflated legacy Cuota Simple recover their base', ()
   assert.equal(notes.orderNoteBaseAmount({ ...payway, surcharge: 0 }, notes.DEFAULT_ORDER_NOTE_RATES), 100000);
   const legacy = { ...base, paymentMethod: 'Cuota Simple (Sept-26)', productsSubtotal: 142000, surcharge: 59640, pendingBalance: 201640 };
   assert.equal(notes.orderNoteBaseAmount(legacy, notes.DEFAULT_ORDER_NOTE_RATES), 100000);
-  assert.deepEqual(Array.from(notes.orderNoteCardAmounts(legacy, notes.DEFAULT_ORDER_NOTE_RATES)), [122000, 128000, 201640, 170000, 193000, 241000]);
+  assert.deepEqual(Array.from(notes.orderNoteCardAmounts(legacy, notes.DEFAULT_ORDER_NOTE_RATES)), [125000, 201640]);
 });
 
 test('pending legacy Payway plans retain the agreed balance in matching Cuota Simple installments', () => {
   const base = { ...print.parseLogisticsPrintRows([row('LK01711')])[0], productsSubtotal: 229000, orderTotal: 302280, pendingBalance: 302280, surcharge: 73280 };
-  assert.equal(notes.selectedOrderNoteCardIndex('Payway3 (Sept-26)'), 1);
-  assert.equal(notes.orderNoteCardAmounts({ ...base, paymentMethod: 'Payway3 (Sept-26)' }, notes.DEFAULT_ORDER_NOTE_RATES)[1], 302280);
-  for (const [installments, index] of [[3, 1], [6, 2], [12, 4]]) {
+  assert.equal(notes.selectedOrderNoteCardIndex('Payway3 (Sept-26)'), 0);
+  assert.equal(notes.orderNoteCardAmounts({ ...base, paymentMethod: 'Payway3 (Sept-26)' }, notes.DEFAULT_ORDER_NOTE_RATES)[0], 302280);
+  for (const [installments, index] of [[3, 0], [6, 1]]) {
     const order = { ...base, paymentMethod: `Payway${installments} (Sept-26)`, pendingBalance: 280000, surcharge: 51000 };
     assert.equal(notes.selectedOrderNoteCardIndex(order.paymentMethod), index);
     assert.equal(notes.orderNoteCardAmounts(order, notes.DEFAULT_ORDER_NOTE_RATES)[index], 280000);
     assert.equal(notes.hasLegacyOrderNotePlan(order.paymentMethod), true);
   }
   const partial = { ...base, paymentMethod: 'Payway6 (Sept-26)', paidAmount: 100000, pendingBalance: 202280 };
-  assert.equal(notes.orderNoteCardAmounts(partial, notes.DEFAULT_ORDER_NOTE_RATES)[2], 202280);
-  assert.equal(notes.selectedOrderNoteCardIndex('Payway (6 Cuotas)'), 2);
+  assert.equal(notes.orderNoteCardAmounts(partial, notes.DEFAULT_ORDER_NOTE_RATES)[1], 202280);
+  assert.equal(notes.selectedOrderNoteCardIndex('Payway (6 Cuotas)'), 1);
   assert.equal(notes.selectedOrderNoteCardIndex('Contado'), null);
 });
 
 test('fully paid orders never show an amount to collect', () => {
   const order = { ...print.parseLogisticsPrintRows([row('JS1')])[0], paymentMethod: 'Cuota Simple x6 (oct26)', surcharge: 45500, productsSubtotal: 100000, pendingBalance: 0 };
-  assert.deepEqual(Array.from(notes.orderNoteCardAmounts(order, notes.DEFAULT_ORDER_NOTE_RATES)), [0, 0, 0, 0, 0, 0]);
+  assert.deepEqual(Array.from(notes.orderNoteCardAmounts(order, notes.DEFAULT_ORDER_NOTE_RATES)), [0, 0]);
 });
 
-test('Point one payment adds seven percent only once and preserves selected balance', () => {
-  const base = { ...print.parseLogisticsPrintRows([row('JS25735')])[0], productsSubtotal: 245000, orderTotal: 262150, pendingBalance: 262150, surcharge: 17150, paymentMethod: plans.POINT_ONE_PAYMENT_PLAN.name };
+test('retired 2, 9, 12 and 18 installment orders retain their agreed balance without offering those plans', () => {
+  for (const [count, rate] of [[2, 22], [9, 70], [12, 93], [18, 141]]) {
+    const name = `Cuota Simple x${count} (oct26)`;
+    const order = { paymentMethod: name, productsSubtotal: 100000, pendingBalance: 100000 + rate * 1000, surcharge: 0 };
+    assert.equal(plans.isRetiredPaymentMethod(name), true);
+    assert.equal(notes.selectedOrderNoteCardIndex(name), null);
+    assert.equal(notes.agreedOrderNoteInstallments(name), count);
+    assert.equal(notes.orderNoteBaseAmount(order, notes.DEFAULT_ORDER_NOTE_RATES), 100000);
+    assert.deepEqual(Array.from(notes.orderNoteCardAmounts(order, notes.DEFAULT_ORDER_NOTE_RATES)), [125000, 143000]);
+    assert.equal(order.pendingBalance, 100000 + rate * 1000);
+  }
+});
+
+test('Point one payment adds ten percent only once and preserves selected balance', () => {
+  const base = { ...print.parseLogisticsPrintRows([row('JS25735')])[0], productsSubtotal: 245000, orderTotal: 269500, pendingBalance: 269500, surcharge: 24500, paymentMethod: plans.POINT_ONE_PAYMENT_PLAN.name };
   assert.equal(notes.orderNoteBaseAmount(base, notes.DEFAULT_ORDER_NOTE_RATES), 245000);
-  assert.equal(notes.orderNotePointAmount(base, notes.DEFAULT_ORDER_NOTE_RATES), 262150);
+  assert.equal(notes.orderNotePointAmount(base, notes.DEFAULT_ORDER_NOTE_RATES), 269500);
   assert.equal(notes.selectedOrderNotePoint(base.paymentMethod), true);
   assert.equal(notes.hasLegacyOrderNotePlan(base.paymentMethod), false);
   assert.equal(notes.orderNoteBaseAmount({ ...base, surcharge: 0 }, notes.DEFAULT_ORDER_NOTE_RATES), 245000);
-  assert.equal(notes.orderNotePointAmount({ ...base, paymentMethod: 'Contado', pendingBalance: 245000, surcharge: 0 }, notes.DEFAULT_ORDER_NOTE_RATES), 262150);
+  assert.equal(notes.orderNotePointAmount({ ...base, paymentMethod: 'Contado', pendingBalance: 245000, surcharge: 0 }, notes.DEFAULT_ORDER_NOTE_RATES), 269500);
   assert.equal(notes.orderNotePointAmount({ ...base, paymentMethod: 'Payway1 (Sept-26)', pendingBalance: 278075, surcharge: 33075 }, notes.DEFAULT_ORDER_NOTE_RATES), 278075);
   const legacy = { ...base, paymentMethod: 'Cuota Simple (Sept-26)', pendingBalance: 347900, surcharge: 102900 };
-  assert.equal(notes.orderNoteCardAmounts(legacy, notes.DEFAULT_ORDER_NOTE_RATES)[2], 347900);
+  assert.equal(notes.orderNoteCardAmounts(legacy, notes.DEFAULT_ORDER_NOTE_RATES)[1], 347900);
 });
 
 test('zero balance is marked paid only with payment status or full payment evidence', () => {
