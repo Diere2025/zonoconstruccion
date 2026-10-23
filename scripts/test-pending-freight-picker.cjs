@@ -1,0 +1,34 @@
+const fs=require('node:fs'),assert=require('node:assert/strict');process.loadEnvFile('.env.local');
+const {chromium}=require('C:/Users/diego/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const host=new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).hostname;
+const uuid=n=>'00000000-0000-4000-8000-'+String(n).padStart(12,'0');
+(async()=>{const browser=await chromium.launch({channel:'chrome',headless:true});try{
+ const user={id:uuid(99),email:'logistica@example.invalid',role:'authenticated',aud:'authenticated',user_metadata:{role:'admin'},app_metadata:{}},session={access_token:'fixture',refresh_token:'fixture',expires_at:Math.floor(Date.now()/1000)+3600,expires_in:3600,token_type:'bearer',user};
+ const context=await browser.newContext({locale:'en-US',timezoneId:'America/Argentina/Buenos_Aires',viewport:{width:1560,height:1100}});await context.addInitScript(({key,session})=>localStorage.setItem(key,JSON.stringify(session)),{key:'sb-'+host.split('.')[0]+'-auth-token',session});
+ let sharedWrites=0;const errors=[];
+ const plans=[1,2].map(i=>({dispatch_id:uuid(i+10),carrier_id:uuid(i),status:'completed',version:1,planned:{deliveryDate:'2026-10-15',carrierId:uuid(i),vehicle:'Camión',companion:'Esteban',router:'Pablo Jara',departure:'07:00',loads:[{runNumber:1,zone:'Zona Norte',routeUrl:'',plannedKm:180,plannedOrders:4}],notes:'',agreedAmount:i===1?300000:200000,tariffId:null,historicalImport:true},actual:{loads:[],km:180,notes:'',extras:[]},tariff_snapshot:null,estimate:{amount:i===1?300000:200000,basis:'agreed'},paymentState:{state:'unpaid',paidAmount:null,expectedAmount:i===1?300000:200000,remainingAmount:i===1?300000:200000,liquidated:false,payments:[]},logistics_dispatches:{code:'LOG_REC_0545'+i,carrier_name:i===1?'Gustavo Gomez':'Jorge Ramallo',delivery_date:'2026-10-15'}}));
+ const old={...structuredClone(plans[0]),dispatch_id:uuid(13),planned:{...plans[0].planned,deliveryDate:'2026-09-01'},actual:{...plans[0].actual,extras:[{id:uuid(88),kind:'km_adjustment',label:'Kilómetros pendientes',amount:20000,reference:'Ajuste del LOG original'}]},paymentState:{state:'paid',paidAmount:300000,expectedAmount:300000,remainingAmount:0,liquidated:true,payments:[{id:uuid(89),amount:300000,date:'2026-09-02T12:00:00-03:00',code:'PAG-OLD',href:''}]},logistics_dispatches:{...plans[0].logistics_dispatches,code:'LOG_REC_05300',delivery_date:'2026-09-01'}};
+ await context.addInitScript(({key,old})=>localStorage.setItem(key,JSON.stringify({plans:[old],tariffs:[],liquidations:[{dispatchId:old.dispatch_id,status:'paid',total:300000}],settlementTerms:[{dispatch_id:old.dispatch_id,gross_amount:300000,net_amount:300000,version:1,deductions:[],extra_snapshot:[]}]})),{key:'erp-logistics-review-v1:'+user.id,old});
+ let allDatesRequested=false;
+ const cashPending={...structuredClone(plans[0]),dispatch_id:uuid(14),paymentState:{state:'paid',liquidated:true,paidAmount:300000,remainingAmount:0,payments:[]},paymentSourcePending:[{code:'LOG_REC_05301',amount:300000}],logistics_dispatches:{...plans[0].logistics_dispatches,code:'LOG_REC_05301'}};plans.push(cashPending);
+ const seed={actor:user.id,plans,carriers:[{id:uuid(1),name:'Gustavo Gomez'},{id:uuid(2),name:'Jorge Ramallo'}],tariffs:[],canWrite:true,canLiquidate:true,admin:true,paymentRecipient:{id:uuid(98),name:'Laura Guerra'},novelties:[],freightAccounts:[{id:uuid(71),name:'Caja de prueba',type:'efectivo',currency:'ARS'}],freightPaymentMethods:[{id:uuid(72),name:'Efectivo'}],defaults:{},routers:[{name:'Pablo Jara'},{name:'Matías Vega'}]};
+ await context.route('**/*',async route=>{const u=new URL(route.request().url());if(['localhost','127.0.0.1'].includes(u.hostname))return route.continue();let data=u.hostname===host?(u.pathname.includes('/auth/v1/user')?user:u.pathname.includes('/rest/v1/sellers')?{id:user.id,role:'admin',roles:['admin'],full_name:'Prueba local',is_active:true}:[]):[];return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(data)});});
+
+ const tx={id:uuid(301),movement_code:'PAG-0000012345',type:'egreso',currency:'ARS',category:'Servicio de Flete',amount:300000,created_at:'2026-10-23T15:00:00Z',concept:'Servicio de flete',notes:'LOG_REC_05451',match:'log',evidence:'Menciona este LOG; confirmar correspondencia',financial_accounts:{name:'Caja de prueba'}};
+ await context.route('**/api/**',async route=>{if(route.request().method()==='POST')sharedWrites++;const u=new URL(route.request().url());const action=u.searchParams.get('action');const data=action==='available-freight-payments'?{rows:[tx],from:'2026-09-15',to:'2026-11-14'}:action==='allocation-payment'?{transaction:tx,allocations:[]}:seed;await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(data)});});
+ const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));page.setDefaultTimeout(25000);
+ await page.goto('http://127.0.0.1:3194/admin/logistica-planificacion?from=2026-10-14&to=2026-10-16',{timeout:120000});
+ await page.getByRole('button',{name:/^Liquidaciones de fletes/}).click();
+ await page.getByRole('row').filter({hasText:'LOG_REC_05451'}).getByRole('button',{name:'Revisar / vincular pago',exact:true}).click();
+ await page.getByRole('button',{name:'Buscar pagos existentes del fletero',exact:true}).click();
+ const picker=page.getByRole('dialog',{name:'Vincular un pago existente'});await picker.waitFor();await page.waitForTimeout(1500);fs.writeFileSync('output/pending-picker-debug.txt',await page.locator('body').innerText());await page.screenshot({path:'output/pending-picker-debug.png'});await picker.getByText('PAG-0000012345',{exact:false}).waitFor();
+ assert.match(await picker.innerText(),/15\/09\/2026.*14\/11\/2026/);assert.match(await picker.innerText(),/23\/10\/2026/);
+ await page.screenshot({path:'output/pending-incidents-picker.png'});
+ await picker.getByRole('button',{name:'Revisar pago',exact:true}).click();await picker.waitFor({state:'hidden'});
+ await page.getByLabel('Motivo / evidencia',{exact:true}).fill('Pago del servicio comprobado con el fletero');
+ assert.equal(await page.getByLabel('LOG del servicio',{exact:true}).inputValue(),'LOG_REC_05451');
+ await page.getByRole('button',{name:'Confirmar desglose del pago',exact:true}).click();
+ await page.getByRole('button',{name:'Confirmar desglose del pago',exact:true}).waitFor({state:'hidden'});const saved=await page.evaluate(key=>JSON.parse(localStorage.getItem(key)),'erp-logistics-review-v1:'+user.id);assert.equal(saved.paymentAllocations[0].transaction.id,tx.id);assert.equal(saved.paymentAllocations[0].allocations[0].amount,300000);
+ assert.equal(sharedWrites,0);assert.deepEqual(errors,[]);console.log('PASS picker: English browser, DD/MM/YYYY dates, candidate selection, review before confirmation, local allocation, zero shared writes.');
+ }finally{await browser.close();}})().catch(e=>{console.error(e);process.exitCode=1});
+
