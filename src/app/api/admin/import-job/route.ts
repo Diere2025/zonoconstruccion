@@ -5,7 +5,7 @@ import { NextResponse, after } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { fetchSpreadsheetCsv, setOrderStatusInSellerSheetByCode, createLogisticsCancellationReasonLookup, normalizePaymentMethodForSheet } from '@/lib/googleSheets';
 import { isDiscountProductLine, resolveImportedOrderChannel, sheetDiscountAmount } from '@/lib/wholesaleOrders';
-import { oncePerKey } from '@/lib/orderSync';
+import { oncePerKey, hasCompleteOrderCodes } from '@/lib/orderSync';
 import {
   isJazminCentralCancellation,
   JAZMIN_SHEET_NAME,
@@ -686,6 +686,7 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
           const dbOrder = findExistingOrder(orderCode);
 
           if (dbOrder) {
+            const completeOrderRow = hasCompleteOrderCodes(orderCode, dbOrder.legacy_code);
             // UPDATE EXISTING ORDER (Never duplicate)
             const updatePayload: any = {};
             if (dbOrder.status !== 'Entregado' && dbOrderStatus === 'Entregado') {
@@ -702,13 +703,13 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
             if (rawWhaticket && rawWhaticket !== dbOrder.whaticket_link) {
               updatePayload.whaticket_link = rawWhaticket;
             }
-            if (rawTotalAmount > 0 && !storedNumberEquals(dbOrder.total_amount, rawTotalAmount)) {
+            if (completeOrderRow && rawTotalAmount > 0 && !storedNumberEquals(dbOrder.total_amount, rawTotalAmount)) {
               updatePayload.total_amount = rawTotalAmount;
             }
             if (dbOrder.channel !== channel) updatePayload.channel = channel;
             if (advSourceId && dbOrder.advertising_source_id !== advSourceId) updatePayload.advertising_source_id = advSourceId;
             if (!dbOrder.client_id && clientId) updatePayload.client_id = clientId;
-            if (importedDiscountAmount > 0) {
+            if (completeOrderRow && importedDiscountAmount > 0) {
               const totals = dbOrder.totals || {};
               const discountChanged = dbOrder.order_discount_type !== 'fixed'
                 || !storedNumberEquals(dbOrder.order_discount_value, importedDiscountAmount)

@@ -4,6 +4,7 @@ import { isExpressFreight, processSheetOrder, sendExpressOrderAlert, sendRouteFo
 import { processOrderCancellation } from '@/lib/processOrderCancellation';
 import { processOrderReactivation } from '@/lib/processOrderReactivation';
 import { sendPersonalOrderAlert } from '@/lib/personalOrderTelegram';
+import { processOrderModificationNotice } from '@/lib/orderModificationNotices';
 
 export const runtime = 'edge';
 
@@ -15,6 +16,12 @@ export async function POST(req: NextRequest) {
   }
   const started = Date.now();
   let processed = 0;
+  // La misma llamada programada cada minuto recupera avisos y tickets aunque
+  // la pantalla se haya cerrado o Telegram haya estado fuera de servicio.
+  for (let index=0;index<3;index++) {
+    const notice = await processOrderModificationNotice(db);
+    if (!notice.sent && !notice.pending) break;
+  }
   // pg_net owns this request: closing the seller's browser cannot cancel it.
   while (Date.now() - started < 80000 && processed < 10) {
     const { data: jobs, error } = await db.rpc('claim_order_sync_job', {worker_version:2});

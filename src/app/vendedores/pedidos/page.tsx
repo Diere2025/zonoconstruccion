@@ -1942,6 +1942,8 @@ export default function PedidosPage() {
   const [logisticsObservation, setLogisticsObservation] = useState("");
   const [editChangesSummary, setEditChangesSummary] = useState<string[]>([]);
   const [showModificationSuccessModal, setShowModificationSuccessModal] = useState(false);
+  const [modificationSheetWarning, setModificationSheetWarning] = useState('');
+  const [modificationNoticeStatus, setModificationNoticeStatus] = useState<{pending?: boolean; ticketId?: string}>({});
 
   const [showOrderHistoryModal, setShowOrderHistoryModal] = useState(false);
   const [selectedOrderForHistory, setSelectedOrderForHistory] = useState<any>(null);
@@ -5196,7 +5198,7 @@ export default function PedidosPage() {
       let itemsPersistedByAssignedOrderApi = false;
       // Código legacy definitivo: si la orden original ya tenía un código legacy asignado,
       // PRESERVARLO estrictamente para no crear duplicados ni desfasar planillas operativas.
-      const effectiveLegacyCode = editingOrderId
+      let effectiveLegacyCode = editingOrderId
         ? ((originalOrderSnapshot?.legacy_code || legacyCode || '').trim().toUpperCase() || null)
         : null;
 
@@ -5621,6 +5623,7 @@ export default function PedidosPage() {
 
       if (editingOrderId) {
         // 1. Guardar historial de modificación en order_history
+        const modificationId = crypto.randomUUID();
         try {
           let sellerFullName = sellersList.find(s => s.id === seller_id)?.full_name;
           if (!sellerFullName) {
@@ -5628,6 +5631,7 @@ export default function PedidosPage() {
           }
 
           const modifiedSnapshot = {
+            sync_monitor: true,
             id: editingOrderId,
             legacy_code: effectiveLegacyCode || orderData.legacy_code || legacyCode,
             customer_name: isNewClient ? newClientName : cliente,
@@ -5660,6 +5664,7 @@ export default function PedidosPage() {
           };
 
           await supabase.from('order_history').insert({
+            id: modificationId,
             order_id: editingOrderId,
             changed_by_id: userData.user.id,
             changed_by_name: sellerFullName,
@@ -5678,6 +5683,8 @@ export default function PedidosPage() {
           deliveriesCurrent?: { success: boolean; sheetName?: string; message?: string };
         } | undefined;
         let operationalSyncSkipped = isWholesaleContext && !FACUNDO_SELLER_IDS.includes(originalOrderSnapshot?.seller_id || seller_id);
+        let sheetSyncWarning = '';
+        let serverModificationNotice: {managed?: boolean; sent?: boolean; pending?: boolean; ticketId?: string} | undefined;
         if (!operationalSyncSkipped) try {
           const clientPhone = newClientPhones.map(cleanPhoneForSaving).filter(Boolean)[0] || '';
           const clientPhone2 = newClientPhones.map(cleanPhoneForSaving).filter(Boolean).slice(1).join(', ');
@@ -5735,26 +5742,41 @@ export default function PedidosPage() {
               // El código permanece en la planilla que lo originó. Si cambia
               // la atribución comercial, sólo cambia el nombre de vendedor.
               sellerId: originalOrderSnapshot?.seller_id || seller_id,
+              orderId: editingOrderId,
+              modificationId,
+              notifyLogistics: isLogisticallyRelevantChange(editChangesSummary, logisticsObservation),
+              changes: editChangesSummary,
               legacyCode: effectiveLegacyCode || orderData.legacy_code || legacyCode || '',
               order: sheetOrderPayload,
               logisticsObservation: logisticsObservation.trim()
             })
           });
 
+          const sheetData = await sheetUpdateRes.json().catch(() => ({}));
+          serverModificationNotice = sheetData.modificationNotice;
+          if (sheetData.code) {
+            effectiveLegacyCode = sheetData.code;
+            orderData.legacy_code = sheetData.code;
+            setLegacyCode(sheetData.code);
+          }
+          if (!sheetUpdateRes.ok || !sheetData.synced) {
+            sheetSyncWarning = sheetData.error || sheetData.message || 'La actualización de planillas quedó incompleta.';
+          }
           if (sheetUpdateRes.ok) {
-            const sheetData = await sheetUpdateRes.json();
             if (sheetData.synced) {
               console.log(`Planilla actualizada en fila ${sheetData.rowNumber}`);
             }
             operationalSync = sheetData.operationalSync;
             operationalSyncSkipped = sheetData.operationalSyncSkipped === true;
           } else {
-            const errData = await sheetUpdateRes.json().catch(() => ({}));
-            console.warn('Error syncing update to sheet:', errData);
+            console.warn('Error syncing update to sheet:', sheetData);
           }
         } catch (sUpdErr) {
+          sheetSyncWarning = 'No se pudo confirmar la actualización de las planillas.';
           console.error('Error in sheet update:', sUpdErr);
         }
+        setModificationSheetWarning(sheetSyncWarning);
+        setModificationNoticeStatus(serverModificationNotice || {});
 
         // 3. Construir el aviso automático para Logística.
         let sellerFullName = sellersList.find(s => s.id === seller_id)?.full_name;
@@ -5771,18 +5793,18 @@ export default function PedidosPage() {
           changes: editChangesSummary,
           logisticsObservation: logisticsObservation.trim(),
           operationalSync
-        });
+        }) + (sheetSyncWarning ? `\n\n❌ Planillas: ${sheetSyncWarning}` : '');
 
         // Enviar automáticamente a Telegram SOLO si hay cambios que afectan a Logística
-        const hasOperationalSyncFailure = !!operationalSync &&
-          (!operationalSync.central?.success || !operationalSync.deliveriesCurrent?.success);
-        const shouldNotifyLogistics = isWholesaleContext
+        const hasOperationalSyncFailure = !!sheetSyncWarning || (!!operationalSync &&
+          (!operationalSync.central?.success || !operationalSync.deliveriesCurrent?.success));
+        const shouldNotifyLogistics = !!(serverModificationNotice?.sent || serverModificationNotice?.pending) || (isWholesaleContext
           ? isLogisticallyRelevantChange(editChangesSummary, logisticsObservation)
-          : !operationalSyncSkipped && (isLogisticallyRelevantChange(editChangesSummary, logisticsObservation) || hasOperationalSyncFailure);
+          : !operationalSyncSkipped && (isLogisticallyRelevantChange(editChangesSummary, logisticsObservation) || hasOperationalSyncFailure));
         setIsLogisticallyRelevant(shouldNotifyLogistics);
 
-        let telegramSuccess = false;
-        if (shouldNotifyLogistics) {
+        let telegramSuccess = serverModificationNotice?.sent === true;
+        if (shouldNotifyLogistics && !serverModificationNotice?.managed) {
           try {
             const tgRes = await fetch('/api/vendedores/telegram-notify', {
               method: 'POST',
@@ -9753,7 +9775,7 @@ export default function PedidosPage() {
                 </div>
                 <div>
                   <h2 className="text-base font-black text-slate-900">
-                    ¡Pedido Modificado con Éxito!
+                    {modificationSheetWarning ? 'Pedido guardado con planillas pendientes' : modificationNoticeStatus.pending ? 'Pedido guardado con aviso pendiente' : '¡Pedido Modificado con Éxito!'}
                   </h2>
                   <p className="text-xs font-medium text-emerald-700 flex items-center gap-1">
                     <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse" />
@@ -9801,6 +9823,9 @@ export default function PedidosPage() {
 
             {/* Footer */}
             <div className="p-4 border-t border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row justify-between items-center gap-3">
+              {modificationSheetWarning && <p role="alert" className="text-xs font-bold text-amber-800">{modificationSheetWarning}</p>}
+              {modificationNoticeStatus.pending && <p role="status" className="text-xs font-bold text-amber-800">El aviso quedó en cola y se reintentará automáticamente.</p>}
+              {modificationNoticeStatus.ticketId && <a className="text-xs font-bold text-blue-700 underline" href={`/incidencias/${modificationNoticeStatus.ticketId}`}>Ver ticket de revisión asignado a Diego</a>}
               <button
                 type="button"
                 onClick={() => {

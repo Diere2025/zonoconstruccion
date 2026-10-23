@@ -6,10 +6,12 @@ import {
   isSellerOrderNotYetProcessed,
   normalizeSellerNameForSheet,
   syncOrderModificationToOperationalSheets,
+  prepareOrderModificationCodes,
   SELLER_SHEET_CONFIG,
   SheetOrderPayload
 } from '@/lib/googleSheets';
 import { createClient } from '@supabase/supabase-js';
+import { finishOrderModificationNotice } from '@/lib/orderModificationNotices';
 
 export const runtime = 'edge';
 
@@ -18,12 +20,16 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT
 const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 
 export async function POST(req: NextRequest) {
+  let resolvedLegacyCode = '';
+  let noticeId: string | undefined;
+  const noticeResults: Record<string, {success?: boolean; skipped?: boolean; message?: string}> = {};
   try {
     const body = await req.json();
-    const { action, sellerId, legacyCode, order, logisticsObservation, cancelReason, sheetStatus } = body as {
+    const { action, sellerId, legacyCode, orderId, order, logisticsObservation, cancelReason, sheetStatus } = body as {
       action?: 'update' | 'cancel';
       sellerId: string;
       legacyCode: string;
+      orderId?: string;
       order?: SheetOrderPayload;
       logisticsObservation?: string;
       cancelReason?: string;
@@ -79,6 +85,23 @@ export async function POST(req: NextRequest) {
 
     order.sellerName = normalizeSellerNameForSheet(order.sellerName);
 
+    // La UI puede reintentar con el código anterior si perdió la respuesta
+    // después de asignar una continuación. Recuperar siempre la identidad del ERP.
+    const lookup = supabaseAdmin.from('orders').select('id,legacy_code');
+    const { data: dbOrder, error: lookupError } = await (orderId
+      ? lookup.eq('id', orderId)
+      : lookup.eq('legacy_code', legacyCode)).maybeSingle();
+    if (lookupError) throw lookupError;
+    if (!dbOrder) return NextResponse.json({synced: false, message: 'No se encontró el pedido en el ERP'}, {status: 404});
+    resolvedLegacyCode = dbOrder.legacy_code || legacyCode;
+    noticeId = typeof body.modificationId === 'string' ? body.modificationId : crypto.randomUUID();
+    const monitor = await supabaseAdmin.rpc('start_order_modification_notice', {
+      p_id:noticeId,p_order:dbOrder.id,p_code:resolvedLegacyCode,p_notify:body.notifyLogistics === true,
+      p_details:{clientName:order.clientName,sellerName:order.sellerName,items:(order.items || []).map(item=>({name:item.name,quantity:item.quantity})),
+        changes:Array.isArray(body.changes) ? body.changes.filter((change: unknown)=>typeof change==='string') : [],observation:logisticsObservation || ''}
+    });
+    if (monitor.error) throw new Error(`No se pudo registrar el seguimiento de la modificación: ${monitor.error.message}`);
+
     // Procedencia por defecto si viene vacía
     if (!order.source || order.source.trim() === '') {
       order.source = 'Publicidad Meta';
@@ -89,18 +112,30 @@ export async function POST(req: NextRequest) {
     const currentSellerStatus = await getOrderStatusInSellerSheet(
       config.spreadsheetId,
       config.sheetName,
-      legacyCode
+      resolvedLegacyCode
     );
     const operationalSyncSkipped = isSellerOrderNotYetProcessed(currentSellerStatus);
+    if (operationalSyncSkipped) {
+      noticeResults.central = {skipped:true};
+      noticeResults.deliveriesCurrent = {skipped:true};
+    }
+
+    resolvedLegacyCode = await prepareOrderModificationCodes(config.spreadsheetId, config.sheetName,
+      resolvedLegacyCode, order, async code => {
+        const { error } = await supabaseAdmin.from('orders').update({legacy_code: code}).eq('id', dbOrder.id);
+        if (error) throw error;
+        resolvedLegacyCode = code;
+      });
 
     // 1. Sincronizar con Central y Entregas Actual sólo cuando Logística ya procesó el pedido.
     const operationalSync = operationalSyncSkipped
       ? undefined
       : await syncOrderModificationToOperationalSheets(
-          legacyCode,
+          resolvedLegacyCode,
           order,
           logisticsObservation
         );
+    if (operationalSync) Object.assign(noticeResults,operationalSync);
 
     // 2. Si aplicó el cambio en Central -> '🔹 Pasado'; "No está" se conserva.
     const sellerStatus = operationalSyncSkipped
@@ -111,30 +146,43 @@ export async function POST(req: NextRequest) {
     const result = await updateOrderInSellerSheet(
       config.spreadsheetId,
       config.sheetName,
-      legacyCode,
+      resolvedLegacyCode,
       order,
       logisticsObservation,
       sellerStatus
     );
+    noticeResults.seller = result;
+    const failures = Object.entries(noticeResults).filter(([,value])=>!value.success && !value.skipped)
+      .map(([key,value])=>`${key}: ${value.message || 'No se completó la actualización'}`);
+    const modificationNotice = await finishOrderModificationNotice(supabaseAdmin,noticeId!,resolvedLegacyCode,noticeResults,failures);
 
     if (!result.success) {
       return NextResponse.json(
-        { synced: false, message: result.message || 'Código no encontrado en la planilla' },
+        { synced: false, code: resolvedLegacyCode, operationalSync, modificationNotice, message: result.message || 'Código no encontrado en la planilla' },
         { status: 404 }
       );
     }
 
     return NextResponse.json({
-      synced: true,
-      code: result.code,
+      synced: operationalSyncSkipped || !!(operationalSync?.central.success && operationalSync?.deliveriesCurrent.success),
+      code: resolvedLegacyCode,
       rowNumber: result.rowNumber,
       operationalSync,
-      operationalSyncSkipped
+      operationalSyncSkipped,
+      modificationNotice
     });
   } catch (err: any) {
     console.error('[update-sheet-order POST] Error:', err);
+    let modificationNotice;
+    if (noticeId) {
+      try {
+        modificationNotice = await finishOrderModificationNotice(supabaseAdmin,noticeId,resolvedLegacyCode,noticeResults,[err.message || 'Error de sincronización']);
+      } catch {
+        modificationNotice = {managed:true,sent:false,pending:true,error:'El seguimiento quedó pendiente; el worker revisará la modificación interrumpida.'};
+      }
+    }
     return NextResponse.json(
-      { error: err.message || 'Error al actualizar el pedido en la planilla' },
+      { synced: false, code: resolvedLegacyCode || undefined, modificationNotice, error: err.message || 'Error al actualizar el pedido en la planilla' },
       { status: 500 }
     );
   }

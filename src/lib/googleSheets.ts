@@ -1065,6 +1065,29 @@ export async function syncOrderModificationToOperationalSheets(
   order: SheetOrderPayload,
   logisticsObservation?: string
 ): Promise<OperationalSheetsSyncResult> {
+  const codes = [...new Set(legacyCode.split(/[/,]/).map(code => code.trim().toUpperCase()).filter(Boolean))];
+  const chunks = splitOrderItemsForRows(order, codes.length);
+  const results: OperationalSheetsSyncResult[] = [];
+  for (let index = 0; index < codes.length; index++) {
+    const code = codes[index];
+    const rowOrder = makeContinuationOrder(order, chunks[index], codes, index);
+    results.push(await syncOrderModificationRow(code, rowOrder, logisticsObservation, index > 0));
+  }
+  const combine = (key: keyof OperationalSheetsSyncResult): OperationalSheetSyncResult => {
+    const entries = results.map(result => result[key]);
+    const failures = entries.filter(result => !result.success);
+    return { ...entries[0], success: entries.length > 0 && failures.length === 0,
+      message: failures.length ? failures.map(result => result.message).join(' / ') : undefined };
+  };
+  return { central: combine('central'), deliveriesCurrent: combine('deliveriesCurrent') };
+}
+
+async function syncOrderModificationRow(
+  legacyCode: string,
+  order: SheetOrderPayload,
+  logisticsObservation: string | undefined,
+  allowContinuationCreation: boolean
+): Promise<OperationalSheetsSyncResult> {
   // 1. Buscar y actualizar primero en Entregas Actual
   let deliveriesCurrent: OperationalSheetSyncResult = {
     success: false,
@@ -1090,11 +1113,19 @@ export async function syncOrderModificationToOperationalSheets(
     }
   }
 
+  // Una continuación nueva ingresa por Vendedores; las filas ya ruteadas
+  // se actualizan en su ubicación sin alterar su estado logístico.
+  if (allowContinuationCreation && deliveriesCurrent.message?.startsWith(`No se encontró el pedido ${legacyCode}`)) {
+    const created = await appendOrderToOperationalSheet(DELIVERIES_CURRENT_SHEET.spreadsheetId,
+      'Vendedores', DELIVERIES_CURRENT_SHEET.columnOffset, [legacyCode], order);
+    deliveriesCurrent = { ...created, rowNumber: created.rowNumbers?.[0] };
+  }
+
   // 2. Si aplicó en Entregas Actual -> '🔹 Pasado' en Central, caso contrario 'Modificado'
   const centralStatus = deliveriesCurrent.success ? '🔹 Pasado' : 'Modificado';
 
   // 3. Actualizar Central pedidos
-  const central = await updateOrderInOperationalSheet(
+  let central = await updateOrderInOperationalSheet(
     CENTRAL_ORDERS_SHEET.spreadsheetId,
     CENTRAL_ORDERS_SHEET.sheetName,
     CENTRAL_ORDERS_SHEET.codeColumn,
@@ -1104,6 +1135,17 @@ export async function syncOrderModificationToOperationalSheets(
     logisticsObservation,
     centralStatus
   );
+
+  if (allowContinuationCreation && central.message?.startsWith(`No se encontró el pedido ${legacyCode}`)) {
+    const created = await appendOrderToOperationalSheet(CENTRAL_ORDERS_SHEET.spreadsheetId,
+      CENTRAL_ORDERS_SHEET.sheetName, CENTRAL_ORDERS_SHEET.columnOffset, [legacyCode], order);
+    central = { ...created, rowNumber: created.rowNumbers?.[0] };
+    if (central.success) {
+      central = await updateOrderInOperationalSheet(CENTRAL_ORDERS_SHEET.spreadsheetId,
+        CENTRAL_ORDERS_SHEET.sheetName, CENTRAL_ORDERS_SHEET.codeColumn,
+        CENTRAL_ORDERS_SHEET.columnOffset, legacyCode, order, logisticsObservation, centralStatus);
+    }
+  }
 
   return { central, deliveriesCurrent };
 }
@@ -1477,7 +1519,10 @@ function makeContinuationOrder(
   const continuationPrefix = siblingCodes.length > 0
     ? `VA CON EL PEDIDO ${siblingCodes.join(' / ')}`
     : '';
-  const originalNotes = (order.deliveryNotes || '').trim();
+  const originalNotes = siblingCodes.length > 0
+    ? (order.deliveryNotes || '').trim()
+      .replace(/^VA CON EL PEDIDO\s+[A-Za-z-]+\d+(?:\s*\/\s*[A-Za-z-]+\d+)*(?:\s*\/\s*|$)/i, '').trim()
+    : (order.deliveryNotes || '').trim();
   const deliveryNotes = continuationPrefix
     ? (originalNotes ? `${continuationPrefix} / ${originalNotes}` : continuationPrefix)
     : originalNotes;
@@ -1664,6 +1709,65 @@ export function isSellerOrderNotYetProcessed(status: string | null): boolean {
     .toLowerCase() === 'no esta';
 }
 
+/** Reserva continuaciones antes de sincronizar una modificación de más de 12 artículos.
+ * El ERP guarda los códigos antes de escribir: un reintento reutiliza esa identidad
+ * aunque haya fallado la escritura de la nueva fila o una planilla operativa.
+ */
+export async function prepareOrderModificationCodes(
+  spreadsheetId: string,
+  sheetName: string,
+  legacyCode: string,
+  order: SheetOrderPayload,
+  persistCodes: (code: string) => Promise<void>
+): Promise<string> {
+  const codes = [...new Set(legacyCode.split(/[/,]/).map(code => code.trim().toUpperCase()).filter(Boolean))];
+  if (!codes.length) throw new Error('El pedido no tiene código de origen');
+  const rows = await fetchSpreadsheetValues(spreadsheetId, `'${sheetName}'!B2:F`);
+  const locations = new Map<string, {rowNumber: number; occupied: boolean}>();
+  rows.forEach((row, index) => {
+    const code = String(row[0] || '').trim().toUpperCase();
+    if (codes.includes(code)) locations.set(code, {rowNumber: index + 2, occupied: !!String(row[4] || '').trim()});
+  });
+  if (!locations.has(codes[0])) throw new Error(`No se encontró el pedido ${codes[0]} en ${sheetName}`);
+  const additionalCount = Math.max(0, Math.ceil((order.items || []).length / PRODUCT_SLOT_RANGES.length) - codes.length);
+  const missingCodes = codes.filter(code => !locations.has(code));
+  const needed = additionalCount + missingCodes.length;
+  if (needed) {
+    const occupiedRows = new Set([...locations.values()].map(location => location.rowNumber));
+    const slots = (await getNextAvailableSheetSlots(spreadsheetId, sheetName, needed + codes.length))
+      .filter(slot => !occupiedRows.has(slot.rowNumber)).slice(0, needed);
+    if (slots.length !== needed) throw new Error('No hay filas disponibles para las continuaciones');
+    for (let index = 0; index < slots.length; index++) {
+      const code = missingCodes[index] || slots[index].code;
+      if (index >= missingCodes.length) {
+        if (codes.includes(code)) throw new Error(`El código de continuación ${code} ya pertenece al pedido`);
+        codes.push(code);
+      }
+      locations.set(code, {rowNumber: slots[index].rowNumber, occupied: false});
+    }
+  }
+  const code = codes.join(' / ');
+  // Incluso si la respuesta anterior se perdió, el próximo intento puede
+  // recuperar desde el ERP el código ya asignado sin emitir otro.
+  if (additionalCount) await persistCodes(code);
+  const reservations = codes.filter(value => !locations.get(value)!.occupied);
+  if (reservations.length) {
+    const token = await getGoogleAccessToken();
+    await ensureOrderSheetRowCapacity(spreadsheetId, sheetName,
+      reservations.map(value => locations.get(value)!.rowNumber), 0, token);
+    const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`, {
+      method: 'POST', headers: {Authorization: `Bearer ${token}`, 'Content-Type': 'application/json'},
+      body: JSON.stringify({valueInputOption: 'RAW', data: reservations.flatMap(value => {
+        const row = locations.get(value)!.rowNumber;
+        return [{range: makeRange(sheetName, 'B', 'B', row, 0), values: [[value]]},
+          {range: makeRange(sheetName, 'F', 'F', row, 0), values: [[order.clientName || 'Pedido en sincronización']]}];
+      })})
+    });
+    if (!response.ok) throw new Error(`No se pudo reservar la continuación: ${await response.text()}`);
+  }
+  return code;
+}
+
 export async function updateOrderInSellerSheet(
   spreadsheetId: string,
   sheetName: string = 'Pendientes',
@@ -1688,7 +1792,6 @@ export async function updateOrderInSellerSheet(
     .filter(Boolean);
 
   const targetRows: Array<{ rowNumber: number; code: string }> = [];
-  let matchedCode = '';
 
   for (let i = 0; i < rows.length; i++) {
     const currentCode = (rows[i]?.[0] || '').trim().toUpperCase();
@@ -1696,7 +1799,6 @@ export async function updateOrderInSellerSheet(
 
     if (codesToSearch.some(c => c === currentCode)) {
       targetRows.push({ rowNumber: i + 2, code: currentCode });
-      if (!matchedCode) matchedCode = currentCode;
     }
   }
 
@@ -1709,6 +1811,12 @@ export async function updateOrderInSellerSheet(
     };
   }
 
+  // El orden de los códigos, no la ubicación física de las filas, determina
+  // qué productos y qué importes corresponden a cada continuación.
+  targetRows.sort((a, b) => codesToSearch.indexOf(a.code) - codesToSearch.indexOf(b.code));
+  if (targetRows.length !== codesToSearch.length) {
+    throw new Error(`Faltan filas del pedido ${legacyCode} en ${sheetName}`);
+  }
   const rowNumber = targetRows[0].rowNumber;
 
   // En la planilla, Columna Q: 'Modificado' o valor sobrescrito (ej. '❌ Anulado')
@@ -1719,7 +1827,7 @@ export async function updateOrderInSellerSheet(
     buildOrderUpdateBatchData(
       sheetName,
       target.rowNumber,
-      { ...order, category: normalizeCategoryForSheet(order.category, order.items), items: itemChunks[index] },
+      makeContinuationOrder(order, itemChunks[index], codesToSearch, index),
       logisticsObservation,
       0,
       sheetStatus
@@ -1767,7 +1875,7 @@ export async function updateOrderInSellerSheet(
   return {
     success: true,
     rowNumber,
-    code: matchedCode || legacyCode
+    code: codesToSearch.join(' / ')
   };
 }
 

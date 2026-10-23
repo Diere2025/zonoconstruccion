@@ -4,7 +4,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { fetchSpreadsheetCsv, setOrderStatusInSellerSheetByCode, createLogisticsCancellationReasonLookup, normalizePaymentMethodForSheet } from '@/lib/googleSheets';
-import { splitOrderCodes } from '@/lib/orderSync';
+import { splitOrderCodes, hasCompleteOrderCodes } from '@/lib/orderSync';
 import { findImportOrders } from '@/lib/importOrderLookup';
 import { changedImportFields, describeImportChanges } from '@/lib/importChanges';
 import { centralDeliveryOutcome } from '@/lib/deliveryAttemptSync';
@@ -333,6 +333,7 @@ export async function POST(request: Request) {
           if (code) {
             existingOrdersMap.set(code, { 
               id: o.id, 
+              legacy_code: o.legacy_code,
               status: o.status || "", 
               delivery_detail: o.delivery_detail || "",
               whaticket_link: o.whaticket_link || "",
@@ -770,11 +771,13 @@ export async function POST(request: Request) {
       const orderMediumId = orderMediumsMap.get(normalizeText(resolvedMediumName)) || null;
 
       if (dbOrder) {
+        const completeOrderRow = hasCompleteOrderCodes(orderCode, dbOrder.legacy_code);
+        if (!completeOrderRow) addLog(`⚠️ Pedido ${orderCode}: fila parcial de ${dbOrder.legacy_code}; se conservan artículos e importes del ERP.`);
         let classificationUpdate: Record<string, unknown> = {};
         if (dbOrder.channel !== channel) classificationUpdate.channel = channel;
         if (advSourceId && dbOrder.advertising_source_id !== advSourceId) classificationUpdate.advertising_source_id = advSourceId;
         if (!dbOrder.client_id && clientId) classificationUpdate.client_id = clientId;
-        if (importedDiscountAmount > 0) {
+        if (completeOrderRow && importedDiscountAmount > 0) {
           classificationUpdate.order_discount_type = 'fixed';
           classificationUpdate.order_discount_value = importedDiscountAmount;
           classificationUpdate.order_discount_amount = importedDiscountAmount;
@@ -874,7 +877,7 @@ export async function POST(request: Request) {
           }
         }
 
-        if (syncPaymentMethods && paymentMethodObj && paymentMethodObj.surcharge_percentage > 0) {
+        if (completeOrderRow && syncPaymentMethods && paymentMethodObj && paymentMethodObj.surcharge_percentage > 0) {
           const paymentUpdate = changedImportFields(dbOrder, {
             payment_method_id: paymentMethodId,
             total_amount: calculatedTotal,
@@ -1021,7 +1024,7 @@ export async function POST(request: Request) {
           }
         }
 
-        if (['Pendiente', 'Confirmado', 'Entregando'].includes(dbOrder.status)) {
+        if (completeOrderRow && ['Pendiente', 'Confirmado', 'Entregando'].includes(dbOrder.status)) {
           const dbItems = preloadedOrderItems.filter(item => item.order_id === dbOrder.id);
 
           const sheetItems = [];

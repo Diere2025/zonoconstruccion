@@ -30,6 +30,7 @@ async function run(mode, authenticated = true) {
       if(name==='@/lib/processOrderCancellation')return {processOrderCancellation:async()=>({code:'TEST123',warnings:[],result:{cancelled:true},message:'Anulación aplicada'})};
       if(name==='@/lib/processOrderReactivation')return {processOrderReactivation:async()=>({code:'TEST123',sheets:{central:[{success:true}]}})};
       if(name==='@/lib/personalOrderTelegram')return {sendPersonalOrderAlert:async()=>({attempted:false,sent:false})};
+      if(name==='@/lib/orderModificationNotices')return {processOrderModificationNotice:async()=>({managed:true,sent:false,pending:false})};
       if(name==='@/lib/processSheetOrder')return {isExpressFreight:()=>false,sendRouteFormationAlert:async()=>({attempted:false,sent:false}),processSheetOrder:async(req,onCode)=>{
         calls++;
         if(mode==='sheet-error')return NextResponse.json({error:'Sheets unavailable'},{status:500});

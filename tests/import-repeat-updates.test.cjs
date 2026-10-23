@@ -15,3 +15,11 @@ test('repeated import with surcharge and wholesale discount writes nothing when 
 test('real payment, discount and contact changes count one order, then next import writes nothing',async()=>{const f=fixture();f.order.total_amount='80.00';f.order.order_discount_amount='20.00';f.order.order_medium_id='OLD';const first=await f.run();assert.equal(first.status,200,JSON.stringify(first.body));assert.equal(first.body.totalUpdated,1);assert.equal(first.body.updatedOrders[0].code,'AQU123');assert.match(first.body.updatedOrders[0].changes.join(';'),/importe total: \$80 → \$85/);assert.match(first.body.updatedOrders[0].changes.join(';'),/medio de contacto/);assert.equal(f.order.totals.existing_metadata,'preserved');const writes=f.writes.length;assert.ok(writes>1);const second=await f.run();assert.equal(second.body.totalUpdated,0);assert.equal(f.writes.length,writes);});
 test('failed payment write is not counted as an updated order',async()=>{const f=fixture();f.order.total_amount='80.00';f.failWrites();const r=await f.run();assert.equal(r.body.totalUpdated,0);assert.match(r.body.warnings.join(';'),/write failed/);});
 test('numeric storage and object key order do not cause false differences',()=>{assert.equal(changes.importValuesEqual({subtotal:'100.00',freight:0},{freight:0,subtotal:100}),true);assert.equal(Object.keys(changes.changedImportFields({total_amount:'85.00'},{total_amount:85})).length,0);assert.equal(changes.importValuesEqual(null,0),false);assert.equal(changes.importValuesEqual(85,85.01),false);});
+
+test('una fila parcial no reemplaza artículos ni importes de un pedido con continuaciones',async()=>{
+ const f=fixture();f.order.legacy_code='AQU123 / AQU999';f.order.total_amount='150.00';
+ f.order.order_discount_amount='50.00';
+ const response=await f.run();assert.equal(response.status,200,JSON.stringify(response.body));
+ assert.equal(f.order.total_amount,'150.00');assert.equal(f.order.order_discount_amount,'50.00');
+ assert.equal(f.writes.length,0);assert.match(response.body.warnings.join(';'),/fila parcial/);
+});

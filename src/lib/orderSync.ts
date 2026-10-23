@@ -7,6 +7,12 @@ export function splitOrderCodes(value: string | null | undefined): string[] {
   return (value || '').split(/[/,]/).map(code => code.trim().toUpperCase()).filter(Boolean);
 }
 
+/** Una fila de continuación no representa el detalle ni los importes del pedido completo. */
+export function hasCompleteOrderCodes(incoming: string, stored: string | null | undefined): boolean {
+  const received = new Set(splitOrderCodes(incoming));
+  return splitOrderCodes(stored).every(code => received.has(code));
+}
+
 export function activeOrderCodes(orders: Array<{ legacy_code?: string | null; status?: string }>): Set<string> {
   const result = new Set<string>();
   for (const order of orders) {
