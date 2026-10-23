@@ -71,7 +71,7 @@ export interface DiscountSuggestion {
 }
 
 export function evaluateDiscountSuggestions(
-  orderItems: Array<{ id: string; name: string; sku?: string; quantity: number; customPrice: number }>,
+  orderItems: Array<{ id: string; name: string; sku?: string; quantity: number; customPrice: number; discountType?: 'percentage' | 'fixed'; discountValue?: number }>,
   allProducts: Product[],
   customRules: AutomaticDiscountRule[] = DEFAULT_DISCOUNT_RULES
 ): DiscountSuggestion[] {
@@ -211,7 +211,10 @@ export function evaluateDiscountSuggestions(
     });
 
     const comboItems = [bioProd, sepProd, inspProd, biolamProd, ...(desengrasadoraProd ? [desengrasadoraProd] : [])];
-    const needsDiscount = existingComboDiscount || comboItems.some(i => !((i as any).discountValue && (i as any).discountValue >= 15));
+    // Supply-only complete combos already discount bios and chambers; Biolam stays at list price.
+    const discountedChambers = [bioProd, sepProd, inspProd, ...(desengrasadoraProd ? [desengrasadoraProd] : [])];
+    const chambersAlreadyDiscounted = discountedChambers.every(i => i.discountType === 'percentage' && (i.discountValue ?? 0) >= 15);
+    const needsDiscount = !chambersAlreadyDiscounted && (existingComboDiscount || comboItems.some(i => (i.discountValue ?? 0) < 15));
 
     if (needsDiscount) {
       const totalSaving = comboItems.reduce((acc, i) => {

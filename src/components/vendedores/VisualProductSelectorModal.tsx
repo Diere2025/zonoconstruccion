@@ -33,6 +33,7 @@ import {
   generateDefaultVisualConfig,
   generateWholesaleVisualConfig,
   includeInstallationKitCuplas,
+  includeCompleteBioCombos,
   promoteTermotanqueLines,
   findVisualProductOption,
   findRecommendedBase,
@@ -41,6 +42,7 @@ import {
 import { supabase } from "@/lib/supabase";
 import { evaluateDiscountSuggestions, DiscountSuggestion } from "@/lib/discountRules";
 import { formatPrice, normalizeText } from "@/lib/utils";
+import { BioComboTitle, BioComboExtras } from './BioComboPresentation';
 import VisualSelectorQuickProducts from './VisualSelectorQuickProducts';
 import RetailProductPicker from './RetailProductPicker';
 
@@ -237,7 +239,7 @@ export default function VisualProductSelectorModal({
                   }))
                 }))
               }));
-              setConfig(promoteTermotanqueLines(includeInstallationKitCuplas({ ...parsed, families: normalizedFamilies }, products)));
+              setConfig(promoteTermotanqueLines(includeCompleteBioCombos(includeInstallationKitCuplas({ ...parsed, families: normalizedFamilies }, products), products)));
               setLoading(false);
               return;
             }
@@ -1124,10 +1126,12 @@ export default function VisualProductSelectorModal({
                             }`}
                           >
                             <Grid className="w-3 h-3" />
-                            <span>Fotos</span>
+                            <span>{currentSubgroup.showItemImages === false ? 'Tarjetas' : 'Fotos'}</span>
                           </button>
                         </div>
                       </div>
+
+                      <BioComboExtras items={currentSubgroup.quickAddItems} onAdd={handleQuickAdd} />
 
                       {activeItems.length === 0 ? (
                         <div className="p-8 text-center text-slate-400 text-xs">
@@ -1271,7 +1275,7 @@ export default function VisualProductSelectorModal({
                               >
                                 <div>
                                   {/* Contenedor amplio de fotografía */}
-                                  <div className="h-28 sm:h-30 w-full rounded-xl bg-slate-50/80 group-hover:bg-slate-50 border border-slate-100 flex items-center justify-center p-2 relative overflow-hidden transition-colors mb-2">
+                                  {currentSubgroup.showItemImages !== false ? <div className="h-28 sm:h-30 w-full rounded-xl bg-slate-50/80 group-hover:bg-slate-50 border border-slate-100 flex items-center justify-center p-2 relative overflow-hidden transition-colors mb-2">
                                     {item.badge && (
                                       <span className="absolute top-2 left-2 z-10 px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-wider bg-amber-500 text-white shadow-xs">
                                         {item.badge}
@@ -1288,11 +1292,15 @@ export default function VisualProductSelectorModal({
                                         <Package className="w-5 h-5" />
                                       </div>
                                     )}
-                                  </div>
+                                  </div> : item.badge ? (
+                                    <span className="inline-block mb-3 rounded-md bg-amber-100 px-2 py-1 text-[9px] font-bold text-amber-800">{item.badge}</span>
+                                  ) : null}
 
-                                  <h6 className="font-black text-xs sm:text-sm text-slate-900 group-hover:text-brand-600 transition-colors leading-tight line-clamp-1">
-                                    {item.label}
-                                  </h6>
+                                  {['combos_completos', 'combos_biofort', 'combos_con_biolam', 'kits_instalacion'].includes(currentSubgroup.id) ? (
+                                    <BioComboTitle label={item.label} />
+                                  ) : (
+                                    <h6 className="font-black text-xs text-slate-900 leading-tight line-clamp-1">{item.label}</h6>
+                                  )}
                                   {item.description ? (
                                     <p className="text-[10px] text-slate-500 font-medium line-clamp-2 mt-0.5 leading-snug min-h-[1.6rem]" title={item.description}>
                                       {item.description}

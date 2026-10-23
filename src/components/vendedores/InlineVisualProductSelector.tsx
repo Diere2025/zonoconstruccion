@@ -18,12 +18,14 @@ import {
   VisualItemOption,
   generateDefaultVisualConfig,
   includeInstallationKitCuplas,
+  includeCompleteBioCombos,
   promoteTermotanqueLines,
   findRecommendedBase,
   findFlotanteProduct,
   findVisualProductOption
 } from "@/lib/visualSelectorConfig";
 import { supabase } from "@/lib/supabase";
+import { BioComboTitle, BioComboExtras } from './BioComboPresentation';
 import VisualSelectorQuickProducts from './VisualSelectorQuickProducts';
 
 interface InlineVisualProductSelectorProps {
@@ -99,7 +101,7 @@ export default function InlineVisualProductSelector({
                   }))
                 }))
               }));
-              setConfig(promoteTermotanqueLines(includeInstallationKitCuplas({ ...parsed, families: normalizedFamilies }, products)));
+              setConfig(promoteTermotanqueLines(includeCompleteBioCombos(includeInstallationKitCuplas({ ...parsed, families: normalizedFamilies }, products), products)));
               setLoading(false);
               return;
             }
@@ -506,12 +508,14 @@ export default function InlineVisualProductSelector({
                   title="Vista en fotos"
                 >
                   <Grid className="w-3 h-3" />
-                  <span>Fotos</span>
+                  <span>{currentSubgroup.showItemImages === false ? 'Tarjetas' : 'Fotos'}</span>
                 </button>
               </div>
             </div>
 
-            {activeItems.length === 0 ? (
+            <BioComboExtras items={currentSubgroup.quickAddItems} onAdd={handleQuickAdd} />
+
+                      {activeItems.length === 0 ? (
               <div className="p-6 text-center text-slate-400 text-xs">
                 No hay opciones disponibles en este subgrupo actualmente.
               </div>
@@ -606,7 +610,7 @@ export default function InlineVisualProductSelector({
                     >
                       <div>
                         {/* Contenedor amplio de foto */}
-                        <div className="h-24 sm:h-28 w-full rounded-lg bg-slate-50/80 group-hover:bg-slate-50 border border-slate-100 flex items-center justify-center p-2 relative overflow-hidden transition-colors mb-1.5">
+                        {currentSubgroup.showItemImages !== false ? <div className="h-24 sm:h-28 w-full rounded-lg bg-slate-50/80 group-hover:bg-slate-50 border border-slate-100 flex items-center justify-center p-2 relative overflow-hidden transition-colors mb-1.5">
                           {item.badge && (
                             <span className="absolute top-1.5 left-1.5 z-10 px-1.5 py-0.2 rounded text-[7.5px] font-black uppercase tracking-wider bg-amber-500 text-white shadow-xs">
                               {item.badge}
@@ -623,11 +627,15 @@ export default function InlineVisualProductSelector({
                               <Package className="w-4 h-4" />
                             </div>
                           )}
-                        </div>
+                        </div> : item.badge ? (
+                          <span className="inline-block mb-3 rounded-md bg-amber-100 px-2 py-1 text-[9px] font-bold text-amber-800">{item.badge}</span>
+                        ) : null}
 
-                        <h6 className="font-black text-xs text-slate-900 group-hover:text-brand-600 transition-colors leading-tight line-clamp-1">
-                          {item.label}
-                        </h6>
+                        {['combos_completos', 'combos_biofort', 'combos_con_biolam', 'kits_instalacion'].includes(currentSubgroup.id) ? (
+                                    <BioComboTitle label={item.label} />
+                                  ) : (
+                                    <h6 className="font-black text-xs text-slate-900 leading-tight line-clamp-1">{item.label}</h6>
+                                  )}
                         {item.description ? (
                           <p className="text-[9.5px] text-slate-400 line-clamp-2 mt-0.5 leading-tight" title={item.description}>
                             {item.description}

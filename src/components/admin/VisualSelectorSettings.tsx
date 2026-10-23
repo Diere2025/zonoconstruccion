@@ -34,6 +34,7 @@ import {
   DEFAULT_FAMILY_IMAGES,
   generateDefaultVisualConfig,
   includeInstallationKitCuplas,
+  includeCompleteBioCombos,
   moveSubgroupToTopLevel,
   promoteTermotanqueLines
 } from "@/lib/visualSelectorConfig";
@@ -127,10 +128,10 @@ export default function VisualSelectorSettings({ products = [] }: VisualSelector
                 }))
               }));
 
-              const normalizedConfig: VisualCatalogConfig = promoteTermotanqueLines(includeInstallationKitCuplas({
+              const normalizedConfig: VisualCatalogConfig = promoteTermotanqueLines(includeCompleteBioCombos(includeInstallationKitCuplas({
                 ...parsed,
                 families: normalizedFamilies
-              }, prods));
+              }, prods), prods));
 
               setConfig(normalizedConfig);
               if (normalizedConfig.families[0]) {
