@@ -37,3 +37,8 @@ export function dispatchPaymentState(plan: Row, links: Row[], reversedIds = new 
   payments: costs.payments.map(p => {const tx = transactions.get(p.id), account = Array.isArray(tx?.financial_accounts) ? tx.financial_accounts[0] : tx?.financial_accounts; return {...p,code:movementCode({id:p.id,type:tx?.type||'egreso',movement_code:tx?.movement_code}),href:movementHref(p.id),account:account?.name || '',concept:tx?.concept || '',linkMethod:links.find(l=>l.transaction_id===p.id)?.method || '',reference:explicitMovementLog(tx?.notes)};})
  };
 }
+
+/** Unconfirmed source matches block another payment, but never change posted amounts. */
+export function paymentSourceReviewIssues(preview: {rows: Row[]; issues: Row[]}) {
+ return [...preview.issues,...preview.rows.map(r=>({code:r.source.code,row:r.source.row,amount:r.source.amount,paymentDate:r.source.date,transactionId:r.transactionId,message:'Pago localizado en Caja; confirmar el vínculo o el desglose antes de imputarlo al LOG.'}))];
+}
