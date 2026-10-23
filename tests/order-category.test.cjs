@@ -11,6 +11,30 @@ vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/lib/orderCategory.ts'
 const detect = exportsObject.detectOrderCategory;
 const resolve = exportsObject.resolveOrderCategory;
 
+test('JS26375: BioFort autolimpiable and autolimpiante take priority over accessories and tanks', () => {
+  for (const name of ['BioFort - Autolimpiable 700L', 'BIOFORT - AUTOLIMPIANTE 700L']) {
+    const items = [{ name, quantity: 1, unit_price: 416160 },
+      { name: 'Awaduct - Codo 110', quantity: 20 }, { name: 'AquaFort - TRIC 1000L Gris', quantity: 1 }];
+    assert.equal(detect(items), 'BIODIGESTOR');
+    assert.equal(resolve(items, 'OTRO'), 'BIODIGESTOR');
+    assert.equal(detect(items.map(({ name, ...rest }) => ({ product_name: name, ...rest }))), 'BIODIGESTOR');
+    assert.equal(exportsObject.hasBiodigestor([{ name: 'Producto', sku: name, quantity: 1 }]), true);
+  }
+});
+
+test('autolimpiable kit components and unrelated products do not force a biodigestor sale', () => {
+  const component = { name: 'BioFort - Autolimpiable 700L', quantity: 1, unit_price: 0 };
+  const installation = { name: 'Kit Instalación Biodigestor Autolimpiante 700L', quantity: 1, unit_price: 2040000 };
+  assert.equal(detect([installation, component]), 'INSTALACIÓN BIOFORT');
+  assert.equal(detect([component]), 'BIODIGESTOR');
+  assert.equal(detect([installation, { ...component, unit_price: 416160 }]), 'BIODIGESTOR');
+  for (const name of ['Filtro autolimpiable', 'Cono BioFort Autolimpiable', 'Descuento BioFort Autolimpiable',
+    'BioFort - Registro Lodos', 'BioFort - Séptica 600L']) {
+    assert.equal(exportsObject.hasBiodigestor([{ name, quantity: 1 }]), false);
+  }
+  assert.equal(exportsObject.hasBiodigestor([{ ...component, quantity: 0 }]), false);
+});
+
 test('JS25835: biodigestor keeps its category when plumbing accessories outnumber it', () => {
   const items = [
     ['BioFort - Biodigestor 500L', 1], ['BioFort - Séptica 500L', 1],

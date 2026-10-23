@@ -25,7 +25,9 @@ export function hasBiodigestor(items: CategoryOrderItem[]): boolean {
     const price = item.customPrice ?? item.unit_price ?? item.unitPrice;
     // Kit components at $0 belong to the installation, not a separate sale.
     const included = installation && (item.isIncludedInKit === true || (price != null && Number(price) === 0));
-    return !included && item.quantity > 0 && /\bbiodigestor(?:es)?\b/.test(full) &&
+    const physicalBiodigestor = /\bbiodigestor(?:es)?\b/.test(full) ||
+      (/\bbiofort\b/.test(full) && /\bautolimpi(?:able|ante)\b/.test(full));
+    return !included && item.quantity > 0 && physicalBiodigestor &&
       !/descuento|bonificaci|instalaci|mano de obra|\bcono\b/.test(full);
   });
 }
