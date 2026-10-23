@@ -14,7 +14,7 @@ export default function PaymentMethodSelector({ methods, value, onChange, extraO
   const plans = CUOTA_SIMPLE_PAYMENT_PLANS.map(plan => available.find(method => method.name.toLowerCase() === plan.name.toLowerCase()));
   const selected = available.find(method => method.id === value);
   const isSimple = Boolean(selected && isCuotaSimplePaymentMethod(selected.name));
-  const defaultPlan = plans.find(method => method?.installments === 6);
+  const defaultPlan = plans.find(method => method?.installments === 3) || plans.find(Boolean);
 
   return (
     <div className="flex flex-col gap-2">
@@ -56,7 +56,7 @@ export default function PaymentMethodSelector({ methods, value, onChange, extraO
                   onClick={() => { if (method) onChange(method.id); }}
                   className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition-colors disabled:opacity-40 ${active ? 'bg-blue-600 border-blue-600 text-white shadow-sm ring-2 ring-blue-100' : 'bg-white border-slate-200 text-slate-700 hover:border-blue-300'}`}
                 >
-                  {plan.installments} cuotas
+                  {plan.installments === 1 ? '1 pago' : `${plan.installments} cuotas`}
                 </button>
               );
             })}
