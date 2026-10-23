@@ -15,6 +15,19 @@ const payments=load('src/lib/logisticsDispatch/planningPayments.ts',{'./costs':c
  // Partial allocations, including a payment made later, preserve only each LOG's share.
  const mixed={id:'mixed',type:'egreso',currency:'ARS',category:'Servicio de Flete',amount:271600,created_at:'2026-10-13T15:00:00Z'};
  assert.equal(payments.dispatchPaymentState(plan,[{transaction_id:'mixed',allocated_amount:30000,cash_transactions:mixed}]).paidAmount,30000);
+ // A generic Caja concept must not leave a fully attributed payment pending forever.
+ const model=load('src/lib/logisticsDispatch/model.ts');
+ async function sourcePreview({allocated=true,duplicate=false,reversed=false}={}){
+  const tx={...mixed,concept:'Servicio de flete',financial_accounts:{name:'Caja Efectivo Pesos'}};
+  const ledger=duplicate?[tx,{...tx,id:'duplicate'}]:[tx];
+  const database={from:table=>{const query={table,select(){return this},eq(){return this},gte(){return this},lt(){return this},order(){return this},in(field){this.field=field;return this},then(resolve){resolve({data:table==='logistics_freight_payment_allocations'&&allocated?[{transaction_id:'mixed'}]:[],error:null});}};return query;}};
+  const sourceServer=load('src/lib/logisticsDispatch/planningSourcePaymentsServer.ts',{'@/lib/googleSheets':{fetchSpreadsheetValues:async()=>[['LOG_REC_05430','13/10/2026','Jorge Salcedo','Gasto','271600','','Servicio de Flete','','','','','','','','Caja Efectivo Pesos']]},'@/lib/paymentPlanning/model':{nextDate:()=> '2026-10-14'},'./model':model,'./planningServer':{planningRows:async q=>q.table==='cash_transactions'?(q.field==='reversal_of_transaction_id'?(reversed?[{reversal_of_transaction_id:'mixed'}]:[]):ledger):[]},'./planningPaymentsServer':{planningPaymentStates:async()=>[{...plan,paymentState:{paidAmount:348000,state:'paid'}}]}});
+  return sourceServer.planningSourcePaymentPreview(database,[plan]);
+ }
+ assert.equal((await sourcePreview()).issues.length,0);
+ assert.equal((await sourcePreview({allocated:false})).issues.length,1,'Unconfirmed generic payment still needs review');
+ assert.equal((await sourcePreview({duplicate:true})).issues.length,1,'Ambiguous payment still needs review');
+ assert.equal((await sourcePreview({reversed:true})).issues.length,1,'Reversed payment is not coverage');
  const {PGlite}=require(require.resolve('@electric-sql/pglite',{paths:[path.resolve('.codex-tmp/supplier-account-check')]}));const sql=new PGlite();
  try{
   await sql.exec(`create role anon;create role authenticated;create role service_role;

@@ -24,8 +24,20 @@ export async function planningSourcePaymentPreview(db:any,plans:Row[]){
  for(const row of source){const fingerprint=key(row);sourceGroups.set(fingerprint,[...(sourceGroups.get(fingerprint)||[]),row]);}
  const allocatedIds=new Set<string>();
  for(let i=0;i<ledger.length;i+=150){const result=await db.from('logistics_freight_payment_allocations').select('transaction_id').in('transaction_id',ledger.slice(i,i+150).map(t=>t.id));if(result.error&&!['42P01','PGRST205'].includes(result.error.code))throw result.error;(result.data||[]).forEach((a:Row)=>allocatedIds.add(a.transaction_id));}
+ // A confirmed payment can use a generic concept and contain shares of other LOGs.
+ // Recognize it only to suppress a stale source warning, never to create a new link.
+ const confirmedSourceKeys=new Map<string,Row[]>(),sourceIdentityCounts=new Map<string,number>();
+ const sourceIdentity=(row:Row)=>key({...row,concept:''});
+ for(const s of source){const k=sourceIdentity(s);sourceIdentityCounts.set(k,(sourceIdentityCounts.get(k)||0)+1);}
+ const linked=new Map<string,string>();
+ for(let i=0;i<ledger.length;i+=150){const links=await planningRows(db.from('logistics_dispatch_movements').select('transaction_id,dispatch_id').in('transaction_id',ledger.slice(i,i+150).map(t=>t.id)).order('transaction_id'));links.forEach(l=>linked.set(l.transaction_id,l.dispatch_id));}
+ for(const tx of ledger){if(tx.currency!=='ARS'||tx.reversal_of_transaction_id)continue;const a=Array.isArray(tx.financial_accounts)?tx.financial_accounts[0]:tx.financial_accounts;const k=sourceIdentity({...tx,date:date(tx.created_at),account:a?.name||''});confirmedSourceKeys.set(k,[...(confirmedSourceKeys.get(k)||[]),tx]);}
+ const candidates=new Set(ledger.filter(t=>allocatedIds.has(t.id)||linked.has(t.id)).map(t=>t.id)),reversedConfirmed=new Set<string>();
+ const candidateIds=[...candidates];
+ for(let i=0;i<candidateIds.length;i+=150){const reversals=await planningRows(db.from('cash_transactions').select('id,reversal_of_transaction_id').in('reversal_of_transaction_id',candidateIds.slice(i,i+150)).order('id'));reversals.forEach(r=>reversedConfirmed.add(r.reversal_of_transaction_id));}
+ const covered=(s:Row)=>{const k=sourceIdentity(s),matches=confirmedSourceKeys.get(k)||[];return sourceIdentityCounts.get(k)===1&&matches.length===1&&!reversedConfirmed.has(matches[0].id)&&(allocatedIds.has(matches[0].id)||linked.get(matches[0].id)===byCode.get(s.code));};
  const rows:Row[]=[],issues:Row[]=[];
- for(const s of relevant){const fingerprint=key(s),matches=ledgerGroups.get(fingerprint)||[];if(matches.length!==1||sourceGroups.get(fingerprint)?.length!==1){issues.push({code:s.code,row:s.row,amount:s.amount,paymentDate:s.date,message:matches.length?'Coincidencia ambigua: revisar manualmente.':'Pago registrado en Caja; no se identificó su movimiento en el ERP. Revisar importación o referencia del pago.'});continue;}if(allocatedIds.has(matches[0].id))continue;rows.push({dispatchId:byCode.get(s.code),transactionId:matches[0].id,transaction:matches[0],source:{...s,spreadsheetId:SOURCE_IDS.cash},needsClassification:normalized(matches[0].category)!=='servicio de flete'&&normalized(matches[0].sub_category)!=='servicio de flete'});}
+ for(const s of relevant){if(covered(s))continue;const fingerprint=key(s),matches=ledgerGroups.get(fingerprint)||[];if(matches.length!==1||sourceGroups.get(fingerprint)?.length!==1){issues.push({code:s.code,row:s.row,amount:s.amount,paymentDate:s.date,message:matches.length?'Coincidencia ambigua: revisar manualmente.':'Pago registrado en Caja; no se identificó su movimiento en el ERP. Revisar importación o referencia del pago.'});continue;}if(allocatedIds.has(matches[0].id))continue;rows.push({dispatchId:byCode.get(s.code),transactionId:matches[0].id,transaction:matches[0],source:{...s,spreadsheetId:SOURCE_IDS.cash},needsClassification:normalized(matches[0].category)!=='servicio de flete'&&normalized(matches[0].sub_category)!=='servicio de flete'});}
  const reversed=new Set<string>();for(let i=0;i<rows.length;i+=150){const r=await planningRows(db.from('cash_transactions').select('id,reversal_of_transaction_id').in('reversal_of_transaction_id',rows.slice(i,i+150).map(x=>x.transactionId)).order('id'));r.forEach(x=>reversed.add(x.reversal_of_transaction_id));}
  return {rows:rows.filter(r=>!reversed.has(r.transactionId)),issues};
 }
