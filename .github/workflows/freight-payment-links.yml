@@ -1,8 +1,6 @@
 name: Freight payment links
 
 on:
-  push:
-    branches: [codex/inc-005177-freight-links]
   pull_request:
     paths:
       - 'src/lib/logisticsDispatch/**'
@@ -21,6 +19,7 @@ jobs:
     env:
       NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder
+      SUPABASE_SERVICE_ROLE_KEY: ci-placeholder
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
