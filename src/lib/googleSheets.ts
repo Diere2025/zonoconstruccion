@@ -1,4 +1,4 @@
-import { hasBiodigestor, hasBiofortInstallation } from './orderCategory';
+import { detectVolumeOrderCategory } from './orderCategory';
 import { cancelledRowCells, cancellationMonthSerial, logisticsCancellationReasons, logisticsCancellationReason } from './cancelledOrderSheet';
 import type { SheetCellValue } from './cancelledOrderSheet';
 import { restoreSellerRowFormats } from './sellerSheetMaintenance';
@@ -313,8 +313,8 @@ const VALID_SHEET_CATEGORIES = [
 ];
 
 function normalizeCategoryForSheet(cat?: string | null, items: SheetOrderItem[] = []): string {
-  if (hasBiodigestor(items)) return 'BIODIGESTOR';
-  if (hasBiofortInstallation(items)) return 'INSTALACIÓN BIOFORT';
+  const priority = detectVolumeOrderCategory(items);
+  if (priority) return priority;
   if (!cat) return 'OTRO';
   const c = cat.toUpperCase().trim();
   if (VALID_SHEET_CATEGORIES.includes(c)) return c;

@@ -168,3 +168,19 @@ test('JS26123 / JS26124: every split sheet row keeps installation when component
   assert.equal(categories.length,6);
   assert.ok(categories.every(d=>d.values[0][0]==='INSTALACIÓN BIOFORT'));
 });
+
+test('volume rules override OTRO in all seller, Central and delivery split rows',async()=>{
+  for (const [expected, main] of [['TANQUES','AquaFort - TRIC 750L Gris'],['MEP','Equilibrio Membrana Techos Blanco (20Kg)']]) {
+    const f=fixture();
+    vm.runInContext("getNextAvailableSheetSlots=async()=>[{code:'JS1',rowNumber:2700},{code:'JS2',rowNumber:2701}]; getNextEmptyOperationalRows=async()=>[2700,2701]",f.context);
+    const order={clientName:'Cliente',category:'OTRO',items:[{name:main,quantity:1,unitPrice:100},
+      ...Array.from({length:12},()=>({name:'Pincel N°15',quantity:100,unitPrice:10}))]};
+    await f.exports.appendOrderToSellerSheet('seller','Pendientes',order);
+    const result=await f.exports.appendNewOrderToOperationalSheets(['JS1','JS2'],order);
+    assert.equal(result.central.success,true);
+    assert.equal(result.deliveriesCurrent.success,true);
+    const categories=f.calls.flatMap(c=>c.body?.data||[]).filter(d=>/![UT]\d+:[VW]\d+$/.test(d.range));
+    assert.equal(categories.length,6);
+    assert.ok(categories.every(d=>d.values[0][0]===expected));
+  }
+});

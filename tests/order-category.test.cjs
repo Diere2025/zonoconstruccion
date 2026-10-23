@@ -11,6 +11,30 @@ vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/lib/orderCategory.ts'
 const detect = exportsObject.detectOrderCategory;
 const resolve = exportsObject.resolveOrderCategory;
 
+test('JS26348 and JS26392: physical water tank defines volume despite membranes and numerous accessories', () => {
+  const tank = { name: 'AquaFort - TRIC 750L Gris', quantity: 1 };
+  const items = [tank, { name: 'Equilibrio Membrana Techos Gris (20Kg)', quantity: 10 },
+    { name: 'Venda Premium 10CMx25M', quantity: 100 }, { name: 'TF - Codo 20 mm', quantity: 100 }];
+  assert.equal(detect(items), 'TANQUES');
+  assert.equal(resolve(items, 'OTRO'), 'TANQUES');
+  assert.equal(detect([{ product_name: 'Producto', sku: tank.name, quantity: 1 }, ...items.slice(1)]), 'TANQUES');
+  assert.equal(exportsObject.detectVolumeOrderCategory([{ ...tank, quantity: 0 }]), null);
+  for (const name of ['Filtro para Tanque 500L', 'Base Tanque 1000L', 'Termotanque 80L', 'Descuento Tanque 500L']) {
+    assert.notEqual(exportsObject.detectVolumeOrderCategory([{ name, quantity: 1 }]), 'TANQUES');
+  }
+});
+
+test('JS26365: membrane and application accessories belong to MEP', () => {
+  const items = [{ name: 'Equilibrio Membrana Techos Blanco (20Kg)', quantity: 1 },
+    { name: 'Rodillo Simil Lana 22x40', quantity: 100 }, { name: 'Pincel N°15', quantity: 100 }];
+  assert.equal(detect(items), 'MEP');
+  assert.equal(resolve(items, 'OTRO'), 'MEP');
+  assert.equal(detect([{ name: 'Rollo Membrana Asfáltica 40Kg', quantity: 1 }]), 'ROLLO MEMBRANA');
+  assert.equal(exportsObject.detectVolumeOrderCategory([{ name: 'Rodillo', quantity: 1 }]), null);
+  assert.equal(exportsObject.detectVolumeOrderCategory([...items, { name: 'Producto sin regla', quantity: 1 }]), null);
+  assert.equal(detect([...items, { name: 'BioFort - Autolimpiable 700L', quantity: 1 }]), 'BIODIGESTOR');
+});
+
 test('JS26375: BioFort autolimpiable and autolimpiante take priority over accessories and tanks', () => {
   for (const name of ['BioFort - Autolimpiable 700L', 'BIOFORT - AUTOLIMPIANTE 700L']) {
     const items = [{ name, quantity: 1, unit_price: 416160 },

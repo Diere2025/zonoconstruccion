@@ -33,19 +33,36 @@ export function hasBiodigestor(items: CategoryOrderItem[]): boolean {
 }
 
 export function resolveOrderCategory(items: CategoryOrderItem[], requested?: string | null): string {
+  const priority = detectVolumeOrderCategory(items);
+  if (priority) return priority;
+  return requested?.trim() && requested !== "auto" ? requested.trim() : detectOrderCategory(items);
+}
+
+/** Prioridades de volumen logístico acordadas; no se comparan litros con kg ni accesorios por cantidad. */
+export function detectVolumeOrderCategory(items: CategoryOrderItem[]): string | null {
   if (hasBiodigestor(items)) return "BIODIGESTOR";
   if (hasBiofortInstallation(items)) return "INSTALACIÓN BIOFORT";
-  return requested?.trim() && requested !== "auto" ? requested.trim() : detectOrderCategory(items);
+  const names = items.filter(item => item.quantity > 0).map(item =>
+    `${item.name || item.product_name || ""} ${item.sku || ""}`.toLowerCase());
+  // Un tanque físico prevalece sobre membranas y accesorios de plomería/pintura.
+  // La capacidad y las exclusiones evitan confundir filtros, bases o termotanques con tanques.
+  if (names.some(full => /aquafort|\btanque\b|\bcisterna\b/.test(full) &&
+    /\d+(?:[.,]\d+)?\s*(?:l\b|litros?\b)/.test(full) &&
+    !/termotanque|descuento|bonificaci|instalaci|mano de obra|\bbase\b|flotante|flotador|filtro|autom[aá]tico|\btapa\b|\bcaño\b/.test(full))) return "TANQUES";
+
+  const mep = (full: string) => /equilibrio|\bmeps?\b|revestimiento|membrana/.test(full) &&
+    !/rollo|asfalt|aluflex|megaflex|descuento|bonificaci/.test(full);
+  const applicationAccessory = (full: string) => /\brodillo\b|\bpincel\b|\bvenda\b/.test(full);
+  // Regla acotada al caso aprobado: membrana/revestimiento con sus accesorios.
+  // Pedidos con otros productos siguen pendientes de una regla específica.
+  if (names.some(mep) && names.every(full => mep(full) || applicationAccessory(full))) return "MEP";
+  return null;
 }
 
 export function detectOrderCategory(orderItems: CategoryOrderItem[]): string {
   if (orderItems.length === 0) return "OTRO";
-  // Volumen y facturación se atribuyen al biodigestor, cualquiera sea el resto del pedido.
-  if (hasBiodigestor(orderItems)) return "BIODIGESTOR";
-
-  // A complete BioFort installation contains many $0 accessories. Its category
-  // must be defined by the installation item, not by the most numerous accessory.
-  if (hasBiofortInstallation(orderItems)) return "INSTALACIÓN BIOFORT";
+  const priority = detectVolumeOrderCategory(orderItems);
+  if (priority) return priority;
 
   let termotanqueCount = 0;
   let tanquesCount = 0;

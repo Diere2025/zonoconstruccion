@@ -1,4 +1,4 @@
-import { hasBiodigestor, hasBiofortInstallation } from '@/lib/orderCategory';
+import { detectVolumeOrderCategory } from '@/lib/orderCategory';
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
@@ -727,8 +727,8 @@ export async function POST(request: Request) {
       ];
       counts.sort((a, b) => b.count - a.count);
       if (counts[0].count > 0) deducedCategory = counts[0].cat;
-      if (hasBiodigestor(categoryItems)) deducedCategory = "BIODIGESTOR";
-      else if (hasBiofortInstallation(categoryItems)) deducedCategory = "INSTALACIÓN BIOFORT";
+      const volumeCategory = detectVolumeOrderCategory(categoryItems);
+      if (volumeCategory) deducedCategory = volumeCategory;
 
       let dbOrderStatus = 'Pendiente';
       const normStatus = normalizeText(rawStatus);
