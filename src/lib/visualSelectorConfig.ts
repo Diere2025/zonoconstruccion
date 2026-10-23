@@ -49,6 +49,7 @@ export interface VisualSubGroup {
   itemsViewMode?: 'list' | 'grid';
   showItemImages?: boolean;
   items: VisualItemOption[];
+  quickAddItems?: VisualItemOption[];
 }
 
 export interface VisualFamily {
@@ -231,6 +232,128 @@ export const DEFAULT_FAMILY_IMAGES: Record<string, string> = {
   pinturas: 'https://placehold.co/400x400/10b981/ffffff?text=Pinturas',
   otros: 'https://placehold.co/400x400/64748b/ffffff?text=Otros+Productos'
 };
+
+/** Supply-only bundles: current catalog prices, with 15% off bios and chambers. */
+export function includeCompleteBioCombos(config: VisualCatalogConfig, products: Product[]): VisualCatalogConfig {
+  const text = (p: Product) => `${p.name} ${p.sku || ''}`.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const active = products.filter(p => p.is_active !== false && !/kit (?:de )?instalaci|combo|adicional|descuento/.test(text(p)));
+  const find = (match: (name: string) => boolean) => active.find(p => match(text(p)));
+  const chamber = find(n => /\bwp\b/.test(n) && /desengrasadora|desgrasadora/.test(n) && n.includes('canasto'));
+  const inspection = find(n => /\bwp\b/.test(n) && /inspeccion|\bcii\b/.test(n));
+  const pipe = find(n => n.includes('awaduct') && n.includes('110') && /4\s*(?:mts|m\b|metros)/.test(n) && /cano/.test(n));
+  const tee = find(n => n.includes('ramal t') && n.includes('110'));
+  const elbow45 = find(n => n.includes('codo') && n.includes('110') && n.includes('45'));
+  const elbow90 = find(n => n.includes('codo') && n.includes('110') && n.includes('90'));
+  const coupling = find(n => n.includes('awaduct') && n.includes('cupla') && n.includes('110'));
+  const cap = find(n => /sombrer/.test(n) && n.includes('110'));
+  const lubricant = find(n => /lusqtoff|lustoff|lustqoff|lusqto[f]+/.test(n) && n.includes('lubricante'));
+  const biolam = find(n => n.includes('biolam'));
+  const specs = [
+    { liters: 700, auto: true, pipes: 3 },
+    { liters: 600, auto: false, pipes: 3 },
+    { liters: 750, auto: false, pipes: 3 },
+    { liters: 1000, auto: false, pipes: 4 },
+    { liters: 3000, auto: false, pipes: 5 }
+  ];
+  const subgroup: VisualSubGroup = {
+    id: 'combos_completos', name: 'Combos Completos',
+    showItemImages: false,
+    description: 'Sin instalación. 15% OFF en biodigestores y cámaras; accesorios a precio de lista.',
+    imageUrl: DEFAULT_FAMILY_IMAGES.biodigestores,
+    badgeColor: 'bg-blue-600 text-white', isActive: true,
+    items: specs.map(spec => {
+      const bio = find(n => extractLitros(n) === spec.liters && (spec.auto ? /autolimp/.test(n) : n.includes('biodigestor') && !/autolimp/.test(n)));
+      const secondary = spec.auto ? find(n => n.includes('lodos')) : find(n => n.includes('septica') && extractLitros(n) === spec.liters);
+      const components: [Product | undefined, number, boolean][] = [
+        [bio, 1, true], [secondary, 1, true], [chamber, 1, true], [inspection, 1, true],
+        [pipe, spec.pipes, false], [tee, 1, false], [elbow45, 2, false], [elbow90, 2, false],
+        [coupling, 2, false],
+        ...(!spec.auto ? [[cap, 1, false]] as [Product | undefined, number, boolean][] : []),
+        [lubricant, 1, false], [biolam, 1, false]
+      ];
+      const complete = components.every(([product]) => product && product.price > 0);
+      return {
+        id: `combo_completo_${spec.auto ? 'autolimpiable' : 'convencional'}_${spec.liters}`,
+        label: `${spec.liters}L · ${spec.auto ? 'Autolimpiable' : 'Convencional'}`,
+        description: subgroupDescription(spec.auto),
+        badge: '15% OFF bios y cámaras', imageUrl: bio?.image_url || DEFAULT_FAMILY_IMAGES.biodigestores,
+        isActive: complete, isCombo: true,
+        comboItems: complete ? components.map(([product, quantity, discounted]) => ({
+          productId: product!.id, quantity,
+          ...(discounted ? { basePrice: product!.price, customPrice: Math.round(product!.price * 0.85), discountType: 'percentage' as const, discountValue: 15 } : {})
+        })) : []
+      };
+    })
+  };
+  const basicCombos: VisualSubGroup = {
+    id: 'combos_biofort', name: 'COMBOS',
+    description: 'Biodigestor + séptica o registro de lodos + inspección. Sin instalación, caños ni accesorios. 15% OFF.',
+    imageUrl: DEFAULT_FAMILY_IMAGES.biodigestores,
+    badgeColor: 'bg-blue-600 text-white', showItemImages: false, isActive: true,
+    quickAddItems: chamber && chamber.price > 0 ? [{
+      id: 'extra_wp_desengrasadora', label: 'WP - Camara Desengrasadora C/canasto',
+      badge: '15% OFF', isActive: true, isCombo: true,
+      comboItems: [{ productId: chamber.id, quantity: 1, basePrice: chamber.price,
+        customPrice: Math.round(chamber.price * 0.85), discountType: 'percentage', discountValue: 15 }]
+    }] : [],
+    items: [{ liters: 500, auto: false }, ...specs].sort((a, b) => Number(a.auto) - Number(b.auto) || a.liters - b.liters).map(spec => {
+      const bio = find(n => extractLitros(n) === spec.liters && (spec.auto ? /autolimp/.test(n) : n.includes('biodigestor') && !/autolimp/.test(n)));
+      const secondary = spec.auto ? find(n => n.includes('lodos')) : find(n => n.includes('septica') && extractLitros(n) === spec.liters);
+      const components = [bio, secondary, inspection];
+      const complete = components.every(product => product && product.price > 0);
+      return {
+        id: spec.auto ? 'combo_autolimpiante_completo' : `combo_bio_${spec.liters}_sin_desengrasante`,
+        label: `${spec.liters}L · ${spec.auto ? 'Autolimpiable' : 'Convencional'}`,
+        description: `${spec.auto ? 'Registro de lodos' : `Séptica ${spec.liters}L`} + cámara de inspección.`,
+        badge: '15% OFF bios y cámaras', isActive: complete, isCombo: true,
+        comboItems: complete ? components.map(product => ({
+          productId: product!.id, quantity: 1, basePrice: product!.price,
+          customPrice: Math.round(product!.price * 0.85), discountType: 'percentage' as const, discountValue: 15
+        })) : []
+      };
+    })
+  };
+  const biolamCombos: VisualSubGroup = {
+    ...basicCombos,
+    id: 'combos_con_biolam', name: 'Combos con Biolam',
+    description: 'Todos los modelos con Biolam incluido. 15% OFF en los cuatro productos, sin instalación ni cañería.',
+    items: [...basicCombos.items].sort((a, b) => extractLitros(a.label) - extractLitros(b.label)).map(item => {
+      const available = item.isActive && Boolean(biolam && biolam.price > 0);
+      return {
+        ...item, id: `${item.id}_con_biolam`,
+        label: `${item.label} + Biolam`,
+        description: item.description!.replace(/\.$/, ' + Biolam 500g.'),
+        badge: '15% OFF en los 4 productos', isActive: available,
+        comboItems: available ? [...item.comboItems!, {
+          productId: biolam!.id, quantity: 1, basePrice: biolam!.price,
+          customPrice: Math.round(biolam!.price * 0.85), discountType: 'percentage' as const, discountValue: 15
+        }] : []
+      };
+    })
+  };
+  const families = config.families.map(family => {
+    if (family.id !== 'biodigestores' && !family.name.toLowerCase().includes('biodigestores')) return family;
+    const existing = family.subgroups.find(group => group.id === subgroup.id);
+    const existingBasic = family.subgroups.find(group => group.id === basicCombos.id);
+    const existingBiolam = family.subgroups.find(group => group.id === biolamCombos.id);
+    const subgroups = family.subgroups.filter(group => group.id !== subgroup.id && group.id !== biolamCombos.id).map(group => group.id === basicCombos.id
+      ? { ...basicCombos, isActive: group.isActive }
+      : group.id === 'kits_instalacion' ? {
+        ...group, showItemImages: false,
+        items: group.items.map(item => ({
+          ...item,
+          description: item.isCombo ? 'Cámaras, cañería, accesorios y mano de obra incluidos.' : item.description
+        }))
+      } : group);
+    if (!existingBasic) subgroups.push(basicCombos);
+    return { ...family, subgroups: [...subgroups, { ...biolamCombos, isActive: existingBiolam?.isActive ?? true }, { ...subgroup, isActive: existing?.isActive ?? true }] };
+  });
+  return { ...config, families };
+}
+
+function subgroupDescription(auto: boolean): string {
+  return `Sin instalación: biodigestor, ${auto ? 'cámara de lodos' : 'cámara séptica'}, desengrasadora, inspección, cañería y accesorios. Cada producto con su precio.`;
+}
 
 export function extractLitros(name: string): number {
   const match = name.match(/(\d+)\s*(?:l\b|litros?|lt)/i);
@@ -826,7 +949,7 @@ export function generateDefaultVisualConfig(products: Product[]): VisualCatalogC
     }
   ];
 
-  return promoteTermotanqueLines({
+  return promoteTermotanqueLines(includeCompleteBioCombos({
     version: 2,
     updatedAt: new Date().toISOString(),
     showItemImages: true,
@@ -857,7 +980,7 @@ export function generateDefaultVisualConfig(products: Product[]): VisualCatalogC
         subgroups: bioSubgroups
       }
     ]
-  });
+  }, products));
 }
 
 export function generateWholesaleVisualConfig(products: Product[], retailConfig?: VisualCatalogConfig): VisualCatalogConfig {
