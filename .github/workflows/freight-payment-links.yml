@@ -1,0 +1,39 @@
+name: Freight payment links
+
+on:
+  pull_request:
+    paths:
+      - 'src/lib/logisticsDispatch/**'
+      - 'src/app/api/admin/logistica-planificacion/**'
+      - 'database/*freight*'
+      - 'tests/freight-confirmed-payment-links.test.cjs'
+      - '.github/workflows/freight-payment-links.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  regression-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder
+      SUPABASE_SERVICE_ROLE_KEY: ci-placeholder
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Install isolated SQL test runtime
+        run: npm install --prefix .codex-tmp/supplier-account-check --no-save --package-lock=false @electric-sql/pglite@0.5.10
+      - name: Freight regression tests
+        run: |
+          node tests/freight-confirmed-payment-links.test.cjs
+          node tests/logistics-planning-payments.test.cjs
+          node tests/logistics-integrated-circuit.test.cjs
+      - name: Production build and type check
+        run: npm run build
+
