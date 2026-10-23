@@ -21,27 +21,27 @@ function elements(element) {
 }
 
 test('current Posnet plans have the requested rates and installment parsing', () => {
-  assert.deepEqual(Array.from(methods, m => m.surcharge_percentage), [25, 43]);
+  assert.deepEqual(Array.from(methods, m => m.surcharge_percentage), [10, 25, 43]);
   for (const method of methods) {
     assert.equal(plans.cuotaSimpleInstallments(method.name), method.installments);
     assert.equal(plans.isRetiredPaymentMethod(method.name), false);
   }
 });
 
-test('one Posnet option defaults to six and buttons select each stored plan ID', () => {
+test('one Posnet option defaults to three and buttons select each stored plan ID', () => {
   let chosen;
-  const props = { methods: [cash, ...methods], value: 'cash', onChange: id => { chosen = id; } };
+  const props = { methods: [cash, { id: 'qr', name: 'Point QR (0%)', installments: 1, surcharge_percentage: 0 }, ...methods], value: 'cash', onChange: id => { chosen = id; } };
   const initial = elements(Selector(props));
   const options = initial.filter(e => e.type === 'option');
   assert.equal(options.length, 2);
   assert.equal(options[1].props.children, 'Posnet · hasta 6 cuotas');
   initial.find(e => e.type === 'select').props.onChange({ target: { value: 'cuota-simple' } });
-  assert.equal(chosen, 'plan-6');
+  assert.equal(chosen, 'plan-3');
   for (const method of methods) {
     const rendered = elements(Selector({ ...props, value: method.id }));
     assert.equal(rendered.find(e => e.type === 'select').props.value, 'cuota-simple');
     const buttons = rendered.filter(e => e.type === 'button');
-    assert.equal(buttons.length, 2);
+    assert.equal(buttons.length, 3);
     assert.equal(buttons.filter(e => e.props['aria-pressed']).length, 1);
     for (const [index, button] of buttons.entries()) {
       button.props.onClick();
@@ -51,8 +51,8 @@ test('one Posnet option defaults to six and buttons select each stored plan ID',
 });
 
 test('missing plans are disabled and retired payment IDs are preserved', () => {
-  const partial = elements(Selector({ methods: [cash, methods[1]], value: 'plan-6', onChange: () => {} }));
-  assert.equal(partial.filter(e => e.type === 'button' && e.props.disabled).length, 1);
+  const partial = elements(Selector({ methods: [cash, methods[2]], value: 'plan-6', onChange: () => {} }));
+  assert.equal(partial.filter(e => e.type === 'button' && e.props.disabled).length, 2);
   const retired = elements(Selector({ methods: [cash], value: 'old-id', onChange: () => {} }));
   assert.equal(retired.find(e => e.type === 'select').props.value, 'old-id');
   assert.ok(retired.find(e => e.type === 'option' && e.props.value === 'old-id' && e.props.disabled));
