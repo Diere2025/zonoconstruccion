@@ -66,6 +66,7 @@ export function selectedOrderNoteCardIndex(paymentMethod: string): number | null
 
 export function agreedOrderNoteInstallments(paymentMethod: string): number | null {
   if (isPointOnePaymentMethod(paymentMethod)) return 1;
+  if (/^point\s+1\s+pago\b/i.test(paymentMethod.trim())) return 1;
   const payway = paymentMethod.match(/payway\s*\(?\s*(18|12|9|6|3|2|1)\b/i);
   if (payway) return Number(payway[1]);
   return cuotaSimpleInstallments(paymentMethod);
@@ -93,8 +94,8 @@ export function orderNoteBaseAmount(order: LogisticsPrintOrder, rates: readonly 
     return order.surcharge > 0 ? simpleAmount(order) : Math.round(order.pendingBalance / (1 + pointRate / 100));
   }
   const selectedIndex = selectedOrderNoteCardIndex(order.paymentMethod);
-  const isLegacySimple = /cuota\s+simple/i.test(order.paymentMethod) && hasLegacyOrderNotePlan(order.paymentMethod);
-  if (selectedIndex === null && !/payway/i.test(order.paymentMethod) && !isLegacySimple) return order.pendingBalance;
+  const isLegacySimple = /cuota\s+simple/i.test(order.paymentMethod) && !/cuota\s+simple\s*x\s*\d+/i.test(order.paymentMethod);
+  if (selectedIndex === null && !/payway|cuota\s+simple|point\s+1\s+pago/i.test(order.paymentMethod) && !isLegacySimple) return order.pendingBalance;
   if (isLegacySimple) {
     // En Cuota Simple los precios de los artículos ya incluyen el recargo.
     // La columna de recargo de la planilla vuelve a sumarlo al saldo.
@@ -105,6 +106,12 @@ export function orderNoteBaseAmount(order: LogisticsPrintOrder, rates: readonly 
     return Math.max(0, Math.round(simpleAmount(order) - order.productsSubtotal + subtotalWithoutRate));
   }
   if (order.surcharge > 0) return Math.max(0, order.pendingBalance - order.surcharge);
+  const oldSimple = order.paymentMethod.match(/cuota\s+simple\s*x\s*(18|12|9|6|3|2)\b/i);
+  if (oldSimple) {
+    const oldRate = ({ '2': 22, '3': 28, '6': 45.5, '9': 70, '12': 93, '18': 141 } as Record<string, number>)[oldSimple[1]];
+    return Math.round(order.pendingBalance / (1 + oldRate / 100));
+  }
+  if (/^point\s+1\s+pago\b/i.test(order.paymentMethod.trim())) return Math.round(order.pendingBalance / 1.07);
   if (/payway/i.test(order.paymentMethod)) {
     const installments = agreedOrderNoteInstallments(order.paymentMethod);
     const oldRate = ({ '1': 13.5, '3': 32, '6': 43.2, '12': 61.4 } as Record<string, number>)[String(installments || '')];
@@ -125,7 +132,7 @@ export function orderNoteCardAmounts(order: LogisticsPrintOrder, rates: readonly
 }
 
 export function selectedOrderNotePoint(paymentMethod: string): boolean {
-  return isPointOnePaymentMethod(paymentMethod) || (/payway/i.test(paymentMethod) && agreedOrderNoteInstallments(paymentMethod) === 1);
+  return agreedOrderNoteInstallments(paymentMethod) === 1;
 }
 
 export function orderNotePointAmount(order: LogisticsPrintOrder, rates: readonly number[], pointRate: number = POINT_ONE_PAYMENT_PLAN.surcharge_percentage): number {

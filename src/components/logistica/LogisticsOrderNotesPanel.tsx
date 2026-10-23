@@ -57,12 +57,12 @@ export function PrintableOrderNotes({ orders, settings }: { orders: LogisticsPri
           {(page.trip.zone || page.trip.route) && <div className="order-note-route">Recorrido: {orderNoteRoutes(page.orders)}</div>}
           <table className="order-note-table">
             <colgroup>
-              {['2.5%', '6.5%', '13%', '7%', '10%', '7%', '7%', ...CUOTA_SIMPLE_PLANS.map(() => '7%'), '5%'].map((width, index) => <col key={index} style={{ width }} />)}
+              {['3%', '8%', '19%', '10%', '15%', '10%', '10%', ...CUOTA_SIMPLE_PLANS.map(() => '10%'), '5%'].map((width, index) => <col key={index} style={{ width }} />)}
             </colgroup>
             <thead>
               <tr className="order-note-posnet-heading">
-                <th colSpan={7}></th>
-                <th colSpan={CUOTA_SIMPLE_PLANS.length} className="order-note-cuota-heading">CUOTA SIMPLE</th>
+                <th colSpan={6}></th>
+                <th colSpan={1 + CUOTA_SIMPLE_PLANS.length} className="order-note-cuota-heading">POSNET</th>
                 <th></th>
               </tr>
               <tr>
@@ -72,7 +72,7 @@ export function PrintableOrderNotes({ orders, settings }: { orders: LogisticsPri
                 <th>Localidad</th>
                 <th>Medio de pago</th>
                 <th>Pago Contado</th>
-                <th className="order-note-installment"><span className="order-note-installment-count">Point 1 Pago</span><span className="order-note-installment-rate">{pointRate.toLocaleString('es-AR')}%</span></th>
+                <th className="order-note-installment"><span className="order-note-installment-count">Posnet 1 pago</span><span className="order-note-installment-rate">{pointRate.toLocaleString('es-AR')}%</span></th>
                 {CUOTA_SIMPLE_PLANS.map((plan, index) => (
                   <th className="order-note-installment" key={plan.installments}>
                     <span className="order-note-installment-count">{plan.installments} cuotas</span>
@@ -96,7 +96,7 @@ export function PrintableOrderNotes({ orders, settings }: { orders: LogisticsPri
                     <td>{order.locality}</td>
                     <td title={order.paymentMethod}>
                       {legacyPlan && pointSelected ? 'Point 1 Pago *' : legacyPlan && selectedCardIndex !== null
-                        ? `Cuota Simple · ${agreedOrderNoteInstallments(order.paymentMethod)}c *`
+                        ? `Plan anterior · ${agreedOrderNoteInstallments(order.paymentMethod)}c *`
                         : order.paymentMethod}
                       {legacyPlan && selectedCardIndex === null && !pointSelected && (
                         <span className="order-note-agreed-amount">Pactado: {formatNumber(order.pendingBalance)}</span>

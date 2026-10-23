@@ -35,7 +35,7 @@ export default function PaymentMethodSelector({ methods, value, onChange, extraO
             {method.name}{method.surcharge_percentage > 0 ? ` (+${method.surcharge_percentage}% Recargo)` : ''}
           </option>
         ))}
-        {defaultPlan && <option value="cuota-simple">Cuota Simple</option>}
+        {defaultPlan && <option value="cuota-simple">Posnet · hasta 6 cuotas</option>}
         {selected === undefined && value && !extraOptions.some(option => option.value === value) && (
           <option value={value} disabled>Medio de pago anterior</option>
         )}

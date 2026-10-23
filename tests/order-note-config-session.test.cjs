@@ -8,8 +8,8 @@ function endpoint(authResult) {
   const exports = {};
   let queries = 0;
   let config;
-  const plans = [2, 3, 6, 9, 12, 18].map((installments, index) => ({
-    name: `Cuota Simple x${installments} (oct26)`, surcharge_percentage: [22, 28, 45.5, 70, 93, 141][index]
+  const plans = [3, 6].map((installments, index) => ({
+    name: `Posnet x${installments} (Nov26)`, surcharge_percentage: [25, 43][index]
   }));
   const client = {
     auth: { getUser: async () => authResult },
@@ -26,7 +26,7 @@ function endpoint(authResult) {
   const modules = {
     'next/server': { NextResponse: { json: (data, options) => Response.json(data, options) } },
     '@supabase/supabase-js': { createClient: (_, __, options) => { config = options; return client; } },
-    '@/lib/cuotaSimple': { CUOTA_SIMPLE_PLANS: plans, POINT_ONE_PAYMENT_PLAN: { name: 'Point 1 Pago (oct26)', surcharge_percentage: 7 } },
+    '@/lib/cuotaSimple': { CUOTA_SIMPLE_PLANS: plans, POINT_ONE_PAYMENT_PLAN: { name: 'Posnet x1 (Nov26)', surcharge_percentage: 10 } },
     '@/lib/logisticsOrderNotes': { DEFAULT_ORDER_NOTE_RATES: plans.map(plan => plan.surcharge_percentage) }
   };
   vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/app/api/logistica/nota-pedido-config/route.ts', 'utf8'), {
@@ -39,7 +39,7 @@ function endpoint(authResult) {
   return {
     request: (method, token) => exports[method](new Request('https://example.test/api/logistica/nota-pedido-config', {
       method, headers: token ? { Authorization: `Bearer ${token}` } : {},
-      ...(method === 'PUT' ? { body: JSON.stringify({ rates: [22, 28, 45.5, 70, 93, 141] }) } : {})
+      ...(method === 'PUT' ? { body: JSON.stringify({ rates: [25, 43] }) } : {})
     })),
     queries: () => queries, config: () => config
   };
@@ -66,11 +66,11 @@ test('network and temporary auth failures return 503 without claiming the user s
   }
 });
 
-test('authenticated sellers can read all six rates with caching disabled', async () => {
+test('authenticated sellers can read current Posnet rates with caching disabled', async () => {
   const api = endpoint({ data: { user: { id: 'seller' } }, error: null });
   const response = await api.request('GET', 'valid');
   assert.equal(response.status, 200);
-  assert.deepEqual((await response.json()).rates, [22, 28, 45.5, 70, 93, 141]);
+  assert.deepEqual((await response.json()).rates, [25, 43]);
   assert.equal(api.config().auth.persistSession, false);
   await api.config().global.fetch('https://example.test/auth', {});
   assert.equal((await api.request('PUT', 'valid')).status, 403);
