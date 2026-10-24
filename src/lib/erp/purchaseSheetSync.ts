@@ -1,3 +1,4 @@
+import { canImportPurchaseReception, purchaseSlipKey } from './purchaseReceptionGuard';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { getGoogleAccessToken } from '@/lib/googleSheets';
 
@@ -435,7 +436,7 @@ export async function contrastAndSyncPurchaseSheet(options: {
   }
 
   const existingErpSlipSet = new Set(
-    (erpReceptions || []).map((r: any) => String(r.delivery_slip_number || '').trim()).filter(Boolean)
+    (erpReceptions || []).filter((r: any) => r.delivery_slip_number).map((r: any) => purchaseSlipKey(r.supplier_id, r.delivery_slip_number))
   );
   const existingErpRecOCs = new Set<string>();
   for (const rec of erpReceptions || []) {
@@ -452,8 +453,9 @@ export async function contrastAndSyncPurchaseSheet(options: {
   const missingSheetReceptions = Array.from(recepGroups.values()).filter(g => {
     if (EQUIVALENT_SHEET_TO_ERP_OCS[g.oc_code]) return false;
     const slipNumber = g.remitoRef || `DR-${g.oc_code}-${g.isoDate}`;
-    if (existingErpSlipSet.has(slipNumber)) return false;
-    if (existingErpRecOCs.has(g.oc_code) && recepGroups.size === 1) return false;
+    const supplier = resolveSupplier(g.supplier);
+    if (supplier && existingErpSlipSet.has(purchaseSlipKey(supplier.id, slipNumber))) return false;
+    if (!canImportPurchaseReception(erpOCByCode.get(g.oc_code), existingErpRecOCs.has(g.oc_code))) return false;
     return true;
   });
 
@@ -633,7 +635,8 @@ export async function contrastAndSyncPurchaseSheet(options: {
             ? `${sOC.notes} [Sincronizado Planilla]`
             : 'Sincronizado desde planilla de Órdenes de Compra',
           total_amount: headerTotal,
-          status: sOC.status === 'Cumplido' ? 'Cumplido' : 'Pendiente',
+          // Receipt import determines fulfillment after quantities are registered.
+          status: 'Pendiente',
         })
         .select('*')
         .single();
