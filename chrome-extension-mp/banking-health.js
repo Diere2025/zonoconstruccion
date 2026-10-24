@@ -1,6 +1,8 @@
 // A green connection is not proof that the listing was read and acknowledged.
 // This loop is independent of the legacy Activity refresh/heartbeat loop.
 (function () {
+  const originalBankingInterval = getBankingInterval;
+  getBankingInterval = () => Math.max(300, originalBankingInterval());
   let lastAttempt = 0, confirmedAt = 0, rows = 0, error = '', busy = false;
   const startedAt = Date.now();
   let identity = '';
@@ -12,7 +14,7 @@
     }
   }
   function problem() {
-    return error || (confirmedAt && Date.now() - confirmedAt > getBankingInterval() * 1000 + 90000
+    return error || (confirmedAt && Date.now() - confirmedAt > getBankingInterval() * 1000 + 600000
       ? 'Lectura vencida' : !confirmedAt ? 'Lectura todavía sin confirmar' : '');
   }
   const originalConnectionStatus = setConnectionStatus;
@@ -41,7 +43,7 @@
       el.setAttribute('role', 'status');
       box.appendChild(el);
     }
-    const stale = confirmedAt && Date.now() - confirmedAt > status().intervalMs + 90000;
+    const stale = confirmedAt && Date.now() - confirmedAt > status().intervalMs + 600000;
     const problem = error || (stale ? 'Lectura vencida' : '');
     setConnectionStatus(Boolean(confirmedAt && !problem));
     const countdown = document.getElementById('zono-countdown');
@@ -63,7 +65,7 @@
     syncIdentity();
     if (!active()) { lastAttempt = 0; confirmedAt = 0; return; }
     if (busy) { render(); return; }
-    const retryMs = error ? 30000 : getBankingInterval() * 1000;
+    const retryMs = error ? 300000 : getBankingInterval() * 1000;
     if (lastAttempt && Date.now() - lastAttempt < retryMs) { render(); return; }
     lastAttempt = Date.now(); busy = true;
     const attemptIdentity = identity;
@@ -88,5 +90,5 @@
     void tick();
   });
   setTimeout(tick, 2500);
-  setInterval(tick, 15000);
+  setInterval(tick, 300000);
 })();

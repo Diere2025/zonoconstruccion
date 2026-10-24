@@ -1,7 +1,8 @@
 // Runs outside the page: a frozen/unloaded content script cannot supervise itself.
 (function () {
   const ALARM = 'BANKING_WATCHDOG', KEY = 'bankingWatchdog';
-  const GRACE = 90000, WINDOW = 15 * 60000;
+  const GRACE = 10 * 60000, WINDOW = 60 * 60000;
+  const ALERT_AFTER = 60 * 60000, ALERT_COOLDOWN = 6 * 60 * 60000;
   let running = false;
   const get = keys => new Promise(resolve => chrome.storage.local.get(keys, resolve));
   const set = patch => new Promise(resolve => chrome.storage.local.set(patch, resolve));
@@ -25,14 +26,15 @@
   }
   async function alert(config, state, message) {
     // Local notification must work even when the ERP is unreachable.
-    if (!state.notifiedAt || Date.now() - state.notifiedAt >= WINDOW) {
+    if (!state.notifiedAt || Date.now() - state.notifiedAt >= ALERT_COOLDOWN) {
       state.notifiedAt = Date.now();
       try { await chrome.notifications.create('ZONO_BANKING_WATCHDOG', {
         type: 'basic', iconUrl: chrome.runtime.getURL('icon.png'), priority: 2,
         title: 'Mercado Pago: Movimientos sin lectura', message
       }); } catch { /* Notification permission/OS settings may block it. */ }
     }
-    if (state.delivered || state.alertAttemptAt && Date.now() - state.alertAttemptAt < 60000) return;
+    if (state.delivered || state.remoteAlertAt && Date.now() - state.remoteAlertAt < ALERT_COOLDOWN ||
+      state.alertAttemptAt && Date.now() - state.alertAttemptAt < 15 * 60000) return;
     state.alertAttemptAt = Date.now();
     const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 15000);
     try {
@@ -44,6 +46,7 @@
           timestamp: new Date().toISOString() })
       });
       state.delivered = response.ok && (await response.json()).success === true;
+      if (state.delivered) state.remoteAlertAt = Date.now();
     } catch { state.delivered = false; }
     finally { clearTimeout(timer); }
   }
@@ -58,13 +61,15 @@
       if (!id || config.autoRefresh === false) return;
       const now = Date.now();
       const state = previous?.tabId === id && previous.account === config.accountName ? previous
-        : { tabId: id, account: config.accountName, since: now, reloads: [] };
+        : { tabId: id, account: config.accountName, since: now, reloads: [],
+          notifiedAt: previous?.account === config.accountName ? previous.notifiedAt : 0,
+          remoteAlertAt: previous?.account === config.accountName ? previous.remoteAlertAt : 0 };
       const tab = await tabById(id);
       const health = valid(tab) ? await ping(id) : null;
       const healthy = health?.active && !health.error && health.confirmedAt > 0 &&
-        now - health.confirmedAt <= Math.max(30000, Number(health.intervalMs) || 1800000) + GRACE;
+        now - health.confirmedAt <= Math.max(300000, Number(health.intervalMs) || 1800000) + GRACE;
       if (healthy) {
-        state.since = now; state.delivered = false; state.notifiedAt = 0; state.alertAttemptAt = 0;
+        state.since = now; state.delivered = false; state.alertAttemptAt = 0;
         if (health.refreshDue && !health.busy) {
           await set({ [KEY]: state });
           await chrome.tabs.reload(id);
@@ -72,16 +77,17 @@
         }
       } else if (now - state.since >= GRACE) {
         state.reloads = state.reloads.filter(time => now - time < WINDOW);
-        const reload = valid(tab) && state.reloads.length < 3;
+        const reload = valid(tab) && state.reloads.length < 3 &&
+          (!state.lastRecoveryAt || now - state.lastRecoveryAt >= GRACE);
         const reason = !tab ? 'La pestaña de Movimientos se cerró.' : !valid(tab)
           ? 'La pestaña de Movimientos salió del listado. Revisá la sesión de Mercado Pago.'
           : health?.error || 'El lector no responde o no confirmó movimientos en el ERP.';
         const message = 'Movimientos: ' + reason + (reload
           ? ' Se intentará recargar automáticamente.'
           : ' Se requiere revisión manual; no se harán más recargas por ahora.');
-        await alert(config, state, message);
+        if (now - state.since >= ALERT_AFTER) await alert(config, state, message);
         // Persist before reloading: navigation and service-worker sleep must not reset the budget.
-        if (reload) { state.reloads.push(now); state.since = now; }
+        if (reload) { state.reloads.push(now); state.lastRecoveryAt = now; }
         await set({ [KEY]: state });
         if (reload) await chrome.tabs.reload(id);
         return;
@@ -90,7 +96,7 @@
     } catch (error) { console.warn('[Zono] Watchdog de Movimientos:', error.message); }
     finally { running = false; }
   }
-  const setup = () => chrome.alarms.create(ALARM, { periodInMinutes: 0.5 });
+  const setup = () => chrome.alarms.create(ALARM, { periodInMinutes: 5 });
   setup();
   chrome.runtime.onInstalled.addListener(setup);
   chrome.runtime.onStartup.addListener(setup);

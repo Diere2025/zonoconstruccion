@@ -1,12 +1,12 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const vm = require('node:vm'), fs = require('node:fs');
-function fixture() {
+function fixture(interval = 1800) {
   let now = Date.parse('2026-10-23T22:14:00Z'), calls = 0, response = { captured: 4 };
   const timers = [], elements = {}, theme = [];
   const context = {
     config: { accountName: 'pagoszono.26', webhookUrl: 'https://example.invalid', autoRefresh: true },
-    isMonitorTab: true, isBankingPage: () => true, getBankingInterval: () => 1800,
+    isMonitorTab: true, isBankingPage: () => true, getBankingInterval: () => interval,
     formatCountdown: value => value + 's',
     detectMercadoPagoError: () => ({ hasError: false }), lastReadingCount: 4,
     setConnectionStatus(value) { context.connected = value; },
@@ -43,7 +43,8 @@ test('empty, failed and skipped capture never produce green health', async () =>
 test('retry after failure, skip overlap, passive tabs and account switch', async () => {
   const f = fixture(); f.response({ failed: true }); await f.tick();
   await f.tick(); assert.equal(f.calls(), 1);
-  f.advance(30000); f.response({ captured: 4 }); await f.tick(); assert.equal(f.calls(), 2);
+  f.advance(30000); await f.tick(); assert.equal(f.calls(), 1);
+  f.advance(270000); f.response({ captured: 4 }); await f.tick(); assert.equal(f.calls(), 2);
   f.context.config.accountName = 'cobroszono'; await f.tick(); assert.equal(f.calls(), 3);
   f.context.isMonitorTab = false; await f.tick(); assert.equal(f.calls(), 3);
 });
@@ -51,4 +52,10 @@ test('responsive page requests periodic fresh reload but defers during history c
   const f = fixture(); await f.tick(); assert.equal(f.ping().refreshDue, false);
   f.advance(1800000); f.context.ZonoCaptureRefresh.isBusy = () => true;
   const status = f.ping(); assert.equal(status.refreshDue, true); assert.equal(status.busy, true);
+});
+test('short saved banking intervals are clamped to five minutes', async () => {
+  const f = fixture(30); await f.tick();
+  assert.equal(f.ping().intervalMs, 300000);
+  f.advance(30000); await f.tick(); assert.equal(f.calls(), 1);
+  f.advance(270000); await f.tick(); assert.equal(f.calls(), 2);
 });
