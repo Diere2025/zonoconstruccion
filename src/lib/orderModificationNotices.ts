@@ -15,7 +15,7 @@ export function buildOrderModificationNotice(notice: Notice): string {
   const failed = notice.failures.length > 0 || !!notice.telegram_error;
   const title = failed ? '🚨 MODIFICACIÓN CON FALLAS' : notice.new_codes.length ? '⚠️ NUEVO CÓDIGO POR MODIFICACIÓN' : '📝 PEDIDO MODIFICADO';
   const lines = [`<b>${title}</b>`, `Pedido original: <b>${escape(notice.original_code)}</b>`,
-    `Cliente: ${escape(notice.details.clientName)}`, `Vendedora: ${escape(notice.details.sellerName)}`];
+    `Cliente: ${escape(notice.details.clientName)}`, `Vendedor/a: ${escape(notice.details.sellerName)}`];
   const codes = splitOrderCodes(notice.code);
   for (const code of notice.new_codes) {
     const index = codes.indexOf(code);
@@ -33,7 +33,7 @@ export function buildOrderModificationNotice(notice: Notice): string {
   if (notice.details.observation) lines.push('', `Observación: ${escape(notice.details.observation)}`);
   const statusStart = lines.length;
   lines.push('');
-  for (const [key,label] of [['seller','Vendedora'],['central','Central'],['deliveriesCurrent','Entregas Actual']]) {
+  for (const [key,label] of [['seller','Vendedor/a'],['central','Central'],['deliveriesCurrent','Entregas Actual']]) {
     const result = notice.results[key];
     lines.push(result?.skipped ? `ℹ️ ${label}: todavía no corresponde el pase a Logística`
       : result?.success ? `✅ ${label}: actualizado` : `❌ ${label}: ${escape(result?.message || 'sin confirmación')}`);
