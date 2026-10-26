@@ -8,7 +8,7 @@ import {carrierIdentityKey} from '@/lib/carrierIdentity';
 import {correctPlanningView} from './planningCorrections';
 import {paymentTask,type PaymentTask} from './paymentTasks';
 import {tariffDisplayName} from './planningPresentation';
-import {dispatchPaymentState,reconcilePaymentStates} from './planningPayments';
+import {dispatchPaymentState} from './planningPayments';
 type Row = Record<string, any>;
 type State = {novelties?:Row[];paymentRequests?:Row[];settlementTerms?:Row[]; paymentAllocations?:Row[]; tasks?:PaymentTask[]; reconciledPayments?: Row[]; carriers?: Row[]; plans: Row[]; tariffs: Row[]; liquidations: Liquidation[]};
 /** Rebuild from stored allocations on every read and before every attempted payment. */
@@ -26,7 +26,6 @@ export function localPlanningRequester(remote: (url: string, options?: RequestIn
  let seed: Row | null = null;
  let rows: Row[] = [];
  let tariffPreview: Row[] = [];
- let paymentPreview:Row[]=[];
  let allocationPayment:Row|null=null;
  const storageKey = () => 'erp-logistics-review-v1:' + seed?.actor;
  const read = (): State => JSON.parse(localStorage.getItem(storageKey()) || '{"plans":[],"tariffs":[],"liquidations":[]}');
@@ -35,7 +34,6 @@ export function localPlanningRequester(remote: (url: string, options?: RequestIn
   if (process.env.NODE_ENV !== 'development') return remote(url, options);
   if ((options?.method || 'GET') === 'GET') {
    const result = correctPlanningView(await remote(url, options));
-   if (url.includes('action=payment-source-preview'))paymentPreview=result.rows||[];
    if (url.includes('action=tariff-preview')) tariffPreview = result.rows || [];
    if(url.includes('action=allocation-payment')){const stored=read().paymentAllocations?.find(a=>a.transaction.id===result.transaction.id);allocationPayment=stored||result;return allocationPayment;}
    if (!result.plans) return result;
@@ -53,7 +51,6 @@ export function localPlanningRequester(remote: (url: string, options?: RequestIn
    rows = [...result.plans.filter((p: Row) => !state.plans.some(x => x.dispatch_id === p.dispatch_id)), ...state.plans.filter(p => params.get('scope')==='settlements'||p.planned.deliveryDate >= params.get('from')! && p.planned.deliveryDate <= params.get('to')!)];
    const corrected = correctPlanningView({...result,carriers:seed!.carriers,plans:rows,tariffs:[...state.tariffs,...result.tariffs]});
    rows = corrected.plans.map((p:Row)=>{
-    p=reconcilePaymentStates([p],state.reconciledPayments||[])[0];
     const fee=state.liquidations.find(f=>f.dispatchId===p.dispatch_id);
     // A local edit must never hide a real payment returned by the server.
     const authoritative=result.plans.find((r:Row)=>r.dispatch_id===p.dispatch_id)?.paymentState||p.paymentState;
@@ -119,7 +116,7 @@ export function localPlanningRequester(remote: (url: string, options?: RequestIn
    freightAccountMethod(body.payload?.account_id,seed.freightAccounts||[],seed.freightPaymentMethods||[]);
    const freshTerms=[...rows.filter(p=>p.settlementTerms&&!state.settlementTerms?.some(t=>t.dispatch_id===p.dispatch_id)).map(p=>p.settlementTerms),...(state.settlementTerms||[])];
    const freshRows=applySettlementTerms(rows.map(p=>withLocalAllocations(p,state.paymentAllocations||[])),freshTerms,state.liquidations);
-   let owner:string|undefined;const allocations=parts.map(part=>{const row=freshRows.find(r=>(Array.isArray(r.logistics_dispatches)?r.logistics_dispatches[0]:r.logistics_dispatches)?.code===part.code),input=body.allocations.find((a:Row)=>a.code===part.code);if(!row||row.status!=='completed'||row.paymentState?.liquidated||row.paymentSourcePending?.length||row.extrasNeedReview||!row.settlementTerms||row.settlementTerms.version!==input.termsVersion||part.amount>(row.paymentState?.remainingAmount??0))throw new Error('Revisá el saldo confirmado y la versión de cada LOG.');const current=planOwner(row);if(owner&&owner!==current)throw new Error('El pago conjunto debe corresponder al mismo responsable.');owner=current;return {dispatch_id:row.dispatch_id,amount:part.amount,reason:part.reason,logistics_dispatches:{code:part.code}};});
+   let owner:string|undefined;const allocations=parts.map(part=>{const row=freshRows.find(r=>(Array.isArray(r.logistics_dispatches)?r.logistics_dispatches[0]:r.logistics_dispatches)?.code===part.code),input=body.allocations.find((a:Row)=>a.code===part.code);if(!row||row.status!=='completed'||row.paymentState?.liquidated||row.extrasNeedReview||!row.settlementTerms||row.settlementTerms.version!==input.termsVersion||part.amount>(row.paymentState?.remainingAmount??0))throw new Error('Revisá el saldo confirmado y la versión de cada LOG.');const current=planOwner(row);if(owner&&owner!==current)throw new Error('El pago conjunto debe corresponder al mismo responsable.');owner=current;return {dispatch_id:row.dispatch_id,amount:part.amount,reason:part.reason,logistics_dispatches:{code:part.code}};});
    const transaction={source_local:true,id:crypto.randomUUID(),movement_code:'LOCAL_PAG_'+String((state.paymentRequests?.length||0)+1).padStart(5,'0'),type:'egreso',currency:'ARS',category:'Servicio de Flete',amount,concept:body.payload.concept,created_at:body.payload.effective_date+'T12:00:00-03:00',financial_accounts:{name:seed.freightAccounts.find((a:Row)=>a.id===body.payload.account_id).name}};
    state.paymentAllocations=[...(state.paymentAllocations||[]),{transaction,allocations}];const result={movement_code:transaction.movement_code,transaction_ids:[transaction.id],local:true};state.paymentRequests=[...(state.paymentRequests||[]),{key:body.requestKey,input:JSON.stringify(body),result}];persist(state);return result;
   }
@@ -135,13 +132,7 @@ export function localPlanningRequester(remote: (url: string, options?: RequestIn
   }
   if(body.action==='save-settlement-terms'){if(!seed.canLiquidate)throw new Error('Sin permiso de Tesorería.');const terms=validateSettlementTerms(body);validateNoveltyDeductions(rows.find(r=>r.dispatch_id===body.dispatchId)||{},terms.deductions,[...(seed.novelties||[]),...(state.novelties||[])],state.settlementTerms||[]);const previous=(state.settlementTerms||[]).find(t=>t.dispatch_id===body.dispatchId);if((previous?.version||0)!==(body.termsVersion||0))throw new Error('El saldo cambió. Actualizá.');if(!rows.some(p=>p.dispatch_id===body.dispatchId&&p.status==='completed'))throw new Error('Confirmá una salida cerrada.');state.settlementTerms=[...(state.settlementTerms||[]).filter(t=>t.dispatch_id!==body.dispatchId),{dispatch_id:body.dispatchId,gross_amount:terms.grossAmount,net_amount:terms.netAmount,extra_snapshot:body.extraSnapshot||[],deductions:terms.deductions,evidence:terms.evidence,version:(previous?.version||0)+1}];persist(state);return {saved:true};}
   if(body.action==='allocate-freight-payment'){if(!seed.canLiquidate)throw new Error('Sin permiso de Tesorería.');if(!allocationPayment||allocationPayment.transaction.id!==body.transactionId)throw new Error('Consultá primero el movimiento.');const parts=validatePaymentAllocation(body,Number(allocationPayment.transaction.amount));const allocations=parts.map((part:Row)=>{const p=rows.find(r=>(Array.isArray(r.logistics_dispatches)?r.logistics_dispatches[0]:r.logistics_dispatches)?.code===part.code);if(!p)throw new Error('Seleccioná un período que incluya todos los LOG del desglose local.');return {dispatch_id:p.dispatch_id,amount:part.amount,reason:part.reason,logistics_dispatches:{code:part.code}};});state.paymentAllocations=[...(state.paymentAllocations||[]).filter(a=>a.transaction.id!==body.transactionId),{transaction:allocationPayment.transaction,allocations}];persist(state);return {saved:true};}
-  if(body.action==='reconcile-payment-links'){
-   if(!seed.canWrite&&!seed.canLiquidate)throw new Error('No tenés permiso para revisar vínculos.');
-   if(!paymentPreview.length)throw new Error('Consultá primero los movimientos de Caja.');
-   const selected=new Set(body.transactionIds||[]),chosen=paymentPreview.filter(r=>selected.has(r.transactionId));
-   if(chosen.length!==selected.size)throw new Error('La selección cambió. Volvé a consultar.');
-   state.reconciledPayments=[...(state.reconciledPayments||[]).filter(r=>!selected.has(r.transactionId)),...chosen];persist(state);return {linked:chosen.length};
-  }
+  if(body.action==='reconcile-payment-links')throw new Error('La vinculación de pagos se realiza desde Movimientos del ERP.');
   if (body.action === 'pay-liquidation') {
    if (!seed.canLiquidate) throw new Error('El pago corresponde a Tesorería o Administración.');
    const fee = state.liquidations.find(f => f.dispatchId === body.dispatchId);
