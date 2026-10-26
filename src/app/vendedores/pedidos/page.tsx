@@ -1104,7 +1104,7 @@ export default function PedidosPage() {
     telegram_chat_id?: string;
     created_at?: string;
     has_iva?: boolean;
-    iva_mode?: 'included' | 'added';
+    iva_mode?: 'added';
     iva_amount?: number;
     taxable_base?: number;
   }
@@ -1119,7 +1119,7 @@ export default function PedidosPage() {
       notes: "",
       telegram_sent: false,
       has_iva: false,
-      iva_mode: 'included'
+      iva_mode: 'added'
     }
   ]);
   const [uploadingReceiptId, setUploadingReceiptId] = useState<string | null>(null);
@@ -3608,7 +3608,7 @@ export default function PedidosPage() {
 
       // Load payments breakdown if available, else load fallback
       if (totalsObj.payments_breakdown && Array.isArray(totalsObj.payments_breakdown)) {
-        setPaymentsList(totalsObj.payments_breakdown);
+        setPaymentsList(totalsObj.payments_breakdown.map((payment: PaymentBreakdownItem) => ({ ...payment, iva_mode: 'added' })));
       } else {
         const fallbackPmId = orderPmId || "a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3";
         let paymentAmount = 0;
@@ -3777,7 +3777,7 @@ export default function PedidosPage() {
         receipt_url: "",
         notes: "",
         has_iva: false,
-        iva_mode: 'included'
+        iva_mode: 'added'
       }
     ]);
     setSelectedClientId("");
@@ -4757,19 +4757,11 @@ export default function PedidosPage() {
 
     // IVA específico por pago (Facturación parcial con IVA)
     const hasIva = Boolean(p.has_iva);
-    const ivaMode = p.iva_mode || 'included';
     let ivaValue = 0;
-    let taxableBase = baseAmount;
+    const taxableBase = baseAmount;
 
     if (hasIva && !includeIVA) {
-      if (ivaMode === 'added') {
-        ivaValue = Math.round(baseAmount * 0.21);
-        taxableBase = baseAmount;
-      } else {
-        // 'included': el monto abonado ya tiene el 21% de IVA incorporado
-        taxableBase = Math.round(baseAmount / 1.21);
-        ivaValue = Math.round(baseAmount - taxableBase);
-      }
+      ivaValue = Math.round(baseAmount * 0.21);
     }
 
     return {
@@ -4781,7 +4773,7 @@ export default function PedidosPage() {
       installments,
       totalAmount,
       has_iva: hasIva,
-      iva_mode: ivaMode,
+      iva_mode: 'added' as const,
       ivaValue,
       taxableBase
     };
@@ -5287,7 +5279,7 @@ export default function PedidosPage() {
                 telegram_message_id: p.telegram_message_id,
                 telegram_chat_id: p.telegram_chat_id,
                 has_iva: p.has_iva || false,
-                iva_mode: p.iva_mode || 'included',
+                iva_mode: 'added',
                 iva_amount: p.ivaValue || 0,
                 taxable_base: p.taxableBase || p.baseAmount
               })),
@@ -5443,7 +5435,7 @@ export default function PedidosPage() {
               receipts: paymentsList.filter(p => p.receipt_url && !p.telegram_sent).map(p => {
                 const matched = paymentsWithSurcharges.find(item => item.id === p.id);
                 const ivaDesc = (!includeIVA && matched?.has_iva && matched?.ivaValue)
-                  ? `[Factura IVA incl.: Base $${(matched.taxableBase || 0).toLocaleString('es-AR')} + IVA $${matched.ivaValue.toLocaleString('es-AR')}]`
+                  ? `[Factura IVA +21%: Base $${(matched.taxableBase || 0).toLocaleString('es-AR')} + IVA $${matched.ivaValue.toLocaleString('es-AR')}]`
                   : '';
                 return {
                   url: p.receipt_url,
@@ -5520,7 +5512,7 @@ export default function PedidosPage() {
               telegram_message_id: p.telegram_message_id,
               telegram_chat_id: p.telegram_chat_id,
               has_iva: p.has_iva || false,
-              iva_mode: p.iva_mode || 'included',
+              iva_mode: 'added',
               iva_amount: p.ivaValue || 0,
               taxable_base: p.taxableBase || p.baseAmount
             })),
@@ -5959,7 +5951,7 @@ export default function PedidosPage() {
           receipt_url: "",
           notes: "",
           has_iva: false,
-          iva_mode: 'included'
+          iva_mode: 'added'
         }
       ]);
       setSelectedClientId("");
@@ -7849,7 +7841,7 @@ export default function PedidosPage() {
                           notes: "",
                           telegram_sent: false,
                           has_iva: false,
-                          iva_mode: 'included'
+                          iva_mode: 'added'
                         }
                       ]);
                     }}
@@ -8147,14 +8139,14 @@ export default function PedidosPage() {
                                   setPaymentsList(prev => prev.map(item => item.id === p.id ? {
                                     ...item,
                                     has_iva: checked,
-                                    iva_mode: item.iva_mode || 'included'
+                                    iva_mode: 'added'
                                   } : item));
                                 }}
                                 className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500/20 cursor-pointer"
                               />
                               <span className="text-[10px] font-black uppercase tracking-wider text-slate-700 flex items-center gap-1">
                                 <FileText className="w-3.5 h-3.5 text-blue-500" />
-                                Factura con IVA (21%) en este pago
+                                Factura con IVA (+21%) en este pago
                               </span>
                             </label>
 
@@ -8167,32 +8159,7 @@ export default function PedidosPage() {
 
                           {p.has_iva && (
                             <div className="mt-2 pt-2 border-t border-blue-200/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2 animate-in fade-in duration-150">
-                              <div className="flex items-center gap-3">
-                                <label className="flex items-center gap-1.5 cursor-pointer text-[9px] font-bold text-slate-700 select-none">
-                                  <input
-                                    type="radio"
-                                    name={`iva_mode_${p.id}`}
-                                    checked={p.iva_mode !== 'added'}
-                                    onChange={() => {
-                                      setPaymentsList(prev => prev.map(item => item.id === p.id ? { ...item, iva_mode: 'included' } : item));
-                                    }}
-                                    className="w-3 h-3 text-blue-600 focus:ring-blue-500/20 cursor-pointer"
-                                  />
-                                  <span>Monto ya incluye IVA (desglosar 21%)</span>
-                                </label>
-                                <label className="flex items-center gap-1.5 cursor-pointer text-[9px] font-bold text-slate-700 select-none">
-                                  <input
-                                    type="radio"
-                                    name={`iva_mode_${p.id}`}
-                                    checked={p.iva_mode === 'added'}
-                                    onChange={() => {
-                                      setPaymentsList(prev => prev.map(item => item.id === p.id ? { ...item, iva_mode: 'added' } : item));
-                                    }}
-                                    className="w-3 h-3 text-blue-600 focus:ring-blue-500/20 cursor-pointer"
-                                  />
-                                  <span>Sumar +21% sobre este monto</span>
-                                </label>
-                              </div>
+                              <span className="text-[9px] font-bold text-slate-700">Sumar +21% sobre este monto</span>
 
                               <div className="text-[9px] font-extrabold text-blue-800 bg-white/90 px-2 py-0.5 rounded-md border border-blue-200/80 whitespace-nowrap">
                                 Base: <span className="font-black">{formatPrice(p.taxableBase)}</span> • IVA 21%: <span className="font-black">{formatPrice(p.ivaValue)}</span>
@@ -8319,7 +8286,7 @@ export default function PedidosPage() {
                         notes: "",
                         telegram_sent: false,
                         has_iva: false,
-                        iva_mode: 'included'
+                        iva_mode: 'added'
                       }
                     ]);
                   }}
