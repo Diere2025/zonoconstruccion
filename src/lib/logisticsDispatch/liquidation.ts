@@ -11,7 +11,6 @@ export function actualFee(plan: DispatchPlan, actualKm: number | null, terms: an
 export function approveLiquidation(row: any, input: any, previous?: Liquidation): Liquidation {
  if (row.status !== 'completed') throw new Error('Cerrá la ejecución antes de aprobar el pago.');
  if (previous) throw new Error('Esta salida ya tiene una liquidación aprobada.');
- if(row.paymentSourcePending?.length)throw new Error('Ya figura un pago en Caja para este LOG. Revisá el vínculo o su importación antes de generar otra tarea.');
  if(Number(row.paymentState?.paidAmount)>0)throw new Error('Ya hay pagos de este LOG. Revisá los movimientos antes de generar una nueva tarea.');
  const calculated = actualFee(row.planned, row.actual?.km ?? null, row.tariff_snapshot,row.actual);
  const agreed = input.basis === 'agreed';
