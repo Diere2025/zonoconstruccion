@@ -1,3 +1,4 @@
+import {ensureSettlementRoute} from '@/lib/logisticsDispatch/settlementRoute';
 import {deliveredSourceOnly,assignedDispatchCode,mergeDeliveredGroups} from '@/lib/logisticsDispatch/settlementSource';
 import {projectCorrectedDeliveredRows} from '@/lib/logisticsDispatch/identityCorrectionServer';
 import { settlementPaymentReassignments } from "@/lib/settlementPaymentReassignment";
@@ -744,28 +745,7 @@ async function confirmEntregandoItems(actor: AuthorizedUser, items: any[]) {
     if (!matchedCarrier) throw new Error('El fletero no tiene una identidad única en el catálogo. Revisá sus alias antes de generar otra rendición.');
 
     const runNumber = item.runNumber || 1;
-    const routeQuery=supabaseAdmin.from('route_sheets').select('id,code');
-    const { data: foundRouteSheet, error: routeSheetError } = item.existingRouteSheetId
-      ? await routeQuery.eq('id',item.existingRouteSheetId).eq('delivery_date',item.deliveryDate).maybeSingle()
-      : await routeQuery.eq('delivery_date',item.deliveryDate).eq('carrier_id',matchedCarrier.id).eq('run_number',runNumber).maybeSingle();
-    if (routeSheetError) throw routeSheetError;
-    let routeSheet = foundRouteSheet;
-
-    const routeCode = `HR-${item.deliveryDate.replace(/-/g, '')}-${matchedCarrier.name.slice(0, 3).toUpperCase()}-R${runNumber}`;
-
-    if (!routeSheet) {
-      const { data: createdRoute, error: routeErr } = await supabaseAdmin.from("route_sheets").insert({
-        carrier_id: matchedCarrier.id,
-        delivery_date: item.deliveryDate,
-        run_number: runNumber,
-        code: routeCode,
-        total_theoretical_cash: deliveriesTotal,
-        has_assistant: Boolean(item.companion),
-        status: 'Pendiente',
-      }).select("id, code").single();
-      if (routeErr) throw routeErr;
-      routeSheet = createdRoute;
-    }
+    const routeSheet = await ensureSettlementRoute(supabaseAdmin,{carrierId:matchedCarrier.id,deliveryDate:item.deliveryDate,runNumber,existingRouteSheetId:item.existingRouteSheetId,total:deliveriesTotal,hasAssistant:Boolean(item.companion)});
 
     const { data: foundSettlement, error: existingSettlementError } = await supabaseAdmin
       .from("treasury_settlements")
