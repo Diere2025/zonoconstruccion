@@ -1,3 +1,4 @@
+import {dispatchSupportTelegram} from '@/lib/support/telegram';
 import { NextRequest, NextResponse } from 'next/server';
 import { authorize, body, json, privateHeaders, storageClient } from '@/lib/support/server';
 import { SupportError, databaseError, inspectImage, object, operation, uuid } from '@/lib/support/validation';
@@ -112,6 +113,8 @@ async function handle(request: NextRequest, context: Context): Promise<NextRespo
             const op = operation(await body(request));
             const result = await db.rpc('support_command', { p_command: 'create', p_ticket: null, p_key: op.key, p_version: null, p_data: op.data });
             databaseError(result.error);
+            try { await dispatchSupportTelegram(result.data.id); }
+            catch { console.warn('[support] El aviso de Telegram quedó pendiente de revisión.'); }
             return json(result.data, 201);
         }
     }

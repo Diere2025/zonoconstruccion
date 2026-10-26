@@ -1,0 +1,37 @@
+name: Support Telegram alerts
+
+on:
+  pull_request:
+    paths:
+      - 'src/lib/support/**'
+      - 'src/app/api/support/**'
+      - 'src/app/api/keep-alive/**'
+      - 'src/app/api/telegram/meta-balance-webhook/**'
+      - 'database/*support_telegram*'
+      - 'tests/support-telegram.test.cjs'
+      - '.github/workflows/support-telegram.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  regression-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder
+      SUPABASE_SERVICE_ROLE_KEY: ci-placeholder
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Install isolated SQL test runtime
+        run: npm install --prefix .codex-tmp/supplier-account-check --no-save --package-lock=false @electric-sql/pglite@0.5.10
+      - name: Incidents and Telegram regressions
+        run: node --test tests/support-telegram.test.cjs tests/support-validation.test.cjs tests/support-session.test.cjs tests/support-notifications.test.cjs tests/meta-balance-alert.test.cjs tests/mp-telegram-alert.test.cjs
+      - name: Production build and type check
+        run: npm run build

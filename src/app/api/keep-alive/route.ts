@@ -31,6 +31,10 @@ export async function GET() {
       const {checkMonthlyIncomeAlerts}=await import('@/lib/mpMonthlyIncomeAlerts');
       await checkMonthlyIncomeAlerts();
     } catch(error) {console.warn('[KeepAlive] Monthly income alerts:',error);}
+    try {
+      const {dispatchSupportTelegram}=await import('@/lib/support/telegram');
+      await dispatchSupportTelegram();
+    } catch { console.warn('[KeepAlive] Avisos de incidencias pendientes de revisión.'); }
     const duration = Date.now() - start;
     let costsUpdate = null;
     try {

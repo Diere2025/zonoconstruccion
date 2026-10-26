@@ -1,10 +1,11 @@
+import {captureSupportTelegramGroup} from '@/lib/support/telegram';
 import { NextResponse } from 'next/server';
 
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 
 type TelegramUpdate = {
-  message?: { text?: string; chat?: { id?: number | string }; message_id?: number };
+  message?: { text?: string; chat?: { id?: number | string;title?:string;type?:string }; message_id?: number };
   edited_message?: { text?: string; chat?: { id?: number | string }; message_id?: number };
 };
 
@@ -90,6 +91,12 @@ export async function POST(request: Request) {
   let update: TelegramUpdate;
   try { update = JSON.parse(raw); }
   catch { return NextResponse.json({ error: 'Solicitud inválida' }, { status: 400 }); }
+
+  try {
+    if(await captureSupportTelegramGroup(update))return NextResponse.json({ok:true});
+  } catch {
+    return NextResponse.json({error:'No se pudo registrar el grupo de incidencias.'},{status:503});
+  }
 
   const message = update.message || update.edited_message;
   const chatId = String(message?.chat?.id || '');
