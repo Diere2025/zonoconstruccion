@@ -26,5 +26,5 @@ export function prepareOperationForm(input:OperationInput,methods:Method[]):Oper
   ...(p.operation_type==='operating_expense'?{person_id:undefined,...(p.financial_concept_id?{financial_concept_id:p.financial_concept_id,category:p.category,sub_category:p.sub_category,efe_category:p.efe_category}:{})}:{}),
   ...(selectedClassification?{financial_concept_id:p.financial_concept_id,category:p.category,sub_category:p.sub_category,efe_category:p.efe_category}:{}),
   ...(p.operation_type==='supplier_payment'&&p.detail.supplier_allocation_mode==='oldest_first'?{allocations:[]}:{}),
-  detail};
+  detail:{...detail,...(p.detail.automatic===true&&reference?{reference}:{})}};
 }
