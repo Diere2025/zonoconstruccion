@@ -16,13 +16,16 @@ export function deliveryCostOutcome(row:Row):DeliveryOutcome{
 const allocate=(total:number,rows:Row[]):Map<string,number>=>{const result=new Map<string,number>();if(!rows.length)return result;const sorted=[...rows].sort((a,b)=>a.order_code.localeCompare(b.order_code));const base=Math.floor(total/sorted.length),remainder=total%sorted.length;sorted.forEach((row,i)=>result.set(row.order_code,base+(i<remainder?1:0)));return result;};
 /** Service cost belongs to the service date; cash and debt recoveries are separate. */
 export function calculateRealDispatchCosts(attempts:Row[],links:Row[],reversedIds:Set<string>=new Set(),terms?:Row|null){
- const transactions=new Map<string,Row>();for(const link of links){const tx=one(link.cash_transactions);if(tx?.id)transactions.set(tx.id,link.allocated_amount!==undefined&&link.allocated_amount!==null?{...tx,original_amount:tx.amount,amount:Number(link.allocated_amount)}:tx);}
+ const transactions=new Map<string,Row>();for(const link of links){const tx=one(link.cash_transactions);if(tx?.id)transactions.set(tx.id,link.allocated_amount!==undefined&&link.allocated_amount!==null?{...tx,original_amount:tx.amount,amount:Number(link.allocated_amount)}:{...tx,...(link.purpose==='freight_refund'?{refund_payment_id:link.refund_payment_id}:{})});}
  const freightRoles=new Set(links.filter(l=>l.purpose==='freight_fee').map(l=>l.transaction_id||one(l.cash_transactions)?.id));
  const freight=[...transactions.values()].filter(t=>t.type==='egreso'&&(freightRoles.has(t.id)||[text(t.category),text(t.sub_category)].includes('servicio de flete')));
  const active=freight.filter(t=>!t.reversal_of_transaction_id&&!reversedIds.has(t.id)&&Number(t.amount)>0);
  const unsupported=active.filter(t=>t.currency!=='ARS'||!Number.isSafeInteger(Math.round(Number(t.amount)*100)));
  const ars=active.filter(t=>t.currency==='ARS'&&Number.isSafeInteger(Math.round(Number(t.amount)*100)));
- const paidCents=ars.reduce((sum,t)=>sum+Math.round(Number(t.amount)*100),0);
+ const refundRoles=new Set(links.filter(l=>l.purpose==='freight_refund').map(l=>l.transaction_id));
+ const refunds=[...transactions.values()].filter(t=>t.type==='ingreso'&&t.currency==='ARS'&&refundRoles.has(t.id)&&!t.reversal_of_transaction_id&&!reversedIds.has(t.id)&&!reversedIds.has(t.refund_payment_id)&&Number(t.amount)>0);
+ const refundedCents=refunds.reduce((n,t)=>n+Math.round(Number(t.amount)*100),0);
+ const paidCents=-refundedCents+ars.reduce((sum,t)=>sum+Math.round(Number(t.amount)*100),0);
  const commercialDiscount=(terms?.deductions||[]).filter((d:Row)=>d.kind==='discount').reduce((n:number,d:Row)=>n+Math.round(Number(d.amount)*100),0);
  const offsetCents=(terms?.deductions||[]).filter((d:Row)=>d.kind==='offset').reduce((n:number,d:Row)=>n+Math.round(Number(d.amount)*100),0);
  const grossCents=terms?Math.round(Number(terms.gross_amount)*100):null;
@@ -36,7 +39,7 @@ export function calculateRealDispatchCosts(attempts:Row[],links:Row[],reversedId
  const onlyDelivered=allocationReady?allocate(serviceCents,delivered):new Map<string,number>();
  const allClosed=allocationReady?allocate(serviceCents,included):new Map<string,number>();
  const nonDeliveredCents=nonDelivered.reduce((sum,r)=>sum+(allClosed.get(r.order_code)||0),0);
- return {status,currency:'ARS',costBasis:confirmed?'confirmed_service':'cash_unconfirmed',costConfirmed:confirmed,serviceCostAmount:allocationReady?serviceCents/100:null,grossServiceAmount:confirmed?grossCents!/100:null,commercialDiscountAmount:commercialDiscount/100,offsetAmount:offsetCents/100,netPayableAmount:confirmed?(serviceCents-offsetCents)/100:null,paidAmount:ars.length?paidCents/100:null,paymentCount:ars.length,payments:ars.map(t=>({id:t.id,code:t.movement_code||t.id,amount:Number(t.amount),date:t.created_at})),reversedPaymentCount:freight.filter(t=>t.reversal_of_transaction_id||reversedIds.has(t.id)).length,unsupportedCurrencyCount:unsupported.length,
+ return {status,currency:'ARS',costBasis:confirmed?'confirmed_service':'cash_unconfirmed',costConfirmed:confirmed,serviceCostAmount:allocationReady?serviceCents/100:null,grossServiceAmount:confirmed?grossCents!/100:null,commercialDiscountAmount:commercialDiscount/100,offsetAmount:offsetCents/100,netPayableAmount:confirmed?(serviceCents-offsetCents)/100:null,paidAmount:ars.length?paidCents/100:null,paymentCount:ars.length,payments:[...ars.map(t=>({id:t.id,code:t.movement_code||t.id,amount:Number(t.amount),date:t.created_at})),...refunds.map(t=>({id:t.id,code:t.movement_code||t.id,amount:-Number(t.amount),date:t.created_at,originalPaymentId:t.refund_payment_id}))],reversedPaymentCount:freight.filter(t=>t.reversal_of_transaction_id||reversedIds.has(t.id)).length,unsupportedCurrencyCount:unsupported.length,
   deliveredCount:delivered.length,postponedCount:orders.filter(r=>r.outcome==='postponed').length,cancelledCount:orders.filter(r=>r.outcome==='cancelled').length,failedCount:orders.filter(r=>r.outcome==='failed').length,pendingOutcomeCount:orders.filter(r=>r.outcome==='pending').length,excludedCount:orders.filter(r=>['no_departure','errand','exchange'].includes(r.outcome)).length,conflictingOrders:[...new Set(conflicts)],
   allocatedAmount:allocationReady&&delivered.length?serviceCents/100:null,unallocatedAmount:allocationReady&&!delivered.length?serviceCents/100:null,
   costPerDelivered:allocationReady&&delivered.length?serviceCents/100/delivered.length:null,

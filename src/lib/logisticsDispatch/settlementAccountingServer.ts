@@ -10,7 +10,9 @@ export async function allocationLinks(db:any,links:Row[],dispatchIds:string[],co
   const ids=[...new Set(links.map(l=>l.transaction_id))].filter(id=>/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(id));
   const occupied=new Set(allocations.map(a=>a.transaction_id));
   for(let i=0;i<ids.length;i+=150){const rows=await planningRows(db.from('logistics_freight_payment_allocations').select('transaction_id').in('transaction_id',ids.slice(i,i+150)).order('transaction_id'));rows.forEach(r=>occupied.add(r.transaction_id));}
-  return mergeAllocatedPayments(links.filter(l=>!occupied.has(l.transaction_id)),allocations);
+  const merged=mergeAllocatedPayments(links.filter(l=>!occupied.has(l.transaction_id)),allocations);
+  try{for(let i=0;i<dispatchIds.length;i+=150){const refunds=await planningRows(db.from('logistics_freight_refunds').select(`*,cash_transactions!transaction_id(${columns})`).in('dispatch_id',dispatchIds.slice(i,i+150)).order('transaction_id'));merged.push(...refunds.map((r:Row)=>({...r,purpose:'freight_refund',refund_payment_id:r.payment_transaction_id})));}}catch(e){if(!missingTable(e))throw e;}
+  return merged;
  }catch(e){if(missingTable(e))return links;throw e;}
 }
 export async function settlementTerms(db:any,ids:string[]){
