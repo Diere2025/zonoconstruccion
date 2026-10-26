@@ -250,6 +250,7 @@ export function includeCompleteBioCombos(config: VisualCatalogConfig, products: 
   const biolam = find(n => n.includes('biolam'));
   const specs = [
     { liters: 700, auto: true, pipes: 3 },
+    { liters: 500, auto: false, pipes: 3 },
     { liters: 600, auto: false, pipes: 3 },
     { liters: 750, auto: false, pipes: 3 },
     { liters: 1000, auto: false, pipes: 4 },
@@ -296,7 +297,7 @@ export function includeCompleteBioCombos(config: VisualCatalogConfig, products: 
       comboItems: [{ productId: chamber.id, quantity: 1, basePrice: chamber.price,
         customPrice: Math.round(chamber.price * 0.85), discountType: 'percentage', discountValue: 15 }]
     }] : [],
-    items: [{ liters: 500, auto: false }, ...specs].sort((a, b) => Number(a.auto) - Number(b.auto) || a.liters - b.liters).map(spec => {
+    items: [...specs].sort((a, b) => Number(a.auto) - Number(b.auto) || a.liters - b.liters).map(spec => {
       const bio = find(n => extractLitros(n) === spec.liters && (spec.auto ? /autolimp/.test(n) : n.includes('biodigestor') && !/autolimp/.test(n)));
       const secondary = spec.auto ? find(n => n.includes('lodos')) : find(n => n.includes('septica') && extractLitros(n) === spec.liters);
       const components = [bio, secondary, inspection];

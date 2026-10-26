@@ -35,10 +35,11 @@ product('lube', 'Lusqtoff - Aerosol lubricante');
 product('biolam', 'Biolam - Concentrado Enzimático 500g', 18500);
 const group = config => config.families.find(f => f.id === 'biodigestores').subgroups.find(s => s.id === 'combos_completos');
 
-test('Five complete supply combos charge each component, discount only bios and cameras, and match reference quantities', () => {
+test('Six complete supply combos charge each component, discount only bios and cameras, and match reference quantities', () => {
   const config = generateDefaultVisualConfig(products);
   const combos = group(config).items;
-  assert.equal(combos.length, 5);
+  assert.equal(combos.length, 6);
+  assert.equal(combos.map(i => i.label.match(/^\d+/)[0]).join(','), '700,500,600,750,1000,3000');
   for (const combo of combos) {
     assert.equal(combo.isActive, true);
     const size = Number(combo.id.split('_').at(-1));
@@ -77,6 +78,7 @@ test('Five complete supply combos charge each component, discount only bios and 
 test('Existing saved catalog receives the line once and uses refreshed catalog prices', () => {
   const saved = { families: [{ id: 'biodigestores', name: 'Biodigestores', subgroups: [{ id: 'custom', items: [] }] }] };
   const updated = includeCompleteBioCombos(saved, products);
+  assert.equal(group(updated).items.filter(i => i.id === 'combo_completo_convencional_500').length, 1);
   const twice = includeCompleteBioCombos(updated, products.map(p => p.id === 'bio600' ? { ...p, price: 100000 } : p));
   assert.equal(twice.families[0].subgroups.length, 4);
   assert.equal(group(twice).items.find(i => i.id.endsWith('_600')).comboItems[0].customPrice, 85000);
