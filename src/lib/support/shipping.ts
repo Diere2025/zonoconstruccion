@@ -27,7 +27,7 @@ export interface ShippingQuote {
 }
 export const shippingStatuses: Record<Status, string> = {
     new: 'Pendiente', in_progress: 'Cotizando', waiting_requester: 'Faltan datos',
-    waiting_validation: 'Cotizada', closed: 'Finalizada', cancelled: 'Cancelada',
+    waiting_validation: 'Cotizada', closed: 'Finalizada', cancelled: 'Finalizada sin contratación',
 };
 export const paymentLabels = { origin: 'Pago en origen', destination: 'Pago en destino' };
 export const isShipping = (ticket: Ticket) => ticket.workflow === 'shipping';
@@ -41,5 +41,19 @@ export const shippingActionLabels = {
     take: 'Comenzar cotización', request_validation: 'Publicar cotización',
     validate: 'Elegir opción y finalizar', reject: 'Pedir recotización',
     withdraw: 'Retomar cotización', close_admin: 'Finalizar sin elección',
-    cancel: 'Cancelar solicitud', reopen: 'Reabrir solicitud', restore: 'Restaurar solicitud',
+    cancel: 'Finalizar sin contratación', reopen: 'Reabrir solicitud', restore: 'Restaurar solicitud',
 };
+
+export const shippingClosureReasons = {
+    no_response: 'El cliente no respondió más',
+    declined: 'El cliente desistió de la compra o del envío',
+    price_rejected: 'El cliente no aceptó el costo del flete',
+    other: 'Otro motivo',
+} as const;
+export function shippingClosureMessage(reason:string, detail:string):string {
+    if (!Object.prototype.hasOwnProperty.call(shippingClosureReasons,reason)) throw new Error('Elegí el motivo de finalización.');
+    const note=detail.trim();
+    if(reason==='other' && !note) throw new Error('Indicá el motivo de finalización.');
+    if(note.length>1000) throw new Error('El detalle no puede superar los 1000 caracteres.');
+    return 'Solicitud finalizada sin contratación. Motivo: '+shippingClosureReasons[reason as keyof typeof shippingClosureReasons]+'.'+(note?' Detalle: '+note:'');
+}

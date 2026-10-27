@@ -18,7 +18,7 @@ test('requester chooses logistics quotes while incident confirmation retains its
     assert.deepEqual(Array.from(actions.availableActions(me,ticket)),['validate','reject','cancel']);
     assert.equal(actions.actionLabel('validate',ticket),'Elegir opción y finalizar');
     assert.equal(actions.actionLabel('validate',{...ticket,workflow:'incident'}),'Funciona, cerrar');
-    assert.equal(actions.nextActor(ticket,id=>id),'owner debe elegir una opción');
+    assert.equal(actions.nextActor(ticket,id=>id),'owner debe revisar la cotización');
     assert.equal(shipping.ticketPath(ticket),'/solicitudes-logistica/id');
 });
 test('logistics managers can resolve without a carrier and request information without an error-testing action',()=>{
@@ -37,4 +37,22 @@ test('shipping destinations include every Argentine jurisdiction and only open w
  assert.ok(shipping.argentinaProvinces.includes('Ciudad Autónoma de Buenos Aires'));
  assert.equal(shipping.shippingMapUrl('https://maps.app.goo.gl/ejemplo'),'https://maps.app.goo.gl/ejemplo');
  for(const value of [undefined,'','javascript:alert(1)','not a URL'])assert.equal(shipping.shippingMapUrl(value),null);
+});
+
+test('requester can finish every open shipping state without choosing a quote, but cannot cancel incidents or someone else requests',()=>{
+ for(const status of ['new','in_progress','waiting_requester','waiting_validation']){
+  const t={workflow:'shipping',created_by:'owner',sector_id:'L',status,shipping_quotes:[]};
+  assert.ok(actions.availableActions({user_id:'owner',is_admin:false,sector_ids:[]},t).includes('cancel'));
+  assert.equal(actions.availableActions({user_id:'other',is_admin:false,sector_ids:[]},t).includes('cancel'),false);
+  assert.equal(actions.availableActions({user_id:'owner',is_admin:false,sector_ids:[]},{...t,workflow:'incident'}).includes('cancel'),false);
+ }
+ for(const status of ['closed','cancelled'])assert.equal(actions.availableActions({user_id:'owner',is_admin:false,sector_ids:[]},{workflow:'shipping',created_by:'owner',status}).includes('cancel'),false);
+ assert.equal(actions.actionLabel('cancel',{workflow:'shipping'}),'Finalizar sin contratación');
+ assert.equal(shipping.shippingStatuses.cancelled,'Finalizada sin contratación');
+});
+test('closure records a specific reason, requires detail for other, and never implies a chosen carrier',()=>{
+ assert.equal(shipping.shippingClosureMessage('no_response',''),'Solicitud finalizada sin contratación. Motivo: El cliente no respondió más.');
+ assert.match(shipping.shippingClosureMessage('declined','  Avisó por WhatsApp  '),/Detalle: Avisó por WhatsApp$/);
+ for(const [reason,detail] of [['',''],['forged',''],['other','  '],['no_response','x'.repeat(1001)]])assert.throws(()=>shipping.shippingClosureMessage(reason,detail));
+ assert.match(shipping.shippingClosureMessage('other','Se duplicó la consulta'),/Se duplicó/);
 });

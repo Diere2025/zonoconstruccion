@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { actionCommand, actionLabel, availableActions, type TicketAction } from '@/lib/support/actions';
-import { isShipping, quoteExpired, type ShippingQuote } from '@/lib/support/shipping';
+import { isShipping, quoteExpired, shippingClosureReasons, shippingClosureMessage, type ShippingQuote } from '@/lib/support/shipping';
 import { emptyQuote, ShippingQuoteEditor, ShippingQuoteList } from './ShippingQuotes';
 import { commandBody, errorMessage, supportRequest } from '@/lib/support/client';
 import { code, responsibleLabel, type SupportMe, type Ticket } from '@/lib/support/types';
@@ -13,6 +13,7 @@ export function TicketActionDialog({ ticket, action, onClose, onDone }: { ticket
     const dialog = useRef<HTMLDialogElement>(null);
     const key = useRef(crypto.randomUUID());
     const [body,setBody] = useState('');
+    const [closureReason,setClosureReason] = useState('');
     const [solution,setSolution] = useState('');
     const shipping = isShipping(ticket);
     const label = actionLabel(action, ticket);
@@ -24,14 +25,14 @@ export function TicketActionDialog({ ticket, action, onClose, onDone }: { ticket
     const [context,setContext] = useState<{ticket: Ticket; me: SupportMe} | null>(null);
     const images = usePendingImages();
     const [quotesDirty, setQuotesDirty] = useState(false);
-    const dirty = Boolean(body || solution || images.images.length || quotesDirty || selected >= 0);
+    const dirty = Boolean(closureReason || body || solution || images.images.length || quotesDirty || selected >= 0);
     useUnsavedChanges(dirty);
     useEffect(()=>{ let alive=true; dialog.current?.showModal(); dialog.current?.querySelector('textarea')?.focus(); void supportRequest<{ticket:Ticket;me:SupportMe}>(`tickets/${ticket.id}`).then(data=>{if(alive)setContext(data);}).catch(e=>{if(alive)setError(errorMessage(e));}); return()=>{alive=false;}; },[ticket.id]);
     const close = () => { if (!busy && (!dirty || window.confirm('¿Descartar el borrador?'))) onClose(); };
     const requester = context?.me.people.find(p=>p.id===ticket.created_by)?.name || 'el solicitante';
     const permits = context && !context.me.impersonating && availableActions(context.me,context.ticket).includes(action);
     const withImages = ['request_validation','request_info','request_action','reject'].includes(action);
-    const requiresBody = !['start','take','validate'].includes(action) && !(shipping && action === 'request_validation');
+    const requiresBody = !['start','take','validate'].includes(action) && !(shipping && ['request_validation','cancel'].includes(action));
     const submit = async (event: React.FormEvent) => {
         event.preventDefault(); if (busy || !permits || !context) return;
         setBusy(true);setError('');
@@ -39,7 +40,7 @@ export function TicketActionDialog({ ticket, action, onClose, onDone }: { ticket
             const attachments = withImages ? await images.upload(ticket.id,'public',setProgress) : [];
             const operation = actionCommand(action, context.ticket);
             const command = shipping ? ({ request_validation: 'shipping_quote', validate: 'shipping_finish', reject: 'shipping_requote' } as Record<string, string>)[action] || operation.command : operation.command;
-            await supportRequest(`tickets/${ticket.id}/actions`, { method:'POST', body:commandBody({body,solution,attachments,confirmed:action==='validate', ...operation.payload, ...(shipping && action === 'request_validation' ? { quotes } : {}), ...(shipping && action === 'validate' ? { selected } : {})}, context.ticket.version, command, key.current) });
+            await supportRequest(`tickets/${ticket.id}/actions`, { method:'POST', body:commandBody({body:shipping && action==='cancel'?shippingClosureMessage(closureReason,body):body,solution,attachments,confirmed:action==='validate', ...operation.payload, ...(shipping && action === 'request_validation' ? { quotes } : {}), ...(shipping && action === 'validate' ? { selected } : {})}, context.ticket.version, command, key.current) });
             images.clear();setBody('');setSolution('');await onDone();onClose();
         } catch(e) { setError(errorMessage(e));
             if (shipping && action==='validate') setSelected(-1);
@@ -51,6 +52,7 @@ export function TicketActionDialog({ ticket, action, onClose, onDone }: { ticket
       <header className="flex items-center justify-between border-b px-4 py-3"><div><h2 className="font-semibold">{label}{action==='request_validation' ? ` · ${requester}` : ''}</h2><p className="mt-1 text-xs text-slate-500">{code(ticket.number)} · {ticket.title}</p></div><button type="button" onClick={close} disabled={busy} aria-label="Cerrar diálogo" className="p-2"><X className="size-4"/></button></header>
       <div className="max-h-[65vh] space-y-3 overflow-auto p-4">{error && <Alert>{error}</Alert>}{context && !permits && <Alert>La acción ya no está disponible. Revisá el estado actual antes de continuar.</Alert>}
         {action==='close_admin' && <p className="text-sm text-slate-600">Se cerrará sin esperar la confirmación de {requester}. El motivo quedará registrado.</p>}
+        {shipping && action==='cancel' && <p className="text-sm">La solicitud quedará finalizada sin contratar un transporte. Se conservarán las cotizaciones y el historial, y dejará de aparecer como pendiente.</p>}
         {action==='validate' && <p className="text-sm">{shipping ? 'Elegí la alternativa que se comunicará al cliente. Esto finaliza la solicitud de cotización; el despacho se gestiona por separado.' : '¿Probaste la solución y confirmás que funciona? Al confirmar se cerrará el ticket.'}</p>}
         {action==='take' && <p className="text-sm">Quedarás como responsable de este ticket.</p>}
         {action==='start' && context && <p className="text-sm">El ticket pasará de Nuevo a En atención. {context.ticket.assignee_id ? `Responsable: ${responsibleLabel(context.ticket,context.me.sectors,id=>context.me.people.find(p=>p.id===id)?.name || 'Usuario')}.` : 'Quedarás como responsable de este ticket.'}</p>}
@@ -58,6 +60,7 @@ export function TicketActionDialog({ ticket, action, onClose, onDone }: { ticket
           {shipping && action==='request_validation' && <ShippingQuoteEditor quotes={quotes} onChange={value => {setQuotes(value);setQuotesDirty(true);}}/>}
           {shipping && action==='validate' && context && <ShippingQuoteList quotes={context.ticket.shipping_quotes} selection={selected} onSelect={setSelected}/>}
           {!shipping && action==='request_validation' && <label className="block text-sm">Qué se resolvió<textarea required rows={2} maxLength={10000} value={solution} onChange={e=>setSolution(e.target.value)} className={`${fieldClass} mt-1`}/></label>}
+          {shipping && action==='cancel' && <><label className="block text-sm">Motivo de finalización<select aria-label="Motivo de finalización" required className={`${fieldClass} mt-1`} value={closureReason} onChange={e=>{setClosureReason(e.target.value);key.current=crypto.randomUUID();}}><option value="">Seleccionar motivo</option>{Object.entries(shippingClosureReasons).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label><label className="block text-sm">{closureReason==='other'?'Detalle del motivo':'Detalle adicional (opcional)'}<textarea aria-label="Detalle del motivo" required={closureReason==='other'} rows={3} maxLength={1000} value={body} onChange={e=>{setBody(e.target.value);key.current=crypto.randomUUID();}} className={`${fieldClass} mt-1`}/></label></>}
           {requiresBody && <label className="block text-sm">{action==='request_validation' ? 'Qué debe probar' : action==='close_admin' ? 'Motivo del cierre' : action==='request_info' || action==='request_action' ? 'Qué necesitás del solicitante' : 'Mensaje o motivo'}<textarea required rows={3} maxLength={10000} value={body} onChange={e=>setBody(e.target.value)} className={`${fieldClass} mt-1`}/></label>}
           {withImages && <AttachmentEditor images={images.images} onChange={images.setImages} disabled={busy}/>}
         </fieldset>
