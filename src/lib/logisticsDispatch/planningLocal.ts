@@ -74,6 +74,7 @@ export function localPlanningRequester(remote: (url: string, options?: RequestIn
   }
   if (!seed?.actor) throw new Error('Actualizá la sesión antes de guardar.');
   const body = JSON.parse(String(options?.body || '{}')), state = read();
+  if(body.action==='reopen-dispatch')throw new Error('La reapertura con registro de auditoría se realiza desde el ERP publicado.');
   if(['preview-correction','correct-dispatch'].includes(body.action)){
    if(!seed.canWrite)throw new Error('Sin permiso para corregir recorridos.');
    const current=rows.find(r=>r.dispatch_id===body.dispatchId),carrier=seed.carriers.find((c:Row)=>c.id===body.carrierId);
