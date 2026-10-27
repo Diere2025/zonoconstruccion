@@ -7,7 +7,7 @@ import { NextResponse, after } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { fetchSpreadsheetCsv, setOrderStatusInSellerSheetByCode, createLogisticsCancellationReasonLookup, normalizePaymentMethodForSheet } from '@/lib/googleSheets';
 import { isDiscountProductLine, resolveImportedOrderChannel, sheetDiscountAmount } from '@/lib/wholesaleOrders';
-import { oncePerKey, hasCompleteOrderCodes } from '@/lib/orderSync';
+import { oncePerKey, hasCompleteOrderCodes , consecutiveOrderCodes, addSheetAmounts } from '@/lib/orderSync';
 import {
   isJazminCentralCancellation,
   JAZMIN_SHEET_NAME,
@@ -158,18 +158,8 @@ const mergeContiguousSheetRows = (rows: string[][]): string[][] => {
     const code1 = (prevRow[1] || "").trim().toUpperCase();
     const code2 = (currentRow[1] || "").trim().toUpperCase();
     
-    const match1 = code1.match(/^([A-Z]+)(\d+)$/);
-    const match2 = code2.match(/^([A-Z]+)(\d+)$/);
-    
-    let isConsecutive = false;
-    if (match1 && match2 && match1[1] === match2[1]) {
-      const num1 = parseInt(match1[2], 10);
-      const num2 = parseInt(match2[2], 10);
-      if (Math.abs(num1 - num2) === 1) {
-        isConsecutive = true;
-      }
-    }
-    
+    const isConsecutive = consecutiveOrderCodes(code1,code2);
+
     const client1 = normalizeText(prevRow[5] || "");
     const client2 = normalizeText(currentRow[5] || "");
     const sameClient = client1 === client2 && client1 !== "";
@@ -187,23 +177,23 @@ const mergeContiguousSheetRows = (rows: string[][]): string[][] => {
       
       const subtotal1 = parseSpanishNumber(prevRow[28]);
       const subtotal2 = parseSpanishNumber(currentRow[28]);
-      prevRow[28] = (subtotal1 + subtotal2).toString();
+      prevRow[28] = addSheetAmounts(subtotal1,subtotal2);
       
       const freight1 = parseSpanishNumber(prevRow[27]);
       const freight2 = parseSpanishNumber(currentRow[27]);
-      prevRow[27] = (freight1 + freight2).toString();
+      prevRow[27] = addSheetAmounts(freight1,freight2);
 
       const surcharge1 = parseSpanishNumber(prevRow[25]);
       const surcharge2 = parseSpanishNumber(currentRow[25]);
-      prevRow[25] = (surcharge1 + surcharge2).toString();
+      prevRow[25] = addSheetAmounts(surcharge1,surcharge2);
 
       const abonado1 = parseSpanishNumber(prevRow[24]);
       const abonado2 = parseSpanishNumber(currentRow[24]);
-      prevRow[24] = (abonado1 + abonado2).toString();
+      prevRow[24] = addSheetAmounts(abonado1,abonado2);
 
       const pending1 = parseSpanishNumber(prevRow[29]);
       const pending2 = parseSpanishNumber(currentRow[29]);
-      prevRow[29] = (pending1 + pending2).toString();
+      prevRow[29] = addSheetAmounts(pending1,pending2);
 
       let emptyIdx = 30;
       while ((prevRow[emptyIdx] || "").trim() !== "" && (prevRow[emptyIdx] || "").trim() !== "0") {

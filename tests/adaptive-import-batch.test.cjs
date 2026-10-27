@@ -61,6 +61,7 @@ test('page loop recovers a failed large batch and continues without dropping or 
   let failedLargeBatch = false;
   const requests = [];
   const context = {
+    importHeaders:{'Content-Type':'application/json'},importRunId:'TEST',receiveAlerts:()=>{},
     exports: {}, createAdaptiveImportBatch: lib.createAdaptiveImportBatch,
     targetRows, sheet:{name:'Test',isCentralSheet:false}, sheets:[{}],
     cancelImportRef:{current:false}, skipENC:false,skipCAMB:false,syncPaymentMethods:false,

@@ -1,0 +1,30 @@
+name: Wholesale import prefix
+on:
+  pull_request:
+    paths:
+      - 'src/lib/orderSync.ts'
+      - 'src/app/admin/importar-pedidos/**'
+      - 'src/app/api/admin/import-job/**'
+      - 'src/lib/unimportedOrders.ts'
+      - 'tests/wholesale-import-prefix.test.cjs'
+      - 'tests/adaptive-import-batch.test.cjs'
+      - '.github/workflows/wholesale-import-prefix.yml'
+permissions:
+  contents: read
+jobs:
+  regression-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder
+      SUPABASE_SERVICE_ROLE_KEY: ci-placeholder
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: node --test tests/wholesale-import-prefix.test.cjs tests/order-sync.test.cjs tests/wholesale-orders.test.cjs tests/import-repeat-updates.test.cjs tests/import-support-alerts.test.cjs tests/import-order-lookup.test.cjs tests/adaptive-import-batch.test.cjs
+      - run: npm run build

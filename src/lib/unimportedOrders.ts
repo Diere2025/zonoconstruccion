@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { fetchSpreadsheetCsv } from '@/lib/googleSheets';
-import { mapWithConcurrency, oncePerKey } from '@/lib/orderSync';
+import { mapWithConcurrency, oncePerKey , consecutiveOrderCodes, addSheetAmounts } from '@/lib/orderSync';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ckvbyfgsbjbfaqotmeld.supabase.co';
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.dummy';
@@ -232,18 +232,8 @@ const mergeContiguousSheetRows = (rows: string[][]): string[][] => {
     const code1 = (prevRow[1] || "").trim().toUpperCase();
     const code2 = (currentRow[1] || "").trim().toUpperCase();
     
-    const match1 = code1.match(/^([A-Z]+)(\d+)$/);
-    const match2 = code2.match(/^([A-Z]+)(\d+)$/);
-    
-    let isConsecutive = false;
-    if (match1 && match2 && match1[1] === match2[1]) {
-      const num1 = parseInt(match1[2], 10);
-      const num2 = parseInt(match2[2], 10);
-      if (Math.abs(num1 - num2) === 1) {
-        isConsecutive = true;
-      }
-    }
-    
+    const isConsecutive = consecutiveOrderCodes(code1,code2);
+
     const client1 = normalizeText(prevRow[5] || "");
     const client2 = normalizeText(currentRow[5] || "");
     const sameClient = client1 === client2 && client1 !== "";
@@ -261,7 +251,7 @@ const mergeContiguousSheetRows = (rows: string[][]): string[][] => {
       
       const subtotal1 = parseSpanishNumber(prevRow[28]);
       const subtotal2 = parseSpanishNumber(currentRow[28]);
-      prevRow[28] = (subtotal1 + subtotal2).toString();
+      prevRow[28] = addSheetAmounts(subtotal1,subtotal2);
       
       let emptyIdx = 30;
       while ((prevRow[emptyIdx] || "").trim() !== "" && (prevRow[emptyIdx] || "").trim() !== "0") {
