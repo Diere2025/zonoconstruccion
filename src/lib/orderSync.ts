@@ -7,6 +7,25 @@ export function splitOrderCodes(value: string | null | undefined): string[] {
   return (value || '').split(/[/,]/).map(code => code.trim().toUpperCase()).filter(Boolean);
 }
 
+/** Compare complete identities, including wholesale prefixes such as AQ-FP. */
+export function consecutiveOrderCodes(previous: string, incoming: string): boolean {
+  const left=splitOrderCodes(previous),right=splitOrderCodes(incoming);
+  if(!left.length || !right.length)return false;
+  const codes=[...left,...right];
+  if(new Set(codes).size!==codes.length)return false;
+  const parsed=codes.map(code=>code.match(/^([A-Z]+(?:-[A-Z]*)?)(\d+)$/));
+  if(parsed.some(code=>!code))return false;
+  const prefix=parsed[0]![1],numbers=parsed.map(code=>Number(code![2]));
+  if(parsed.some(code=>code![1]!==prefix)||numbers.some(n=>!Number.isSafeInteger(n)))return false;
+  const step=numbers[1]-numbers[0];
+  return Math.abs(step)===1 && numbers.slice(1).every((n,i)=>n-numbers[i]===step);
+}
+
+/** Return Spanish numeric text so the next import parser retains centavos. */
+export function addSheetAmounts(left:number,right:number):string {
+  return (Math.round((left+right)*100)/100).toFixed(2).replace('.',',');
+}
+
 /** Una fila de continuación no representa el detalle ni los importes del pedido completo. */
 export function hasCompleteOrderCodes(incoming: string, stored: string | null | undefined): boolean {
   const received = new Set(splitOrderCodes(incoming));
