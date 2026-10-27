@@ -1,0 +1,30 @@
+name: Shipping no contract
+on:
+  pull_request:
+    paths:
+      - 'src/lib/support/shipping.ts'
+      - 'src/lib/support/actions.ts'
+      - 'src/components/support/TicketActionDialog.tsx'
+      - 'src/components/support/TicketDetail.tsx'
+      - 'src/components/support/TicketList.tsx'
+      - 'tests/shipping-requests.test.cjs'
+      - '.github/workflows/shipping-no-contract.yml'
+permissions:
+  contents: read
+jobs:
+  regression-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder
+      SUPABASE_SERVICE_ROLE_KEY: ci-placeholder
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: node --test tests/shipping-requests.test.cjs tests/support-validation.test.cjs tests/support-quick-action.test.cjs
+      - run: npm run build

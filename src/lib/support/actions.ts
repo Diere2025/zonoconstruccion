@@ -34,7 +34,7 @@ export function actionCommand(action: TicketAction, ticket: Ticket): { command: 
         : { command: 'take', payload: {} };
 }
 export function nextActor(ticket: Ticket, name: (id: string) => string): string {
-    if (isShipping(ticket) && ticket.status === 'waiting_validation') return `${name(ticket.created_by)} debe elegir una opción`;
+    if (isShipping(ticket) && ticket.status === 'waiting_validation') return `${name(ticket.created_by)} debe revisar la cotización`;
     if (ticket.status === 'waiting_validation') return `${name(ticket.created_by)} debe probar`;
     if (ticket.status === 'waiting_requester') return `${name(ticket.created_by)} debe responder`;
     if (!isOpen(ticket.status)) return '';
