@@ -1,0 +1,31 @@
+name: Dispatch reopening
+on:
+  pull_request:
+    paths:
+      - 'src/lib/logisticsDispatch/**'
+      - 'src/components/logistics/DispatchReopenDialog.tsx'
+      - 'src/app/admin/logistica-planificacion/**'
+      - 'src/app/api/admin/logistica-planificacion/**'
+      - 'database/*dispatch_reopening*'
+      - 'tests/dispatch-reopening.test.cjs'
+      - '.github/workflows/dispatch-reopening.yml'
+permissions:
+  contents: read
+jobs:
+  regression-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder
+      SUPABASE_SERVICE_ROLE_KEY: ci-placeholder
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm install --prefix .codex-tmp/supplier-account-check --no-save --package-lock=false @electric-sql/pglite@0.5.10
+      - run: node --test tests/dispatch-reopening.test.cjs tests/logistics-planning.test.cjs tests/logistics-settlement-accounting.test.cjs tests/freight-confirmed-payment-links.test.cjs tests/logistics-integrated-circuit.test.cjs
+      - run: npm run build
