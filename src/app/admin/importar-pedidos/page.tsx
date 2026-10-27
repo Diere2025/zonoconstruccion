@@ -1,4 +1,5 @@
 "use client";
+import {isImportWarning} from '@/lib/importAlerts';
 import ErpDateInput from '@/components/ui/ErpDateInput';
 
 import { cuotaSimpleInstallments, isRetiredPaymentMethod } from "@/lib/cuotaSimple";
@@ -271,13 +272,18 @@ export default function ImportarPedidosPage() {
       totalSheets: 0
     });
 
+    const importRunId=crypto.randomUUID();
+    const pendingAlerts:string[]=[];
+    const alertTickets=new Map<string,string>();
+    let alertFailures=0;
     const startTime = Date.now();
     timerRef.current = setInterval(() => {
       setElapsedSeconds(Math.floor((Date.now() - startTime) / 1000));
     }, 1000);
 
-    const addLog = (msg: string) => {
-      setImportOrdersLogs(prev => [...prev, `[${new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}] ${msg}`]);
+    const addLog = (msg: string,report=true) => {
+      if(report&&isImportWarning(msg))pendingAlerts.push(msg);
+      setImportOrdersLogs(prev => [...prev, `[${new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit',hour12:false,timeZone:'America/Argentina/Buenos_Aires' })}] ${msg}`]);
     };
 
     let problemCount = 0;
@@ -289,6 +295,9 @@ export default function ImportarPedidosPage() {
     });
 
     try {
+      const {data:{session}}=await supabase.auth.getSession();
+      const importHeaders:Record<string,string>={'Content-Type':'application/json',...(session?.access_token?{Authorization:'Bearer '+session.access_token}:{})};
+      const receiveAlerts=(data:any)=>{for(const t of data.supportAlerts?.tickets||[])alertTickets.set(t.id,String(t.number));alertFailures+=data.supportAlerts?.failed||0;};
       addLog("🚀 Iniciando importación y sincronización de planillas...");
 
       // 1. Sincronizar Medios de Pago
@@ -508,8 +517,9 @@ export default function ImportarPedidosPage() {
               try {
                 importRes = await fetch("/api/admin/import-sheet", {
                   method: "POST",
-                  headers: { "Content-Type": "application/json" },
+                  headers: importHeaders,
                   body: JSON.stringify({
+                    sourceName:sheet.name,sourceUrl:sheet.url,importRunId,
                     sheetName: `${sheet.name} (Lote ${chunkIdx + 1}, ${chunkRows.length} pedidos)`,
                     rows: chunkRows,
                     skipENC,
@@ -551,9 +561,10 @@ export default function ImportarPedidosPage() {
                 try {
                   const singleRes = await fetch("/api/admin/import-sheet", {
                     method: "POST",
-                    headers: { "Content-Type": "application/json" },
+                    headers: importHeaders,
                     body: JSON.stringify({
-                      sheetName: `${sheet.name} (Unitario ${singleCode || 'pedido'})`,
+                      sourceName:sheet.name,sourceUrl:sheet.url,importRunId,
+                    sheetName: `${sheet.name} (Unitario ${singleCode || 'pedido'})`,
                       rows: [singleRow],
                       skipENC,
                       skipCAMB,
@@ -566,9 +577,10 @@ export default function ImportarPedidosPage() {
 
                   if (singleRes.ok) {
                     const singleData = await singleRes.json();
+                    receiveAlerts(singleData);
                     for (const warning of singleData.warnings || []) {
                       problemCount++;
-                      addLog(`⚠️ ${warning}`);
+                      addLog(`⚠️ ${warning}`,false);
                     }
                     totalImported += singleData.totalImported || 0;
                     totalUpdated += singleData.totalUpdated || 0;
@@ -602,9 +614,10 @@ export default function ImportarPedidosPage() {
             }
 
             const importData = await importRes.json();
+            receiveAlerts(importData);
             for (const warning of importData.warnings || []) {
               problemCount++;
-              addLog(`⚠️ ${warning}`);
+              addLog(`⚠️ ${warning}`,false);
             }
             totalImported += importData.totalImported || 0;
             totalUpdated += importData.totalUpdated || 0;
@@ -731,6 +744,12 @@ export default function ImportarPedidosPage() {
       addLog(`❌ Error: ${cleanMsg}`);
       setImportOrdersSummary(`Error: ${cleanMsg}`);
     } finally {
+      try {
+        if(pendingAlerts.length){const {data:{session}}=await supabase.auth.getSession();
+          for(let i=0;i<pendingAlerts.length;i+=30){const response=await fetch('/api/admin/import-alerts',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+(session?.access_token||'')},body:JSON.stringify({context:{source:'Sincronización de planillas',runId:importRunId,codes:[...failedCodes]},warnings:pendingAlerts.slice(i,i+30)})});const result=await response.json();for(const t of result.tickets||[])alertTickets.set(t.id,String(t.number));if(!response.ok||result.failed)alertFailures+=result.failed||1;}}
+      }catch{alertFailures++;}
+      if(alertTickets.size){const refs=[...alertTickets.values()].map(n=>'INC-'+n.padStart(6,'0')).join(', ');addLog('🎫 Revisión de Soporte TI: '+refs,false);setImportOrdersSummary(previous=>(previous||'')+' Revisión TI: '+refs+'.');}
+      if(alertFailures){setSummaryStatus('partial');setImportOrdersSummary(previous=>(previous||'')+' ATENCIÓN: no se pudieron registrar todos los avisos en TI. Conservá el registro y reintentá el reporte.');addLog('❌ No se pudieron registrar todos los avisos en Soporte TI. Conservá el registro.',false);}
       if (timerRef.current) clearInterval(timerRef.current);
       setImportingOrders(false);
     }

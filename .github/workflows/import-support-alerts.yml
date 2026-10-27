@@ -1,0 +1,29 @@
+name: Import support alerts
+on:
+  pull_request:
+    paths:
+      - 'src/lib/importAlerts.ts'
+      - 'src/app/api/admin/import-*/**'
+      - 'src/app/admin/importar-pedidos/**'
+      - 'database/*import_support*'
+      - 'tests/import-*.test.cjs'
+      - '.github/workflows/import-support-alerts.yml'
+permissions:
+  contents: read
+jobs:
+  regression-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder
+      SUPABASE_SERVICE_ROLE_KEY: ci-placeholder
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: node --test tests/import-support-alerts.test.cjs tests/import-repeat-updates.test.cjs tests/import-status.test.cjs tests/order-sync.test.cjs
+      - run: npm run build

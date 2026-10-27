@@ -1,3 +1,5 @@
+import {isImportWarning,reportImportAlerts,type ImportAlertContext} from '@/lib/importAlerts';
+import {authenticateSystemAdministrator} from '@/lib/systemAdminAccess';
 import { detectVolumeOrderCategory } from '@/lib/orderCategory';
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
@@ -118,8 +120,14 @@ const parseSpanishNumber = (val: any): number => {
 export async function POST(request: Request) {
   const startedAt = Date.now();
   const getCancellationReason = createLogisticsCancellationReasonLookup();
+  let alertActor:string|null=null;let alertContext:ImportAlertContext={source:'Importación de pedidos'};
+  const alertEntries:Array<{message:string;context:ImportAlertContext}>=[];
+  const flushAlerts=async()=>{const tickets:any[]=[];let failed=0;for(const entry of alertEntries){const r=await reportImportAlerts(supabaseAdmin,alertActor,entry.context,[entry.message]);tickets.push(...r.tickets);failed+=r.failed;}return {tickets,failed};};
   try {
+    const auth=await authenticateSystemAdministrator(request,supabaseAdmin);if(!auth.user)return NextResponse.json({error:auth.error},{status:auth.status});alertActor=auth.user.id;
     const body = await request.json();
+    if(!Array.isArray(body.rows)||body.rows.some((r:unknown)=>!Array.isArray(r)))return NextResponse.json({error:'El lote debe contener filas de pedidos.'},{status:400});
+    alertContext={source:body.sourceName||body.sheetName||'Importación de pedidos',sourceUrl:body.sourceUrl,batch:body.sheetName,runId:body.importRunId,codes:(body.rows||[]).map((r:any[])=>String(r[1]||'')),rows:(body.rows||[]).map((r:any[])=>({code:String(r[1]||''),status:String(r[0]||'')})),options:{skipENC:!!body.skipENC,skipCAMB:!!body.skipCAMB,syncPaymentMethods:!!body.syncPaymentMethods,defaultChannel:body.defaultChannel,isCentralSheet:!!body.isCentralSheet}};
     const {
       sheetName,
       rows: incomingRows,
@@ -141,8 +149,8 @@ export async function POST(request: Request) {
     const logs: string[] = [];
     const warnings: string[] = [];
     const addLog = (msg: string) => {
-      logs.push(`[${new Date().toLocaleTimeString()}] ${msg}`);
-      if (/❌|advertencia|⚠️/i.test(msg)) warnings.push(msg);
+      logs.push(`[${new Date().toLocaleTimeString('es-AR',{hour12:false,timeZone:'America/Argentina/Buenos_Aires'})}] ${msg}`);
+      if (isImportWarning(msg)) {warnings.push(msg);alertEntries.push({message:msg,context:{...alertContext}});}
     };
 
     addLog(`Iniciando procesamiento de ${rows.length} pedidos en el servidor para ${sheetName}...`);
@@ -463,6 +471,7 @@ export async function POST(request: Request) {
       }
       if (skipCAMB && orderCode.toUpperCase().startsWith("CAMB")) continue;
       const dbOrder = findExistingOrder(orderCode);
+      alertContext={...alertContext,order:dbOrder?{id:dbOrder.id,codes:dbOrder.legacy_code,status:dbOrder.status,total:dbOrder.total_amount}:undefined};
 
       const rawStatus = (row[0] || "Pendiente").trim();
 
@@ -1379,8 +1388,10 @@ export async function POST(request: Request) {
       addLog(`Pedido ${orderCode} procesado con éxito.`);
     }
 
+    const supportAlerts=await flushAlerts();
     return NextResponse.json({
       success: true,
+      supportAlerts,
       logs,
       warnings,
       totalImported,
@@ -1396,6 +1407,8 @@ export async function POST(request: Request) {
     if (errMsg.includes('<!DOCTYPE') || errMsg.includes('<html') || (errMsg.includes('Cloudflare') && errMsg.includes('Timeout'))) {
       errMsg = 'Error de conexión con la base de datos Supabase al procesar los pedidos (Cloudflare/Timeout). Intenta nuevamente.';
     }
-    return NextResponse.json({ error: errMsg, details: error?.message || null }, { status: 500 });
+    alertEntries.push({message:'❌ Error de importación: '+errMsg,context:{...alertContext}});
+    const supportAlerts=await flushAlerts();
+    return NextResponse.json({ error: errMsg, details: error?.message || null,supportAlerts }, { status: 500 });
   }
 }

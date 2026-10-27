@@ -1,3 +1,5 @@
+import {authenticateSystemAdministrator} from '@/lib/systemAdminAccess';
+import {isImportWarning,reportImportAlerts} from '@/lib/importAlerts';
 import { cuotaSimpleInstallments, isRetiredPaymentMethod } from "@/lib/cuotaSimple";
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
@@ -236,7 +238,8 @@ async function runBackgroundImportJob(jobId: string, payload: any) {
   const logs: string[] = [];
 
   const addLog = async (msg: string) => {
-    const timeStr = new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const timeStr = new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit',hour12:false,timeZone:'America/Argentina/Buenos_Aires' });
+    if(isImportWarning(msg)){const report=await reportImportAlerts(supabaseAdmin,payload.actor||null,{source:'Importación en segundo plano',runId:jobId,options:{sheets:(payload.sheets||[]).map((s:any)=>s.name)}},[msg]);if(report.failed)logs.push('ATENCIÓN: no se pudo registrar un aviso en Soporte TI.');else for(const t of report.tickets)logs.push('🎫 Revisión TI: INC-'+String(t.number).padStart(6,'0'));}
     const logLine = `[${timeStr}] ${msg}`;
     logs.push(logLine);
     console.log(`[Import Job ${jobId}] ${logLine}`);
@@ -1008,6 +1011,7 @@ export async function GET() {
 // POST: Trigger new background job or cancel existing
 export async function POST(req: Request) {
   try {
+    const auth=await authenticateSystemAdministrator(req,supabaseAdmin);if(!auth.user)return NextResponse.json({error:auth.error},{status:auth.status});
     const body = await req.json().catch(() => ({}));
     const { action, jobId, sheets, skipENC = true, skipCAMB = false, syncPaymentMethods = false, userEmail = "admin" } = body;
 
@@ -1117,6 +1121,7 @@ export async function POST(req: Request) {
     // Launch Background Execution with Next.js after() to ensure background promise is not killed
     after(async () => {
       await runBackgroundImportJob(newJob.id, {
+        actor:auth.user.id,
         skipENC,
         skipCAMB,
         syncPaymentMethods,
