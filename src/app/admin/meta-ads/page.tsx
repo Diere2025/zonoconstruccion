@@ -1313,7 +1313,6 @@ export default function MetaAdsPage() {
           {/* ========================================================================= */}
           {activeTab === 'live' && (
             <div className="space-y-6">
-              <MetaReview campaigns={liveCampaigns} data={liveData} targets={targets} setTarget={setTarget} fresh={liveFresh} detailsOpen={reviewDetailsOpen} onDetailsOpenChange={setReviewDetailsOpen} />
               {liveData?.exchangeRate > 0 && <p className="text-sm text-slate-500">
                 Conversión de referencia: US$ 1 = {formatPrice(liveData.exchangeRate)}. Tipo de cambio fijo; el histórico conserva los valores de cada fecha.
               </p>}
@@ -2285,6 +2284,7 @@ export default function MetaAdsPage() {
                   </table>
                 </div>
               </div>
+              <MetaReview campaigns={liveCampaigns} data={liveData} targets={targets} setTarget={setTarget} fresh={liveFresh} detailsOpen={reviewDetailsOpen} onDetailsOpenChange={setReviewDetailsOpen} />
             </div>
           )}
 
