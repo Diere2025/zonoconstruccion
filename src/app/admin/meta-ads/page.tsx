@@ -35,7 +35,6 @@ import {
   ArrowUp,
   ArrowDown,
   ShieldAlert,
-  BellRing,
   ChevronDown,
   ChevronUp,
   ChevronRight,
@@ -47,9 +46,10 @@ import {
 import { formatPrice } from "@/lib/utils";
 
 import MetaReview from '@/components/admin/MetaReview';
-import { diagnose, readHistoryResponse, readLiveResponse, type Periods } from '@/lib/meta-ads-review';
+import { diagnose, readHistoryResponse, readLiveResponse, type Periods, type Diagnosis } from '@/lib/meta-ads-review';
 
 interface LiveAd {
+  diagnosis?: Diagnosis;
   periods?: Periods;
   id: string;
   name: string;
@@ -269,7 +269,6 @@ export default function MetaAdsPage() {
   const [liveSortField, setLiveSortField] = useState<'cpr' | 'spend' | 'messages' | 'budget' | 'consumption'>('cpr');
   const [liveSortOrder, setLiveSortOrder] = useState<'asc' | 'desc'>('desc');
   const [liveAlertFilter, setLiveAlertFilter] = useState<'all' | 'with_alerts'>('all');
-  const [showAlertCards, setShowAlertCards] = useState<boolean>(true);
 
   // Live Meta Direct API & Ad Breakdown State
   const [liveIsCached, setLiveIsCached] = useState<boolean>(false);
@@ -287,7 +286,15 @@ export default function MetaAdsPage() {
   }, []);
   const setTarget=(key:string,value:number)=>setTargets(prev=>{const next={...prev,[key]:value};try{localStorage.setItem('meta-ads-targets',JSON.stringify(next));}catch{}return next;});
   const liveFresh = !!liveData?.updatedAt && liveData.source==='meta_api_direct' && !liveData.stale && !liveData.apiError && !liveData.error && clock-Date.parse(liveData.updatedAt)<180000;
-  const liveCampaigns = useMemo(()=>rawLiveCampaigns.map(c=>({...c,ads:c.ads?.map(a=>({...a,alerts:a.periods?[diagnose(a.periods,targets[c.commercialOffer]||3.5,a.effectiveStatus==='ACTIVE',liveFresh).label]:['Datos insuficientes']}))})),[rawLiveCampaigns,targets,liveFresh]);
+  const liveCampaigns = useMemo(() => rawLiveCampaigns.map(c => ({
+    ...c,
+    ads: c.ads?.map(a => {
+      const diagnosis = a.periods
+        ? diagnose(a.periods, targets[c.commercialOffer] || 3.5, a.effectiveStatus === 'ACTIVE', liveFresh)
+        : undefined;
+      return { ...a, diagnosis, alerts: [diagnosis?.label || 'Datos insuficientes'] };
+    }),
+  })), [rawLiveCampaigns, targets, liveFresh]);
 
   useEffect(() => {
     setPreviewAd(previous => previous ? liveCampaigns.flatMap(c => c.ads || []).find(a => a.id === previous.id) || null : null);
@@ -618,7 +625,7 @@ export default function MetaAdsPage() {
     setRefreshing(false);
   };
 
-  // One diagnosis engine drives cards, campaign rows and ad rows.
+  // One diagnosis engine drives campaign rows and ad details.
   const smartRuleAlerts = useMemo(() => liveCampaigns.flatMap(c => {
     if(!c.periods || !liveFresh) return [];
     const entries=[{id:c.campaignId,name:c.campaignName,p:c.periods,active:c.status==='ACTIVE'},...(c.ads||[]).filter(a=>a.periods).map(a=>({id:a.id,name:a.name,p:a.periods!,active:a.effectiveStatus==='ACTIVE'}))];
@@ -637,9 +644,6 @@ export default function MetaAdsPage() {
     return map;
   }, [smartRuleAlerts]);
 
-  const dangerAlertsCount = useMemo(() => smartRuleAlerts.filter(a => a.type === 'danger').length, [smartRuleAlerts]);
-  const warningAlertsCount = useMemo(() => smartRuleAlerts.filter(a => a.type === 'warning').length, [smartRuleAlerts]);
-  const successAlertsCount = useMemo(() => smartRuleAlerts.filter(a => a.type === 'success').length, [smartRuleAlerts]);
   const campaignsWithAlertsCount = useMemo(() => Object.keys(campaignAlertsMap).length, [campaignAlertsMap]);
 
   // Filtered & Sorted Live Campaigns
@@ -1667,119 +1671,6 @@ export default function MetaAdsPage() {
               )}
 
 
-              {/* Centro de Alertas & Diagnóstico de Reglas */}
-              {smartRuleAlerts.length > 0 && (
-                <div className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm space-y-4">
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shadow-xs">
-                        <BellRing className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h3 className="text-sm font-black text-slate-900 tracking-tight">
-                            Centro de Alertas & Diagnóstico de Reglas
-                          </h3>
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-indigo-100 text-indigo-700">
-                            {smartRuleAlerts.length} {smartRuleAlerts.length === 1 ? 'aviso' : 'avisos'}
-                          </span>
-                        </div>
-                        <p className="text-xs text-slate-500 font-medium">
-                          Monitoreo en tiempo real de anomalías de costo, saturación de audiencia y oportunidades de escalamiento.
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
-                      <div className="flex items-center gap-1.5 text-xs font-bold">
-                        {dangerAlertsCount > 0 && (
-                          <span className="px-2.5 py-1 rounded-xl bg-rose-50 text-rose-700 border border-rose-200 text-[11px] font-black">
-                            🚨 {dangerAlertsCount} Crítica{dangerAlertsCount > 1 ? 's' : ''}
-                          </span>
-                        )}
-                        {warningAlertsCount > 0 && (
-                          <span className="px-2.5 py-1 rounded-xl bg-amber-50 text-amber-700 border border-amber-200 text-[11px] font-black">
-                            ⚠️ {warningAlertsCount} Advertencia{warningAlertsCount > 1 ? 's' : ''}
-                          </span>
-                        )}
-                        {successAlertsCount > 0 && (
-                          <span className="px-2.5 py-1 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-black">
-                            {successAlertsCount} Candidatas a evaluar
-                          </span>
-                        )}
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => setShowAlertCards(!showAlertCards)}
-                        className="p-1.5 rounded-xl hover:bg-slate-100 text-slate-500 transition-colors cursor-pointer"
-                        title={showAlertCards ? 'Minimizar avisos' : 'Expandir avisos'}
-                      >
-                        {showAlertCards ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Cards Grid */}
-                  {showAlertCards && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
-                      {smartRuleAlerts.map(alert => {
-                        const isDanger = alert.type === 'danger';
-                        const isWarning = alert.type === 'warning';
-
-                        const bgClass = isDanger ? 'bg-rose-50/50 border-rose-200/80 hover:bg-rose-50' :
-                          isWarning ? 'bg-amber-50/50 border-amber-200/80 hover:bg-amber-50' :
-                          'bg-emerald-50/50 border-emerald-200/80 hover:bg-emerald-50';
-
-                        const badgeClass = isDanger ? 'bg-rose-100 text-rose-800 border-rose-200' :
-                          isWarning ? 'bg-amber-100 text-amber-800 border-amber-200' :
-                          'bg-emerald-100 text-emerald-800 border-emerald-200';
-
-                        return (
-                          <div 
-                            key={alert.id}
-                            className={`p-3.5 rounded-2xl border transition-all shadow-xs flex flex-col justify-between gap-2.5 ${bgClass}`}
-                          >
-                            <div className="space-y-1.5">
-                              <div className="flex items-center justify-between gap-2">
-                                <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black border ${badgeClass}`}>
-                                  {alert.badgeText}
-                                </span>
-                                {alert.phoneLine && (
-                                  <span className="text-[10px] font-bold text-slate-500 flex items-center gap-1">
-                                    <PhoneCall className="w-3 h-3" />
-                                    Línea {alert.phoneLine}
-                                  </span>
-                                )}
-                              </div>
-
-                              <div>
-                                <h4 className="text-xs font-black text-slate-900 line-clamp-1" title={alert.campaignName}>
-                                  {alert.commercialOffer || alert.campaignName}
-                                </h4>
-                                <p className="text-[11px] text-slate-600 leading-snug mt-1 font-medium">
-                                  {alert.description}
-                                </p>
-                              </div>
-                            </div>
-
-                            <div className="pt-2 border-t border-slate-200/60 space-y-1.5">
-                              <div className="flex items-center justify-between text-[11px]">
-                                <span className="font-bold text-slate-500">{alert.metricLabel}:</span>
-                                <span className="font-black text-slate-900 font-mono">{alert.metricValue}</span>
-                              </div>
-                              <div className="text-[10.5px] font-semibold text-slate-600 bg-white/80 p-2 rounded-xl border border-slate-200/60">
-                                💡 <strong className="text-slate-800">Sugerencia:</strong> {alert.actionText}
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              )}
-
               {/* Filters Bar */}
               <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm space-y-3">
                 <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
@@ -2251,10 +2142,12 @@ export default function MetaAdsPage() {
                                               return (
                                                 <tr key={ad.id} className="hover:bg-slate-50/70 transition-colors">
                                                   <td className="py-2.5 px-3 text-center">
-                                                    <div 
+                                                    <button
+                                                      type="button"
                                                       onClick={() => setPreviewAd(ad)}
                                                       className="group relative w-10 h-10 rounded-xl overflow-hidden bg-slate-100 border border-slate-200 mx-auto cursor-pointer shadow-2xs hover:ring-2 hover:ring-indigo-500 transition-all"
-                                                      title="Clic para previsualizar creativo"
+                                                      title="Ver anuncio y sugerencia"
+                                                      aria-label={`Ver anuncio y sugerencia: ${ad.name}`}
                                                     >
                                                       {ad.thumbnailUrl ? (
                                                         <img 
@@ -2270,13 +2163,18 @@ export default function MetaAdsPage() {
                                                       <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white">
                                                         <Eye className="w-3.5 h-3.5" />
                                                       </div>
-                                                    </div>
+                                                    </button>
                                                   </td>
                                                   <td className="py-2.5 px-3">
                                                     <div className="space-y-0.5 max-w-xs sm:max-w-md">
-                                                      <div className="font-bold text-slate-900 text-xs truncate" title={ad.name}>
+                                                      <button
+                                                        type="button"
+                                                        onClick={() => setPreviewAd(ad)}
+                                                        className="block max-w-full text-left font-bold text-slate-900 text-xs truncate hover:text-indigo-600 hover:underline cursor-pointer"
+                                                        title="Ver anuncio y sugerencia"
+                                                      >
                                                         {ad.name}
-                                                      </div>
+                                                      </button>
                                                       <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
                                                         {ad.adsetName && <span>{ad.adsetName}</span>}
                                                         {ad.title && (
@@ -2330,9 +2228,12 @@ export default function MetaAdsPage() {
                                                     {ad.alerts && ad.alerts.length > 0 ? (
                                                       <div className="flex flex-col items-center gap-1">
                                                         {ad.alerts.map((al, alIdx) => (
-                                                          <span 
+                                                          <button
+                                                            type="button"
+                                                            onClick={() => setPreviewAd(ad)}
+                                                            title="Ver motivo y sugerencia para este anuncio"
                                                             key={alIdx} 
-                                                            className={`inline-flex items-center px-2 py-0.5 rounded-lg text-[9.5px] font-black border ${
+                                                            className={`inline-flex items-center px-2 py-0.5 rounded-lg text-[9.5px] font-black border cursor-pointer hover:brightness-95 ${
                                                               al.includes('persistente')
                                                                 ? 'bg-rose-50 text-rose-700 border-rose-200' 
                                                                 : /elevad|costoso|Gasto sin/.test(al)
@@ -2341,7 +2242,7 @@ export default function MetaAdsPage() {
                                                             }`}
                                                           >
                                                             {al}
-                                                          </span>
+                                                          </button>
                                                         ))}
                                                       </div>
                                                     ) : isAdHighCpr ? (
@@ -2640,7 +2541,7 @@ export default function MetaAdsPage() {
             <div className="p-4 border-b border-slate-100 flex items-center justify-between">
               <div className="space-y-0.5">
                 <span className="text-[10px] font-black uppercase tracking-wider text-indigo-600">
-                  Previsualización de Anuncio
+                  Detalle del anuncio
                 </span>
                 <h3 className="text-sm font-black text-slate-900 line-clamp-1">
                   {previewAd.name}
@@ -2710,23 +2611,22 @@ export default function MetaAdsPage() {
               </div>
 
               {!liveFresh && <p className="text-amber-700 text-sm">Datos no vigentes. Actualizar antes de decidir.</p>}
-              {liveFresh && previewAd.alerts && previewAd.alerts.length > 0 && (
-                <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                  {previewAd.alerts.map((al, alIdx) => (
-                    <span 
-                      key={alIdx} 
-                      className={`px-2.5 py-1 rounded-xl text-xs font-black border ${
-                        al.includes('persistente')
-                          ? 'bg-rose-50 text-rose-700 border-rose-200' 
-                          : /elevad|costoso|Gasto sin/.test(al)
-                          ? 'bg-amber-50 text-amber-700 border-amber-200'
-                          : al.includes('Candidata') ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-50 text-slate-600 border-slate-200'
-                      }`}
-                    >
-                      {al}
-                    </span>
-                  ))}
+              {previewAd.diagnosis ? (
+                <div className={`rounded-2xl border p-4 space-y-2 text-xs ${
+                  previewAd.diagnosis.severity === 'danger' ? 'bg-rose-50 text-rose-800 border-rose-200' :
+                  previewAd.diagnosis.severity === 'warning' ? 'bg-amber-50 text-amber-800 border-amber-200' :
+                  previewAd.diagnosis.severity === 'success' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
+                  'bg-slate-50 text-slate-700 border-slate-200'
+                }`}>
+                  <h4 className="font-black">{previewAd.diagnosis.label}</h4>
+                  <p>{previewAd.diagnosis.reason}</p>
+                  <p className="font-semibold">Evidencia: {previewAd.diagnosis.evidence}.</p>
+                  <p className="rounded-xl bg-white/80 p-3">
+                    <strong>Sugerencia:</strong> {previewAd.diagnosis.action}
+                  </p>
                 </div>
+              ) : (
+                <p className="text-xs text-slate-500">Datos insuficientes para evaluar este anuncio.</p>
               )}
             </div>
           </div>
