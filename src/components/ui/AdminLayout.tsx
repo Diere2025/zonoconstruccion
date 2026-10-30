@@ -4,7 +4,8 @@ import React, { useState, useEffect, useCallback, Suspense } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { LogOut, Users, Menu, X, ChevronRight, Shield, KeyRound, Eye, EyeOff, CheckCircle2, AlertCircle, Loader2, Boxes, Search } from "lucide-react";
-import { visibleErpModules, activeErpLink } from "@/lib/erpNavigation";
+import { visibleErpModules, activeErpLink, configuredScreenDecision } from "@/lib/erpNavigation";
+import { useRoleScreenAccess } from '@/lib/useRoleScreenAccess';
 import { KeyboardShortcuts } from "@/components/ui/KeyboardShortcuts";
 import { ErpNavigationContext } from "@/components/ui/ErpNavigationContext";
 import { supabase } from "@/lib/supabase";
@@ -294,8 +295,6 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
           setIsRoleLoaded(false);
           setCanUseWholesale(false);
           setIsWholesalePermissionLoaded(false);
-        } else if (sessionStorage.getItem('zono_role_loaded') === 'true') {
-          setIsRoleLoaded(true);
         }
 
         const email = user.email || "";
@@ -396,6 +395,10 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
 
   const hasRole = useCallback((role: UserRole) => userRoles.includes(role), [userRoles]);
   const isAdminRole = hasRole('admin');
+  const screenAccess = useRoleScreenAccess(`${cachedIdentityUserId || ''}:${userEmail}:${userRoles.join(',')}`, isRoleLoaded && isWholesalePermissionLoaded, `${pathname}?${searchParams.toString()}`);
+  const screenIdentity = { roles: userRoles, restrictedSeller: isRestrictedSeller, canUseWholesale, email: userEmail,
+    userId: isRoleLoaded ? cachedIdentityUserId : null, screenOverrides: screenAccess.overrides };
+  const screenDecision = configuredScreenDecision(screenIdentity, pathname, searchParams.toString());
   const isSpecializedOperator = !isAdminRole && !hasRole('seller') && userRoles.some(role =>
     ['logistica', 'fletero', 'administracion', 'compras', 'instalador'].includes(role)
   );
@@ -440,7 +443,11 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
 
   // Route guards per role. Multi-role users receive the union of every assigned role.
   useEffect(() => {
-    if (!isRoleLoaded) return;
+    if (!isRoleLoaded || !screenAccess.ready) return;
+    if (screenDecision !== null) {
+      if (!screenDecision) router.replace('/admin');
+      return;
+    }
     const installerOnly = userRoles.includes('instalador') && !userRoles.some(role => ['admin', 'seller', 'logistica', 'fletero', 'administracion', 'compras'].includes(role));
     if (installerOnly && pathname !== '/visitas' && pathname !== '/admin') { router.replace('/visitas'); return; }
     if (pathname === '/visitas' && (hasRole('seller') || hasRole('instalador') || isAdminRole)) return;
@@ -476,7 +483,7 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
     ) {
       router.replace('/vendedores');
     }
-  }, [isRoleLoaded, userRole, userRoles, isAdminRole, isSpecializedOperator, canAccessSpecializedRoute, hasRole, isRestrictedSeller, canUseWholesale, isWholesalePermissionLoaded, pathname, searchParams, router]);
+  }, [isRoleLoaded, screenAccess.ready, screenDecision, userRole, userRoles, isAdminRole, isSpecializedOperator, canAccessSpecializedRoute, hasRole, isRestrictedSeller, canUseWholesale, isWholesalePermissionLoaded, pathname, searchParams, router]);
 
   const openImpersonationModal = async () => {
     setShowImpersonationModal(true);
@@ -590,7 +597,7 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
     window.location.href = "/admin";
   };
 
-  const visibleModules = visibleErpModules({ roles: userRoles, restrictedSeller: isRestrictedSeller, canUseWholesale, email: userEmail, userId: isRoleLoaded ? cachedIdentityUserId : null });
+  const visibleModules = screenAccess.ready ? visibleErpModules(screenIdentity) : [];
   const navigationTerm = normalizeNavigationSearch(navigationSearch.trim());
   const filteredModules = visibleModules.map(section => ({
     ...section,
@@ -904,9 +911,12 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
         {/* Viewport Scroll Area */}
         <main className="flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-6 bg-slate-50 custom-scrollbar min-w-0">
           <div className="w-full min-w-0 space-y-6">
-            <ErpNavigationContext.Provider value={{ modules: visibleModules, ready: isRoleLoaded && isWholesalePermissionLoaded, error: navigationError }}>
-              {children}
-              <KeyboardShortcuts userId={isRoleLoaded ? cachedIdentityUserId : null} />
+            <ErpNavigationContext.Provider value={{ modules: visibleModules, ready: isRoleLoaded && isWholesalePermissionLoaded && screenAccess.ready, error: screenAccess.error || navigationError }}>
+              {!screenAccess.ready ? <div role="status" className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-600">
+                {screenAccess.error || 'Cargando accesos…'}
+                {screenAccess.error && <button className="ml-3 font-semibold text-blue-700" onClick={() => window.dispatchEvent(new Event('erp-screen-access-updated'))}>Reintentar</button>}
+              </div> : screenDecision === false ? <div role="status" className="p-6 text-sm text-slate-600">Esta pantalla no está habilitada para tus roles. Volviendo al inicio…</div> : children}
+            <KeyboardShortcuts userId={isRoleLoaded ? cachedIdentityUserId : null} />
             </ErpNavigationContext.Provider>
           </div>
         </main>

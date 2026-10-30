@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
+import Link from 'next/link';
 import {
   Users,
   KeyRound,
@@ -413,6 +414,7 @@ export default function VendedoresManagementPage() {
         </div>
 
         <div className="flex items-center gap-2.5">
+          <Link href="/admin/accesos" className="rounded-xl border border-blue-200 px-3 py-2.5 text-xs font-bold text-blue-700 hover:bg-blue-50">Accesos por rol</Link>
           <button
             onClick={() => loadSellers()}
             disabled={isLoading}
