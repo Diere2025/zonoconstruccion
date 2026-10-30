@@ -3415,7 +3415,22 @@ export default function PedidosPage() {
 
   // Generic loader: can be used for editing (isClone=false) or cloning/re-creating (isClone=true)
   const handleLoadOrderIntoForm = async (order: any, isClone: boolean = false) => {
-    if (role !== 'admin' && order.seller_id !== currentUserId) {
+    // La lista puede terminar de cargar antes que la inicialización del formulario.
+    // Verificar la sesión actual evita confundir un ID vacío o anterior con falta de permisos.
+    let authenticatedUserId: string;
+    try {
+      const { data, error } = await supabase.auth.getUser();
+      if (error || !data.user) {
+        setOrderSaveNotice('No se pudo verificar tu sesión. Reintentá; si persiste, volvé a iniciar sesión.');
+        return;
+      }
+      authenticatedUserId = data.user.id;
+      setCurrentUserId(authenticatedUserId);
+    } catch {
+      setOrderSaveNotice('No se pudo verificar tu sesión. Reintentá; si persiste, volvé a iniciar sesión.');
+      return;
+    }
+    if (role !== 'admin' && order.seller_id !== authenticatedUserId) {
       setOrderSaveNotice('Sólo podés abrir pedidos asignados a tu usuario.');
       return;
     }

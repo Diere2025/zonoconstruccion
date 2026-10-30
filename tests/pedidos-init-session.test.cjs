@@ -30,6 +30,7 @@ function endpoint(authResult) {
     'next/server': { NextResponse: { json: (data, options) => Response.json(data, options) } },
     '@supabase/supabase-js': { createClient: (_, __, config) => { options = config; return client; } },
     '@/lib/erp/prices': { calculateBulkPrices: async () => ({}) },
+    '@/lib/catalogVariantPrices': { inheritVariantPrices: products => products },
   };
   vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/app/api/vendedores/pedidos-init/route.ts', 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
