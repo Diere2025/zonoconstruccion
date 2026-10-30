@@ -1,4 +1,5 @@
 import type { ComponentType } from 'react';
+import type { RoleScreenOverrides } from './roleScreenAccess';
 import { AlertTriangle, BarChart3, BookOpen, Boxes, Calculator, CalendarDays, ClipboardCheck, ClipboardList, Clock, Coins, Database, Factory, FileSpreadsheet, FileText, Layers, Link2, Map, Package, PackageCheck, PlusCircle, Printer, RefreshCw, Settings, ShieldCheck, ShoppingBag, ShoppingCart, Target, TrendingUp, Truck, Upload, Users, Wallet } from 'lucide-react';
 
 export type UserRole = 'seller' | 'admin' | 'logistica' | 'fletero' | 'administracion' | 'compras' | 'instalador';
@@ -26,6 +27,7 @@ export interface NavigationIdentity {
   canUseWholesale: boolean;
   email?: string;
   userId?: string | null;
+  screenOverrides?: RoleScreenOverrides;
 }
 
 export const erpModules: ErpModule[] = [
@@ -125,6 +127,7 @@ export const erpModules: ErpModule[] = [
     { id: "soporte-1", name: "Incidencias y Tickets", href: "/incidencias", icon: ClipboardList },
     { id: "soporte-2", name: "Recursos y Preguntas Frecuentes", href: "/vendedores/recursos", icon: BookOpen },
     { id: "soporte-3", name: "Gestión de Usuarios", href: "/admin/vendedores", icon: Users, adminOnly: true },
+    { id: 'soporte-accesos', name: 'Accesos por rol', href: '/admin/accesos', icon: ShieldCheck, adminOnly: true },
     { id: "soporte-4", name: "Configuración General", href: "/admin/ajustes", icon: Settings, adminOnly: true },
     { id: "soporte-5", name: "Sincronizar Planillas", href: "/admin/importar-pedidos", icon: Upload, allowedRoles: ['admin', 'compras'] },
     { id: 'desarrollos-futuros-1', name: 'Desarrollos futuros', href: '/desarrollos-futuros', icon: FileText, userOnly: '381df0d1-183f-4ccb-aaf2-8147c76159a9' },
@@ -132,7 +135,7 @@ export const erpModules: ErpModule[] = [
 ];
 
 // One visibility policy for both the sidebar and the home screen.
-export function visibleErpModules(identity: NavigationIdentity): ErpModule[] {
+export function defaultErpModules(identity: NavigationIdentity): ErpModule[] {
   const { roles, restrictedSeller, canUseWholesale } = identity;
   const admin = roles.includes('admin');
   const specialized = !admin && !roles.includes('seller') && roles.some(role =>
@@ -162,6 +165,47 @@ export function visibleErpModules(identity: NavigationIdentity): ErpModule[] {
     if (link.sellerOnly && admin) return false;
     return true;
   }) })).filter(module => module.links.length > 0);
+}
+
+// Private destinations and account/security administration cannot be delegated here.
+export function isConfigurableScreen(link: ErpLink): boolean {
+  return !link.ownerEmail && !link.userOnly && !['soporte-3', 'soporte-accesos', 'soporte-4'].includes(link.id);
+}
+
+export function visibleErpModules(identity: NavigationIdentity): ErpModule[] {
+  const overrides = identity.screenOverrides;
+  if (!overrides || identity.roles.includes('admin')) return defaultErpModules(identity);
+  const defaults = new Set(defaultErpModules(identity).flatMap(module => module.links.map(link => link.id)));
+  const perRole = identity.roles.map(role => ({ role,
+    defaults: new Set(defaultErpModules({ ...identity, roles: [role] }).flatMap(module => module.links.map(link => link.id))) }));
+  return erpModules.map(module => ({ ...module, links: module.links.filter(link => {
+    if (!isConfigurableScreen(link)) return defaults.has(link.id);
+    // Individual commercial restrictions remain authoritative.
+    if (identity.restrictedSeller && !defaults.has(link.id)) return false;
+    const configured = identity.roles.some(role => typeof overrides[role]?.[link.id] === 'boolean');
+    if (!configured) return defaults.has(link.id);
+    return perRole.some(({ role, defaults: roleDefaults }) => overrides[role]?.[link.id] ?? roleDefaults.has(link.id));
+  }) })).filter(module => module.links.length > 0);
+}
+
+/** Resolve a configured destination, including query-string tabs and child pages. */
+export function configuredScreenDecision(identity: NavigationIdentity, pathname: string, search: string): boolean | null {
+  if (!identity.screenOverrides || identity.roles.includes('admin')) return null;
+  const match = activeErpLink(erpModules, pathname, search);
+  if (!match) {
+    // Unknown tabs must not bypass configured access on a managed screen.
+    const path = navigationPath(pathname);
+    const candidates = erpModules.flatMap(module => module.links).filter(link => {
+      const target = navigationPath(link.href.split('?')[0]);
+      return target === path || (target !== '/vendedores' && path.startsWith(`${target}/`));
+    });
+    return candidates.some(link => isConfigurableScreen(link) && identity.roles.some(role =>
+      typeof identity.screenOverrides?.[role]?.[link.id] === 'boolean')) ? false : null;
+  }
+  if (!isConfigurableScreen(match.link)) return null;
+  const configured = identity.roles.some(role => typeof identity.screenOverrides?.[role]?.[match.link.id] === 'boolean');
+  if (!configured) return null;
+  return visibleErpModules(identity).some(module => module.links.some(link => link.id === match.link.id));
 }
 
 function navigationPath(path: string) {
