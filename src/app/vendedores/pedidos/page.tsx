@@ -3430,6 +3430,19 @@ export default function PedidosPage() {
       setOrderSaveNotice('No se pudo verificar tu sesión. Reintentá; si persiste, volvé a iniciar sesión.');
       return;
     }
+    // Las vistas de detalle y comprobante devuelven un resumen para impresión.
+    // Recuperar el registro completo bajo RLS antes de validar y cargar el editor.
+    try {
+      const { data, error } = await supabase.from('orders').select('*').eq('id', order.id).maybeSingle();
+      if (error || !data) {
+        setOrderSaveNotice('No se pudo cargar el pedido para editarlo. Actualizá la lista y reintentá.');
+        return;
+      }
+      order = data;
+    } catch {
+      setOrderSaveNotice('No se pudo cargar el pedido para editarlo. Actualizá la lista y reintentá.');
+      return;
+    }
     if (role !== 'admin' && order.seller_id !== authenticatedUserId) {
       setOrderSaveNotice('Sólo podés abrir pedidos asignados a tu usuario.');
       return;
