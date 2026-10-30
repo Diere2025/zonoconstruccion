@@ -395,7 +395,7 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
 
   const hasRole = useCallback((role: UserRole) => userRoles.includes(role), [userRoles]);
   const isAdminRole = hasRole('admin');
-  const screenAccess = useRoleScreenAccess(`${cachedIdentityUserId || ''}:${userEmail}:${userRoles.join(',')}`, isRoleLoaded && isWholesalePermissionLoaded, `${pathname}?${searchParams.toString()}`);
+  const screenAccess = useRoleScreenAccess(`${cachedIdentityUserId || ''}:${userEmail}:${userRoles.join(',')}`, isRoleLoaded && isWholesalePermissionLoaded);
   const screenIdentity = { roles: userRoles, restrictedSeller: isRestrictedSeller, canUseWholesale, email: userEmail,
     userId: isRoleLoaded ? cachedIdentityUserId : null, screenOverrides: screenAccess.overrides };
   const screenDecision = configuredScreenDecision(screenIdentity, pathname, searchParams.toString());
