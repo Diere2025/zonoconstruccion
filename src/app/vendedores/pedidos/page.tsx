@@ -6,6 +6,9 @@ import { sellerFirstName, cancellationReasonText } from "@/lib/orderNotification
 import PaymentMethodSelector from "@/components/vendedores/PaymentMethodSelector";
 import { isCuotaSimplePaymentMethod, isRetiredPaymentMethod } from "@/lib/cuotaSimple";
 
+import { saveViaCargoDestination } from '@/lib/viaCargoDestinations';
+import ViaCargoFields from '@/components/vendedores/ViaCargoFields';
+import { resolveViaCargoRecipient, deliveryDetailForShipping, emptyViaCargoDestination, emptyViaCargoDispatch, validateViaCargo, VIA_CARGO_LABEL, type ViaCargoDestination, type ViaCargoDispatch } from '@/lib/viaCargo';
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   Calendar,
@@ -192,6 +195,7 @@ interface Address {
   locality_id: string | null;
   map_link?: string | null;
   delivery_notes?: string | null;
+  postal_code?: string | null;
   is_default?: boolean | null;
   created_at?: string | null;
 }
@@ -1506,6 +1510,47 @@ export default function PedidosPage() {
     setCommercialBrand(isWholesaleContext || isFacundoSelectedSeller ? 'aquafort' : 'zono');
   }, [editingOrderId, isFacundoSelectedSeller, isWholesaleContext]);
   const [deliveryDetail, setDeliveryDetail] = useState("");
+  const [postalCode, setPostalCode] = useState('');
+  const [showPostalCode, setShowPostalCode] = useState(false);
+  const [isViaCargo, setIsViaCargo] = useState(false);
+  const [viaCargo, setViaCargo] = useState<ViaCargoDestination>(emptyViaCargoDestination);
+  const [viaDispatch, setViaDispatch] = useState<ViaCargoDispatch>(emptyViaCargoDispatch);
+  const [viaDispatchLoaded, setViaDispatchLoaded] = useState(false);
+  const [viaDispatchError, setViaDispatchError] = useState('');
+  const [viaDestinations, setViaDestinations] = useState<{ id: string; via_cargo: ViaCargoDestination }[]>([]);
+  const [viaDestinationId, setViaDestinationId] = useState('');
+  const [viaDestinationsLoading, setViaDestinationsLoading] = useState(false);
+  const [viaDestinationsError, setViaDestinationsError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    setViaDestinations([]);
+    setViaDestinationsError('');
+    if (!isEditingRef.current && !editingOrderIdRef.current) {
+      setIsViaCargo(false); setViaCargo(emptyViaCargoDestination()); setViaDestinationId('');
+      setViaDispatchLoaded(false); setPostalCode(''); setShowPostalCode(false);
+    }
+    if (!selectedClientId) { setViaDestinationsLoading(false); return; }
+    setViaDestinationsLoading(true);
+    supabase.from('addresses').select('id,via_cargo').eq('client_id', selectedClientId).not('via_cargo', 'is', null).order('created_at', { ascending: false })
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error) setViaDestinationsError('No se pudieron cargar los destinos guardados. Reintentá seleccionando el cliente.');
+        else setViaDestinations((data || []).map(d => ({ ...d, via_cargo: { ...emptyViaCargoDestination(), ...d.via_cargo, same_as_client: d.via_cargo?.same_as_client ?? false } })));
+        setViaDestinationsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [selectedClientId]);
+
+  useEffect(() => {
+    if (!isViaCargo || viaDispatchLoaded) return;
+    let cancelled = false;
+    setViaDispatchError('');
+    requestFormData('/api/logistica/via-cargo-config').then(data => {
+      if (!cancelled) { setViaDispatch(data.dispatch); setViaDispatchLoaded(true); }
+    }).catch(() => { if (!cancelled) setViaDispatchError('No se pudo consultar el despacho. Desmarcá y volvé a marcar Vía Cargo para reintentar.'); });
+    return () => { cancelled = true; };
+  }, [isViaCargo, viaDispatchLoaded]);
 
   const [orderStatus, setOrderStatus] = useState<string>("Pendiente");
   const [holdReason, setHoldReason] = useState<string>("Falta Stock");
@@ -1556,6 +1601,9 @@ export default function PedidosPage() {
 
   const [flete, setFlete] = useState("");
   const isPickup = selectedAddressId === PICKUP_ADDRESS_ID;
+  const usesClientRecipient = isViaCargo && viaCargo.same_as_client === true;
+  const viaCargoRecipient = resolveViaCargoRecipient(viaCargo, { name: isNewClient ? newClientName : cliente, document: newClientTaxId, phone: newClientPhones[0] || '' });
+  const composedDeliveryDetail = deliveryDetailForShipping(deliveryDetail, postalCode, isViaCargo ? viaCargoRecipient : null);
 
   // New Locality Modal State
   const [isAddLocalityModalOpen, setIsAddLocalityModalOpen] = useState(false);
@@ -1633,6 +1681,7 @@ export default function PedidosPage() {
       lastAutoLocalityIdRef.current = localidadId;
       return;
     }
+    if (isViaCargo) return;
     if (!localidadId) {
       lastAutoLocalityIdRef.current = "";
       return;
@@ -1642,7 +1691,7 @@ export default function PedidosPage() {
     if (!selectedLocality) return;
     lastAutoLocalityIdRef.current = localidadId;
     const deliveryTime = selectedLocality.zones?.delivery_times;
-    if (!isPickup) setFlete(deliveryTime?.name || "");
+    if (!isPickup && !isViaCargo) setFlete(deliveryTime?.name || "");
     if(sourceVisitId)return; // A visit's agreed date, or pending date, takes precedence over locality defaults.
     const isRegular = deliveryTimes.find(dt => dt.name === deliveryTime?.name)?.category === 'Regular'
       || deliveryTime?.name === 'Regular';
@@ -1659,7 +1708,7 @@ export default function PedidosPage() {
       : initialDate);
     // La fecha del pedido y la configuración cargada después no deben reescribir ajustes manuales.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [localidadId, localities, isPickup]);
+  }, [localidadId, localities, isPickup, isViaCargo]);
 
   const [paymentType, setPaymentType] = useState<'efectivo' | 'tarjeta'>('efectivo');
   const [cardInstallments, setCardInstallments] = useState<number>(1);
@@ -1985,6 +2034,7 @@ export default function PedidosPage() {
       payment_method_name: string;
       payment_status: string;
       delivery_notes: string;
+      delivery_detail?: string;
     }
   ): string[] => {
     if (!original) return ["Se modificaron los datos del pedido."];
@@ -2085,6 +2135,9 @@ export default function PedidosPage() {
     const newNotes = (current.delivery_notes || '').trim();
     if (origNotes !== newNotes && newNotes) {
       diffs.push(`📝 Detalle Entrega: "${newNotes}"`);
+    }
+    if (current.delivery_detail !== undefined && (original.delivery_detail || '').trim() !== current.delivery_detail.trim()) {
+      diffs.push(`📦 Datos de envío: ${current.delivery_detail.trim() || 'Se quitaron las indicaciones adicionales.'}`);
     }
 
     if (diffs.length === 0) {
@@ -2945,8 +2998,9 @@ export default function PedidosPage() {
         // pero NO pisamos los datos del formulario ya establecidos del pedido.
         const { data } = await supabase
           .from("addresses")
-          .select("id, alias, full_address, locality_id, map_link, delivery_notes, is_default, created_at")
+          .select("id, alias, full_address, locality_id, map_link, delivery_notes, postal_code, is_default, created_at")
           .eq("client_id", selectedClientId)
+          .is("via_cargo", null)
           .order("is_default", { ascending: false })
           .order("created_at", { ascending: false });
         if (data && !cancelled) {
@@ -3009,8 +3063,9 @@ export default function PedidosPage() {
 
       const { data } = await supabase
         .from("addresses")
-        .select("id, alias, full_address, locality_id, map_link, delivery_notes, is_default, created_at")
+        .select("id, alias, full_address, locality_id, map_link, delivery_notes, postal_code, is_default, created_at")
         .eq("client_id", selectedClientId)
+          .is("via_cargo", null)
         .order("is_default", { ascending: false })
         .order("created_at", { ascending: false });
 
@@ -3034,6 +3089,8 @@ export default function PedidosPage() {
             }
           }
           setSelectedAddressId(selectedAddress.id);
+          setPostalCode(selectedAddress.postal_code || "");
+          setShowPostalCode(!!selectedAddress.postal_code);
           setDireccion(selectedAddress.full_address ?? "");
           setLocalidadId(selectedAddress.locality_id ?? "");
           const loc = localities.find(l => l.id === selectedAddress.locality_id);
@@ -3062,6 +3119,8 @@ export default function PedidosPage() {
   // Handle Address change
   const handleAddressChange = (addressId: string) => {
     manualAddressClientIdRef.current = selectedClientId;
+    setIsViaCargo(false);
+    setPostalCode(''); setShowPostalCode(false);
     setSelectedAddressId(addressId);
     if (addressId === PICKUP_ADDRESS_ID) {
       const depot = localities.find(locality => locality.name.trim().toLowerCase() === 'depósito');
@@ -3087,6 +3146,8 @@ export default function PedidosPage() {
     }
     const addr = clientAddresses.find(a => a.id === addressId);
     if (addr) {
+      setPostalCode(addr.postal_code || "");
+      setShowPostalCode(!!addr.postal_code);
       setDireccion(addr.full_address ?? "");
       setLocalidadId(addr.locality_id ?? "");
       const loc = localities.find(l => l.id === addr.locality_id);
@@ -3474,6 +3535,14 @@ export default function PedidosPage() {
         setNewClientPhones(["", ""]);
       }
 
+      const shippingSnapshot = order.shipping_address_snapshot;
+      setIsViaCargo(!!shippingSnapshot?.via_cargo);
+      setViaCargo({ ...emptyViaCargoDestination(), ...shippingSnapshot?.via_cargo, same_as_client: shippingSnapshot?.via_cargo?.same_as_client ?? false });
+      setViaDestinationId(shippingSnapshot?.via_destination_id || '');
+      setViaDispatch({ ...emptyViaCargoDispatch(), ...shippingSnapshot?.via_dispatch });
+      setViaDispatchLoaded(!!shippingSnapshot?.via_dispatch?.address);
+      setPostalCode(shippingSnapshot?.postal_code || '');
+      setShowPostalCode(!!shippingSnapshot?.postal_code);
       // 4. Set address and shipping details
       if (order.locality === 'Depósito' && order.freight_type === PICKUP_LABEL) {
         setSelectedAddressId(PICKUP_ADDRESS_ID);
@@ -3703,7 +3772,8 @@ export default function PedidosPage() {
           setSelectedPhoneLineId("");
         }
       }
-      setDeliveryDetail(cleanDeliveryNotes(order.delivery_detail));
+      setDeliveryDetail(shippingSnapshot && Object.hasOwn(shippingSnapshot, 'delivery_detail_extra')
+        ? shippingSnapshot.delivery_detail_extra || '' : cleanDeliveryNotes(order.delivery_detail));
 
       setOrderStatus(order.status || "Pendiente");
       setHoldReason(order.hold_reason || "");
@@ -3806,6 +3876,8 @@ export default function PedidosPage() {
     );
     setSelectedPhoneLineId("");
     setDeliveryDetail("");
+    setIsViaCargo(false); setViaCargo(emptyViaCargoDestination()); setViaDestinationId('');
+    setPostalCode(''); setShowPostalCode(false); setViaDispatchLoaded(false);
     setOrderStatus("Pendiente");
     setHoldReason("");
     setHoldProductId("");
@@ -4002,7 +4074,7 @@ export default function PedidosPage() {
     }
 
     const sellerObj = sellersList.find(s => s.id === selectedSellerId);
-    const locObj = localities.find(l => l.id === localidadId);
+    const locObj = localities.find(l => l.id === (isViaCargo ? viaDispatch.locality_id : localidadId));
     const pmObj = dbPaymentMethods.find(p => p.id === selectedPaymentMethodId);
 
     const currentFormData: PrintableOrderData = {
@@ -4013,10 +4085,10 @@ export default function PedidosPage() {
       customer_name: cliente || newClientName || "Cliente",
       client_phone: newClientPhones[0] || "",
       client_phone_secondary: newClientPhones.slice(1).filter(Boolean).join(", "),
-      address: direccion || "",
-      locality: isPickup ? 'Depósito' : locObj?.name || "",
+      address: isViaCargo ? (viaDispatch.address || 'VÍA CARGO · despacho a coordinar por logística') : direccion || "",
+      locality: isViaCargo ? (viaDispatch.locality || 'Vía Cargo') : isPickup ? 'Depósito' : locObj?.name || "",
       zone_name: locObj?.zones?.name || "",
-      google_maps_link: linkMaps || "",
+      google_maps_link: (isViaCargo ? viaDispatch.maps_url : linkMaps) || "",
       whaticket_link: whaticketLink || "",
       seller_name: sellerObj?.full_name || "Equipo Zono",
       status: orderStatus || "Pendiente",
@@ -4024,11 +4096,11 @@ export default function PedidosPage() {
       commercial_brand: commercialBrand,
       advertising_source_name: advertisingSources.find(a => a.id === selectedAdvertisingSourceId)?.name,
       order_medium_name: orderMediums.find(m => m.id === selectedOrderMediumId)?.name,
-      freight_type: flete || "Flete Regular",
+      freight_type: isViaCargo ? VIA_CARGO_LABEL : flete || "Flete Regular",
       initial_delivery_date: entregaInicial || "",
       max_delivery_date: entregaMaxima || "",
-      delivery_notes: cleanDeliveryNotes(aclaraciones) || "",
-      delivery_detail: cleanDeliveryNotes(deliveryDetail) || "",
+      delivery_notes: cleanDeliveryNotes(isViaCargo ? viaDispatch.references : aclaraciones) || "",
+      delivery_detail: composedDeliveryDetail || "",
       payment_method_name: pmObj?.name || "Contado",
       payment_status: paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? 'Seniado' : 'Impago'),
       total_amount: total,
@@ -4978,20 +5050,21 @@ export default function PedidosPage() {
 
   const openOrderReview = () => {
     if (editingOrderId) {
-      const locName = isPickup ? 'Depósito' : localities.find(l => l.id === localidadId)?.name || "";
+      const locName = isViaCargo ? (viaDispatch.locality || 'Vía Cargo') : isPickup ? 'Depósito' : localities.find(l => l.id === localidadId)?.name || "";
       const selectedPayMethodName = dbPaymentMethods.find(m => m.id === paymentsList[0]?.payment_method_id)?.name || 'Contado';
       const payStatusName = paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? 'Señado' : 'Contra Entrega');
       const diffs = computeOrderDiff(originalOrderSnapshot, {
         customer_name: isNewClient ? newClientName : cliente,
         locality: locName,
-        direccion: direccion,
+        direccion: isViaCargo ? (viaDispatch.address ? `VÍA CARGO · ${viaDispatch.branch} — ${viaDispatch.address}` : 'VÍA CARGO · despacho a coordinar por logística') : direccion,
         initial_delivery_date: entregaInicial,
         total: total,
         items: orderItems,
-        flete: flete,
+        flete: isViaCargo ? VIA_CARGO_LABEL : flete,
         payment_method_name: selectedPayMethodName,
         payment_status: payStatusName,
-        delivery_notes: aclaraciones
+        delivery_notes: isViaCargo ? viaDispatch.references : aclaraciones,
+        delivery_detail: composedDeliveryDetail
       });
       setEditChangesSummary(diffs);
       setShowEditConfirmModal(true);
@@ -5015,11 +5088,16 @@ export default function PedidosPage() {
       alert("Seleccioná un cliente existente o registrá uno nuevo.");
       return;
     }
-    if (!localidadId && !isPickup) {
+    if (isViaCargo) {
+      const error = validateViaCargo(viaCargoRecipient);
+      if (error) { alert(error); return; }
+      if (!viaDispatchLoaded || viaDispatchError) { alert('Esperá la configuración del despacho de Vía Cargo o reintentá su carga.'); return; }
+    }
+    if (!localidadId && !isPickup && !isViaCargo) {
       alert("Seleccioná la localidad de entrega.");
       return;
     }
-    if (!flete) {
+    if (!flete && !isViaCargo) {
       alert("Seleccioná el tipo de entrega.");
       return;
     }
@@ -5037,6 +5115,12 @@ export default function PedidosPage() {
     // El estado de React tarda un render en actualizarse. Esta referencia evita
     // que un doble clic ejecute dos altas con el mismo código.
     if (submittingRef.current) return;
+    if (isViaCargo) {
+      const error = validateViaCargo(viaCargoRecipient);
+      if (error) { alert(error); return; }
+      if (!viaDispatchLoaded || viaDispatchError) { alert('Esperá la configuración del despacho de Vía Cargo o reintentá su carga.'); return; }
+    }
+
     if (!selectedAdvertisingSourceId || isWhaticketLinkMissing) {
       setResumeOrderReviewAfterRequiredFields(false);
       setShowWhaticketLinkFieldInModal(isWhaticketLinkMissing);
@@ -5087,6 +5171,11 @@ export default function PedidosPage() {
         throw new Error('No podés guardar pedidos a nombre de otra vendedora.');
       }
 
+      const savedAddress = isViaCargo ? (viaDispatch.address ? ('VÍA CARGO · ' + viaDispatch.branch + ' — ' + viaDispatch.address) : 'VÍA CARGO · despacho a coordinar por logística') : direccion;
+      const savedMaps = isViaCargo ? viaDispatch.maps_url : linkMaps;
+      const savedNotes = isViaCargo ? viaDispatch.references : aclaraciones;
+      const savedFreight = isViaCargo ? VIA_CARGO_LABEL : flete;
+      const savedZoneId = localities.find(l => l.id === (isViaCargo ? viaDispatch.locality_id : localidadId))?.zone_id || null;
       let finalClientId = selectedClientId;
       let finalAddressId: string | null = isPickup ? null : selectedAddressId;
       let addressSnapshot: any = null;
@@ -5108,29 +5197,35 @@ export default function PedidosPage() {
         if (clientErr) throw clientErr;
         finalClientId = newClient.id;
 
-        // Registrar dirección para este nuevo cliente
-        const { data: newAddr, error: addrErr } = await supabase
-          .from("addresses")
-          .insert({
-            client_id: finalClientId,
-            alias: "Principal",
-            full_address: direccion,
-            locality_id: localidadId,
-            map_link: linkMaps || null,
-            delivery_notes: aclaraciones || null,
-            is_default: true
-          })
-          .select()
-          .single();
+        if (!isViaCargo && !isPickup) {
+          // Registrar dirección para este nuevo cliente
+          const { data: newAddr, error: addrErr } = await supabase
+            .from("addresses")
+            .insert({
+              client_id: finalClientId,
+              alias: "Principal",
+              full_address: savedAddress,
+              locality_id: localidadId,
+              map_link: linkMaps || null,
+              delivery_notes: savedNotes || null,
+              postal_code: postalCode.trim() || null,
+              is_default: true
+            })
+            .select()
+            .single();
 
-        if (addrErr) throw addrErr;
-        finalAddressId = newAddr.id;
-        addressSnapshot = {
-          full_address: newAddr.full_address,
-          locality_id: newAddr.locality_id,
-          map_link: newAddr.map_link,
-          delivery_notes: newAddr.delivery_notes
-        };
+          if (addrErr) throw addrErr;
+          finalAddressId = newAddr.id;
+          addressSnapshot = {
+            full_address: newAddr.full_address,
+            locality_id: newAddr.locality_id,
+            map_link: newAddr.map_link,
+            delivery_notes: newAddr.delivery_notes,
+            postal_code: newAddr.postal_code
+          };
+        }
+      } else if (isViaCargo) {
+        finalAddressId = null;
       } else if (isPickup) {
         // El retiro pertenece al pedido; no se agrega a las direcciones del cliente.
         finalAddressId = null;
@@ -5140,7 +5235,8 @@ export default function PedidosPage() {
           saved.full_address?.trim() !== direccion.trim() ||
           (saved.locality_id || '') !== (localidadId || '') ||
           (saved.map_link || '').trim() !== linkMaps.trim() ||
-          (saved.delivery_notes || '').trim() !== aclaraciones.trim()
+          (saved.delivery_notes || '').trim() !== aclaraciones.trim() ||
+          (saved.postal_code || '').trim() !== postalCode.trim()
         );
       })()) {
         // Los cambios de domicilio se agregan como otra dirección; nunca se
@@ -5149,11 +5245,12 @@ export default function PedidosPage() {
           .from("addresses")
           .insert({
             client_id: finalClientId,
-            alias: `Manual - ${new Date().toLocaleDateString('es-AR')}`,
-            full_address: direccion,
+            alias: `Manual - ${new Intl.DateTimeFormat('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'America/Argentina/Buenos_Aires' }).format(new Date())}`,
+            full_address: savedAddress,
             locality_id: localidadId,
             map_link: linkMaps || null,
-            delivery_notes: aclaraciones || null,
+            delivery_notes: savedNotes || null,
+            postal_code: postalCode.trim() || null,
             is_default: false
           })
           .select()
@@ -5165,7 +5262,8 @@ export default function PedidosPage() {
           full_address: newAddr.full_address,
           locality_id: newAddr.locality_id,
           map_link: newAddr.map_link,
-          delivery_notes: newAddr.delivery_notes
+          delivery_notes: newAddr.delivery_notes,
+          postal_code: newAddr.postal_code
         };
       } else {
         // Obtener snapshot de dirección existente
@@ -5175,13 +5273,25 @@ export default function PedidosPage() {
             full_address: selectedAddr.full_address,
             locality_id: selectedAddr.locality_id,
             map_link: selectedAddr.map_link,
-            delivery_notes: selectedAddr.delivery_notes
+            delivery_notes: selectedAddr.delivery_notes,
+            postal_code: postalCode.trim() || null
           };
         }
       }
 
+      if (isViaCargo) {
+        finalAddressId = null;
+        const destinationId = await saveViaCargoDestination(supabase, finalClientId, viaCargoRecipient, viaDestinationId);
+        setViaDestinationId(destinationId);
+        addressSnapshot = { via_cargo: { ...viaCargoRecipient }, via_destination_id: destinationId || null,
+          via_dispatch: { ...viaDispatch }, full_address: savedAddress,
+          locality_id: viaDispatch.locality_id || null, map_link: savedMaps || null };
+      }
+      addressSnapshot = { full_address: savedAddress, locality_id: isViaCargo ? viaDispatch.locality_id || null : (isPickup ? null : localidadId || null), map_link: savedMaps || null, ...addressSnapshot,
+        postal_code: isViaCargo ? viaCargoRecipient.postal_code.trim() : postalCode.trim(), delivery_detail_extra: deliveryDetail };
+
       // Obtener nombre de localidad para retro-compatibilidad
-      const locName = isPickup ? 'Depósito' : localities.find(l => l.id === localidadId)?.name || "";
+      const locName = isViaCargo ? (viaDispatch.locality || 'Vía Cargo') : isPickup ? 'Depósito' : localities.find(l => l.id === localidadId)?.name || "";
 
       // 2. Crear o Actualizar Pedido de Venta
       let orderData: any = null;
@@ -5231,15 +5341,15 @@ export default function PedidosPage() {
             order_date: new Date(fechaPedido + 'T12:00:00').toISOString(),
             customer_name: isNewClient ? newClientName : cliente,
             locality: locName,
-            address: direccion,
-            google_maps_link: linkMaps,
+            address: savedAddress,
+            google_maps_link: savedMaps,
             delivery_notes: [
-              aclaraciones,
+              savedNotes,
               logisticsObservation ? `⚠️ OBS. LOGÍSTICA: ${logisticsObservation.trim()}` : ''
             ].filter(Boolean).map((s: string) => s.trim()).join(' / ') || null,
             whaticket_link: whaticketLink || null,
             payment_method_id: paymentsList[0]?.payment_method_id || 'a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3',
-            freight_type: flete,
+            freight_type: savedFreight,
             total_amount: total,
             order_discount_type: orderDiscountAmount > 0 ? persistedOrderDiscountType : null,
             order_discount_value: orderDiscountAmount > 0 ? persistedOrderDiscountValue : 0,
@@ -5286,12 +5396,12 @@ export default function PedidosPage() {
               payment_timing: paymentTiming
             },
             payment_status: paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? 'Seniado' : 'Pendiente'),
-            logistics_zone_id: localities.find(l => l.id === localidadId)?.zone_id || null,
+            logistics_zone_id: savedZoneId,
             advertising_source_id: selectedAdvertisingSourceId || null,
             advertising_source_detail: advertisingSourceDetail.trim() || null,
             order_medium_id: selectedOrderMediumId || null,
             received_phone_line_id: isWholesaleContext ? null : ((selectedPhoneLineId && selectedPhoneLineId !== 'otro') ? selectedPhoneLineId : null),
-            delivery_detail: deliveryDetail || null,
+            delivery_detail: composedDeliveryDetail || null,
             legacy_code: effectiveLegacyCode,
             // Modificado es una marca de planilla, no un estado operativo del ERP.
             // Si el pedido ya avanzó (Confirmado/Entregando/etc.), conservar ese estado.
@@ -5401,8 +5511,8 @@ export default function PedidosPage() {
             whaticketLink: whaticketLink || '',
             source: sheetSource,
             deliveryNotes: [
-              aclaraciones,
-              deliveryDetail,
+              savedNotes,
+              composedDeliveryDetail,
               (!includeIVA && partialIvaAmount > 0)
                 ? `[Factura con IVA: ${paymentsWithSurcharges.filter(p => p.has_iva).map(p => `${dbPaymentMethods.find(m => m.id === p.payment_method_id)?.name || 'Pago'} $${p.amount.toLocaleString('es-AR')} (IVA $${(p.ivaValue || 0).toLocaleString('es-AR')})`).join(', ')}]`
                 : ''
@@ -5411,14 +5521,14 @@ export default function PedidosPage() {
             sellerName: normalizeSellerName(sellerFullName),
             status: orderStatus === 'En Espera' ? 'En Espera' : '🔸 Validado',
             locality: locName,
-            address: direccion,
-            mapsLink: linkMaps || '',
+            address: savedAddress,
+            mapsLink: savedMaps || '',
             category: resolveOrderCategory(orderItems, orderCategory),
             paymentMethod: selectedPayMethodName,
             identification: newClientTaxId || '',
             paymentStatus: paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? 'Señado' : 'No Abonado'),
             depositOrPaidAmount: hasDeposit ? depositAmount : (paymentTiming === 'paid' ? total : 0),
-            freightType: flete || '⚪ Flete Regular',
+            freightType: savedFreight || '⚪ Flete Regular',
             freightCost: shippingAmount || 0,
             items: buildSheetOrderItems(orderItems, orderDiscountAmount, products)
           };
@@ -5465,12 +5575,12 @@ export default function PedidosPage() {
           created_at: new Date(fechaPedido + 'T12:00:00').toISOString(),
           customer_name: isNewClient ? newClientName : cliente,
           locality: locName,
-          address: direccion,
-          google_maps_link: linkMaps,
-          delivery_notes: aclaraciones || null,
+          address: savedAddress,
+          google_maps_link: savedMaps,
+          delivery_notes: savedNotes || null,
           whaticket_link: whaticketLink || null,
           payment_method_id: paymentsList[0]?.payment_method_id || 'a3a890a8-b677-4b7b-8ffb-d36c2e7b5ad3',
-          freight_type: flete,
+          freight_type: savedFreight,
           total_amount: total,
           order_discount_type: orderDiscountAmount > 0 ? persistedOrderDiscountType : null,
           order_discount_value: orderDiscountAmount > 0 ? persistedOrderDiscountValue : 0,
@@ -5521,12 +5631,12 @@ export default function PedidosPage() {
           channel: isWholesaleContext ? 'mayorista' : 'vendedor_externo',
           commercial_brand: commercialBrand,
           payment_status: paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? 'Seniado' : 'Pendiente'),
-          logistics_zone_id: localities.find(l => l.id === localidadId)?.zone_id || null,
+          logistics_zone_id: savedZoneId,
           advertising_source_id: selectedAdvertisingSourceId || null,
           advertising_source_detail: advertisingSourceDetail.trim() || null,
           order_medium_id: selectedOrderMediumId || null,
           received_phone_line_id: isWholesaleContext ? null : ((selectedPhoneLineId && selectedPhoneLineId !== 'otro') ? selectedPhoneLineId : null),
-          delivery_detail: deliveryDetail || null,
+          delivery_detail: composedDeliveryDetail || null,
           legacy_code: finalLegacyCode || null,
           hold_reason: orderStatus === 'En Espera' ? holdReason : null,
           hold_product_id: orderStatus === 'En Espera' && holdProductId ? holdProductId : null,
@@ -5628,13 +5738,13 @@ export default function PedidosPage() {
             legacy_code: effectiveLegacyCode || orderData.legacy_code || legacyCode,
             customer_name: isNewClient ? newClientName : cliente,
             locality: locName,
-            address: direccion,
-            google_maps_link: linkMaps,
+            address: savedAddress,
+            google_maps_link: savedMaps,
             delivery_notes: [
-              aclaraciones,
+              savedNotes,
               logisticsObservation ? `⚠️ OBS. LOGÍSTICA: ${logisticsObservation.trim()}` : ''
             ].filter(Boolean).join(' / '),
-            delivery_detail: deliveryDetail,
+            delivery_detail: composedDeliveryDetail,
             whaticket_link: whaticketLink,
             initial_delivery_date: entregaInicial,
             max_delivery_date: entregaMaxima,
@@ -5644,7 +5754,7 @@ export default function PedidosPage() {
             total_amount: total,
             payment_method_id: paymentsList[0]?.payment_method_id,
             payment_status: paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? 'Seniado' : 'Pendiente'),
-            freight_type: flete,
+            freight_type: savedFreight,
             items: orderItems.map(it => ({
               product_id: it.id,
               name: it.name,
@@ -5705,8 +5815,8 @@ export default function PedidosPage() {
             whaticketLink: whaticketLink || '',
             source: sheetSource,
             deliveryNotes: [
-              aclaraciones,
-              deliveryDetail,
+              savedNotes,
+              composedDeliveryDetail,
               (!includeIVA && partialIvaAmount > 0)
                 ? `[Factura con IVA: ${paymentsWithSurcharges.filter(p => p.has_iva).map(p => `${dbPaymentMethods.find(m => m.id === p.payment_method_id)?.name || 'Pago'} ${p.amount.toLocaleString('es-AR')} (IVA ${(p.ivaValue || 0).toLocaleString('es-AR')})`).join(', ')}]`
                 : ''
@@ -5715,14 +5825,14 @@ export default function PedidosPage() {
             sellerName: normalizeSellerName(sellerFullName),
             status: 'Modificado',
             locality: locName,
-            address: direccion,
-            mapsLink: linkMaps || '',
+            address: savedAddress,
+            mapsLink: savedMaps || '',
             category: resolveOrderCategory(orderItems, orderCategory),
             paymentMethod: selectedPayMethodName,
             identification: newClientTaxId || '',
             paymentStatus: paymentTiming === 'paid' ? 'Abonado' : (paymentTiming === 'partial' ? 'Señado' : 'No Abonado'),
             depositOrPaidAmount: hasDeposit ? depositAmount : (paymentTiming === 'paid' ? total : 0),
-            freightType: flete || '⚪ Flete Regular',
+            freightType: savedFreight || '⚪ Flete Regular',
             freightCost: shippingAmount || 0,
             items: buildSheetOrderItems(orderItems, orderDiscountAmount, products)
           };
@@ -5980,6 +6090,8 @@ export default function PedidosPage() {
       setSelectedOrderMediumId("");
       setSelectedPhoneLineId("");
       setDeliveryDetail("");
+    setIsViaCargo(false); setViaCargo(emptyViaCargoDestination()); setViaDestinationId('');
+    setPostalCode(''); setShowPostalCode(false); setViaDispatchLoaded(false);
       setAdvertisingSearchQuery("");
       setShowAdvertisingDropdown(false);
       setNewLineName("");
@@ -6508,7 +6620,7 @@ export default function PedidosPage() {
                     </div>
                     </div>
 
-                    {(isEditingClientDetails || (isAnabelSeller && !isWholesaleContext)) && (
+                    {(isEditingClientDetails || (isAnabelSeller && !isWholesaleContext) || usesClientRecipient) && (
                       <div className="grid gap-3 rounded-xl border border-brand-200 bg-white p-3">
                         <p className="text-[10px] font-bold text-slate-600">Los cambios se guardan al guardar el pedido. No modifican la ficha del cliente ni sus pedidos anteriores.</p>
                         <label className="grid gap-1 text-[10px] font-bold text-slate-600">
@@ -6532,13 +6644,13 @@ export default function PedidosPage() {
                           <Plus className="h-3 w-3" /> Agregar teléfono
                         </button>
                         <label className="grid gap-1 text-[10px] font-bold text-slate-600">
-                          DNI / CUIT
-                          <input value={newClientTaxId} onChange={e => setNewClientTaxId(e.target.value)} className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-800" />
+                          DNI / CUIT{usesClientRecipient ? ' *' : ''}
+                          <input required={usesClientRecipient} value={newClientTaxId} onChange={e => setNewClientTaxId(e.target.value)} className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-800" />
                         </label>
                       </div>
                     )}
 
-                    <div className="p-2.5 bg-brand-50/20 border border-brand-100/50 rounded-xl flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-1">
+                    {!isViaCargo && <div className="p-2.5 bg-brand-50/20 border border-brand-100/50 rounded-xl flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-1">
                       <div className="text-[9px] font-black text-brand-600 uppercase tracking-wider">Dirección de Entrega:</div>
                       <div className="flex-1 max-w-[300px]">
                         <select
@@ -6553,7 +6665,7 @@ export default function PedidosPage() {
                           <option value="nueva_direccion">+ Cargar otra dirección (Manual)</option>
                         </select>
                       </div>
-                    </div>
+                    </div>}
                   </>
                 ) : null}
               </div>
@@ -6620,7 +6732,7 @@ export default function PedidosPage() {
                           >
                             <Plus className="w-3 h-3" /> Agregar Teléfono
                           </button>
-                          {!showTaxIdField && (
+                          {!showTaxIdField && !usesClientRecipient && (
                             <button
                               type="button"
                               onClick={() => setShowTaxIdField(true)}
@@ -6670,13 +6782,13 @@ export default function PedidosPage() {
                     </div>
 
                     {/* CUIT / DNI - Tercero (Opcional) */}
-                    {showTaxIdField && (
+                    {(showTaxIdField || usesClientRecipient) && (
                       <div className="space-y-1 relative animate-in zoom-in-95 duration-150">
                         <div className="flex justify-between items-center">
                           <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">
-                            {newClientTaxId.replace(/\D/g, "").length <= 8 ? "DNI" : "CUIT"}
+                            {newClientTaxId.replace(/\D/g, "").length <= 8 ? "DNI" : "CUIT"}{usesClientRecipient ? " *" : ""}
                           </label>
-                          <button
+                          {!usesClientRecipient && <button
                             type="button"
                             onClick={() => {
                               setNewClientTaxId("");
@@ -6685,11 +6797,12 @@ export default function PedidosPage() {
                             className="text-[9px] font-black text-red-500 hover:text-red-700 uppercase tracking-widest cursor-pointer"
                           >
                             Quitar DNI
-                          </button>
+                          </button>}
                         </div>
                         <input
                           type="text"
                           value={newClientTaxId}
+                          required={usesClientRecipient}
                           onChange={e => setNewClientTaxId(e.target.value)}
                           placeholder="Ej. 30712345678"
                           className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white font-bold text-xs outline-none focus:ring-2 focus:ring-brand-500/10"
@@ -6733,7 +6846,21 @@ export default function PedidosPage() {
                 <MapPin className="w-4 h-4 text-brand-500" /> {isPickup ? 'Lugar de retiro' : 'Destino de Reparto'}
               </h3>
               <div className="space-y-3">
-                {isPickup ? (
+                <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-blue-200 bg-white p-3 text-xs font-bold text-blue-900">
+                  <input type="checkbox" checked={isViaCargo} onChange={e => { setIsViaCargo(e.target.checked); if (e.target.checked && isPickup) setSelectedAddressId('nueva_direccion'); }} />
+                  Envío por Vía Cargo
+                </label>
+                {isViaCargo ? (
+                  <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900">
+                    <strong>VÍA CARGO</strong>
+                    <p className="mt-1">Logística administra el punto de despacho. Completá los datos del destinatario en el cuadro de Vía Cargo.</p>
+                    {viaDispatchError && <p role="alert" className="mt-2 text-red-700">{viaDispatchError}</p>}
+                    {viaDispatchLoaded && !viaDispatch.address && <p className="mt-2 font-semibold">Punto de despacho pendiente de configurar por logística.</p>}
+                    <label className="mt-3 grid gap-1 font-bold">Indicaciones adicionales para logística (opcional)
+                      <textarea className="rounded-lg border bg-white p-2 font-normal" value={deliveryDetail} onChange={e => setDeliveryDetail(e.target.value)} />
+                    </label>
+                  </div>
+                ) : isPickup ? (
                   <div className="space-y-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
                     <p className="text-xs font-bold text-emerald-800">{PICKUP_LABEL}</p>
                     <p className="text-[11px] text-emerald-700">Este pedido se retira en depósito. La dirección guardada del cliente se conserva para futuros envíos.</p>
@@ -6936,6 +7063,11 @@ export default function PedidosPage() {
                     )}
                   </div>
 
+                  <div className="md:col-span-2">
+                    {showPostalCode ? <label className="grid gap-1 text-[10px] font-bold text-slate-500">Código postal (opcional)
+                      <input aria-label="Código postal de reparto" value={postalCode} maxLength={20} onChange={e => setPostalCode(e.target.value)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs" />
+                    </label> : <button type="button" onClick={() => setShowPostalCode(true)} className="inline-flex items-center gap-1 rounded-full border border-blue-200 px-3 py-1 text-[10px] font-bold text-blue-600"><Plus className="h-3 w-3" /> Agregar CP</button>}
+                  </div>
                   <div className="space-y-1 md:col-span-2">
                     <label className="text-[9px] font-black uppercase tracking-wider text-slate-400">Aclaraciones de Dirección (Opcional)</label>
                     <input
@@ -7009,7 +7141,9 @@ export default function PedidosPage() {
                   <Clock className="w-4 h-4 text-brand-500" /> Tipo de Entrega
                 </h3>
                 <div className="grid grid-cols-2 gap-2">
-                  {isPickup ? (
+                  {isViaCargo ? (
+                    <div className="col-span-2 rounded-xl border border-blue-300 bg-blue-50 p-3 text-xs font-bold text-blue-900">VÍA CARGO · Despacho por transporte</div>
+                  ) : isPickup ? (
                     <div className="col-span-2 flex h-[50px] items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-3 text-xs font-bold text-emerald-800">
                       <Check className="h-4 w-4" /> {PICKUP_LABEL}
                     </div>
@@ -7162,6 +7296,17 @@ export default function PedidosPage() {
               </div>
             </div>
 
+
+            {isViaCargo && <div className="col-span-full">
+              <ViaCargoFields value={viaCargoRecipient} onChange={setViaCargo}
+                destinations={viaDestinations} selectedId={viaDestinationId}
+                onSelect={id => { setViaDestinationId(id); const saved = viaDestinations.find(d => d.id === id)?.via_cargo; setViaCargo(id ? { ...emptyViaCargoDestination(), ...saved, same_as_client: saved?.same_as_client ?? false } : emptyViaCargoDestination()); }}
+                loading={viaDestinationsLoading} error={viaDestinationsError} />
+              <details className="mt-3 rounded-xl border border-slate-200 bg-white p-3 text-xs">
+                <summary className="cursor-pointer font-bold text-slate-600">Vista previa de Detalle Entrega en planilla</summary>
+                <pre className="mt-2 whitespace-pre-wrap font-sans text-slate-700">{composedDeliveryDetail}</pre>
+              </details>
+            </div>}
 
             {/* Estado del Pedido (Solo en modo edición) */}
             {editingOrderId !== null && (
@@ -7760,7 +7905,7 @@ export default function PedidosPage() {
                   )}
 
                   {/* Costo de Envío / Flete */}
-                  {!isPickup && <div className="flex flex-col gap-1.5 p-2.5 bg-white rounded-xl border border-slate-200">
+                  {!isPickup && !isViaCargo && <div className="flex flex-col gap-1.5 p-2.5 bg-white rounded-xl border border-slate-200">
                     <div className="flex items-center justify-between">
                       <span className="text-[9px] font-black text-slate-600 uppercase tracking-wide">Costo de Flete</span>
                       <label className="flex items-center gap-1.5 cursor-pointer select-none">
@@ -9448,8 +9593,8 @@ export default function PedidosPage() {
                   <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Cliente</p>
                     <p className="font-bold text-slate-900">{cliente || newClientName}</p>
-                    <p className="text-slate-600 mt-1">{direccion}</p>
-                    {aclaraciones && (
+                    <p className="text-slate-600 mt-1">{isViaCargo ? 'VÍA CARGO · Despacho a cargo de logística' : direccion}</p>
+                    {!isViaCargo && aclaraciones && (
                       <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200/60 rounded px-1.5 py-0.5 mt-1.5 font-bold w-fit">
                         💡 Aclaración: {aclaraciones}
                       </p>
@@ -9464,7 +9609,7 @@ export default function PedidosPage() {
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Tipo de Entrega</p>
                     <p className="font-bold text-slate-900 flex items-center gap-2">
                       <span className={`w-2.5 h-2.5 rounded-full border ${getFreightColor(flete)}`} />
-                      <span>{flete}</span>
+                      <span>{isViaCargo ? VIA_CARGO_LABEL : flete}</span>
                     </p>
                   </div>
                   <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
@@ -9473,7 +9618,7 @@ export default function PedidosPage() {
                   </div>
 
                   {/* Origen y Recepción en Resumen */}
-                  {(legacyCode || selectedAdvertisingSourceId || selectedOrderMediumId || deliveryDetail) && (
+                  {(legacyCode || selectedAdvertisingSourceId || selectedOrderMediumId || composedDeliveryDetail) && (
                     <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 col-span-2">
                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Origen y Recepción</p>
                       <div className="grid grid-cols-2 gap-2 text-xs">
@@ -9502,9 +9647,9 @@ export default function PedidosPage() {
                             </span>
                           </p>
                         )}
-                        {deliveryDetail && (
+                        {composedDeliveryDetail && (
                           <p className="font-bold text-slate-700 col-span-2">
-                            Detalle de Entrega: <span className="font-medium text-slate-900">{deliveryDetail}</span>
+                            Detalle de Entrega: <span className="whitespace-pre-line font-medium text-slate-900">{composedDeliveryDetail}</span>
                           </p>
                         )}
                       </div>
@@ -9631,7 +9776,7 @@ export default function PedidosPage() {
                     )}
                   </h2>
                   <p className="text-xs font-medium text-slate-500">
-                    {isNewClient ? newClientName : cliente} • {isPickup ? 'Depósito' : localities.find(l => l.id === localidadId)?.name || 'Sin localidad'}
+                    {isNewClient ? newClientName : cliente} • {isViaCargo ? 'VÍA CARGO' : isPickup ? 'Depósito' : localities.find(l => l.id === localidadId)?.name || 'Sin localidad'}
                   </p>
                 </div>
               </div>
@@ -9876,7 +10021,8 @@ export default function PedidosPage() {
                       flete: record.modified_data?.freight_type || '',
                       payment_method_name: '',
                       payment_status: record.modified_data?.payment_status || '',
-                      delivery_notes: record.modified_data?.delivery_notes || ''
+                      delivery_notes: record.modified_data?.delivery_notes || '',
+                      delivery_detail: record.modified_data?.delivery_detail
                     });
 
                     return (

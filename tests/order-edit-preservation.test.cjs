@@ -33,20 +33,22 @@ function clientForm({ editing = false, wholesale = false } = {}) {
     editingOrderIdRef: { current: editing ? 'order' : null },
     manualAddressClientIdRef: { current: '' },
     lastRetailAutofillClientIdRef: { current: '' },
+    lastClientAutofillKeyRef: { current: '' },
+    manualAddressClientIdRef: { current: '' },
     isAnabelSeller: false, isWholesaleContext: wholesale, sourceQuoteId: null,
     localities: [{ id: 'city', name: 'Quilmes' }],
     supabase: {
       from(table) {
         const promise = new Promise(resolve => { pending[table] = resolve; });
         const query = { then: promise.then.bind(promise) };
-        for (const method of ['select', 'eq', 'order', 'not', 'limit', 'maybeSingle']) query[method] = () => query;
+        for (const method of ['select', 'eq', 'is', 'order', 'not', 'limit', 'maybeSingle']) query[method] = () => query;
         return query;
       }
     }
   };
   for (const field of ['ClientAddresses', 'AppliedWholesaleDiscountLabel', 'Cliente', 'NewClientName',
     'NewClientTaxId', 'ShowTaxIdField', 'NewClientPhones', 'OrderDiscountType', 'OrderDiscountValue',
-    'WhaticketLink', 'SelectedAddressId', 'Direccion', 'LocalidadId', 'LocalitySearch', 'LinkMaps', 'Aclaraciones']) {
+    'WhaticketLink', 'SelectedAddressId', 'Direccion', 'LocalidadId', 'LocalitySearch', 'LinkMaps', 'Aclaraciones', 'PostalCode', 'ShowPostalCode']) {
     context[`set${field}`] = value => { changes[field] = value; };
   }
   return { context, pending, changes, start: () => runEffect('async function fetchAddresses()', context) };
@@ -125,7 +127,7 @@ test('new orders still calculate delivery dates when choosing a locality', () =>
   const changes = {};
   runEffect('const nextDate = calculateNextDeliveryDate(', {
     isEditingRef: { current: false }, editingOrderIdRef: { current: null },
-    localidadId: 'city', lastAutoLocalityIdRef: { current: '' }, isPickup: false, sourceVisitId: null,
+    localidadId: 'city', lastAutoLocalityIdRef: { current: '' }, isPickup: false, isViaCargo: false, sourceVisitId: null,
     localities: [{ id: 'city', zones: { delivery_times: { name: 'Regular' } } }],
     deliveryTimes: [], fechaPedido: '2026-10-01',
     calculateNextDeliveryDate: () => '2026-10-02',

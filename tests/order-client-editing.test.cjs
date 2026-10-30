@@ -71,7 +71,7 @@ test('A seller can open the editor with the current phones and delivery address 
     compilerOptions: { target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React }
   }).outputText;
   const context = {
-    React, selectedClientId: 'client-1', isWholesaleContext: false, isAnabelSeller: false,
+    React, selectedClientId: 'client-1', isWholesaleContext: false, isAnabelSeller: false, isViaCargo: false, usesClientRecipient: false,
     isEditingClientDetails: true, cliente: 'Cliente actual', newClientTaxId: '12345678',
     newClientPhones: ['111', '222', '333'], selectedAddressId: 'address-1',
     clientAddresses: [{ id: 'address-1', alias: 'Principal', full_address: 'Mitre 123' }],
@@ -83,4 +83,6 @@ test('A seller can open the editor with the current phones and delivery address 
   assert.ok(html.includes('Agregar teléfono'));
   assert.ok(html.includes('Mitre 123'));
   assert.ok(html.includes('Cambiar cliente'));
+  const carrierHtml = renderToStaticMarkup(vm.runInNewContext(code, { ...context, isViaCargo: true }));
+  assert.ok(!carrierHtml.includes('Mitre 123'), 'The fleet address picker must be hidden for Via Cargo');
 });

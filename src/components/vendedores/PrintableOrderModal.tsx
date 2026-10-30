@@ -487,6 +487,11 @@ export default function PrintableOrderModal({
                   <div style={{ fontSize: "10.5px", color: "#334155", marginTop: "2px" }}>
                     <strong>Dirección:</strong> {order.address || "A coordinar"}
                   </div>
+                  {order.delivery_detail && (
+                    <div style={{ whiteSpace: 'pre-line', overflowWrap: 'anywhere', fontSize: '10px', color: '#334155', marginTop: '6px' }}>
+                      <strong>Detalle de entrega:</strong><br />{order.delivery_detail}
+                    </div>
+                  )}
                   {(order.client_phone || order.client_phone_secondary) && (
                     <div style={{ fontSize: "10px", color: "#475569", marginTop: "2px" }}>
                       <strong>Teléfono:</strong> {[order.client_phone, order.client_phone_secondary].filter(Boolean).join(" / ")}
