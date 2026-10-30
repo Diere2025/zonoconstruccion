@@ -6,8 +6,10 @@ import { createAuthenticatedRequester } from '@/lib/authenticatedRequest';
 import type { RoleScreenOverrides } from '@/lib/roleScreenAccess';
 
 const request = createAuthenticatedRequester(supabase);
-export function useRoleScreenAccess(identity: string, enabled: boolean, pathname: string) {
-  const [state, setState] = useState<{ identity: string; route: string; overrides: RoleScreenOverrides; error: string; ready: boolean }>({ identity: '', route: '', overrides: {}, error: '', ready: false });
+// La respuesta contiene los accesos de toda la identidad, no los de una URL.
+// Cambiar filtros o pestañas no debe desmontar formularios ya abiertos.
+export function useRoleScreenAccess(identity: string, enabled: boolean) {
+  const [state, setState] = useState<{ identity: string; overrides: RoleScreenOverrides; error: string; ready: boolean }>({ identity: '', overrides: {}, error: '', ready: false });
   useEffect(() => {
     if (!enabled) return;
     let disposed = false;
@@ -16,9 +18,9 @@ export function useRoleScreenAccess(identity: string, enabled: boolean, pathname
       const current = ++generation;
       try {
         const data = await request('/api/role-screen-access');
-        if (!disposed && current === generation) setState({ identity, route: pathname, overrides: data.overrides, error: '', ready: true });
+        if (!disposed && current === generation) setState({ identity, overrides: data.overrides, error: '', ready: true });
       } catch (error) {
-        if (!disposed && current === generation) setState({ identity, route: pathname, overrides: {}, ready: false,
+        if (!disposed && current === generation) setState({ identity, overrides: {}, ready: false,
           error: error instanceof Error ? error.message : 'No se pudieron cargar los accesos.' });
       }
     }
@@ -35,8 +37,8 @@ export function useRoleScreenAccess(identity: string, enabled: boolean, pathname
       window.removeEventListener('erp-screen-access-updated', refresh);
       subscription.unsubscribe();
     };
-  }, [identity, enabled, pathname]);
+  }, [identity, enabled]);
   return { overrides: state.identity === identity ? state.overrides : {},
-    ready: enabled && state.identity === identity && state.route === pathname && state.ready,
+    ready: enabled && state.identity === identity && state.ready,
     error: state.identity === identity ? state.error : '' };
 }
