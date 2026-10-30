@@ -74,7 +74,8 @@ export async function GET(request: Request) {
       }
     });
 
-    const sellers = (sellersRes.data || []).map(s => {
+    // Archived profiles retain their historical relationships but leave user management.
+    const sellers = (sellersRes.data || []).filter(s => !s.archived_at).map(s => {
       const auth = authMap.get(s.id) || authMap.get((s.email || '').toLowerCase());
       const lines = sellerLinesMap.get(s.id) || [];
       return {
