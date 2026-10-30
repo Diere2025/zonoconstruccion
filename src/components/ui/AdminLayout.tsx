@@ -378,10 +378,13 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
     }
 
     void getUserDetails();
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(event => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (!['SIGNED_IN', 'SIGNED_OUT', 'USER_UPDATED'].includes(event)) return;
       requestNumber++;
-      setIsRoleLoaded(false);
+      // Preserve unsaved forms during same-user tab focus reauthentication.
+      if (event === 'SIGNED_OUT' || session?.user.id !== cachedIdentityUserId) {
+        setIsRoleLoaded(false);
+      }
       clearTimeout(retryTimer);
       // Keep database requests outside Supabase's synchronous auth callback.
       retryTimer = setTimeout(() => { void getUserDetails(); }, 0);

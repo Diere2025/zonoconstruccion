@@ -20,8 +20,12 @@ export function useRoleScreenAccess(identity: string, enabled: boolean) {
         const data = await request('/api/role-screen-access');
         if (!disposed && current === generation) setState({ identity, overrides: data.overrides, error: '', ready: true });
       } catch (error) {
-        if (!disposed && current === generation) setState({ identity, overrides: {}, ready: false,
-          error: error instanceof Error ? error.message : 'No se pudieron cargar los accesos.' });
+        if (!disposed && current === generation) setState(previous => ({
+          identity,
+          overrides: previous.identity === identity ? previous.overrides : {},
+          ready: previous.identity === identity && previous.ready,
+          error: error instanceof Error ? error.message : 'No se pudieron cargar los accesos.',
+        }));
       }
     }
     void load();
