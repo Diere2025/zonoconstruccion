@@ -275,6 +275,7 @@ export async function POST(request: Request) {
       const { data: addressesData, error: errAddresses } = await supabaseAdmin
         .from('addresses')
         .select('id, client_id, full_address, locality_id, map_link')
+        .is('via_cargo', null)
         .in('client_id', preloadedClientIds);
       if (errAddresses) {
         throw errAddresses;

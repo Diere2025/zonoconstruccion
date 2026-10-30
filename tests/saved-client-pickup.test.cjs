@@ -26,7 +26,7 @@ function harness() {
     ],
     clientAddresses: [{ id: 'home', full_address: 'Mitre 540', locality_id: 'home-city', map_link: 'https://maps.example/home', delivery_notes: 'Timbre' }]
   };
-  for (const field of ['SelectedAddressId', 'IsLocalityDropdownOpen', 'Direccion', 'LocalidadId', 'LocalitySearch', 'LinkMaps', 'Aclaraciones', 'Flete', 'IsFreeShipping', 'ShippingCost']) {
+  for (const field of ['IsViaCargo', 'PostalCode', 'ShowPostalCode', 'SelectedAddressId', 'IsLocalityDropdownOpen', 'Direccion', 'LocalidadId', 'LocalitySearch', 'LinkMaps', 'Aclaraciones', 'Flete', 'IsFreeShipping', 'ShippingCost']) {
     context[`set${field}`] = value => { state[field] = value; };
   }
   vm.createContext(context);
@@ -60,7 +60,7 @@ test('Switching back restores the saved destination and delivery type', () => {
 
 test('Pickup saves without creating an address and is recognized on edit', () => {
   assert.match(source, /else if \(isPickup\) \{[\s\S]*?finalAddressId = null;[\s\S]*?\} else if \(selectedAddressId === "nueva_direccion"/);
-  assert.match(source, /const locName = isPickup \? 'Depósito'/);
+  assert.match(source, /const locName = isViaCargo \?[^;]+: isPickup \? 'Depósito'/);
   assert.match(source, /order\.locality === 'Depósito' && order\.freight_type === PICKUP_LABEL/);
   assert.match(source, /<option value=\{PICKUP_ADDRESS_ID\}>\{PICKUP_LABEL\}<\/option>/);
 });

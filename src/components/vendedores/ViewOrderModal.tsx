@@ -260,7 +260,7 @@ export default function ViewOrderModal({
                     <span className="font-black uppercase tracking-wider text-[9px] block text-amber-700">
                       Aclaraciones de Entrega:
                     </span>
-                    <p className="mt-0.5 font-medium leading-tight">
+                    <p className="mt-0.5 whitespace-pre-line font-medium leading-tight">
                       {cleanObs}
                     </p>
                   </div>

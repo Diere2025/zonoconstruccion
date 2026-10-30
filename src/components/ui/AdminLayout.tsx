@@ -406,6 +406,7 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
     const allowedPaths = new Set<string>();
     if (hasRole('instalador')) allowedPaths.add('/visitas');
     if (hasRole('logistica')) {
+      allowedPaths.add('/admin/via-cargo');
       allowedPaths.add('/admin/logistica-planificacion');
       ['/admin/cobros-mp', '/admin/fleteros', '/admin/control-planillas', '/admin/configuracion-impresion', '/vendedores/ruteo/comprobantes', '/vendedores/ruteo/remitos']
         .forEach(route => allowedPaths.add(route));

@@ -625,6 +625,7 @@ export default function ClientesPage() {
           localities(name, zones(name))
         `)
         .eq("client_id", clientId)
+        .is("via_cargo", null)
         .order("is_default", { ascending: false })
         .order("alias");
       if (error) throw error;
