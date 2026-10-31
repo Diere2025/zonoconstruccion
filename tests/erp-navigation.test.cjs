@@ -90,6 +90,8 @@ test('query parameters select the correct module and screen; detail and printing
     ['/vendedores/pedidos', '', 'minorista', 'Pedidos Minoristas'],
     ['/admin/finanzas/eerr', '', 'direccion', 'Estado de Resultados (EERR)'],
     ['/admin/finanzas', 'tab=accounts', 'tesoreria', 'Cuentas y saldos'],
+    ['/admin/finanzas', 'tab=cc', 'tesoreria', 'CC Proveedores'],
+    ['/admin/finanzas', 'tab=cc-clientes', 'tesoreria', 'CC Clientes'],
     ['/admin/rendiciones/123', '', 'tesoreria', 'Rendiciones de Recorridos'],
     ['/incidencias/123', '', 'soporte', 'Incidencias y Tickets'],
     ['/solicitudes-logistica/123', '', 'logistica', 'Solicitudes a Logística'],

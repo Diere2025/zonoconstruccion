@@ -68,7 +68,7 @@ test('movement overflow uses measured available width and reserves space for its
   const source = fs.readFileSync('src/components/finanzas/FinanceToolbar.tsx', 'utf8');
   const exports = {};
   vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } }).outputText, {
-    exports, require: name => name === '@/lib/financialAccountLabels' ? { financialAccountLabel: value => value } : name==='@/components/ui/AdaptiveSelect'?{__esModule:true,default:()=>null}:require(name)
+    exports, require: name => name === '@/components/finanzas/statements/StatementDateInput' ? {__esModule:true,default:()=>null} : name === '@/lib/financialAccountLabels' ? { financialAccountLabel: value => value } : name==='@/components/ui/AdaptiveSelect'?{__esModule:true,default:()=>null}:require(name)
   });
   const widths = [150, 120, 160, 140, 130, 160, 140];
   for (const [available, expected] of [[900, 3], [899, 2], [880, 2], [879, 1], [742, 1], [741, 0], [300, 0]]) {
@@ -134,10 +134,26 @@ test('compact defaults show 50 rows with optional fields accessible through deta
 });
 
 test('direct section URLs select the appropriate workspace without an internal tab bar', () => {
-  for (const [query, title] of [['', 'Movimientos'], ['tab=accounts', 'Cuentas y saldos'], ['tab=cc', 'Cuentas corrientes'], ['tab=validations', 'Comprobantes a validar']]) {
+  for (const [query, title] of [['', 'Movimientos'], ['tab=accounts', 'Cuentas y saldos'], ['tab=cc', 'CC Proveedores'], ['tab=cc-clientes', 'CC Clientes'], ['tab=validations', 'Comprobantes a validar']]) {
     const html = workspace({}, query).markup();
     assert.ok(html.includes(`>${title}</h1>`), query);
     assert.ok(!html.includes('Estado de Resultados'));
     assert.ok(!html.includes('>Flujo General</button>'));
+  }
+});
+
+
+test('supplier and customer accounts have independent screens and active navigation', () => {
+  const React = require('react');
+  const supplierAccounts = () => React.createElement('section', null, 'Proveedor de control');
+  const clientsBalances = [{id:'client',full_name:'Cliente de control',balance_ars:123,balance_usd:0}];
+  for (const [query, supplier] of [['tab=cc',true],['tab=cc-clientes',false]]) {
+    const app = workspace({clientsBalances},query,{supplierAccounts});
+    const html = app.markup();
+    assert.equal(html.includes('Proveedor de control'),supplier);
+    assert.equal(html.includes('Cliente de control'),!supplier);
+    assert.equal(html.includes('Saldos de Clientes'),!supplier);
+    assert.ok(html.includes('href="/admin/finanzas?tab='+ (supplier?'cc':'cc-clientes') +'" aria-current="page"'));
+    assert.equal(app.writes(),0);
   }
 });
