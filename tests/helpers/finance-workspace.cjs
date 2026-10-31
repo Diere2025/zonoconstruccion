@@ -49,12 +49,19 @@ function workspace(overrides = {}, query = '', environment = {}) {
   };
   const icons = require('lucide-react');
   const labels = compile(fs.readFileSync('src/lib/financialAccountLabels.ts', 'utf8'), require);
-  const componentImports = name => name === 'lucide-react' ? icons : name === '@/lib/financialAccountLabels' ? labels : require(name);
+  const dateInput = compile(fs.readFileSync('src/components/finanzas/statements/StatementDateInput.tsx','utf8'),require).default;
+  const componentImports = name => name === '@/components/finanzas/statements/StatementDateInput' ? {__esModule:true,default:dateInput} : name === 'lucide-react' ? icons : name === '@/lib/financialAccountLabels' ? labels : require(name);
   const searchableSelect = compile(fs.readFileSync('src/components/ui/SearchableSelect.tsx', 'utf8'), componentImports).default;
   const adaptiveSelect=compile(fs.readFileSync('src/components/ui/AdaptiveSelect.tsx','utf8'),name=>name==='./SearchableSelect'?{__esModule:true,default:searchableSelect}:componentImports(name)).default;
   const toolbar = compile(fs.readFileSync('src/components/finanzas/FinanceToolbar.tsx', 'utf8'), name=>name==='@/components/ui/AdaptiveSelect'?{__esModule:true,default:adaptiveSelect}:componentImports(name)).default;
   const modules = {
     'react': hooks,
+    '@/components/finanzas/MovementClassificationDetail': {__esModule:true,default:()=>null},
+    '@/components/finanzas/operations/OrderApplications': {__esModule:true,default:()=>null},
+    '@/components/finanzas/FinancialAccountBadge': {__esModule:true,default:()=>null},
+    '@/components/finanzas/operations/CollectionOrderLinkModal': {__esModule:true,default:()=>null},
+    '@/lib/financialOperations/references': compile(fs.readFileSync('src/lib/financialOperations/references.ts','utf8'),require),
+    '@/lib/financeDateRange': compile(fs.readFileSync('src/lib/financeDateRange.ts','utf8'), name => compile(fs.readFileSync('src/lib/treasuryTransactionTime.ts','utf8'),require)),
     'next/navigation': { useSearchParams: () => new URLSearchParams(query), useRouter: () => ({ push() {}, replace() {} }) },
     '@/lib/treasuryTransactionTime': { treasuryToday: () => '2026-09-28', treasuryDateTime: value => `${value}T12:00:00-03:00` },
     '@/lib/supabase': { supabase: { from: () => { writes++; throw new Error('Unexpected database call in UI check'); } } },
@@ -72,7 +79,7 @@ function workspace(overrides = {}, query = '', environment = {}) {
     '@/lib/financialAccountLabels': labels,
     '@/components/finanzas/FinancialConceptManager': { __esModule: true, default: () => null },
     '@/components/finanzas/BankSheetImportModal': { __esModule: true, default: () => null },
-    '@/components/finanzas/SupplierAccounts': { __esModule: true, default: () => null }
+    '@/components/finanzas/SupplierAccounts': { __esModule: true, default: environment.supplierAccounts || (() => null) }
   };
   const exports = compile(source, name => modules[name] || require(name), {prompt:environment.prompt || (()=>'Prueba de anulación'),alert:environment.alert || (()=>{}),crypto:require('node:crypto').webcrypto});
   let tree;

@@ -437,7 +437,7 @@ function FinanceWorkspace() {
     financialRequest(`/api/admin/financial-operations?transaction_id=${id}`).then(s=>{if(active)setOperationEditor({kind:s.payload.operation_type,transactionId:id});}).catch(e=>{if(active)setTransactionNotice(e.message);});
     return()=>{active=false;};
   },[searchParams]);
-  const activeTab = tab === "accounts" || tab === "cc" || tab === "validations" ? tab : "flow";
+  const activeTab = tab === "accounts" || tab === "cc" || tab === "cc-clientes" || tab === "validations" ? tab : "flow";
   useEffect(() => { if (tab === "eerr") router.replace("/admin/finanzas/eerr"); }, [tab, router]);
   const [showSummary, setShowSummary] = useState(false);
   const [optionalColumns, setOptionalColumns] = useState<Record<OptionalFinanceColumn, boolean>>({ subcategory: false, efe: false, notes: false });
@@ -693,7 +693,7 @@ function FinanceWorkspace() {
   useEffect(() => {
     if (activeTab === 'flow') {
       loadTransactions();
-    } else if (activeTab === 'cc') {
+    } else if (activeTab === 'cc-clientes') {
       loadCheckingAccounts();
     } else if (activeTab === 'validations') {
       loadValidationOrders();
@@ -1202,7 +1202,7 @@ function FinanceWorkspace() {
 
       <div className="flex items-center gap-2 py-1">
         <Coins className="h-4 w-4 text-brand-600" />
-        <h1 className="text-lg font-bold tracking-tight text-slate-900">{activeTab === "flow" ? "Movimientos" : activeTab === "accounts" ? "Cuentas y saldos" : activeTab === "cc" ? "Cuentas corrientes" : "Comprobantes a validar"}</h1>
+        <h1 className="text-lg font-bold tracking-tight text-slate-900">{activeTab === "flow" ? "Movimientos" : activeTab === "accounts" ? "Cuentas y saldos" : activeTab === "cc" ? "CC Proveedores" : activeTab === "cc-clientes" ? "CC Clientes" : "Comprobantes a validar"}</h1>
       </div>
 
       {activeTab==='flow'&&<nav aria-label="Secciones de movimientos" className="flex gap-1 rounded-lg border border-slate-200 bg-white p-1"><a href="/admin/finanzas" className="rounded-md bg-brand-50 px-3 py-2 text-sm font-medium text-brand-700">Movimientos</a><a href="/admin/finanzas/saldos" className="rounded-md px-3 py-2 text-sm font-medium text-slate-600">Estado de cuenta</a></nav>}
@@ -1823,13 +1823,15 @@ function FinanceWorkspace() {
 
 
       {/* =========================================================================
-          TAB 3: CUENTAS CORRIENTES (SALDOS DE SOCIOS COMERCIALES)
+          CUENTAS CORRIENTES: PROVEEDORES Y CLIENTES
           ========================================================================= */}
-      {activeTab === 'cc' && (
+      {(activeTab === 'cc' || activeTab === 'cc-clientes') && (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-200">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <nav aria-label="Cuentas corrientes" className="flex flex-wrap gap-1 rounded-lg border border-slate-200 bg-white p-1">
+            {([["cc", "CC Proveedores"], ["cc-clientes", "CC Clientes"]] as const).map(([value, label]) => <a key={value} href={`/admin/finanzas?tab=${value}`} aria-current={activeTab === value ? "page" : undefined} className={`rounded-md px-3 py-2 text-sm font-medium ${activeTab === value ? "bg-brand-50 text-brand-700" : "text-slate-600 hover:bg-slate-50"}`}>{label}</a>)}
+          </nav>
+          {activeTab === "cc-clientes" ? (
 
-            {/* Cuentas Corrientes Clientes */}
             <div className="bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm space-y-4">
               <div className="pb-2.5 border-b border-slate-100">
                 <h3 className="font-black text-slate-800 text-xs uppercase tracking-wider">Saldos de Clientes</h3>
@@ -1871,9 +1873,7 @@ function FinanceWorkspace() {
               )}
             </div>
 
-            <SupplierAccounts />
-
-          </div>
+          ) : <SupplierAccounts />}
         </div>
       )}
 

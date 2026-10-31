@@ -71,7 +71,8 @@ export const erpModules: ErpModule[] = [
     { id: "tesoreria-extractos", name: "Extractos bancarios", href: "/admin/finanzas/extractos", icon: Coins, allowedRoles: ['admin', 'administracion'] },
     { id: "tesoreria-planificacion", name: "Planificación de pagos", href: "/admin/finanzas/planificacion", icon: CalendarDays, adminOnly: true },
     { id: "tesoreria-5", name: "Cuentas y saldos", href: "/admin/finanzas?tab=accounts", icon: Wallet, allowedRoles: ['admin', 'administracion'] },
-    { id: "tesoreria-6", name: "Cuentas corrientes", href: "/admin/finanzas?tab=cc", icon: BookOpen, allowedRoles: ['admin', 'administracion'] },
+    { id: "tesoreria-6", name: "CC Proveedores", href: "/admin/finanzas?tab=cc", icon: BookOpen, allowedRoles: ['admin', 'administracion'] },
+    { id: "tesoreria-cc-clientes", name: "CC Clientes", href: "/admin/finanzas?tab=cc-clientes", icon: BookOpen, allowedRoles: ['admin', 'administracion'] },
     { id: "tesoreria-7", name: "Comprobantes a validar", href: "/admin/finanzas?tab=validations", icon: ShieldCheck, allowedRoles: ['admin', 'administracion'] },
     { id: "tesoreria-8", name: "Comprobantes de Tesorería", href: "/admin/comprobantes-tesoreria", icon: FileText, allowedRoles: ['admin', 'administracion'] },
     { id: "tesoreria-9", name: "Comisiones de Vendedores", href: "/admin/comisiones", icon: Coins, adminOnly: true },
@@ -225,7 +226,7 @@ function destinationQuery(path: string, search: string) {
   if (path === '/admin/compras' && !params.has('tab')) params.set('tab', 'purchase_orders');
   if (path === '/admin/finanzas') {
     const tab = params.get('tab');
-    if (!['accounts', 'cc', 'validations'].includes(tab || '')) params.set('tab', 'flow');
+    if (!['accounts', 'cc', 'cc-clientes', 'validations'].includes(tab || '')) params.set('tab', 'flow');
   }
   return params;
 }
