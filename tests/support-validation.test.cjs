@@ -7,6 +7,15 @@ const exportsObject = {};
 vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/lib/support/validation.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:exportsObject,Uint8Array,DataView});
 const {inspectImage,operation,databaseError,SupportError}=exportsObject;
 const {inspectAttachment}=exportsObject;
+const typesExports = {};
+vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/lib/support/types.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:typesExports});
+
+test('incident timestamps always use four-digit years, 24 hours and Buenos Aires calendar boundaries',()=>{
+  assert.equal(typesExports.dateLabel('2026-10-31T15:08:10.721Z'),'31/10/2026 12:08');
+  assert.equal(typesExports.dateLabel('2026-11-01T02:05:00Z'),'31/10/2026 23:05');
+  assert.equal(typesExports.dateLabel('2026-11-01T03:00:00Z'),'01/11/2026 00:00');
+  assert.equal(typesExports.dateLabel('invalid'),'Sin fecha');
+});
 const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a/RsAAAAASUVORK5CYII=','base64');
 
 test('private PDF attachment checks reject disguised, incomplete and oversized files',()=>{
