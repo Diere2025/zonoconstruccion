@@ -1,9 +1,9 @@
 import {treasuryToday} from '../treasuryTransactionTime';
 import type {OperationInput} from './types';
-export type SupplierDocument={id:string;supplier_id:string;currency:string;total_amount:number;paid_amount:number;purchase_date?:string;created_at?:string;status?:string;document_type?:string;editable_allocation_amount?:string};
-export function supplierDocumentPending(p:SupplierDocument){return Math.max(0,Math.round(Number(p.total_amount)*100)-Math.round(Number(p.paid_amount)*100)+Math.round(Number(p.editable_allocation_amount||0)*100))/100;}
+export type SupplierDocument={account_included?:boolean;id:string;supplier_id:string;currency:string;total_amount:number;paid_amount:number;credit_applied_amount?:number;purchase_date?:string;created_at?:string;status?:string;document_type?:string;editable_allocation_amount?:string};
+export function supplierDocumentPending(p:SupplierDocument){return Math.max(0,Math.round(Number(p.total_amount)*100)-Math.round(Number(p.paid_amount)*100)-Math.round(Number(p.credit_applied_amount||0)*100)+Math.round(Number(p.editable_allocation_amount||0)*100))/100;}
 export function payableSupplierDocuments<T extends SupplierDocument>(purchases:T[],supplierId:string,currency:string) {
- return purchases.filter(p=>p.supplier_id===supplierId&&p.currency===currency&&p.status!=='Anulado'&&p.document_type!=='Nota de Crédito'&&supplierDocumentPending(p)>0);
+ return purchases.filter(p=>p.account_included!==false&&p.supplier_id===supplierId&&p.currency===currency&&p.status!=='Anulado'&&p.document_type!=='Nota de Crédito'&&supplierDocumentPending(p)>0);
 }
 // Preview only. Posting recomputes the distribution with locked database rows.
 const documentDay=(value:string)=>value.includes('T')?treasuryToday(new Date(value)):value.slice(0,10);

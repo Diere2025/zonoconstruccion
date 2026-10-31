@@ -1,8 +1,18 @@
 "use client";
 import ErpDateInput from '@/components/ui/ErpDateInput';
+import SupplierImportReview from './SupplierImportReview';
+import SupplierPaymentApplications from './SupplierPaymentApplications';
+import SupplierPayables from './SupplierPayables';
+import SupplierOpeningDetail from './SupplierOpeningDetail';
+import SupplierOpeningApplications from './SupplierOpeningApplications';
+import SupplierServices from './SupplierServices';
+import SupplierRecordedHistory from './SupplierRecordedHistory';
+import OperationEditor from './operations/OperationEditor';
+import SupplierCutover from './SupplierCutover';
+import SupplierSheetQueue from './SupplierSheetQueue';
 
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { createAuthenticatedRequester } from '@/lib/authenticatedRequest';
@@ -13,6 +23,8 @@ type Summary = { id: string; name: string; start_date: string | null; balance_ar
 type Detail = { start: AccountStart | null; rows: LedgerEntry[]; balance_ars: number; balance_usd: number };
 const money = (amount: number, currency: string) => `${currency === 'USD' ? 'US$' : '$'} ${Number(amount).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const input = 'w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white';
+const extensionsEnabled=process.env.NEXT_PUBLIC_SUPPLIER_CC_EXTENSIONS!=='0';
+const pilotSuppliers=(process.env.NEXT_PUBLIC_SUPPLIER_CC_PILOT_IDS||'').split(',').map(id=>id.trim()).filter(Boolean);
 
 export default function SupplierAccounts() {
   const api = useMemo(() => createAuthenticatedRequester(supabase), []);
@@ -34,6 +46,18 @@ export default function SupplierAccounts() {
   const [choice, setChoice] = useState<LedgerEntry | null>(null);
   const [choiceNotes, setChoiceNotes] = useState('');
   const [page, setPage] = useState(0);
+  const [reviewSources, setReviewSources] = useState(false);
+  const [showPayments, setShowPayments] = useState(false);
+  const [showPayables, setShowPayables] = useState(false);
+  const [showOpening,setShowOpening]=useState(false);
+  const [showOpeningApplications,setShowOpeningApplications]=useState(false);
+  const [showServices,setShowServices]=useState(false);
+  const [showRecorded,setShowRecorded]=useState(false);
+  const [paying,setPaying]=useState<{supplierId:string;purchaseId?:string;amount?:string;currency?:string}|null>(null);
+  const [showCutover,setShowCutover]=useState(false);
+  const [showSheetQueue,setShowSheetQueue]=useState(false);
+  const [revision,setRevision]=useState(0);
+  const activeSupplier=useRef(supplierId);activeSupplier.current=supplierId;
 
   const loadSummary = useCallback(async () => {
     const data = await api('/api/admin/supplier-accounts');
@@ -65,10 +89,12 @@ export default function SupplierAccounts() {
       await api('/api/admin/supplier-accounts', { method: 'POST', body: JSON.stringify(body) });
       const data = await api(`/api/admin/supplier-accounts?supplierId=${supplierId}`);
       setDetail(data); setChoice(null); setChoiceNotes(''); setEditStart(false);
+      setRevision(v=>v+1);
       await loadSummary();
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
   const selected = suppliers.find(s => s.id === supplierId);
+  const supplierExtensionsEnabled=extensionsEnabled&&(!pilotSuppliers.length||pilotSuppliers.includes(supplierId));
   const filtered = detail?.rows.filter(row => row.currency === currency &&
     (mode === 'current' ? row.included : !row.included || row.historical || row.reconciled)
     && `${row.reference} ${row.kind} ${row.notes || ''} ${(row.applications||[]).map(a=>a.code).join(' ')}`.toLowerCase().includes(entryQuery.toLowerCase())) || [];
@@ -81,6 +107,8 @@ export default function SupplierAccounts() {
       <Link href="/admin/compras?tab=receptions" className="text-sm text-brand-600 underline">Registrar recepción</Link>
     </div>
     {error && <p role="alert" className="rounded-lg bg-rose-50 text-rose-700 p-3 text-sm">{error}</p>}
+    {extensionsEnabled&&<button type="button" aria-expanded={reviewSources} className="rounded-lg border px-3 py-2 text-sm" onClick={()=>setReviewSources(!reviewSources)}>{reviewSources?'Cerrar revisión de planillas':'Revisar planillas y equivalencias'}</button>}
+    {extensionsEnabled&&reviewSources&&<SupplierImportReview suppliers={suppliers}/>}
     <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
       <div className="space-y-2">
         <input aria-label="Buscar proveedor" value={query} onChange={e => setQuery(e.target.value)} placeholder="Buscar proveedor…" className={input} />
@@ -98,6 +126,22 @@ export default function SupplierAccounts() {
           <div className="flex flex-wrap justify-between gap-2"><h4 className="font-bold">{selected?.name}</h4>
             {detail.start && <button disabled={busy} className="text-sm underline text-brand-600" onClick={() => setEditStart(!editStart)}>Editar punto de partida</button>}
           </div>
+          {supplierExtensionsEnabled&&<>
+          <button type="button" aria-expanded={showPayments} onClick={()=>setShowPayments(!showPayments)} className="rounded-lg border px-3 py-2 text-sm">{showPayments?'Cerrar pagos y créditos':'Ver pagos, anticipos y créditos'}</button>
+          <button type="button" aria-expanded={showServices} onClick={()=>setShowServices(!showServices)} className="rounded-lg border px-3 py-2 text-sm">{showServices?'Cerrar servicios y ajustes':'Registrar servicio o ajuste'}</button>
+          <button type="button" aria-expanded={showRecorded} onClick={()=>setShowRecorded(!showRecorded)} className="rounded-lg border px-3 py-2 text-sm">{showRecorded?'Cerrar estado registrado':'Consultar estado registrado a fecha'}</button>
+          <button type="button" aria-expanded={showCutover} onClick={()=>setShowCutover(!showCutover)} className="rounded-lg border px-3 py-2 text-sm">{showCutover?'Cerrar puesta al día':'Preparar puesta al día desde planilla'}</button>
+          <button type="button" aria-expanded={showSheetQueue} onClick={()=>setShowSheetQueue(!showSheetQueue)} className="rounded-lg border px-3 py-2 text-sm">{showSheetQueue?'Cerrar sincronización':'Ver sincronización de recepciones'}</button>
+          {showSheetQueue&&<SupplierSheetQueue key={supplierId} supplierId={supplierId}/>}
+          {showCutover&&<SupplierCutover key={supplierId} supplierId={supplierId} onChanged={async()=>{const result=await api(`/api/admin/supplier-accounts?supplierId=${supplierId}`);if(activeSupplier.current===supplierId){setDetail(result);setRevision(v=>v+1);}await loadSummary();}}/>}
+          {showRecorded&&<SupplierRecordedHistory key={supplierId} supplierId={supplierId}/>}
+          {showServices&&<SupplierServices key={supplierId} supplierId={supplierId} documents={detail.rows.filter(r=>r.source==='purchase'&&!r.voided&&r.kind!=='Nota de Crédito').map(r=>({id:r.source_id,reference:r.reference,currency:r.currency}))} onChanged={async()=>{const result=await api(`/api/admin/supplier-accounts?supplierId=${supplierId}`);if(activeSupplier.current===supplierId){setDetail(result);setRevision(v=>v+1);}await loadSummary();}}/>}
+          <button type="button" aria-expanded={showPayables} onClick={()=>setShowPayables(!showPayables)} className="ml-2 rounded-lg border px-3 py-2 text-sm">{showPayables?'Cerrar partidas y vencimientos':'Ver partidas y vencimientos'}</button>
+          <button type="button" disabled={!detail.start} onClick={()=>setPaying({supplierId})} className="rounded-lg border px-3 py-2 text-sm">Registrar pago al proveedor</button>
+          {paying&&<OperationEditor key={paying.supplierId+':'+(paying.purchaseId||'advance')} kind="supplier_payment" initialSupplierId={paying.supplierId} initialPurchaseId={paying.purchaseId} initialAmount={paying.amount} initialCurrency={paying.currency} onClose={()=>setPaying(null)} onSaved={()=>{setPaying(null);void loadSummary();if(activeSupplier.current===paying.supplierId){void api(`/api/admin/supplier-accounts?supplierId=${paying.supplierId}`).then(result=>{if(activeSupplier.current===paying.supplierId){setDetail(result);setRevision(v=>v+1);}});}}}/> }
+          {showPayables&&<SupplierPayables key={supplierId} supplierId={supplierId} configured={!!detail.start} revision={revision} onPay={(purchaseId,amount,currency)=>setPaying({supplierId,purchaseId,amount,currency})}/>}
+          {showPayments&&<SupplierPaymentApplications key={supplierId} supplierId={supplierId} revision={revision} onChanged={async()=>{const result=await api(`/api/admin/supplier-accounts?supplierId=${supplierId}`);if(activeSupplier.current===supplierId){setDetail(result);setRevision(v=>v+1);}await loadSummary();}}/>}
+          </>}
           {editStart && <form className="p-4 rounded-xl bg-slate-50 space-y-3" onSubmit={e => {
             e.preventDefault();
             if (detail.start && !confirm('Cambiar el punto de partida recalculará el saldo. Las incorporaciones y exclusiones ya conciliadas se conservan. ¿Guardar?')) return;
@@ -114,6 +158,12 @@ export default function SupplierAccounts() {
             <button disabled={busy} className="rounded-lg px-4 py-2 bg-brand-600 text-white text-sm">{busy ? 'Guardando…' : 'Guardar punto de partida'}</button>
           </form>}
           {detail.start && <>
+            {supplierExtensionsEnabled&&<>
+            <button type="button" aria-expanded={showOpening} onClick={()=>setShowOpening(!showOpening)} className="rounded-lg border px-3 py-2 text-sm">{showOpening?'Cerrar composición de apertura':'Ver composición del saldo inicial'}</button>
+            {showOpening&&<SupplierOpeningDetail key={supplierId} supplierId={supplierId} revision={revision}/>}
+            <button type="button" aria-expanded={showOpeningApplications} onClick={()=>setShowOpeningApplications(!showOpeningApplications)} className="rounded-lg border px-3 py-2 text-sm">{showOpeningApplications?'Cerrar aplicaciones a apertura':'Aplicar pagos y créditos a apertura'}</button>
+            {showOpeningApplications&&<SupplierOpeningApplications key={supplierId} supplierId={supplierId} revision={revision} onChanged={async()=>{if(activeSupplier.current===supplierId)setRevision(v=>v+1);}}/>}
+            </>}
             <div className="grid gap-3 sm:grid-cols-2">{(['ARS','USD'] as const).map(c => {
               const balance = c === 'ARS' ? detail.balance_ars : detail.balance_usd;
               return <div key={c} className="border rounded-xl p-3"><p className="text-xs text-slate-500">{c} · {balance > 0 ? 'Debemos' : balance < 0 ? 'A favor' : 'Al día'}</p>

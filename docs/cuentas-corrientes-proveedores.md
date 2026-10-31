@@ -1,5 +1,47 @@
 # Cuentas corrientes de proveedores
 
+## Estado operativo al 31/10/2026
+
+El circuito ampliado forma parte del ERP. La base configurada tiene las migraciones 243–265 instaladas; la publicación de la versión de aplicación y la conciliación de los proveedores se verifican por separado. El diagnóstico no aprobó automáticamente las filas históricas. Los antecedentes de abajo conservan decisiones de implementaciones anteriores y no sustituyen este estado.
+
+La cuenta usa una única apertura por proveedor, con ARS/USD independientes. Cuenta 1 = facturado, Cuenta 2 = por remito; Cuenta 3 está fuera de uso. Zono/Aquafort son etiquetas internas. La recepción genera la deuda; la factura de mercadería regulariza el cargo recibido. Un servicio sin recepción usa su circuito específico y no genera stock.
+
+Pagos, notas de crédito y crédito inicial comparten controles de disponibilidad. Reaplicar no vuelve a generar caja. El FIFO del pago nuevo contempla las partidas de apertura y los documentos incluidos, por fecha de origen. El excedente queda a cuenta. Para editar o anular un pago con aplicaciones a apertura, liberarlas primero desde **Aplicar pagos y créditos a apertura**.
+
+La apertura puede mantenerse sin detalle o descomponerse en partidas firmadas que suman exactamente su saldo por moneda. El detalle no se suma otra vez al extracto. El pendiente firmado está en **Aplicar pagos y créditos a apertura**; el control de saldo compara apertura pendiente más documentos pendientes menos créditos/anticipos disponibles con el extracto.
+
+**Ver partidas y vencimientos** conserva el total de cada cargo. Una factura puede agrupar remitos y tener cuotas. Un pago parcial sin atribución exacta a cuotas se identifica como distribución pendiente; no se inventa su vencido. **Distribuir por cuotas** atribuye el importe ya aplicado al documento, sin cambiar caja ni su aplicación general.
+
+**Consultar estado registrado a fecha** conserva versiones desde su activación el 31/10/2026. Consulta el estado conocido al cierre de cada día en Buenos Aires. No certifica saldos anteriores a esa activación. El filtro de movimientos del extracto vigente sigue usando los importes actuales.
+
+### Instructivo de Caro
+
+1. Abrir Finanzas → Cuentas corrientes → elegir proveedor. Si falta apertura, definir corte y respaldo o preparar la puesta al día desde la captura revisada. No usar una diferencia sin explicar como ajuste de apertura.
+2. Para mercadería, registrar recepción desde Compras → Recepciones. Usar **Completar comprobante y conciliar** para su factura. Revisar diferencias antes de confirmar.
+3. Para mano de obra, honorarios u otro servicio sin mercadería, usar **Registrar servicio o ajuste**. Completar número, fechas, moneda, detalle, IVA, total y respaldo. También admite NC/ND relacionadas con un documento del mismo proveedor y moneda.
+4. Consultar **Ver partidas y vencimientos**. **Programar vencimientos** permite cuotas cuya suma debe coincidir con el comprobante. **Pagar documento** abre el editor financiero habitual con proveedor e importe precargados; se puede pagar parcialmente.
+5. Para un pago nuevo sin documento puntual, usar **Registrar pago al proveedor**. Elegir fecha, cuenta, importe y comprobante. La aplicación automática incluye la apertura por antigüedad. Un excedente queda a cuenta; para un anticipo deliberado, elegir documentos específicos y dejar sin imputaciones.
+6. Para asociar dinero ya registrado, usar **Ver pagos, anticipos y créditos → Revisar aplicación**. Elegir documentos e importes y explicar el motivo. No crear otro pago para asociar el existente.
+7. Para cancelar con NC, usar **Aplicar crédito**. Por ejemplo, factura 100, pago 70 y NC 30: pendiente cero; caja solo contiene el pago 70.
+8. Para deuda o crédito inicial, usar **Aplicar pagos y créditos a apertura**. Un pago 40 sobre apertura 100 deja apertura pendiente 60 y conserva el saldo 60, sin compra ficticia. El crédito inicial puede cancelar deuda inicial o documentos incluidos.
+9. Cuando un documento tiene cuotas, usar **Distribuir por cuotas** sobre el pago o NC ya aplicado. Esta acción distribuye su importe entre las cuotas; no registra dinero adicional. Para modificar el total aplicado al documento, volver a la aplicación general.
+10. Revisar planillas y equivalencias antes de migrar: verificar proveedor, moneda, fechas y evidencia de cada fila. **Preparar puesta al día desde planilla** muestra los bloqueos. El corte reciente cubre los documentos/pagos anteriores por una única apertura; guarda la revisión y permite reversión auditada si su estado no cambió.
+
+11. Para reservar un anticipo sin cancelar deuda, abrir **Ver pagos, anticipos y créditos → Reservar a OC**. La reserva comparte disponibilidad con las aplicaciones. Si la OC no declara moneda, confirmarla; las OCs históricas se mantienen sin moneda hasta esa confirmación. Para asociar el anticipo a una recepción posterior, liberar su reserva y aplicar el pago existente. No registrar otro pago.
+12. **Ver sincronización de recepciones** muestra copias pendientes, fallos e intentos. La recepción y la deuda permanecen registradas en el ERP si falla Google Sheets. Usar **Reintentar copia**; el reenvío identifica recepción/artículo para evitar duplicaciones. No se reenvían recepciones anteriores a la activación automáticamente.
+
+Las OCs nuevas permiten elegir ARS/USD. No se pueden agrupar recepciones ni mover líneas entre OCs de distinta moneda confirmada. La planilla de OCs existente no identifica moneda: las OCs en USD se conservan en el ERP y su copia monetaria requiere un espejo con moneda o conversión explícita. No se copian importes USD como si fueran ARS.
+
+### Verificación y despliegue
+
+`scripts/check-supplier-account-readiness.cjs` ejecuta controles de solo lectura y guarda prueba de importes y cantidades en `output/cc-planning/readiness.json`. La instalación se ensaya con `node scripts/apply-supplier-review.cjs`; `--apply` instala lo faltante, y `--stage` carga únicamente evidencia y equivalencias propuestas. Ese comando nunca aplica saldos históricos.
+
+Los pilotos en `output/cc-planning/pilots` se generan con `node scripts/prepare-supplier-pilots.cjs`. Cada fila conserva captura, hash y candidatos; ninguna se selecciona por similitud. La puesta al día exige revisión completa, equivalencias verificadas, firma actual y aprobación del corte concreto. Se conserva el antes/después y no se borran pagos reales para revertir.
+
+`NEXT_PUBLIC_SUPPLIER_CC_EXTENSIONS=0` oculta las extensiones de interfaz al reconstruir la aplicación. NEXT_PUBLIC_SUPPLIER_CC_PILOT_IDS permite limitar las extensiones a una lista explícita de proveedores. Las protecciones de base siguen vigentes. La desactivación visual no revierte aplicaciones o cortes; deben liberarse o revertirse con sus acciones auditadas.
+
+## Antecedentes de implementación
+
 Revisión del código y de los datos de producción: 29/09/2026. Las migraciones 112, 113 y 114 fueron aplicadas y verificadas en producción. Los cambios de interfaz siguen siendo locales hasta su publicación.
 
 ## Criterio acordado e implementación local
@@ -89,3 +131,8 @@ Seis pagos de la captura ($9.214.940 ARS; filas 1327, 1349, 1364, 1368, 1369 y 1
 ## Criterio confirmado
 
 La deuda nace al recibir el pedido. El saldo se computa desde el punto de partida elegido por proveedor, con conciliación histórica progresiva.
+
+
+## Entrega mediante Incidencias
+
+El tipo Nueva Implementación identifica la entrega operativa. Los instructivos PDF y las capturas se adjuntan a la incidencia privada, conservando sus permisos. Los PDF se descargan autenticados; no forman parte de los artefactos públicos de la aplicación. La aceptación manual y las capturas de la sesión operativa se registran por separado de las pruebas automatizadas.

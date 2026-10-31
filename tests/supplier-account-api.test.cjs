@@ -18,6 +18,7 @@ function load(denied, database, purchaseDenied = denied) {
       if (name === '@/lib/supplierAccount') return helpers;
       if (name === '@/lib/financialOperations/references') return {};
       if (name === '@/lib/financialOperations/referenceServer') return {};
+      if (name === '@/lib/supplierAccounts/sheetSync') return { processSupplierSheetJob: async () => ({synced:true,queued:false}) };
       throw new Error(name);
     }
   });
@@ -34,6 +35,8 @@ const request = body => ({ url: 'https://example.com/api/admin/supplier-accounts
   const builder = { select() { return this; }, eq() { return this; }, maybeSingle: async () => ({ data: null, error: null }), upsert: async () => { writes++; return { error: null }; } };
   const db = { auth: { getUser: async () => ({ data: { user: { id: 'admin' } }, error: null }) }, from: () => builder };
   const api = load(null, db);
+  assert.equal((await api.GET({ ...request(), url:'https://example.com/api/admin/supplier-accounts?from=2026-02-30' })).status,400);
+  assert.equal((await api.GET({ ...request(), url:'https://example.com/api/admin/supplier-accounts?from=2026-10-30&to=2026-10-01' })).status,400);
   const supplierId = '00000000-0000-0000-0000-000000000001';
   const valid = { action: 'start', supplierId, startDate: '2026-09-29', openingArs: 0, openingUsd: -10, notes: 'Conciliado' };
   assert.equal((await api.POST(request({ ...valid, startDate: '2026-02-30' }))).status, 400);

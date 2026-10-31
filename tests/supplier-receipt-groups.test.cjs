@@ -10,5 +10,3 @@ for(const name of ['setSelectedReceiptPOIds','setReceptionPOIds','setReceptionIt
 for(const name of ['setReceptionOrdersLoading','setReceptionSupplierId','setModalSupplierSearchText','setReceptionSlipNumber','setReceptionNotes','setModalOCSearchText','setReceptionAlignPO'])batch[name]=()=>{};
 vm.runInNewContext(ts.transpileModule(source.slice(start,end)+';exports.toggle=toggleReceiptPO;exports.open=handleOpenReceptionForOrders;',{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,batch);
 (async()=>{batch.exports.toggle(batch.purchaseOrders[0]);batch.selectedReceiptPOIds=batch.SelectedReceiptPOIds;batch.exports.toggle(batch.purchaseOrders[2]);assert.equal(alerts.length,1);await batch.exports.open(batch.purchaseOrders.slice(0,2));assert.equal(batch.ReceptionItems.length,2);assert.equal(batch.ReceptionPOIds.length,2);assert.equal(batch.ShowNewReceptionModal,true);console.log('Grouped receipt totals, mixed costs, bounded allocation and joint OC opening: OK');})().catch(e=>{console.error(e);process.exitCode=1;});
-
-

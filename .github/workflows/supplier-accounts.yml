@@ -1,0 +1,57 @@
+name: Supplier current accounts
+on:
+  pull_request:
+    paths:
+      - 'src/lib/supplierAccount.ts'
+      - 'src/lib/supplierAccounts/**'
+      - 'src/lib/financialOperations/reference*'
+      - 'src/lib/financialOperations/supplier*'
+      - 'src/lib/erp/purchaseSheetSync.ts'
+      - 'src/components/finanzas/Supplier*'
+      - 'src/components/finanzas/operations/OperationEditor.tsx'
+      - 'src/components/finanzas/operations/SupplierDocuments.tsx'
+      - 'src/app/api/admin/supplier-*/**'
+      - 'src/app/api/admin/finanzas-data/**'
+      - 'src/app/api/admin/financial-operations/**'
+      - 'database/*supplier*'
+      - 'tests/supplier-*.cjs'
+      - '.github/workflows/supplier-accounts.yml'
+permissions:
+  contents: read
+jobs:
+  regression-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder
+      SUPABASE_SERVICE_ROLE_KEY: ci-placeholder
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm install --prefix .codex-tmp/supplier-account-check --no-save --package-lock=false @electric-sql/pglite@0.5.10
+      - name: Ledger, permissions and source evidence
+        run: |
+          node tests/supplier-account.test.cjs
+          node tests/supplier-account-api.test.cjs
+          node tests/supplier-source-traceability.test.cjs
+          node tests/supplier-import-review.test.cjs
+          node tests/supplier-opening.test.cjs
+          node tests/supplier-opening-api.test.cjs
+          node tests/supplier-position-recorded.test.cjs
+          node tests/supplier-aliases.test.cjs
+      - name: Real financial core, credits, opening, FIFO, services and reviewed cutover
+        run: node tests/supplier-opening-integration.test.cjs
+      - name: Mirror queue and authenticated access without Google requests
+        run: |
+          node tests/supplier-sheet-queue.test.cjs
+          node tests/supplier-sheet-sync.test.cjs
+          node tests/supplier-sheet-sync-access.test.cjs
+      - name: Private incident attachments
+        run: node --test tests/support-validation.test.cjs
+      - name: Production build
+        run: npm run build

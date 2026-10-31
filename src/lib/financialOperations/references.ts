@@ -5,6 +5,14 @@ export function movementCode(row: CodedMovement): string {
 }
 export const movementHref = (id: string) => `/admin/finanzas?tab=flow&transaction=${encodeURIComponent(id)}`;
 export const purchaseHref = (id: string) => `/admin/compras?tab=purchases_history&purchase=${encodeURIComponent(id)}`;
+export function supplierCreditReferences(allocations:Array<{credit_id:string;purchase_id:string;amount:number|string}>,purchases:Array<{id:string;invoice_number:string;document_type?:string;status?:string}>) {
+ const documents=new Map(purchases.map(p=>[p.id,p]));const result=new Map<string,ApplicationReference[]>();
+ for(const allocation of allocations){const credit=documents.get(allocation.credit_id),target=documents.get(allocation.purchase_id);if(!credit||!target||credit.status==='Anulado'||target.status==='Anulado')continue;
+  result.set(target.id,[...result.get(target.id)||[],{id:credit.id,code:credit.invoice_number||credit.id,kind:'Nota de crédito',href:purchaseHref(credit.id),amount:Number(allocation.amount)}]);
+  result.set(credit.id,[...result.get(credit.id)||[],{id:target.id,code:target.invoice_number||target.id,kind:'Documento compensado',href:purchaseHref(target.id),amount:Number(allocation.amount)}]);
+ }
+ return result;
+}
 export function supplierApplications(allocations: Array<{ payment_id: string; purchase_id: string; amount: number | string }>,
   payments: Array<{ id: string; cash_transaction_id: string | null; reversed_at?: string | null }>,
   purchases: Array<{ id: string; invoice_number: string; document_type?: string }>, movements: CodedMovement[]) {

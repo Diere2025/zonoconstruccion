@@ -1,0 +1,45 @@
+const assert=require('node:assert/strict'),fs=require('fs'),path=require('path'),vm=require('vm'),ts=require('typescript');
+const {PGlite}=require(require.resolve('@electric-sql/pglite',{paths:[path.resolve('.codex-tmp/supplier-account-check')]}));
+const load=(file,imports={})=>{const exports={};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText,{exports,require:name=>imports[name]});return exports;};
+const helpers=load('src/lib/supplierAccount.ts'),{validateOpeningDetail}=load('src/lib/supplierAccounts/opening.ts',{'../supplierAccount':helpers});
+const id=n=>`00000000-0000-0000-0000-${String(n).padStart(12,'0')}`;
+(async()=>{const db=new PGlite();try{
+ await db.exec(`create role anon;create role authenticated;create role service_role;create schema auth;create table auth.users(id uuid primary key);insert into auth.users values('${id(1)}');
+ create table suppliers(id uuid primary key);insert into suppliers values('${id(2)}');
+ create table supplier_account_starts(supplier_id uuid primary key references suppliers(id),start_date date,opening_ars numeric(15,2),opening_usd numeric(15,2),notes text,updated_by uuid,updated_at timestamptz);
+ insert into supplier_account_starts(supplier_id,start_date,opening_ars,opening_usd,notes) values('${id(2)}','2026-01-01',100,-10,'Estado de cuenta verificado');
+ create function can_manage_financial_operations(uuid) returns boolean language sql as $$select $1='${id(1)}'::uuid$$;`);
+ await db.exec(fs.readFileSync('database/db_migration_v252_supplier_opening_details.sql','utf8'));
+ const sig=async()=>(await db.query('select supplier_opening_signature($1) s',[id(2)])).rows[0].s;
+ const save=async(payload,key=10,actor=1)=>(await db.query('select save_supplier_opening_detail($1,$2,$3::jsonb) r',[id(actor),id(key),JSON.stringify(payload)])).rows[0].r;
+ const line=(amount,currency='ARS')=>({reference:amount>0?'Factura A-1':'Anticipo anterior',currency,amount:String(amount),condition:'facturado',documentDate:'2025-12-15',dueDate:'2026-02-15',evidence:'Planilla original, fila 3'});
+ const payload={supplierId:id(2),signature:await sig(),reason:'Desglose del estado de cuenta',items:[line(120),line(-20),line(-10,'USD')]};
+ validateOpeningDetail({...payload,requestId:id(10)});
+ let saved=await save(payload);assert.equal(saved.items.length,3);assert.equal((await save(payload)).signature,saved.signature);
+ assert.equal((await db.query('select count(*)::int n from supplier_opening_events')).rows[0].n,1);
+ await assert.rejects(save({...payload,reason:'Otra solicitud'},10),/Solicitud reutilizada/);
+ await assert.rejects(save(payload,11),/apertura cambió/);
+ await assert.rejects(save({...payload,signature:await sig(),items:[line(99.99),line(-10,'USD')]},12),/exactamente/);
+ await assert.rejects(save({...payload,signature:await sig(),items:[line(100)]},13),/exactamente/);
+ await assert.rejects(save({...payload,signature:await sig(),items:[{...line(120),documentDate:'2026-01-02'},line(-20),line(-10,'USD')]},14),/posterior/);
+ await assert.rejects(save({...payload,signature:await sig()},15,9),/Sin permiso/);
+ for(const clause of ["opening_ars=101","opening_usd=0","start_date='2026-02-01'"]){await assert.rejects(db.exec('update supplier_account_starts set '+clause),/Quitá el desglose/);}
+ await assert.rejects(db.exec('delete from supplier_account_starts'),/Quitá el desglose/);
+ await db.exec("update supplier_account_starts set notes='Respaldo ampliado'");
+ let detail=(await db.query('select get_supplier_opening_detail($1) d',[id(2)])).rows[0].d;
+ assert.equal(detail.events.length,1);assert.equal(detail.items.length,3);
+ // Only the header participates in the ledger, irrespective of composition.
+ const start={supplier_id:id(2),start_date:'2026-01-01',opening_ars:100,opening_usd:-10,notes:''};
+ const ledger=()=>helpers.supplierLedger(start,[{supplier_id:id(2),source:'payment',source_id:id(99),entry_date:'2026-01-10',currency:'ARS',amount:-40,voided:false}],[]);
+ assert.equal(ledger().balance_ars,60);assert.equal(ledger().balance_usd,-10);
+ await save({...payload,signature:await sig(),items:[],reason:'Quitar detalle conservando apertura'},16);
+ assert.equal((await db.query('select count(*)::int n from supplier_opening_items')).rows[0].n,0);assert.equal(ledger().balance_ars,60);
+ await save({...payload,signature:await sig()},17);const restored=await sig();
+ await save({...payload,signature:restored,items:[]},18);await save({...payload,signature:await sig()},19);
+ assert.notEqual(await sig(),restored);await assert.rejects(save({...payload,signature:restored},20),/apertura cambió/);
+ await db.exec('set role authenticated');await assert.rejects(db.exec('select * from supplier_opening_items'));await assert.rejects(db.query('select get_supplier_opening_detail($1)',[id(2)]));await db.exec('reset role');
+ for(const bad of [{...payload,items:[line(0)]},{...payload,items:[{...line(100),dueDate:'2026-02-30'}]},{...payload,items:[{...line(100),condition:'cuenta_3'}]}])assert.throws(()=>validateOpeningDetail({...bad,requestId:id(21)}));
+ await save({...payload,signature:await sig(),items:[]},22);await db.exec("update supplier_account_starts set opening_ars=200,start_date='2026-02-01'");
+ assert.equal((await db.query('select opening_ars from supplier_account_starts')).rows[0].opening_ars,'200.00');
+ console.log('Opening: signed multi-currency conservation, no duplicate ledger amount, stale/replayed requests, audit, header protection, clear/restore and permissions: OK');
+}finally{await db.close();}})().catch(e=>{console.error(e);process.exitCode=1;});

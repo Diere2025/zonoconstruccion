@@ -40,7 +40,7 @@ type Helpers={financialAccounts:Account[];employees:EmployeeOption[];suppliers:S
 type Options={paymentMethods:Array<{id:string;name:string}>;concepts:FinancialConcept[];conceptTypes:Array<{financial_concept_id:string;operation_type:OperationType}>;
  vouchers:Array<{id:string;reference:string|null;counterparty:string|null;voucher_date:string}>};
 type Snapshot={transaction:Record<string,unknown>;operation:{id:string;version:number;status:string}|null;planning:boolean;payload:OperationInput;purchases:PurchaseOption[];order:Order|null};
-type Props={inline?:boolean;compact?:boolean;onMoreOperations?:()=>void;operationId?:string;initialAction?:string;initialResourceId?:string;linkedTransactionId?:string;kind:OperationType;payrollKind?:string;transactionId?:string;sourceAccountId?:string;duplicate?:boolean;mode?:'save'|'link';onClose:()=>void;onSaved:()=>void;requestOverride?:typeof request;preview?:boolean;realDataPreview?:boolean;readOnly?:boolean};
+type Props={initialSupplierId?:string;initialPurchaseId?:string;initialAmount?:string;initialCurrency?:string;inline?:boolean;compact?:boolean;onMoreOperations?:()=>void;operationId?:string;initialAction?:string;initialResourceId?:string;linkedTransactionId?:string;kind:OperationType;payrollKind?:string;transactionId?:string;sourceAccountId?:string;duplicate?:boolean;mode?:'save'|'link';onClose:()=>void;onSaved:()=>void;requestOverride?:typeof request;preview?:boolean;realDataPreview?:boolean;readOnly?:boolean};
 function defaults(kind:OperationType,payrollKind?:string):OperationInput {
  return {operation_type:kind,effective_date:treasuryToday(),account_id:'',direction:kind==='customer_collection'?'ingreso':'egreso',amount:'',payment_method_id:'',concept:'',
   category:kind==='supplier_payment'?'Proveedores':kind==='customer_collection'?'Cobranza':kind==='payroll_payment'?'Sueldos':kind==='tax_payment'?'Impuestos':kind==='internal_transfer'?'Movimiento de cuentas':'Gastos Operativos',
@@ -50,10 +50,10 @@ export default function OperationEditor(props:Props){
  if(isSpecialType(props.kind))return <SpecialOperationEditor {...props} kind={props.kind}/>;
  return <CoreEditor {...props}/>;
 }
-function CoreEditor({inline=false,compact=false,onMoreOperations,kind,payrollKind,transactionId,sourceAccountId,duplicate=false,mode='save',onClose,onSaved,requestOverride,preview=false,realDataPreview=false,readOnly=false}:Props) {
+function CoreEditor({initialSupplierId,initialPurchaseId,initialAmount,initialCurrency,inline=false,compact=false,onMoreOperations,kind,payrollKind,transactionId,sourceAccountId,duplicate=false,mode='save',onClose,onSaved,requestOverride,preview=false,realDataPreview=false,readOnly=false}:Props) {
  const api=requestOverride || request;
  const [reference,setReference]=useState<{code:string;applications:ApplicationReference[]}|null>(null);
- const [value,setValue]=useState<OperationInput>(()=>defaults(kind,payrollKind));
+ const [value,setValue]=useState<OperationInput>(()=>({...defaults(kind,payrollKind),...(kind==='supplier_payment'&&initialSupplierId?{supplier_id:initialSupplierId,amount:initialAmount||'',...(initialPurchaseId&&initialAmount?{detail:{supplier_allocation_mode:'documents' as const},allocations:[{purchase_id:initialPurchaseId,amount:initialAmount}]}:{})}:{})}));
  const [helpers,setHelpers]=useState<Helpers|null>(null),[options,setOptions]=useState<Options|null>(null);
  const [target,setTarget]=useState<OperationTarget|undefined>(),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[error,setError]=useState(''),[savedNotice,setSavedNotice]=useState('');
  const [query,setQuery]=useState(''),[orders,setOrders]=useState<Order[]>([]),[chosenOrder,setChosenOrder]=useState<Order|null>(null);
@@ -102,7 +102,7 @@ function CoreEditor({inline=false,compact=false,onMoreOperations,kind,payrollKin
       setExtraPurchases(snapshot.purchases || []);setChosenOrder(duplicate?null:snapshot.order);if(!duplicate&&s.client)setChosenClient(s.client);
     } else {
       const available=h.financialAccounts.filter((a:Account)=>a.is_active&&!a.is_custody);
-      const account=defaultCashAccount(available);
+      const account=defaultCashAccount(initialCurrency?available.filter((a:Account)=>a.currency===initialCurrency):available);
       setValue(v=>({...v,account_id:account?.id || '',...(kind==='internal_transfer'?transferDefaults(available,sourceAccountId):{})}));
     }
    }catch(e){if(active)setError(e instanceof Error?e.message:'No se pudo abrir el formulario.');}

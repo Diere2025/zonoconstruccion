@@ -25,6 +25,15 @@ assert.equal(supplierLedger(start, entries, [{ source: 'purchase', source_id: 'v
 assert.equal(isAccountDate('2026-02-30'), false);
 assert.equal(isAccountDate('2026-09-29'), true);
 assert.equal(openingAmount('-123.45'), -123.45);
+const period = supplierLedger(start, entries, [], { from: '2026-09-30', to: '2026-09-30' });
+assert.equal(period.previous_balance_ars,105);
+assert.equal(period.balance_ars,65);
+assert.equal(period.balance_usd,5);
+assert.equal(period.rows.length,2);
+assert.equal(supplierLedger(start,entries,[],{to:'2026-09-28'}).balance_ars,0);
+assert.equal(supplierLedger(null,entries,[]).coverage,'missing_opening');
+assert.throws(()=>supplierLedger(start,entries,[],{from:'2026-10-02',to:'2026-10-01'}));
+assert.throws(()=>supplierLedger(start,entries,[],{to:'2026-02-30'}));
 assert.throws(() => openingAmount(''));
 assert.throws(() => openingAmount('Infinity'));
 assert.throws(() => openingAmount('1.001'));

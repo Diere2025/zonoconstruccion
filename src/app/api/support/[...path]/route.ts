@@ -1,7 +1,7 @@
 import {dispatchSupportTelegram} from '@/lib/support/telegram';
 import { NextRequest, NextResponse } from 'next/server';
 import { authorize, body, json, privateHeaders, storageClient } from '@/lib/support/server';
-import { SupportError, databaseError, inspectImage, object, operation, uuid } from '@/lib/support/validation';
+import { SupportError, databaseError, inspectAttachment, object, operation, uuid } from '@/lib/support/validation';
 import type { SupportMe } from '@/lib/support/types';
 import { managementVisibilityFilter, pendingResponsibilityFilter } from '@/lib/support/responsibility';
 export const runtime = 'edge';
@@ -167,9 +167,9 @@ async function handle(request: NextRequest, context: Context): Promise<NextRespo
         const form = await request.formData();
         const file = form.get('file');
         if (!(file instanceof File) || file.size > 10 * 1024 * 1024)
-            throw new SupportError('Seleccioná una imagen de hasta 10 MB.', 413);
+            throw new SupportError('Seleccioná una captura o PDF de hasta 10 MB.', 413);
         const bytes = new Uint8Array(await file.arrayBuffer());
-        const image = inspectImage(bytes, file.type);
+        const image = inspectAttachment(bytes, file.type);
         const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))).map(b => b.toString(16).padStart(2, '0')).join('');
         const id = form.get('ticket_id') ? uuid(form.get('ticket_id')) : null;
         const visibility = form.get('visibility') || 'public';
@@ -207,7 +207,7 @@ async function handle(request: NextRequest, context: Context): Promise<NextRespo
         const file = await storageClient().storage.from('support-attachments').download(attachment.data.path);
         if (file.error || !file.data)
             throw new SupportError('No se pudo recuperar la imagen. Intentá nuevamente.', 503);
-        return new NextResponse(file.data, { headers: { ...privateHeaders, 'Content-Type': attachment.data.mime, 'X-Content-Type-Options': 'nosniff', 'Content-Disposition': `inline; filename*=UTF-8''${encodeURIComponent(attachment.data.name)}`, 'Content-Security-Policy': "default-src 'none'; sandbox" } });
+        return new NextResponse(file.data, { headers: { ...privateHeaders, 'Content-Type': attachment.data.mime, 'X-Content-Type-Options': 'nosniff', 'Content-Disposition': `${attachment.data.mime === 'application/pdf' ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(attachment.data.name)}`, 'Content-Security-Policy': "default-src 'none'; sandbox" } });
     }
     if (path[0] === 'notifications' && path.length === 1) {
         if (isGet) {

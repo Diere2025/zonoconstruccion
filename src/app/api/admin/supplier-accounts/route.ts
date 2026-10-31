@@ -5,6 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 import { requirePurchaseOperator } from '@/lib/purchaseAccess';
 import { requireFinanceAdmin } from '@/lib/financeAdminAccess';
 import { isAccountDate, isUuid, openingAmount, supplierLedger, type AccountEntry, type AccountStart, type HistoryChoice } from '@/lib/supplierAccount';
+import { processSupplierSheetJob } from '@/lib/supplierAccounts/sheetSync';
 
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
@@ -42,7 +43,10 @@ export async function GET(request: Request) {
     const context = await access(request);
     if (context.response) return context.response;
     const { db } = context;
-    const supplierId = new URL(request.url).searchParams.get('supplierId');
+    const params = new URL(request.url).searchParams;
+    const supplierId = params.get('supplierId');
+    const from = params.get('from') || undefined, to = params.get('to') || undefined;
+    if ((from && !isAccountDate(from)) || (to && !isAccountDate(to)) || (from && to && from > to)) return failure(new Error('Período de cuenta corriente inválido.'), 400);
     if (!supplierId) {
       const data = await allRows(db.rpc('get_supplier_account_balances'));
       return NextResponse.json({ suppliers: data });
@@ -63,7 +67,7 @@ export async function GET(request: Request) {
       }
     }
     const start = config.data as AccountStart | null;
-    return NextResponse.json({ start, ...supplierLedger(start, entries as AccountEntry[], history as HistoryChoice[]) });
+    return NextResponse.json({ start, ...supplierLedger(start, entries as AccountEntry[], history as HistoryChoice[], { from, to }) });
   } catch (error) { return failure(error); }
 }
 
@@ -112,7 +116,19 @@ export async function POST(request: Request) {
         p_notes: String(body.notes || ''), p_items: body.items, p_user: user.id
       });
       if (error) throw error;
-      return NextResponse.json({ id: data });
+
+      let sheetSynced = false;
+      let sheetSyncWarning: string | null = null;
+      try {
+        const result=await processSupplierSheetJob(db,String(data||body.id));
+        sheetSynced=result.synced;
+        if(!result.synced)sheetSyncWarning=result.error||'La recepción se guardó. Su copia en planilla quedó en la cola de sincronización.';
+      } catch (syncErr: any) {
+        console.error('[supplier-accounts][receipt] Error al reflejar recepción en Google Sheets:', syncErr);
+        sheetSyncWarning = syncErr?.message || 'La recepción se guardó en el ERP pero no pudo reflejarse automáticamente en la planilla.';
+      }
+
+      return NextResponse.json({ id: data, sheetSynced, sheetSyncWarning });
     } else return failure(new Error('Operación inválida.'), 400);
     return NextResponse.json({ ok: true });
   } catch (error) { return failure(error); }
