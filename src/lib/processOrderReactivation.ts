@@ -1,5 +1,6 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import { reactivateOrderInAllSheets, SheetOrderPayload } from '@/lib/googleSheets';
+import { orderDeclaredPayment } from '@/lib/orderDeclaredPayment';
 
 export async function processOrderReactivation(
   db: SupabaseClient, orderId: string, sellerId: string
@@ -25,10 +26,6 @@ export async function processOrderReactivation(
   ]);
   if (itemsResult.error || !itemsResult.data?.length) throw new Error('No se pudieron consultar los productos del pedido');
   const previous = (creationResult.data?.payload?.order || {}) as SheetOrderPayload;
-  const payments = order.totals?.payments_breakdown;
-  const paidAmount = Array.isArray(payments)
-    ? payments.reduce((sum: number, payment: {amount?:number}) => sum + Number(payment.amount || 0), 0)
-    : Number(order.totals?.deposit_amount || 0);
   const sheetOrder: SheetOrderPayload = {
     ...previous,
     deliveryDate: order.initial_delivery_date || previous.deliveryDate,
@@ -47,9 +44,7 @@ export async function processOrderReactivation(
     category: order.category || previous.category || '',
     paymentMethod: methodResult.data?.name || previous.paymentMethod || '',
     identification: clientResult.data?.tax_id || previous.identification || '',
-    paymentStatus: order.payment_status === 'Seniado' ? 'Señado'
-      : order.payment_status === 'Abonado' ? 'Abonado' : 'No Abonado',
-    depositOrPaidAmount: paidAmount,
+    ...orderDeclaredPayment(order),
     freightType: order.freight_type || previous.freightType || '',
     freightCost: Number(order.totals?.freight || 0),
     items: itemsResult.data.map(item => ({ name: item.product_name || '',
