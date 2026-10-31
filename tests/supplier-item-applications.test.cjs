@@ -6,6 +6,8 @@ const engine=new PGlite();const db={connect:async()=>{},end:()=>engine.close(),q
 function definition(name){const sql=fs.readFileSync('database/db_migration_v136_financial_operations.sql','utf8');const start=sql.indexOf(`create or replace function public.${name}(`);return sql.slice(start,sql.indexOf('$$;',start)+3);}
 (async()=>{await db.connect();try{
  await db.query('begin');
+ // Calendar dates in this ERP fixture belong to Buenos Aires on every host.
+ await db.query("set local timezone='America/Argentina/Buenos_Aires'");
  await db.query(`
  create role anon;create role authenticated;create role service_role;
  create table suppliers(id uuid primary key,name text);
