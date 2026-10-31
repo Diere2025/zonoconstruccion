@@ -6,7 +6,16 @@ const ts = require('typescript');
 const exportsObject = {};
 vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/lib/support/validation.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:exportsObject,Uint8Array,DataView});
 const {inspectImage,operation,databaseError,SupportError}=exportsObject;
+const {inspectAttachment}=exportsObject;
 const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a/RsAAAAASUVORK5CYII=','base64');
+
+test('private PDF attachment checks reject disguised, incomplete and oversized files',()=>{
+  const valid=Buffer.from('%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF\n');
+  assert.deepEqual(JSON.parse(JSON.stringify(inspectAttachment(valid,'application/pdf'))),{mime:'application/pdf',width:null,height:null});
+  assert.equal(inspectAttachment(png,'image/png').width,1);
+  for(const bytes of [png,Buffer.from('<html>PDF</html>'),Buffer.from('%PDF-1.7\ntruncated')])assert.throws(()=>inspectAttachment(bytes,'application/pdf'),SupportError);
+  assert.throws(()=>inspectAttachment(new Uint8Array(10*1024*1024+1),'application/pdf'),e=>e.status===413);
+});
 test('accepts original PNG screenshots and identifies dimensions',()=>{
   const result=inspectImage(png,'image/png');assert.equal(result.width,1);assert.equal(result.height,1);assert.equal(result.mime,'image/png');
 });

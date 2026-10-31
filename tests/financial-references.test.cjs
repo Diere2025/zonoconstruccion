@@ -6,6 +6,13 @@ const vm=require('node:vm');
 const mod={};
 vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/lib/financialOperations/references.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText,{exports:mod});
 const {movementCode,supplierApplications}=mod;
+test('credit applications show reciprocal document references without creating a payment reference',()=>{
+ const docs=[{id:'nc',invoice_number:'NC-1',document_type:'Nota de Crédito'},{id:'bill',invoice_number:'F-1',document_type:'Factura'}];
+ const refs=mod.supplierCreditReferences([{credit_id:'nc',purchase_id:'bill',amount:'30.00'}],docs);
+ assert.equal(refs.get('bill')[0].kind,'Nota de crédito');assert.equal(refs.get('bill')[0].amount,30);
+ assert.equal(refs.get('nc')[0].kind,'Documento compensado');assert.match(refs.get('nc')[0].href,/purchase=bill/);
+ assert.equal(mod.supplierCreditReferences([{credit_id:'nc',purchase_id:'bill',amount:30}],[...docs.slice(0,1),{...docs[1],status:'Anulado'}]).size,0);
+});
 test('one payment applied partially to two documents has the same code in both directions',()=>{
  const payments=[{id:'p1',cash_transaction_id:'t1'},{id:'p2',cash_transaction_id:'t2'},{id:'p3',cash_transaction_id:'t3',reversed_at:'2026-10-08'}];
  const purchases=[{id:'d1',invoice_number:'A-0001-123',document_type:'Factura'},{id:'d2',invoice_number:'REC-12',document_type:'Remito'}];

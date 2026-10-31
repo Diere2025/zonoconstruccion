@@ -1,0 +1,9 @@
+import {NextResponse} from 'next/server';
+import {createClient} from '@supabase/supabase-js';
+import {requirePurchaseOperator} from '@/lib/purchaseAccess';
+import {isUuid} from '@/lib/supplierAccount';
+import {processSupplierSheetJob} from '@/lib/supplierAccounts/sheetSync';
+export const runtime='edge';export const dynamic='force-dynamic';
+const db=()=>createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!,process.env.SUPABASE_SERVICE_ROLE_KEY!,{auth:{persistSession:false,autoRefreshToken:false}});
+export async function GET(request:Request){try{const denied=await requirePurchaseOperator(request);if(denied)return NextResponse.json({error:denied.error},{status:denied.status});const supplier=new URL(request.url).searchParams.get('supplierId');if(supplier&&!isUuid(supplier))throw new Error('Proveedor inválido.');const r=await db().rpc('get_supplier_sheet_queue',{p_supplier:supplier});if(r.error)throw r.error;return NextResponse.json(r.data,{headers:{'Cache-Control':'no-store'}});}catch(error){return NextResponse.json({error:(error as Error).message},{status:400});}}
+export async function POST(request:Request){try{const denied=await requirePurchaseOperator(request);if(denied)return NextResponse.json({error:denied.error},{status:denied.status});const b=await request.json();if(b.receptionId&&!isUuid(b.receptionId)||b.supplierId&&!isUuid(b.supplierId))throw new Error('Recepción o proveedor inválidos.');const client=db();if(b.supplierId&&b.receptionId){const r=await client.from('purchase_receptions').select('id').eq('id',b.receptionId).eq('supplier_id',b.supplierId).maybeSingle();if(r.error)throw r.error;if(!r.data)throw new Error('La recepción no pertenece al proveedor.');}return NextResponse.json(await processSupplierSheetJob(client,b.receptionId,!!b.receptionId,b.supplierId));}catch(error){return NextResponse.json({error:(error as Error).message},{status:400});}}

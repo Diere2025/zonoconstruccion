@@ -24,7 +24,7 @@ export function operation(value: unknown) {
         throw new SupportError('La versión del ticket no es válida.');
     const attachments = data.attachments;
     if (attachments !== undefined && (!Array.isArray(attachments) || attachments.length > 5))
-        throw new SupportError('Podés enviar hasta 5 imágenes.');
+        throw new SupportError('Podés enviar hasta 5 archivos.');
     if (Array.isArray(attachments))
         attachments.forEach(uuid);
     if (data.body !== undefined)
@@ -32,6 +32,17 @@ export function operation(value: unknown) {
     if (data.solution !== undefined)
         text(data.solution);
     return { key, data, version: input.expectedVersion === undefined ? null : Number(input.expectedVersion) };
+}
+// PDFs are downloaded as private attachments, never interpreted as images or embedded HTML.
+export function inspectAttachment(bytes: Uint8Array, claimedMime: string) {
+    if (claimedMime !== 'application/pdf') return inspectImage(bytes, claimedMime);
+    if (!bytes.length || bytes.length > 10 * 1024 * 1024)
+        throw new SupportError('Cada archivo puede pesar hasta 10 MB.', 413);
+    const ascii = (part: Uint8Array) => String.fromCharCode(...part);
+    if (!/^%PDF-1\.[0-9]|^%PDF-2\.0/.test(ascii(bytes.slice(0, 8))) ||
+        !/%%EOF\s*$/.test(ascii(bytes.slice(-1024))))
+        throw new SupportError('Elegí un documento PDF válido y completo.');
+    return { mime: 'application/pdf', width: null, height: null };
 }
 export function inspectImage(bytes: Uint8Array, claimedMime: string) {
     if (!bytes.length || bytes.length > 10 * 1024 * 1024)
@@ -132,8 +143,8 @@ const dbErrors: Record<string, [
     SUPPORT_REQUESTER_INACTIVE: [422, 'El solicitante está desactivado. Revisá el caso antes de pedirle una acción.'],
     SUPPORT_LAST_ADMIN: [422, 'Debe quedar al menos un administrador activo.'],
     SUPPORT_SECTOR_OPEN: [422, 'Transferí las incidencias abiertas antes de desactivar el sector.'],
-    SUPPORT_UPLOAD_INVALID: [422, 'La imagen ya se usó, venció o no corresponde a este envío.'],
-    SUPPORT_UPLOAD_LIMIT: [413, 'Se superó el límite de imágenes. Quitá archivos o enviá menos imágenes.'],
+    SUPPORT_UPLOAD_INVALID: [422, 'El archivo ya se usó, venció o no corresponde a este envío.'],
+    SUPPORT_UPLOAD_LIMIT: [413, 'Se superó el límite de archivos. Quitá archivos o enviá menos adjuntos.'],
     SUPPORT_RATE_LIMIT: [429, 'Se enviaron muchas acciones. Esperá un minuto e intentá nuevamente.'],
 };
 export function databaseError(error: {

@@ -403,6 +403,7 @@ export async function contrastAndSyncPurchaseSheet(options: {
   ]);
   if (eOC) throw eOC;
   if (eRec) throw eRec;
+  if(execute&&(erpOCs||[]).some(po=>po.currency==='USD'))throw new Error('La planilla no identifica monedas. Conservá las OCs en USD en el ERP hasta contar con moneda o conversión explícita en el espejo.');
 
   const erpOCByCode = new Map<string, any>();
   for (const o of erpOCs || []) {
@@ -869,4 +870,485 @@ export async function contrastAndSyncPurchaseSheet(options: {
   };
 
   return summary;
+}
+
+/**
+ * Automatically pushes one or more ERP Purchase Orders (created or updated in the ERP)
+ * directly to the Google Sheet ('1.OCs' and '2.DetalleOCs').
+ * - If an OC does not exist in '1.OCs', appends its header and active items.
+ * - If an OC already exists in '1.OCs', updates its header and item rows (quantities, costs, or cancellation/closure flags)
+ *   and appends any newly added item lines.
+ */
+export async function syncErpPurchaseOrdersToSheet(poIds: string[]): Promise<{
+  pushedOCsCount: number;
+  updatedOCsCount: number;
+  pushedItemsCount: number;
+  updatedItemsCount: number;
+}> {
+  const cleanIds = Array.from(new Set((poIds || []).map(id => String(id || '').trim()).filter(Boolean)));
+  if (!cleanIds.length) {
+    return { pushedOCsCount: 0, updatedOCsCount: 0, pushedItemsCount: 0, updatedItemsCount: 0 };
+  }
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+  const supabase = createClient(supabaseUrl, serviceKey);
+
+  const { data: targetOCs, error: poErr } = await supabase
+    .from('purchase_orders')
+    .select('*, supplier:suppliers(name), purchase_order_items(*, product:products(id, name, sku))')
+    .in('id', cleanIds)
+    .order('order_date', { ascending: true });
+
+  if (poErr) throw poErr;
+  if (!targetOCs || targetOCs.length === 0) {
+    return { pushedOCsCount: 0, updatedOCsCount: 0, pushedItemsCount: 0, updatedItemsCount: 0 };
+  }
+  if(targetOCs.some(po=>po.currency==='USD'))throw new Error('La planilla de OCs no identifica monedas. La OC en USD se conserva en el ERP; requiere un espejo con moneda o una conversión explícita antes de copiar importes.');
+
+  const token = await getGoogleAccessToken();
+  const [ocRows, detalleRows, dbRows] = await fetchBatchRanges(
+    token,
+    PURCHASE_ORDERS_SHEET_ID,
+    ["'1.OCs'!A1:I2500", "'2.DetalleOCs'!A1:P10000", "'DB'!A1:B1500"]
+  );
+
+  const dbProductByNorm = new Map<string, string>();
+  const dbSupplierByNorm = new Map<string, string>();
+  for (let i = 1; i < (dbRows || []).length; i++) {
+    const r = dbRows[i];
+    const prodVal = String(r?.[0] || '').trim();
+    const supVal = String(r?.[1] || '').trim();
+    if (prodVal) dbProductByNorm.set(norm(prodVal), prodVal);
+    if (supVal) dbSupplierByNorm.set(norm(supVal), supVal);
+  }
+
+  function getSheetProductName(product: any, fallbackRawName?: string | null): string {
+    const sku = String(product?.sku || '').trim();
+    const validSku = sku && !sku.startsWith('AUTO-') && !sku.endsWith('_OLD') ? sku : '';
+    const rawFallback = String(fallbackRawName || '').trim();
+    const cleanName = String(product?.name || '')
+      .replace(/^\[interno\]\s*/i, '')
+      .trim();
+
+    for (const candidate of [validSku, rawFallback, cleanName]) {
+      if (!candidate) continue;
+      const n = norm(candidate);
+      if (dbProductByNorm.has(n)) return dbProductByNorm.get(n)!;
+      const aliased = PRODUCT_ALIASES[n];
+      if (aliased && dbProductByNorm.has(aliased)) return dbProductByNorm.get(aliased)!;
+    }
+
+    return validSku || rawFallback || cleanName || String(product?.name || '').trim();
+  }
+
+  function getSheetSupplierName(rawSupplierName?: string | null): string {
+    const s = String(rawSupplierName || '').trim();
+    if (!s) return '';
+    const n = norm(s);
+    if (dbSupplierByNorm.has(n)) return dbSupplierByNorm.get(n)!;
+    if (n === 'inyecplast' && dbSupplierByNorm.has('inyectplast')) {
+      return dbSupplierByNorm.get('inyectplast')!;
+    }
+    return s;
+  }
+
+  const sheetOCMap = new Map<string, { rowNumber: number; oc_code: string; items: Array<{ rowNumber: number; productName: string }> }>();
+  let lastOCRow = 1;
+  for (let i = 1; i < (ocRows || []).length; i++) {
+    const r = ocRows[i];
+    const code = String(r?.[0] || '').trim();
+    if (!code) continue;
+    lastOCRow = i + 1;
+    sheetOCMap.set(code, {
+      rowNumber: i + 1,
+      oc_code: code,
+      items: [],
+    });
+  }
+
+  let lastDetalleRow = 1;
+  for (let i = 1; i < (detalleRows || []).length; i++) {
+    const r = detalleRows[i];
+    const code = String(r?.[0] || '').trim();
+    const prod = String(r?.[3] || '').trim();
+    if (!code && !prod) continue;
+    lastDetalleRow = i + 1;
+    const oc = sheetOCMap.get(code);
+    if (oc && prod) {
+      oc.items.push({
+        rowNumber: i + 1,
+        productName: prod,
+      });
+    }
+  }
+
+  let nextOCRow = lastOCRow + 1;
+  let nextDetalleRow = lastDetalleRow + 1;
+  const sheetUpdates: Array<{ range: string; values: any[][] }> = [];
+
+  let pushedOCsCount = 0;
+  let updatedOCsCount = 0;
+  let pushedItemsCount = 0;
+  let updatedItemsCount = 0;
+
+  for (const erpOC of targetOCs) {
+    const ocCode = String(erpOC.oc_code || '').trim();
+    if (!ocCode) continue;
+    const mappedSheetCode = EQUIVALENT_ERP_TO_SHEET_OCS[ocCode] || ocCode;
+    const existingSheetOC = sheetOCMap.get(mappedSheetCode);
+
+    const dateDDMMYYYY = formatDDMMYYYY(erpOC.order_date);
+    const estDelivDDMMYYYY = erpOC.estimated_delivery_date
+      ? formatDDMMYYYY(erpOC.estimated_delivery_date)
+      : '';
+    const supplierName = getSheetSupplierName(erpOC.supplier?.name || '');
+    const allItems: any[] = erpOC.purchase_order_items || [];
+
+    if (!existingSheetOC) {
+      if (erpOC.status === 'Cancelado') continue;
+      const activeItems = allItems.filter(i => i.status !== 'Cancelado');
+      if (!activeItems.length) continue;
+
+      const rOC = nextOCRow++;
+      sheetUpdates.push({
+        range: `'1.OCs'!A${rOC}:I${rOC}`,
+        values: [
+          [
+            ocCode,
+            dateDDMMYYYY,
+            supplierName,
+            erpOC.payment_condition || '',
+            erpOC.payment_term_days || '',
+            estDelivDDMMYYYY,
+            erpOC.notes || '',
+            `=SUMIF('2.DetalleOCs'!A:A;A${rOC};'2.DetalleOCs'!G:G)`,
+            `=IF(A${rOC}="";"";IF(COUNTIFS('2.DetalleOCs'!A:A;A${rOC};'2.DetalleOCs'!J:J;"Pendiente")>0;"Pendiente";"Cumplido"))`,
+          ],
+        ],
+      });
+      pushedOCsCount++;
+
+      for (const item of activeItems) {
+        const rDet = nextDetalleRow++;
+        const prodName = getSheetProductName(item.product, item.raw_product_name);
+        const qtyOrd = Number(item.quantity_ordered || 0);
+        const unitCost = Number(item.unit_cost || 0);
+        const isClosed = Boolean(item.shortfall_closed) || item.status === 'Cancelado';
+
+        sheetUpdates.push({
+          range: `'2.DetalleOCs'!A${rDet}:P${rDet}`,
+          values: [
+            [
+              ocCode,
+              `=IFERROR(VLOOKUP(A${rDet};'1.OCs'!A:B;2;0))`,
+              `=IFERROR(VLOOKUP(A${rDet};'1.OCs'!A:C;3;0))`,
+              prodName,
+              qtyOrd,
+              unitCost,
+              `=F${rDet}*E${rDet}`,
+              `=SUMIFS('DocumentosDeRecepción'!E:E;'DocumentosDeRecepción'!D:D;D${rDet};'DocumentosDeRecepción'!F:F;A${rDet})+SUMIFS('Recibidos Enero'!C:C;'Recibidos Enero'!B:B;D${rDet};'Recibidos Enero'!E:E;A${rDet})`,
+              `=IF(L${rDet}="SI";0;E${rDet}-H${rDet})`,
+              `=IF(I${rDet}=0;"Linea Cumplida";IF(I${rDet}<0;"Demás";"Pendiente"))`,
+              'SI',
+              isClosed ? 'SI' : '',
+              estDelivDDMMYYYY,
+              '',
+              '',
+              `=IFERROR(VLOOKUP(D${rDet};'BD Costo'!A:E;5;0))`,
+            ],
+          ],
+        });
+        pushedItemsCount++;
+      }
+    } else {
+      // Update existing OC header metadata in '1.OCs'
+      const rOC = existingSheetOC.rowNumber;
+      sheetUpdates.push({
+        range: `'1.OCs'!B${rOC}:G${rOC}`,
+        values: [
+          [
+            dateDDMMYYYY,
+            supplierName,
+            erpOC.payment_condition || '',
+            erpOC.payment_term_days || '',
+            estDelivDDMMYYYY,
+            erpOC.notes || '',
+          ],
+        ],
+      });
+      updatedOCsCount++;
+
+      const usedSheetRowNumbers = new Set<number>();
+      for (const item of allItems) {
+        const prodName = getSheetProductName(item.product, item.raw_product_name);
+        const itemNorm = norm(prodName);
+        const rawNorm = norm(item.raw_product_name);
+        const skuNorm = norm(item.product?.sku);
+
+        const matchedSheetItem = existingSheetOC.items.find(
+          si =>
+            !usedSheetRowNumbers.has(si.rowNumber) &&
+            (norm(si.productName) === itemNorm ||
+              (rawNorm && norm(si.productName) === rawNorm) ||
+              (skuNorm && norm(si.productName) === skuNorm))
+        );
+
+        const qtyOrd = Number(item.quantity_ordered || 0);
+        const unitCost = Number(item.unit_cost || 0);
+        const isCancelledOrClosed =
+          erpOC.status === 'Cancelado' ||
+          item.status === 'Cancelado' ||
+          Boolean(item.shortfall_closed);
+
+        if (matchedSheetItem) {
+          usedSheetRowNumbers.add(matchedSheetItem.rowNumber);
+          const rDet = matchedSheetItem.rowNumber;
+          sheetUpdates.push({
+            range: `'2.DetalleOCs'!D${rDet}:F${rDet}`,
+            values: [[prodName, qtyOrd, unitCost]],
+          });
+          sheetUpdates.push({
+            range: `'2.DetalleOCs'!L${rDet}:M${rDet}`,
+            values: [[isCancelledOrClosed ? 'SI' : '', estDelivDDMMYYYY]],
+          });
+          updatedItemsCount++;
+        } else if (!isCancelledOrClosed) {
+          const rDet = nextDetalleRow++;
+          sheetUpdates.push({
+            range: `'2.DetalleOCs'!A${rDet}:P${rDet}`,
+            values: [
+              [
+                mappedSheetCode,
+                `=IFERROR(VLOOKUP(A${rDet};'1.OCs'!A:B;2;0))`,
+                `=IFERROR(VLOOKUP(A${rDet};'1.OCs'!A:C;3;0))`,
+                prodName,
+                qtyOrd,
+                unitCost,
+                `=F${rDet}*E${rDet}`,
+                `=SUMIFS('DocumentosDeRecepción'!E:E;'DocumentosDeRecepción'!D:D;D${rDet};'DocumentosDeRecepción'!F:F;A${rDet})+SUMIFS('Recibidos Enero'!C:C;'Recibidos Enero'!B:B;D${rDet};'Recibidos Enero'!E:E;A${rDet})`,
+                `=IF(L${rDet}="SI";0;E${rDet}-H${rDet})`,
+                `=IF(I${rDet}=0;"Linea Cumplida";IF(I${rDet}<0;"Demás";"Pendiente"))`,
+                'SI',
+                '',
+                estDelivDDMMYYYY,
+                '',
+                '',
+                `=IFERROR(VLOOKUP(D${rDet};'BD Costo'!A:E;5;0))`,
+              ],
+            ],
+          });
+          pushedItemsCount++;
+        }
+      }
+
+      // Any sheet detail row that was deleted from the ERP OC is marked as cancelled ('SI' in col L)
+      for (const si of existingSheetOC.items) {
+        if (!usedSheetRowNumbers.has(si.rowNumber)) {
+          sheetUpdates.push({
+            range: `'2.DetalleOCs'!L${si.rowNumber}`,
+            values: [['SI']],
+          });
+          updatedItemsCount++;
+        }
+      }
+    }
+  }
+
+  if (sheetUpdates.length > 0) {
+    await ensureSheetCapacity(token, PURCHASE_ORDERS_SHEET_ID, '1.OCs', nextOCRow);
+    await ensureSheetCapacity(token, PURCHASE_ORDERS_SHEET_ID, '2.DetalleOCs', nextDetalleRow);
+    await batchUpdateValues(token, PURCHASE_ORDERS_SHEET_ID, sheetUpdates);
+  }
+
+  return { pushedOCsCount, updatedOCsCount, pushedItemsCount, updatedItemsCount };
+}
+
+/**
+ * Automatically pushes an ERP Purchase Reception (DR) to 'DocumentosDeRecepción' in Google Sheets,
+ * and ensures its linked Purchase Orders exist and are up-to-date in '1.OCs' / '2.DetalleOCs'.
+ */
+export async function syncErpReceptionToSheet(receptionId: string): Promise<{
+  pushedReceptionItemsCount: number;
+  syncedOCs?: {
+    pushedOCsCount: number;
+    updatedOCsCount: number;
+    pushedItemsCount: number;
+    updatedItemsCount: number;
+  };
+}> {
+  const cleanId = String(receptionId || '').trim();
+  if (!cleanId) return { pushedReceptionItemsCount: 0 };
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+  const supabase = createClient(supabaseUrl, serviceKey);
+
+  const { data: rec, error: recErr } = await supabase
+    .from('purchase_receptions')
+    .select(
+      '*, supplier:suppliers(name), purchase_orders!purchase_receptions_purchase_order_id_fkey(id, oc_code), purchase_reception_items(*, product:products(id, name, sku), purchase_order_items(id, purchase_order_id, purchase_orders(id, oc_code))), purchase_reception_orders(purchase_order_id, purchase_orders(id, oc_code))'
+    )
+    .eq('id', cleanId)
+    .maybeSingle();
+
+  if (recErr) throw recErr;
+  if (!rec) return { pushedReceptionItemsCount: 0 };
+
+  // Collect all linked PO IDs so we make sure the OC exists in '1.OCs' / '2.DetalleOCs' and reflects any shortfall closure
+  const linkedPoIds = new Set<string>();
+  const linkedOcCodes: string[] = [];
+  if (rec.purchase_order_id) linkedPoIds.add(String(rec.purchase_order_id));
+  if (rec.purchase_orders?.oc_code) linkedOcCodes.push(String(rec.purchase_orders.oc_code));
+
+  for (const ro of rec.purchase_reception_orders || []) {
+    if (ro.purchase_order_id) linkedPoIds.add(String(ro.purchase_order_id));
+    if (ro.purchase_orders?.oc_code && !linkedOcCodes.includes(ro.purchase_orders.oc_code)) {
+      linkedOcCodes.push(String(ro.purchase_orders.oc_code));
+    }
+  }
+  for (const ri of rec.purchase_reception_items || []) {
+    const poId = ri.purchase_order_items?.purchase_order_id;
+    const poCode = ri.purchase_order_items?.purchase_orders?.oc_code;
+    if (poId) linkedPoIds.add(String(poId));
+    if (poCode && !linkedOcCodes.includes(poCode)) {
+      linkedOcCodes.push(String(poCode));
+    }
+  }
+
+  let syncedOCs:
+    | {
+        pushedOCsCount: number;
+        updatedOCsCount: number;
+        pushedItemsCount: number;
+        updatedItemsCount: number;
+      }
+    | undefined;
+
+  if (linkedPoIds.size > 0) {
+    syncedOCs = await syncErpPurchaseOrdersToSheet(Array.from(linkedPoIds));
+  }
+
+  const token = await getGoogleAccessToken();
+  const [recepRows, dbRows] = await fetchBatchRanges(
+    token,
+    PURCHASE_ORDERS_SHEET_ID,
+    ["'DocumentosDeRecepción'!A:J", "'DB'!A1:B1500"]
+  );
+
+  const dbProductByNorm = new Map<string, string>();
+  const dbSupplierByNorm = new Map<string, string>();
+  for (let i = 1; i < (dbRows || []).length; i++) {
+    const r = dbRows[i];
+    const prodVal = String(r?.[0] || '').trim();
+    const supVal = String(r?.[1] || '').trim();
+    if (prodVal) dbProductByNorm.set(norm(prodVal), prodVal);
+    if (supVal) dbSupplierByNorm.set(norm(supVal), supVal);
+  }
+
+  function getSheetProductName(product: any, fallbackRawName?: string | null): string {
+    const sku = String(product?.sku || '').trim();
+    const validSku = sku && !sku.startsWith('AUTO-') && !sku.endsWith('_OLD') ? sku : '';
+    const rawFallback = String(fallbackRawName || '').trim();
+    const cleanName = String(product?.name || '')
+      .replace(/^\[interno\]\s*/i, '')
+      .trim();
+
+    for (const candidate of [validSku, rawFallback, cleanName]) {
+      if (!candidate) continue;
+      const n = norm(candidate);
+      if (dbProductByNorm.has(n)) return dbProductByNorm.get(n)!;
+      const aliased = PRODUCT_ALIASES[n];
+      if (aliased && dbProductByNorm.has(aliased)) return dbProductByNorm.get(aliased)!;
+    }
+
+    return validSku || rawFallback || cleanName || String(product?.name || '').trim();
+  }
+
+  function getSheetSupplierName(rawSupplierName?: string | null): string {
+    const s = String(rawSupplierName || '').trim();
+    if (!s) return '';
+    const n = norm(s);
+    if (dbSupplierByNorm.has(n)) return dbSupplierByNorm.get(n)!;
+    if (n === 'inyecplast' && dbSupplierByNorm.has('inyectplast')) {
+      return dbSupplierByNorm.get('inyectplast')!;
+    }
+    return s;
+  }
+
+  let lastRecepRow = 1;
+  // USER_ENTERED must preserve identifiers (including leading zeroes) as text.
+  const sheetText=(value:unknown)=>"'"+String(value??'');
+  const markerHeaders=['ERP recepción','ERP artículo'];
+  const presentHeaders=[String(recepRows?.[2]?.[8]||''),String(recepRows?.[2]?.[9]||'')];
+  const headersMatch=presentHeaders.every((value,index)=>value===markerHeaders[index]);
+  if(!headersMatch&&(recepRows||[]).some(row=>row?.[8]||row?.[9]))throw new Error('Las columnas I:J de recepciones tienen otro contenido. Revisá el espejo antes de sincronizar.');
+  const existingExactLineKeys = new Map<string,number>();
+  const existingItemIds=new Set<string>();
+  for (let i = 1; i < (recepRows || []).length; i++) {
+    const r = recepRows[i];
+    const slip = String(r?.[0] || '').trim();
+    const rawDate = String(r?.[1] || '').trim();
+    const prod = String(r?.[3] || '').trim();
+    const qty = parseNumber(r?.[4]);
+    const ocCode = String(r?.[5] || '').trim();
+    if (r.some(value=>value!==null&&value!==undefined&&String(value).trim()!=='')) lastRecepRow = i + 1;
+    if (rawDate && prod) {
+      const key=`${norm(slip)}||${rawDate}||${ocCode}||${norm(prod)}||${qty}`;
+      if(String(r?.[8]||'')===cleanId&&r?.[9])existingItemIds.add(String(r[9]));
+      if(!r?.[9])existingExactLineKeys.set(key,(existingExactLineKeys.get(key)||0)+1);
+    }
+  }
+
+  let nextRecepRow = lastRecepRow + 1;
+  const sheetUpdates: Array<{ range: string; values: any[][] }> = [];
+  if(!headersMatch)sheetUpdates.push({range:"'DocumentosDeRecepción'!I3:J3",values:[markerHeaders]});
+  let pushedReceptionItemsCount = 0;
+
+  const recDateDDMMYYYY = formatDDMMYYYY(rec.reception_date);
+  const supName = getSheetSupplierName(rec.supplier?.name || '');
+  const rawSlip = String(rec.delivery_slip_number || '').trim();
+  const slipNumber = rawSlip || `REC-${String(rec.id).slice(0, 8).toUpperCase()}`;
+  const fallbackOcCode = rec.purchase_orders?.oc_code || linkedOcCodes[0] || '';
+
+  for (const ri of rec.purchase_reception_items || []) {
+    const qty = Number(ri.quantity_received || 0);
+    if (qty <= 0) continue;
+
+    const rawOcCode = ri.purchase_order_items?.purchase_orders?.oc_code || fallbackOcCode;
+    const mappedOcCode = rawOcCode ? EQUIVALENT_ERP_TO_SHEET_OCS[rawOcCode] || rawOcCode : '';
+    const sheetProdName = getSheetProductName(ri.product, ri.product_name);
+
+    const dedupKey = `${norm(slipNumber)}||${recDateDDMMYYYY}||${mappedOcCode}||${norm(sheetProdName)}||${qty}`;
+    const emptySlipDedupKey = `||${recDateDDMMYYYY}||${mappedOcCode}||${norm(sheetProdName)}||${qty}`;
+    if(existingItemIds.has(String(ri.id)))continue;
+    const legacyKey=(existingExactLineKeys.get(dedupKey)||0)>0?dedupKey:!rawSlip&&(existingExactLineKeys.get(emptySlipDedupKey)||0)>0?emptySlipDedupKey:null;
+    if(legacyKey){existingExactLineKeys.set(legacyKey,(existingExactLineKeys.get(legacyKey)||0)-1);continue;}
+
+    const rRec = nextRecepRow++;
+    sheetUpdates.push({
+      range: `'DocumentosDeRecepción'!A${rRec}:F${rRec}`,
+      values: [
+        [
+          sheetText(slipNumber),
+          recDateDDMMYYYY,
+          sheetText(supName),
+          sheetText(sheetProdName),
+          qty,
+          sheetText(mappedOcCode),
+        ],
+      ],
+    });
+    if(rawSlip)sheetUpdates.push({range:`'DocumentosDeRecepción'!G${rRec}:G${rRec}`,values:[[sheetText(rawSlip)]]});
+    sheetUpdates.push({range:`'DocumentosDeRecepción'!I${rRec}:J${rRec}`,values:[[sheetText(cleanId),sheetText(ri.id)]]});
+    existingItemIds.add(String(ri.id));
+    pushedReceptionItemsCount++;
+  }
+
+  if (sheetUpdates.length > 0) {
+    await ensureSheetCapacity(token, PURCHASE_ORDERS_SHEET_ID, 'DocumentosDeRecepción', nextRecepRow);
+    await batchUpdateValues(token, PURCHASE_ORDERS_SHEET_ID, sheetUpdates);
+  }
+
+  return { pushedReceptionItemsCount, syncedOCs };
 }

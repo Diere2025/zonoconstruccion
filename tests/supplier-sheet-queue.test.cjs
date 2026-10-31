@@ -1,0 +1,20 @@
+const fs=require('fs'),path=require('path'),assert=require('assert/strict');const {PGlite}=require(require.resolve('@electric-sql/pglite',{paths:[path.resolve('.codex-tmp/supplier-account-check')]}));
+const id=n=>`00000000-0000-0000-0000-${String(n).padStart(12,'0')}`;
+(async()=>{const db=new PGlite();try{
+ await db.exec(`create role anon;create role authenticated;create role service_role;create table suppliers(id uuid primary key,name text);insert into suppliers values('${id(1)}','Proveedor');create table purchase_receptions(id uuid primary key,supplier_id uuid,delivery_slip_number text,reception_date timestamptz);insert into purchase_receptions values('${id(2)}','${id(1)}','ANTERIOR','2026-10-01');`);
+ await db.exec(fs.readFileSync('database/db_migration_v262_supplier_sheet_sync_queue.sql','utf8'));
+ assert.equal((await db.query('select count(*)::int n from supplier_sheet_sync_jobs')).rows[0].n,0,'Do not enqueue historical receipts during installation');
+ await db.exec(`begin;insert into purchase_receptions values('${id(3)}','${id(1)}','REVERTIR',now());rollback;`);assert.equal((await db.query('select count(*)::int n from supplier_sheet_sync_jobs')).rows[0].n,0);
+ await db.exec(`insert into purchase_receptions values('${id(4)}','${id(1)}','NUEVO',now());`);
+ const claim=async(token,reception=null)=>(await db.query('select claim_supplier_sheet_job($1,$2) j',[reception,id(token)])).rows[0].j;
+ const finish=async(token,success)=>(await db.query('select finish_supplier_sheet_job($1,$2,$3,$4)',[id(4),id(token),success,success?null:'Error de prueba']));
+ assert.equal((await claim(10)).reception_id,id(4));assert.equal(await claim(11),null);await finish(10,false);
+ assert.equal(await claim(11),null,'Backoff suppresses automatic immediate retries');
+ await db.query('select enqueue_supplier_sheet_job($1,true)',[id(4)]);assert.equal((await claim(12)).attempts,2);
+ await db.exec("update purchase_sheet_write_lease set expires_at=now()-interval '1 second';update supplier_sheet_sync_jobs set lease_until=now()-interval '1 second'");
+ assert.equal((await claim(13)).attempts,3);await assert.rejects(finish(12,true),/turno/);await finish(13,true);
+ assert.equal(await claim(14),null);await db.query('select enqueue_supplier_sheet_job($1,false)',[id(4)]);assert.equal(await claim(14,id(4)),null);
+ const q=(await db.query('select get_supplier_sheet_queue($1) q',[id(1)])).rows[0].q;assert.equal(q.counts.done,1);assert.equal(q.jobs[0].attempts,3);
+ await db.exec('set role authenticated');await assert.rejects(claim(15));await assert.rejects(db.exec('select * from supplier_sheet_sync_jobs'));await db.exec('reset role');
+ console.log('Sheet queue: atomic enqueue, no historical replay, exclusive writer, backoff, expired leases, stale completion, exact retries and private access: OK');
+}finally{await db.close();}})().catch(e=>{console.error(e);process.exitCode=1;});

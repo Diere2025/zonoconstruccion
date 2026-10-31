@@ -1,6 +1,6 @@
 export const statuses = { new: 'Nuevo', in_progress: 'En atención', waiting_requester: 'Esperando respuesta', waiting_validation: 'En revisión', closed: 'Cerrado', cancelled: 'Cancelado' } as const;
 export const priorities = { low: 'Baja', medium: 'Media', high: 'Alta', critical: 'Crítica' } as const;
-export const ticketTypes = { error: 'Error', improvement: 'Mejora', feature: 'Nueva función', question: 'Consulta', request: 'Solicitud operativa' } as const;
+export const ticketTypes = { error: 'Error', improvement: 'Mejora', feature: 'Nueva función', implementation: 'Nueva Implementación', question: 'Consulta', request: 'Solicitud operativa' } as const;
 export type Status = keyof typeof statuses;
 export type Priority = keyof typeof priorities;
 export type TicketType = keyof typeof ticketTypes;

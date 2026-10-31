@@ -1,0 +1,53 @@
+const assert=require('node:assert/strict'),fs=require('fs'),path=require('path'),vm=require('vm'),ts=require('typescript');
+const {PGlite}=require(require.resolve('@electric-sql/pglite',{paths:[path.resolve('.codex-tmp/supplier-account-check')]}));
+const load=(file,imports={})=>{const exports={};vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText,{exports,require:name=>imports[name]});return exports;};
+const helpers=load('src/lib/supplierAccount.ts'),{payableSummary,validateBillSchedule}=load('src/lib/supplierAccounts/payables.ts',{'../supplierAccount':helpers});
+const id=n=>`00000000-0000-0000-0000-${String(n).padStart(12,'0')}`;
+(async()=>{const db=new PGlite();try{
+ await db.exec(`create role anon;create role authenticated;create role service_role;create schema auth;create table auth.users(id uuid primary key);
+ insert into auth.users values('${id(1)}');
+ create table supplier_purchases(id uuid primary key,supplier_id uuid,currency text,status text,document_type text,invoice_number text,purchase_date timestamptz,created_at timestamptz,due_date timestamptz,purchase_reception_id uuid,total_amount numeric,paid_amount numeric default 0,credit_applied_amount numeric default 0,included boolean default true);
+ create table supplier_bills(id uuid primary key,supplier_id uuid,number text,document_type text,bill_date date,due_date date,currency text,declared_total numeric,status text);
+ create table purchase_reception_items(id uuid primary key,purchase_reception_id uuid);
+ create table supplier_bill_lines(bill_id uuid,receipt_item_id uuid,payable_amount numeric);
+ create function can_manage_financial_operations(uuid) returns boolean language sql as $$select $1='${id(1)}'::uuid$$;
+ create function supplier_purchase_cash_applied(uuid) returns numeric language sql as $$select paid_amount from supplier_purchases where id=$1$$;
+ create function supplier_purchase_credit_applied(uuid) returns numeric language sql as $$select credit_applied_amount from supplier_purchases where id=$1$$;
+ create function supplier_document_in_account(uuid) returns boolean language sql as $$select included from supplier_purchases where id=$1$$;
+ insert into supplier_purchases(id,supplier_id,currency,status,document_type,invoice_number,purchase_date,created_at,purchase_reception_id,total_amount) values('${id(10)}','${id(2)}','ARS','Pendiente','Remito','R-1','2026-10-01T03:00:00Z','2026-10-01T03:00:00Z','${id(20)}',100);
+ insert into purchase_reception_items values('${id(30)}','${id(20)}');
+ insert into supplier_bills values('${id(40)}','${id(2)}','A-1','Factura','2026-10-02','2026-10-15','ARS',60,'Conciliado');
+ insert into supplier_bill_lines values('${id(40)}','${id(30)}',60);`);
+ await db.exec(fs.readFileSync('database/db_migration_v249_supplier_payable_schedule.sql','utf8'));
+ const items=async()=>(await db.query('select * from supplier_payable_items order by item_key')).rows.map(r=>({...r,due_date:r.due_date instanceof Date?r.due_date.toISOString().slice(0,10):r.due_date,entry_date:r.entry_date instanceof Date?r.entry_date.toISOString().slice(0,10):r.entry_date}));
+ let rows=await items();assert.equal(rows.length,2);assert.equal(rows.reduce((n,r)=>n+Number(r.amount),0),100);assert.equal(rows.find(r=>!r.bill_id).amount,'40.00');
+ const signature=async bill=>(await db.query('select supplier_bill_schedule_signature($1) s',[bill])).rows[0].s;
+ const save=async(payload,key=50)=>(await db.query('select save_supplier_bill_schedule($1,$2,$3::jsonb) r',[id(1),id(key),JSON.stringify(payload)])).rows[0].r;
+ const payload={billId:id(40),signature:await signature(id(40)),reason:'Acuerdo de dos vencimientos',installments:[{dueDate:'2026-10-15',amount:'30.00'},{dueDate:'2026-11-15',amount:'30.00'}]};
+ validateBillSchedule({...payload,requestId:id(50)});
+ const result=await save(payload);assert.equal(result.installments.length,2);assert.equal((await save(payload)).signature,result.signature);
+ await assert.rejects(save(payload,51));
+ await assert.rejects(save({...payload,signature:await signature(id(40)),installments:[{dueDate:'2026-10-15',amount:'59.99'}]},52));
+ assert.equal((await db.query('select count(*)::int n from supplier_bill_installments')).rows[0].n,2);
+ rows=await items();assert.equal(rows.length,3);assert.equal(rows.reduce((n,r)=>n+Number(r.amount),0),100);
+ await db.exec(`update supplier_purchases set paid_amount=20 where id='${id(10)}'`);rows=await items();assert.ok(rows.every(r=>r.needs_allocation&&r.pending_amount===null));
+ let summary=payableSummary(rows,'2026-10-30');assert.equal(summary.totals.ARS.pending,80);assert.equal(summary.totals.ARS.unassigned,80);assert.equal(summary.totals.ARS.overdue,0);assert.equal(summary.inconsistencies.length,0);
+ await db.exec(`update supplier_purchases set paid_amount=100 where id='${id(10)}'`);rows=await items();assert.ok(rows.every(r=>Number(r.pending_amount)===0&&!r.needs_allocation));
+ await db.exec(`update supplier_purchases set paid_amount=0 where id='${id(10)}'`);summary=payableSummary(await items(),'2026-10-30');assert.equal(summary.totals.ARS.overdue,30);assert.equal(summary.totals.ARS.noDueDate,40);
+ await save({...payload,signature:await signature(id(40)),installments:[]},53);assert.equal((await items()).length,2);
+ await db.exec(`update supplier_bills set status='Anulado' where id='${id(40)}'`);rows=await items();assert.equal(rows.length,1);assert.equal(rows[0].amount,'100.00');
+ // One invoice spanning two receipts: preserve each receipt and each installment.
+ for(const [purchase,receipt,item,total] of [[11,21,31,60],[12,22,32,40]]){
+  await db.query("insert into supplier_purchases(id,supplier_id,currency,status,document_type,purchase_reception_id,total_amount,purchase_date,created_at) values($1,$2,'ARS','Pendiente','Remito',$3,$4,'2026-10-01','2026-10-01')",[id(purchase),id(2),id(receipt),total]);
+  await db.query('insert into purchase_reception_items values($1,$2)',[id(item),id(receipt)]);
+ }
+ await db.query("insert into supplier_bills values($1,$2,'A-2','Factura','2026-10-02','2026-10-30','ARS',100,'Conciliado')",[id(41),id(2)]);
+ for(const [item,total] of [[31,60],[32,40]])await db.query('insert into supplier_bill_lines values($1,$2,$3)',[id(41),id(item),total]);
+ await save({billId:id(41),signature:await signature(id(41)),reason:'Cuotas de factura agrupada',installments:[{dueDate:'2026-10-30',amount:'50.00'},{dueDate:'2026-11-30',amount:'50.00'}]},54);
+ rows=(await items()).filter(r=>r.bill_id===id(41));assert.equal(rows.length,3);for(const [purchase,total] of [[11,60],[12,40]])assert.equal(rows.filter(r=>r.purchase_id===id(purchase)).reduce((n,r)=>n+Number(r.amount),0),total);
+ for(const number of [1,2])assert.equal(rows.filter(r=>r.installment_number===number).reduce((n,r)=>n+Number(r.amount),0),50);
+ assert.equal((await db.query('select total_amount from supplier_purchases where id=$1',[id(10)])).rows[0].total_amount,'100');
+ assert.throws(()=>validateBillSchedule({...payload,requestId:id(55),installments:[{dueDate:'2026-02-30',amount:'60'}]}));
+ await db.exec('set role authenticated');await assert.rejects(db.exec('select * from supplier_payable_items'));await db.exec('reset role');
+ console.log('Payables: partial billing, unbilled remainder, exact multi-receipt/installment totals, unknown allocations, aging, retries, restoration and permissions: OK');
+}finally{await db.close();}})().catch(e=>{console.error(e);process.exitCode=1;});

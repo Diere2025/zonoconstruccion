@@ -4,9 +4,10 @@ import React, { useRef, useState } from "react";
 import { Check, Copy, Download, Loader2, X } from "lucide-react";
 import html2canvas from "html2canvas-pro";
 import { Button } from "@/components/ui/Button";
-import { formatDateDDMMYYYY, formatPrice } from "@/lib/utils";
+import { formatDateDDMMYYYY } from "@/lib/utils";
 
 interface SupplierOrder {
+  currency?: string | null;
   oc_code?: string;
   order_date?: string;
   estimated_delivery_date?: string;
@@ -37,6 +38,8 @@ export default function SupplierPurchaseOrderImageModal({ isOpen, onClose, order
   const [copied, setCopied] = useState(false);
 
   if (!isOpen || !order) return null;
+  const currency=['ARS','USD'].includes(order.currency||'')?order.currency:null;
+  const price=(amount:number)=>`${currency?currency+' ':''}${Number(amount||0).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
 
   const totalUnits = items.reduce((sum, item) => sum + (Number(item.quantity_ordered) || 0), 0);
   const totalAmount = items.reduce(
@@ -125,7 +128,7 @@ export default function SupplierPurchaseOrderImageModal({ isOpen, onClose, order
               <div className="text-right">
                 <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Número de orden</p>
                 <p className="mt-1 text-xl font-black text-blue-700">{order.oc_code || "—"}</p>
-                <p className="mt-1 text-xs text-slate-500">Fecha: {order.order_date ? formatDateDDMMYYYY(order.order_date) : "—"}</p>
+                <p className="mt-1 text-xs text-slate-500">Fecha: {order.order_date ? formatDateDDMMYYYY(order.order_date) : "—"} · Moneda: {currency||'A confirmar'}</p>
               </div>
             </div>
 
@@ -171,8 +174,8 @@ export default function SupplierPurchaseOrderImageModal({ isOpen, onClose, order
                           {item.raw_product_name || "Artículo"}{showSku ? ` (${sku})` : ""}
                         </td>
                         <td className="px-4 py-4 text-right align-top font-black tabular-nums">{quantity}</td>
-                        <td className="px-4 py-4 text-right align-top font-semibold tabular-nums">{formatPrice(unitCost)}</td>
-                        <td className="px-4 py-4 text-right align-top font-black tabular-nums">{formatPrice(subtotal)}</td>
+                        <td className="px-4 py-4 text-right align-top font-semibold tabular-nums">{price(unitCost)}</td>
+                        <td className="px-4 py-4 text-right align-top font-black tabular-nums">{price(subtotal)}</td>
                       </tr>
                     );
                   })}
@@ -187,7 +190,7 @@ export default function SupplierPurchaseOrderImageModal({ isOpen, onClose, order
               </div>
               <div className="text-right">
                 <p className="text-[11px] font-bold uppercase tracking-wider text-blue-200">Total orden</p>
-                <p className="mt-1 text-3xl font-black">{formatPrice(totalAmount)}</p>
+                <p className="mt-1 text-3xl font-black">{price(totalAmount)}</p>
               </div>
             </div>
 

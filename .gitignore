@@ -59,3 +59,19 @@ google-credentials.json
 /output/logistics-dispatch-links/
 
 output/logistics-planning/
+
+/output/cc-planning/
+
+/output/cc-release/
+
+/docs/diagnostico-cuentas-corrientes-proveedores.md
+
+/docs/plan-cierre-cuentas-corrientes-proveedores.md
+
+/docs/avance-cuentas-corrientes-proveedores.md
+
+/output/cc-differences/
+/output/cc-equalization/
+/output/pdf/instructivo-cuentas-corrientes-proveedores.pdf
+/output/pdf/cierre-proveedores-y-cambios-para-caro.pdf
+/output/pdf/resumen-implementacion-cuentas-corrientes.pdf

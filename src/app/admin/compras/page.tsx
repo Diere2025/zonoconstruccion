@@ -406,6 +406,8 @@ export default function ComprasAdminPage() {
   const [poSupplierSearchText, setPoSupplierSearchText] = useState("");
   const [isPoSupplierDropdownOpen, setIsPoSupplierDropdownOpen] = useState(false);
   const [poCode, setPoCode] = useState("");
+  const formatPoAmount=(amount:number,currency?:string|null)=>`${currency||'Moneda a confirmar'} ${Number(amount||0).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+  const [poCurrency,setPoCurrency]=useState("ARS");
   const [poPaymentCondition, setPoPaymentCondition] = useState("Efectivo");
   const [poPaymentTermDays, setPoPaymentTermDays] = useState("0");
   const [poEstimatedDeliveryDate, setPoEstimatedDeliveryDate] = useState("");
@@ -419,6 +421,7 @@ export default function ComprasAdminPage() {
   const [editPoSupplierSearchText, setEditPoSupplierSearchText] = useState("");
   const [isEditPoSupplierDropdownOpen, setIsEditPoSupplierDropdownOpen] = useState(false);
   const [editPoCode, setEditPoCode] = useState("");
+  const [editPoCurrency,setEditPoCurrency]=useState("");
   const [editPoPaymentCondition, setEditPoPaymentCondition] = useState("Efectivo");
   const [editPoPaymentTermDays, setEditPoPaymentTermDays] = useState("0");
   const [editPoEstimatedDeliveryDate, setEditPoEstimatedDeliveryDate] = useState("");
@@ -1019,9 +1022,7 @@ export default function ComprasAdminPage() {
     setSheetSyncModalOpen(true);
     setSheetSyncLoading(true);
     try {
-      const res = await fetch(`/api/admin/purchase-sheet-sync?since=${encodeURIComponent(since)}`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Error al contrastar con la planilla");
+      const data = await receiptApi.current(`/api/admin/purchase-sheet-sync?since=${encodeURIComponent(since)}`);
       setSheetSyncSummary(data);
     } catch (err: any) {
       alert("Error al contrastar planilla: " + err.message);
@@ -1033,19 +1034,35 @@ export default function ComprasAdminPage() {
   const handleExecuteSheetSync = async () => {
     setSheetSyncExecuting(true);
     try {
-      const res = await fetch("/api/admin/purchase-sheet-sync", {
+      const data = await receiptApi.current("/api/admin/purchase-sheet-sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sinceDate: sheetSyncSinceDate || "2026-09-01" }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Error al sincronizar con la planilla");
+
       setSheetSyncSummary(data);
       await loadAllData(true);
     } catch (err: any) {
       alert("Error al sincronizar planilla: " + err.message);
     } finally {
       setSheetSyncExecuting(false);
+    }
+  };
+
+  const autoPushPOsToSheet = async (poIds: string[]): Promise<boolean> => {
+    const validIds = Array.from(new Set((poIds || []).map(id => String(id || "").trim()).filter(Boolean)));
+    if (!validIds.length) return false;
+    try {
+      await receiptApi.current("/api/admin/purchase-sheet-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "push_orders", poIds: validIds }),
+      });
+
+      return true;
+    } catch (err) {
+      console.warn("Error de red al reflejar OC en planilla de Google Sheets:", err);
+      return false;
     }
   };
 
@@ -1096,7 +1113,8 @@ export default function ComprasAdminPage() {
         return updated;
       });
 
-      alert("Línea cancelada exitosamente.");
+      const sheetOk=await autoPushPOsToSheet([poId]);
+      alert("Línea cancelada exitosamente."+(sheetOk?" Reflejada en la planilla.":" La copia en planilla necesita reintento."));
       loadAllData(true);
     } catch (err: any) {
       console.error("Error al cancelar línea:", err);
@@ -1131,7 +1149,8 @@ export default function ComprasAdminPage() {
 
       if (poError) throw poError;
 
-      alert("Orden de Compra cancelada exitosamente.");
+      const sheetOk=await autoPushPOsToSheet([poId]);
+      alert("Orden de Compra cancelada exitosamente."+(sheetOk?" Reflejada en la planilla.":" La copia en planilla necesita reintento."));
       loadAllData(true);
     } catch (err: any) {
       console.error("Error al cancelar la orden completa:", err);
@@ -1154,6 +1173,7 @@ export default function ComprasAdminPage() {
       alert("Todas las Órdenes de Compra a unificar deben ser del MISMO proveedor.");
       return;
     }
+    if(new Set(selectedPOs.map((p:any)=>p.currency||'')).size>1){alert('Confirmá la misma moneda en todas las OCs antes de unificarlas.');return;}
 
     // Validate non-completed
     const hasCompleted = selectedPOs.some((p: any) => p.status === 'Cumplido' || p.status === 'Cancelado');
@@ -1270,7 +1290,8 @@ export default function ComprasAdminPage() {
 
       if (delPoErr) throw delPoErr;
 
-      alert(`¡Órdenes unificadas con éxito en ${targetPo.oc_code} por un total de ${formatPrice(totalAmount)}!`);
+      const sheetOk=await autoPushPOsToSheet([targetPo.id]);
+      alert(`Órdenes unificadas en ${targetPo.oc_code} por ${formatPrice(totalAmount)}.`+(sheetOk?" Reflejadas en planilla.":" La copia en planilla necesita reintento."));
       setShowMergePOModal(false);
       setSelectedPoIdsForMerge([]);
       setMergePreview(null);
@@ -1309,6 +1330,7 @@ export default function ComprasAdminPage() {
           order_date: new Date().toISOString(),
           estimated_delivery_date: poEstimatedDeliveryDate ? new Date(poEstimatedDeliveryDate).toISOString() : null,
           payment_condition: poPaymentCondition,
+          currency:poCurrency,
           payment_term_days: parseInt(poPaymentTermDays) || 0,
           notes: poNotes || null,
           total_amount: totalAmt,
@@ -1338,7 +1360,12 @@ export default function ComprasAdminPage() {
 
       if (itemsErr) throw itemsErr;
 
-      alert("Orden de Compra creada con éxito!");
+      const sheetOk = await autoPushPOsToSheet([newPo.id]);
+      alert(
+        sheetOk
+          ? "¡Orden de Compra creada con éxito y reflejada automáticamente en Google Sheets!"
+          : "Orden de Compra creada con éxito en el ERP (no se pudo sincronizar al instante con Google Sheets)."
+      );
       setShowNewPOModal(false);
       setPoSupplierId("");
       setPoCode("");
@@ -1356,6 +1383,7 @@ export default function ComprasAdminPage() {
     setEditPoSupplierId(po.supplier_id || "");
     setEditPoSupplierSearchText(po.supplier?.name || suppliers.find(s => s.id === po.supplier_id)?.name || "");
     setEditPoCode(po.oc_code || "");
+    setEditPoCurrency(po.currency||"");
     setEditPoPaymentCondition(po.payment_condition || "Efectivo");
     setEditPoPaymentTermDays(String(po.payment_term_days ?? 0));
     setEditPoEstimatedDeliveryDate(po.estimated_delivery_date ? po.estimated_delivery_date.substring(0, 10) : "");
@@ -1535,6 +1563,7 @@ export default function ComprasAdminPage() {
           supplier_id: editPoSupplierId,
           estimated_delivery_date: editPoEstimatedDeliveryDate ? new Date(editPoEstimatedDeliveryDate).toISOString() : null,
           payment_condition: editPoPaymentCondition,
+          currency:editPoCurrency||null,
           payment_term_days: parseInt(editPoPaymentTermDays) || 0,
           notes: editPoNotes || null,
           total_amount: totalAmount,
@@ -1551,7 +1580,8 @@ export default function ComprasAdminPage() {
         return next;
       });
 
-      alert("¡Orden de Compra modificada y alineada con éxito!");
+      const sheetOk=await autoPushPOsToSheet([editingPO.id]);
+      alert("Orden de Compra modificada y alineada."+(sheetOk?" Reflejada en planilla.":" La copia en planilla necesita reintento."));
       setShowEditPOModal(false);
       setEditingPO(null);
       loadAllData(true);
@@ -1617,7 +1647,8 @@ export default function ComprasAdminPage() {
         return next;
       });
 
-      alert(`¡Línea alineada con éxito a ${received} unidades!`);
+      const sheetOk=await autoPushPOsToSheet([po.id]);
+      alert(`Línea alineada a ${received} unidades.`+(sheetOk?" Reflejada en planilla.":" La copia en planilla necesita reintento."));
       loadAllData(true);
     } catch (err: any) {
       console.error("Error al alinear línea:", err);
@@ -1777,7 +1808,8 @@ export default function ComprasAdminPage() {
 
       if (poErr) throw poErr;
 
-      alert(`¡Orden de Compra ${ocCode} revertida a estado Pendiente con éxito!`);
+      const sheetOk=await autoPushPOsToSheet([poId]);
+      alert(`Orden de Compra ${ocCode} revertida a Pendiente.`+(sheetOk?" Reflejada en planilla.":" La copia en planilla necesita reintento."));
       await loadAllData(true);
     } catch (err: any) {
       console.error("Error revirtiendo orden de compra:", err);
@@ -1810,13 +1842,21 @@ export default function ComprasAdminPage() {
     setSavingReception(true);
     receiptRequestId.current ||= crypto.randomUUID();
     try {
-      if (!receptionRecorded) await receiptApi.current('/api/admin/supplier-accounts', { method: 'POST', body: JSON.stringify({
-        action: 'receipt', id: receiptRequestId.current, supplierId: receptionSupplierId,
-        poIds: receptionPOIds, slip: receptionSlipNumber, date: receptionDate, currency: receptionCurrency,
-        stock: receptionUpdateStock, close: receptionAlignPO, notes: receptionNotes,
-        items: activeItems.map(i => ({ poItemId: i.poItemId || null, productId: i.productId || null,
-          productName: i.productName, quantity: i.quantityReceivedNew, unitCost: i.unitCost }))
-      }) });
+      let sheetNotice = "";
+      if (!receptionRecorded) {
+        const resData: any = await receiptApi.current('/api/admin/supplier-accounts', { method: 'POST', body: JSON.stringify({
+          action: 'receipt', id: receiptRequestId.current, supplierId: receptionSupplierId,
+          poIds: receptionPOIds, slip: receptionSlipNumber, date: receptionDate, currency: receptionCurrency,
+          stock: receptionUpdateStock, close: receptionAlignPO, notes: receptionNotes,
+          items: activeItems.map(i => ({ poItemId: i.poItemId || null, productId: i.productId || null,
+            productName: i.productName, quantity: i.quantityReceivedNew, unitCost: i.unitCost }))
+        }) });
+        if (resData?.sheetSynced) {
+          sheetNotice = " Reflejado automáticamente en hoja DocumentosDeRecepción.";
+        } else if (resData?.sheetSyncWarning) {
+          sheetNotice = ` (Aviso Planilla: ${resData.sheetSyncWarning})`;
+        }
+      }
       setReceptionRecorded(true);
       if (receptionFiles.length) {
         const form = new FormData(); form.set('id', receiptRequestId.current!);
@@ -1824,7 +1864,7 @@ export default function ComprasAdminPage() {
         try { await receiptApi.current('/api/admin/supplier-receipt-files', {method: 'POST', body: form}); }
         catch (error: any) { throw new Error('La recepción y la deuda ya están guardadas. No se pudieron adjuntar los archivos: ' + error.message + ' Podés reintentar sin duplicar la recepción.'); }
       }
-      alert("Recepción y deuda registradas." + (receptionUpdateStock ? " Se incrementó el stock físico." : " Sin modificar stock físico."));
+      alert("Recepción y deuda registradas." + (receptionUpdateStock ? " Se incrementó el stock físico." : " Sin modificar stock físico.") + sheetNotice);
       setShowNewReceptionModal(false);
       setSelectedReceiptPOIds([]);
       setReceptionSupplierId(""); setReceptionSlipNumber(""); setReceptionPOIds([]);
@@ -2383,6 +2423,7 @@ export default function ComprasAdminPage() {
     setRadarGeneratingPO(true);
     try {
       let poOffset = 0;
+      const createdPoIds: string[] = [];
       for (const [supId, items] of supEntries) {
         poOffset++;
         const nextNum = purchaseOrders.length + poOffset;
@@ -2430,12 +2471,15 @@ export default function ComprasAdminPage() {
           .insert(itemsIns);
 
         if (linesErr) throw linesErr;
+        createdPoIds.push(newPo.id);
       }
+
+      const sheetOk=await autoPushPOsToSheet(createdPoIds);
 
       alert(
         supEntries.length === 1
-          ? `¡Orden de Compra generada correctamente para ${supEntries[0][1][0]?.supplierName}!`
-          : `¡Se generaron ${supEntries.length} Órdenes de Compra separadas por proveedor correctamente!`
+          ? `Orden de Compra generada para ${supEntries[0][1][0]?.supplierName}.`+(sheetOk?" Reflejada en planilla.":" La copia en planilla necesita reintento.")
+          : `Se generaron ${supEntries.length} OCs separadas por proveedor.`+(sheetOk?" Reflejadas en planilla.":" La copia en planilla necesita reintento.")
       );
       await loadAllData(true);
       navigateSubTab("purchase_orders");
@@ -2689,6 +2733,7 @@ export default function ComprasAdminPage() {
     setCalcLoading(true);
     try {
       let poIdx = 0;
+      const createdPoIds: string[] = [];
       for (const [supId, items] of supEntries) {
         poIdx++;
         const nextNum = purchaseOrders.length + poIdx;
@@ -2737,9 +2782,12 @@ export default function ComprasAdminPage() {
           .insert(itemsIns);
 
         if (linesErr) throw linesErr;
+        createdPoIds.push(newPo.id);
       }
 
-      alert("Órdenes de Compra generadas correctamente en Supabase.");
+      const sheetOk=await autoPushPOsToSheet(createdPoIds);
+
+      alert("Órdenes de Compra generadas."+(sheetOk?" Reflejadas en planilla.":" La copia en planilla necesita reintento."));
       await loadAllData(true);
       navigateSubTab("purchase_orders");
     } catch (err: any) {
@@ -2778,6 +2826,7 @@ export default function ComprasAdminPage() {
         grouped[supId].push(item);
       }
 
+      const createdPoIds: string[] = [];
       for (const [supId, items] of Object.entries(grouped)) {
         const supplierObj = suppliers.find(s => s.id === supId);
         const baseLeadTime = Number(supplierObj?.delivery_time_days) || 5;
@@ -2835,10 +2884,13 @@ export default function ComprasAdminPage() {
             .insert(itemsIns);
 
           if (linesErr) throw linesErr;
+          createdPoIds.push(newPo.id);
         }
       }
 
-      alert(`Pedidos escalonados creados correctamente en Supabase (${deliveries} OCs generadas).`);
+      const sheetOk=await autoPushPOsToSheet(createdPoIds);
+
+      alert(`Pedidos escalonados creados (${createdPoIds.length} OCs).`+(sheetOk?" Reflejadas en planilla.":" La copia en planilla necesita reintento."));
       await loadAllData(true);
       navigateSubTab("purchase_orders");
     } catch (err: any) {
@@ -4554,7 +4606,7 @@ export default function ComprasAdminPage() {
                           <td className="p-4 font-normal">{formatDateDDMMYYYY(po.order_date)}</td>
                           <td className="p-4 text-slate-900">{po.supplier?.name}</td>
                           <td className="p-4 font-normal">{po.payment_condition} {po.payment_term_days > 0 ? `(${po.payment_term_days} días)` : ''}</td>
-                          <td className="p-4 text-slate-900">{formatPrice(po.total_amount)}</td>
+                          <td className="p-4 text-slate-900">{formatPoAmount(po.total_amount,po.currency)}</td>
                           <td className="p-4">
                             <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
                               po.status === 'Cumplido' ? 'bg-green-50 text-green-700 border border-green-200' :
@@ -4764,7 +4816,7 @@ export default function ComprasAdminPage() {
                 <div className="flex justify-between items-center gap-3 border-b pb-4">
                   <div>
                     <h3 className="text-lg font-black text-slate-900">Orden de Compra: {selectedPO.oc_code}</h3>
-                    <p className="text-xs text-slate-400">Proveedor: {selectedPO.supplier?.name} | Fecha: {formatDateDDMMYYYY(selectedPO.order_date)}</p>
+                    <p className="text-xs text-slate-400">Proveedor: {selectedPO.supplier?.name} | Moneda: {selectedPO.currency||'A confirmar'} | Fecha: {formatDateDDMMYYYY(selectedPO.order_date)}</p>
                   </div>
                   <div className="flex items-center gap-2">
                     {!loadingPoDetail && (
@@ -5163,6 +5215,7 @@ export default function ComprasAdminPage() {
 
                   <div className="space-y-1">
                     <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Condición de Pago</label>
+                    <label className="block text-xs">Moneda<select aria-label="Moneda de OC" required value={poCurrency} onChange={e=>setPoCurrency(e.target.value)} className="w-full border rounded p-2"><option>ARS</option><option>USD</option></select></label>
                     <select
                       value={poPaymentCondition}
                       onChange={e => setPoPaymentCondition(e.target.value)}
@@ -5520,6 +5573,7 @@ export default function ComprasAdminPage() {
                   {/* Condición de Pago */}
                   <div className="space-y-1">
                     <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Condición de Pago</label>
+                    <label className="block text-xs">Moneda<select aria-label="Moneda de OC existente" value={editPoCurrency} onChange={e=>setEditPoCurrency(e.target.value)} className="w-full border rounded p-2"><option value="">No informada</option><option>ARS</option><option>USD</option></select></label>
                     <select
                       value={editPoPaymentCondition}
                       onChange={e => setEditPoPaymentCondition(e.target.value)}
@@ -6305,7 +6359,7 @@ export default function ComprasAdminPage() {
                         {purchaseOrders
                           .filter(po => po.supplier_id === editingPurchase?.supplier_id)
                           .map(po => (
-                            <option key={po.id} value={po.id}>{po.oc_code} (Total: {formatPrice(po.total_amount)})</option>
+                            <option key={po.id} value={po.id}>{po.oc_code} (Total: {formatPoAmount(po.total_amount,po.currency)})</option>
                           ))}
                       </select>
                     </div>
@@ -6524,7 +6578,7 @@ export default function ComprasAdminPage() {
                                 aria-pressed={receptionPOIds.includes(po.id)}
                                 className="w-full text-left px-3 py-2 text-xs font-semibold hover:bg-slate-50 text-slate-700 hover:text-brand-600 transition-colors"
                               >
-                                {receptionPOIds.includes(po.id) ? "✓ " : "+ "}{po.oc_code} (Monto: {formatPrice(po.total_amount)})
+                                {receptionPOIds.includes(po.id) ? "✓ " : "+ "}{po.oc_code} (Monto: {formatPoAmount(po.total_amount,po.currency)})
                               </button>
                             ))}
                             {filteredOCs.length === 0 && (

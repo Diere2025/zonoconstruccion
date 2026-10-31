@@ -9,19 +9,32 @@ export type AccountEntry = {
 export type HistoryChoice = { source: string; source_id: string; included: boolean; notes: string };
 export type LedgerEntry = AccountEntry & { historical: boolean; included: boolean; reconciled: boolean; reconciliation_note: string; balance: number | null };
 
-export function supplierLedger(start: AccountStart | null, entries: AccountEntry[], choices: HistoryChoice[]) {
+export type LedgerPeriod = { from?: string; to?: string };
+
+export function supplierLedger(start: AccountStart | null, entries: AccountEntry[], choices: HistoryChoice[], period: LedgerPeriod = {}) {
+  if ((period.from && !isAccountDate(period.from)) || (period.to && !isAccountDate(period.to)) || (period.from && period.to && period.from > period.to)) throw new Error('Período de cuenta corriente inválido.');
   const overrides = new Map(choices.map(choice => [`${choice.source}:${choice.source_id}`, choice]));
   const balances = { ARS: Math.round(Number(start?.opening_ars || 0) * 100), USD: Math.round(Number(start?.opening_usd || 0) * 100) };
-  const ordered = [...entries].sort((a, b) => a.entry_date.localeCompare(b.entry_date) || a.source.localeCompare(b.source) || a.source_id.localeCompare(b.source_id));
+  const openingApplies = !!start && (!period.to || start.start_date <= period.to);
+  if (!openingApplies) { balances.ARS = 0; balances.USD = 0; }
+  const previous = { ...balances };
+  const ordered = [...entries].filter(entry => !period.to || entry.entry_date <= period.to).sort((a, b) => a.entry_date.localeCompare(b.entry_date) || a.source.localeCompare(b.source) || a.source_id.localeCompare(b.source_id));
   const rows: LedgerEntry[] = ordered.map(entry => {
     const choice = overrides.get(`${entry.source}:${entry.source_id}`);
     const historical = !!start && entry.entry_date < start.start_date;
-    const included = !!start && !entry.voided && (choice?.included ?? !historical);
-    if (included) balances[entry.currency] += Math.round(Number(entry.amount) * 100);
+    const included = openingApplies && !entry.voided && (choice?.included ?? !historical);
+    if (included) {
+      const cents = Math.round(Number(entry.amount) * 100);
+      balances[entry.currency] += cents;
+      if (period.from && entry.entry_date < period.from) previous[entry.currency] += cents;
+    }
     return { ...entry, amount: Number(entry.amount), historical, included, reconciled: !!choice,
       reconciliation_note: choice?.notes || '', balance: included ? balances[entry.currency] / 100 : null };
   });
-  return { rows, balance_ars: balances.ARS / 100, balance_usd: balances.USD / 100 };
+  return { rows: rows.filter(entry => !period.from || entry.entry_date >= period.from), balance_ars: balances.ARS / 100, balance_usd: balances.USD / 100,
+    previous_balance_ars: period.from && start && start.start_date >= period.from ? (previous.ARS - (openingApplies ? Math.round(Number(start.opening_ars) * 100) : 0)) / 100 : previous.ARS / 100,
+    previous_balance_usd: period.from && start && start.start_date >= period.from ? (previous.USD - (openingApplies ? Math.round(Number(start.opening_usd) * 100) : 0)) / 100 : previous.USD / 100,
+    coverage: start ? 'configured' as const : 'missing_opening' as const };
 }
 
 export const isUuid = (value: unknown): value is string => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);

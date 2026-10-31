@@ -70,7 +70,7 @@ export async function GET(request: Request) {
       ] = await Promise.all([
         completeList(supabaseAdmin.from('employees').select('id,full_name,cuit,role,base_salary,is_active').eq('is_active', true).order('full_name').order('id')),
         completeList(supabaseAdmin.from('suppliers').select('id,name').order('name').order('id')),
-        completeList(supabaseAdmin.from('supplier_purchases').select('id,supplier_id,invoice_number,total_amount,paid_amount,status,currency,supplier:suppliers(name),created_at,purchase_date,document_type,purchase_order_id,purchase_reception_id,purchase_orders(oc_code),purchase_receptions!supplier_purchases_purchase_reception_id_fkey(delivery_slip_number,reception_date,purchase_orders!purchase_receptions_purchase_order_id_fkey(oc_code),purchase_reception_orders(purchase_orders(oc_code)))').neq('status', 'Pagado').neq('status', 'Anulado').order('purchase_date', { ascending: false }).order('id')),
+        completeList(supabaseAdmin.from('supplier_purchases').select('id,supplier_id,invoice_number,total_amount,paid_amount,credit_applied_amount,status,currency,supplier:suppliers(name),created_at,purchase_date,document_type,purchase_order_id,purchase_reception_id,purchase_orders(oc_code),purchase_receptions!supplier_purchases_purchase_reception_id_fkey(delivery_slip_number,reception_date,purchase_orders!purchase_receptions_purchase_order_id_fkey(oc_code),purchase_reception_orders(purchase_orders(oc_code)))').neq('status', 'Pagado').neq('status', 'Anulado').order('purchase_date', { ascending: false }).order('id')),
         supabaseAdmin.from('route_sheets').select('*, carriers(name)').order('delivery_date', { ascending: false }).limit(200),
         supabaseAdmin.rpc('get_financial_accounts_balances'),
         supabaseAdmin.from('cost_centers').select('id,name,code,is_active').eq('is_active', true).order('name'),
@@ -85,12 +85,14 @@ export async function GET(request: Request) {
       if (accountsRes.error) throw accountsRes.error;
       if (costCentersRes.error) throw costCentersRes.error;
       if (peopleRes.error) throw peopleRes.error;
+      const scopeRows=await completeList(supabaseAdmin.from('supplier_document_account_scope').select('id,account_included').order('id'));
+      const scope=new Map(scopeRows.data.map(row=>[row.id,row.account_included]));
 
       return NextResponse.json({
         employees: (employeesRes.data || []).map(e=>({...e,person_id:peopleRes.data.find(p=>p.employee_id===e.id)?.id})),
         people:peopleRes.data,
         suppliers: supplierPaymentsRes.data?withSupplierFrequency(suppliersRes.data||[],supplierPaymentsRes.data):suppliersRes.data||[],
-        pendingPurchases: purchasesRes.data || [],
+        pendingPurchases: (purchasesRes.data || []).map(p=>({...p,account_included:scope.get(p.id)===true})),
         pendingOrders: [],
         routeSheets: routeSheetsRes.data || [],
         financialAccounts: await custodyAccounts(accountsRes.data || []),
@@ -260,30 +262,20 @@ export async function GET(request: Request) {
     if (action === 'balances') {
       const operationsAvailable=await financialOperationsAvailable();
       const clientPaymentQuery=supabaseAdmin.from('client_payments').select('client_id, amount, currency').eq('status','Aprobado');
-      const supplierPaymentQuery=supabaseAdmin.from('supplier_payments').select('supplier_id, amount, currency');
       // Fetch clients, orders, payments, suppliers, purchases, and supplier payments in parallel
       const [
         clientsRes,
         ordersRes,
         clientPaymentsRes,
-        suppliersRes,
-        supplierPurchasesRes,
-        supplierPaymentsRes
       ] = await Promise.all([
         supabaseAdmin.from('clients').select('id, business_name'),
         supabaseAdmin.from('orders').select('client_id, total_amount, status'),
         operationsAvailable?clientPaymentQuery.is('reversed_at',null):clientPaymentQuery,
-        supabaseAdmin.from('suppliers').select('id, name'),
-        supabaseAdmin.from('supplier_purchases').select('supplier_id, total_amount, status, currency, document_type'),
-        operationsAvailable?supplierPaymentQuery.is('reversed_at',null):supplierPaymentQuery
       ]);
 
       if (clientsRes.error) throw clientsRes.error;
       if (ordersRes.error) throw ordersRes.error;
       if (clientPaymentsRes.error) throw clientPaymentsRes.error;
-      if (suppliersRes.error) throw suppliersRes.error;
-      if (supplierPurchasesRes.error) throw supplierPurchasesRes.error;
-      if (supplierPaymentsRes.error) throw supplierPaymentsRes.error;
 
       // Compute client balances
       const clsMap: Record<string, any> = {};
@@ -328,52 +320,12 @@ export async function GET(request: Request) {
         c.total_orders_ars > 0 || c.total_payments_ars > 0 || c.total_orders_usd > 0 || c.total_payments_usd > 0
       );
 
-      // Compute supplier balances
-      const supsMap: Record<string, any> = {};
-      (suppliersRes.data || []).forEach(s => {
-        supsMap[s.id] = {
-          id: s.id,
-          name: s.name,
-          total_purchases_ars: 0,
-          total_payments_ars: 0,
-          balance_ars: 0,
-          total_purchases_usd: 0,
-          total_payments_usd: 0,
-          balance_usd: 0
-        };
-      });
 
-      (supplierPurchasesRes.data || []).forEach(p => {
-        if (p.supplier_id && p.status !== 'Anulado' && supsMap[p.supplier_id]) {
-          const isCreditNote = p.document_type === 'Nota de Crédito';
-          const amt = (Number(p.total_amount) || 0) * (isCreditNote ? -1 : 1);
-          if (p.currency === 'USD') {
-            supsMap[p.supplier_id].total_purchases_usd += amt;
-          } else {
-            supsMap[p.supplier_id].total_purchases_ars += amt;
-          }
-        }
-      });
-
-      (supplierPaymentsRes.data || []).forEach(p => {
-        if (p.supplier_id && supsMap[p.supplier_id]) {
-          const amt = Number(p.amount) || 0;
-          if (p.currency === 'USD') {
-            supsMap[p.supplier_id].total_payments_usd += amt;
-          } else {
-            supsMap[p.supplier_id].total_payments_ars += amt;
-          }
-        }
-      });
-
-      Object.keys(supsMap).forEach(id => {
-        supsMap[id].balance_ars = supsMap[id].total_purchases_ars - supsMap[id].total_payments_ars;
-        supsMap[id].balance_usd = supsMap[id].total_purchases_usd - supsMap[id].total_payments_usd;
-      });
-
-      const suppliersBalances = Object.values(supsMap).filter(s =>
-        s.total_purchases_ars > 0 || s.total_payments_ars > 0 || s.total_purchases_usd > 0 || s.total_payments_usd > 0
-      );
+      // The same database projection used by the supplier account extract includes
+      // opening balances and explicit historical inclusion/exclusion decisions.
+      const supplierSummary = await completeList(supabaseAdmin.rpc('get_supplier_account_balances'));
+      const suppliersBalances = supplierSummary.data.map(s => ({ ...s,
+        coverage: s.start_date ? 'configured' : 'missing_opening' }));
 
       return NextResponse.json({ clientsBalances, suppliersBalances });
     }

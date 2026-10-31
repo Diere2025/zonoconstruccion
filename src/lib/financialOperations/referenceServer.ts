@@ -1,6 +1,6 @@
 import { readBatches } from './readBatches';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { movementCode, movementHref, supplierApplications, type ApplicationReference, type CodedMovement } from './references';
+import { movementCode, movementHref, supplierApplications, supplierCreditReferences, type ApplicationReference, type CodedMovement } from './references';
 async function all<T>(query: {range:(start:number,end:number)=>PromiseLike<{data:T[]|null;error:unknown}>}): Promise<T[]> {
   const rows:T[]=[];
   for(let offset=0;;offset+=500){const {data,error}=await query.range(offset,offset+499);if(error)throw error;rows.push(...(data||[]));if(!data||data.length<500)return rows;}
@@ -9,7 +9,7 @@ function one<T>(value:T|T[]|null):T|undefined{return Array.isArray(value)?value[
 export async function supplierReferenceData(db: SupabaseClient, supplierId: string) {
   const [payments,purchases]=await Promise.all([
     all(db.from('supplier_payments').select('*').eq('supplier_id',supplierId).order('id')),
-    all(db.from('supplier_purchases').select('id,invoice_number,document_type').eq('supplier_id',supplierId).order('id'))
+    all(db.from('supplier_purchases').select('id,invoice_number,document_type,status').eq('supplier_id',supplierId).order('id'))
   ]);
   const allocations:Array<{payment_id:string;purchase_id:string;amount:number|string}>=[],movements:CodedMovement[]=[];
   for(let i=0;i<payments.length;i+=100){
@@ -21,7 +21,12 @@ export async function supplierReferenceData(db: SupabaseClient, supplierId: stri
   // Direct legacy links remain visible when the payment predates allocation rows.
   const allocated=new Set(allocations.map(a=>a.payment_id));
   for(const p of payments)if(!allocated.has(p.id)&&p.purchase_id)allocations.push({payment_id:p.id,purchase_id:p.purchase_id,amount:p.amount});
-  return {payments,movements,...supplierApplications(allocations,payments,purchases,movements)};
+  const applications=supplierApplications(allocations,payments,purchases,movements);
+  const creditIds=purchases.filter(p=>p.document_type==='Nota de Crédito'&&p.status!=='Anulado').map(p=>p.id);
+  const credits:Array<{credit_id:string;purchase_id:string;amount:string|number}>=[];
+  for(let i=0;i<creditIds.length;i+=100)credits.push(...await all(db.from('supplier_credit_allocations').select('credit_id,purchase_id,amount').in('credit_id',creditIds.slice(i,i+100)).order('id')));
+  for(const [id,refs] of supplierCreditReferences(credits,purchases))applications.byPurchase.set(id,[...applications.byPurchase.get(id)||[],...refs]);
+  return {payments,movements,...applications};
 }
 export async function movementApplications(db: SupabaseClient, rows: Array<CodedMovement & {operation_id?: string | null}>) {
   const result=new Map<string,ApplicationReference[]>();
