@@ -117,7 +117,16 @@ export interface SupportNotification {
     created_at: string;
 }
 export const code = (number: number) => `INC-${String(number).padStart(6, '0')}`;
-export const dateLabel = (value: string) => new Date(value).toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', dateStyle: 'short', timeStyle: 'short' });
+const supportDateTime = new Intl.DateTimeFormat('es-AR', {
+    timeZone: 'America/Argentina/Buenos_Aires', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+});
+export const dateLabel = (value: string) => {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return 'Sin fecha';
+    const parts = Object.fromEntries(supportDateTime.formatToParts(date).map(part => [part.type, part.value]));
+    return `${parts.day}/${parts.month}/${parts.year} ${parts.hour}:${parts.minute}`;
+};
 export const isOpen = (status: Status) => status !== 'closed' && status !== 'cancelled';
 export const manages = (me: SupportMe, ticket: Ticket) => me.is_admin || me.sector_ids.includes(ticket.sector_id);
 export function responsibleLabel(ticket: Pick<Ticket, 'sector_id' | 'assignee_id'>, sectors: Sector[], name: (id: string) => string): string {
