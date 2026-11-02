@@ -124,7 +124,12 @@ export async function POST(request: Request) {
   const alertEntries:Array<{message:string;context:ImportAlertContext}>=[];
   const flushAlerts=async()=>{const tickets:any[]=[];let failed=0;for(const entry of alertEntries){const r=await reportImportAlerts(supabaseAdmin,alertActor,entry.context,[entry.message]);tickets.push(...r.tickets);failed+=r.failed;}return {tickets,failed};};
   try {
-    const auth=await authenticateSystemAdministrator(request,supabaseAdmin);if(!auth.user)return NextResponse.json({error:auth.error},{status:auth.status});alertActor=auth.user.id;
+    if (request.headers?.has("x-scheduled-sheet-sync-token")) {
+      const { authenticateScheduledSheetImport } = await import("@/lib/scheduledSheetImportAccess");
+      if (!await authenticateScheduledSheetImport(request, supabaseAdmin)) return NextResponse.json({ error: "Sincronización automática no autorizada." }, { status: 401 });
+    } else {
+      const auth=await authenticateSystemAdministrator(request,supabaseAdmin);if(!auth.user)return NextResponse.json({error:auth.error},{status:auth.status});alertActor=auth.user.id;
+    }
     const body = await request.json();
     if(!Array.isArray(body.rows)||body.rows.some((r:unknown)=>!Array.isArray(r)))return NextResponse.json({error:'El lote debe contener filas de pedidos.'},{status:400});
     alertContext={source:body.sourceName||body.sheetName||'Importación de pedidos',sourceUrl:body.sourceUrl,batch:body.sheetName,runId:body.importRunId,codes:(body.rows||[]).map((r:any[])=>String(r[1]||'')),rows:(body.rows||[]).map((r:any[])=>({code:String(r[1]||''),status:String(r[0]||'')})),options:{skipENC:!!body.skipENC,skipCAMB:!!body.skipCAMB,syncPaymentMethods:!!body.syncPaymentMethods,defaultChannel:body.defaultChannel,isCentralSheet:!!body.isCentralSheet}};
