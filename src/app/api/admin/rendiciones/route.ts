@@ -50,7 +50,9 @@ type ElectronicTicketPayload = {
   notes?: string | null;
 };
 type SavePayload = {
-  action?: "create" | "save" | "confirm" | "import-month" | "confirm-entregando" | "confirm-entregados" | "generate-movements" | "update-delivery-status" | "archive" | "delete-archived" | "reopen";
+  requestKey?: string;
+  expectedDifference?: number;
+  action?: "shortage-status" | "register-shortage" | "create" | "save" | "confirm" | "import-month" | "confirm-entregando" | "confirm-entregados" | "generate-movements" | "update-delivery-status" | "archive" | "delete-archived" | "reopen";
   archiveReason?: string;
   settlementId?: string;
   code?: string;
@@ -182,6 +184,13 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const action = searchParams.get("action") || "list";
+    if (action === "shortage-status") {
+      const id=searchParams.get('settlementId');
+      if(!id||!/^[-a-f0-9]{36}$/i.test(id))return NextResponse.json({error:'Rendición inválida.'},{status:400});
+      const result=await supabaseAdmin.rpc('treasury_settlement_shortage_status',{p_actor:authorization.actor.id,p_settlement:id});
+      if(result.error)return NextResponse.json({error:readableError(result.error)},{status:result.error.code==='42501'?403:409});
+      return NextResponse.json(result.data);
+    }
     if (action === "list") {
       const { data, error } = await supabaseAdmin.from("treasury_settlements").select("*")
         .neq("status", "archived")
@@ -1079,6 +1088,12 @@ export async function POST(request: Request) {
   const actor = authorization.actor;
   try {
     const body = await request.json() as SavePayload;
+    if(body.action==='register-shortage'){
+      if(!/^[-a-f0-9]{36}$/i.test(body.settlementId||'')||!/^[-a-f0-9]{36}$/i.test(body.requestKey||'')||!Number.isFinite(body.expectedDifference))return NextResponse.json({error:'Revisá los datos de la novedad.'},{status:400});
+      const result=await supabaseAdmin.rpc('register_treasury_settlement_shortage',{p_actor:actor.id,p_settlement:body.settlementId,p_key:body.requestKey,p_difference:body.expectedDifference});
+      if(result.error)return NextResponse.json({error:readableError(result.error)},{status:result.error.code==='42501'?403:409});
+      return NextResponse.json(result.data);
+    }
     if (body.action === "reopen") {
       if (!body.settlementId) return NextResponse.json({ error: "Falta la rendición." }, { status: 400 });
       const result = await supabaseAdmin.rpc("reopen_treasury_settlement", {

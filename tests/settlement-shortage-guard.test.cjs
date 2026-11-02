@@ -1,0 +1,48 @@
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
+const {PGlite}=require(require.resolve('@electric-sql/pglite',{paths:[path.resolve('.codex-tmp/supplier-account-check')]}));
+const id=n=>'00000000-0000-4000-8000-'+String(n).padStart(12,'0');
+(async()=>{const db=new PGlite();try{
+ await db.exec(`create role anon;create role authenticated;create role service_role;
+ create table treasury_settlements(id uuid primary key,code text,carrier_id uuid,carrier_name text,settlement_date date,route_sheet_id uuid,difference numeric,status text,movements_generated_at timestamptz);
+ create table logistics_dispatches(id uuid primary key,code text);
+ create table logistics_dispatch_settlements(settlement_id uuid,dispatch_id uuid);
+ create table logistics_dispatch_routes(route_sheet_id uuid,dispatch_id uuid);
+ create table logistics_freight_novelties(id uuid primary key,carrier_id uuid,company_key text,origin_date date,source_dispatch_id uuid,kind text,label text,reference text,amount numeric,status text default 'approved',created_by uuid);
+ create function can_manage_treasury_settlements(uuid) returns boolean language sql as $$select $1='${id(1)}'::uuid$$;
+ create function can_manage_financial_operations(uuid) returns boolean language sql as $$select $1='${id(1)}'::uuid$$;
+ create function logistics_company_for_carrier(uuid) returns text language sql as $$select case when $1='${id(12)}'::uuid then 'gyv' else null end$$;
+ create function save_logistics_freight_novelty(p_actor uuid,p_id uuid,p_input jsonb) returns jsonb language plpgsql as $$declare n logistics_freight_novelties;begin
+ insert into logistics_freight_novelties(id,carrier_id,company_key,origin_date,source_dispatch_id,kind,label,reference,amount,created_by)
+ values(p_id,(p_input->>'carrier_id')::uuid,p_input->>'company_key',(p_input->>'origin_date')::date,(p_input->>'source_dispatch_id')::uuid,p_input->>'kind',p_input->>'label',p_input->>'reference',(p_input->>'amount')::numeric,p_actor) returning * into n;return to_jsonb(n);end$$;
+ insert into logistics_dispatches values('${id(3)}','LOG_TEST');
+ insert into treasury_settlements values('${id(2)}','REND_TEST','${id(4)}','Fletero','2026-11-02',null,-500,'draft',null);
+ insert into logistics_dispatch_settlements values('${id(2)}','${id(3)}');`);
+ const sql=fs.readFileSync('database/db_migration_v267_settlement_shortage_guard.sql','utf8');await db.exec(sql);await db.exec(sql);
+ const register=(actor=id(1),key=id(5),difference=-500)=>db.query('select register_treasury_settlement_shortage($1,$2,$3,$4) result',[actor,id(2),key,difference]);
+ await assert.rejects(register(id(99)),/permiso/);
+ await assert.rejects(register(id(1),id(5),-499),/cambió/);
+ await assert.rejects(db.exec("update treasury_settlements set status='confirmed'"),/registrar la novedad/);
+ await assert.rejects(db.exec('update treasury_settlements set movements_generated_at=now()'),/registrar la novedad/);
+ await db.exec('update treasury_settlements set difference=-499.99');await db.exec("update treasury_settlements set status='confirmed'");
+ await db.exec("update treasury_settlements set status='draft',difference=-500");
+ let result=(await register()).rows[0].result;assert.equal(result.covered,true);assert.equal(result.amount,500);assert.equal(result.reference,'Faltante REND_TEST - LOG_TEST');assert.equal(result.originDate,'2026-11-02');
+ assert.equal((await register(id(1),id(6))).rows[0].result.noveltyId,id(5));assert.equal((await db.query('select count(*)::int n from logistics_freight_novelties')).rows[0].n,1);
+ await db.exec("update treasury_settlements set status='confirmed'");await db.exec('update treasury_settlements set movements_generated_at=now()');
+ await assert.rejects(db.exec('update treasury_settlements set difference=-501'),/registrar la novedad/);
+ await db.exec("update treasury_settlements set status='draft';update logistics_freight_novelties set status='cancelled'");
+ await assert.rejects(db.exec("update treasury_settlements set status='confirmed'"),/registrar la novedad/);
+ result=(await register(id(1),id(7))).rows[0].result;assert.equal(result.covered,true);assert.equal(result.noveltyId,id(7));
+ await db.exec(`update logistics_freight_novelties set source_dispatch_id=null where id='${id(7)}'`);
+ await assert.rejects(db.exec("update treasury_settlements set status='confirmed'"),/registrar la novedad/);
+ await db.exec(`update logistics_freight_novelties set source_dispatch_id='${id(3)}',carrier_id='${id(99)}' where id='${id(7)}'`);
+ await assert.rejects(db.exec("update treasury_settlements set status='confirmed'"),/registrar la novedad/);
+ await assert.rejects(register(),/otro importe o responsable/);
+ await db.exec(`update logistics_freight_novelties set status='cancelled';update treasury_settlements set carrier_id='${id(12)}'`);
+ result=(await register(id(1),id(8))).rows[0].result;assert.equal(result.covered,true);assert.equal((await db.query('select company_key from logistics_freight_novelties where id=$1',[id(8)])).rows[0].company_key,'gyv');
+ await db.exec(`delete from treasury_settlement_shortage_links;update logistics_freight_novelties set status='cancelled';
+ insert into logistics_freight_novelties(id,company_key,source_dispatch_id,kind,label,reference,amount,status) values('${id(9)}','gyv','${id(3)}','shortage','Faltante de rendición','Faltante REND_TEST - LOG_TEST',500,'approved')`);
+ result=(await register(id(1),id(10))).rows[0].result;assert.equal(result.noveltyId,id(9));assert.equal(result.covered,true);
+ assert.equal((await db.query('select count(*)::int n from logistics_freight_novelties where status=\'approved\'')).rows[0].n,1);
+ await db.exec('set role authenticated');await assert.rejects(register(),/permission denied/);await assert.rejects(db.query('select * from treasury_settlement_shortage_links'),/permission denied/);await db.exec('reset role');
+ console.log('PASS shortage guard: threshold, cash generation, confirmation, stale amount, permissions, idempotent retry, cancelled/undersized/wrong-owner/wrong-LOG novelties and company ownership.');
+}finally{await db.close();}})().catch(e=>{console.error(e.stack);process.exitCode=1});

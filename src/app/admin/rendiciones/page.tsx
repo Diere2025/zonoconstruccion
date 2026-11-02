@@ -1,4 +1,5 @@
 "use client";
+import SettlementShortageNotice, {shortageClosureMessage} from "@/components/logistics/SettlementShortageNotice";
 
 import DispatchAssignmentModal from "./DispatchAssignmentModal";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -679,6 +680,8 @@ function RendicionesContent() {
     const expectedCash = deliveriesTotal + changeFund - tollsTotal - extraordinaryTotal - effectiveElectronicTotal;
     return { tollsTotal, extraordinaryTotal, countedCash, expectedCash, difference: countedCash + shortageRecovered - expectedCash };
   }, [expenses, hasDetailedCash, detailedCashTotal, countedCashManual, deliveriesTotal, changeFund, effectiveElectronicTotal, shortageRecovered]);
+  const [shortageCovered,setShortageCovered]=useState(false);
+  const shortageBlocked=totals.difference<=-500&&!shortageCovered;
   const health = getSettlementHealth(totals.difference);
   const message = detail?.settlement.status === "confirmed" && detail.settlement.whatsapp_message
     && Math.abs(Number(detail.settlement.difference || 0) - totals.difference) < 0.005
@@ -772,6 +775,7 @@ function RendicionesContent() {
   };
 
   const openMovementsModal = async () => {
+    if(shortageBlocked){setError(shortageClosureMessage);return;}
     setGenerationMode("");
     if (movementRows.length === 0) {
       setError("No hay movimientos calculados en esta rendición para generar.");
@@ -937,6 +941,7 @@ function RendicionesContent() {
 
   const saveSettlement = async (action: "save" | "confirm", refresh = true): Promise<boolean> => {
     if (!detail || saving || updatingOrderStatus) return false;
+    if(action==="confirm"&&shortageBlocked){setError(shortageClosureMessage);return false;}
     setSaving(action);
     setError("");
     try {
@@ -1083,7 +1088,7 @@ function RendicionesContent() {
                   <button
                     type="button"
                     onClick={() => void saveSettlement("confirm")}
-                    disabled={Boolean(saving)}
+                    disabled={Boolean(saving)||shortageBlocked}
                     className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-1.5 text-xs font-bold text-white shadow-2xs hover:bg-emerald-700 disabled:opacity-50"
                   >
                     {saving === "confirm" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />} Confirmar
@@ -1318,6 +1323,7 @@ function RendicionesContent() {
                 <div className={`mt-3 rounded-lg border p-2.5 ${health === "ok" ? "border-emerald-200 bg-emerald-50/70" : health === "shortage" ? "border-rose-200 bg-rose-50/70" : "border-amber-200 bg-amber-50/70"}`}>
                   <p className="text-[9px] font-black uppercase tracking-wider text-slate-500">Diferencia final</p>
                   <p className={`mt-0.5 text-xl font-black ${health === "ok" ? "text-emerald-700" : health === "shortage" ? "text-rose-700" : "text-amber-700"}`}>{formatPrice(totals.difference)}</p>
+                  <SettlementShortageNotice key={detail.settlement.id} settlementId={detail.settlement.id} difference={totals.difference} disabled={archived||Boolean(saving)} request={authenticatedFetch} saveDraft={()=>readOnly?Promise.resolve(true):saveSettlement("save",false)} onCovered={setShortageCovered}/>
                 </div>
               </section>
 
@@ -1342,7 +1348,7 @@ function RendicionesContent() {
                     <button
                       type="button"
                       onClick={openMovementsModal}
-                      disabled={archived || movementRows.length === 0}
+                      disabled={archived || movementRows.length === 0 || shortageBlocked}
                       className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-emerald-700 disabled:opacity-40 transition-colors shadow-2xs"
                     >
                       <Wallet className="h-3 w-3" /> Generar en Caja
