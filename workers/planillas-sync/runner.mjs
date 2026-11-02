@@ -59,7 +59,8 @@ export function checkStockSource(csv) {
 
 /** Orchestrates the existing production endpoints; business rules stay in the ERP. */
 export async function runSync({ request, progress = async () => {}, dryRun = false, runId = crypto.randomUUID() }) {
-  const summary = { dryRun, sheets: [], imported: 0, updated: 0, logisticsUpdated: 0, stockUpdated: 0 };
+  const summary = { dryRun, sheets: [], imported: 0, updated: 0, logisticsUpdated: 0, stockUpdated: 0,
+    protectedPartialRows: 0, deliveryDateConflicts: 0, warnings: [] };
   await progress('Leyendo fuentes', summary);
   const master = await request('/api/admin/import-master-data?scope=orders');
   if (!Array.isArray(master.orders) || !master.orders.length) throw Error('No se pudo leer el índice de pedidos.');
@@ -89,7 +90,18 @@ export async function runSync({ request, progress = async () => {}, dryRun = fal
           defaultChannel: sheet.defaultChannel, isCentralSheet: sheet.isCentralSheet,
           importRunId: runId, sourceName: sheet.name, sourceUrl: sheet.url,
         } });
-        if (result.success !== true || result.warnings?.length) throw Error(`${sheet.name}: el lote devolvió incidencias; se detuvo antes del stock.`);
+        const warnings = result.warnings || [];
+        // The existing importer deliberately preserves the full ERP detail
+        // when one seller row is only part of a grouped order. Its support
+        // ticket remains open; this safeguard is not a failed write.
+        const protectedWarnings = warnings.filter(warning => /^Pedido [A-Z0-9_ /,\-]+: fila parcial de [A-Z0-9_ /,\-]+; se conservan artículos e importes del ERP\.$/i.test(
+          String(warning).replace(/^\[[^\]]+\]\s*/, '').replace(/^⚠️?\s*/, '')
+        ));
+        if (result.success !== true || protectedWarnings.length !== warnings.length || result.supportAlerts?.failed > 0) {
+          throw Error(`${sheet.name}: el lote devolvió incidencias; se detuvo antes del stock.`);
+        }
+        summary.protectedPartialRows += protectedWarnings.length;
+        for (const warning of protectedWarnings) summary.warnings.push({ source: sheet.name, kind: 'protected_partial_row', message: warning });
         summary.imported += result.totalImported || 0;
         summary.updated += result.totalUpdated || 0;
         offset += batch.length;
@@ -107,7 +119,13 @@ export async function runSync({ request, progress = async () => {}, dryRun = fal
     if (batch >= 200) throw Error('Logística excedió el límite de lotes.');
     const result = await request('/api/admin/audit-deliveries', { body: { ...review, cursor, batchSize: 250, syncRunId: runId, dryRun } });
     if (result.success !== true || typeof result.done !== 'boolean') throw Error('Logística devolvió un resultado incompleto.');
-    if (result.conflictingDeliveryDatesCount > 0) throw Error('Logística tiene fechas de entrega en conflicto; se detuvo antes del stock.');
+    // This count reports stored dates that the API explicitly did NOT
+    // overwrite. Match the manual flow: preserve them, record the notice,
+    // and continue the independent physical-stock reconciliation.
+    if (result.conflictingDeliveryDatesCount > 0) {
+      summary.deliveryDateConflicts += result.conflictingDeliveryDatesCount;
+      summary.warnings.push({ source: 'Logística', kind: 'preserved_delivery_dates', count: result.conflictingDeliveryDatesCount });
+    }
     summary.logisticsUpdated += (dryRun ? result.plannedUpdatesCount : result.syncedOrdersCount) || 0;
     if (result.done) break;
     if (!Number.isInteger(result.nextCursor) || result.nextCursor <= cursor) throw Error('Logística no avanzó de lote.');
