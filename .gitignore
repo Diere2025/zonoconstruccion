@@ -75,3 +75,6 @@ output/logistics-planning/
 /output/pdf/instructivo-cuentas-corrientes-proveedores.pdf
 /output/pdf/cierre-proveedores-y-cambios-para-caro.pdf
 /output/pdf/resumen-implementacion-cuentas-corrientes.pdf
+
+# Private scheduled sheet synchronization control token and run evidence
+/output/scheduled-sheet-sync/
