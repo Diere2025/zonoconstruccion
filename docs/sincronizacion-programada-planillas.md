@@ -21,7 +21,9 @@ La reserva de turno es atómica y dura 20 minutos; una ejecución tiene un plazo
 
 Esta exclusión cubre el ejecutor automático y sus controles `/run` y `/preview`. La pantalla manual actual procesa los lotes desde el navegador y no participa de este bloqueo. No iniciar ambas sincronizaciones simultáneamente; integrar el mismo turno en esa pantalla requiere publicar ese cambio en el ERP.
 
-Una fuente inválida, un lote con advertencias, un error HTTP, un cursor sin avance o un conflicto de fechas interrumpe la corrida y registra el fallo. Los cambios de etapas ya completadas se conservan. No se reintentan escrituras ante fallos de red ambiguos ni se presenta una corrida parcial como completa. No se envían mensajes a terceros.
+Una fuente inválida, una advertencia de escritura, un error HTTP o un cursor sin avance interrumpe la corrida y registra el fallo. Los cambios de etapas ya completadas se conservan. No se reintentan escrituras ante fallos de red ambiguos ni se presenta una corrida parcial como completa.
+
+Conserva dos avisos protegidos del flujo manual: una fila parcial de un pedido agrupado mantiene sus artículos e importes completos del ERP, y una fecha real ya guardada se conserva cuando difiere de la planilla. Esos avisos se registran explícitamente en `protectedPartialRows`, `deliveryDateConflicts` y `warnings`, sin bloquear la conciliación independiente de stock. Las filas parciales deben tener su aviso registrado por la API de importación; un fallo al registrarlo sí detiene la corrida. No se agregan mensajes a terceros; las incidencias existentes del importador conservan su comportamiento.
 
 ## Credencial exclusiva
 

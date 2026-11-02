@@ -43,7 +43,7 @@ test('invalid, missing and formula-error source data aborts', () => {
   assert.equal(checkStockSource(stock), 1);
 });
 
-async function scenario({ dryRun = false, failSheet = -1, warnings = false, conflict = false, stalled = false } = {}) {
+async function scenario({ dryRun = false, failSheet = -1, warnings = false, protectedWarning = false, alertFailure = false, conflict = false, stalled = false } = {}) {
   const calls = []; let reads = 0;
   const request = async (path, options = {}) => {
     calls.push({ path, ...options });
@@ -53,7 +53,7 @@ async function scenario({ dryRun = false, failSheet = -1, warnings = false, conf
       if (reads++ === failSheet) throw Error('Fuente caída');
       return csv([header, row('DB1')]);
     }
-    if (path === '/api/admin/import-sheet') return { success: true, warnings: warnings ? ['Error de pedido'] : [], totalUpdated: 1 };
+    if (path === '/api/admin/import-sheet') return { success: true, warnings: warnings ? ['Error de pedido'] : protectedWarning ? ['[14:00:00] ⚠️ Pedido AQ-FP00040: fila parcial de AQ-FP00040 / AQ-FP00041; se conservan artículos e importes del ERP.'] : [], supportAlerts: { failed: alertFailure ? 1 : 0 }, totalUpdated: 1 };
     if (path === '/api/admin/audit-deliveries') return { success: true, done: !stalled, nextCursor: 0, syncedOrdersCount: 1, plannedUpdatesCount: 1, conflictingDeliveryDatesCount: conflict ? 1 : 0 };
     if (path === '/api/admin/sync-stock') return options.body ? { success: true, updatedCount: 1 } : { comparisonList: [{}] };
     throw Error(path);
@@ -84,11 +84,20 @@ test('success processes sellers then central, logistics and stock in sequence', 
   assert.ok(mutations.slice(0, 5).every(c => !c.body.syncPaymentMethods && c.body.skipENC && !c.body.skipCAMB));
 });
 
-test('order warnings, delivery conflicts and stuck cursor never proceed to stock', async () => {
-  for (const options of [{ warnings: true }, { conflict: true }, { stalled: true }]) {
+test('write warnings, unrecorded support notices and stuck cursor never proceed to stock', async () => {
+  for (const options of [{ warnings: true }, { protectedWarning: true, alertFailure: true }, { stalled: true }]) {
     const { error, calls } = await scenario(options);
     assert.ok(error); assert.equal(calls.filter(c => c.path === '/api/admin/sync-stock' && c.body).length, 0);
   }
+});
+
+test('preserved ERP details and dates remain explicit notices while the full stock stage completes', async () => {
+  const { result, calls } = await scenario({ protectedWarning: true, conflict: true });
+  assert.equal(result.protectedPartialRows, 5);
+  assert.equal(result.deliveryDateConflicts, 1);
+  assert.equal(result.warnings.length, 6);
+  assert.equal(result.stockUpdated, 1);
+  assert.equal(calls.filter(c => c.path === '/api/admin/sync-stock' && c.body).length, 1);
 });
 
 test('HTTP errors and ambiguous mutation failures are not silently retried', async () => {
