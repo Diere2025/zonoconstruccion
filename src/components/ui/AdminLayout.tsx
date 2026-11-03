@@ -5,10 +5,11 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { LogOut, Users, Menu, X, ChevronRight, Shield, KeyRound, Eye, EyeOff, CheckCircle2, AlertCircle, Loader2, Boxes, Search } from "lucide-react";
 import { visibleErpModules, activeErpLink, configuredScreenDecision } from "@/lib/erpNavigation";
+import { presentErpModules, logisticsGroup } from "@/lib/erpNavigationPresentation";
 import { useRoleScreenAccess } from '@/lib/useRoleScreenAccess';
 import { KeyboardShortcuts } from "@/components/ui/KeyboardShortcuts";
 import { ErpNavigationContext } from "@/components/ui/ErpNavigationContext";
-import { supabase } from "@/lib/supabase";
+import { supabase, clearLocalSupabaseSession } from "@/lib/supabase";
 import { loadUserRoleProfile, type UserRoleProfile } from "@/lib/userRoleProfile";
 import { createAuthenticatedRequester } from "@/lib/authenticatedRequest";
 import { SupportNotifications } from "@/components/support/SupportNotifications";
@@ -190,6 +191,7 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
   const [isSwitchingSession, setIsSwitchingSession] = useState(false);
   const [impersonationError, setImpersonationError] = useState('');
   const [navigationSearch, setNavigationSearch] = useState('');
+  const [expandedArea, setExpandedArea] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -303,9 +305,9 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
         const emailLower = email.toLowerCase();
 
         // Check if Admin by email
-        let isAdminUser = emailLower === 'diego.boveda@gmail.com' ||
-                          emailLower.includes('admin') ||
-                          emailLower.includes('diego') ||
+        let isAdminUser = emailLower === 'diego.boveda@gmail.com' || 
+                          emailLower.includes('admin') || 
+                          emailLower.includes('diego') || 
                           emailLower === 'caroibarra.93@gmail.com';
 
         const selectProfile = () => supabase.from('sellers')
@@ -381,7 +383,8 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (!['SIGNED_IN', 'SIGNED_OUT', 'USER_UPDATED'].includes(event)) return;
       requestNumber++;
-      // Preserve unsaved forms during same-user tab focus reauthentication.
+      // Supabase emits SIGNED_IN again when a tab regains focus. Keep the
+      // verified screen mounted while revalidating the same user's profile.
       if (event === 'SIGNED_OUT' || session?.user.id !== cachedIdentityUserId) {
         setIsRoleLoaded(false);
       }
@@ -479,9 +482,9 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
         (canUseWholesale && isWholesaleRoute);
       if (!isRestrictedRouteAllowed) router.replace('/vendedores');
     } else if (
-      userRole === 'seller' &&
-      !isRestrictedSeller &&
-      pathname &&
+      userRole === 'seller' && 
+      !isRestrictedSeller && 
+      pathname && 
       pathname.startsWith('/admin/dashboard')
     ) {
       router.replace('/vendedores');
@@ -602,13 +605,16 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
 
   const visibleModules = screenAccess.ready ? visibleErpModules(screenIdentity) : [];
   const navigationTerm = normalizeNavigationSearch(navigationSearch.trim());
-  const filteredModules = visibleModules.map(section => ({
+  const presentationModules = presentErpModules(visibleModules);
+  const filteredModules = presentationModules.map(section => ({
     ...section,
     links: normalizeNavigationSearch(`${section.title} ${section.description}`).includes(navigationTerm)
       ? section.links
       : section.links.filter(link => normalizeNavigationSearch(link.name).includes(navigationTerm))
   })).filter(section => section.links.length > 0);
   const activeLink = activeErpLink(visibleModules, pathname, searchParams.toString());
+  const activeArea = presentationModules.find(section => section.links.some(link => link.id === activeLink?.link.id))?.id;
+  useEffect(() => { setExpandedArea(activeArea || null); }, [activeArea, pathname]);
   const isActive = (path: string) => activeLink?.link.href === path;
 
   // Compute dynamic breadcrumbs from current pathname
@@ -653,26 +659,26 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
     <div className="min-h-screen flex bg-slate-50 text-slate-900 font-sans antialiased">
       {/* Mobile Sidebar Overlay */}
       {isSidebarOpen && (
-        <div
+        <div 
           onClick={toggleSidebar}
           className="fixed inset-0 z-40 bg-slate-900/60 backdrop-blur-xs lg:hidden"
         />
       )}
 
       {/* Sidebar Navigation */}
-      <aside
+      <aside 
         id="erp-sidebar"
         inert={!isSidebarOpen}
         aria-hidden={!isSidebarOpen}
         className={`fixed inset-y-0 left-0 z-50 flex flex-col bg-slate-900 border-r border-slate-800 text-slate-200 transition-all duration-300 transform lg:translate-x-0 lg:static lg:h-screen ${
-          isSidebarOpen
-            ? "translate-x-0 w-64 min-w-[16rem]"
+          isSidebarOpen 
+            ? "translate-x-0 w-64 min-w-[16rem]" 
             : "-translate-x-full lg:w-0 lg:min-w-0 lg:overflow-hidden lg:border-r-0"
         }`}
       >
         {/* Sidebar Header / Brand */}
         <div className="h-16 flex items-center justify-between px-5 border-b border-slate-800/80 shrink-0 bg-slate-950/40">
-          <Link
+          <Link 
             href="/admin"
             onClick={closeSidebarOnMobile}
             className="flex items-center gap-3 group"
@@ -690,9 +696,9 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
             </div>
           </Link>
 
-          <button
+          <button 
             aria-label="Cerrar menú lateral"
-            onClick={toggleSidebar}
+            onClick={toggleSidebar} 
             className="lg:hidden p-1.5 rounded-lg hover:bg-slate-800 transition-colors text-slate-400 hover:text-white"
           >
             <X className="w-5 h-5" />
@@ -728,23 +734,27 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
             filteredModules.map(section => {
               const visibleLinks = section.links;
               const hasActive = visibleLinks.some(link => isActive(link.href));
+              const expanded = Boolean(navigationTerm) || expandedArea === section.id || visibleLinks.length === 1;
 
               return (
                 <div key={section.id} className="space-y-1">
-                  <div className="flex items-center justify-between px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                  <button type="button" aria-expanded={expanded} aria-controls={`navigation-${section.id}`} onClick={() => setExpandedArea(expandedArea === section.id ? null : section.id)} className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-bold text-slate-300 hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-brand-400">
                     <span className="flex items-center gap-1.5 truncate">
                       {section.title}
                       {hasActive && (
                         <span className="w-1.5 h-1.5 rounded-full bg-brand-400 shrink-0" title="Página activa en este módulo" />
                       )}
                     </span>
-                  </div>
+                    <ChevronRight className={`h-3 w-3 shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+                  </button>
 
-                    <div className="space-y-0.5">
-                      {visibleLinks.map(link => {
+                    {expanded && <div id={`navigation-${section.id}`} className="space-y-0.5">
+                      {visibleLinks.map((link, index) => {
                         const Icon = link.icon;
                         const active = isActive(link.href);
                         return (
+                          <React.Fragment key={link.id}>
+                          {section.id === 'logistica' && (index === 0 || logisticsGroup(visibleLinks[index - 1].id) !== logisticsGroup(link.id)) && <p className="px-3 pt-3 pb-1 text-[10px] font-semibold text-slate-400">{logisticsGroup(link.id)}</p>}
                           <Link
                             key={link.href}
                             href={link.href}
@@ -755,27 +765,31 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
                               }
                             }}
                             className={`group flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all duration-150 ${
-                              active
-                                ? "bg-brand-600 text-white font-semibold shadow-xs"
+                              active 
+                                ? "bg-brand-600 text-white font-semibold shadow-xs" 
                                 : "text-slate-300 hover:text-white hover:bg-slate-800/60"
                             }`}
                           >
                             <Icon className={`w-4 h-4 shrink-0 transition-colors ${
-                              active
-                                ? "text-white"
+                              active 
+                                ? "text-white" 
                                 : "text-slate-400 group-hover:text-slate-200"
                             }`} />
                             <span className="truncate">{link.name}</span>
                           </Link>
+                          </React.Fragment>
                         );
                       })}
-                    </div>
+                    </div>}
                 </div>
               );
             })
           )}
-          {isRoleLoaded && filteredModules.length === 0 && (
+          {isRoleLoaded && screenAccess.ready && filteredModules.length === 0 && (
             <p role="status" className="px-3 py-4 text-xs text-slate-400">No encontramos opciones para “{navigationSearch}”.</p>
+          )}
+          {isRoleLoaded && !screenAccess.ready && (
+            <p role="status" className="px-3 py-4 text-xs text-slate-400">{screenAccess.error || 'Verificando accesos…'}</p>
           )}
 
         </div>
@@ -829,7 +843,7 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
             </button>
           )}
 
-          <button
+          <button 
             onClick={handleLogout}
             className="w-full flex items-center justify-center gap-2 py-2 px-3 bg-slate-800/50 hover:bg-rose-950/40 text-slate-400 hover:text-rose-300 border border-slate-700/50 hover:border-rose-900/50 rounded-xl text-xs font-medium transition-all cursor-pointer"
           >
@@ -844,10 +858,10 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
         {/* Topbar with Breadcrumbs */}
         <header className="h-16 bg-white border-b border-slate-200/80 flex items-center justify-between px-6 shrink-0 relative z-30 shadow-2xs">
           <div className="flex items-center gap-4 min-w-0">
-            <button
+            <button 
               aria-controls="erp-sidebar"
               aria-expanded={isSidebarOpen}
-              onClick={toggleSidebar}
+              onClick={toggleSidebar} 
               className="p-2 hover:bg-slate-100 rounded-xl transition-colors text-slate-500 hover:text-slate-800 cursor-pointer"
               title={isSidebarOpen ? "Ocultar menú lateral" : "Mostrar menú lateral"}
             >
@@ -918,6 +932,11 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
               {!screenAccess.ready ? <div role="status" className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-600">
                 {screenAccess.error || 'Cargando accesos…'}
                 {screenAccess.error && <button className="ml-3 font-semibold text-blue-700" onClick={() => window.dispatchEvent(new Event('erp-screen-access-updated'))}>Reintentar</button>}
+                {screenAccess.error === 'La sesión venció. Volvé a ingresar.' && <button className="ml-3 font-semibold text-blue-700" onClick={() => {
+                  clearLocalSupabaseSession();
+                  clearCachedIdentity();
+                  window.location.reload();
+                }}>Volver a ingresar</button>}
               </div> : screenDecision === false ? <div role="status" className="p-6 text-sm text-slate-600">Esta pantalla no está habilitada para tus roles. Volviendo al inicio…</div> : children}
             <KeyboardShortcuts userId={isRoleLoaded ? cachedIdentityUserId : null} />
             </ErpNavigationContext.Provider>
@@ -1034,7 +1053,7 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
                 </div>
                 <h3 className="font-bold text-sm text-slate-900">Cambiar Contraseña</h3>
               </div>
-              <button
+              <button 
                 onClick={() => setShowChangePasswordModal(false)}
                 className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
               >
@@ -1116,3 +1135,4 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
     </div>
   );
 }
+

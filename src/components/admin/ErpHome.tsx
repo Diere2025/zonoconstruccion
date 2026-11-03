@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ArrowUpRight, Boxes, Loader2, Search } from 'lucide-react';
 import { useErpNavigation } from '@/components/ui/ErpNavigationContext';
+import { presentErpModules } from '@/lib/erpNavigationPresentation';
 
 const normalize = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
@@ -16,7 +17,7 @@ export default function ErpHome() {
       document.getElementById(window.location.hash.slice(1))?.scrollIntoView({ block: 'start' });
     }
   }, [ready]);
-  const matches = modules.map(module => ({
+  const matches = presentErpModules(modules).map(module => ({
     ...module,
     links: normalize(`${module.title} ${module.description}`).includes(term)
       ? module.links : module.links.filter(link => normalize(link.name).includes(term))

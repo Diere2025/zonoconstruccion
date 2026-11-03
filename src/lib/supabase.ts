@@ -35,3 +35,12 @@ const getSupabaseClient = (): SupabaseClient => {
 };
 
 export const supabase = getSupabaseClient();
+
+/** Recover a stuck browser auth lock without waiting for another SDK operation. */
+export function clearLocalSupabaseSession() {
+  const projectRef = new URL(supabaseUrl).hostname.split('.')[0];
+  const storageKey = `sb-${projectRef}-auth-token`;
+  localStorage.removeItem(storageKey);
+  localStorage.removeItem(`${storageKey}-code-verifier`);
+  localStorage.removeItem(`${storageKey}-user`);
+}

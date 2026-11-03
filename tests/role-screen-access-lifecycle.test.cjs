@@ -28,7 +28,7 @@ function fixture() {
   vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/lib/useRoleScreenAccess.ts', 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText, {
-    exports, require: name => modules[name], Error,
+    exports, require: name => modules[name], Error, setTimeout, clearTimeout,
     window: { setInterval: callback => { listeners.set('interval', callback); return 1; }, clearInterval() {},
       addEventListener: (event, callback) => listeners.set(event, callback), removeEventListener: event => listeners.delete(event) },
   });
@@ -79,6 +79,7 @@ test('focus, interval, explicit refresh and authentication still reload permissi
   await tick();
   for (const event of ['focus', 'interval', 'erp-screen-access-updated', 'auth']) {
     f.refresh(event);
+    if (event === 'auth') await new Promise(resolve => setTimeout(resolve, 5));
     assert.equal(f.render().ready, true, 'a pending refresh retains the mounted screen');
     f.requests.at(-1).resolve({ overrides: {} });
     await tick();

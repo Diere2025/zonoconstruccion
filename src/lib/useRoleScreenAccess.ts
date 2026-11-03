@@ -14,6 +14,7 @@ export function useRoleScreenAccess(identity: string, enabled: boolean) {
     if (!enabled) return;
     let disposed = false;
     let generation = 0;
+    let authTimer: ReturnType<typeof setTimeout> | undefined;
     async function load() {
       const current = ++generation;
       try {
@@ -33,9 +34,14 @@ export function useRoleScreenAccess(identity: string, enabled: boolean) {
     const interval = window.setInterval(refresh, 60_000);
     window.addEventListener('focus', refresh);
     window.addEventListener('erp-screen-access-updated', refresh);
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(refresh);
+    // Auth listeners run under the session lock. Read the session after it releases.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(() => {
+      clearTimeout(authTimer);
+      authTimer = setTimeout(refresh, 0);
+    });
     return () => {
       disposed = true;
+      clearTimeout(authTimer);
       window.clearInterval(interval);
       window.removeEventListener('focus', refresh);
       window.removeEventListener('erp-screen-access-updated', refresh);

@@ -28,6 +28,9 @@ export async function GET(request: Request) {
     const token = request.headers.get('authorization')?.match(/^Bearer\s+(.+)$/i)?.[1];
     if (!token) return response({ error: 'Iniciá sesión para consultar los accesos.' }, 401);
     const { data: { user }, error: authError } = await db.auth.getUser(token);
+    if (authError && (authError.name === 'AuthRetryableFetchError' || authError.status === 0 || (authError.status ?? 0) >= 500)) {
+      return response({ error: 'No se pudo conectar con el servicio de autenticación. Volvé a intentar en unos momentos.' }, 503);
+    }
     if (authError || !user) return response({ error: 'La sesión venció. Volvé a ingresar.' }, 401);
     const { data, error } = await db.from('erp_role_screen_access').select('overrides,revision,updated_at').eq('id', true).single();
     // Before migration, keep the existing navigation; editing remains unavailable.
