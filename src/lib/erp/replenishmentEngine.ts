@@ -469,6 +469,7 @@ export function buildReplenishmentAnalysis(params: {
   const items: ReplenishmentItemResult[] = [];
 
   for (const p of products) {
+    if(p.is_outlet_unit) continue;
     const lowerName = (p.name || '').toLowerCase().trim();
     const lowerSku = (p.sku || '').toLowerCase().trim();
     const normNameCheck = normalizeProductText(p.name || '');

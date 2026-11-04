@@ -119,6 +119,7 @@ export async function POST() {
       const { data, error } = await supabaseAdmin
         .from('products')
         .select('id, name, sku, price, is_active, is_discontinued, category, brand')
+        .eq('is_outlet_unit',false)
         .range(page * pageSize, (page + 1) * pageSize - 1);
 
       if (error) throw error;

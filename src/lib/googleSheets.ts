@@ -361,6 +361,7 @@ export function buildSheetOrderItems(
     discountValue?: number;
     isIncludedInKit?: boolean;
     bundleParentId?: string;
+    is_outlet_unit?: boolean; outlet_snapshot?: unknown;
   }>,
   orderDiscountAmount: number = 0,
   productsCatalog?: Array<{ id: string; price: number; name?: string; sku?: string }>
@@ -375,6 +376,7 @@ export function buildSheetOrderItems(
   // Los renglones históricos de descuento se normalizan como un único ajuste
   // al final. El resto de los productos conserva su precio de lista.
   for (const item of orderItems) {
+    if(item.is_outlet_unit||item.outlet_snapshot) continue;
     const rawName = item.product_name || item.name || '';
     const rawSku = item.sku || '';
     const currentPrice = item.customPrice !== undefined ? item.customPrice : (item.unit_price !== undefined ? item.unit_price : 0);
@@ -426,6 +428,7 @@ export function buildSheetOrderItems(
     const qty = item.quantity || 1;
     const currentPrice = item.customPrice !== undefined ? item.customPrice : (item.unit_price !== undefined ? item.unit_price : 0);
 
+    if(item.is_outlet_unit||item.outlet_snapshot){resultItems.push({name:rawName,sku:rawSku||undefined,quantity:qty,unitPrice:currentPrice});continue;}
     const isExplicitDiscount = nameLower.includes('descuento') || 
                                skuLower.includes('descuento') || 
                                nameLower.includes('bonificaci') || 

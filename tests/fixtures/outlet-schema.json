@@ -1,0 +1,825 @@
+{
+  "columns": [
+    {
+      "table_name": "inventory_transactions",
+      "column_name": "id",
+      "data_type": "uuid",
+      "column_default": "gen_random_uuid()",
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "inventory_transactions",
+      "column_name": "product_id",
+      "data_type": "uuid",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "inventory_transactions",
+      "column_name": "quantity",
+      "data_type": "numeric",
+      "column_default": null,
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "inventory_transactions",
+      "column_name": "type",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "inventory_transactions",
+      "column_name": "reference_id",
+      "data_type": "uuid",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "inventory_transactions",
+      "column_name": "user_id",
+      "data_type": "uuid",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "inventory_transactions",
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "column_default": "timezone('utc'::text, now())",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "order_items",
+      "column_name": "id",
+      "data_type": "uuid",
+      "column_default": "uuid_generate_v4()",
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "order_items",
+      "column_name": "order_id",
+      "data_type": "uuid",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "order_items",
+      "column_name": "product_id",
+      "data_type": "uuid",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "order_items",
+      "column_name": "product_name",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "order_items",
+      "column_name": "quantity",
+      "data_type": "integer",
+      "column_default": null,
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "order_items",
+      "column_name": "unit_price",
+      "data_type": "numeric",
+      "column_default": null,
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "order_items",
+      "column_name": "subtotal",
+      "data_type": "numeric",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "order_items",
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "column_default": "timezone('utc'::text, now())",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "order_items",
+      "column_name": "historical_unit_cost",
+      "data_type": "numeric",
+      "column_default": "0",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "order_items",
+      "column_name": "discount_percentage",
+      "data_type": "numeric",
+      "column_default": "0",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "id",
+      "data_type": "uuid",
+      "column_default": "uuid_generate_v4()",
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "seller_id",
+      "data_type": "uuid",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "initial_delivery_date",
+      "data_type": "date",
+      "column_default": null,
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "max_delivery_date",
+      "data_type": "date",
+      "column_default": null,
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "order_date",
+      "data_type": "date",
+      "column_default": "CURRENT_DATE",
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "customer_name",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "locality",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "address",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "google_maps_link",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "payment_method_id",
+      "data_type": "uuid",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "freight_type",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "status",
+      "data_type": "text",
+      "column_default": "'Pendiente'::text",
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "total_amount",
+      "data_type": "numeric",
+      "column_default": "0.00",
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "column_default": "timezone('utc'::text, now())",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "client_id",
+      "data_type": "uuid",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "shipping_address_id",
+      "data_type": "uuid",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "shipping_address_snapshot",
+      "data_type": "jsonb",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "totals",
+      "data_type": "jsonb",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "payment_status",
+      "data_type": "text",
+      "column_default": "'Pendiente'::text",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "channel",
+      "data_type": "text",
+      "column_default": "'vendedor_externo'::text",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "invoice_requested",
+      "data_type": "boolean",
+      "column_default": "false",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "invoice_type",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "invoice_cuit",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "invoice_status",
+      "data_type": "text",
+      "column_default": "'Pendiente'::text",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "invoice_url",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "logistics_zone_id",
+      "data_type": "uuid",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "whaticket_link",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "delivery_notes",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "advertising_source_id",
+      "data_type": "uuid",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "order_medium_id",
+      "data_type": "uuid",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "received_phone_line_id",
+      "data_type": "uuid",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "delivery_detail",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "legacy_code",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "hold_reason",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "hold_product_id",
+      "data_type": "uuid",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "category",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "payment_approved",
+      "data_type": "boolean",
+      "column_default": "false",
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "cancel_reason",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "order_discount_type",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "order_discount_value",
+      "data_type": "numeric",
+      "column_default": "0",
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "order_discount_amount",
+      "data_type": "numeric",
+      "column_default": "0",
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "advertising_source_detail",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "commercial_brand",
+      "data_type": "text",
+      "column_default": "'zono'::text",
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "quote_id",
+      "data_type": "uuid",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "created_by_id",
+      "data_type": "uuid",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "source_visit_id",
+      "data_type": "uuid",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "orders",
+      "column_name": "source_visit_quote_id",
+      "data_type": "uuid",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "products",
+      "column_name": "id",
+      "data_type": "uuid",
+      "column_default": "gen_random_uuid()",
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "products",
+      "column_name": "name",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "products",
+      "column_name": "description",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "products",
+      "column_name": "price",
+      "data_type": "numeric",
+      "column_default": null,
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "products",
+      "column_name": "image_url",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "products",
+      "column_name": "category",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "products",
+      "column_name": "stock",
+      "data_type": "integer",
+      "column_default": "0",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "products",
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "column_default": "timezone('utc'::text, now())",
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "products",
+      "column_name": "sku",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "products",
+      "column_name": "brand",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "products",
+      "column_name": "dimensions",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "products",
+      "column_name": "is_featured",
+      "data_type": "boolean",
+      "column_default": "false",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "products",
+      "column_name": "is_on_sale",
+      "data_type": "boolean",
+      "column_default": "false",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "products",
+      "column_name": "upsell_ids",
+      "data_type": "ARRAY",
+      "column_default": "'{}'::text[]",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "products",
+      "column_name": "tags",
+      "data_type": "ARRAY",
+      "column_default": "'{}'::text[]",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "products",
+      "column_name": "settings",
+      "data_type": "jsonb",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "products",
+      "column_name": "is_active",
+      "data_type": "boolean",
+      "column_default": "true",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "products",
+      "column_name": "fixed_price",
+      "data_type": "boolean",
+      "column_default": "true",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "products",
+      "column_name": "markup_percentage",
+      "data_type": "numeric",
+      "column_default": "0",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "products",
+      "column_name": "markup_wholesale_percentage",
+      "data_type": "numeric",
+      "column_default": "0",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "products",
+      "column_name": "is_discontinued",
+      "data_type": "boolean",
+      "column_default": "false",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "products",
+      "column_name": "volume",
+      "data_type": "numeric",
+      "column_default": "0",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "products",
+      "column_name": "weight",
+      "data_type": "numeric",
+      "column_default": "0",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "products",
+      "column_name": "stock_physical",
+      "data_type": "numeric",
+      "column_default": "0",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "products",
+      "column_name": "stock_reserved",
+      "data_type": "numeric",
+      "column_default": "0",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "products",
+      "column_name": "stock_current",
+      "data_type": "numeric",
+      "column_default": "0",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "products",
+      "column_name": "parent_id",
+      "data_type": "uuid",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "products",
+      "column_name": "variant_type",
+      "data_type": "text",
+      "column_default": "'estandar'::text",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "products",
+      "column_name": "production_type",
+      "data_type": "text",
+      "column_default": "'comprado'::text",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "products",
+      "column_name": "is_insumo",
+      "data_type": "boolean",
+      "column_default": "false",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "products",
+      "column_name": "insumo_use",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "products",
+      "column_name": "labor_cost",
+      "data_type": "numeric",
+      "column_default": "0",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "products",
+      "column_name": "overhead_cost",
+      "data_type": "numeric",
+      "column_default": "0",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "products",
+      "column_name": "cost_price",
+      "data_type": "numeric",
+      "column_default": "0",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "products",
+      "column_name": "is_generic",
+      "data_type": "boolean",
+      "column_default": "false",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "products",
+      "column_name": "mapped_real_product_id",
+      "data_type": "uuid",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "products",
+      "column_name": "is_service",
+      "data_type": "boolean",
+      "column_default": "false",
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "products",
+      "column_name": "unified_cost",
+      "data_type": "numeric",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "products",
+      "column_name": "unified_cost_status",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "sellers",
+      "column_name": "id",
+      "data_type": "uuid",
+      "column_default": null,
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "sellers",
+      "column_name": "email",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "sellers",
+      "column_name": "full_name",
+      "data_type": "text",
+      "column_default": null,
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "sellers",
+      "column_name": "commission_rate",
+      "data_type": "numeric",
+      "column_default": "8.00",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "sellers",
+      "column_name": "is_active",
+      "data_type": "boolean",
+      "column_default": "true",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "sellers",
+      "column_name": "enabled_categories",
+      "data_type": "ARRAY",
+      "column_default": "'{}'::text[]",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "sellers",
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "column_default": "timezone('utc'::text, now())",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "sellers",
+      "column_name": "role",
+      "data_type": "text",
+      "column_default": "'seller'::text",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "sellers",
+      "column_name": "seller_type",
+      "data_type": "text",
+      "column_default": "'minorista'::text",
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "sellers",
+      "column_name": "is_organic",
+      "data_type": "boolean",
+      "column_default": "false",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "sellers",
+      "column_name": "roles",
+      "data_type": "ARRAY",
+      "column_default": "'{}'::text[]",
+      "is_nullable": "YES"
+    },
+    {
+      "table_name": "sellers",
+      "column_name": "can_sell_wholesale",
+      "data_type": "boolean",
+      "column_default": "false",
+      "is_nullable": "NO"
+    },
+    {
+      "table_name": "sellers",
+      "column_name": "archived_at",
+      "data_type": "timestamp with time zone",
+      "column_default": null,
+      "is_nullable": "YES"
+    }
+  ],
+  "triggers": [
+    {
+      "relname": "inventory_transactions",
+      "tgname": "trg_inventory_transaction_inserted",
+      "def": "CREATE TRIGGER trg_inventory_transaction_inserted AFTER INSERT OR DELETE ON public.inventory_transactions FOR EACH ROW EXECUTE FUNCTION update_product_stock_levels()",
+      "proname": "update_product_stock_levels",
+      "body": "CREATE OR REPLACE FUNCTION public.update_product_stock_levels()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\nDECLARE\n  v_is_discontinued BOOLEAN;\n  v_stock_current NUMERIC;\n  v_transaction RECORD;\n  v_quantity NUMERIC;\nBEGIN\n  -- Determine if it is INSERT or DELETE operation\n  IF TG_OP = 'DELETE' THEN\n    v_transaction := OLD;\n  ELSE\n    v_transaction := NEW;\n  END IF;\n\n\n  -- v152 services\n  if exists(select 1 from public.products where id=v_transaction.product_id and is_service) then\n    if tg_op='DELETE' then return old; else return new; end if;\n  end if;\n  -- Obtener info del producto\n  SELECT is_discontinued, stock_current INTO v_is_discontinued, v_stock_current\n  FROM public.products\n  WHERE id = v_transaction.product_id;\n\n  -- Validar si está descontinuado y el stock quedaría en negativo (solo en INSERT)\n  IF TG_OP = 'INSERT' AND v_is_discontinued AND (v_stock_current + v_transaction.quantity) < 0 AND v_transaction.type IN ('Reserva Pedido', 'Ajuste', 'Produccion Consumo') THEN\n    RAISE EXCEPTION 'No hay suficiente stock disponible para el producto descontinuado.';\n  END IF;\n\n  -- Para DELETE, invertimos el signo de la cantidad a aplicar\n  IF TG_OP = 'DELETE' THEN\n    v_quantity := -v_transaction.quantity;\n  ELSE\n    v_quantity := v_transaction.quantity;\n  END IF;\n\n  -- Actualizar niveles en base al tipo de movimiento\n  IF v_transaction.type = 'Ajuste' OR v_transaction.type = 'Compra' OR v_transaction.type = 'Produccion Ingreso' THEN\n    UPDATE public.products\n    SET \n      stock_physical = stock_physical + v_quantity,\n      stock_current = stock_current + v_quantity\n    WHERE id = v_transaction.product_id;\n\n  ELSIF v_transaction.type = 'Reserva Pedido' THEN\n    UPDATE public.products\n    SET \n      stock_reserved = stock_reserved + v_quantity,\n      stock_current = stock_current - v_quantity\n    WHERE id = v_transaction.product_id;\n\n  ELSIF v_transaction.type = 'Cancelacion Pedido' THEN\n    UPDATE public.products\n    SET \n      stock_reserved = stock_reserved - v_quantity,\n      stock_current = stock_current + v_quantity\n    WHERE id = v_transaction.product_id;\n\n  ELSIF v_transaction.type = 'Entrega' THEN\n    -- Al entregar, se reduce el stock físico y se libera la reserva. El stock_current no cambia.\n    UPDATE public.products\n    SET \n      stock_physical = stock_physical - v_quantity,\n      stock_reserved = stock_reserved - v_quantity\n    WHERE id = v_transaction.product_id;\n\n  ELSIF v_transaction.type = 'Produccion Consumo' THEN\n    -- Al consumir materia prima, se reduce el stock físico y el stock actual\n    UPDATE public.products\n    SET \n      stock_physical = stock_physical - v_quantity,\n      stock_current = stock_current - v_quantity\n    WHERE id = v_transaction.product_id;\n  END IF;\n\n  IF TG_OP = 'DELETE' THEN\n    RETURN OLD;\n  ELSE\n    RETURN NEW;\n  END IF;\nEND;\n$function$\n"
+    }
+  ]
+}

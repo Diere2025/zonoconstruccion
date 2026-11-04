@@ -57,6 +57,7 @@ async function fetchProductsAll() {
       // Keep the full row because Postgres validates NOT NULL columns before
       // resolving an UPSERT conflict, even when only stock fields changed.
       .select('*')
+        .eq('is_outlet_unit',false)
       .order('id')
       .range(page * pageSize, (page + 1) * pageSize - 1);
     if (error) throw error;
