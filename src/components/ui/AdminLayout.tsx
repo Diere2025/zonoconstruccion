@@ -403,7 +403,7 @@ function AdminLayoutContent({ children }: AdminLayoutProps) {
   const isAdminRole = hasRole('admin');
   const screenAccess = useRoleScreenAccess(`${cachedIdentityUserId || ''}:${userEmail}:${userRoles.join(',')}`, isRoleLoaded && isWholesalePermissionLoaded);
   const screenIdentity = { roles: userRoles, restrictedSeller: isRestrictedSeller, canUseWholesale, email: userEmail,
-    userId: isRoleLoaded ? cachedIdentityUserId : null, screenOverrides: screenAccess.overrides };
+    canManageOutlet: screenAccess.canManageOutlet, userId: isRoleLoaded ? cachedIdentityUserId : null, screenOverrides: screenAccess.overrides };
   const screenDecision = configuredScreenDecision(screenIdentity, pathname, searchParams.toString());
   const isSpecializedOperator = !isAdminRole && !hasRole('seller') && userRoles.some(role =>
     ['logistica', 'fletero', 'administracion', 'compras', 'instalador'].includes(role)

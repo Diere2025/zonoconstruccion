@@ -38,7 +38,9 @@ export async function GET(request: Request) {
     if (error || !data) throw error || new Error('Configuración inexistente.');
     const ids = new Set(erpModules.flatMap(module => module.links.filter(isConfigurableScreen).map(link => link.id)));
     if (!validateScreenOverrides(data.overrides, ids)) throw new Error('Configuración inválida.');
-    return response({ ...data, available: true });
+    const manager = await db.from('outlet_managers').select('enabled').eq('user_id', user.id).maybeSingle();
+    const profile = await db.from('sellers').select('is_active').eq('id',user.id).maybeSingle();
+    return response({ ...data, available: true, canManageOutlet: manager.data?.enabled === true && profile.data?.is_active === true });
   } catch {
     return response({ error: 'No se pudieron cargar los accesos. Volvé a intentar.' }, 503);
   }
