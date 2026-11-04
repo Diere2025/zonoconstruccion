@@ -41,13 +41,16 @@ async function main(){
  }
  const {CRONS}=await import('../workers/route-sales/core.mjs');
  if(mode==='preflight'){
-  const w=await fetch('https://api.whaticket.com/api/v1/tickets/64ff5485-7ad2-4dac-a412-1c2077731b28',{headers:{Authorization:'Bearer '+process.env.WHATICKET_AUDIT_TOKEN}});
+  const w=await fetch('https://api.whaticket.com/api/v1/me',{headers:{Authorization:'Bearer '+process.env.WHATICKET_AUDIT_TOKEN}});
   const o=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:'Bearer '+process.env.OPENAI_API_KEY,'Content-Type':'application/json'},body:JSON.stringify({model:'gpt-4.1',store:false,input:'Return only OK.',max_output_tokens:16})});
   const result={checkedAt:new Date().toISOString(),whaticket:w.status,openai:o.status,ready:w.ok&&o.ok};
   fs.writeFileSync(dir+'/preflight.json',JSON.stringify(result,null,2));console.log(JSON.stringify(result));
   if(!result.ready)throw Error('No activar: APIs sin acceso');
-  const ticket=await w.json();if(!ticket.userId)throw Error('Se debe seleccionar la cuenta de Jazmín');
-  const db=new Client({connectionString:process.env.DATABASE_URL});await db.connect();try{await db.query("update route_sales_config set whaticket_user_id=$1,model='gpt-4.1' where id=true",[ticket.userId]);}finally{await db.end();}return;
+  const db=new Client({connectionString:process.env.DATABASE_URL});await db.connect();try{
+   const current=(await db.query('select whaticket_user_id from route_sales_config where id=true')).rows[0];
+   const userId=process.env.WHATICKET_SELLER_USER_ID||current?.whaticket_user_id;if(!userId)throw Error('Se debe configurar WHATICKET_SELLER_USER_ID');
+   await db.query("update route_sales_config set whaticket_user_id=$1,model='gpt-4.1' where id=true",[userId]);
+  }finally{await db.end();}return;
  }
  const endpoint='/workers/scripts/'+worker;
  if(mode==='deploy'){
