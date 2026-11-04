@@ -40,6 +40,7 @@ import {
   findFlotanteProduct
 } from "@/lib/visualSelectorConfig";
 import { supabase } from "@/lib/supabase";
+import TankBaseWarning from './TankBaseWarning';
 import { evaluateDiscountSuggestions, DiscountSuggestion } from "@/lib/discountRules";
 import { formatPrice, normalizeText } from "@/lib/utils";
 import { BioComboTitle, BioComboExtras } from './BioComboPresentation';
@@ -1591,6 +1592,7 @@ export default function VisualProductSelectorModal({
 
             {/* LIVE CART ITEMS LIST */}
             <div className="flex-1 overflow-y-auto p-3 space-y-1.5 min-h-0">
+              <TankBaseWarning items={orderItems} />
 
               {orderItems.length === 0 ? (
                 <div className="p-8 border-2 border-dashed border-slate-200 rounded-2xl text-center bg-white space-y-3 my-auto">

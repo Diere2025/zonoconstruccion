@@ -63,6 +63,7 @@ async function callList(role, date, options = {}) {
       if (name === 'next/server') return { NextResponse: { json: (body, options) => ({ body, status: options?.status || 200 }) } };
       if (name === '@supabase/supabase-js') return { createClient: () => client };
       if (name === '@/lib/mpPaymentDate') return { getMPPaymentDayBounds };
+      if (name === '@/lib/mpOrderLinkWarnings') return require('../src/lib/mpOrderLinkWarnings.ts');
       if (name === '@/lib/mpAccountIncomeServer') return {loadMonthlyAccountIncome:async(_db,asOf)=>{incomeDates.push(asOf);return [];}};
       throw new Error(`Unexpected import ${name}`);
     },
