@@ -81,3 +81,6 @@ output/logistics-planning/
 
 # Private price synchronization control credential
 /tmp/price-sync-control-token.txt
+
+# Private pending-sales evidence and scheduler credential
+/output/route-sales/
