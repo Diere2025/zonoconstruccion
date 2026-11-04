@@ -16,7 +16,7 @@ async function authorize(req: NextRequest) {
     const { data, error } = await db.auth.getUser(token);
     if (error || !data.user || data.user.is_anonymous)
         throw new RequestError('Volvé a ingresar al ERP.', 401);
-    const access = await db.rpc('outlet_is_admin');
+    const access = await db.rpc('outlet_can_manage');
     if (access.error)
         throw new RequestError('El módulo requiere activar la migración de Segunda y Outlet.', 503);
     if (!access.data)
@@ -52,8 +52,9 @@ export async function GET(req: NextRequest) {
             throw databaseError(products.error);
         const audit = req.nextUrl.searchParams.get('unit');
         const history = audit ? await db.from('outlet_audit').select('recorded_at,after_data,before_data').eq('unit_id', audit).order('recorded_at', { ascending: false }).limit(40) : null;
+        const adminPermission=await db.rpc('outlet_is_admin');
         const prices=await calculateBulkPrices(db,products.data||[],'minorista');
-        return json({ units, products: products.data?.map(p=>({...p,price:prices[p.id]?.price??p.price})), history: history?.data || [] });
+        return json({ canManagePermissions:adminPermission.data===true,units, products: products.data?.map(p=>({...p,price:prices[p.id]?.price??p.price})), history: history?.data || [] });
     }
     catch (error) {
         return fail(error);
@@ -64,6 +65,11 @@ export async function POST(req: NextRequest) {
         const { db, user } = await authorize(req);
         const input = await req.json();
         const values = validateOutlet(input);
+        if(values.base_product_id){
+            const model=await db.from('products').select('name,category,is_outlet_unit').eq('id',values.base_product_id).maybeSingle();
+            if(model.error||!model.data||model.data.is_outlet_unit)throw new RequestError('Elegí un producto de referencia válido.');
+            values.name=model.data.name;values.category=model.data.category;
+        }else if(values.state==='available')throw new RequestError('Completá el producto de referencia antes de publicar.');
         if (values.photos.some(p => !p.startsWith(`${user.id}/`))) {
             // Existing photos may have been uploaded by another administrator.
             if (!input.id)

@@ -22,6 +22,7 @@ export interface ErpModule {
   links: ErpLink[];
 }
 export interface NavigationIdentity {
+  canManageOutlet?: boolean;
   roles: UserRole[];
   restrictedSeller: boolean;
   canUseWholesale: boolean;
@@ -143,6 +144,7 @@ export function defaultErpModules(identity: NavigationIdentity): ErpModule[] {
   const specialized = !admin && !roles.includes('seller') && roles.some(role =>
     ['logistica', 'fletero', 'administracion', 'compras'].includes(role));
   return erpModules.map(module => ({ ...module, links: module.links.filter(link => {
+    if (link.id === 'inventario-outlet' && identity.canManageOutlet) return true;
     if (roles.includes('instalador') && !roles.some(role => ['admin', 'seller', 'logistica', 'fletero', 'administracion', 'compras'].includes(role))) return link.href === '/visitas';
     if (link.ownerEmail && identity.email?.trim().toLowerCase() !== link.ownerEmail) return false;
     if (link.userOnly && identity.userId !== link.userOnly) return false;
@@ -181,6 +183,7 @@ export function visibleErpModules(identity: NavigationIdentity): ErpModule[] {
   const perRole = identity.roles.map(role => ({ role,
     defaults: new Set(defaultErpModules({ ...identity, roles: [role] }).flatMap(module => module.links.map(link => link.id))) }));
   return erpModules.map(module => ({ ...module, links: module.links.filter(link => {
+    if (link.id === 'inventario-outlet' && identity.canManageOutlet) return true;
     if (!isConfigurableScreen(link)) return defaults.has(link.id);
     // Individual commercial restrictions remain authoritative.
     if (identity.restrictedSeller && !defaults.has(link.id)) return false;
@@ -192,6 +195,7 @@ export function visibleErpModules(identity: NavigationIdentity): ErpModule[] {
 
 /** Resolve a configured destination, including query-string tabs and child pages. */
 export function configuredScreenDecision(identity: NavigationIdentity, pathname: string, search: string): boolean | null {
+  if (pathname === '/admin/outlet' && identity.canManageOutlet) return true;
   if (!identity.screenOverrides || identity.roles.includes('admin')) return null;
   const match = activeErpLink(erpModules, pathname, search);
   if (!match) {
