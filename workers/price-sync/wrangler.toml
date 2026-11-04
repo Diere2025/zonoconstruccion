@@ -1,0 +1,16 @@
+name = "zono-price-sync"
+main = "index.mjs"
+compatibility_date = "2026-11-04"
+
+[[queues.producers]]
+binding = "PRICE_CHANGES"
+queue = "zono-price-changes"
+
+[[queues.consumers]]
+queue = "zono-price-changes"
+max_batch_size = 1
+max_batch_timeout = 0
+max_concurrency = 1
+max_retries = 20
+retry_delay = 60
+dead_letter_queue = "zono-price-changes-failed"

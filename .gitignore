@@ -78,3 +78,6 @@ output/logistics-planning/
 
 # Private scheduled sheet synchronization control token and run evidence
 /output/scheduled-sheet-sync/
+
+# Private price synchronization control credential
+/tmp/price-sync-control-token.txt
