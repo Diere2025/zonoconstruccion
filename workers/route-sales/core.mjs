@@ -25,9 +25,9 @@ export function hasNewMessages(messages,existing){
 }
 export function renderNotice(sale,now=new Date()){
  const icon=sale.available_from && sale.available_from>tomorrow(now)?'🔴':'✅';
- const status=sale.status==='loaded'?`Cargado ${escape(sale.order_code)}`:sale.status==='cancelled'?'Cancelado':'Pendiente de carga';
+ const status=sale.status==='loaded'?`📦 <b>CARGADO · ${escape(sale.order_code)}</b>`:sale.status==='cancelled'?'❌ <b>CANCELADO</b>':'⏳ <b>PENDIENTE DE CARGA</b>';
  const links=[];if(ticketId(sale.whaticket_link))links.push(`<a href="${escape(sale.whaticket_link)}">Abrir Whaticket</a>`);
- return `${sale.status==='cancelled'?'❌':icon} <b>${escape(compactSummary(sale.summary))} · ${escape(sale.locality)}</b>\n📅 ${escape(formatLabel(sale.date_label))}${sale.availability_uncertain?' · Confirmar fecha':''} · ${status}\n👤 ${escape(sale.seller_name)}${links.length?' · '+links.join(' · '):''}`;
+ return `${sale.status==='cancelled'?'❌':icon} <b>${escape(sale.locality)} · ${escape(compactSummary(sale.summary))}</b>\n${status} · 📅 ${escape(formatLabel(sale.date_label))}${sale.availability_uncertain?' · Confirmar fecha':''}\n👤 ${escape(sale.seller_name)}${links.length?' · '+links.join(' · '):''}`;
 }
 export async function hash(value){return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value)))).map(x=>x.toString(16).padStart(2,'0')).join('');}
 export function validateSale(sale,messages,existing=[]){
