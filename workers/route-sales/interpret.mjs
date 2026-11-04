@@ -28,7 +28,7 @@ export async function interpret(env,{messages,existing,model},fetcher=fetch){
 export async function transcribe(env,message,fetcher=fetch){
  const u=new URL(message.mediaUrl);const provider=/(^|\.)whaticket\.com$/.test(u.hostname)||(u.hostname==='storage.googleapis.com'&&u.pathname.startsWith('/whaticket-media/'));
  if(u.protocol!=='https:'||!provider)throw Error('Audio fuera del proveedor autorizado');
- const r=await fetcher(u,{signal:AbortSignal.timeout(25000),redirect:'error'});if(!r.ok)throw Error('Audio inaccesible');
+ const r=await fetcher(u,{signal:AbortSignal.timeout(25000),redirect:'manual'});if(!r.ok)throw Error('Audio inaccesible');
  const size=Number(r.headers.get('content-length'));if(size>20_000_000)throw Error('Audio demasiado grande');
  const blob=await r.blob();if(blob.size>20_000_000)throw Error('Audio demasiado grande');
  const form=new FormData();form.set('file',blob,'audio.ogg');form.set('model','gpt-4o-mini-transcribe');form.set('language','es');
