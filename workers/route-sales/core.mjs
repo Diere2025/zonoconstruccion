@@ -7,6 +7,11 @@ export function dayAt(now=new Date()) {
  return `${value('year')}-${value('month')}-${value('day')}`;
 }
 export function tomorrow(now=new Date()){const d=new Date(dayAt(now)+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+1);return d.toISOString().slice(0,10);}
+export function nextDeliveryDay(now=new Date()){
+ const d=new Date(tomorrow(now)+'T12:00:00Z');
+ if(d.getUTCDay()===0)d.setUTCDate(d.getUTCDate()+1);
+ return d.toISOString().slice(0,10);
+}
 export function displayDate(value){if(!/^\d{4}-\d{2}-\d{2}$/.test(value||''))return 'A coordinar';return value.slice(8,10)+'/'+value.slice(5,7);}
 export function ticketId(link){try{const u=new URL(link);return u.origin==='https://app.whaticket.com'?u.pathname.match(/^\/tickets\/([a-f0-9-]{36})$/i)?.[1]||null:null;}catch{return null;}}
 export function escape(value){return String(value||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/[\r\n]+/g,' ');}
@@ -18,16 +23,25 @@ export function compactSummary(value){
  return value.replace(/AquaFort\s*[-–]?\s*|Cooper\s*[-–]?\s*/gi,'').replace(/,?\s*(?:1 unidad|x1)\b/gi,'').replace(/\s+/g,' ').trim();
 }
 export function formatLabel(value){return value.replace(/\b(\d{1,2})\/(\d{1,2})(\/\d{4})?\b/g,(_,d,m,y='')=>d.padStart(2,'0')+'/'+m.padStart(2,'0')+y).replace(/\b(\d{1,2})\s*(?:hs|hrs|horas)\b/gi,(_,h)=>h.padStart(2,'0')+':00');}
+export function deliveryLabel(sale,now=new Date()){
+ let label=formatLabel(sale.date_label).replace(/\b\d{2}\/\d{2}(?:\/\d{4})?\s*\((?:compra|pedido|venta)\)\s*(?:[/|·,;–—-]\s*)?/gi,'').trim();
+ const generic=label.replace(/^\d{2}\/\d{2}(?:\/\d{4})?\s+/,'').replace(/lo antes posible|coordinar entrega|a coordinar|[\s;/,.]/gi,'')==='';
+ if(generic&&!sale.availability_uncertain){
+  if(sale.available_from&&sale.available_from<=nextDeliveryDay(now))return 'Desde el próximo reparto ('+displayDate(nextDeliveryDay(now))+')';
+  if(sale.available_from)return 'Desde '+displayDate(sale.available_from)+' (a coordinar)';
+ }
+ return label||'A coordinar';
+}
 export function hasNewMessages(messages,existing){
  if(!existing.length)return true;
  const threshold=Math.min(...existing.map(s=>Date.parse(s.updated_at)));
  return messages.some(m=>Date.parse(m.createdAt)>threshold&&!/(?:resuelto la conversaci|asignado autom[aá]ticamente|transferido a)/i.test(m.body||'')&&!/^(?:muchas gracias|gracias|a vos|ok|dale|👍|🤝)[ !.]*$/i.test(m.body||''));
 }
 export function renderNotice(sale,now=new Date()){
- const icon=sale.available_from && sale.available_from>tomorrow(now)?'🔴':'✅';
+ const icon=sale.available_from && sale.available_from>nextDeliveryDay(now)?'🔴':'✅';
  const status=sale.status==='loaded'?`📦 <b>CARGADO · ${escape(sale.order_code)}</b>`:sale.status==='cancelled'?'❌ <b>CANCELADO</b>':'⏳ <b>PENDIENTE DE CARGA</b>';
  const links=[];if(ticketId(sale.whaticket_link))links.push(`<a href="${escape(sale.whaticket_link)}">Abrir Whaticket</a>`);
- return `${sale.status==='cancelled'?'❌':icon} <b>${escape(sale.locality)} · ${escape(compactSummary(sale.summary))}</b>\n${status} · 📅 ${escape(formatLabel(sale.date_label))}${sale.availability_uncertain?' · Confirmar fecha':''}\n👤 ${escape(sale.seller_name)}${links.length?' · '+links.join(' · '):''}`;
+ return `${sale.status==='cancelled'?'❌':icon} <b>${escape(sale.locality)} · ${escape(compactSummary(sale.summary))}</b>\n${status} · 🚚 ${escape(deliveryLabel(sale,now))}${sale.availability_uncertain?' · Confirmar fecha':''}\n👤 ${escape(sale.seller_name)}${links.length?' · '+links.join(' · '):''}`;
 }
 export async function hash(value){return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value)))).map(x=>x.toString(16).padStart(2,'0')).join('');}
 export function validateSale(sale,messages,existing=[]){
