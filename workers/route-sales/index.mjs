@@ -50,15 +50,19 @@ export async function execute(env,{key,preview=false}){
     const existing=await db('route_sales?ticket_id=eq.'+id);
     // Preserve the seller/user-reviewed baseline unless actual newer messages
     // exist. Historical AI interpretation must never overwrite adjudicated dates.
-    if(!hasNewMessages(messages,existing))continue;
+    if(!hasNewMessages(messages,existing)&&!existing.some(s=>s.status==='review'))continue;
     const cache=(await db('route_sales_chats?ticket_id=eq.'+id))?.[0];
     const fingerprint=await hash(JSON.stringify(messages.map(m=>[m.id,m.body,m.mediaType])));
     if(fingerprint===cache?.input_hash)continue;
     const transcripts=cache?.audio_transcripts||{};
-    let missing=false;
+    let missing=false;const audioProblems=[];
     for(const m of messages){
      if(/audio|ptt/i.test(m.mediaType||'')){
-      try{transcripts[m.id] ||= await transcribe(env,m);m.body='[Audio transcrito] '+transcripts[m.id];}catch{m.body='[Audio no disponible]';missing=true;}
+      if(Date.now()-started>10*60000){
+       if(!preview)await db('route_sales_chats?on_conflict=ticket_id',{method:'POST',body:{ticket_id:id,audio_transcripts:transcripts,last_error:'Audio pendiente por tiempo de ejecución'}});
+       throw Error('Tiempo máximo de audio; se retomará en el próximo chequeo');
+      }
+      try{transcripts[m.id] ||= await transcribe(env,m);m.body='[Audio transcrito] '+transcripts[m.id];}catch(error){m.body='[Audio no disponible]';missing=true;audioProblems.push(String(error.message));}
      }
      delete m.mediaUrl;
     }
@@ -79,7 +83,7 @@ export async function execute(env,{key,preview=false}){
      const saved=await db('rpc/upsert_detected_route_sale',{method:'POST',body:{p_sale:value}});
      if(!saved)summary.review++;
     }
-    if(!preview)await db('route_sales_chats?on_conflict=ticket_id',{method:'POST',body:{ticket_id:id,input_hash:missing?null:fingerprint,analysis:sales,audio_transcripts:transcripts,last_error:missing?'Audio pendiente':null,checked_at:new Date().toISOString()}});
+    if(!preview)await db('route_sales_chats?on_conflict=ticket_id',{method:'POST',body:{ticket_id:id,input_hash:missing?null:fingerprint,analysis:sales,audio_transcripts:transcripts,last_error:missing?'Audio pendiente: '+[...new Set(audioProblems)].join('; ').slice(0,150):null,checked_at:new Date().toISOString()}});
    }catch(error){
     const held=/Interpretación IA incompleta|Evidencia inexistente|Identidad de venta|Fecha inválida|Resumen demasiado largo|Venta incompleta|Venta duplicada/.test(error.message);
     if(held)summary.review++;else summary.errors++;
@@ -110,6 +114,12 @@ export default {
   try{
    if(request.method==='GET'&&url.pathname==='/status')return Response.json({timezone:TIME_ZONE,hours:HOURS,saturdayLast:'19:00',weekdays:'lunes a sábado',today:dayAt(),runs:await db('route_sales_runs?order=started_at.desc&limit=10'),review:await db('route_sales?or=(status.eq.review,delivery_state.eq.uncertain)&select=id,ticket_id,last_error'),chatErrors:await db('route_sales_chats?last_error=not.is.null&select=ticket_id,last_error')});
    if(request.method==='POST'&&['/preview','/run'].includes(url.pathname))return Response.json(await execute(env,{key:'manual:'+crypto.randomUUID(),preview:url.pathname==='/preview'}));
+   if(request.method==='POST'&&url.pathname==='/audio-check'){
+    const {ticket_id}=await request.json();const known=await db('route_sales?ticket_id=eq.'+encodeURIComponent(ticket_id)+'&limit=1');if(!known.length)return new Response('Not found',{status:404});
+    const data=await whaticket(env,`/tickets/${ticket_id}/messages`);const audio=data.messages?.find(m=>/audio|ptt/i.test(m.mediaType||'')&&m.mediaUrl);
+    if(!audio)return Response.json({audio:false});
+    const text=await transcribe(env,audio);return Response.json({audio:true,characters:text.length});
+   }
    // Brief capture for channels other than Whaticket. Protected server-to-server API.
    if(request.method==='POST'&&url.pathname==='/manual'){
     const v=await request.json();if(!v.key||!v.summary||!v.locality||!v.date_label)return new Response('Faltan datos',{status:400});
