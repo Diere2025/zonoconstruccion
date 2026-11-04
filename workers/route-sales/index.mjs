@@ -38,7 +38,7 @@ export async function execute(env,{key,preview=false}){
    if(page===99)throw Error('Índice incompleto; no se publicaron resultados');
    if(cursor?.id===batch.at(-1).id)throw Error('Cursor repetido');cursor=batch.at(-1);
   }
-  const active=await db('route_sales?source=eq.whaticket&status=in.(pending,review,loaded)&select=*');
+  const active=await db('route_sales?status=in.(pending,review,loaded)&select=*');
   // Include remembered sales even when the tag is removed; removal is NOT a cancellation.
   for(const s of active)if(s.status!=='loaded'&&s.ticket_id&&!tickets.has(s.ticket_id))tickets.set(s.ticket_id,null);
   summary.tagged=tickets.size;
@@ -47,7 +47,7 @@ export async function execute(env,{key,preview=false}){
    try{
     const history=await messagesFor(env,id);
     const messages=history.messages.filter(m=>!m.isDeleted&&!m.isNote).map(m=>({id:m.id,createdAt:m.createdAt,fromMe:m.fromMe,body:m.body||'',mediaType:m.mediaType,mediaUrl:m.mediaUrl}));
-    const existing=active.filter(s=>s.ticket_id===id);
+    const existing=await db('route_sales?ticket_id=eq.'+id);
     // Preserve the seller/user-reviewed baseline unless actual newer messages
     // exist. Historical AI interpretation must never overwrite adjudicated dates.
     if(!hasNewMessages(messages,existing))continue;
@@ -76,8 +76,8 @@ export async function execute(env,{key,preview=false}){
       summary:s.summary,locality:s.locality,date_label:s.date_label,available_from:s.available_from,
       availability_uncertain:s.availability_uncertain,evidence_ids:s.evidence_ids,status:s.status,
       whaticket_link:'https://app.whaticket.com/tickets/'+id,updated_at:new Date().toISOString()};
-     if(old)await db('route_sales?id=eq.'+old.id,{method:'PATCH',body:value});
-     else await db('route_sales',{method:'POST',body:value});
+     const saved=await db('rpc/upsert_detected_route_sale',{method:'POST',body:{p_sale:value}});
+     if(!saved)summary.review++;
     }
     if(!preview)await db('route_sales_chats?on_conflict=ticket_id',{method:'POST',body:{ticket_id:id,input_hash:missing?null:fingerprint,analysis:sales,audio_transcripts:transcripts,last_error:missing?'Audio pendiente':null,checked_at:new Date().toISOString()}});
    }catch(error){
