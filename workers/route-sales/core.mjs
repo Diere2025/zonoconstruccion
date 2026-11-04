@@ -10,11 +10,24 @@ export function tomorrow(now=new Date()){const d=new Date(dayAt(now)+'T12:00:00Z
 export function displayDate(value){if(!/^\d{4}-\d{2}-\d{2}$/.test(value||''))return 'A coordinar';return value.slice(8,10)+'/'+value.slice(5,7);}
 export function ticketId(link){try{const u=new URL(link);return u.origin==='https://app.whaticket.com'?u.pathname.match(/^\/tickets\/([a-f0-9-]{36})$/i)?.[1]||null:null;}catch{return null;}}
 export function escape(value){return String(value||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/[\r\n]+/g,' ');}
+export function compactSummary(value){
+ if(/kit|biodigestor|biofort/i.test(value)&&/500|700/.test(value)){
+  const size=/autolimpiable/i.test(value)?'autolimpiable 700':'500';
+  return `Kit bio ${size} L${/desengras/i.test(value)?' + desengrasadora':''}${/caños?|codos?|ramal|termofusi/i.test(value)?' + caños y accesorios':''}`;
+ }
+ return value.replace(/AquaFort\s*[-–]?\s*|Cooper\s*[-–]?\s*/gi,'').replace(/,?\s*(?:1 unidad|x1)\b/gi,'').replace(/\s+/g,' ').trim();
+}
+export function formatLabel(value){return value.replace(/\b(\d{1,2})\/(\d{1,2})(\/\d{4})?\b/g,(_,d,m,y='')=>d.padStart(2,'0')+'/'+m.padStart(2,'0')+y).replace(/\b(\d{1,2})\s*(?:hs|hrs|horas)\b/gi,(_,h)=>h.padStart(2,'0')+':00');}
+export function hasNewMessages(messages,existing){
+ if(!existing.length)return true;
+ const threshold=Math.min(...existing.map(s=>Date.parse(s.updated_at)));
+ return messages.some(m=>Date.parse(m.createdAt)>threshold&&!/(?:resuelto la conversaci|asignado autom[aá]ticamente|transferido a)/i.test(m.body||'')&&!/^(?:muchas gracias|gracias|a vos|ok|dale|👍|🤝)[ !.]*$/i.test(m.body||''));
+}
 export function renderNotice(sale,now=new Date()){
  const icon=sale.available_from && sale.available_from>tomorrow(now)?'🔴':'✅';
  const status=sale.status==='loaded'?`Cargado ${escape(sale.order_code)}`:sale.status==='cancelled'?'Cancelado':'Pendiente de carga';
  const links=[];if(ticketId(sale.whaticket_link))links.push(`<a href="${escape(sale.whaticket_link)}">Abrir Whaticket</a>`);
- return `${sale.status==='cancelled'?'❌':icon} <b>${escape(sale.summary)} · ${escape(sale.locality)}</b>\n📅 ${escape(sale.date_label)}${sale.availability_uncertain?' · Confirmar fecha':''} · ${status}\n👤 ${escape(sale.seller_name)}${links.length?' · '+links.join(' · '):''}`;
+ return `${sale.status==='cancelled'?'❌':icon} <b>${escape(compactSummary(sale.summary))} · ${escape(sale.locality)}</b>\n📅 ${escape(formatLabel(sale.date_label))}${sale.availability_uncertain?' · Confirmar fecha':''} · ${status}\n👤 ${escape(sale.seller_name)}${links.length?' · '+links.join(' · '):''}`;
 }
 export async function hash(value){return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value)))).map(x=>x.toString(16).padStart(2,'0')).join('');}
 export function validateSale(sale,messages,existing=[]){
@@ -28,6 +41,12 @@ export function validateSale(sale,messages,existing=[]){
  if(!sale.evidence_ids?.length||sale.evidence_ids.some(id=>!ids.has(id)))throw Error('Evidencia inexistente');
  if(!ids.has(sale.sale_key)&&!existing.some(s=>s.source_key===sale.sale_key))throw Error('Identidad de venta sin respaldo');
  if(sale.available_from!==null&&(!/^\d{4}-\d{2}-\d{2}$/.test(sale.available_from)||Number.isNaN(Date.parse(sale.available_from+'T12:00:00Z'))))throw Error('Fecha inválida');
+ const dates=[...formatLabel(sale.date_label).matchAll(/\b(\d{2})\/(\d{2})\b/g)].map(m=>m[1]+'/'+m[2]);
+ if(sale.available_from&&dates.length&&!dates.includes(displayDate(sale.available_from)))sale.status='review';
+ const weekday={domingo:0,lunes:1,martes:2,miercoles:3,jueves:4,viernes:5,sabado:6};
+ for(const m of normalize(formatLabel(sale.date_label)).matchAll(/\b(domingo|lunes|martes|miercoles|jueves|viernes|sabado) (\d{2}) (\d{2})\b/g)){
+  const year=sale.available_from?.slice(0,4)||dayAt().slice(0,4);if(new Date(`${year}-${m[3]}-${m[2]}T12:00:00Z`).getUTCDay()!==weekday[m[1]])sale.status='review';
+ }
  if(sale.summary.length>180||sale.locality.length>100||sale.date_label.length>200)throw Error('Resumen demasiado largo');
  return sale;
 }
