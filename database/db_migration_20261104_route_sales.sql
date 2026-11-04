@@ -113,5 +113,26 @@ end $$;
 
 revoke all on function public.claim_route_sales_run(text), public.claim_route_sale_notice(uuid),public.link_route_sale_order(text,text,text,text,text,text,date) from public,anon,authenticated;
 grant execute on function public.claim_route_sales_run(text), public.claim_route_sale_notice(uuid),public.link_route_sale_order(text,text,text,text,text,text,date) to service_role;
+
+-- Share the ERP reconciliation lock: a concurrent interpretation cannot
+-- restore pending status or publish a second notice after ERP entry.
+create or replace function public.upsert_detected_route_sale(p_sale jsonb) returns uuid
+language plpgsql security definer set search_path=public,pg_temp as $$
+declare current_sale route_sales; parsed route_sales; result uuid;
+begin
+ perform pg_advisory_xact_lock(741105);
+ select * into current_sale from route_sales where source_key=p_sale->>'source_key';
+ if found and current_sale.order_code is not null then return current_sale.id; end if;
+ if current_sale.id is null and exists(select 1 from route_sales where ticket_id=p_sale->>'ticket_id' and status<>'cancelled') then return null; end if;
+ parsed:=jsonb_populate_record(null::route_sales,p_sale);
+ insert into route_sales(source,source_key,ticket_id,seller_id,seller_name,summary,locality,date_label,available_from,availability_uncertain,evidence_ids,whaticket_link,status)
+ values('whaticket',parsed.source_key,parsed.ticket_id,parsed.seller_id,parsed.seller_name,parsed.summary,parsed.locality,parsed.date_label,parsed.available_from,parsed.availability_uncertain,parsed.evidence_ids,parsed.whaticket_link,parsed.status)
+ on conflict(source_key) do update set summary=excluded.summary,locality=excluded.locality,date_label=excluded.date_label,
+ available_from=excluded.available_from,availability_uncertain=excluded.availability_uncertain,evidence_ids=excluded.evidence_ids,status=excluded.status,updated_at=now()
+ where route_sales.order_code is null returning id into result;
+ return result;
+end $$;
+revoke all on function public.upsert_detected_route_sale(jsonb) from public,anon,authenticated;
+grant execute on function public.upsert_detected_route_sale(jsonb) to service_role;
 notify pgrst,'reload schema';
 commit;

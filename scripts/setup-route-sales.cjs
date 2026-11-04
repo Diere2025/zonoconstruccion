@@ -70,5 +70,6 @@ async function main(){
  if(!['status','preview','run'].includes(mode))throw Error('Modo inválido');
  const deployment=JSON.parse(fs.readFileSync(dir+'/deployment.json'));const response=await fetch(deployment.url+'/'+mode,{method:mode==='status'?'GET':'POST',headers:{Authorization:'Bearer '+control()},signal:AbortSignal.timeout(13*60000)});
  const result=await response.json();fs.writeFileSync(dir+'/'+mode+'.json',JSON.stringify(result,null,2));console.log(JSON.stringify(result));if(!response.ok)throw Error('Worker HTTP '+response.status);
+ if(mode==='status')console.log(JSON.stringify({installedSchedules:await cf(endpoint+'/schedules')}));
 }
 main().catch(e=>{console.error(e.code||e.message);process.exitCode=1});
