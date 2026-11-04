@@ -8,7 +8,7 @@ export async function outletSession(req: NextRequest, admin = false) {
     const auth = await db.auth.getUser(token);
     if (auth.error || !auth.data.user || auth.data.user.is_anonymous)
         throw new Error('Volvé a ingresar al ERP.');
-    const access = await db.rpc(admin ? 'outlet_is_admin' : 'outlet_can_sell');
+    const access = await db.rpc(admin ? 'outlet_can_manage' : 'outlet_can_sell');
     if (access.error)
         throw new Error('Segunda y Outlet todavía no está habilitado.');
     if (!access.data)

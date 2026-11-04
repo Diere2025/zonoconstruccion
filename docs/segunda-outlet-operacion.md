@@ -2,15 +2,21 @@
 
 Actualizado: 04/11/2026.
 
+## Permiso de administración
+
+El permiso adicional «Administrar Segunda y Outlet» permite cargar unidades y fotos, definir descuentos y publicarlas. Es independiente del rol de vendedor. Los administradores lo habilitan o revocan desde Segunda y Outlet → Permisos; quien tiene este permiso no puede concederlo a otras personas ni administrar el resto del ERP. La cuenta activa de Facundo Paz tiene este permiso asignado.
+
 ## Cargar y publicar
 
 Abrir Inventario y Catálogo → Segunda y Outlet → Nueva unidad. Cada ficha representa un objeto físico, aunque haya varias unidades del mismo modelo.
 
 Elegir Segunda u Outlet, cargar fotos y describir el motivo y la falla cuando corresponda. La primera foto es la portada; «Usar de portada» permite cambiarla. Vincular el modelo de referencia o ingresar una lista manual y el descuento. El precio final se calcula automáticamente. Segunda admite 5 % a 50 %; Outlet admite un porcentaje especial mayor a 0 % y menor a 100 %.
 
+El nombre y la categoría se toman del producto de referencia. El formulario no pide costo, ubicación ni características/notas adicionales.
+
 Los borradores admiten datos incompletos. Para ofrecer una unidad, elegir Disponible y Publicar. El sistema exige nombre, categoría, motivo, foto, lista positiva y descuento válido. Si la unidad sale del inventario de un producto normal, marcar «Reclasificar una unidad del stock del producto base»: al publicar se descuenta una existencia del modelo y se registra la unidad individual. No marcarlo para unidades físicas que ya se registran por separado.
 
-«Seguir lista del producto base» acompaña su lista de venta vigente. «Lista manual» conserva el importe ingresado. El costo es opcional e independiente del descuento.
+«Usar lista vigente del producto» acompaña su lista de venta vigente. «Fijar precio de lista» conserva el importe ingresado.
 
 ## Vender
 
@@ -43,3 +49,5 @@ Pruebas de migraciones, permisos, stock, edición de pedidos mixtos, precios pac
 Pruebas: tests/outlet-drafts.test.cjs, tests/outlet-sales.test.cjs y tests/outlet-sheet.test.cjs. Las dos primeras usan PGlite; OUTLET_PGLITE_MODULE permite indicar su instalación. La prueba PostgreSQL aislada es scripts/test-outlet-concurrency.cjs. La verificación autenticada de lectura, fotos privadas y publicación incompleta es scripts/verify-outlet-api.cjs.
 
 Para revisar una importación, scripts/import-outlet-catalog.cjs genera una vista previa sin escribir; --apply importa por source_key estable y omite fichas existentes. Los nombres de archivos y hashes determinan rutas de foto estables. No usar la importación como sincronización periódica.
+
+Las nuevas unidades usan por defecto el precio automático de la lista vigente del producto de referencia. Se puede elegir Manual para fijar un importe; al cambiar de Automático a Manual se copia el precio mostrado. Las unidades existentes conservan su modalidad.
