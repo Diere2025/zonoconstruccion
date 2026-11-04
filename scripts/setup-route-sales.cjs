@@ -36,7 +36,8 @@ async function main(){
  const mode=process.argv[2];if(['check-db','apply-db'].includes(mode))return database(mode==='apply-db');
  if(mode==='verify-repository'){
   const p=await cf('/pages/projects/zono-erp');
-  console.log(JSON.stringify({project:p.name,productionBranch:p.production_branch,source:p.source?.config&&{owner:p.source.config.owner,repo_name:p.source.config.repo_name,production_branch:p.source.config.production_branch}}));return;
+  const env=p.deployment_configs?.production?.env_vars||{};
+  console.log(JSON.stringify({project:p.name,productionBranch:p.production_branch,telegramConfigured:!!env.LOGISTICS_TELEGRAM_BOT_TOKEN,source:p.source?.config&&{owner:p.source.config.owner,repo_name:p.source.config.repo_name,production_branch:p.source.config.production_branch}}));return;
  }
  const {CRONS}=await import('../workers/route-sales/core.mjs');
  if(mode==='preflight'){

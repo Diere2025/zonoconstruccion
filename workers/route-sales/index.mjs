@@ -1,4 +1,4 @@
-import {CRONS,HOURS,TIME_ZONE,createDb,deliverNotice,hash,dayAt} from './core.mjs';
+import {CRONS,HOURS,TIME_ZONE,createDb,deliverNotice,hash,dayAt,hasNewMessages} from './core.mjs';
 import {interpret,transcribe} from './interpret.mjs';
 
 async function whaticket(env,path,params={}){
@@ -48,6 +48,9 @@ export async function execute(env,{key,preview=false}){
     const history=await messagesFor(env,id);
     const messages=history.messages.filter(m=>!m.isDeleted&&!m.isNote).map(m=>({id:m.id,createdAt:m.createdAt,fromMe:m.fromMe,body:m.body||'',mediaType:m.mediaType,mediaUrl:m.mediaUrl}));
     const existing=active.filter(s=>s.ticket_id===id);
+    // Preserve the seller/user-reviewed baseline unless actual newer messages
+    // exist. Historical AI interpretation must never overwrite adjudicated dates.
+    if(!hasNewMessages(messages,existing))continue;
     const cache=(await db('route_sales_chats?ticket_id=eq.'+id))?.[0];
     const fingerprint=await hash(JSON.stringify(messages.map(m=>[m.id,m.body,m.mediaType])));
     if(fingerprint===cache?.input_hash)continue;
