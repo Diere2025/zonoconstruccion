@@ -1,6 +1,7 @@
 const fs=require('node:fs');const {Client}=require('pg');process.loadEnvFile('.env.local');
 // Explicit correspondence reviewed in this conversation, not fuzzy product matching.
 const mapping=JSON.parse(fs.readFileSync('output/route-sales/bootstrap-manifest.json','utf8'));
+
 async function main(){
  const tickets=JSON.parse(fs.readFileSync('tmp/nuevo-cliente-review.json'));const sent=[...JSON.parse(fs.readFileSync('tmp/nuevo-cliente-sent.json')),...JSON.parse(fs.readFileSync('tmp/jazmin-recorridos-format-sent.json'))];
  const db=new Client({connectionString:process.env.DATABASE_URL});await db.connect();let loaded=0;
