@@ -34,6 +34,10 @@ async function database(apply){
 }
 async function main(){
  const mode=process.argv[2];if(['check-db','apply-db'].includes(mode))return database(mode==='apply-db');
+ if(mode==='verify-repository'){
+  const p=await cf('/pages/projects/zono-erp');
+  console.log(JSON.stringify({project:p.name,productionBranch:p.production_branch,source:p.source?.config&&{owner:p.source.config.owner,repo_name:p.source.config.repo_name,production_branch:p.source.config.production_branch}}));return;
+ }
  const {CRONS}=await import('../workers/route-sales/core.mjs');
  if(mode==='preflight'){
   const w=await fetch('https://api.whaticket.com/api/v1/tickets/64ff5485-7ad2-4dac-a412-1c2077731b28',{headers:{Authorization:'Bearer '+process.env.WHATICKET_AUDIT_TOKEN}});
