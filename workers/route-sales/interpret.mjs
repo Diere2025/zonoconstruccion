@@ -16,7 +16,7 @@ export async function interpret(env,{messages,existing,model},fetcher=fetch){
  schema.properties.sales.items.properties.sale_key.enum=[...new Set([...messages.map(m=>m.id),...existing.map(s=>s.source_key)])];
  schema.properties.sales.items.properties.evidence_ids.items.enum=[...new Set(messages.map(m=>m.id))];
  if(!messages.length)return [];
- const input={today:dayAt(),existing:existing.map(s=>({source_key:s.source_key,status:s.status,summary:s.summary,locality:s.locality,date_label:s.date_label,order_code:s.order_code})),messages};
+ const input={today:dayAt(),existing:existing.map(s=>({source_key:s.source_key,status:s.status,summary:s.summary,locality:s.locality,date_label:s.date_label,available_from:s.available_from,reviewed_at:s.updated_at,order_code:s.order_code})),messages};
  const r=await fetcher('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:'Bearer '+env.OPENAI_API_KEY,'Content-Type':'application/json'},body:JSON.stringify({model,store:false,instructions:INSTRUCTIONS+' Extraer únicamente la compra vigente más reciente por cada identidad; compras históricas ya atendidas se omiten. Para una venta existente devolvé su source_key si hay novedades; si no hay novedades no la repitas. Fecha ISO interna YYYY-MM-DD. Elegí hasta 6 evidencias indispensables, no toda la conversación.',input:JSON.stringify(input),text:{format:{type:'json_schema',name:'route_sales',strict:true,schema}},max_output_tokens:4000}),signal:AbortSignal.timeout(90000)});
  if(!r.ok)throw Error('Interpretación IA HTTP '+r.status);
  const d=await r.json();if(d.status!=='completed')throw Error('Interpretación IA incompleta');
